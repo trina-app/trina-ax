@@ -12,10 +12,10 @@
 bun install
 bun run build:native        # Go 필요. 엔진 턴(도구 관문·실행기)을 쓸 때만
 bun run dev:server          # http://127.0.0.1:19100, 파일 바뀌면 재시작 (bun --watch server/src/main.ts)
-bun run dev                 # 서버 + "dev" 스크립트가 있는 워크스페이스 전부(web 등)를 함께, 출력에 [이름] 접두사
+bun run dev                 # 통합 개발 실행: 서버(19100, 빌드된 웹 제공) + Node 25 중계(http://demo.localhost:19161), 데이터 ~/.team-ax-dev, --vite로 Vite 19140
 ```
 
-- 개발 데이터는 `.dev/`(git 무시): 팀 폴더 `.dev/team`, DB·세션 등 `.dev/data`. 지우면 처음 상태.
+- `bun run dev`의 데이터는 `~/.team-ax-dev`(`TEAM_AX_DEV_DIR`로 바꿈). `dev:server` 하나만 띄우면 데이터는 `.dev/`(git 무시): 팀 폴더 `.dev/team`, DB·세션 등 `.dev/data`. 지우면 처음 상태.
 - 설정 파일은 선택: `.dev/server.json`(형식은 `server/src/app-config.ts`의 `AppConfigFile`). 환경 변수가 이긴다:
   `MYCEL_PORT`, `MYCEL_HOST`, `MYCEL_TEAM_ROOT`, `MYCEL_DATA_DIR`, `MYCEL_LOG_DIR`, `MYCEL_LOG_LEVEL`, `MYCEL_PUBLIC_ORIGINS`, `MYCEL_CONFIG`, `MYCEL_MODE`, `MYCEL_SETUP_TOKEN`, `MYCEL_WEB_DIST`.
 - 사용자가 없으면 서버가 첫 설정 토큰을 만들고(`.dev/data/setup-token`) 로그에 찍는다. `POST /api/setup`(A가 구현)으로 팀과 owner를 만든다.
