@@ -6,6 +6,8 @@ import type { BrowserCall, BrowserResult, ClientFrame } from '@mycel/shared/api'
 import { desktop, type DesktopApi, type DesktopToolResult } from './desktop'
 
 const SEEN_MAX = 500
+/** BrowserResultContent image limit (shared/src/api/browser.ts) */
+const IMAGE_DATA_MAX = 20_000_000
 
 export const NO_PANE_ERROR = 'This window has no in-app browser. The person is using the web or mobile app; the browser tools work only in the Team AX desktop app.'
 
@@ -13,6 +15,7 @@ export function toBrowserResult(callId: string, r: DesktopToolResult): BrowserRe
   const content: BrowserResult['content'] = []
   for (const c of r.content.slice(0, 20)) {
     if (c.type === 'text') content.push({ type: 'text', text: c.text.slice(0, 2_000_000) })
+    else if (c.data.length > IMAGE_DATA_MAX) content.push({ type: 'text', text: 'The screenshot was too large to send back.' })
     else if (c.mimeType === 'image/png' || c.mimeType === 'image/jpeg' || c.mimeType === 'image/webp') content.push({ type: 'image', mime: c.mimeType, data: c.data, shareToChat: c.shareToChat })
   }
   const errText = r.isError ? r.content.find((c) => c.type === 'text')?.text : undefined
@@ -42,7 +45,12 @@ export class BrowserRelay {
       .catch((e: unknown): DesktopToolResult => ({ content: [{ type: 'text', text: `Browser pane error: ${e instanceof Error ? e.message : String(e)}` }], isError: true }))
       .then((r) => {
         if (!this.running.delete(call.callId)) return // cancelled meanwhile
-        this.send({ type: 'browser.result', result: toBrowserResult(call.callId, r) })
+        try {
+          this.send({ type: 'browser.result', result: toBrowserResult(call.callId, r) })
+        } catch (e) {
+          // a result the contract refuses (malformed pane answer): the AI still gets an answer instead of a timeout
+          this.send({ type: 'browser.result', result: { callId: call.callId, ok: false, content: [], error: `Browser pane returned an invalid result: ${e instanceof Error ? e.message.slice(0, 500) : 'unknown'}` } })
+        }
       })
   }
 

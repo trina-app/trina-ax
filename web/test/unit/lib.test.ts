@@ -4,7 +4,9 @@ import { BrowserRelay, NO_PANE_ERROR, toBrowserResult } from '../../src/lib/brow
 import type { DesktopApi } from '../../src/lib/desktop'
 import { dateBucket, formatRelative, formatSize } from '../../src/lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../../src/lib/paths'
-import { iconKind, previewKind } from '../../src/lib/preview'
+import { iconKind, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
+import { PreviewTooLargeError, readBounded } from '../../src/lib/api'
+import { safeHref } from '../../src/lib/safeLinks'
 import { useJobs, waitForJob } from '../../src/store/jobs'
 
 describe('paths', () => {
@@ -112,5 +114,65 @@ describe('jobs', () => {
     const p = waitForJob(uuidv7(), { pollMs: 10_000, signal: ctrl.signal, fetchJob: async () => job('x', 'running') })
     ctrl.abort()
     await expect(p).rejects.toThrow()
+  })
+})
+
+describe('previews read a bounded amount', () => {
+  const stream = (n: number, chunk = 1000) =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < n; i += chunk) c.enqueue(new Uint8Array(Math.min(chunk, n - i)).fill(65))
+        c.close()
+      },
+    })
+  test('Content-Length above the limit is refused without reading', async () => {
+    const res = new Response(stream(10), { headers: { 'content-length': '5000000' } })
+    await expect(readBounded(res, 1000)).rejects.toBeInstanceOf(PreviewTooLargeError)
+  })
+  test('no Content-Length (chunked): reading stops at the limit', async () => {
+    await expect(readBounded(new Response(stream(50_000)), 10_000)).rejects.toBeInstanceOf(PreviewTooLargeError)
+    expect((await readBounded(new Response(stream(9_000)), 10_000)).size).toBe(9_000)
+  })
+  test('text previews keep the beginning: max + 1 bytes so the "cut" note shows', async () => {
+    const b = await readBounded(new Response(stream(50_000, 4096), { headers: { 'content-type': 'text/plain' } }), 10_000, { truncate: true })
+    expect(b.size).toBe(10_001)
+    expect(b.type).toContain('text/plain')
+    const big = await readBounded(new Response(stream(20_000), { headers: { 'content-length': '20000' } }), 10_000, { truncate: true })
+    expect(big.size).toBe(10_001)
+  })
+  test('limits per kind (tab 5)', () => {
+    expect(previewLimit('pdf')).toEqual({ max: 50 * 1024 * 1024, truncate: false })
+    expect(previewLimit('image')).toEqual({ max: 20 * 1024 * 1024, truncate: false })
+    expect(previewLimit('html')).toEqual({ max: PREVIEW_TEXT_MAX, truncate: true })
+  })
+})
+
+describe('links inside drawn documents', () => {
+  test('only absolute http(s) addresses survive', () => {
+    expect(safeHref('https://example.com/a?b#c')).toBe('https://example.com/a?b#c')
+    expect(safeHref(' HTTP://Example.com ')).toBe('http://example.com/')
+    for (const bad of ['javascript:alert(1)', ' javascript:alert(1)', 'JaVaScRiPt:x', 'data:text/html,x', 'file:///etc/passwd', '/admin', '//evil.example/x', 'vbscript:x', 'http:/x', null, undefined, ''])
+      expect(safeHref(bad as string)).toBeNull()
+  })
+})
+
+describe('browser relay limits', () => {
+  test('an oversized screenshot or a malformed pane answer still gets a browser.result', async () => {
+    const sent: ClientFrame[] = []
+    const call = (callId: string): BrowserCall => ({ callId, chatId: uuidv7(), tool: 'browser_screenshot' as BrowserCall['tool'], args: {}, deadline: Date.now() + 60_000 })
+    const huge = 'A'.repeat(20_000_001)
+    let answer: unknown = { content: [{ type: 'image', data: huge, mimeType: 'image/png' }], isError: false }
+    const app = { browser: { call: async () => answer, cancel() {}, endTurn() {} } } as unknown as DesktopApi
+    const { ClientFrame: CF } = await import('@mycel/shared/api')
+    const relay = new BrowserRelay((f) => sent.push(CF.parse(f)), () => app)
+    relay.handleCall(call('big'))
+    await new Promise((r) => setTimeout(r, 0))
+    const big = sent.find((f) => f.type === 'browser.result' && f.result.callId === 'big')
+    expect(big && big.type === 'browser.result' && big.result.content[0]).toEqual({ type: 'text', text: 'The screenshot was too large to send back.' })
+    answer = { content: [{ type: 'text', text: 1 }], isError: false }
+    relay.handleCall(call('bad'))
+    await new Promise((r) => setTimeout(r, 0))
+    const bad = sent.find((f) => f.type === 'browser.result' && f.result.callId === 'bad')
+    expect(bad && bad.type === 'browser.result' && bad.result.ok).toBe(false)
   })
 })

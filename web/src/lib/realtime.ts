@@ -53,6 +53,8 @@ const realTimers: Timers = {
 }
 
 const OPEN = 1
+export const OUTBOX_MAX_FRAMES = 200
+export const OUTBOX_MAX_BYTES = 16 * 1024 * 1024
 
 /** Backoff before reconnect attempt n (0-based): first 0–1 s random, then 1, 2, 4, 8, 10, 10 … s. */
 export function backoffMs(attempt: number, random: () => number): number {
@@ -73,6 +75,7 @@ export class RealtimeClient {
   private downSince: number | null = null
   private offlineTimer: unknown = null
   private outbox: string[] = []
+  private outboxBytes = 0
   /** a reset/resync already asked the app to reload on this connection (hello may say "not resumed" too) */
   private reloadedThisConn = false
   private readonly t: Timers
@@ -114,12 +117,23 @@ export class RealtimeClient {
     this.connect()
   }
 
-  /** Send a client frame; queued while disconnected (browser.result must not get lost). */
+  /**
+   * Send a client frame; queued while disconnected (browser.result must not get lost). The queue is bounded (a
+   * browser.result can carry a screenshot): past OUTBOX_MAX_FRAMES or OUTBOX_MAX_BYTES the oldest frames are dropped —
+   * the server has long given up on those calls by then.
+   */
   send(frame: ClientFrame) {
     const s = JSON.stringify(ClientFrame.parse(frame))
     if (this.ws && this.ws.readyState === OPEN && this.state === 'open') this.ws.send(s)
-    else if (frame.type !== 'ping') this.outbox.push(s)
+    else if (frame.type !== 'ping') {
+      this.outbox.push(s)
+      this.outboxBytes += s.length
+      while (this.outbox.length > OUTBOX_MAX_FRAMES || (this.outboxBytes > OUTBOX_MAX_BYTES && this.outbox.length > 1)) this.outboxBytes -= this.outbox.shift()!.length
+    }
   }
+
+  /** Frames waiting for the connection (tests). */
+  get queued() { return this.outbox.length }
 
   private setState(s: ConnState) {
     if (this.state === s) return
@@ -207,7 +221,11 @@ export class RealtimeClient {
 
   private flushOutbox() {
     const ws = this.ws
-    while (ws && this.outbox.length && ws.readyState === OPEN) ws.send(this.outbox.shift()!)
+    while (ws && this.outbox.length && ws.readyState === OPEN) {
+      const s = this.outbox.shift()!
+      this.outboxBytes -= s.length
+      ws.send(s)
+    }
   }
 
   private onClose(code: number) {

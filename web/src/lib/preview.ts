@@ -21,6 +21,18 @@ const KINDS: Record<string, PreviewKind> = {
   mp4: 'video', mov: 'video',
 }
 
+/** Text previews show this much of a file at most (the rest: "only the beginning is shown"). */
+export const PREVIEW_TEXT_MAX = 2_000_000
+/** Preview limits (tab 5): PDF and Office 50 MB, images 20 MB, audio / video 60 MB; text kinds read only their beginning. */
+const MB = 1024 * 1024
+const TEXT_KINDS: PreviewKind[] = ['markdown', 'text', 'csv', 'html', 'svg', 'xml']
+export function previewLimit(kind: PreviewKind): { max: number; truncate: boolean } {
+  if (TEXT_KINDS.includes(kind)) return { max: PREVIEW_TEXT_MAX, truncate: true }
+  if (kind === 'image') return { max: 20 * MB, truncate: false }
+  if (kind === 'audio' || kind === 'video') return { max: 60 * MB, truncate: false }
+  return { max: 50 * MB, truncate: false }
+}
+
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
 
 /** Highlight.js language for a file name (code preview). */

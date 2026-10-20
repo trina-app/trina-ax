@@ -9,7 +9,7 @@ import { fetchFileBlob, fileUrl, isApiError, PreviewTooLargeError, saveBlob, sta
 import { wrapHtml } from '../lib/artifacts'
 import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
-import { languageOf, previewKind, type PreviewKind } from '../lib/preview'
+import { languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import type { PreviewFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { CodeBlock, Markdown } from './Markdown'
@@ -21,8 +21,7 @@ const DocxView = lazy(() => import('./viewers/OfficeView').then((m) => ({ defaul
 const PptxView = lazy(() => import('./viewers/OfficeView').then((m) => ({ default: m.PptxView })))
 const SheetView = lazy(() => import('./viewers/OfficeView').then((m) => ({ default: m.SheetView })))
 
-const MAX_TEXT = 2_000_000
-const MAX_PREVIEW = 60 * 1024 * 1024
+const MAX_TEXT = PREVIEW_TEXT_MAX
 
 export default function FilePanel({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
   const t = useT()
@@ -41,7 +40,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     setBlob(null)
     setError(null)
     if (!kind) return
-    fetchFileBlob(file.path, MAX_PREVIEW, ctrl.signal).then(
+    const limit = previewLimit(kind)
+    fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate }).then(
       (b) => live && setBlob(b),
       (e: unknown) => {
         if (!live) return

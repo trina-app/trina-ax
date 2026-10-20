@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7, WsClose, type ServerEvent } from '@mycel/shared/api'
-import { backoffMs, RealtimeClient, type ConnState, type Timers, type WsLike } from '../../src/lib/realtime'
+import { backoffMs, OUTBOX_MAX_BYTES, OUTBOX_MAX_FRAMES, RealtimeClient, type ConnState, type Timers, type WsLike } from '../../src/lib/realtime'
 
 class FakeSocket implements WsLike {
   readyState = 0
@@ -249,5 +249,23 @@ describe('RealtimeClient', () => {
     expect(s.sent).toEqual([])
     s.recv(hello('E1', 0))
     expect(s.sent.map((x) => JSON.parse(x).type)).toEqual(['browser.ack'])
+  })
+
+  test('the outbox is bounded while the link is down: oldest frames go first, by count and by size', () => {
+    const r = setup()
+    r.client.start()
+    for (let i = 0; i < OUTBOX_MAX_FRAMES + 50; i++) r.client.send({ type: 'browser.ack', callId: `c${i}` })
+    expect(r.client.queued).toBe(OUTBOX_MAX_FRAMES)
+    const s = r.sockets[0]!
+    s.open()
+    s.recv(hello('E1', 0))
+    expect(JSON.parse(s.sent[0]!).callId).toBe('c50')
+    expect(r.client.queued).toBe(0)
+    s.drop(1006)
+    // big screenshots: the byte cap holds well below the frame cap
+    const big = 'x'.repeat(1_900_000)
+    for (let i = 0; i < 10; i++) r.client.send({ type: 'browser.result', result: { callId: `b${i}`, ok: true, content: [{ type: 'text', text: big }] } })
+    expect(r.client.queued).toBeLessThanOrEqual(Math.ceil(OUTBOX_MAX_BYTES / big.length))
+    expect(r.client.queued).toBeGreaterThan(0)
   })
 })

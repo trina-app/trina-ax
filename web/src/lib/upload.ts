@@ -25,6 +25,8 @@ export interface UploadOptions {
 }
 
 const STORE_KEY = 'mycel.uploads'
+/** unfinished upload sessions remembered for resuming */
+export const REMEMBER_MAX = 50
 
 export function fingerprint(file: Pick<File, 'name' | 'size' | 'lastModified'>, target: UploadTarget): string {
   return JSON.stringify([file.name, file.size, file.lastModified, target])
@@ -115,7 +117,11 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
   }
   if (!session) {
     session = await withRetry(() => o.client.call(API.createUploadSession, { body: { target, size: total, sha256 }, signal: o.signal }), o)
-    writeStore(storage, { ...readStore(storage), [fp]: session.id })
+    const store = { ...readStore(storage), [fp]: session.id }
+    // sessions of uploads that were never finished pile up otherwise; the server drops them after a while anyway
+    const keys = Object.keys(store)
+    for (const k of keys.slice(0, Math.max(0, keys.length - REMEMBER_MAX))) delete store[k]
+    writeStore(storage, store)
   }
 
   const id = session.id

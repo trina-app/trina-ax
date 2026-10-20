@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiClient, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type UploadSession } from '@mycel/shared/api'
-import { fingerprint, sha256Hex, uploadFile } from '../../src/lib/upload'
+import { fingerprint, REMEMBER_MAX, sha256Hex, uploadFile } from '../../src/lib/upload'
 
 const entry = (path: string): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size: 1, mtime: new Date().toISOString(), mime: null, access: 'write' })
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
@@ -117,5 +117,21 @@ describe('uploads', () => {
     expect(s.calls[0]).toBe(`GET /api/upload-sessions/${id}`)
     expect(s.calls.filter((c) => c.startsWith('PUT'))).toEqual([`PUT /api/upload-sessions/${id}/chunks/1`, `PUT /api/upload-sessions/${id}/chunks/2`])
     expect(storage.getItem('mycel.uploads')).toBeNull()
+  })
+
+  test('remembered unfinished sessions are bounded (oldest forgotten first)', async () => {
+    const storage = new MemStorage()
+    const old: Record<string, string> = {}
+    for (let i = 0; i < REMEMBER_MAX + 10; i++) old[`stale-${i}`] = uuidv7()
+    storage.setItem('mycel.uploads', JSON.stringify(old))
+    const s = fakeServer()
+    const file = bigFile(1)
+    // the person leaves while it uploads: the session stays remembered
+    const stop = new AbortController()
+    await uploadFile(file, { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage, retryDelayMs: 0, signal: stop.signal, onProgress: (p) => p.phase === 'uploading' && stop.abort() }).catch(() => {})
+    const kept = JSON.parse(storage.getItem('mycel.uploads')!) as Record<string, string>
+    expect(Object.keys(kept)).toHaveLength(REMEMBER_MAX)
+    expect(kept['stale-0']).toBeUndefined()
+    expect(Object.keys(kept).at(-1)).toBe(fingerprint(file, { kind: 'path', path: 'x/big.bin', onExists: 'rename' }))
   })
 })

@@ -71,13 +71,24 @@ export interface SendInput {
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
-const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | null; engine?: EngineId; model?: string | null; firstTry: number }>()
+const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; engine?: EngineId; model?: string | null; firstTry: number }>()
+/**
+ * Events for messages we don't know yet (they raced the POST answer). Bounded: a message that never shows up (another
+ * branch, a lost response) must not keep its events forever; the oldest entries go first, and past the per-message
+ * cap the thread is simply reloaded from REST when the message appears.
+ */
 const pending = new Map<string, Pending>()
+export const PENDING_MESSAGES_MAX = 50
+export const PENDING_EVENTS_MAX = 2000
 const pendingOf = (id: string) => {
   let p = pending.get(id)
-  if (!p) pending.set(id, (p = { deltas: [], steps: [], done: null }))
+  if (!p) {
+    pending.set(id, (p = { deltas: [], steps: [], done: null }))
+    while (pending.size > PENDING_MESSAGES_MAX) pending.delete(pending.keys().next().value!)
+  }
   return p
 }
+const pendingFull = (p: Pending) => p.deltas.length + p.steps.length >= PENDING_EVENTS_MAX
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const initial = () => ({
@@ -214,12 +225,14 @@ export const useChats = create<ChatsState>((set, get) => {
         setThread(chatId, () => ({ ...emptyThread() }))
       }
       const t = thread(chatId)
+      // answer under the last message we show; when nothing is loaded yet (a chat opened a moment ago), leave it to the
+      // server's active leaf — null would start a new conversation at the root
       const last = t.messages.filter((m) => !m.local).at(-1)
       const localId = uuidv7()
       const clientMessageId = uuidv7()
       const msg = optimisticUserMessage({ id: localId, chatId, parentId: last?.id ?? null, content: o.content, author: o.author, attachments: o.attachments, clientMessageId, now: new Date().toISOString() })
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
-      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id ?? null, engine: o.engine, model: o.model, firstTry: Date.now() })
+      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id, engine: o.engine, model: o.model, firstTry: Date.now() })
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
       void deliver(localId).catch(() => {})
       return { chatId }
@@ -293,7 +306,13 @@ export const useChats = create<ChatsState>((set, get) => {
           if (!get().threads[chatId]) return
           const r = applyDelta(thread(chatId).messages, { messageId, offset, text })
           if (r.kind === 'applied') setThread(chatId, (t) => ({ ...t, messages: r.messages }))
-          else if (r.kind === 'unknown') pendingOf(messageId).deltas.push({ messageId, offset, text })
+          else if (r.kind === 'unknown') {
+            const p = pendingOf(messageId)
+            if (pendingFull(p)) {
+              pending.delete(messageId)
+              markStale(chatId)
+            } else p.deltas.push({ messageId, offset, text })
+          }
           else if (r.kind === 'gap') markStale(chatId)
           return
         }
@@ -303,7 +322,13 @@ export const useChats = create<ChatsState>((set, get) => {
           if (!get().threads[chatId]) return
           const r = applyStep(thread(chatId).messages, messageId, step)
           if (r) setThread(chatId, (t) => ({ ...t, messages: r }))
-          else pendingOf(messageId).steps.push(ev.data)
+          else {
+            const p = pendingOf(messageId)
+            if (pendingFull(p)) {
+              pending.delete(messageId)
+              markStale(chatId)
+            } else p.steps.push(ev.data)
+          }
           return
         }
         case 'message.done': {

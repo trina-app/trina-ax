@@ -83,15 +83,43 @@ export function thumbnailUrl(attachmentId: string): string {
   return api.url(API.attachmentThumbnail, { params: { id: attachmentId } })
 }
 
-/** Fetch a team file's bytes for an in-app preview (bounded: previews refuse files above `max`). */
-export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal): Promise<Blob> {
+/**
+ * Fetch a team file's bytes for an in-app preview, never more than `max`: a Content-Length above it is refused at
+ * once, and a response without one (chunked, or a relay that drops the header) is read up to `max` and then cut off.
+ */
+export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
   const res = await api.call(API.download, { query: { path, disposition: 'attachment' }, signal })
+  return readBounded(res, max, o)
+}
+
+/**
+ * The body of `res`, at most `max` bytes. Too large: PreviewTooLargeError — or, with `truncate` (text previews show
+ * only the beginning), the first `max` + 1 bytes (one more than `max`, so the caller can tell it was cut).
+ */
+export async function readBounded(res: Response, max: number, o: { truncate?: boolean } = {}): Promise<Blob> {
+  const type = res.headers.get('content-type') ?? ''
   const len = Number(res.headers.get('content-length') ?? '0')
-  if (len > max) {
-    await res.body?.cancel()
+  if (len > max && !o.truncate) {
+    await res.body?.cancel().catch(() => {})
     throw new PreviewTooLargeError(len)
   }
-  return await res.blob()
+  if (!res.body) return new Blob([], { type })
+  const parts: Uint8Array[] = []
+  let size = 0
+  const reader = res.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => {})
+      if (!o.truncate) throw new PreviewTooLargeError(len || size)
+      parts.push(value.subarray(0, value.byteLength - (size - max - 1)))
+      break
+    }
+    parts.push(value)
+  }
+  return new Blob(parts as BlobPart[], { type })
 }
 
 export class PreviewTooLargeError extends Error {

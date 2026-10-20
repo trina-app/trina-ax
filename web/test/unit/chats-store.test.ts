@@ -1,7 +1,7 @@
 // The chat store against a fake REST server (global fetch) and hand-made WebSocket events.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Chat, uuidv7, type TurnStarted } from '@mycel/shared/api'
-import { SEND_RETRY_MS, useChats } from '../../src/store/chats'
+import { PENDING_EVENTS_MAX, SEND_RETRY_MS, useChats } from '../../src/store/chats'
 import { CHAT, msg } from './fixtures'
 
 const realFetch = globalThis.fetch
@@ -146,5 +146,35 @@ describe('events', () => {
     expect(useChats.getState().chats.map((c) => c.id)).toEqual([chat.id, older.id])
     h({ type: 'chat.updated', seq: 3, at: 0, data: { chatId: chat.id, change: 'deleted', chat: null } })
     expect(useChats.getState().chats.map((c) => c.id)).toEqual([older.id])
+  })
+})
+
+describe('robustness', () => {
+  test('sending in a chat whose messages are not loaded yet answers under the server\'s active leaf, not a new root', async () => {
+    const s = started(uuidv7(), 'hi')
+    route = () => json(s, 202)
+    await useChats.getState().send({ chatId: CHAT, content: 'hi', attachments: [], author: me })
+    await tick()
+    const post = calls.find((c) => c.method === 'POST')!
+    expect('parentId' in post.body).toBe(false)
+  })
+
+  test('sending after the thread loaded answers under the last message shown', async () => {
+    const last = msg({ role: 'assistant', status: 'done' })
+    useChats.setState({ threads: { [CHAT]: { messages: [last], nextCursor: null, stale: false } } })
+    route = () => json(started(last.id, 'next'), 202)
+    await useChats.getState().send({ chatId: CHAT, content: 'next', attachments: [], author: me })
+    await tick()
+    expect(calls.find((c) => c.method === 'POST')!.body.parentId).toBe(last.id)
+  })
+
+  test('events for a message that never shows up are bounded; past the cap the thread reloads from REST', async () => {
+    useChats.setState({ threads: { [CHAT]: { messages: [], nextCursor: null, stale: false } } })
+    route = () => json({ items: [], nextCursor: null })
+    const ghost = uuidv7()
+    let seq = 0
+    for (let i = 0; i <= PENDING_EVENTS_MAX; i++) useChats.getState().handleEvent({ type: 'message.delta', seq: ++seq, at: 0, data: { chatId: CHAT, messageId: ghost, offset: i, text: 'x' } } as never)
+    await tick()
+    expect(calls.filter((c) => c.method === 'GET' && c.path === `/api/chats/${CHAT}/messages`).length).toBe(1)
   })
 })
