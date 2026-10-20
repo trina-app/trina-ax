@@ -585,6 +585,8 @@ export const ko = {
   'audit.source.file': '파일',
   'audit.source.tool': 'AI 도구',
   'audit.source.auth': '로그인',
+  'audit.denied': '거부됨',
+  'audit.failed': '실패',
 
   'system.diagnostics': '진단',
   'system.version': '버전',

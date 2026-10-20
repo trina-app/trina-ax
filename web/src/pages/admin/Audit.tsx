@@ -81,6 +81,7 @@ export default function Audit() {
                 <span className="font-medium">{e.actor?.name ?? t('files.byAi')}</span>
                 <span className="text-muted">{e.action}</span>
                 {e.target && <code className="min-w-0 truncate rounded bg-subtle px-1 text-xs">{e.target}</code>}
+                <ToolOutcome e={e} />
               </button>
               {open === e.id && e.detail && <pre className="mt-2 overflow-x-auto rounded bg-subtle p-2 text-xs">{JSON.stringify(e.detail, null, 2)}</pre>}
             </li>
@@ -95,5 +96,24 @@ export default function Audit() {
         </div>
       )}
     </Card>
+  )
+}
+
+/** Tool calls: whether the call was refused (permission) or failed, and its one-line summary ("read groups/x -> denied: ..."). */
+function ToolOutcome({ e }: { e: AuditEntry }) {
+  const t = useT()
+  if (e.source !== 'tool' || !e.detail) return null
+  const summary = typeof e.detail.summary === 'string' ? e.detail.summary : ''
+  const failed = e.detail.ok === 0 || e.detail.ok === false
+  const denied = failed && /-> denied\b/.test(summary)
+  return (
+    <>
+      {failed && (
+        <Badge tone="danger">
+          {t(denied ? 'audit.denied' : 'audit.failed')}
+        </Badge>
+      )}
+      {summary && <span className="min-w-0 basis-full truncate text-xs text-faint sm:pl-38">{summary}</span>}
+    </>
   )
 }

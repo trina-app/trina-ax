@@ -587,6 +587,8 @@ export const en: Record<MessageKey, string> = {
   'audit.source.file': 'File',
   'audit.source.tool': 'AI tool',
   'audit.source.auth': 'Sign-in',
+  'audit.denied': 'Denied',
+  'audit.failed': 'Failed',
 
   'system.diagnostics': 'Diagnostics',
   'system.version': 'Version',
