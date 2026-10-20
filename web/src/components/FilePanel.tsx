@@ -1,6 +1,7 @@
 // File preview next to the chat or the file screen: PDF, Word, PowerPoint, Excel/CSV, Markdown, text/code, HTML/SVG
 // (isolated frame), images, audio/video. Bytes come from /api/files/download (always an attachment with a sandbox
-// CSP on the server side) and are drawn here; HTML/SVG never become a blob: page of this origin.
+// CSP on the server side) and are drawn here; HTML/SVG only run in the sandbox frame (SandboxFrame, /sandbox/frame),
+// never as srcdoc or a blob: page of this origin.
 import { Download, FileText, FolderOpen, Loader2, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'

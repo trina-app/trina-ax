@@ -27,5 +27,7 @@ test/unit/      bun tests; test/mock/ mock server (contract-checked); test/e2e/ 
 ```
 
 Security rules from design tab 5 that live here: artifacts and HTML/SVG previews run in `sandbox="allow-scripts"`
-frames through `srcdoc` with a CSP that blocks every request except `/vendor/` of the team server; external images
-in answers are never loaded by themselves; the service worker caches only hashed files.
+frames that load the team server's receiver `/sandbox/frame` (its CSP blocks every request except `/vendor/` of the
+team server) and get their document by postMessage, never srcdoc; the app page itself allows no inline script; links
+in Office previews are http(s) only and ask first; external images in answers are never loaded by themselves; the
+service worker caches only hashed files.

@@ -31,6 +31,9 @@ test('streaming answer: markdown, math, code, table, steps; external images are 
   await a.getByText('작업 2단계').click()
   await a.getByText('Web search "team ax"').click()
   await expect(a.getByTestId('search-sources').getByRole('link')).toHaveAttribute('href', 'https://example.com/a')
+  // a result with a javascript: address is shown as text, not as a link
+  await expect(a.getByTestId('search-sources').getByRole('link')).toHaveCount(1)
+  await expect(a.getByTestId('search-sources')).toContainText('Poisoned result')
   // the chat shows up in the sidebar, titled by the server
   await expect(page.getByRole('navigation').getByRole('link', { name: 'Hello there, search the web' })).toBeVisible()
   expect(external).toEqual([])

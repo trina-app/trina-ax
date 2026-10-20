@@ -247,7 +247,7 @@ export class MockServer {
     assistant.steps = [s1done]
     pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s1done } })
     if (/search/i.test(prompt)) {
-      const s2 = step({ id: 's2', kind: 'web_search', tool: 'WebSearch', label: 'Web search "team ax"', status: 'ok', endedAt: now(), sources: [{ title: 'Example result', url: 'https://example.com/a' }] })
+      const s2 = step({ id: 's2', kind: 'web_search', tool: 'WebSearch', label: 'Web search "team ax"', status: 'ok', endedAt: now(), sources: [{ title: 'Example result', url: 'https://example.com/a' }, { title: 'Poisoned result', url: 'javascript:top.document.title="pwned-search"' }] })
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }

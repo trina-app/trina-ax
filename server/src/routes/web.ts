@@ -4,6 +4,7 @@
 //   /vendor/*       libraries for artifact frames (web/scripts/build-vendor.ts). Artifact frames have an opaque
 //                   origin, so these answer with Access-Control-Allow-Origin: * (module scripts need CORS);
 //                   hashed chunks are immutable, the entry files (react.js, …) revalidate
+//   /sandbox/frame  the fixed receiver document of artifact / HTML preview frames, with the sandbox CSP header
 //   /sw.js          service worker: never cached, scope /
 //   /downloads/*    desktop app installers the owner put in <data>/downloads (index.json lists them)
 //   everything else index.html with the app's Content-Security-Policy (no-cache, so a new build shows up)

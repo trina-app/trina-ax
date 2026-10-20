@@ -6,6 +6,7 @@ import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, FileSearch, Globe
 import { useState } from 'react'
 import type { Step } from '@mycel/shared/api'
 import { useT } from '../../i18n'
+import { safeHref } from '../../lib/safeLinks'
 import { TeamImage } from '../Markdown'
 
 const ICON = { tool: Wrench, thinking: Brain, web_search: Globe, browser: Monitor, artifact: Shapes, ask_user: MessageCircleQuestion } as const
@@ -31,11 +32,16 @@ function StepRow({ step, live }: { step: Step; live: boolean }) {
           {step.detail && <p className="text-xs whitespace-pre-wrap text-muted">{step.detail}</p>}
           {step.sources && (
             <ul className="space-y-1" data-testid="search-sources">
-              {step.sources.map((s) => (
-                <li key={s.url} className="truncate">
-                  <a href={s.url} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer" className="text-xs text-accent-text hover:underline">
-                    {s.title || s.url}
-                  </a>
+              {step.sources.map((s, i) => (
+                <li key={`${i}:${s.url}`} className="truncate">
+                  {/* search results come from the web: only http(s) addresses become links */}
+                  {safeHref(s.url) ? (
+                    <a href={safeHref(s.url)!} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer" className="text-xs text-accent-text hover:underline">
+                      {s.title || s.url}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-muted">{s.title || s.url}</span>
+                  )}
                   <span className="ml-1.5 text-[11px] text-faint">{hostOf(s.url)}</span>
                 </li>
               ))}
