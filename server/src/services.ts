@@ -50,9 +50,9 @@ export interface RealtimeHub {
   publish(userId: string, ev: ServerEventInput): void
   /** For events whose visibility depends on the person (files.changed): build per connected-or-buffered user, null = skip. */
   publishEach(build: (userId: string) => ServerEventInput | null): void
-  /** Close every socket of a person (session.ended already published). */
+  /** Send session.ended to every socket of a person, then close them (4401). */
   disconnectUser(userId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void
-  /** Close the sockets of one session only (logout on one device, "sign out this device", the other sessions after
+  /** session.ended + close for the sockets of one session only (logout on one device, "sign out this device", the other sessions after
    * a password change). Optional: without it the session's sockets stay open until they reconnect. Added by A. */
   disconnectSession?(sessionId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void
   /**

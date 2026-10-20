@@ -88,7 +88,32 @@ describe('A signs out one session, B closes only its sockets', () => {
     hub.disconnectSession!(webSid, 'logout')
     await waitFor(() => !!web.closed, { timeoutMs: 3000 })
     expect(web.closed!.code).toBe(4401)
+    // the closed window is told why first (the web shows "signed out elsewhere" instead of "session expired")
+    const ended = web.frames.find((f) => f.type === 'session.ended')
+    expect(ended && 'data' in ended && ended.data).toEqual({ reason: 'logout' })
     expect(desk.closed).toBeFalsy()
+    expect(desk.frames.some((f) => f.type === 'session.ended')).toBe(false)
+    // not kept for replay: a window of the person's other session resuming from before it must not sign itself out
+    const again = await h.ws('bob', { windowId: 'win-i-bob-desk2', client: 'desktop', epoch: h.ctx.epoch, after: 0 })
+    await again.next('hello')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(again.frames.some((f) => f.type === 'session.ended')).toBe(false)
+    expect(again.closed).toBeFalsy()
+    again.close()
     desk.close()
+  })
+
+  test('disconnectUser (password changed, account disabled) ends every window of the person with session.ended', async () => {
+    const a = await h.ws('carol', { windowId: 'win-i-carol-a' })
+    await a.next('hello')
+    const b = await h.ws('carol', { windowId: 'win-i-carol-b', client: 'desktop' })
+    await b.next('hello')
+    h.ctx.services.realtime.disconnectUser('carol', 'disabled')
+    for (const s of [a, b]) {
+      await waitFor(() => !!s.closed, { timeoutMs: 3000 })
+      expect(s.closed!.code).toBe(4401)
+      const ended = s.frames.find((f) => f.type === 'session.ended')
+      expect(ended && 'data' in ended && ended.data).toEqual({ reason: 'disabled' })
+    }
   })
 })
