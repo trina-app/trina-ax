@@ -204,6 +204,7 @@ export class TurnExec {
         }
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
+        if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = engineError(err.code, spec.locale)
         else if (crashed) this.error = engineError('crash', spec.locale)
@@ -220,12 +221,13 @@ export class TurnExec {
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
         const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: prompt(true), message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, model }, codex)
-        const { exit } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
+        const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexHome(codex.codexHome, codex.auth) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
         if (this.stopReason) break
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
+        if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = engineError(err.code, spec.locale)
         else if (crashed) this.error = engineError('crash', spec.locale)

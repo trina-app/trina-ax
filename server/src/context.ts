@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
 import type { AppConfig } from './app-config'
-import { defaultConfig, which, type ServerConfig } from './config'
+import { defaultConfig, findCodexBin, type ServerConfig } from './config'
 import { FileService } from './files/service'
 import type { Logger } from './log'
 import type { AppBindings } from './http/env'
@@ -61,7 +61,7 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect
     return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660' })
   }
-  const codex = ctx.config.engine.codexBin ?? which('codex')
+  const codex = findCodexBin(ctx.config.engine.codexBin)
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
   return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')] } })
 }

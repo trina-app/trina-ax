@@ -38,6 +38,12 @@ export function which(name: string, extra: string[] = []): string | null {
   return null
 }
 
+/** The Codex CLI the engine runs (dev / local-login). One lookup for the launcher allow-list (context.ts) and the
+ * chat runtime (chat/engines.ts): they must agree, or the launcher refuses the engine ("is not allowed"). */
+export function findCodexBin(explicit?: string): string | null {
+  return explicit ?? which('codex', [path.join(os.homedir(), '.local', 'bin')])
+}
+
 export function nativeBinDir(): string {
   const plat = process.platform === 'darwin' ? 'darwin' : 'linux'
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'

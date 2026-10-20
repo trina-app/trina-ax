@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { EngineId } from '@mycel/shared/api'
 import type { ClaudeConf } from '../engine/claude'
 import { writeLockedCatalog, type CodexConf } from '../engine/codex'
-import { which } from '../config'
+import { findCodexBin } from '../config'
 import type { AppContext } from '../context'
 
 export interface EngineConfs {
@@ -46,7 +46,7 @@ export class LocalEngines implements EngineProvider {
 
     let codex: CodexConf | null = null
     let codexModels: string[] = []
-    const bin = config.engine.codexBin ?? which('codex', [path.join(os.homedir(), '.local', 'bin')])
+    const bin = findCodexBin(config.engine.codexBin)
     const codexHome = path.join(config.dataDir, 'codex-home')
     const sources = [path.join(codexHome, 'models_cache.json'), path.join(os.homedir(), '.codex', 'models_cache.json')]
     const src = sources.find((p) => fs.existsSync(p))
