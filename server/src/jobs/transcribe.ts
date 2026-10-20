@@ -24,9 +24,12 @@ export const MODEL_BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/reso
 /** formats whisper-cli reads itself */
 const NATIVE = new Set(['wav', 'mp3', 'flac', 'ogg'])
 
+export interface ModelSpec { file: string; size: number; sha256: string }
 export interface TranscribeConfig {
   modelDir: string
   model: WhisperModel
+  /** tests: a different (small, fake) model file instead of WHISPER_MODELS[model] */
+  modelOverride?: ModelSpec
   whisperBin: string | null
   ffmpegBin: string | null
   /** where models come from (tests point this at a local server) */
@@ -62,11 +65,13 @@ export const MISSING_WHISPER = () => fail(
   'The transcription tool (whisper.cpp) is not installed on the server. Run `brew install whisper-cpp` on the server Mac, then try again.',
   'Alat transkripsi (whisper.cpp) belum terpasang di server. Jalankan `brew install whisper-cpp` di Mac server, lalu coba lagi.')
 
+const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHISPER_MODELS[cfg.model]
+
 let downloading: Promise<string> | null = null
 
 /** Path of the model file, downloading it first if needed (one download at a time). */
 export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'progress' | 'signal'>, locale: Locale = 'ko'): Promise<string> {
-  const spec = WHISPER_MODELS[cfg.model]
+  const spec = modelSpec(cfg)
   const file = path.join(cfg.modelDir, spec.file)
   try { if (fs.statSync(file).size === spec.size) return file } catch { /* not there yet */ }
   if (!downloading) downloading = download(cfg, file, h, locale).finally(() => { downloading = null })
@@ -74,7 +79,7 @@ export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'pr
 }
 
 async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 'progress' | 'signal'> | undefined, locale: Locale): Promise<string> {
-  const spec = WHISPER_MODELS[cfg.model]
+  const spec = modelSpec(cfg)
   fs.mkdirSync(cfg.modelDir, { recursive: true, mode: 0o700 })
   const part = file + '.part'
   const label = LABELS.model[locale](Math.round(spec.size / 1e6))
@@ -88,15 +93,22 @@ async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 
   const hash = crypto.createHash('sha256')
   const fh = await fs.promises.open(part, 'w', 0o600)
   let got = 0
+  const reader = res.body.getReader()
   try {
-    for await (const ch of res.body as unknown as AsyncIterable<Uint8Array>) {
-      got += ch.byteLength
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      got += value.byteLength
       if (got > spec.size) break
-      hash.update(ch)
-      await fh.write(ch)
+      hash.update(value)
+      await fh.write(value)
       h?.progress(0.5 * (got / spec.size), label)
     }
-  } finally { await fh.close() }
+  } catch (e) {
+    fs.rmSync(part, { force: true })
+    if (h?.signal.aborted) throw e
+    throw fail('음성 인식 모델을 내려받는 중 연결이 끊겼습니다. 다시 시도해 주세요.', 'The speech model download was interrupted. Please try again.', 'Unduhan model suara terputus. Coba lagi.')
+  } finally { try { reader.releaseLock() } catch {} await fh.close() }
   if (got !== spec.size || hash.digest('hex') !== spec.sha256) {
     fs.rmSync(part, { force: true })
     throw fail('내려받은 음성 인식 모델이 손상되었습니다. 다시 시도해 주세요.', 'The downloaded speech model is damaged. Please try again.', 'Model suara yang diunduh rusak. Coba lagi.', 'internal')

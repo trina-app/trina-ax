@@ -123,16 +123,18 @@ describe('transcription', () => {
     expect((await upload(new Uint8Array(10), 'v.wav', { chatId: A.chat('bob') })).status).toBe(404)
   })
   test('model download: sha256-checked, atomic, with progress; a damaged download is discarded', async () => {
-    const src = path.join(CACHE, WHISPER_MODELS.tiny.file)
-    if (!(await cachedTinyModel())) { console.log('tiny model not available: download test skipped'); return }
-    const srv = Bun.serve({ port: 19138, hostname: '127.0.0.1', fetch: (req) => new URL(req.url).pathname.startsWith('/bad/') ? new Response('nope') : new Response(Bun.file(src)) })
+    // a stand-in "model" (3 MB) served locally: the real one is 75-470 MB
+    const fake = new Uint8Array(3 * 1024 * 1024).map((_, i) => (i * 31) % 256)
+    const spec = { file: 'ggml-fake.bin', size: fake.length, sha256: sha256hex(fake) }
+    const srv = Bun.serve({ port: 19138, hostname: '127.0.0.1', fetch: (req) => new URL(req.url).pathname.startsWith('/bad/') ? new Response(fake.map((b) => b ^ 1)) : new Response(fake) })
     try {
       const dir = path.join(A.data, 'models-test')
-      const cfg: TranscribeConfig = { ...C().transcribe, modelDir: dir, model: 'tiny', baseUrl: 'http://127.0.0.1:19138/' }
+      const cfg: TranscribeConfig = { ...C().transcribe, modelDir: dir, modelOverride: spec, baseUrl: 'http://127.0.0.1:19138/' }
       const seen: number[] = []
       const ac = new AbortController()
       const file = await ensureModel(cfg, { progress: (p) => { if (p !== null) seen.push(p) }, signal: ac.signal })
-      expect(file).toBe(path.join(dir, 'ggml-tiny.bin'))
+      expect(file).toBe(path.join(dir, 'ggml-fake.bin'))
+      expect(sha256hex(fs.readFileSync(file))).toBe(spec.sha256)
       expect(seen[seen.length - 1]).toBeCloseTo(0.5, 2)
       expect(fs.existsSync(file + '.part')).toBe(false)
       const bad = path.join(A.data, 'models-bad')
