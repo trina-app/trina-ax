@@ -78,7 +78,10 @@ rm -f "/etc/newsyslog.d/$ID.conf"
 if [ "$DELETE_DATA" = 1 ]; then
   rm -rf "$BASE"
 else
-  for d in data team; do [ -e "$BASE/$d" ] && chown -R root:wheel "$BASE/$d"; done
+  # folders and single-link files only: a hard link the server account made to some other file must not be chowned
+  for d in data team; do
+    [ -d "$BASE/$d" ] && [ ! -L "$BASE/$d" ] && find "$BASE/$d" \( -type d -o \( -type f -links 1 \) \) -exec chown -h root:wheel {} +
+  done
   [ -d "$BASE" ] && say "kept the team folder and data in $BASE (use --delete-data to remove them)"
 fi
 

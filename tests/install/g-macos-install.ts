@@ -98,7 +98,8 @@ async function main() {
     [`${BASE}/status`, `${SRV}:admin 750`], [`${BASE}/agent`, `${AGT}:${AGT} 700`], [`${BASE}/run`, 'root:wheel 755'],
     [`${BASE}/run/tools`, `${SRV}:${AGT} 750`], [`${BASE}/run-launcher`, `${AGT}:${SRV} 750`], [`${BASE}/root`, 'root:wheel 755'],
     [`${BASE}/root/mycel-bootstrap`, 'root:wheel 755'], [`${BASE}/root/mycel-launcher`, 'root:wheel 755'], [`${BASE}/root/engine.sb`, 'root:wheel 644'],
-    [`${BASE}/root/pf.anchor`, 'root:wheel 644'], [`${BASE}/root/pf-load`, 'root:wheel 755'], [`/Library/Logs/${ID}`, `${SRV}:admin 755`],
+    [`${BASE}/root/pf.anchor`, 'root:wheel 644'], [`${BASE}/root/pf-load`, 'root:wheel 755'], [`/Library/Logs/${ID}`, 'root:wheel 755'],
+    [`/Library/Logs/${ID}/crash`, 'root:wheel 755'], [`/Library/Logs/${ID}/server`, `${SRV}:admin 750`], [`${BASE}/app/state.json`, `${SRV}:${SRV} 640`],
     [`/Library/LaunchDaemons/${LABEL}.server.plist`, 'root:wheel 644'], [`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'root:wheel 644'],
     [`/Library/LaunchDaemons/${LABEL}.pf.plist`, 'root:wheel 644'], [`/etc/newsyslog.d/${ID}.conf`, 'root:wheel 644'],
   ]
@@ -131,7 +132,8 @@ async function main() {
   check('newsyslog config parses', sh(['/usr/sbin/newsyslog', '-n', '-f', `/etc/newsyslog.d/${ID}.conf`]).code === 0)
 
   // ---- pf ----
-  const pf = readJson(`${BASE}/status/pf.json`)
+  const pf = readJson(`${BASE}/run/pf.json`)
+  check('pf.json is written by root into the root-owned run/ folder', statOf(`${BASE}/run/pf.json`) === 'root:wheel 644', statOf(`${BASE}/run/pf.json`))
   check('pf-load: enabled, anchor referenced, rules loaded', !!pf && pf.enabled && pf.referenced && pf.rules >= 2, JSON.stringify(pf))
   const rules = sh(['/sbin/pfctl', '-a', `com.apple/250.${ID}`, '-s', 'rules']).out.trim()
   check('pf anchor rules', rules.includes(`user = `) && rules.includes('block drop out quick'), rules.replace(/\n/g, ' | '))
@@ -197,7 +199,30 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   const s3 = await until(() => readJson(`${BASE}/app/state.json`), (s) => s?.history?.at(-1)?.result === 'rolled_back', 40_000)
   check('bootstrap rolls a crashing version back', s3?.history?.at(-1)?.result === 'rolled_back' && s3?.current === '0.9.0-test.2', JSON.stringify(s3?.history?.at(-1)))
   check('after the roll-back test.2 answers', (await until(health, (h) => h?.version === '0.9.0-test.2', 30_000))?.version === '0.9.0-test.2')
-  check('update log records the roll-back', fs.existsSync(`/Library/Logs/${ID}/update.log`) && fs.readFileSync(`/Library/Logs/${ID}/update.log`, 'utf8').includes('rolled_back'))
+  const ulog = `/Library/Logs/${ID}/server/update.log`
+  check('update log records the roll-back', fs.existsSync(ulog) && fs.readFileSync(ulog, 'utf8').includes('rolled_back'))
+
+  // ---- repair run against a hostile server account: root must not follow its links or chown its hard links ----
+  const victim = '/private/tmp/mycel-test-victim'
+  fs.writeFileSync(victim, 'root file\n', { mode: 0o644 })
+  fs.rmSync(`${victim}-new`, { force: true })
+  // the hard link goes into the version folder the installer copies (test.1); the old code chowned it recursively
+  sh(['/bin/sh', '-c', `ln '${victim}' '${BASE}/app/versions/0.9.0-test.1/hardlink' ; rm -f '${BASE}/app/state.json' && ln -s '${victim}-new' '${BASE}/app/state.json'`], { user: SRV })
+  const rep1 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+  check('repair run with planted links and hard links', rep1.code === 0, (rep1.out + rep1.err).trim().split('\n').slice(-2).join(' | '))
+  check('repair: a hard link the server made is not chowned by root', statOf(victim) === 'root:wheel 644', statOf(victim))
+  check('repair: a planted state.json link is replaced, not followed', !fs.existsSync(`${victim}-new`) && statOf(`${BASE}/app/state.json`) === `${SRV}:${SRV} 640`, statOf(`${BASE}/app/state.json`))
+  sh(['/bin/sh', '-c', `rm -rf '${BASE}/app/engines/fake' && ln -s /private/tmp '${BASE}/app/engines/fake'`], { user: SRV })
+  const rep2 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+  check('repair refuses a symbolic link on the way to a folder it chowns', rep2.code !== 0 && /symbolic link/.test(rep2.err) && statOf('/private/tmp') === 'root:wheel 1777', (rep2.err.trim().split('\n').at(-1) ?? '') + ' /tmp=' + statOf('/private/tmp'))
+  sh(['/bin/rm', '-f', `${BASE}/app/engines/fake`])
+  const rep3 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+  check('repair run after the link is gone', rep3.code === 0, (rep3.out + rep3.err).trim().split('\n').slice(-2).join(' | '))
+  fs.rmSync(victim, { force: true })
+  await until(health, (h) => !!h?.ok, 30_000)
 
   // ---- backups and restore ----
   sh(['/bin/sh', '-c', `mkdir -p '${BASE}/team/shared/한글 폴더' && printf 'plan v1\\n' > '${BASE}/team/shared/한글 폴더/plan.md' && head -c 3000000 /dev/urandom > '${BASE}/team/shared/big.bin'`], { user: SRV })

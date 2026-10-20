@@ -23,6 +23,13 @@
 # pf-load); config/server.json; a self-signed TLS certificate for the office network; the one-time setup code;
 # LaunchDaemons <label>.server / .launcher / .pf; the engine account in /var/at/cron.deny and at.deny;
 # /etc/newsyslog.d/<id>.conf; Time Machine exclusions; then it waits until /api/health answers.
+#
+# Root never trusts what the role accounts can change (design tab 6: root only copies, replaces and chowns there and
+# never runs anything from app/, data/ or the team folder): on a repair run the daemons are stopped and every process
+# of both accounts is killed first, so nothing can race the installer; every path it touches below the install folder
+# is checked for symbolic links; files that land in folders the server owns are written in a root-only folder,
+# owned and moded there, and renamed into place (rename replaces a planted link instead of following it); the only
+# programs it runs come from the bundle it installs (--from) or the system.
 set -euo pipefail
 umask 022
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -145,9 +152,27 @@ SRV_UID=$(id -u "$SRV_USER"); AGT_UID=$(id -u "$AGT_USER")
 SRV_GRP=$(id -gn "$SRV_USER"); AGT_GRP=$(id -gn "$AGT_USER")
 say "accounts: $SRV_USER=$SRV_UID:$SRV_GRP $AGT_USER=$AGT_UID:$AGT_GRP"
 
-# ---- folders: owner group mode path ----
-mk() { mkdir -p "$4"; chown "$1:$2" "$4"; chmod "$3" "$4"; }
+# ---- repair run: stop our daemons and every process of the role accounts before touching their folders ----
+for d in server launcher; do
+  launchctl bootout "system/$LABEL.$d" >/dev/null 2>&1 || true
+done
+for u in "$SRV_UID" "$AGT_UID"; do
+  for i in 1 2 3 4 5; do
+    pkill -KILL -u "$u" >/dev/null 2>&1 || true
+    pgrep -u "$u" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  ! pgrep -u "$u" >/dev/null 2>&1 || die "processes of uid $u keep running; stop them and run the installer again"
+done
+
+# ---- safe paths and files: nolink / mk / put (scripts/macos/safe-fs.sh, tested in tests/unit/g-scripts.test.ts) ----
+SAFE_ROOTS=("$BASE" "$LOGS")
+# shellcheck source=macos/safe-fs.sh
+. "$(cd "$(dirname "$0")" && pwd)/macos/safe-fs.sh"
 mk root wheel 755 "$BASE"
+ITMP="$BASE/.install-tmp"
+rm -rf "$ITMP"; mkdir -m 700 "$ITMP"; chown root:wheel "$ITMP"
+trap 'rm -rf "$ITMP"' EXIT
 mk "$SRV_USER" "$SRV_GRP" 755 "$BASE/app"
 mk "$SRV_USER" "$SRV_GRP" 755 "$BASE/app/versions"
 mk "$SRV_USER" "$AGT_GRP" 750 "$BASE/app/engines"
@@ -165,13 +190,16 @@ mk "$SRV_USER" "$AGT_GRP" 750 "$BASE/run/tools"
 # (launchd socket activation with a root-owned folder needs launch_activate_socket in the launcher: later.)
 mk "$AGT_USER" "$SRV_GRP" 750 "$BASE/run-launcher"
 mk root wheel 755 "$BASE/root"
-# 755: the launcher's launchd output (crash/launcher.log) is opened as the engine account, which must reach crash/;
-# the server's own log files are 640 server:admin, so other accounts see names only
-mk "$SRV_USER" admin 755 "$LOGS"
+# logs: root-owned top folder (launchd and newsyslog work in crash/ as root, so no role account may own a folder on the
+# way there); 755 because launchd opens the launcher's output (crash/launcher.log) as the engine account. The
+# server's own logs and update.log (written by the bootstrap, which runs as the server account) are in server/.
+mk root wheel 755 "$LOGS"
 mk root wheel 755 "$LOGS/crash"
+mk "$SRV_USER" admin 750 "$LOGS/server"
 for f in server:"$SRV_USER":admin:640 launcher:"$AGT_USER":"$AGT_GRP":600 pf:root:wheel:644; do
   IFS=: read -r n o g m <<< "$f"
-  touch "$LOGS/crash/$n.log"; chown "$o:$g" "$LOGS/crash/$n.log"; chmod "$m" "$LOGS/crash/$n.log"
+  [ -L "$LOGS/crash/$n.log" ] && rm -f "$LOGS/crash/$n.log"
+  touch "$LOGS/crash/$n.log"; chown -h "$o:$g" "$LOGS/crash/$n.log"; chmod -h "$m" "$LOGS/crash/$n.log"
 done
 
 # ---- root-owned files ----
@@ -200,55 +228,68 @@ for spec in "${ENGINES[@]}"; do
   dir="$BASE/app/engines/$name/$sha"
   mk "$SRV_USER" "$AGT_GRP" 750 "$BASE/app/engines/$name"
   mk "$SRV_USER" "$AGT_GRP" 750 "$dir"
-  install -o "$SRV_USER" -g "$AGT_GRP" -m 750 "$file" "$dir/$(basename "$file")"
-  ln -sfn "$sha" "$BASE/app/engines/$name/current"
+  put "$file" "$SRV_USER" "$AGT_GRP" 750 "$dir/$(basename "$file")"
+  rm -rf "$BASE/app/engines/$name/current"
+  ln -s "$sha" "$BASE/app/engines/$name/current"
   chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/current"
   ENGINE_CMDS+=("$BASE/app/engines/$name/current/$(basename "$file")")
 done
 
 # ---- server version ----
 DEST="$BASE/app/versions/$VERSION"
-if [ -d "$DEST" ] && cmp -s "$DEST/manifest.json" "$BUNDLE/manifest.json"; then
-  say "version $VERSION already installed"
-else
-  rm -rf "$DEST.partial"; cp -R "$BUNDLE" "$DEST.partial"; rm -rf "$DEST"; mv "$DEST.partial" "$DEST"
-fi
-chown -R "$SRV_USER:$SRV_GRP" "$DEST"
-find "$DEST" -type d -exec chmod 755 {} +
-chmod -R go-w "$DEST"
-if [ ! -L "$BASE/app/current" ] || [ ! -f "$BASE/app/current/manifest.json" ]; then
-  ln -sfn "versions/$VERSION" "$BASE/app/current"
+nolink "$DEST"
+# always a fresh copy from the bundle: the chown below must only ever touch files root just copied (a folder the
+# server account could write may hold hard links to system files, and chown -R would hand those over)
+rm -rf "$DEST.partial"; cp -R "$BUNDLE" "$DEST.partial"
+chown -R "$SRV_USER:$SRV_GRP" "$DEST.partial"
+find "$DEST.partial" -type d -exec chmod 755 {} +
+chmod -R go-w "$DEST.partial"
+rm -rf "$DEST"; mv "$DEST.partial" "$DEST"
+CUR_T=$(readlink "$BASE/app/current" 2>/dev/null || true)
+if [[ ! "$CUR_T" =~ ^versions/[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] || [ ! -L "$BASE/app/current" ] || [ ! -f "$BASE/app/$CUR_T/manifest.json" ]; then
+  rm -rf "$BASE/app/current"
+  ln -s "versions/$VERSION" "$BASE/app/current"
   chown -h "$SRV_USER:$SRV_GRP" "$BASE/app/current"
 fi
 CUR=$(basename "$(readlink "$BASE/app/current")")
-BUN="$BASE/app/current/bin/bun"
-if [ ! -f "$BASE/app/state.json" ]; then
-  printf '{"format":1,"current":"%s","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[]}\n' "$CUR" > "$BASE/app/state.json"
+# root runs only the bun of the bundle it installs, never the one in app/ (the server account can replace that)
+BUN="$BUNDLE/bin/bun"
+[ -x "$BUN" ] || die "$BUN missing"
+if [ ! -f "$BASE/app/state.json" ] || [ -L "$BASE/app/state.json" ]; then
+  printf '{"format":1,"current":"%s","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[]}\n' "$CUR" > "$ITMP/state.json"
+  put "$ITMP/state.json" "$SRV_USER" "$SRV_GRP" 640 "$BASE/app/state.json"
 fi
-chown "$SRV_USER:$SRV_GRP" "$BASE/app/state.json"; chmod 640 "$BASE/app/state.json"
 
 # ---- office-network TLS certificate (ECDSA P-256, 10 years; SAN <host>.local + 127.0.0.1 [+ LAN IP]) ----
 # (named-curve SEC1 key: LibreSSL's "req -newkey ec" writes explicit curve parameters, which Bun's BoringSSL refuses)
-if [ "$TLS_PORT" != 0 ] && ! grep -q 'BEGIN EC PRIVATE KEY' "$BASE/secrets/lan-tls.key" 2>/dev/null; then
-  HOST=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
-  SAN="DNS:$HOST.local,IP:127.0.0.1"
-  LAN=$(ipconfig getifaddr en0 2>/dev/null || true); [ -n "$LAN" ] && SAN="$SAN,IP:$LAN"
-  (umask 077 && openssl ecparam -name prime256v1 -genkey -noout -out "$BASE/secrets/lan-tls.key") || die "openssl ecparam failed"
-  openssl req -new -x509 -key "$BASE/secrets/lan-tls.key" -days 3650 -subj "/CN=$HOST.local" -addext "subjectAltName=$SAN" \
-    -out "$BASE/secrets/lan-tls.crt" >/dev/null 2>&1 || die "openssl req failed"
-fi
+# (generated in the root-only staging folder, then put in place; the certificate is read back from there too)
 if [ "$TLS_PORT" != 0 ]; then
-  chown "$SRV_USER:$SRV_GRP" "$BASE/secrets/lan-tls.key" "$BASE/secrets/lan-tls.crt"; chmod 600 "$BASE/secrets/lan-tls.key"; chmod 644 "$BASE/secrets/lan-tls.crt"
-  openssl x509 -in "$BASE/secrets/lan-tls.crt" -noout -fingerprint -sha256 | sed 's/.*=//' > "$BASE/setup/lan-cert.sha256"
-  chown "$SRV_USER:admin" "$BASE/setup/lan-cert.sha256"; chmod 640 "$BASE/setup/lan-cert.sha256"
+  if [ ! -L "$BASE/secrets/lan-tls.key" ] && [ ! -L "$BASE/secrets/lan-tls.crt" ] && grep -q 'BEGIN EC PRIVATE KEY' "$BASE/secrets/lan-tls.key" 2>/dev/null \
+     && cp "$BASE/secrets/lan-tls.crt" "$ITMP/lan-tls.crt" 2>/dev/null && openssl x509 -in "$ITMP/lan-tls.crt" -noout >/dev/null 2>&1; then
+    : # keep the existing certificate (desktop apps pinned its fingerprint)
+  else
+    HOST=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
+    SAN="DNS:$HOST.local,IP:127.0.0.1"
+    LAN=$(ipconfig getifaddr en0 2>/dev/null || true); [ -n "$LAN" ] && SAN="$SAN,IP:$LAN"
+    (umask 077 && openssl ecparam -name prime256v1 -genkey -noout -out "$ITMP/lan-tls.key") || die "openssl ecparam failed"
+    openssl req -new -x509 -key "$ITMP/lan-tls.key" -days 3650 -subj "/CN=$HOST.local" -addext "subjectAltName=$SAN" \
+      -out "$ITMP/lan-tls.crt" >/dev/null 2>&1 || die "openssl req failed"
+    put "$ITMP/lan-tls.key" "$SRV_USER" "$SRV_GRP" 600 "$BASE/secrets/lan-tls.key"
+    put "$ITMP/lan-tls.crt" "$SRV_USER" "$SRV_GRP" 644 "$BASE/secrets/lan-tls.crt"
+  fi
+  openssl x509 -in "$ITMP/lan-tls.crt" -noout -fingerprint -sha256 | sed 's/.*=//' > "$ITMP/lan-cert.sha256"
+  put "$ITMP/lan-cert.sha256" "$SRV_USER" admin 640 "$BASE/setup/lan-cert.sha256"
 fi
 
 # ---- config/server.json (merged: owner choices such as relay and update channel survive a reinstall) ----
 CFG="$BASE/config/server.json"
-MYCEL_I_CFG="$CFG" MYCEL_I_BASE="$BASE" MYCEL_I_LOGS="$LOGS" MYCEL_I_PORT="$PORT" MYCEL_I_TLS="$TLS_PORT" \
+OLD_CFG="$ITMP/server.old.json"
+if [ -f "$CFG" ] && [ ! -L "$CFG" ]; then cp "$CFG" "$OLD_CFG"; else echo '{}' > "$OLD_CFG"; fi
+MYCEL_I_OLD="$OLD_CFG" MYCEL_I_OUT="$ITMP/server.json" MYCEL_I_BASE="$BASE" MYCEL_I_LOGS="$LOGS/server" MYCEL_I_PORT="$PORT" MYCEL_I_TLS="$TLS_PORT" \
 MYCEL_I_AGT_UID="$AGT_UID" MYCEL_I_ENGINE="${ENGINE_CMDS[0]}" "$BUN" -e '
 const fs = require("fs"), e = process.env, b = e.MYCEL_I_BASE
-let old = {}; try { old = JSON.parse(fs.readFileSync(e.MYCEL_I_CFG, "utf8")) } catch {}
+let old = {}; try { old = JSON.parse(fs.readFileSync(e.MYCEL_I_OLD, "utf8")) } catch {}
+if (!old || typeof old !== "object" || Array.isArray(old)) old = {}
 const cfg = {
   ...old,
   mode: "prod",
@@ -260,23 +301,24 @@ const cfg = {
   relay: old.relay ?? { url: null, teamName: null },
   update: old.update ?? { channel: "stable", feedUrl: null },
 }
-fs.writeFileSync(e.MYCEL_I_CFG + ".tmp", JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 })
-fs.renameSync(e.MYCEL_I_CFG + ".tmp", e.MYCEL_I_CFG)
+fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 })
 ' || die "writing $CFG failed"
-chown "$SRV_USER:$SRV_GRP" "$CFG"; chmod 600 "$CFG"
+put "$ITMP/server.json" "$SRV_USER" "$SRV_GRP" 600 "$CFG"
 
 # ---- one-time setup code (fresh install only): the menubar app reads setup/code, the server data/setup-token ----
 if [ ! -f "$BASE/data/app.db" ] && [ ! -f "$BASE/setup/code" ]; then
   CODE=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=\n')
-  printf '%s\n' "$CODE" > "$BASE/setup/code"; chown "$SRV_USER:admin" "$BASE/setup/code"; chmod 640 "$BASE/setup/code"
-  printf '%s\n' "$CODE" > "$BASE/data/setup-token"; chown "$SRV_USER:$SRV_GRP" "$BASE/data/setup-token"; chmod 600 "$BASE/data/setup-token"
+  (umask 077 && printf '%s\n' "$CODE" > "$ITMP/code")
+  put "$ITMP/code" "$SRV_USER" admin 640 "$BASE/setup/code"
+  put "$ITMP/code" "$SRV_USER" "$SRV_GRP" 600 "$BASE/data/setup-token"
+  rm -f "$ITMP/code"
   unset CODE
 fi
 
 # ---- LaunchDaemons ----
 xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 args_xml() { local a; for a in "$@"; do printf '    <string>%s</string>\n' "$(xml "$a")"; done; }
-BOOT_ARGS=("$BASE/root/mycel-bootstrap" --app "$BASE/app" --config "$CFG" --update-log "$LOGS/update.log")
+BOOT_ARGS=("$BASE/root/mycel-bootstrap" --app "$BASE/app" --config "$CFG" --update-log "$LOGS/server/update.log")
 [ "$ALLOW_UNSIGNED" = 1 ] && BOOT_ARGS+=(--allow-unsigned)
 LAUNCH_ARGS=("$BASE/root/mycel-launcher" --listen "$BASE/run-launcher/launcher.sock" --mode 0660 --agent-root "$BASE/agent"
   --bridge "$BASE/app/current/native/mycel-bridge" --tools-sock "$BASE/run/tools/tools.sock" --server-uid "$SRV_UID"
