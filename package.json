@@ -14,6 +14,7 @@
     "dev": "bun run scripts/dev.ts",
     "dev:server": "bun --watch server/src/main.ts",
     "start:server": "bun server/src/main.ts",
+    "admin": "bun server/src/auth/cli.ts",
     "build:native": "bash native/build.sh",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
     "test": "bun test tests/unit",
