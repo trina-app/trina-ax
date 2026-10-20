@@ -79,7 +79,7 @@ export function saveVersion(db: Database, root: string, rel: string, bytes: Uint
   const storage = storeBlob(root, 'history', bytes)
   const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(rel) as any).v
   db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, storage_path) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(newId('fv_'), rel, v, sha256(bytes), bytes.length, by.userId, by.turnId, kind, storage)
+    .run(newId(), rel, v, sha256(bytes), bytes.length, by.userId, by.turnId, kind, storage)
 }
 
 export function fileEvent(db: Database, e: { turnId: string | null; userId: string; path: string; action: string; size?: number; sha256?: string; detail?: unknown }) {
@@ -103,7 +103,7 @@ export function moveToTrash(db: Database, root: string, segs: string[], by: { us
   verifyChain(root, segs)
   const storage = storeBlob(root, 'trash', bytes)
   fs.unlinkSync(abs)
-  const id = newId('tr_')
+  const id = newId()
   const purge = new Date(Date.now() + 30 * 86400_000).toISOString()
   db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at) VALUES (?,?,?,?,?,?,?)')
     .run(id, segs.join('/'), storage, bytes.length, by.userId, by.turnId, purge)

@@ -7,6 +7,8 @@
   "dependencies": {
     "@mycel/server": "workspace:*",
     "@mycel/shared": "workspace:*",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "4.6.7",
+    "hono": "4.13.13"
   }
 }

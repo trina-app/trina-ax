@@ -56,7 +56,7 @@ export class TurnRunner {
     const chat = db.query('SELECT * FROM chats WHERE id = ?').get(req.chatId) as any
     if (chat.user_id !== req.userId) throw new Error('chat belongs to another user')
     const historyText = this.history(req.chatId)
-    db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?,?,?,?, 'done')").run(newId('m_'), req.chatId, 'user', req.message)
+    db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?,?,?,?, 'done')").run(newId(), req.chatId, 'user', req.message)
     const { turn, token } = turns.create(req.userId, req.chatId, req.engine, req.model ?? null)
     const chatDir = path.join(cfg.agentRoot, req.chatId)
     const systemPrompt = buildSystemPrompt(files, user)
@@ -71,7 +71,7 @@ export class TurnRunner {
       revokeProxyTokens(db, turn.id)
       // in proxy mode the proxy already counted usage itself (authoritative); engine-reported numbers only fill in otherwise
       db.query('UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ? WHERE id = ? AND input_tokens = 0 AND output_tokens = 0').run(sum.i, sum.o, sum.c, turn.id)
-      db.query('INSERT INTO messages (id, chat_id, role, content, status, error, steps) VALUES (?,?,?,?,?,?,?)').run(newId('m_'), req.chatId, 'assistant', res.text,
+      db.query('INSERT INTO messages (id, chat_id, role, content, status, error, steps) VALUES (?,?,?,?,?,?,?)').run(newId(), req.chatId, 'assistant', res.text,
         res.error ? 'error' : 'done', res.error?.message ?? null, JSON.stringify(res.events.filter((e) => e.type === 'tool_start').map((e: any) => e.name)))
       db.query('UPDATE chats SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.chatId)
     }

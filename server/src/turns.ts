@@ -2,6 +2,7 @@
 // turn's engine process group (checked with the peer credentials the gate stamps on each connection).
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
+import { uuidv7 } from '@mycel/shared'
 import { TurnFiles } from './files/service'
 
 export interface Peer { pid: number; uid: number; gid: number; pgid: number; sid: number }
@@ -24,7 +25,7 @@ export class TurnRegistry {
   constructor(private db: Database, private agentUid: number) {}
 
   create(userId: string, chatId: string, engine = 'claude-code', model: string | null = null): { turn: Turn; token: string } {
-    const id = 't_' + crypto.randomBytes(9).toString('base64url')
+    const id = uuidv7()
     const token = crypto.randomBytes(32).toString('base64url')
     const turn: Turn = { id, userId, chatId, tokenHash: h(token), files: new TurnFiles(), pgid: null, revoked: false, waiters: [] }
     this.byId.set(id, turn); this.byHash.set(turn.tokenHash, turn)

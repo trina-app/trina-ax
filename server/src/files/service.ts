@@ -202,7 +202,7 @@ export class FileService {
     const copyRel = copy.join('/')
     const v = (this.db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(rel) as any).v
     this.db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(newId('fv_'), rel, v, sha256(data), data.length, ctx.user.id, ctx.turnId, 'conflict_copy', copyRel, null)
+      .run(newId(), rel, v, sha256(data), data.length, ctx.user.id, ctx.turnId, 'conflict_copy', copyRel, null)
     const last = this.db.query("SELECT e.user_id, u.name FROM file_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.path = ? AND e.action IN ('update','create') ORDER BY e.id DESC LIMIT 1").get(rel) as any
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null } })
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: rel } })
