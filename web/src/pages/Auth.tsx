@@ -62,7 +62,6 @@ export function Login() {
   const signedIn = useSession((s) => s.signedIn)
   const status = useSession((s) => s.status)
   const navigate = useNavigate()
-  const [params] = useSearchParams()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const { busy, error, run } = useSubmit()
@@ -72,8 +71,8 @@ export function Login() {
     void run(async () => {
       const r = await api.call(API.login, { body: { username: username.trim(), password, client: 'web', tokenMode: 'cookie' } })
       signedIn(r.me)
-      const next = params.get('next')
-      navigate(r.me.user.mustChangePassword ? '/password' : next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true })
+      // the router sends a signed-in person on /login to ?next= (App.tsx AfterSignIn), or to /password
+      if (r.me.user.mustChangePassword) navigate('/password', { replace: true })
     })
   }
   return (

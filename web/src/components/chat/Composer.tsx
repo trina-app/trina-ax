@@ -104,7 +104,7 @@ export default function Composer({
   }, [text])
 
   useEffect(() => {
-    if (autoFocus && window.matchMedia?.('(pointer: fine)').matches) taRef.current?.focus()
+    if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
   }, [autoFocus])
 
   const update = (id: string, patch: Partial<Pending>) => setFiles((p) => p.map((f) => (f.id === id ? { ...f, ...patch } : f)))

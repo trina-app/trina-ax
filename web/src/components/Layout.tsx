@@ -38,7 +38,7 @@ export default function Layout() {
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         navigate('/')
-      } else if (e.key === 'Escape' && !document.querySelector('[role="dialog"]')) {
+      } else if (e.key === 'Escape' && !document.querySelector('[role="dialog"]:not([data-drawer])')) {
         if (useUi.getState().drawerOpen) setDrawer(false)
         else closeSidePanel()
       }
@@ -74,7 +74,7 @@ export default function Layout() {
           <Sidebar />
         </div>
         {drawer && (
-          <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')}>
+          <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer>
             <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
             <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs shadow-xl">
               <Sidebar />

@@ -5,7 +5,7 @@ import { Activity, Cpu, FolderLock, Gauge, ScrollText, Settings2, Users, UsersRo
 import { lazy, Suspense } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
-import { isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { PageHeader, Spinner } from '../../components/ui'
 
 const Members = lazy(() => import('./Members'))
@@ -32,6 +32,7 @@ export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
   const { section } = useParams()
+  if (!isAdmin(me)) return <Navigate to="/" replace />
   if (!section) return <Navigate to="/admin/members" replace />
   const visible = SECTIONS.filter((s) => !s.ownerOnly || isOwner(me))
   if (!visible.some((s) => s.id === section)) return <Navigate to="/admin/members" replace />

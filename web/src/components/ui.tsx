@@ -2,7 +2,7 @@
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
 import { Check, Copy, Loader2, X } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
@@ -42,14 +42,29 @@ export function IconButton({ label, className, children, ...props }: ButtonHTMLA
 export const inputCls =
   'h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-line-strong focus:ring-2 focus:ring-accent/25 disabled:opacity-60 max-sm:min-h-10'
 
+/** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
+ * tied to the control with aria-describedby. */
 export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }) {
+  const id = useId()
+  const note = error || hint
+  const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[13px] font-medium text-ink">{label}</span>
-      {children}
-      {hint && !error && <span className="mt-1 block text-xs text-faint">{hint}</span>}
-      {error && <span role="alert" className="mt-1 block text-xs text-danger">{error}</span>}
-    </label>
+    <div className="block">
+      <label className="block">
+        <span className="mb-1.5 block text-[13px] font-medium text-ink">{label}</span>
+        {control}
+      </label>
+      {hint && !error && (
+        <span id={id} className="mt-1 block text-xs text-faint">
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span id={id} role="alert" className="mt-1 block text-xs text-danger">
+          {error}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -117,6 +132,9 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutr
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'
 
 /** Keep Tab inside `ref` while open; Esc calls onClose; focus returns to the opener on close. */
+/** Open dialogs, innermost last: only the top one handles Esc / Tab / focus (a prompt over a picker, …). */
+const trapStack: HTMLElement[] = []
+
 export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
@@ -125,8 +143,11 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     const prev = document.activeElement as HTMLElement | null
     const el = ref.current
     const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE)
+    if (el) trapStack.push(el) // before focusing, so the dialog below doesn't pull focus back
     ;(first ?? el)?.focus()
+    const onTop = () => !!el && trapStack[trapStack.length - 1] === el
     const onKey = (e: KeyboardEvent) => {
+      if (!onTop()) return
       if (e.key === 'Escape') {
         e.stopPropagation()
         closeRef.current()
@@ -145,9 +166,17 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
         a.focus()
       }
     }
+    // something behind the dialog grabbing focus (an autofocus effect) gets it sent back
+    const onFocusIn = (e: FocusEvent) => {
+      if (onTop() && el && e.target instanceof Node && !el.contains(e.target)) (first ?? el).focus()
+    }
     document.addEventListener('keydown', onKey, true)
+    document.addEventListener('focusin', onFocusIn)
     return () => {
       document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('focusin', onFocusIn)
+      const i = el ? trapStack.lastIndexOf(el) : -1
+      if (i >= 0) trapStack.splice(i, 1)
       prev?.focus?.()
     }
   }, [open, ref])

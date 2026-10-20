@@ -3,9 +3,11 @@ import { Component, useEffect, useState, type ReactNode } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/TextLayer.css'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
+// the worker ships as its own hashed file from this server (worker-src 'self')
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useT } from '../../i18n'
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
+pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 export default function PdfView({ blob, width }: { blob: Blob; width: number }) {
   const t = useT()

@@ -102,7 +102,7 @@ function Gate() {
           <Route path="admin/:section" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
         </Route>
-        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<AfterSignIn />} />
         <Route path="/setup" element={<Navigate to="/" replace />} />
         <Route path="/password" element={<Navigate to="/" replace />} />
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
@@ -122,4 +122,11 @@ export default function App() {
       </AnnounceProvider>
     </BrowserRouter>
   )
+}
+
+/** Signed in while on /login: go where the person was heading (?next=, same-site paths only). */
+function AfterSignIn() {
+  const location = useLocation()
+  const next = new URLSearchParams(location.search).get('next')
+  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/'} replace />
 }

@@ -85,7 +85,8 @@
   --color-code-ink: var(--c-code-ink);
 }
 
-html, body, #root { height: 100%; }
+html, body { height: 100%; }
+#root { height: var(--app-h, 100dvh); }
 body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased; }
 ::selection { background: var(--c-accent-soft); }
 
