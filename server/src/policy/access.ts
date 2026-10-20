@@ -40,6 +40,9 @@ export class RuleSet {
     // owner and admin included, and rules there are ignored (the admin API refuses them; a moved folder or a
     // restored backup could still bring one in).
     if (segs[0] === 'users' && segs.length >= 2) return segs[1] === p.id ? 'write' : 'none'
+    // users/ itself only holds the personal folders: nobody writes there directly (no files beside the folders, no
+    // folder for a person who does not exist yet, no renaming or trashing the whole tree)
+    if (segs.length === 1 && segs[0] === 'users') return 'read'
     if (p.role === 'owner' || p.role === 'admin') return 'write' // everything else
     for (let len = segs.length; len >= 0; len--) {
       const rules = this.byPath.get(segs.slice(0, len).join('/'))

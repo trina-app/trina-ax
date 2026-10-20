@@ -28,7 +28,7 @@ const RULES: R[] = [
   ['projects/y', 'role', 'member', 'read'],
   ['projects/y', 'everyone', null, 'write'], // role beats everyone
   ['users/leo', 'everyone', null, 'write'], // ignored: rules under users/ never apply
-  ['users', 'everyone', null, 'write'], // a rule on users/ itself does not open users/<id>/
+  ['users', 'everyone', null, 'write'], // ignored too: users/ itself is read-only and never opens users/<id>/
 ]
 const P: Record<string, Principal> = {
   olga: { id: 'olga', name: 'Olga', role: 'owner', groups: [] },
@@ -43,7 +43,7 @@ const TABLE: [string, string, Access][] = [
   ['olga', 'groups/sales/plan.md', 'write'], ['olga', 'users/olga/a.md', 'write'], ['olga', 'users/leo/a.md', 'none'], ['olga', '.system/history/x', 'none'],
   ['adam', 'groups/ops', 'write'], ['adam', 'skills/rules.md', 'write'], ['adam', 'users/leo', 'none'], ['adam', 'users/adam/x', 'write'],
   // root everyone read reaches plain folders, never personal ones
-  ['nobody', 'readme.md', 'read'], ['nobody', 'users/leo/a.md', 'none'], ['nobody', 'users', 'write'], ['nobody', 'users/nobody/x', 'write'],
+  ['nobody', 'readme.md', 'read'], ['nobody', 'users/leo/a.md', 'none'], ['nobody', 'users', 'read'], ['olga', 'users', 'read'], ['nobody', 'users/nobody/x', 'write'],
   ['leo', 'users/leo/a.md', 'write'], ['mia', 'users/leo/a.md', 'none'],
   // deepest folder with a rule that applies to the person
   ['leo', 'groups/sales/plan.md', 'write'], ['leo', 'groups/sales/archive/old.md', 'read'], ['nobody', 'groups/sales/plan.md', 'none'],
