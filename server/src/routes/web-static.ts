@@ -17,11 +17,13 @@ export function appCsp(host: string | null): string {
   const ws = host && /^[A-Za-z0-9.\-:[\]]+$/.test(host) ? ` wss://${host} ws://${host}` : ''
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' data: blob:",
+    // 'wasm-unsafe-eval' lets the page compile WebAssembly (sha256 of large uploads) — not JavaScript eval
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' data: blob:",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self'${ws}`,
+    // blob: = files the page itself already holds (pdf.js reads the preview's blob URL from its worker)
+    `connect-src 'self' blob:${ws}`,
     "media-src 'self' data: blob:",
     "worker-src 'self' blob:",
     "frame-src 'self' blob:",

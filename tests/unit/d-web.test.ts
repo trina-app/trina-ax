@@ -70,9 +70,9 @@ describe('web app serving', () => {
       const csp = r.headers.get('content-security-policy')!
       expect(csp).toContain("frame-ancestors 'none'")
       expect(csp).toContain("img-src 'self' data: blob:")
-      expect(csp).toContain('connect-src \'self\' wss://acme.localhost ws://acme.localhost')
+      expect(csp).toContain("connect-src 'self' blob: wss://acme.localhost ws://acme.localhost")
       expect(csp).toContain("frame-src 'self' blob:")
-      expect(csp).not.toContain('unsafe-eval')
+      expect(csp).not.toContain("'unsafe-eval'")
       expect(r.headers.get('x-frame-options')).toBe('DENY')
     }
   })
@@ -131,6 +131,6 @@ describe('web app serving', () => {
   })
   test('the CSP never puts a hostile Host header into the policy', () => {
     expect(appCsp('evil.example; script-src *')).not.toContain('evil')
-    expect(appCsp(null)).toContain("connect-src 'self';")
+    expect(appCsp(null)).toContain("connect-src 'self' blob:;")
   })
 })
