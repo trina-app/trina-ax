@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { uuidv7, type BrowserCall, type ClientFrame, type Job } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, uuidv7, type BrowserCall, type ClientFrame, type Job } from '@mycel/shared/api'
 import type { DesktopBridge } from '@mycel/shared'
 import { BrowserRelay, NO_PANE_ERROR } from '../../src/lib/browserRelay'
 import { dateBucket, formatRelative, formatSize } from '../../src/lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../../src/lib/paths'
 import { iconKind, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
-import { PreviewTooLargeError, readBounded } from '../../src/lib/api'
+import { errorText, PreviewTooLargeError, readBounded } from '../../src/lib/api'
 import { safeHref } from '../../src/lib/safeLinks'
 import { useJobs, waitForJob } from '../../src/store/jobs'
 
@@ -215,5 +215,16 @@ describe('local data per person', () => {
     s.setItem('mycel.theme', 'dark')
     clearLocalData(s)
     expect([...s.m.keys()]).toEqual(['mycel.theme'])
+  })
+})
+
+describe('errorText', () => {
+  const validation = (message: string, fields: Record<string, string>) => new ApiError(400, { code: 'validation', message, fields } as never)
+  test('a specific server message is shown as is; the English field detail is not appended', () => {
+    expect(errorText(validation('더 안전한 비밀번호를 정해 주세요. 아이디가 들어간 비밀번호는 쓸 수 없습니다.', { 'body.password': 'must not contain the username' }), 'ko', 'net')).toBe('더 안전한 비밀번호를 정해 주세요. 아이디가 들어간 비밀번호는 쓸 수 없습니다.')
+  })
+  test('the default validation message follows the UI language and names the field problem', () => {
+    const e = validation(ERROR_MESSAGES.validation!.en, { 'body.name': 'too long' })
+    expect(errorText(e, 'ko', 'net')).toBe(`${ERROR_MESSAGES.validation!.ko} (too long)`)
   })
 })

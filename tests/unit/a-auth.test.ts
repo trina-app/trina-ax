@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwords'
+import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 describe('first-run setup', () => {
@@ -207,6 +208,12 @@ describe('password change and forced change', () => {
     expect(passwordProblem('correct horse battery')).toBeNull()
     expect(new Set(Array.from({ length: 50 }, temporaryPassword)).size).toBe(50)
     for (let i = 0; i < 20; i++) expect(passwordProblem(temporaryPassword())).toBeNull()
+  })
+  test('weak password messages say why, in the person\'s language', () => {
+    expect(weakPasswordMessage('must not contain the username', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 아이디가 들어간 비밀번호는 쓸 수 없습니다.')
+    expect(weakPasswordMessage('at least 10 characters', 'en')).toBe('Please choose a stronger password. Use at least 10 characters.')
+    expect(weakPasswordMessage('something new', 'id')).toBe('Pilih kata sandi yang lebih kuat.')
+    for (const pw of ['short', 'qwertyuiop', 'aaaaaaaaaaaa', 'abcabcabcabc']) expect(weakPasswordMessage(passwordProblem(pw)!, 'ko')).not.toBe('더 안전한 비밀번호를 정해 주세요.')
   })
 })
 

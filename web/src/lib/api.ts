@@ -56,12 +56,14 @@ export const isApiError = (e: unknown, code?: ErrorCode): e is ApiError => e ins
 export function errorText(e: unknown, locale: Locale, networkText: string): string {
   if (e instanceof ApiError) {
     const known = ERROR_MESSAGES[e.code]
+    // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones follow the UI language
+    const isDefault = known && Object.values(known).includes(e.message)
     if (e.code === 'validation' && e.body.fields) {
+      // a specific message is already in the person's language; the field detail is for developers (English)
+      if (e.message && !isDefault) return e.message
       const first = Object.values(e.body.fields)[0]
       return first ? `${known?.[locale] ?? e.message} (${first})` : known?.[locale] ?? e.message
     }
-    // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones follow the UI language
-    const isDefault = known && Object.values(known).includes(e.message)
     return isDefault ? known[locale] : e.message || known?.[locale] || String(e.status)
   }
   if (isNetworkError(e)) return networkText

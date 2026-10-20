@@ -30,3 +30,19 @@ const M = {
 
 export type MessageKey = keyof typeof M
 export const msg = (key: MessageKey, locale: Locale): string => M[key][locale] ?? M[key].ko
+
+/** Localized reasons of passwordProblem() (its English strings stay the API's `fields` detail). */
+const PASSWORD_REASONS: Record<string, Record<Locale, string>> = {
+  'at least 10 characters': { ko: '10자 이상이어야 합니다.', en: 'Use at least 10 characters.', id: 'Gunakan minimal 10 karakter.' },
+  'at most 256 characters': { ko: '256자를 넘을 수 없습니다.', en: 'Use at most 256 characters.', id: 'Gunakan paling banyak 256 karakter.' },
+  'this password is too common': { ko: '너무 흔한 비밀번호입니다.', en: 'This password is too common.', id: 'Kata sandi ini terlalu umum.' },
+  'use more different characters': { ko: '더 다양한 글자를 섞어 주세요.', en: 'Use more different characters.', id: 'Gunakan lebih banyak karakter yang berbeda.' },
+  'avoid repeated patterns': { ko: '같은 글자 묶음을 반복하지 마세요.', en: 'Avoid repeated patterns.', id: 'Hindari pola yang berulang.' },
+  'must not contain the username': { ko: '아이디가 들어간 비밀번호는 쓸 수 없습니다.', en: 'The password must not contain the username.', id: 'Kata sandi tidak boleh memuat nama pengguna.' },
+}
+
+/** "Please choose a stronger password. <why>" in the person's language. */
+export function weakPasswordMessage(reason: string, locale: Locale): string {
+  const why = PASSWORD_REASONS[reason]
+  return why ? `${msg('weakPassword', locale)} ${why[locale] ?? why.ko}` : msg('weakPassword', locale)
+}

@@ -16,7 +16,7 @@ import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { createDefaultFolders } from '../admin/folders'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
-import { msg } from './messages'
+import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, tokenIpKeys } from './rate-limit'
 import { authOf } from './service'
@@ -35,7 +35,7 @@ export function linkBase(c: Context<AppEnv>, ctx: AppContext): string {
 
 function checkNewPassword(pw: string, username: string | null, locale: Locale, field: string): void {
   const p = passwordProblem(pw, { username })
-  if (p) fail('validation', msg('weakPassword', locale), { fields: { [field]: p } })
+  if (p) fail('validation', weakPasswordMessage(p, locale), { fields: { [field]: p } })
 }
 
 /** Count an unknown/invalid token against the caller's IP and refuse while over the limit. */
