@@ -69,7 +69,7 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     async call(args) {
       const r = await t.call(args, toolContext(exec))
-      return { content: r.content, isError: r.isError }
+      return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
 }

@@ -240,6 +240,7 @@ describe('app review fixes', () => {
   test('remember in a chat whose message had attachments asks first; declined shows "Not remembered"', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const att: Attachment = { id: uuidv7(), name: 'cv.pdf', path: `users/alice/.attachments/${chat.id}/cv.pdf`, size: 10, mime: 'application/pdf', kind: 'pdf' } as Attachment
+    const savedStore = h.ctx.services.attachments
     h.ctx.services.attachments = { get: (_u, _c, ids) => ids.filter((i) => i === att.id).map(() => att) }
     try {
       const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'remember', args: { text: 'Is a senior engineer' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [att.id] } })
@@ -248,7 +249,7 @@ describe('app review fixes', () => {
       const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
       expect(d.data.message.content).toContain('did not confirm')
       expect(d.data.message.steps.find((s) => s.tool === 'remember')?.label).toBe('Not remembered: Is a senior engineer')
-    } finally { h.ctx.services.attachments = null }
+    } finally { h.ctx.services.attachments = savedStore }
   })
 
   test('reading the own attachment folder taints the chat too', async () => {

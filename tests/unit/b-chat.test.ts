@@ -261,6 +261,7 @@ describe('tools', () => {
   })
 
   test('tools offered to a web turn: file tools + remember / forget / ask_user (+ registered tools), no browser tools', async () => {
+    const savedTools = h.ctx.services.turnTools
     h.ctx.services.turnTools = [{
       name: 'web_fetch', description: 'test tool', inputSchema: { type: 'object', properties: { url: { type: 'string' } } },
       async call(args, t) { return { content: [{ type: 'text', text: `fetched ${(args as { url: string }).url} for ${t.userId} in ${t.chatId}` }] } },
@@ -272,7 +273,7 @@ describe('tools', () => {
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])
-    } finally { h.ctx.services.turnTools = [] }
+    } finally { h.ctx.services.turnTools = savedTools }
   })
 
   test('ask_user: card to every window, listed for reloads, answered once, then closed', async () => {
@@ -413,6 +414,7 @@ describe('attachments', () => {
     const att: Attachment = { id: uuidv7(), name: 'brief.md', path: `users/alice/.attachments/${chat.id}/brief.md`, size: 12, mime: 'text/markdown', kind: 'text' }
     fs.mkdirSync(path.join(h.team, 'users/alice/.attachments', chat.id), { recursive: true })
     fs.writeFileSync(path.join(h.team, att.path), 'brief: hello')
+    const savedStore = h.ctx.services.attachments
     h.ctx.services.attachments = { get: (u, c, ids) => (u === 'alice' && c === chat.id ? ids.filter((i) => i === att.id).map(() => att) : []) }
     try {
       const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ echo: 'message' }, { tool: 'read', args: { file_path: att.path }, sayResult: true }), clientMessageId: cm(), attachmentIds: [att.id] } })
@@ -422,7 +424,7 @@ describe('attachments', () => {
       expect(d.data.message.content).toContain('brief: hello')
       const bad = await h.req('alice', `/api/chats/${chat.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'x', clientMessageId: cm(), attachmentIds: [uuidv7()] }) })
       expect(bad.status).toBe(400)
-    } finally { h.ctx.services.attachments = null }
+    } finally { h.ctx.services.attachments = savedStore }
   })
 })
 

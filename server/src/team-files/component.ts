@@ -88,6 +88,8 @@ export function componentC(ctx: AppContext): ComponentC {
   ctx.files.events.on('changed', (e: { path: string; action: 'create' | 'update'; userId: string; userName: string; turnId: string | null }) => {
     publishChanges(ctx, [{ path: e.path, action: e.action, by: { id: e.userId, name: e.userName }, turnId: e.turnId }])
   })
+  // B reads a message's attachments back by id through this service (services.ts AttachmentStore)
+  ctx.services.attachments = { get: (userId, chatId, ids) => attachments.byIds(userId, chatId, ids) }
   instances.set(ctx, c)
   return c
 }

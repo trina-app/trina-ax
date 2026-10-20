@@ -80,7 +80,12 @@ export interface TurnToolContext {
   files: import('./files/service').ToolCtx
 }
 export type TurnToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
-export interface TurnToolResult { content: TurnToolContent[]; isError?: boolean }
+export interface TurnToolResult {
+  content: TurnToolContent[]
+  isError?: boolean
+  /** audit line for tool_events.summary (default: "<name> -> ok|error") */
+  summary?: string
+}
 /**
  * A tool the engine can call besides the six file tools (as mcp__team__<name>). C registers make_file,
  * share_file, artifact, web_fetch; B registers remember, forget, ask_user and the browser tools.

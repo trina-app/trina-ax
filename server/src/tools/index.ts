@@ -28,6 +28,19 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
   const reg = toolRegistry(ctx.files)
   if (reg.has('make_file')) return
   const c = componentC(ctx)
+  // chat turns (component B) offer ctx.services.turnTools: each C tool goes there too, run through the registry
+  // with the turn's file-tool context (same input checks, error mapping and audit summary as the MCP path)
+  const turnTools = (ctx.services.turnTools ??= [])
+  const exposeToTurns = (name: string) => {
+    const entry = reg.list().find((t) => t.name === name)!
+    turnTools.push({
+      name, description: entry.description, inputSchema: entry.inputSchema,
+      async call(args, t) {
+        const r = await reg.call(name, args, t.files)
+        return { content: [{ type: 'text', text: r.text }], ...(r.isError ? { isError: true } : {}), summary: r.summary }
+      },
+    })
+  }
 
   reg.register({
     name: 'make_file',
@@ -88,4 +101,5 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
       return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
     },
   })
+  for (const name of C_TOOL_NAMES) exposeToTurns(name)
 }
