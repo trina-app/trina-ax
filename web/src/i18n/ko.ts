@@ -187,6 +187,7 @@ export const ko = {
   'ask.ownAnswer': '직접 답하기',
   'ask.orType': '또는 직접 입력하세요',
   'ask.typeAnswer': '답을 입력하세요',
+  'ask.noSecrets': '비밀번호·인증 코드는 AI에게 알려 주지 마세요.',
   'ask.skip': '건너뛰기',
   'ask.send': '답하기',
   'ask.siteTitle': '사내 주소를 열려고 해요',

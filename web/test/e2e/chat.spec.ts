@@ -98,6 +98,8 @@ test('ask_user card: pick an option, the answer continues', async ({ page }) => 
   await ask(page, 'please ask me something')
   const card = page.getByTestId('ask-card')
   await expect(card).toContainText('어느 분기를 볼까요?')
+  // a free-text answer goes to the AI: the card always says not to type secrets there
+  await expect(card.getByTestId('ask-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
   await card.getByLabel('4분기').check()
   await card.getByRole('button', { name: '답하기' }).click()
   await expect(card).toHaveCount(0)
@@ -109,7 +111,7 @@ test('an error answer offers retry', async ({ page }) => {
   await signIn(page)
   await ask(page, 'cause an error')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
-  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('AI 엔진을 사용할 수 없습니다')
+  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요')
 })
 
 test('attachments: an image is uploaded right away and shown as a thumbnail', async ({ page }) => {

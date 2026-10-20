@@ -189,6 +189,7 @@ export const en: Record<MessageKey, string> = {
   'ask.ownAnswer': 'Your answer',
   'ask.orType': 'Or type your own answer',
   'ask.typeAnswer': 'Type your answer',
+  'ask.noSecrets': 'Don\'t give the AI passwords or verification codes.',
   'ask.skip': 'Skip',
   'ask.send': 'Answer',
   'ask.siteTitle': 'Opening an office address',
