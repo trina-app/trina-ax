@@ -126,7 +126,13 @@ export async function* tarStream(entries: AsyncIterable<TarEntryInput> | Iterabl
         const want = Math.min(CHUNK, size - done)
         const buf = new Uint8Array(want)
         const { bytesRead } = await fh.read(buf, 0, want, done)
-        if (bytesRead === 0) { short = true; yield new Uint8Array(size - done); done = size; break }
+        if (bytesRead === 0) {
+          // the file shrank (a log truncated during the backup): fill up to the size in the header, in pieces, so
+          // a file that lost gigabytes does not become one allocation of that size
+          short = true
+          while (done < size) { const n = Math.min(CHUNK, size - done); yield new Uint8Array(n); done += n }
+          break
+        }
         yield bytesRead === want ? buf : buf.subarray(0, bytesRead)
         done += bytesRead
       }
