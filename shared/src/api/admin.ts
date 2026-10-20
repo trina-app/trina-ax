@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, IsoTime, Locale, PageQuery, RelPath, Role, UserStatus, page } from './common'
+import { Access, EngineId, IsoTime, Locale, Ok, PageQuery, RelPath, Role, UserStatus, page } from './common'
 import { endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, TeamSettings, User, UserRef } from './entities'
 import { PersonName, Username } from './auth'
@@ -30,12 +30,20 @@ export const UpdateUserBody = z.object({
   locale: Locale.optional(),
 })
 export const ResetPasswordResult = z.object({ temporaryPassword: z.string() })
+/** One-time reset link (24 h, no mail in v1: the admin hands it over). The token is shown only here. */
+export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), expiresAt: IsoTime })
+/** What happens to the personal folder users/<id>/ of a deleted member (tab 5): moved into the owner's personal
+ * folder (only the owner sees it), or deleted together with the account. */
+export const DeleteUserQuery = z.object({ personalFolder: z.enum(['transfer', 'delete']).default('transfer') })
+/** Hand the owner role to another active member (the old owner becomes admin). */
+export const TransferOwnershipBody = z.object({ userId: UserId, password: z.string().min(1).max(256) })
 
 // ---------------- invites ----------------
 export const CreateInviteBody = z.object({
   role: Role.exclude(['owner']).default('member'),
   groupIds: z.array(Uuid7).default([]),
-  expiresInHours: z.number().int().min(1).max(24 * 30).default(72),
+  /** default 7 days (tab 1, tab 5) */
+  expiresInHours: z.number().int().min(1).max(24 * 30).default(24 * 7),
 })
 /** No mail in v1: the admin copies the link. The token is shown only here. */
 export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: z.string() })
@@ -131,8 +139,10 @@ export const ADMIN = {
   listUsers: endpoint({ method: 'GET', path: '/api/admin/users', auth: 'admin', owner: 'A', response: z.object({ items: z.array(User) }), summary: 'All members.' }),
   createUser: endpoint({ method: 'POST', path: '/api/admin/users', auth: 'admin', owner: 'A', status: 201, body: CreateUserBody, response: CreatedUser, summary: 'Add a member with a temporary password (alternative to an invite).' }),
   updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins.' }),
-  deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove a member (their personal folder stays for the owner to handle).' }),
+  deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, response: empty, status: 204, summary: 'Remove a member: sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', response: ResetPasswordResult, summary: 'Temporary password; the person is notified and must change it; audited.' }),
+  createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
+  transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: Ok, summary: 'Make another member the owner (password re-entry); the old owner becomes admin.' }),
 
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
   createInvite: endpoint({ method: 'POST', path: '/api/admin/invites', auth: 'admin', owner: 'A', status: 201, body: CreateInviteBody, response: CreatedInvite, summary: 'New invite link (copy it; no mail in v1).' }),

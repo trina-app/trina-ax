@@ -136,5 +136,5 @@ export const EXPECTED: [string, string, 'none' | 'read' | 'write'][] = [
   ['erin', 'groups/marketing/campaign-brief.md', 'write'], ['erin', 'projects/falcon/plan.md', 'none'], ['erin', 'projects/falcon/public/announcement.md', 'read'],
   ['carol', 'groups/finance/budget.md', 'write'], ['carol', 'skills/team-rules.md', 'write'], ['carol', 'users/bob/notes.md', 'none'], ['carol', 'users/carol/x.md', 'write'],
   ['carol', 'groups/marketing/salaries/2026.md', 'write'], ['carol', '.system/history/old.bin', 'none'],
-  ['dana', 'users/bob/notes.md', 'write'], ['dana', 'groups/finance/budget.md', 'write'], ['dana', '.system/history/old.bin', 'none'],
+  ['dana', 'users/bob/notes.md', 'none'], ['dana', 'users/dana/x.md', 'write'], ['dana', 'groups/finance/budget.md', 'write'], ['dana', '.system/history/old.bin', 'none'],
 ]

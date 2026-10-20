@@ -7,6 +7,11 @@ import type { AppContext } from '../context'
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
+/** Request path for logs: one-time secrets in the path (invite and password reset links) are replaced by "***". */
+export function loggablePath(p: string): string {
+  return p.replace(/^(\/api\/(?:invites|password-resets)\/)[^/]+/, '$1***')
+}
+
 /** request id, transport info, logger, default locale. Client-sent X-Forwarded-For / CF-Connecting-IP / X-Real-IP
  * are never read: the real IP comes only from whoever called app.fetch (socket peer or relay OPEN metadata). */
 export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
@@ -22,7 +27,7 @@ export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
     await next()
     c.header('X-Request-Id', requestId)
     const auth = c.get('auth')
-    c.get('log').debug('http', { method: c.req.method, path: c.req.path, status: c.res.status, ms: Math.round(performance.now() - t0), user: auth?.user.id ?? null, via: info.via })
+    c.get('log').debug('http', { method: c.req.method, path: loggablePath(c.req.path), status: c.res.status, ms: Math.round(performance.now() - t0), user: auth?.user.id ?? null, via: info.via })
   }
 }
 
