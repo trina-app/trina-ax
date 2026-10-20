@@ -58,12 +58,20 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
  * For component A (folder rule changes, account changes). Returns the number of chats reset.
  */
 export function resetEngineSessions(ctx: AppContext, userId: string): number {
+  // turns of this person running right now keep their session until they end; they must not store it then
+  runtimes.get(ctx)?.revokeRunningSessions(userId)
   const rows = ctx.db.query('SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').all(userId) as { id: string }[]
   for (const r of rows) {
     ctx.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(r.id)
     fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
   }
   return rows.length
+}
+
+/** A disabled or deleted account: its running and queued turns stop now (they would otherwise go on with the
+ * engine for up to 20 minutes on the owner's subscription; their tool calls are already refused). */
+export function stopTurnsOf(ctx: AppContext, userId: string): number {
+  return runtimes.get(ctx)?.stopUserTurns(userId) ?? 0
 }
 
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
@@ -153,7 +161,20 @@ export class ChatRuntime {
     return i < 0 ? 0 : i + 1
   }
   runningCount() { return this.running.size }
+  /** The person's engine sessions were reset (access shrank) while these turns ran: they end without stashing. */
+  revokeRunningSessions(userId: string): number {
+    let n = 0
+    for (const e of this.running.values()) if (e.spec.userId === userId) { e.sessionRevoked = true; n++ }
+    return n
+  }
   queuedCount() { return this.queued.length }
+  /** Stop every running and queued turn of one person (account disabled / deleted). */
+  stopUserTurns(userId: string): number {
+    const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
+    let n = 0
+    for (const chatId of chats) if (this.stopChat(chatId)) n++
+    return n
+  }
 
   private enqueue(spec: TurnSpec) {
     this.queued.push(spec)

@@ -16,6 +16,7 @@ import { authOf } from '../auth/service'
 import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
 import { afterAccessChange, captureState, resetEngineSessions } from './folders'
+import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings } from './settings'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -106,6 +107,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   })()
   if (changed.status === 'disabled') {
     authOf(ctx).endUserSessions(id, 'disabled')
+    stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
   }
   if (changed.status === 'disabled' || changed.role === 'member') revokeInvitesBy(ctx, id)
@@ -166,6 +168,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ?").run(id)
   })()
   authOf(ctx).endUserSessions(id, 'revoked')
+  stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
   revokeInvitesBy(ctx, id)
   // the account is gone either way; a folder that could not be handled stays where it is (only nobody sees it now)

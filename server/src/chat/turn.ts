@@ -11,6 +11,7 @@ import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary,
 import { buildClaudeLaunch, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, prepareCodexHome, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser } from '../engine/claude-parse'
+import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
 import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
@@ -71,6 +72,8 @@ export class TurnExec {
   /** folders the person allowed to receive content from a narrower read scope, this turn */
   readonly widenAllowed = new Set<string>()
   readonly done: Promise<void>
+  /** the person's sessions were reset while this turn ran (access shrank): the session is not kept at the end */
+  sessionRevoked = false
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -95,6 +98,12 @@ export class TurnExec {
   }
 
   get id() { return this.spec.turnId }
+  /** The person as they are now (role and groups change while a turn runs; tab 2 "권한 회수"). Tools use this, not
+   * the copy taken when the turn started. Throws Denied for a disabled or deleted account. */
+  livePrincipal(): Principal {
+    this.principal = this.rt.files.principal(this.spec.userId)
+    return this.principal
+  }
   get waitingForPerson() { return this.humanWaits > 0 }
 
   // ---------------- lifecycle ----------------
@@ -248,20 +257,19 @@ export class TurnExec {
     const h = core.launcher.launch(lr)
     this.handle = h
     if (this.stopReason) h.kill()
-    let buf = '', stderr = ''
+    // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
+    const out = new Utf8Lines()
+    const err = new Utf8Text(20000)
     let exit: any = null
     for await (const e of h.events) {
       if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
-      else if (e.ev === 'stdout') {
-        buf += Buffer.from(e.b64, 'base64').toString('utf8')
-        let i
-        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onLine(l) }
-      } else if (e.ev === 'stderr') { if (stderr.length < 20000) stderr += Buffer.from(e.b64, 'base64').toString('utf8') }
+      else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
+      else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') exit = e
     }
-    if (buf.trim()) onLine(buf)
+    for (const l of out.end()) if (l.trim()) onLine(l)
     this.handle = null
-    return { exit, stderr }
+    return { exit, stderr: err.text }
   }
 
   // ---------------- engine events -> answer ----------------
@@ -416,11 +424,13 @@ export class TurnExec {
     this.noteReads()
     const fs_ = this.rt.files
     const rules = fs_.rules()
+    // the person as they are now, like the tool call itself (a disabled account throws: the caller fails closed)
+    const me = this.livePrincipal()
     let segs: string[]
-    try { segs = authorize(fs_.fx, rules, this.principal!, target, 'write', { createDirs: true }).segs } catch { return null }
+    try { segs = authorize(fs_.fx, rules, me, target, 'write', { createDirs: true }).segs } catch { return null }
     const extra: ReadSource[] = []
     for (const p of extraSources) {
-      try { extra.push(sourceOf(this.rt.db, rules, authorize(fs_.fx, rules, this.principal!, p, 'read').rel)) } catch { /* the tool reports it */ }
+      try { extra.push(sourceOf(this.rt.db, rules, authorize(fs_.fx, rules, me, p, 'read').rel)) } catch { /* the tool reports it */ }
     }
     const w = widening(this.rt.db, this.spec.chatId, segs, extra)
     if (!w) return null
@@ -514,8 +524,9 @@ export class TurnExec {
   private stashSession(sid: string, b64: string) {
     const bytes = Buffer.from(b64, 'base64')
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))
-    if (bytes.length > SESSION_STASH_MAX) {
-      // too big to keep: the next turn starts a fresh session from the DB history
+    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked) {
+      // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
+      // turn starts a fresh session from the DB history
       fs.rmSync(dir, { recursive: true, force: true })
       this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
       return

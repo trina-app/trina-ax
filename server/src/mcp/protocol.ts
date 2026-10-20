@@ -4,6 +4,7 @@ import { FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
+import { loadPrincipal } from '../policy/access'
 import type { TurnToolSet } from '../turns'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
@@ -29,6 +30,14 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       case 'tools/list': return reply({ tools: [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())] })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
+        // the person as they are now (tab 2 "권한 회수": access that shrank applies from the next tool call): role and
+        // groups are loaded again for every call, and a disabled or deleted account gets nothing
+        const user = loadPrincipal(db, ctx.user.id)
+        if (!user) {
+          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> denied: account disabled`.slice(0, 1000), 0)
+          return reply({ content: [{ type: 'text', text: 'Access denied: this account is disabled.' }], isError: true })
+        }
+        ctx.user = user
         if (extra?.has(name)) {
           const out = await extra.call(name, msg.params?.arguments ?? {}).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
           audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)

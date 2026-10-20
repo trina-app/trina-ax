@@ -12,6 +12,9 @@
 //   Every build knows its SCHEMA_READER_LEVEL; at start it refuses a DB whose applied migrations need a newer
 //   reader (the owner must restore the pre-update backup instead). Default for a migration: 1.
 // - Before applying migrations to a DB that already has data, a copy is made with VACUUM INTO.
+// - Pending migrations are applied together in one transaction that holds the write lock (BEGIN IMMEDIATE): a
+//   process that opens the file at the same moment waits and then finds nothing left to do; a failing migration
+//   leaves the DB exactly as it was.
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -52,7 +55,9 @@ export interface OpenDbOptions {
 export function openDb(file: string, o: OpenDbOptions = {}): Database {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const db = new Database(file, { create: true, strict: true })
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;')
+  // busy_timeout first: switching a new file to WAL needs a moment of exclusive access, and another process may be
+  // opening the same file right now
+  db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;')
   if (file !== ':memory:') try { fs.chmodSync(file, 0o600) } catch {}
   try {
     migrate(db, { ...o, backupDir: file === ':memory:' ? undefined : (o.backupDir ?? path.join(path.dirname(file), 'backups')) })
@@ -64,23 +69,58 @@ export function openDb(file: string, o: OpenDbOptions = {}): Database {
 }
 
 export function migrate(db: Database, o: OpenDbOptions = {}) {
-  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)')
-  const cols = new Set((db.query('PRAGMA table_info(schema_migrations)').all() as { name: string }[]).map((c) => c.name))
-  if (!cols.has('min_compatible_reader')) db.exec('ALTER TABLE schema_migrations ADD COLUMN min_compatible_reader INTEGER NOT NULL DEFAULT 1')
-  checkReadable(db, o.readerLevel ?? SCHEMA_READER_LEVEL)
-
-  const done = new Set((db.query('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version))
-  const pending = readMigrations(o.migrationsDir).filter((m) => !done.has(m.version))
-  if (!pending.length) return
-  if (done.size && o.backupDir) backupBeforeMigrate(db, o.backupDir)
-  for (const m of pending) {
-    db.transaction(() => {
+  const readerLevel = o.readerLevel ?? SCHEMA_READER_LEVEL
+  const all = readMigrations(o.migrationsDir)
+  // A first look without the lock: the copy before migrating (VACUUM INTO) cannot run inside a transaction.
+  const before = appliedVersions(db)
+  if (before && before.size && o.backupDir && all.some((m) => !before.has(m.version))) {
+    checkReadable(db, readerLevel)
+    backupBeforeMigrate(db, o.backupDir)
+  }
+  // Then everything under the database write lock: another process may open the same file at the same moment
+  // (the admin CLI next to a starting server, a restart racing the old process). Without the lock both saw the
+  // same pending list and the second one failed half-way ("duplicate column name") and refused to start.
+  withWriteLock(db, () => {
+    db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)')
+    const cols = new Set((db.query('PRAGMA table_info(schema_migrations)').all() as { name: string }[]).map((c) => c.name))
+    if (!cols.has('min_compatible_reader')) db.exec('ALTER TABLE schema_migrations ADD COLUMN min_compatible_reader INTEGER NOT NULL DEFAULT 1')
+    checkReadable(db, readerLevel)
+    const done = appliedVersions(db)!
+    for (const m of all) {
+      if (done.has(m.version)) continue
       db.exec(m.sql)
       db.query('INSERT INTO schema_migrations (version, name, applied_at, min_compatible_reader) VALUES (?, ?, ?, ?)')
         .run(m.version, m.name, new Date().toISOString(), m.minCompatibleReader)
-    })()
+    }
+    checkReadable(db, readerLevel)
+  })
+}
+
+/** Versions recorded in schema_migrations, or null when the table does not exist yet. */
+function appliedVersions(db: Database): Set<number> | null {
+  if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get()) return null
+  return new Set((db.query('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version))
+}
+
+/** How long a process waits for another one that is migrating the same database. */
+export const MIGRATION_LOCK_WAIT_MS = 120_000
+
+/** Run `fn` in a BEGIN IMMEDIATE transaction (the write lock), waiting while another connection holds it. */
+function withWriteLock(db: Database, fn: () => void, waitMs = MIGRATION_LOCK_WAIT_MS) {
+  const until = Date.now() + waitMs
+  for (;;) {
+    try { db.exec('BEGIN IMMEDIATE'); break } catch (e) {
+      if (!/SQLITE_BUSY|database is locked/i.test(`${(e as { code?: string }).code ?? ''} ${(e as Error).message}`) || Date.now() > until) throw e
+      Bun.sleepSync(50)
+    }
   }
-  checkReadable(db, o.readerLevel ?? SCHEMA_READER_LEVEL)
+  try {
+    fn()
+    db.exec('COMMIT')
+  } catch (e) {
+    try { db.exec('ROLLBACK') } catch { /* already rolled back */ }
+    throw e
+  }
 }
 
 /** Throw SchemaTooNewError when an applied migration needs a newer reader than this build. */
@@ -96,7 +136,8 @@ export function schemaInfo(db: Database): { applied: number; maxVersion: number 
 
 function backupBeforeMigrate(db: Database, dir: string) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const out = path.join(dir, `pre-migrate-${new Date().toISOString().replace(/[:.]/g, '-')}.db`)
+  // unique per process: two processes starting together must not write into one file
+  const out = path.join(dir, `pre-migrate-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}.db`)
   db.query('VACUUM INTO ?').run(out)
   try { fs.chmodSync(out, 0o600) } catch {}
 }

@@ -176,10 +176,15 @@ describe('deleting a member', () => {
     // engine session reset at once; chats and memories stay until the retention period passes
     expect(h.ctx.db.query('SELECT engine_session_id FROM chats WHERE id = ?').get(chatId)).toEqual({ engine_session_id: null })
     expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'sessions', chatId))).toBe(false)
+    // the engine's working folder of the chat (what the engine left there: tmp files, its own state)
+    const agentDir = path.join(h.ctx.engineConfig.agentRoot, chatId)
+    fs.mkdirSync(path.join(agentDir, '.tmp'), { recursive: true })
+    fs.writeFileSync(path.join(agentDir, '.tmp', 'scratch.txt'), 'SAM-PRIVATE-TEXT')
     expect(sweep(h.ctx).purgedUsers).toBe(0)
     h.advance(8 * 86_400_000)
     expect(sweep(h.ctx).purgedUsers).toBe(1)
     expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM chats WHERE user_id = ?').get(m.id)).toEqual({ n: 0 })
+    expect(fs.existsSync(agentDir)).toBe(false)
     expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM memories WHERE user_id = ?').get(m.id)).toEqual({ n: 0 })
     // the id is never reused, the username is
     const again = await owner.call('POST', '/api/admin/users', { username: 'sam', name: 'Sam 2', role: 'member' })

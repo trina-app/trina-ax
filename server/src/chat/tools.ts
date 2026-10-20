@@ -87,7 +87,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
 function toolContext(exec: TurnExec): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
-    signal: exec.abort.signal, files: { user: exec.principal!, turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec) },
+    signal: exec.abort.signal, files: { user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec) },
   }
 }
 
@@ -212,7 +212,7 @@ function saveScreenshot(exec: TurnExec, b64: string, mime: string): string | nul
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   const rel = path.posix.join('users', exec.spec.userId, '.attachments', exec.spec.chatId, `screenshot-${stamp}-${Math.random().toString(36).slice(2, 6)}.${ext}`)
   try {
-    exec.rt.files.writeBytes({ user: exec.principal!, turnId: exec.spec.turnId, files: exec.files }, rel, Buffer.from(b64, 'base64'), new Map(), 'human')
+    exec.rt.files.writeBytes({ user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files }, rel, Buffer.from(b64, 'base64'), new Map(), 'human')
     return rel
   } catch (e) {
     exec.rt.log.warn('saving a shared screenshot failed', { err: e })

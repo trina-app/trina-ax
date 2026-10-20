@@ -20,7 +20,9 @@ async function waitReady(p: Subprocess<any, 'pipe', any>, what: string, ms = 500
 }
 
 export async function startGate(bin: string, listen: string, upstream: string, secret: string, mode = '0600') {
-  const p = Bun.spawn([path.join(bin, 'mycel-gate'), '--listen', listen, '--upstream', upstream, '--mode', mode],
+  // --exit-with-parent: stdin stays open (we never end it); when this process dies, even by kill -9, the pipe closes
+  // and the helper exits instead of staying behind as an orphan
+  const p = Bun.spawn([path.join(bin, 'mycel-gate'), '--listen', listen, '--upstream', upstream, '--mode', mode, '--exit-with-parent'],
     { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit', env: {} })
   p.stdin.write(secret + '\n'); p.stdin.flush()
   await waitReady(p, 'gate')
@@ -29,11 +31,12 @@ export async function startGate(bin: string, listen: string, upstream: string, s
 
 /** Stage 1 convenience: start the launcher as the current user. Production: LaunchDaemon as _axagent (stage 3). */
 export async function startLauncher(bin: string, o: { listen: string; agentRoot: string; toolsSock: string; allowCmds: string[]; sessionRoots?: string[] }) {
-  const args = [path.join(bin, 'mycel-launcher'), '--listen', o.listen, '--agent-root', o.agentRoot, '--bridge', path.join(bin, 'mycel-bridge'), '--tools-sock', o.toolsSock]
+  const args = [path.join(bin, 'mycel-launcher'), '--listen', o.listen, '--agent-root', o.agentRoot, '--bridge', path.join(bin, 'mycel-bridge'), '--tools-sock', o.toolsSock, '--exit-with-parent']
   for (const c of o.allowCmds) args.push('--allow-cmd', c)
   for (const s of o.sessionRoots ?? []) args.push('--session-root', s)
   fs.mkdirSync(o.agentRoot, { recursive: true, mode: 0o700 })
-  const p = Bun.spawn(args, { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit', env: {} })
+  // stdin is a pipe we keep open (see startGate): the launcher stops its turns and exits when it closes
+  const p = Bun.spawn(args, { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit', env: {} })
   await waitReady(p, 'launcher')
   return p
 }

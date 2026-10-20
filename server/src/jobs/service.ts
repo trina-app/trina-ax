@@ -33,7 +33,7 @@ const INTERRUPTED: Record<Locale, string> = {
 
 interface Row { id: string; user_id: string | null; kind: JobKind; status: JobStatus; progress: number | null; message: string | null; result: string | null; error: string | null; created_at: string; finished_at: string | null }
 
-interface Running { id: string; kind: JobKind; userId: string | null; abort: AbortController; run: (h: JobHandle) => Promise<unknown>; done: () => void }
+interface Running { id: string; kind: JobKind; userId: string | null; abort: AbortController; run: (h: JobHandle) => Promise<unknown>; discard?: () => void; done: () => void }
 
 export class JobServiceImpl implements JobService {
   private queue: Running[] = []
@@ -57,12 +57,12 @@ export class JobServiceImpl implements JobService {
     return rows.length
   }
 
-  start(o: { kind: JobKind; userId: string | null; run: (h: JobHandle) => Promise<unknown> }): string {
+  start(o: { kind: JobKind; userId: string | null; run: (h: JobHandle) => Promise<unknown>; discard?: () => void }): string {
     const id = newId()
     this.ctx.db.query("INSERT INTO jobs (id, user_id, kind, status, progress, message, created_at) VALUES (?,?,?,'queued',NULL,NULL,?)").run(id, o.userId, o.kind, new Date().toISOString())
     let done = () => {}
     this.settled.set(id, new Promise<void>((res) => { done = res }).then(() => { this.settled.delete(id) }))
-    const r: Running = { id, kind: o.kind, userId: o.userId, abort: new AbortController(), run: o.run, done }
+    const r: Running = { id, kind: o.kind, userId: o.userId, abort: new AbortController(), run: o.run, discard: o.discard, done }
     this.queue.push(r)
     queueMicrotask(() => this.pump())
     return id
@@ -138,6 +138,7 @@ export class JobServiceImpl implements JobService {
     if (q) {
       this.queue.splice(this.queue.indexOf(q), 1)
       this.ctx.db.query("UPDATE jobs SET status = 'canceled', finished_at = ? WHERE id = ?").run(new Date().toISOString(), id)
+      this.discard(q)
       const job = this.get(id)
       if (job && q.userId) this.ctx.services.realtime.publish(q.userId, { type: 'job.done', data: { job } })
       q.done()
@@ -146,6 +147,11 @@ export class JobServiceImpl implements JobService {
     const a = this.active.get(id)
     if (a) { a.abort.abort(); return true }
     return false
+  }
+
+  /** a job that will never run gives back what was set aside for it */
+  private discard(r: Running) {
+    try { r.discard?.() } catch (e) { this.ctx.log.warn('job discard failed', { job: r.id, kind: r.kind, err: e }) }
   }
 
   get(id: string): Job | null {
@@ -175,7 +181,7 @@ export class JobServiceImpl implements JobService {
 
   /** Abort everything (server shutdown). */
   async close() {
-    for (const q of this.queue.splice(0)) q.done()
+    for (const q of this.queue.splice(0)) { this.discard(q); q.done() }
     for (const a of this.active.values()) a.abort.abort()
     await Promise.all([...this.settled.values()])
   }

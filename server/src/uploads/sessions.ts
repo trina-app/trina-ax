@@ -99,7 +99,14 @@ export class UploadSessions {
     const offset = n * r.chunk_size
     const h = this.hashes.get(id) ?? (n === 0 ? { hash: crypto.createHash('sha256'), next: 0 } : null)
     const inOrder = h && h.next === n ? h.hash.copy() : null
-    const fh = await fs.promises.open(this.part(id), fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW)
+    let fh: fs.promises.FileHandle
+    try { fh = await fs.promises.open(this.part(id), fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW) } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+      // the part file is gone (a restored DB brought the session back, the folder was cleaned): this session can
+      // never finish; end it so the client starts a new one instead of retrying
+      this.drop(id)
+      fileError('gone', 'expired')
+    }
     let got = 0
     try {
       for await (const ch of body) {

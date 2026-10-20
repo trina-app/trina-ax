@@ -3,9 +3,9 @@
 // DB:          VACUUM INTO data/backups/<id>.sqlite (bun:sqlite has no backup API; VACUUM INTO is transactionally
 //              consistent under writes, 1.1 s for the spike DB). Runs in a child bun process so the server's event
 //              loop is never blocked. Session stashes are files in data/sessions/ — not part of the DB copy.
-// Team folder: team/.system/backups/<id>/{team.tar.zst, manifest.json, deleted.json, meta.json}. A full archive at
-//              most every 7 days, otherwise only the files whose size or mtime changed since the previous backup, plus
-//              the list of deleted paths. .system/backups itself is never archived; .system/history (file versions)
+// Team folder: team/.system/backups/<id>/{team.tar.zst, manifest.json, deleted.json, dirs.json, meta.json}. A full
+//              archive at most every 7 days, otherwise only the files whose size or mtime changed since the previous
+//              backup (and every folder entry), plus the list of deleted paths and the list of folders. .system/backups itself is never archived; .system/history (file versions)
 //              and the trash are.
 // Metadata:    data/backups/<id>.json (the list the UI shows). Retention 14 days; a backup another kept backup builds
 //              on is kept, and so is the newest one.
@@ -241,7 +241,8 @@ export class BackupManager {
     let done = 0
     let lastReport = 0
     const entries: TarEntryInput[] = []
-    if (!base) for (const d of tree.dirs) entries.push({ name: d.rel, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
+    // every folder, also in incrementals (headers only): a folder made since the full archive may still be empty
+    for (const d of tree.dirs) entries.push({ name: d.rel, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
     for (const f of tree.files) if (changedSet.has(f.rel)) entries.push({ name: f.rel, type: 'file', source: f.abs })
     let changedWhileReading = 0
     let files = 0
@@ -263,6 +264,8 @@ export class BackupManager {
     }
     await fsp.writeFile(path.join(dir, 'manifest.json'), JSON.stringify(now), { mode: 0o600 })
     await fsp.writeFile(path.join(dir, 'deleted.json'), JSON.stringify(deleted), { mode: 0o600 })
+    // the folders at this point: a restore removes the ones that were deleted since (empty folders leave no file trace)
+    await fsp.writeFile(path.join(dir, 'dirs.json'), JSON.stringify(tree.dirs.map((d) => d.rel)), { mode: 0o600 })
     return { base, archiveSize: written.size, files, bytes: done, deleted: deleted.length, changedWhileReading }
   }
 
@@ -362,6 +365,20 @@ export class BackupManager {
         await extractTar(zstdDecompress(readFileChunks(path.join(dir, 'team.tar.zst'))), dest, { replace: i > 0 })
       }
       const want: Manifest = JSON.parse(await fsp.readFile(path.join(this.teamDir(id), 'manifest.json'), 'utf8'))
+      // folders: as listed at backup `id` (backups made before dirs.json existed have no list: folders stay as layered)
+      let wantDirs: string[] | null = null
+      try { wantDirs = JSON.parse(await fsp.readFile(path.join(this.teamDir(id), 'dirs.json'), 'utf8')) } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+      }
+      if (wantDirs) {
+        const keep = new Set(wantDirs)
+        // deepest first; a folder that still holds files is left for the file check below to report
+        for (const d of (await walkTree(dest)).dirs.map((x) => x.rel).filter((r) => !keep.has(r)).reverse()) {
+          await fsp.rmdir(path.join(dest, d)).catch(() => {})
+        }
+        const have = new Set((await walkTree(dest)).dirs.map((x) => x.rel))
+        for (const d of wantDirs) if (!have.has(d)) throw new BackupError(`restored folder is missing the folder ${d}`)
+      }
       const got = toManifest((await walkTree(dest)).files)
       for (const [p, e] of Object.entries(want)) {
         if (e.s < 0) continue // changed while it was being archived: whatever version made it in is fine
@@ -409,6 +426,16 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
         try { fs.renameSync(path.join(keep, 'app.db' + s), live + s) } catch (e2) { log.error('could not put the database back after a failed restore', { file: live + s, kept: keep, err: e2 }) }
       }
       throw e
+    }
+    // engine session stashes belong to the replaced DB: a chat keeps its session id across turns and the stash is
+    // overwritten after each one, so a stash could hold turns the restored DB does not have. Kept aside with the old
+    // DB; every chat starts its next turn on a fresh session from the restored history.
+    const sessions = path.join(dataDir, 'sessions')
+    if (fs.existsSync(sessions)) {
+      try { rename(sessions, path.join(keep, 'sessions')) } catch (e) {
+        log.error('could not move the engine session stashes aside; removing them', { err: e })
+        fs.rmSync(sessions, { recursive: true, force: true })
+      }
     }
     fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep }), { mode: 0o600 })
     log.info('database restored from backup', { backupId: p.backupId, previousDb: keep })

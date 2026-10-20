@@ -3,7 +3,7 @@
 // another account without root, so it asks this program over launcher.sock (only the server uid may connect).
 //
 // Protocol (JSON lines): server sends one LaunchRequest (see shared/src/engine.ts) and may later send
-// {"op":"kill"}. The launcher answers {"ev":"started","pid","pgid"}, then {"ev":"stdout"|"stderr","b64"} chunks,
+// {"op":"kill"}; closing the connection before the exit event counts as kill. The launcher answers {"ev":"started","pid","pgid"}, then {"ev":"stdout"|"stderr","b64"} chunks,
 // then {"ev":"exit","code","signal","session"}. The engine runs in a new session (setsid) so its process group
 // id = session id = engine pid; the whole group is killed when the turn ends.
 //
@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -153,7 +154,33 @@ var (
 	sandboxProfile = flag.String("sandbox-profile", "", "macOS: sandbox-exec profile every engine runs under")
 	proxyPort      = flag.Int("proxy-port", 0, "model proxy port the sandbox allows (127.0.0.1)")
 	localLogin     = flag.Bool("local-login", false, "sandbox: also allow the account's own ~/.claude, ~/.codex, login keychain and direct HTTPS (dev / owner login mode)")
+	// the server starts this launcher itself (dev / local-login) and holds our stdin open: when the server dies, even
+	// by kill -9, the pipe closes and we stop every turn and exit instead of staying behind as an orphan
+	exitWithParent = flag.Bool("exit-with-parent", false, "stop all turns and exit when stdin closes (the starting server is gone)")
 )
+
+// stopAllAndExit ends every live turn (SIGTERM to its process group, SIGKILL after 5 s) and exits.
+func stopAllAndExit() {
+	groups := func() []int {
+		live.mu.Lock()
+		defer live.mu.Unlock()
+		out := make([]int, 0, len(live.m))
+		for p := range live.m {
+			out = append(out, p)
+		}
+		return out
+	}
+	for _, p := range groups() {
+		_ = syscall.Kill(-p, syscall.SIGTERM)
+	}
+	for deadline := time.Now().Add(5 * time.Second); len(groups()) > 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	for _, p := range groups() {
+		_ = syscall.Kill(-p, syscall.SIGKILL)
+	}
+	os.Exit(0)
+}
 
 const sandboxExec = "/usr/bin/sandbox-exec"
 
@@ -226,6 +253,9 @@ func main() {
 		}
 		killLeftovers() // leftovers of a previous launcher (setsid escapees, crashed turns)
 		go reaper()
+	}
+	if *exitWithParent {
+		go func() { _, _ = io.Copy(io.Discard, os.Stdin); stopAllAndExit() }()
 	}
 	_ = os.Remove(*listen)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *listen, Net: "unix"})
@@ -448,18 +478,25 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	go pump("stderr", stderr)
 
 	stopping := make(chan struct{}, 1)
+	stop := func() {
+		select {
+		case stopping <- struct{}{}:
+		default:
+		}
+	}
 	go func() { // control messages from the server
 		for {
 			l, err := r.ReadBytes('\n')
 			if err != nil {
+				// the server's end of this connection is gone (crash, kill -9, restart): nobody can read the answer
+				// or stop the turn any more, and the turn's token died with the server. Stop the engine now instead
+				// of letting it run (and spend the subscription) until the backstop timeout.
+				stop()
 				return
 			}
 			var m map[string]any
 			if json.Unmarshal(l, &m) == nil && m["op"] == "kill" {
-				select {
-				case stopping <- struct{}{}:
-				default:
-				}
+				stop()
 			}
 		}
 	}()

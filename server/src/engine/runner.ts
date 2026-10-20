@@ -10,6 +10,7 @@ import { buildClaudeLaunch, type ClaudeConf } from './claude'
 import { buildCodexLaunch, prepareCodexHome, type CodexConf } from './codex'
 import { ClaudeStreamParser } from './claude-parse'
 import { CodexEventParser } from './codex-parse'
+import { Utf8Lines, Utf8Text } from './lines'
 import type { LaunchRequest } from '@mycel/shared'
 import { newId } from '../db'
 import { issueProxyToken, revokeProxyTokens } from '../proxy/model-proxy'
@@ -81,18 +82,17 @@ export class TurnRunner {
   /** launch through the launcher; feed stdout lines to `onLine`; bind the engine's process group to the turn */
   private async launch(turnId: string, lr: LaunchRequest, onLine: (l: string) => void) {
     const h = this.srv.launcher!.launch(lr)
-    let buf = '', stderr = '', exit: any = null
+    const out = new Utf8Lines()
+    const err = new Utf8Text(20000)
+    let exit: any = null
     for await (const e of h.events) {
       if (e.ev === 'started') this.srv.turns.bind(turnId, e.pgid)
-      else if (e.ev === 'stdout') {
-        buf += Buffer.from(e.b64, 'base64').toString('utf8')
-        let i
-        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onLine(l) }
-      } else if (e.ev === 'stderr') { if (stderr.length < 20000) stderr += Buffer.from(e.b64, 'base64').toString('utf8') }
+      else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
+      else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') exit = e
     }
-    if (buf.trim()) onLine(buf)
-    return { exit, stderr }
+    for (const l of out.end()) if (l.trim()) onLine(l)
+    return { exit, stderr: err.text }
   }
 
   private async claudeTurn(req: TurnRequest, res: TurnResult, t: { turnId: string; token: string; chatDir: string; systemPrompt: string; chat: any; historyText: string }) {
