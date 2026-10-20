@@ -200,7 +200,7 @@ export default function Files() {
             <IconButton label={t('common.refresh')} onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
-            <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite}>
+            <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
               <FolderPlus size={15} aria-hidden /> <span className="max-sm:hidden">{t('files.newFolder')}</span>
             </Button>
             <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()} disabled={!canWrite} data-testid="upload-button">
@@ -325,11 +325,12 @@ function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onDelete, onHi
   }, [menu])
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
   return (
-    <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'opacity-60')} data-testid="file-row">
+    <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
       <td className="px-2 py-1.5">
         <button type="button" onClick={onOpen} className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline" title={dim ? t('files.navigationOnly') : undefined}>
-          <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted')} aria-hidden />
+          <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           <span className="min-w-0 truncate">{e.name}</span>
+          {dim && <span className="sr-only">({t('files.navigationOnly')})</span>}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}
         </button>

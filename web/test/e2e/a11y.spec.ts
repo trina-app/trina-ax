@@ -32,3 +32,18 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, 'settings')
   })
 }
+
+// Phone width (PWA): labels that collapse to icons must keep their accessible names, dimmed rows their contrast.
+test('no serious accessibility problems at phone width', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await signIn(page)
+  await audit(page, 'home (phone)')
+  await page.goto('/files')
+  await expect(page.getByTestId('file-table')).toBeVisible()
+  await expect(page.getByRole('button', { name: '새 폴더' })).toBeVisible()
+  await audit(page, 'files (phone)')
+  await page.goto('/admin/members')
+  await expect(page.getByTestId('members-table')).toBeVisible()
+  await audit(page, 'admin (phone)')
+})
