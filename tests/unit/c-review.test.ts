@@ -7,6 +7,7 @@ import path from 'node:path'
 import { UPLOAD_CHUNK_SIZE } from '@mycel/shared/api'
 import { which } from '../../server/src/config'
 import { makeHandler } from '../../server/src/mcp/protocol'
+import { converterInputName } from '../../server/src/jobs/transcribe'
 import { utf8Boundary } from '../../server/src/team-files/service'
 import { markdownTables } from '../../server/src/tools/make-file'
 import { htmlToText, webFetch, wrapExternal } from '../../server/src/tools/web-fetch'
@@ -163,6 +164,12 @@ describe('upload sessions', () => {
     expect([a!.status, b!.status]).toEqual([200, 200])
     expect(a!.body).toEqual(b!.body)
     expect(fs.readdirSync(path.join(A.team, 'shared')).filter((f) => f.startsWith('twice'))).toEqual(['twice.bin'])
+  })
+})
+
+describe('transcription input', () => {
+  test('the converter input keeps only known audio / video extensions (no playlists that open other files)', () => {
+    expect(['memo.webm', 'a.M4A', 'x.m3u8', 'y.ffconcat', 'z', 'w.txt'].map(converterInputName)).toEqual(['in.webm', 'in.m4a', 'in.bin', 'in.bin', 'in.bin', 'in.bin'])
   })
 })
 

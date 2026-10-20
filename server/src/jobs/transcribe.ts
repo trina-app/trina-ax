@@ -21,6 +21,13 @@ export const WHISPER_MODELS = {
 export type WhisperModel = keyof typeof WHISPER_MODELS
 export const DEFAULT_WHISPER_MODEL: WhisperModel = 'small'
 export const MODEL_BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/'
+/** audio / video extensions the converter input may keep */
+const MEDIA_EXT = new Set(['wav', 'mp3', 'flac', 'ogg', 'oga', 'opus', 'webm', 'weba', 'm4a', 'mp4', 'm4v', 'mov', 'aac', 'aiff', 'aif', 'aifc', 'caf', 'mkv', 'amr', '3gp', 'wma', 'avi'])
+/** "in.<ext>" for a known audio / video extension, else "in.bin" */
+export const converterInputName = (name: string) => {
+  const x = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? '').toLowerCase()
+  return `in.${MEDIA_EXT.has(x) ? x : 'bin'}`
+}
 /** formats whisper-cli reads itself */
 const NATIVE = new Set(['wav', 'mp3', 'flac', 'ogg'])
 
@@ -131,7 +138,9 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
   fs.mkdirSync(cfg.workBase, { recursive: true, mode: 0o700 })
   const work = fs.realpathSync(fs.mkdtempSync(path.join(cfg.workBase, 'stt-')))
   try {
-    const src = path.join(work, `in.${x || 'bin'}`)
+    // the input's name only keeps a known audio / video extension: ffmpeg picks demuxers by extension, and some
+    // (m3u8 playlists, ffconcat) open further files or URLs
+    const src = path.join(work, converterInputName(name))
     fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
     let audio = path.basename(src)
     if (cfg.ffmpegBin) {
