@@ -11,16 +11,11 @@ import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
 import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
-import { M, tr } from './messages'
+import { M, tr, uptimeText } from './messages'
 import { UpdateManager } from './update'
 
 const RANK: Record<CheckStatus, number> = { ok: 0, unknown: 1, warn: 2, fail: 3 }
 export const worst = (xs: CheckStatus[]): CheckStatus => xs.reduce<CheckStatus>((a, b) => (RANK[b] > RANK[a] ? b : a), 'ok')
-
-function uptime(sec: number): string {
-  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
-  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`
-}
 
 export interface OpsOptions {
   /** override for tests */
@@ -122,7 +117,7 @@ export class OpsService {
     const add = (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => checks.push({ id, group, label, status, detail })
     const prod = this.ctx.config.mode === 'prod'
 
-    add('server', 'server', t(M.server), 'ok', t(M.serverDetail(this.ctx.version, uptime((Date.now() - this.ctx.startedAt) / 1000))))
+    add('server', 'server', t(M.server), 'ok', t(M.serverDetail(this.ctx.version, uptimeText((Date.now() - this.ctx.startedAt) / 1000, locale))))
 
     // connection
     const c = this.connection()

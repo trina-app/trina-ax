@@ -7,12 +7,19 @@ export const tr = (l: Locale, t: T) => t[l] ?? t.ko
 
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
 
+/** How long the server has been up, in the reader's words ("2일 3시간", "5 menit"). */
+export function uptimeText(sec: number, l: Locale): string {
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
+  const u = { ko: { d: '일', h: '시간', m: '분' }, en: { d: ' d', h: ' h', m: ' min' }, id: { d: ' hari', h: ' jam', m: ' menit' } }[l] ?? { d: '일', h: '시간', m: '분' }
+  return d ? `${d}${u.d} ${h}${u.h}` : h ? `${h}${u.h} ${m}${u.m}` : `${m}${u.m}`
+}
+
 export const M = {
   server: { ko: '서버', en: 'Server', id: 'Server' },
   serverDetail: (v: string, up: string): T => ({ ko: `버전 ${v}, ${up} 동안 실행 중`, en: `Version ${v}, running for ${up}`, id: `Versi ${v}, berjalan selama ${up}` }),
 
   relay: { ko: '원격 접속(중계 서버)', en: 'Remote access (relay)', id: 'Akses jarak jauh (relay)' },
-  relayOff: { ko: '중계 서버 연결이 설정되지 않았습니다. 사무실 안에서만 접속할 수 있습니다. 설정 > 연결에서 켤 수 있습니다.', en: 'No relay connection is set up, so the team can only connect from the office network. Turn it on in Settings > Connection.', id: 'Koneksi relay belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan di Pengaturan > Koneksi.' },
+  relayOff: { ko: '중계 서버 연결이 설정되지 않았습니다. 사무실 안에서만 접속할 수 있습니다. 관리자 > 시스템 > 연결에서 켤 수 있습니다.', en: 'No relay connection is set up, so the team can only connect from the office network. Turn it on in Admin > System > Connection.', id: 'Koneksi relay belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan di Admin > Sistem > Koneksi.' },
   relayConnecting: { ko: '중계 서버에 연결하는 중입니다. 몇 분이 지나도 그대로면 인터넷 연결을 확인해 주세요.', en: 'Connecting to the relay. If this stays for a few minutes, check the internet connection.', id: 'Sedang terhubung ke relay. Jika tetap begini beberapa menit, periksa koneksi internet.' },
   relayOffline: { ko: '중계 서버에 연결되지 않습니다. 맥의 인터넷 연결을 확인해 주세요. 사무실 안 직접 연결은 계속 됩니다.', en: 'Cannot reach the relay. Check the Mac\'s internet connection. Direct connections in the office still work.', id: 'Tidak dapat menjangkau relay. Periksa koneksi internet Mac. Koneksi langsung di kantor tetap berfungsi.' },
   relayReplaced: { ko: '다른 맥의 서버가 같은 팀 주소로 연결해 이 서버의 연결을 대신했습니다. 의도한 일이 아니면 팀 키를 바꿔 주세요.', en: 'A server on another Mac connected with this team\'s address and replaced this one. If you did not do this, rotate the team key.', id: 'Server di Mac lain terhubung dengan alamat tim ini dan menggantikan server ini. Jika bukan Anda, ganti kunci tim.' },
@@ -34,7 +41,7 @@ export const M = {
 
   queue: { ko: '대기열', en: 'Queue', id: 'Antrean' },
   queueDetail: (r: number, q: number, c: number): T => ({ ko: `실행 중 ${r}개, 대기 ${q}개 (동시 실행 ${c}개까지)`, en: `${r} running, ${q} waiting (up to ${c} at once)`, id: `${r} berjalan, ${q} menunggu (maks ${c} sekaligus)` }),
-  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 설정에서 동시 실행 수를 늘려 보세요.`, en: `${q} questions are waiting. If this lasts, raise the concurrency in Settings.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan jumlah eksekusi bersamaan di Pengaturan.` }),
+  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 관리자 > AI 엔진에서 동시 실행 수를 늘려 보세요.`, en: `${q} questions are waiting. If this lasts, raise "Answers at the same time" in Admin > AI engines.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan "Jawaban bersamaan" di Admin > Mesin AI.` }),
 
   firewall: { ko: 'AI 엔진 방화벽(pf)', en: 'AI engine firewall (pf)', id: 'Firewall mesin AI (pf)' },
   firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${n} rules`, id: `Aktif, ${n} aturan` }),
