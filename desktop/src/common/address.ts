@@ -1,5 +1,5 @@
 // Team addresses as people type them on the first-run screen ("acme", "acme.treesoop.com", "http://acme.localhost:19161").
-// Pure: no Electron, unit-tested in tests/unit/e-address.test.ts.
+// Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts.
 
 /** Hosted team addresses are <team>.TEAM_DOMAIN (design tab 6; a separate domain comes before public launch). */
 export const TEAM_DOMAIN = 'treesoop.com'

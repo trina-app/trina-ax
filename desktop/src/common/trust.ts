@@ -1,6 +1,6 @@
 // Who may use the desktop bridge (design tab 5 "데스크톱 앱 규칙"): only the top frame of the team page this window
 // opened, at exactly the team address or the team's pinned direct address. iframes (artifacts, previews), other
-// origins and pages the team page navigated to get nothing. Pure: unit-tested in tests/unit/e-trust.test.ts.
+// origins and pages the team page navigated to get nothing. Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
 import { PRODUCT } from '@mycel/shared'
 import { originOf } from './address'
 

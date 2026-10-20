@@ -1,6 +1,6 @@
 // The teams this desktop app remembers (teams.json in the app's user data). Each team gets its own session
 // partitions, so cookies / storage of one team never reach another, and the in-app browser of a team is separate
-// from its app page. Pure: file I/O is in main/teams-store.ts. Unit-tested in tests/unit/e-teams.test.ts.
+// from its app page. Pure: file I/O is in main/teams-store.ts. Unit-tested in tests/unit/e-desktop-common.test.ts.
 import { z } from 'zod'
 
 export const TeamId = z.string().regex(/^[a-f0-9]{12,32}$/)

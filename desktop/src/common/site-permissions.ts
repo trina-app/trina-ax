@@ -1,7 +1,7 @@
 // "Allowed sites" of the in-app browser (design tab 5 "브라우저 안전장치"): before the AI acts on a site the person
 // allows it for this turn ("once"), always (saved per team), or denies. Office-network (private) addresses have
 // their own grants: allowing example.com as a public site doesn't allow it once its DNS points into the office.
-// Pure: persistence is the caller's (load / toJSON). Unit-tested in tests/unit/e-site-permissions.test.ts.
+// Pure: persistence is the caller's (load / toJSON). Unit-tested in tests/unit/e-desktop-common.test.ts.
 
 export type PermissionDecision = 'once' | 'always' | 'deny'
 export type SiteScope = 'site' | 'private'

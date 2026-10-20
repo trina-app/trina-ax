@@ -1,5 +1,5 @@
 // Pure helpers for the browser pane: key combos -> CDP key events, URL redaction. Ported from Saram desktop/src/input.ts.
-// Unit-tested in tests/unit/e-input.test.ts.
+// Unit-tested in tests/unit/e-desktop-common.test.ts.
 
 export class ToolError extends Error {}
 

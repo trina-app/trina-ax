@@ -1,6 +1,6 @@
 // Turn the pane's internal tool result into the wire shape (shared/src/api/browser.ts BrowserResult):
 // at most 20 content items, text <= 2 MB, images <= 20 MB base64, error <= 4000 characters.
-// Pure: unit-tested in tests/unit/e-browser-result.test.ts.
+// Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
 import type { BrowserResult } from '@mycel/shared/api'
 
 export type PaneContent =
