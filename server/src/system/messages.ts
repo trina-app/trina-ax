@@ -48,6 +48,9 @@ export const M = {
   sandboxDev: { ko: '개발 모드: 엔진 실행기를 서버가 직접 띄우며 샌드박스 프로필을 쓰지 않습니다.', en: 'Development mode: the server starts the engine launcher itself without the sandbox profile.', id: 'Mode pengembangan: server menjalankan peluncur mesin tanpa profil sandbox.' },
   sandboxMissing: { ko: '샌드박스 프로필이 없거나 실행기 설정에 빠져 있습니다. 메뉴바 앱에서 \'관리자 비밀번호가 필요한 업데이트\'(설치 다시 하기)를 실행해 주세요.', en: 'The sandbox profile is missing or not used by the launcher. Run the admin-password update (reinstall) from the menubar app.', id: 'Profil sandbox hilang atau tidak dipakai peluncur. Jalankan pembaruan dengan kata sandi admin dari aplikasi menubar.' },
 
+  cronDeny: { ko: '엔진 계정 예약 작업 차단(cron·at)', en: 'Engine account scheduling block (cron, at)', id: 'Blokir penjadwalan akun mesin (cron, at)' },
+  cronDenyOk: { ko: '엔진 계정은 예약 작업을 등록할 수 없습니다.', en: 'The engine account cannot schedule jobs.', id: 'Akun mesin tidak dapat menjadwalkan tugas.' },
+  cronDenyMissing: { ko: '엔진 계정이 /var/at/cron.deny·at.deny에 없습니다. 샌드박스가 crontab·at 실행을 막고 있지만, 메뉴바 앱의 \'설치 다시 하기\'(관리자 비밀번호)로 보완해 주세요.', en: 'The engine account is not in /var/at/cron.deny / at.deny. The sandbox still blocks crontab and at; run "Reinstall" (admin password) from the menubar app.', id: 'Akun mesin tidak ada di /var/at/cron.deny / at.deny. Sandbox tetap memblokir crontab dan at; jalankan "Pasang ulang" dari aplikasi menubar.' },
   launcher: { ko: 'AI 엔진 실행기', en: 'AI engine launcher', id: 'Peluncur mesin AI' },
   launcherOk: { ko: '연결됨', en: 'Connected', id: 'Terhubung' },
   launcherDown: { ko: '실행기에 연결할 수 없습니다. 맥을 다시 시작하거나 메뉴바 앱의 \'설치 다시 하기\'를 실행해 주세요.', en: 'Cannot reach the engine launcher. Restart the Mac or run "Reinstall" from the menubar app.', id: 'Tidak dapat menjangkau peluncur mesin. Mulai ulang Mac atau jalankan "Pasang ulang" dari aplikasi menubar.' },

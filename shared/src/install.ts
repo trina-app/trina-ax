@@ -55,6 +55,10 @@ export const StatusFile = z.object({
   pid: z.number().int(),
   /** web address people open (team address, else the local URL) */
   webUrl: z.string(),
+  /** http://127.0.0.1:<port>: the menubar app's health check (GET /api/health) */
+  localUrl: z.string(),
+  /** LaunchDaemon label prefix (the menubar app reads launchctl print system/<label>.server when health fails) */
+  label: z.string().nullable(),
   logsDir: z.string().nullable(),
   connection: z.object({
     mode: z.string(),

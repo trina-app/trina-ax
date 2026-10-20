@@ -30,6 +30,8 @@ export interface OpsOptions {
   tmutil?: (p: string) => Promise<boolean | null>
   now?: () => Date
   allowUnsignedUpdates?: boolean
+  /** folder with cron.deny / at.deny (tests) */
+  atDir?: string
 }
 
 export class OpsService {
@@ -178,6 +180,13 @@ export class OpsService {
         const up = await this.connectable(sock)
         add('launcher', 'launcher', t(M.launcher), up ? 'ok' : 'fail', t(up ? M.launcherOk : M.launcherDown))
       }
+      const agentUid = this.ctx.config.engine.agentUid
+      if (agentUid !== undefined) {
+        const name = Bun.spawnSync(['/usr/bin/id', '-nu', String(agentUid)], { stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim()
+        const listed = (f: string) => { try { return fs.readFileSync(f, 'utf8').split('\n').map((l) => l.trim()).includes(name) } catch { return false } }
+        const ok = !!name && [path.join(this.o.atDir ?? '/var/at', 'cron.deny'), path.join(this.o.atDir ?? '/var/at', 'at.deny')].every(listed)
+        add('cron_deny', 'sandbox', t(M.cronDeny), ok ? 'ok' : 'warn', t(ok ? M.cronDenyOk : M.cronDenyMissing))
+      }
       const tm = await Promise.all([L.secretsDir, path.join(L.base, 'agent')].filter((p) => fs.existsSync(p)).map((p) => this.tmExcluded(p)))
       if (tm.length && tm.every((x) => x !== null)) add('time_machine', 'backups', t(M.timeMachine), tm.every(Boolean) ? 'ok' : 'warn', t(tm.every(Boolean) ? M.timeMachineOk : M.timeMachineMissing))
     }
@@ -229,6 +238,8 @@ export class OpsService {
       version: this.ctx.version,
       pid: process.pid,
       webUrl: c.address ?? `http://127.0.0.1:${port}`,
+      localUrl: `http://127.0.0.1:${port}`,
+      label: this.layout.label,
       logsDir: this.layout.logDir,
       connection: { mode: c.mode, state: c.state, address: c.address, detail: c.detail },
       queue: { running: d.queue.running, queued: d.queue.queued },

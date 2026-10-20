@@ -199,7 +199,11 @@ describe('diagnostics in an installed layout', () => {
     fs.writeFileSync(path.join(base, 'ld', 'app.treesoop.base.launcher.plist'), '<string>--sandbox-profile</string>')
     const sock = path.join(dir, 'l.sock')
     const srv = net.createServer((c) => c.end()).listen(sock)
-    const cfg = config(dir, { mode: 'prod', engine: { authMode: 'local-login', launcherSock: sock, agentUid: 470 }, configFile: path.join(base, 'config', 'server.json') })
+    const me = Bun.spawnSync(['/usr/bin/id', '-un']).stdout.toString().trim()
+    fs.mkdirSync(path.join(base, 'at'), { recursive: true })
+    fs.writeFileSync(path.join(base, 'at', 'cron.deny'), `Guest\n${me}\n`)
+    fs.writeFileSync(path.join(base, 'at', 'at.deny'), '')
+    const cfg = config(dir, { mode: 'prod', engine: { authMode: 'local-login', launcherSock: sock, agentUid: process.getuid!() }, configFile: path.join(base, 'config', 'server.json') })
     const db = openDb(path.join(dir, 'app.db'))
     fs.mkdirSync(cfg.teamRoot, { recursive: true })
     const c2 = createContext({ config: cfg, db, log: silentLogger })
@@ -207,7 +211,7 @@ describe('diagnostics in an installed layout', () => {
     const writePf = (o: object) => fs.writeFileSync(path.join(base, 'status', 'pf.json'), JSON.stringify({ format: 1, at: pfAt, enabled: true, anchor: 'com.apple/250.x', rules: 4, referenced: true, ...o }))
     const layout = { ...resolveLayout(cfg, { MYCEL_INSTALL_BASE: base, MYCEL_LAUNCHDAEMONS_DIR: path.join(base, 'ld') }) }
     expect(layout.label).toBe('app.treesoop.base')
-    const ops = new OpsService(c2, { layout, engines: async () => [], tmutil: async (p) => p.endsWith('secrets') })
+    const ops = new OpsService(c2, { layout, engines: async () => [], tmutil: async (p) => p.endsWith('secrets'), atDir: path.join(base, 'at') })
     const get = async (id: string) => (await ops.diagnostics('ko')).checks.find((x) => x.id === id)!
     writePf({})
     expect((await get('pf_anchor')).status).toBe('ok')
@@ -215,6 +219,9 @@ describe('diagnostics in an installed layout', () => {
     expect((await get('launcher')).status).toBe('ok')
     expect((await get('time_machine')).status).toBe('warn') // agent/ not excluded in this fake
     expect((await get('release_signature')).status).toBe('warn') // no manifest.sig: unsigned test build
+    expect((await get('cron_deny')).status).toBe('warn') // listed in cron.deny but not in at.deny
+    fs.writeFileSync(path.join(base, 'at', 'at.deny'), `${me}\n`)
+    expect((await get('cron_deny')).status).toBe('ok')
     writePf({ enabled: false })
     expect((await get('pf_anchor')).status).toBe('fail')
     pfAt = new Date(Date.now() - 20 * 60_000).toISOString()
