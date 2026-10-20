@@ -2,20 +2,24 @@
 // (isolated frame), images, audio/video. Bytes come from /api/files/download (always an attachment with a sandbox
 // CSP on the server side) and are drawn here; HTML/SVG only run in the sandbox frame (SandboxFrame, /sandbox/frame),
 // never as srcdoc or a blob: page of this origin.
-import { Download, FileText, FolderOpen, Loader2, X } from 'lucide-react'
+// Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
+// loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
+// server keeps their version and saves this one as a conflict copy, which the panel then opens.
+import { Download, FileText, FolderOpen, Loader2, Pencil, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchFileBlob, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
+import { api, API, fetchFileBlob, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
 import { languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
-import type { PreviewFile } from '../lib/sidePanel'
+import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { CodeBlock, Markdown } from './Markdown'
 import SandboxFrame from './SandboxFrame'
-import { IconButton } from './ui'
+import { toast } from '../store/ui'
+import { Button, confirmDialog, IconButton } from './ui'
 
 const PdfView = lazy(() => import('./viewers/PdfView'))
 const DocxView = lazy(() => import('./viewers/OfficeView').then((m) => ({ default: m.DocxView })))
@@ -23,6 +27,8 @@ const PptxView = lazy(() => import('./viewers/OfficeView').then((m) => ({ defaul
 const SheetView = lazy(() => import('./viewers/OfficeView').then((m) => ({ default: m.SheetView })))
 
 const MAX_TEXT = PREVIEW_TEXT_MAX
+/** kinds the panel can edit as plain text */
+const EDITABLE: PreviewKind[] = ['markdown', 'text', 'csv', 'html', 'svg', 'xml']
 
 export default function FilePanel({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
   const t = useT()
@@ -33,6 +39,51 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
   const kind = previewKind(file.name)
+  const [rev, setRev] = useState(0)
+  const [editing, setEditing] = useState<{ base: string; text: string; draft: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [loadingEdit, setLoadingEdit] = useState(false)
+  const canEdit = file.source === 'team' && !!kind && EDITABLE.includes(kind)
+
+  useEffect(() => setEditing(null), [file])
+
+  const startEdit = async () => {
+    if (file.source !== 'team') return
+    setLoadingEdit(true)
+    try {
+      const c = await api.call(API.content, { query: { path: file.path, maxBytes: MAX_TEXT } })
+      if (c.access !== 'write') return toast({ level: 'warn', text: t('files.readOnlyFolder') })
+      if (c.binary || c.content === null || c.truncated) return toast({ level: 'warn', text: t('preview.editTooLarge') })
+      setEditing({ base: c.sha256, text: c.content, draft: c.content })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setLoadingEdit(false)
+    }
+  }
+  const cancelEdit = async () => {
+    if (editing && editing.draft !== editing.text && !(await confirmDialog({ title: t('preview.discardTitle'), confirm: t('preview.discard'), danger: true }))) return
+    setEditing(null)
+  }
+  const saveEdit = async () => {
+    if (!editing || file.source !== 'team') return
+    setSaving(true)
+    try {
+      const r = await api.call(API.saveContent, { body: { path: file.path, content: editing.draft, baseSha256: editing.base } })
+      setEditing(null)
+      if (r.conflict) {
+        toast({ level: 'warn', text: t('preview.savedConflict', { path: r.path }) })
+        openTeamFile(r.path)
+      } else {
+        toast({ level: 'success', text: t('preview.saved') })
+        setRev((v) => v + 1)
+      }
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (file.source === 'local') return
@@ -56,7 +107,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       ctrl.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file])
+  }, [file, rev])
 
   useLayoutEffect(() => {
     const el = body.current
@@ -77,6 +128,11 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           {file.name}
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
+          {canEdit && !editing && !error && (
+            <IconButton label={t('preview.edit')} onClick={() => void startEdit()} disabled={loadingEdit} data-testid="file-edit">
+              {loadingEdit ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
+            </IconButton>
+          )}
           {file.source === 'team' && (
             <IconButton label={t('preview.openInFiles')} onClick={() => navigate(`/files?path=${encodeURIComponent(parentPath(file.path))}&select=${encodeURIComponent(file.name)}`)}>
               <FolderOpen size={16} />
@@ -93,7 +149,27 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
         </div>
       </header>
       <div ref={body} className="min-h-0 flex-1 overflow-auto bg-subtle/50">
-        {!kind ? (
+        {editing ? (
+          <div className="flex h-full flex-col gap-2 p-3">
+            <textarea
+              aria-label={t('preview.editorLabel', { name: file.name })}
+              className="min-h-0 flex-1 resize-none rounded-lg border border-line bg-surface p-3 font-mono text-[13px] leading-5 text-ink focus:border-accent focus:outline-none"
+              value={editing.draft}
+              onChange={(e) => setEditing({ ...editing, draft: e.target.value })}
+              spellCheck={false}
+              autoFocus
+              data-testid="file-editor"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => void cancelEdit()} disabled={saving}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="primary" onClick={() => void saveEdit()} busy={saving} disabled={editing.draft === editing.text} data-testid="file-save">
+                {t('common.save')}
+              </Button>
+            </div>
+          </div>
+        ) : !kind ? (
           <p className="p-6 text-sm text-muted">{t('preview.unsupported')}</p>
         ) : error ? (
           <p className={error.kind === 'other' ? 'p-6 text-sm text-danger' : 'p-6 text-sm text-muted'} role="alert">

@@ -109,3 +109,37 @@ test('nested dialogs: Esc closes only the top one (new-folder prompt over the mo
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
 })
+
+test('fix a text file in the preview panel; a save after someone else\'s becomes a conflict copy', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await row(page, 'plan.md').getByRole('button').first().click()
+  const panel = page.getByTestId('file-panel')
+  await panel.getByTestId('file-edit').click()
+  const editor = panel.getByTestId('file-editor')
+  await expect(editor).toHaveValue(/# Plan/)
+  await expect(panel.getByTestId('file-save')).toBeDisabled()
+
+  // the same file open in a second window, edited there first
+  const other = await browser.newPage()
+  await signIn(other)
+  await other.goto('/files?path=marketing')
+  await row(other, 'plan.md').getByRole('button').first().click()
+  await other.getByTestId('file-panel').getByTestId('file-edit').click()
+  await other.getByTestId('file-editor').fill('# Plan\n\nfirst change\n')
+  await other.getByTestId('file-save').click()
+  await expect(other.getByText('저장했어요.')).toBeVisible()
+  await expect(other.getByTestId('file-panel').getByRole('heading', { name: 'Plan', exact: true })).toBeVisible()
+  await expect(other.getByTestId('file-panel')).toContainText('first change')
+  await other.close()
+
+  // this window still has the old text: its save keeps the other version and goes to a conflict copy
+  await editor.fill('# Plan\n\nsecond change\n')
+  await panel.getByTestId('file-save').click()
+  await expect(page.getByText(/충돌 사본\(marketing\/plan \(충돌 사본/)).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 2 })).toContainText('plan (충돌 사본')
+  await expect(panel).toContainText('second change')
+  await page.getByRole('button', { name: '새로 고침' }).click()
+  await expect(row(page, 'plan (충돌 사본')).toBeVisible()
+})

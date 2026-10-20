@@ -240,6 +240,13 @@ export const en: Record<MessageKey, string> = {
   'preview.kind.pptx': 'presentation',
   'preview.kind.sheet': 'spreadsheet',
   'preview.openInFiles': 'Show in Files',
+  'preview.edit': 'Edit',
+  'preview.editorLabel': 'Contents of {name}',
+  'preview.editTooLarge': 'This file is too large to edit here. Download it to edit.',
+  'preview.discardTitle': 'Discard your changes?',
+  'preview.discard': 'Discard',
+  'preview.saved': 'Saved.',
+  'preview.savedConflict': 'Someone changed this file in the meantime. Their version stays; yours was saved as a conflict copy ({path}).',
 
   'browser.title': 'Browser',
   'browser.desktopOnly': 'The in-app browser is only available in the Team AX desktop app.',

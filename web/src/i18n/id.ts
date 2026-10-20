@@ -240,6 +240,13 @@ export const id: Record<MessageKey, string> = {
   'preview.kind.pptx': 'presentasi',
   'preview.kind.sheet': 'spreadsheet',
   'preview.openInFiles': 'Tampilkan di File',
+  'preview.edit': 'Ubah',
+  'preview.editorLabel': 'Isi {name}',
+  'preview.editTooLarge': 'File ini terlalu besar untuk diubah di sini. Unduh untuk mengubahnya.',
+  'preview.discardTitle': 'Buang perubahan Anda?',
+  'preview.discard': 'Buang',
+  'preview.saved': 'Tersimpan.',
+  'preview.savedConflict': 'Orang lain mengubah file ini sementara itu. Versi mereka tetap; versi Anda disimpan sebagai salinan konflik ({path}).',
 
   'browser.title': 'Browser',
   'browser.desktopOnly': 'Browser aplikasi hanya ada di aplikasi desktop Team AX.',

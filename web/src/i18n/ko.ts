@@ -238,6 +238,13 @@ export const ko = {
   'preview.kind.pptx': '프레젠테이션',
   'preview.kind.sheet': '스프레드시트',
   'preview.openInFiles': '파일 화면에서 열기',
+  'preview.edit': '고치기',
+  'preview.editorLabel': '{name} 내용',
+  'preview.editTooLarge': '이 파일은 커서 여기서 고칠 수 없어요. 내려받아서 고쳐 주세요.',
+  'preview.discardTitle': '고친 내용을 버릴까요?',
+  'preview.discard': '버리기',
+  'preview.saved': '저장했어요.',
+  'preview.savedConflict': '그사이 다른 사람이 이 파일을 바꿨어요. 원본은 그대로 두고 내 내용은 충돌 사본({path})으로 저장했어요.',
 
   'browser.title': '브라우저',
   'browser.desktopOnly': '앱 안 브라우저는 Team AX 데스크톱 앱에서만 쓸 수 있어요.',

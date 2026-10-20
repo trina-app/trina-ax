@@ -479,13 +479,14 @@ export class MockServer {
     content: (c) => {
       const n = this.files.get(c.query.path!)
       if (!n || n.type !== 'file' || this.access(c.query.path!, c.user) === 'none') fail('not_found', 404)
-      return { path: c.query.path, size: n!.data!.byteLength, mtime: n!.mtime, sha256: 'c'.repeat(64), mime: mimeOf(c.query.path!), binary: false, content: dec.decode(n!.data!), truncated: false, access: this.access(c.query.path!, c.user) }
+      return { path: c.query.path, size: n!.data!.byteLength, mtime: n!.mtime, sha256: new Bun.CryptoHasher('sha256').update(n!.data!).digest('hex'), mime: mimeOf(c.query.path!), binary: false, content: dec.decode(n!.data!), truncated: false, access: this.access(c.query.path!, c.user) }
     },
     saveContent: (c) => {
       let path: string = c.body.path
       if (this.access(path, c.user) !== 'write') fail('forbidden', 403)
       let conflict = false
-      if (this.files.has(path) && c.body.baseSha256 === null) {
+      const cur = this.files.get(path)?.data
+      if (cur && (c.body.baseSha256 === null || c.body.baseSha256 !== new Bun.CryptoHasher('sha256').update(cur).digest('hex'))) {
         conflict = true
         path = path.replace(/(\.[^.]+)?$/, (ext) => ` (충돌 사본 - ${c.user.name})${ext}`)
       }
