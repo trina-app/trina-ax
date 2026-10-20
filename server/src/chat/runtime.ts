@@ -51,6 +51,20 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
   return rt
 }
 
+/**
+ * Forget the engine sessions of a person's chats (their read access shrank or the account was disabled: tab 2
+ * "권한 회수", review H7). The next turn of each chat starts a fresh session from the chat's DB history.
+ * For component A (folder rule changes, account changes). Returns the number of chats reset.
+ */
+export function resetEngineSessions(ctx: AppContext, userId: string): number {
+  const rows = ctx.db.query('SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').all(userId) as { id: string }[]
+  for (const r of rows) {
+    ctx.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(r.id)
+    fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
+  }
+  return rows.length
+}
+
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
 export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknown) => v is T, fallback: T): T {
   try {
