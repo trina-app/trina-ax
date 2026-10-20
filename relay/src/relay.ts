@@ -115,7 +115,7 @@ export class RelayServer {
     this.server = http.createServer((req, res) => {
       this.onRequest(req, res).catch((e) => {
         // never an unhandled rejection (Node would exit and take every team offline)
-        this.log.error('request_failed', { error: e instanceof Error ? e.message : 'unknown' })
+        this.log.error('request_failed', { error: errorName(e) })
         try { if (!res.headersSent) this.sendPage(req, res, 'bad_gateway'); else res.destroy() } catch { res.destroy() }
       })
     })
@@ -125,7 +125,7 @@ export class RelayServer {
     this.server.timeout = 0
     this.server.on('upgrade', (req, socket, head) => {
       this.onUpgrade(req, socket as Duplex, head).catch((e) => {
-        this.log.error('upgrade_failed', { error: e instanceof Error ? e.message : 'unknown' })
+        this.log.error('upgrade_failed', { error: errorName(e) })
         try { (socket as Duplex).destroy() } catch {}
       })
     })
@@ -820,6 +820,12 @@ export class RelayServer {
  */
 export function hostOnlyCookie(v: string): string {
   return v.split(';').filter((part, i) => i === 0 || !/^\s*domain\s*=/i.test(part)).join(';')
+}
+
+/** An error's code or class name only: messages can quote request details (header names, values) the log must not hold. */
+function errorName(e: unknown): string {
+  if (!(e instanceof Error)) return 'unknown'
+  return (e as Error & { code?: string }).code ?? e.name
 }
 
 function bodyless(req: http.IncomingMessage): boolean {
