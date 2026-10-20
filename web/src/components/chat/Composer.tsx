@@ -12,7 +12,7 @@ import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
 import { openFilePreview } from '../../lib/sidePanel'
-import { uploadFile } from '../../lib/upload'
+import { cancelUpload, uploadFile } from '../../lib/upload'
 import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
@@ -117,12 +117,14 @@ export default function Composer({
     }
     await Promise.all(
       items.map(async (it) => {
+        const target = { kind: 'attachment', chatId, name: it.file.name } as const
         try {
-          const r = await uploadFile(it.file, { kind: 'attachment', chatId, name: it.file.name }, { client: api, signal: it.abort.signal, onProgress: (p) => update(it.id, { progress: p.total ? p.loaded / p.total : 0 }) })
+          const r = await uploadFile(it.file, target, { client: api, signal: it.abort.signal, onProgress: (p) => update(it.id, { progress: p.total ? p.loaded / p.total : 0 }) })
           if (r.kind !== 'attachment') throw new Error('unexpected upload result')
           update(it.id, { status: 'done', progress: 1, attachment: r.attachment })
         } catch (e) {
-          if (it.abort.signal.aborted) return
+          // removed while uploading: drop the server's half-received session as well
+          if (it.abort.signal.aborted) return void cancelUpload(it.file, target, api)
           update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
         }
       }),

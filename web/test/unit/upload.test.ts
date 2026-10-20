@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiClient, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type UploadSession } from '@mycel/shared/api'
-import { fingerprint, REMEMBER_MAX, sha256Hex, uploadFile } from '../../src/lib/upload'
+import { cancelUpload, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile } from '../../src/lib/upload'
 
 const entry = (path: string): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size: 1, mtime: new Date().toISOString(), mime: null, access: 'write' })
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
@@ -50,6 +50,10 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> }
         return json({ received: [...s.chunks.keys()].sort((a, b) => a - b) })
       }
       if (m[4]) return json({ kind: 'path', entry: entry((s.target as { path: string }).path) })
+      if (method === 'DELETE') {
+        sessions.delete(s.id)
+        return new Response(null, { status: 204 })
+      }
       const { chunks, ...out } = s
       return json({ ...out, received: [...chunks.keys()] })
     }
@@ -116,6 +120,20 @@ describe('uploads', () => {
     await uploadFile(file, target, { client: s.client, storage, retryDelayMs: 0 })
     expect(s.calls[0]).toBe(`GET /api/upload-sessions/${id}`)
     expect(s.calls.filter((c) => c.startsWith('PUT'))).toEqual([`PUT /api/upload-sessions/${id}/chunks/1`, `PUT /api/upload-sessions/${id}/chunks/2`])
+    expect(storage.getItem('mycel.uploads')).toBeNull()
+  })
+
+  test('cancelling a stopped upload drops the server session and forgets it (no resume, no open slot held)', async () => {
+    const storage = new MemStorage()
+    const s = fakeServer()
+    const file = bigFile(2)
+    const target = { kind: 'path' as const, path: 'v/cancel.bin', onExists: 'rename' as const }
+    const ctrl = new AbortController()
+    await expect(uploadFile(file, target, { client: s.client, storage, retryDelayMs: 0, signal: ctrl.signal, onProgress: (p) => p.phase === 'uploading' && p.loaded > 0 && ctrl.abort() })).rejects.toThrow()
+    const id = [...s.sessions.keys()][0]!
+    await cancelUpload(file, target, s.client, storage)
+    expect(s.calls.at(-1)).toBe(`DELETE /api/upload-sessions/${id}`)
+    expect(s.sessions.size).toBe(0)
     expect(storage.getItem('mycel.uploads')).toBeNull()
   })
 

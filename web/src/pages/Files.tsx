@@ -11,7 +11,7 @@ import { formatDateTime, formatSize } from '../lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
-import { uploadFile, type UploadProgress } from '../lib/upload'
+import { cancelUpload, uploadFile, type UploadProgress } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
@@ -108,14 +108,20 @@ export default function Files() {
       const item: UploadItem = { id: ++uploadSeq, name: file.name, folder, progress: null, status: 'uploading', abort: new AbortController() }
       setUploads((u) => [...u, item])
       const patch = (p: Partial<UploadItem>) => setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, ...p } : x)))
-      uploadFile(file, { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' }, { client: api, signal: item.abort.signal, onProgress: (progress) => patch({ progress }) }).then(
+      const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
+      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patch({ progress }) }).then(
         () => {
           patch({ status: 'done' })
           setTimeout(() => setUploads((u) => u.filter((x) => x.id !== item.id)), 4000)
           if (folder === path) void load()
         },
         (e) => {
-          if (item.abort.signal.aborted) return setUploads((u) => u.filter((x) => x.id !== item.id))
+          if (item.abort.signal.aborted) {
+            // cancelled: drop the server's half-received session too (it holds disk space and counts against the
+            // person's open uploads for a day otherwise)
+            void cancelUpload(file, target, api)
+            return setUploads((u) => u.filter((x) => x.id !== item.id))
+          }
           patch({ status: 'failed', error: errorText(e, locale, t('error.network')) })
         },
       )
