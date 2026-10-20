@@ -29,7 +29,13 @@ export function sweep(ctx: AppContext): SweepResult {
       db.query('UPDATE projects SET created_by = NULL WHERE created_by = ?').run(u.id)
       db.query('DELETE FROM chats WHERE user_id = ?').run(u.id)
     })()
-    for (const c of chats) if (/^[A-Za-z0-9_-]+$/.test(c.id)) fs.rmSync(path.join(ctx.config.dataDir, 'sessions', c.id), { recursive: true, force: true })
+    // what the chat left outside the DB: the engine session stash and the engine's working folder of the chat
+    // (the same as purging one chat from the trash)
+    for (const c of chats) {
+      if (!/^[A-Za-z0-9_-]+$/.test(c.id)) continue
+      fs.rmSync(path.join(ctx.config.dataDir, 'sessions', c.id), { recursive: true, force: true })
+      fs.rmSync(path.join(ctx.engineConfig.agentRoot, c.id), { recursive: true, force: true })
+    }
   }
   return { sessions, attempts, resets, audit, purgedUsers: gone.length }
 }
