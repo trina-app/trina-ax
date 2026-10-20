@@ -28,6 +28,8 @@ export interface RelayConfig {
   silenceMs: number
   /** time from the end of the request body to the response head */
   responseTimeoutMs: number
+  /** a request body that sends nothing for this long (while the team server is ready for more) is aborted: 408 */
+  bodyIdleMs: number
   /** time for the team server to accept or refuse a WebSocket */
   wsOpenTimeoutMs: number
   /** a stream waiting this long for its head triggers a PING on its connection ... */
@@ -88,6 +90,7 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     holdMs: num(env.RELAY_HOLD_MS, 5000),
     silenceMs: num(env.RELAY_SILENCE_MS, DEFAULTS.silenceMs),
     responseTimeoutMs: num(env.RELAY_RESPONSE_TIMEOUT_MS, 100_000),
+    bodyIdleMs: num(env.RELAY_BODY_IDLE_MS, 60_000),
     wsOpenTimeoutMs: num(env.RELAY_WS_OPEN_TIMEOUT_MS, 10_000),
     stallMs: num(env.RELAY_STALL_MS, 5000),
     pongTimeoutMs: num(env.RELAY_PONG_TIMEOUT_MS, 10_000),

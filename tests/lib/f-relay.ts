@@ -102,3 +102,32 @@ export function rssMb(pid: number): number {
   const out = Bun.spawnSync(['ps', '-o', 'rss=', '-p', String(pid)]).stdout.toString().trim()
   return Number(out) / 1024
 }
+
+// ------------------------------------------------------------------ a misbehaving team server (review tests)
+
+/** A team server that speaks the handshake and then does whatever `onOpen` says with each stream (Bun WebSocket). */
+export async function rawTeam(url: string, teamId: string, kp: TeamKeyPair, onOpen: (s: import('@mycel/shared/relay-protocol').Stream) => void): Promise<{ ws: WebSocket; mux: import('@mycel/shared/relay-protocol').Mux; closed: Promise<number> }> {
+  const { Mux, authSigningString } = await import('@mycel/shared/relay-protocol')
+  const key = loadPrivateKey(kp.privatePem)
+  const ws = new WebSocket(url)
+  ws.binaryType = 'arraybuffer'
+  let mux: InstanceType<typeof Mux> | null = null
+  const closed = new Promise<number>((r) => { ws.onclose = (e) => r(e.code) })
+  await new Promise<void>((resolve, reject) => {
+    ws.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        const m = JSON.parse(e.data)
+        if (m.t === 'challenge') {
+          const ts = Date.now()
+          ws.send(JSON.stringify({ t: 'auth', v: 2, team: teamId, instance: 'rawteam1', conn: 0, ts, sig: signB64(key, authSigningString(teamId, 'rawteam1', m.nonce, ts)) }))
+        } else if (m.t === 'ok') {
+          mux = new Mux({ send: (b) => ws.send(b), buffered: () => 0 }, { role: 'team', initialWindow: m.initialWindow, highWater: 1 << 20, maxStreams: 100, onOpen })
+          resolve()
+        } else reject(new Error(JSON.stringify(m)))
+        return
+      }
+      mux?.onMessage(new Uint8Array(e.data as ArrayBuffer))
+    }
+  })
+  return { ws, mux: mux!, closed }
+}

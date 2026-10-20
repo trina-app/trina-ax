@@ -11,8 +11,9 @@ import type { Duplex } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { WebSocketServer, WebSocket, type RawData } from 'ws'
 import {
-  AUTH_MAX_SKEW_MS, AUTH_TIMEOUT_MS, ClientClose, ControlClose, DataFlag, FrameError, Mux, RstCode, SUPPORTED_VERSIONS,
-  authSigningString, forwardRequestHeaders, forwardResponseHeaders, parseAuth, readWsClose, teamFromHost, verifyB64,
+  AUTH_MAX_SKEW_MS, AUTH_TIMEOUT_MS, ClientClose, ControlClose, DataFlag, FrameError, HDR, MAX_PAYLOAD, Mux, RstCode,
+  SUPPORTED_VERSIONS, authSigningString, forwardRequestHeaders, forwardResponseHeaders, jsonPayload, parseAuth,
+  parseOpenMeta, readWsClose, teamFromHost, verifyB64,
   type AuthOk, type HeaderList, type OpenMeta, type RelayEvent, type Stream,
 } from '@mycel/shared/relay-protocol'
 import { teamAddress, type RelayConfig } from './config.ts'
@@ -22,8 +23,13 @@ import { PAGE_STATUS, htmlPage, pageMessage, pickLang, type PageKind } from './p
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
 
 export const RELAY_VERSION = '0.1.0'
-/** biggest WebSocket message the relay assembles from the team server */
-const MAX_WS_MESSAGE = 16 * 1024 * 1024
+/** biggest WebSocket message (one control-connection message carries one frame; a little room for batching) */
+const MAX_CTL_MESSAGE = 4 * (HDR + MAX_PAYLOAD)
+/** Node's `ws` sends message fragments (send with fin: false); Bun's built-in `ws` module does not */
+const WS_FRAGMENTS = !process.versions.bun
+const BUN_MAX_WS_MESSAGE = 16 * 1024 * 1024
+/** registration rate-limit table: IPs remembered at most (memory only) */
+const MAX_REGISTER_IPS = 50_000
 /** relay -> browser socket: stop returning window while more than this is buffered */
 const CLIENT_HIGH_WATER = 256 * 1024
 /** relay -> team control socket */
@@ -79,7 +85,10 @@ export class RelayServer {
   readonly registry: Registry
   readonly log: RelayLog
   readonly server: http.Server
+  /** browser WebSockets (messages up to the client cap) */
   private wss: WebSocketServer
+  /** team-server control connections: frames are at most 64 KB, so an unauthenticated peer can't make us buffer more */
+  private ctlWss: WebSocketServer
   private teams = new Map<string, TeamState>()
   private clientSockets = new Set<WebSocket>()
   private tracks = new Set<StreamTrack>()
@@ -102,12 +111,24 @@ export class RelayServer {
       noServer: true, perMessageDeflate: false, maxPayload: Math.max(cfg.clientWsCap, 1024 * 1024),
       handleProtocols: (protocols, req) => this.handleProtocols(protocols, req),
     })
-    this.server = http.createServer((req, res) => { void this.onRequest(req, res) })
+    this.ctlWss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: MAX_CTL_MESSAGE })
+    this.server = http.createServer((req, res) => {
+      this.onRequest(req, res).catch((e) => {
+        // never an unhandled rejection (Node would exit and take every team offline)
+        this.log.error('request_failed', { error: e instanceof Error ? e.message : 'unknown' })
+        try { if (!res.headersSent) this.sendPage(req, res, 'bad_gateway'); else res.destroy() } catch { res.destroy() }
+      })
+    })
     this.server.requestTimeout = 0
     this.server.headersTimeout = 30_000
     this.server.keepAliveTimeout = 65_000
     this.server.timeout = 0
-    this.server.on('upgrade', (req, socket, head) => { void this.onUpgrade(req, socket as Duplex, head) })
+    this.server.on('upgrade', (req, socket, head) => {
+      this.onUpgrade(req, socket as Duplex, head).catch((e) => {
+        this.log.error('upgrade_failed', { error: e instanceof Error ? e.message : 'unknown' })
+        try { (socket as Duplex).destroy() } catch {}
+      })
+    })
     this.server.on('clientError', (_e, socket) => { try { socket.end('HTTP/1.1 400 Bad Request\r\nconnection: close\r\n\r\n') } catch {} })
   }
 
@@ -207,7 +228,9 @@ export class RelayServer {
       const lastSeen = t?.offlineAt ?? (row.last_connected_at ? Date.parse(row.last_connected_at) : null)
       return this.sendPage(req, res, this.teams.get(row.id)?.conns.size ? 'team_busy' : 'team_offline', lastSeen ? Date.now() - lastSeen : null)
     }
-    this.proxyHttp(req, res, ctl)
+    const meta = this.meta(req, 'http')
+    if (!meta) { res.shouldKeepAlive = false; return this.sendPage(req, res, 'bad_request') }
+    this.proxyHttp(req, res, ctl, meta)
   }
 
   /** A live control connection for the team; waits up to the restart hold for one to appear. */
@@ -266,12 +289,18 @@ export class RelayServer {
       res.end(htmlPage(kind, lang, offlineForMs))
       return
     }
-    const code = kind === 'team_unknown' || kind === 'not_found' ? 'not_found' : kind === 'team_suspended' ? 'forbidden' : 'unavailable'
+    // codes from the app's ErrorCode list (shared/src/api/common.ts), so the web client handles relay answers alike
+    const code = kind === 'team_unknown' || kind === 'not_found' ? 'not_found' : kind === 'team_suspended' ? 'forbidden' : kind === 'bad_request' || kind === 'request_timeout' ? 'bad_request' : 'unavailable'
     sendJson(res, status, { error: { code, message: pageMessage(kind, lang, offlineForMs), reason: kind, ...(status === 503 ? { retryAfter: 5 } : {}) } }, extra)
   }
 
-  private meta(req: http.IncomingMessage, kind: 'http' | 'ws'): OpenMeta {
-    return {
+  /**
+   * The OPEN metadata of a request, or null when the team server could not accept it (absolute-form or `*` target,
+   * too many headers, a head over the OPEN size limit). Checked here so a bad request gets a 400 from the relay
+   * instead of reaching the team server.
+   */
+  private meta(req: http.IncomingMessage, kind: 'http' | 'ws'): OpenMeta | null {
+    const m: OpenMeta = {
       kind,
       method: req.method ?? 'GET',
       path: req.url ?? '/',
@@ -280,14 +309,21 @@ export class RelayServer {
       headers: forwardRequestHeaders(req.rawHeaders, kind),
       clientIp: this.clientIp(req),
     }
+    try {
+      parseOpenMeta(m)
+      jsonPayload(m)
+      return m
+    } catch {
+      return null
+    }
   }
 
   // ------------------------------------------------------------------ HTTP proxy
 
-  private proxyHttp(req: http.IncomingMessage, res: http.ServerResponse, ctl: Ctl): void {
+  private proxyHttp(req: http.IncomingMessage, res: http.ServerResponse, ctl: Ctl, meta: OpenMeta): void {
     this.counters.http++
     const team = ctl.team!
-    const s = ctl.mux!.open(this.meta(req, 'http'))
+    const s = ctl.mux!.open(meta)
     const track: StreamTrack = { s, ctl, waitingHeadSince: null }
     this.tracks.add(track)
     team.streams++
@@ -296,7 +332,21 @@ export class RelayServer {
     let resBytes = 0
     let owed = 0
     let finished = false
+    let reqEnded = bodyless(req)
     let timer: ReturnType<typeof setTimeout> | null = null
+    // a request body that stops arriving (slow-loris upload) would hold a stream on the team server forever
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
+    const clearIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null } }
+    const armIdle = () => {
+      clearIdle()
+      idleTimer = setTimeout(() => {
+        idleTimer = null
+        if (s.done || s.endQueued) return
+        s.rst(RstCode.TIMEOUT, 'request body stalled')
+        if (!res.headersSent) { res.shouldKeepAlive = false; this.sendPage(req, res, 'request_timeout') } else res.destroy()
+        finish()
+      }, this.cfg.bodyIdleMs)
+    }
     const armHeadTimer = () => {
       track.waitingHeadSince = Date.now()
       timer = setTimeout(() => {
@@ -310,6 +360,7 @@ export class RelayServer {
       if (finished) return
       finished = true
       if (timer) clearTimeout(timer)
+      clearIdle()
       this.tracks.delete(track)
       team.streams--
       team.bytesIn += reqBytes
@@ -318,22 +369,39 @@ export class RelayServer {
     }
 
     // request body -> DATA, paced by the stream window (pausing req pushes back on the client's TCP connection)
-    const bodyless = (req.method === 'GET' || req.method === 'HEAD') && !req.headers['content-length'] && !req.headers['transfer-encoding']
-    if (bodyless) { s.end(); armHeadTimer() } else {
+    if (bodyless(req)) { s.end(); armHeadTimer() } else {
+      armIdle()
       req.on('data', (chunk: Buffer) => {
         reqBytes += chunk.byteLength
         const p = s.write(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
-        if (p) { req.pause(); void p.then(() => req.resume()) }
+        if (p) {
+          // waiting for the team server's window is not the client stalling
+          clearIdle()
+          req.pause()
+          void p.then(() => { if (!finished && !s.done) armIdle(); req.resume() })
+        } else if (!finished) {
+          armIdle()
+        }
       })
-      req.on('end', () => { s.end(); armHeadTimer() })
+      req.on('end', () => { reqEnded = true; clearIdle(); s.end(); if (!finished) armHeadTimer() })
     }
 
     s.onResponse = (h) => {
       track.waitingHeadSince = null
       if (timer) { clearTimeout(timer); timer = null }
       if (res.headersSent || res.destroyed) return
+      if (h.status < 200) {
+        // 1xx heads can't be relayed as the final answer of an HTTP stream (a 101 would hijack the client connection)
+        s.rst(RstCode.PROTOCOL, 'informational status on an HTTP stream')
+        this.sendPage(req, res, 'bad_gateway')
+        finish()
+        return
+      }
+      // answered before the request body was all here (e.g. 401 / 413 on an upload): the client may stop sending
+      // the body, so this connection can't safely carry another request
+      if (!reqEnded) res.shouldKeepAlive = false
       const flat: string[] = []
-      for (const [k, v] of forwardResponseHeaders(h.headers)) flat.push(k, v)
+      for (const [k, v] of forwardResponseHeaders(h.headers)) flat.push(k, k.toLowerCase() === 'set-cookie' ? hostOnlyCookie(v) : v)
       try {
         res.writeHead(h.status, flat)
       } catch {
@@ -356,9 +424,11 @@ export class RelayServer {
     s.onRst = (code) => {
       if (!res.headersSent) {
         this.sendPage(req, res, code === RstCode.TIMEOUT ? 'team_timeout' : code === RstCode.CONN_LOST || code === RstCode.REPLACED ? 'team_connection_lost' : code === RstCode.REFUSED ? 'team_busy' : 'bad_gateway')
-      } else {
+      } else if (!res.writableEnded) {
         res.destroy() // mid-body: the client must see a truncated response, not a complete one
       }
+      // else: the response is complete and the team server just doesn't want the rest of the request body; the
+      // reset stream discards it (req keeps flowing) and the client gets its whole answer
       finish()
     }
     res.on('finish', () => finish())
@@ -376,7 +446,7 @@ export class RelayServer {
     const name = this.teamName(req)
     if (name === null) {
       if ((req.url ?? '').split('?')[0] === '/connect') {
-        this.wss.handleUpgrade(req, socket, head, (ws) => this.onControl(ws))
+        this.ctlWss.handleUpgrade(req, socket, head, (ws) => this.onControl(ws))
         return
       }
       rawHttp(socket, 404)
@@ -393,13 +463,15 @@ export class RelayServer {
       this.wss.handleUpgrade(req, socket, head, (ws) => ws.close(ClientClose.TEAM_OFFLINE, 'team_offline'))
       return
     }
-    this.proxyWs(req, socket, head, ctl)
+    const meta = this.meta(req, 'ws')
+    if (!meta) { rawHttp(socket, 400); return }
+    this.proxyWs(req, socket, head, ctl, meta)
   }
 
-  private proxyWs(req: http.IncomingMessage, socket: Duplex, head: Buffer, ctl: Ctl): void {
+  private proxyWs(req: http.IncomingMessage, socket: Duplex, head: Buffer, ctl: Ctl, meta: OpenMeta): void {
     this.counters.ws++
     const team = ctl.team!
-    const s = ctl.mux!.open(this.meta(req, 'ws'))
+    const s = ctl.mux!.open(meta)
     const track: StreamTrack = { s, ctl, waitingHeadSince: Date.now() }
     this.tracks.add(track)
     team.streams++
@@ -489,20 +561,25 @@ export class RelayServer {
         closeClient(ws, code, reason)
         return
       }
-      if (flags & DataFlag.WS_CONT) {
-        // pieces of a big message: return their window at once (a message may be larger than the window);
-        // the assembly buffer is bounded by MAX_WS_MESSAGE instead
-        frag.push(b)
-        fragBytes += b.byteLength
-        if (fragBytes > MAX_WS_MESSAGE) { s.rst(RstCode.FLOW_CONTROL, 'message too large'); ws.close(ClientClose.TOO_BIG, 'message too large'); return }
-        s.consumed(b.byteLength)
+      const binary = !!(flags & DataFlag.WS_BINARY)
+      const last = !(flags & DataFlag.WS_CONT)
+      countOut(b.byteLength)
+      if (WS_FRAGMENTS) {
+        // each piece goes out as a WebSocket fragment at once (fin on the last piece): the relay never assembles a
+        // message, and every piece returns its window like any other bytes once the browser socket took it
+        ws.send(Buffer.from(b.buffer, b.byteOffset, b.byteLength), { binary, fin: last })
+        credit(b.byteLength)
         return
       }
-      const msg = frag.length ? Buffer.concat([...frag, b]) : Buffer.from(b.buffer, b.byteOffset, b.byteLength)
+      // Bun's built-in `ws` ignores `fin` (unit tests run the relay in Bun): assemble, bounded
+      frag.push(b)
+      fragBytes += b.byteLength
+      if (fragBytes > BUN_MAX_WS_MESSAGE) { s.rst(RstCode.FLOW_CONTROL, 'message too large'); ws.close(ClientClose.TOO_BIG, 'message too large'); return }
+      if (!last) { s.consumed(b.byteLength); return }
+      const msg = Buffer.concat(frag)
       frag = []
       fragBytes = 0
-      countOut(msg.byteLength)
-      ws.send(msg, { binary: !!(flags & DataFlag.WS_BINARY) })
+      ws.send(msg, { binary })
       credit(b.byteLength)
     }
     s.onEnd = () => { if (ws.readyState === WebSocket.OPEN) ws.close(ClientClose.NORMAL, '') }
@@ -702,7 +779,7 @@ export class RelayServer {
         const key = this.registry.currentKey(t.id)
         for (const c of t.conns) {
           if (row?.status === 'suspended') { c.draining = true; c.mux?.goaway({ reason: 'suspended' }); c.ws.close(ControlClose.SUSPENDED, 'team suspended') }
-          else if (!row || row.status === 'released' || key?.id !== c.keyId) c.ws.close(ControlClose.AUTH_FAILED, 'key revoked')
+          else if (!row || row.status === 'released' || key?.id !== c.keyId) { c.draining = true; c.ws.close(ControlClose.AUTH_FAILED, 'key revoked') }
         }
       }
       for (const [ip, hits] of this.registerHits) if (!hits.some((h) => now - h < 3600_000)) this.registerHits.delete(ip)
@@ -716,6 +793,11 @@ export class RelayServer {
     const hits = (this.registerHits.get(ip) ?? []).filter((h) => now - h < 3600_000)
     if (hits.length >= this.cfg.registerPerIpPerHour) { this.registerHits.set(ip, hits); return false }
     hits.push(now)
+    // bounded: a flood from many addresses must not grow this table without limit (drop the oldest entries)
+    if (!this.registerHits.has(ip) && this.registerHits.size >= MAX_REGISTER_IPS) {
+      const first = this.registerHits.keys().next().value
+      if (first !== undefined) this.registerHits.delete(first)
+    }
     this.registerHits.set(ip, hits)
     return true
   }
@@ -727,8 +809,21 @@ export class RelayServer {
   disconnectTeam(teamId: string, code: number, reason: string): void {
     const t = this.teams.get(teamId)
     if (!t) return
-    for (const c of t.conns) c.ws.close(code, reason)
+    for (const c of t.conns) { c.draining = true; c.ws.close(code, reason) }
   }
+}
+
+/**
+ * A team server's Set-Cookie made host-only: every team address shares the parent domain, so a Domain attribute
+ * (Domain=treesoop.com) would let one team's server set cookies for every other team. Design tab 6: cookies are
+ * __Host- only; this strips Domain at the relay as well.
+ */
+export function hostOnlyCookie(v: string): string {
+  return v.split(';').filter((part, i) => i === 0 || !/^\s*domain\s*=/i.test(part)).join(';')
+}
+
+function bodyless(req: http.IncomingMessage): boolean {
+  return (req.method === 'GET' || req.method === 'HEAD') && !req.headers['content-length'] && !req.headers['transfer-encoding']
 }
 
 function closeClient(ws: WebSocket, code: number, reason: string): void {

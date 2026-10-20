@@ -2,7 +2,9 @@
 // the address is suspended. HTML for browsers, the usual { error: { code, message } } JSON for API calls.
 // Languages ko (default) / en / id from Accept-Language.
 
-export type PageKind = 'team_offline' | 'team_unknown' | 'team_suspended' | 'team_busy' | 'team_timeout' | 'team_connection_lost' | 'bad_gateway' | 'not_found'
+export type PageKind =
+  | 'team_offline' | 'team_unknown' | 'team_suspended' | 'team_busy' | 'team_timeout' | 'team_connection_lost' | 'bad_gateway'
+  | 'not_found' | 'bad_request' | 'request_timeout'
 type Lang = 'ko' | 'en' | 'id'
 
 export function pickLang(acceptLanguage: string | undefined): Lang {
@@ -59,6 +61,16 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     en: { title: 'The request could not be completed', body: 'Please try again shortly.' },
     id: { title: 'Permintaan tidak dapat diselesaikan', body: 'Silakan coba lagi sebentar lagi.' },
   },
+  bad_request: {
+    ko: { title: '잘못된 요청입니다', body: '주소를 다시 확인해 주세요.' },
+    en: { title: 'Bad request', body: 'Please check the address.' },
+    id: { title: 'Permintaan tidak valid', body: 'Silakan periksa alamatnya.' },
+  },
+  request_timeout: {
+    ko: { title: '요청을 보내는 중에 연결이 멈췄습니다', body: '네트워크 연결을 확인하고 다시 시도해 주세요.' },
+    en: { title: 'The request stopped arriving', body: 'Check your network connection and try again.' },
+    id: { title: 'Pengiriman permintaan terhenti', body: 'Periksa koneksi jaringan Anda lalu coba lagi.' },
+  },
   not_found: {
     ko: { title: '찾을 수 없습니다', body: '' },
     en: { title: 'Not found', body: '' },
@@ -83,4 +95,5 @@ export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null
 
 export const PAGE_STATUS: Record<PageKind, number> = {
   team_offline: 503, team_unknown: 404, team_suspended: 403, team_busy: 503, team_timeout: 504, team_connection_lost: 502, bad_gateway: 502, not_found: 404,
+  bad_request: 400, request_timeout: 408,
 }

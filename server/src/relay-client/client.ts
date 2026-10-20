@@ -88,6 +88,14 @@ export class RelayClient {
 
   get state(): RelayClientState { return { ...this.st } }
 
+  /** streams open right now on every control connection (diagnostics; tests check nothing lingers) */
+  openStreams(): number {
+    let n = 0
+    for (const s of this.slots) n += s.conn?.mux?.streams.size ?? 0
+    for (const c of this.draining) n += c.mux?.streams.size ?? 0
+    return n
+  }
+
   start(): void {
     for (let i = 0; i < this.n; i++) this.connect(i)
   }
@@ -324,9 +332,19 @@ export class RelayClient {
       ac.abort(new Error(`relay stream reset (${code})`))
       reader?.cancel(`relay stream reset (${code})`).catch(() => {})
     }
+    let req: Request
+    try {
+      req = this.buildRequest(meta, body, ac.signal)
+    } catch {
+      // headers this runtime won't take (e.g. non-ASCII values): the client's request is at fault, not the server
+      s.respond({ status: 400, headers: [['content-type', 'application/json; charset=utf-8']] })
+      void s.write(new TextEncoder().encode(JSON.stringify({ error: { code: 'bad_request', message: 'bad request headers' } })))
+      s.end({ cancelUnread: true })
+      return
+    }
     let res: Response
     try {
-      res = await this.o.fetch(this.buildRequest(meta, body, ac.signal), { ip: meta.clientIp })
+      res = await this.o.fetch(req, { ip: meta.clientIp })
     } catch (e) {
       if (s.reset) return
       this.stats.httpErrors++
@@ -335,7 +353,7 @@ export class RelayClient {
     }
     if (s.reset) { await res.body?.cancel().catch(() => {}); return }
     s.respond({ status: res.status, headers: responseHeaders(res.headers) })
-    if (!res.body || meta.method === 'HEAD') { await res.body?.cancel().catch(() => {}); s.end(); return }
+    if (!res.body || meta.method === 'HEAD') { await res.body?.cancel().catch(() => {}); s.end({ cancelUnread: true }); return }
     reader = res.body.getReader()
     try {
       for (;;) {
@@ -347,7 +365,7 @@ export class RelayClient {
         if (p) await p
         if (s.reset) return
       }
-      s.end()
+      s.end({ cancelUnread: true })
     } catch (e) {
       if (!s.reset) {
         this.o.log.warn('relayed response body failed', { err: e })
@@ -365,7 +383,14 @@ export class RelayClient {
       return
     }
     const protocol = offered.includes(WS_PROTOCOL) ? WS_PROTOCOL : (offered[0] ?? '')
-    const req = this.buildRequest(meta, null)
+    let req: Request
+    try {
+      req = this.buildRequest(meta, null)
+    } catch {
+      s.respond({ status: 400, headers: [] })
+      s.end()
+      return
+    }
     s.respond({ status: 101, headers: protocol ? [['sec-websocket-protocol', protocol]] : [] })
     const vws = new RelayWebSocket(s, protocol)
     let ok = false
