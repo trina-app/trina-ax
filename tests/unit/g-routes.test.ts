@@ -180,7 +180,9 @@ describe('update and connection', () => {
     expect(s).toMatchObject({ mode: 'direct-only', state: 'disabled', direct: { enabled: false } })
     expect((await post('/api/admin/connection', { mode: 'tailscale', password: 'owner-pass' }, 'owner', 'PUT')).status).toBe(409)
     expect((await post('/api/admin/connection', { mode: 'self-relay', password: 'owner-pass' }, 'owner', 'PUT')).status).toBe(400)
-    expect((await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'http://plain.example/x', password: 'owner-pass' }, 'owner', 'PUT')).status).toBe(400)
+    const plain = await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'http://plain.example/x', password: 'owner-pass' }, 'owner', 'PUT')
+    expect(plain.status).toBe(400)
+    expect(((await plain.json()) as { error: { message: string } }).error.message).toContain('자체 중계 서버 주소') // in the user's language
     const r = await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example.org/connect', password: 'owner-pass' }, 'owner', 'PUT')
     expect(r.status).toBe(200)
     expect(await r.json()).toMatchObject({ mode: 'self-relay', state: 'connecting' })
@@ -192,7 +194,7 @@ describe('diagnostics in an installed layout', () => {
   test('pf status, sandbox profile, launcher socket, Time Machine, release signature', async () => {
     const dir = path.join(BASE, 'prod')
     const base = path.join(dir, 'base')
-    for (const d of ['root', 'status', 'secrets', 'agent', 'app/versions/1.0.0', 'ld']) fs.mkdirSync(path.join(base, d), { recursive: true })
+    for (const d of ['root', 'status', 'run', 'secrets', 'agent', 'app/versions/1.0.0', 'ld']) fs.mkdirSync(path.join(base, d), { recursive: true })
     fs.symlinkSync('versions/1.0.0', path.join(base, 'app', 'current'))
     fs.writeFileSync(path.join(base, 'root', 'pf.anchor'), 'block drop out quick user _x\n')
     fs.writeFileSync(path.join(base, 'root', 'engine.sb'), '(version 1)')
@@ -208,11 +210,15 @@ describe('diagnostics in an installed layout', () => {
     fs.mkdirSync(cfg.teamRoot, { recursive: true })
     const c2 = createContext({ config: cfg, db, log: silentLogger })
     let pfAt = new Date().toISOString()
-    const writePf = (o: object) => fs.writeFileSync(path.join(base, 'status', 'pf.json'), JSON.stringify({ format: 1, at: pfAt, enabled: true, anchor: 'com.apple/250.x', rules: 4, referenced: true, ...o }))
+    // pf-load (root) writes run/pf.json; a pf.json in status/ (a folder the server account owns) is not trusted
+    fs.writeFileSync(path.join(base, 'status', 'pf.json'), JSON.stringify({ format: 1, at: new Date().toISOString(), enabled: true, anchor: 'x', rules: 9, referenced: true }))
+    const writePf = (o: object) => fs.writeFileSync(path.join(base, 'run', 'pf.json'), JSON.stringify({ format: 1, at: pfAt, enabled: true, anchor: 'com.apple/250.x', rules: 4, referenced: true, ...o }))
     const layout = { ...resolveLayout(cfg, { MYCEL_INSTALL_BASE: base, MYCEL_LAUNCHDAEMONS_DIR: path.join(base, 'ld') }) }
     expect(layout.label).toBe('app.treesoop.base')
     const ops = new OpsService(c2, { layout, engines: async () => [], tmutil: async (p) => p.endsWith('secrets'), atDir: path.join(base, 'at') })
     const get = async (id: string) => (await ops.diagnostics('ko')).checks.find((x) => x.id === id)!
+    expect(layout.pfStatusFile).toBe(path.join(base, 'run', 'pf.json'))
+    expect((await get('pf_anchor')).status).toBe('fail') // only status/pf.json so far
     writePf({})
     expect((await get('pf_anchor')).status).toBe('ok')
     expect((await get('sandbox')).status).toBe('ok')

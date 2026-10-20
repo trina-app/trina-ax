@@ -16,6 +16,8 @@ export interface InstallLayout {
   appDir: string | null
   rootDir: string | null
   statusDir: string
+  /** pf-load's status (root writes it into the root-owned run/ folder; never into a folder the server can write) */
+  pfStatusFile: string
   setupDir: string
   secretsDir: string
   dataDir: string
@@ -43,6 +45,7 @@ export function resolveLayout(cfg: AppConfig, env: Record<string, string | undef
     appDir: appDir && fs.existsSync(appDir) ? appDir : null,
     rootDir: prod ? path.join(base, 'root') : null,
     statusDir: path.join(base, 'status'),
+    pfStatusFile: path.join(base, 'run', 'pf.json'),
     setupDir: path.join(base, 'setup'),
     secretsDir: path.join(base, 'secrets'),
     dataDir: cfg.dataDir,

@@ -40,6 +40,8 @@ const T = {
   restarting: { ko: '서버를 다시 시작합니다.', en: 'Restarting the server.', id: 'Memulai ulang server.' },
   afterRestart: { ko: '서버를 다시 시작한 뒤 적용됩니다.', en: 'Applies after the server restarts.', id: 'Berlaku setelah server dimulai ulang.' },
   unsupportedMode: { ko: '이 연결 방식은 이번 버전에서 아직 쓸 수 없습니다.', en: 'This connection mode is not available in this version yet.', id: 'Mode koneksi ini belum tersedia di versi ini.' },
+  noConfigFile: { ko: '개발 모드 서버는 설정 파일 없이 실행 중이라 연결 방식을 바꿀 수 없습니다(.dev/server.json의 relay.url).', en: 'This development server runs without a config file, so the connection mode cannot be changed here (relay.url in .dev/server.json).', id: 'Server pengembangan ini berjalan tanpa berkas konfigurasi, jadi mode koneksi tidak bisa diubah di sini (relay.url di .dev/server.json).' },
+  badRelayUrl: { ko: '자체 중계 서버 주소는 wss://로 시작하는 주소여야 합니다.', en: 'The self-hosted relay address must be a wss:// address.', id: 'Alamat relay sendiri harus berupa alamat wss://.' },
 }
 
 export const systemRoutes: RouteModule = {
@@ -185,7 +187,10 @@ export const systemRoutes: RouteModule = {
         if (ops().layout.appDir) scheduleRestart(ctx, 'connection change')
         return { ...now, mode: modeOf(url), state: url ? ('connecting' as const) : ('disabled' as const), detail: tr(locale, T.afterRestart) }
       } catch (e) {
-        if (e instanceof ConnectionChangeError) fail(e.code === 'unsupported' ? 'conflict' : 'validation', e.code === 'unsupported' ? tr(locale, T.unsupportedMode) : e.message)
+        if (e instanceof ConnectionChangeError) {
+          if (e.code === 'unsupported') fail('conflict', tr(locale, T.unsupportedMode))
+          fail(e.code === 'no_config' ? 'conflict' : 'validation', tr(locale, e.code === 'no_config' ? T.noConfigFile : T.badRelayUrl))
+        }
         throw e
       }
     })

@@ -87,7 +87,7 @@ export class OpsService {
   connection(): ConnectionStatus { return connectionStatus(this.ctx) }
 
   private pfStatus(): PfStatus | null {
-    try { return PfStatus.parse(JSON.parse(fs.readFileSync(path.join(this.layout.statusDir, 'pf.json'), 'utf8'))) } catch { return null }
+    try { return PfStatus.parse(JSON.parse(fs.readFileSync(this.layout.pfStatusFile, 'utf8'))) } catch { return null }
   }
 
   private launcherPlist(): string | null {

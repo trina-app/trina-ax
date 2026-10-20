@@ -9,7 +9,9 @@
 #   never edited. If the main ruleset has been flushed (no com.apple/* reference), the stock file is loaded again.
 # - pf is enabled with a reference (pfctl -E); the token is kept in <base>/run/pf.token with the boot time so the
 #   uninstaller can release exactly our reference (pfctl -X). A new boot takes a new reference.
-# - the result goes to <base>/status/pf.json for the server's diagnostics (the server cannot read /dev/pf).
+# - the result goes to <base>/run/pf.json for the server's diagnostics (the server cannot read /dev/pf). run/ is
+#   root:wheel 755: this root job never writes into a folder the server account owns (status/, logs), where a
+#   planted symlink would turn the write into a root write anywhere.
 # Fixed commands only: no sockets, no IPC, no arguments from the server.
 set -u
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -17,11 +19,15 @@ BASE=${1:?base folder}
 ANCHOR=${2:?anchor name}
 RULES="$BASE/root/pf.anchor"
 TOKEN_FILE="$BASE/run/pf.token"
-STATUS="$BASE/status/pf.json"
+STATUS="$BASE/run/pf.json"
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) pf-load: $*" >&2; }
 
 [ "$(id -u)" = 0 ] || { log "must run as root"; exit 1; }
 [ -f "$RULES" ] || { log "missing $RULES"; exit 1; }
+# every folder this script writes into must be root's own (not a symlink, not writable by anyone else)
+for d in "$BASE" "$BASE/run"; do
+  [ -d "$d" ] && [ ! -L "$d" ] && [ "$(stat -f %u "$d")" = 0 ] && [ -z "$(find "$d" -maxdepth 0 -perm +022)" ] || { log "$d is not a root-only folder"; exit 1; }
+done
 
 referenced() { pfctl -s rules 2>/dev/null | grep -q 'anchor "com.apple/\*"'; }
 if ! referenced; then
@@ -42,7 +48,7 @@ if [ "$SAVED_BOOT" != "$BOOT" ] || [ "$ENABLED" = no ]; then
   TOKEN=$(pfctl -E 2>&1 | sed -n 's/^Token : //p')
   if [ -n "$TOKEN" ]; then
     umask 077
-    printf 'token=%s\nboot=%s\n' "$TOKEN" "$BOOT" > "$TOKEN_FILE"
+    T=$(mktemp "$BASE/run/.pf.token.XXXXXX") && printf 'token=%s\nboot=%s\n' "$TOKEN" "$BOOT" > "$T" && mv -f -h "$T" "$TOKEN_FILE"
     log "pf enabled (reference $TOKEN)"
   else
     log "pfctl -E gave no token"
@@ -55,6 +61,6 @@ REF=false
 referenced && REF=true
 RULE_COUNT=$(pfctl -a "$ANCHOR" -s rules 2>/dev/null | grep -c .)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-TMP="$STATUS.tmp"
-printf '{"format":1,"at":"%s","enabled":%s,"anchor":"%s","rules":%s,"referenced":%s}\n' "$NOW" "$ENABLED" "$ANCHOR" "${RULE_COUNT:-0}" "$REF" > "$TMP" && chmod 644 "$TMP" && mv -f "$TMP" "$STATUS"
+TMP=$(mktemp "$BASE/run/.pf.json.XXXXXX") && \
+printf '{"format":1,"at":"%s","enabled":%s,"anchor":"%s","rules":%s,"referenced":%s}\n' "$NOW" "$ENABLED" "$ANCHOR" "${RULE_COUNT:-0}" "$REF" > "$TMP" && chmod 644 "$TMP" && mv -f -h "$TMP" "$STATUS"
 [ "$ENABLED" = true ] && [ "$REF" = true ] && [ "${RULE_COUNT:-0}" -gt 0 ]

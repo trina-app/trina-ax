@@ -87,7 +87,8 @@ export const RestorePending = z.object({
 })
 export type RestorePending = z.infer<typeof RestorePending>
 
-/** pf-load (root, every 5 min) writes status/pf.json: the server cannot read /dev/pf. */
+/** pf-load (root, every 5 min) writes run/pf.json (root-owned folder): the server cannot read /dev/pf. A root job never
+ * writes into status/ or other folders the server account owns (a planted symlink would redirect the write). */
 export const PfStatus = z.object({
   format: z.literal(1),
   at: z.string(),
