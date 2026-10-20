@@ -97,35 +97,47 @@ free_id() {
   done
   return 1
 }
+uattr() {  # user attribute plist-key -> first value
+  dscl -plist . -read "/Users/$1" "$2" 2>/dev/null | plutil -extract "$3.0" raw -o - - 2>/dev/null || true
+}
 ensure_account() {  # name, description, home
+  # Accounts are created with dscl, not `sysadminctl -roleAccount`: on macOS 26 sysadminctl run unattended as root
+  # ignored -UID (the account got 502, a regular user with a picture and a password policy) and its follow-up changes
+  # hung waiting for an approval nobody could give. A new record takes all its attributes at once; an existing
+  # account is only checked, never rewritten: macOS asks the logged-in administrator to approve changes to an
+  # existing user record (unattended the change blocks for ~5 minutes and the record stays busy until a restart).
   local name=$1 desc=$2 home=$3 uid gid
   if dscl . -read "/Users/$name" UniqueID >/dev/null 2>&1; then
-    uid=$(dscl . -read "/Users/$name" UniqueID | awk '{print $2}')
-    [ "$uid" -ge 450 ] && [ "$uid" -le 499 ] || die "$name exists with UID $uid outside 450-499; refusing to use it"
+    uid=$(uattr "$name" UniqueID dsAttrTypeStandard:UniqueID)
+    [ -n "$uid" ] && [ "$uid" -ge 450 ] && [ "$uid" -le 499 ] || die "$name exists with UID $uid outside 450-499; refusing to use it"
+    [ "$(uattr "$name" UserShell dsAttrTypeStandard:UserShell)" = /usr/bin/false ] || die "$name exists with a login shell; refusing to use it"
+    [ "$(uattr "$name" NFSHomeDirectory dsAttrTypeStandard:NFSHomeDirectory)" = "$home" ] || warn "$name has a different home folder (the LaunchDaemons set HOME themselves)"
+    [ "$(uattr "$name" IsHidden dsAttrTypeNative:IsHidden)" = 1 ] || warn "$name is not hidden"
+    case "$(uattr "$name" AuthenticationAuthority dsAttrTypeStandard:AuthenticationAuthority)" in
+      *DisabledUser*) say "$name is locked (no login) from an earlier uninstall; daemons still run as it" ;;
+    esac
   else
-    # dscl, not `sysadminctl -roleAccount`: on macOS 26 sysadminctl run non-interactively as root ignored -UID (the account
-    # got 502, a regular user with a picture and a password policy) and its follow-up record changes hung for 270 s
-    # waiting for an authorization nobody could answer. Plain dscl records are created instantly (docs/DECISIONS.md, G).
     uid=$(free_id) || die "no free UID in 450-499"
+    gid=$uid
+    if dscl . -read "/Groups/$name" PrimaryGroupID >/dev/null 2>&1; then gid=$(dscl . -read "/Groups/$name" PrimaryGroupID | awk '{print $2}'); fi
     dscl . -create "/Users/$name" || die "could not create $name"
     dscl . -create "/Users/$name" UniqueID "$uid"
+    dscl . -create "/Users/$name" PrimaryGroupID "$gid"
+    dscl . -create "/Users/$name" UserShell /usr/bin/false
+    dscl . -create "/Users/$name" NFSHomeDirectory "$home"
+    dscl . -create "/Users/$name" RealName "$desc"
+    dscl . -create "/Users/$name" IsHidden 1
     dscl . -create "/Users/$name" Password '*'
     say "created role account $name ($uid)"
   fi
-  if dscl . -read "/Groups/$name" PrimaryGroupID >/dev/null 2>&1; then
-    gid=$(dscl . -read "/Groups/$name" PrimaryGroupID | awk '{print $2}')
-  else
-    gid=$uid
-    if used_ids | grep -qx "$gid" && ! dscl . -list /Users UniqueID | awk '{print $2}' | grep -qx "$gid"; then gid=$(free_id); fi
+  gid=$(dscl . -read "/Users/$name" PrimaryGroupID | awk '{print $2}')
+  if ! dscl . -read "/Groups/$name" PrimaryGroupID >/dev/null 2>&1; then
+    if used_ids | grep -qx "$gid" && ! dscl . -list /Users PrimaryGroupID | awk -v n="$name" '$1 == n {print $2}' | grep -qx "$gid"; then die "GID $gid of $name is taken by another group"; fi
     dseditgroup -o create -i "$gid" -r "$desc" "$name" || die "could not create group $name"
   fi
-  dseditgroup -o edit -a "$name" -t user "$name" >/dev/null 2>&1 || true
-  dscl . -create "/Users/$name" PrimaryGroupID "$gid"
-  dscl . -create "/Users/$name" UserShell /usr/bin/false
-  dscl . -create "/Users/$name" NFSHomeDirectory "$home"
-  dscl . -create "/Users/$name" IsHidden 1
-  dscl . -create "/Users/$name" RealName "$desc"
-  dscl . -delete "/Users/$name" AuthenticationAuthority >/dev/null 2>&1 || true # locked by an earlier uninstall
+  [ "$(dscl . -read "/Groups/$name" PrimaryGroupID | awk '{print $2}')" = "$gid" ] || die "group $name does not have GID $gid"
+  # explicit member too (checkmember answers yes through the primary group alone)
+  dscl . -read "/Groups/$name" GroupMembership 2>/dev/null | grep -qw -- "$name" || dseditgroup -o edit -a "$name" -t user "$name" >/dev/null 2>&1 || warn "could not add $name to group $name"
 }
 ensure_account "$SRV_USER" "Team AX server ($ID)" "$BASE/data"
 ensure_account "$AGT_USER" "Team AX AI engine ($ID)" "$BASE/agent/home"
@@ -153,7 +165,9 @@ mk "$SRV_USER" "$AGT_GRP" 750 "$BASE/run/tools"
 # (launchd socket activation with a root-owned folder needs launch_activate_socket in the launcher: later.)
 mk "$AGT_USER" "$SRV_GRP" 750 "$BASE/run-launcher"
 mk root wheel 755 "$BASE/root"
-mk "$SRV_USER" admin 750 "$LOGS"
+# 755: the launcher's launchd output (crash/launcher.log) is opened as the engine account, which must reach crash/;
+# the server's own log files are 640 server:admin, so other accounts see names only
+mk "$SRV_USER" admin 755 "$LOGS"
 mk root wheel 755 "$LOGS/crash"
 for f in server:"$SRV_USER":admin:640 launcher:"$AGT_USER":"$AGT_GRP":600 pf:root:wheel:644; do
   IFS=: read -r n o g m <<< "$f"
@@ -214,12 +228,14 @@ fi
 chown "$SRV_USER:$SRV_GRP" "$BASE/app/state.json"; chmod 640 "$BASE/app/state.json"
 
 # ---- office-network TLS certificate (ECDSA P-256, 10 years; SAN <host>.local + 127.0.0.1 [+ LAN IP]) ----
-if [ "$TLS_PORT" != 0 ] && [ ! -f "$BASE/secrets/lan-tls.key" ]; then
+# (named-curve SEC1 key: LibreSSL's "req -newkey ec" writes explicit curve parameters, which Bun's BoringSSL refuses)
+if [ "$TLS_PORT" != 0 ] && ! grep -q 'BEGIN EC PRIVATE KEY' "$BASE/secrets/lan-tls.key" 2>/dev/null; then
   HOST=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
   SAN="DNS:$HOST.local,IP:127.0.0.1"
   LAN=$(ipconfig getifaddr en0 2>/dev/null || true); [ -n "$LAN" ] && SAN="$SAN,IP:$LAN"
-  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 -subj "/CN=$HOST.local" \
-    -addext "subjectAltName=$SAN" -keyout "$BASE/secrets/lan-tls.key" -out "$BASE/secrets/lan-tls.crt" >/dev/null 2>&1 || die "openssl failed"
+  (umask 077 && openssl ecparam -name prime256v1 -genkey -noout -out "$BASE/secrets/lan-tls.key") || die "openssl ecparam failed"
+  openssl req -new -x509 -key "$BASE/secrets/lan-tls.key" -days 3650 -subj "/CN=$HOST.local" -addext "subjectAltName=$SAN" \
+    -out "$BASE/secrets/lan-tls.crt" >/dev/null 2>&1 || die "openssl req failed"
 fi
 if [ "$TLS_PORT" != 0 ]; then
   chown "$SRV_USER:$SRV_GRP" "$BASE/secrets/lan-tls.key" "$BASE/secrets/lan-tls.crt"; chmod 600 "$BASE/secrets/lan-tls.key"; chmod 644 "$BASE/secrets/lan-tls.crt"

@@ -10,7 +10,6 @@
 // that the uninstaller removes everything. Prints a report and exits 1 if any check failed. Never asks for or stores
 // a password: run it with sudo.
 import fs from 'node:fs'
-import net from 'node:net'
 import path from 'node:path'
 import { buildBundle } from '../../scripts/build-bundle'
 import { packBundle, writeManifest } from '../../server/src/system/bundle'
@@ -55,10 +54,6 @@ const readJson = (f: string) => { try { return JSON.parse(fs.readFileSync(f, 'ut
 async function main() {
   if (process.getuid?.() !== 0) { console.error('run with sudo'); process.exit(2) }
   if (process.platform !== 'darwin') { console.error('macOS only'); process.exit(2) }
-  // start clean (a previous aborted run) — only when something of it is there
-  if (fs.existsSync(BASE) || fs.existsSync(`/Library/LaunchDaemons/${LABEL}.server.plist`)) {
-    sh([path.join(REPO, 'scripts', 'uninstall-macos.sh'), '--id', ID, '--server-user', SRV, '--agent-user', AGT, '--delete-data', '--keep-accounts'])
-  }
   fs.rmSync(W, { recursive: true, force: true })
   fs.mkdirSync(W, { recursive: true, mode: 0o755 })
 
@@ -103,7 +98,7 @@ async function main() {
     [`${BASE}/status`, `${SRV}:admin 750`], [`${BASE}/agent`, `${AGT}:${AGT} 700`], [`${BASE}/run`, 'root:wheel 755'],
     [`${BASE}/run/tools`, `${SRV}:${AGT} 750`], [`${BASE}/run-launcher`, `${AGT}:${SRV} 750`], [`${BASE}/root`, 'root:wheel 755'],
     [`${BASE}/root/mycel-bootstrap`, 'root:wheel 755'], [`${BASE}/root/mycel-launcher`, 'root:wheel 755'], [`${BASE}/root/engine.sb`, 'root:wheel 644'],
-    [`${BASE}/root/pf.anchor`, 'root:wheel 644'], [`${BASE}/root/pf-load`, 'root:wheel 755'], [`/Library/Logs/${ID}`, `${SRV}:admin 750`],
+    [`${BASE}/root/pf.anchor`, 'root:wheel 644'], [`${BASE}/root/pf-load`, 'root:wheel 755'], [`/Library/Logs/${ID}`, `${SRV}:admin 755`],
     [`/Library/LaunchDaemons/${LABEL}.server.plist`, 'root:wheel 644'], [`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'root:wheel 644'],
     [`/Library/LaunchDaemons/${LABEL}.pf.plist`, 'root:wheel 644'], [`/etc/newsyslog.d/${ID}.conf`, 'root:wheel 644'],
   ]
@@ -140,19 +135,23 @@ async function main() {
   check('pf-load: enabled, anchor referenced, rules loaded', !!pf && pf.enabled && pf.referenced && pf.rules >= 2, JSON.stringify(pf))
   const rules = sh(['/sbin/pfctl', '-a', `com.apple/250.${ID}`, '-s', 'rules']).out.trim()
   check('pf anchor rules', rules.includes(`user = `) && rules.includes('block drop out quick'), rules.replace(/\n/g, ' | '))
-  const proxy = net.createServer((c) => c.end()).listen(PROXY, '127.0.0.1')
-  const decoy = net.createServer((c) => c.end()).listen(DECOY, '127.0.0.1')
-  const decoy6 = net.createServer((c) => c.end()).listen(DECOY, '::1')
-  await Bun.sleep(200)
+  // echo servers: "talk" checks that data flows, not just connect() (IPv6 loopback: pf drops the engine account's
+  // packets once the connection exists, so a bare connect can succeed while nothing gets through)
+  // in a separate process: sh() is spawnSync, which would block echo servers living in this one
+  const echoes = Bun.spawn([process.execPath, '-e', `const n = require('net'); const e = (c) => c.on('data', (d) => c.write(d)).on('error', () => {});
+for (const [h, p] of [['127.0.0.1', ${PROXY}], ['127.0.0.1', ${DECOY}], ['::1', ${DECOY}]]) n.createServer(e).listen(p, h);
+console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
+  { const r = echoes.stdout.getReader(); await r.read(); r.releaseLock() }
   const asAgent = (...a: string[]) => sh([probe, ...a], { user: AGT }).code === 0
-  check('pf: engine account reaches the model proxy port', asAgent('tcp', '127.0.0.1', String(PROXY)))
-  check('pf: engine account cannot reach another localhost port (decoy)', !asAgent('tcp', '127.0.0.1', String(DECOY)))
-  check('pf: engine account cannot reach the server API port', !asAgent('tcp', '127.0.0.1', String(PORT)))
-  check('pf: engine account cannot reach ::1', !asAgent('tcp', '::1', String(DECOY)))
-  check('pf: engine account cannot reach the internet (1.1.1.1:443)', !asAgent('tcp', '1.1.1.1', '443'))
-  const gw = sh(['/usr/sbin/route', '-n', 'get', 'default']).out.match(/gateway: (\S+)/)?.[1]
-  if (gw && /^\d+\.\d+\.\d+\.\d+$/.test(gw)) check(`pf: engine account cannot reach the office gateway (${gw}:80)`, !asAgent('tcp', gw, '80'))
-  check('pf control: the server account still reaches the decoy (rules only match the engine account)', sh([probe, 'tcp', '127.0.0.1', String(DECOY)], { user: SRV }).code === 0)
+  check('pf: engine account reaches the model proxy port', asAgent('talk', '127.0.0.1', String(PROXY)))
+  check('pf: engine account cannot reach another localhost port (decoy)', !asAgent('talk', '127.0.0.1', String(DECOY)))
+  check('pf: engine account cannot reach the server API port', !asAgent('talk', '127.0.0.1', String(PORT)))
+  check('pf: engine account cannot reach ::1', !asAgent('talk', '::1', String(DECOY)))
+  check('pf: engine account cannot reach the internet (1.1.1.1:443)', !asAgent('talk', '1.1.1.1', '443'))
+  const gw = sh(['/sbin/route', '-n', 'get', 'default']).out.match(/gateway: (\S+)/)?.[1]
+  if (gw && /^\d+\.\d+\.\d+\.\d+$/.test(gw)) check(`pf: engine account cannot reach the office gateway (${gw}:80)`, !asAgent('talk', gw, '80'))
+  check('pf control: the server account still reaches the decoy (rules only match the engine account)', sh([probe, 'talk', '127.0.0.1', String(DECOY)], { user: SRV }).code === 0)
+  check('pf control: the server account still reaches ::1', sh([probe, 'talk', '::1', String(DECOY)], { user: SRV }).code === 0)
   check('files: engine account cannot list the team folder / data / secrets', !asAgent('list', `${BASE}/team`) && !asAgent('list', `${BASE}/data`) && !asAgent('read', `${BASE}/secrets/lan-tls.key`))
 
   // ---- sandbox through the installed launcher ----
@@ -165,12 +164,18 @@ async function main() {
   check('launcher+sandbox: /tmp files of people are not readable', turn('c1', 'read', '/private/tmp/mycel-test-secret').code !== 0)
   check('launcher+sandbox: /Users is not listable', turn('c1', 'list', '/Users').code !== 0)
   check('launcher+sandbox: another chat folder is not readable', (turn('c2', 'write', '{CHAT_DIR}/x').code === 0) && turn('c1', 'list', `${BASE}/agent/c2`).code !== 0)
-  check('launcher+sandbox+pf: no internet', turn('c1', 'tcp', '1.1.1.1', '443').code !== 0)
-  check('launcher+sandbox+pf: model proxy port reachable', turn('c1', 'tcp', '127.0.0.1', String(PROXY)).code === 0)
+  check('launcher+sandbox+pf: no internet', turn('c1', 'talk', '1.1.1.1', '443').code !== 0)
+  check('launcher+sandbox+pf: no other localhost port', turn('c1', 'talk', '127.0.0.1', String(DECOY)).code !== 0 && turn('c1', 'talk', '::1', String(DECOY)).code !== 0)
+  check('launcher+sandbox+pf: model proxy port reachable', turn('c1', 'talk', '127.0.0.1', String(PROXY)).code === 0)
   check('launcher+sandbox: no shell', turn('c1', 'exec', '/bin/sh').code !== 0)
-  const foreign = sh([BUN, path.join(W, 'launcher-probe.js'), `${BASE}/run-launcher/launcher.sock`, `${BASE}/agent`, engine, 'c1', 'list', '/'], { user: AGT })
-  check('launcher refuses requests that do not come from the server account', !/"code":0/.test(foreign.out), (foreign.out + foreign.err).trim().slice(0, 160))
-  proxy.close(); decoy.close(); decoy6.close()
+  // nc, not the bun client: the launcher answers a refused peer and closes at once, which bun can report as
+  // ECONNREFUSED before it reads the answer
+  const ask = (user?: string) => sh(['/usr/bin/nc', '-U', `${BASE}/run-launcher/launcher.sock`], { input: '{"op":"run"}\n', user })
+  const foreign = ask(AGT)
+  check('the launcher refuses the engine account', /only the server may use the launcher/.test(foreign.out), (foreign.out + foreign.err).trim().slice(0, 160))
+  const asRoot = ask()
+  check('the launcher refuses root (only the server uid)', /only the server may use the launcher/.test(asRoot.out), (asRoot.out + asRoot.err).trim().slice(0, 160))
+  echoes.kill()
 
   // ---- updates: switch, bootstrap roll-back of a crashing version, manual roll-back ----
   const stg = admin(['stage-update', v2.archive])
@@ -253,6 +258,10 @@ async function uninstall() {
 }
 
 const pfState = () => sh(['/sbin/pfctl', '-s', 'info']).out.match(/Status: (\w+)/)?.[1] ?? 'unknown'
+// start clean (an earlier run kept with --keep, or aborted) before noting the pf state the uninstall must restore
+if (process.getuid?.() === 0 && (fs.existsSync(BASE) || fs.existsSync(`/Library/LaunchDaemons/${LABEL}.server.plist`))) {
+  sh([path.join(REPO, 'scripts', 'uninstall-macos.sh'), '--id', ID, '--server-user', SRV, '--agent-user', AGT, '--delete-data', '--keep-accounts'])
+}
 const pfBefore = process.getuid?.() === 0 ? pfState() : 'unknown'
 let fatal: unknown = null
 try { await main() } catch (e) { fatal = e; check('test run', false, (e as Error).stack) }

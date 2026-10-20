@@ -109,3 +109,22 @@
 - **엔진 코어(도구 관문·실행기)는 처음 쓸 때 시작**(`ctx.core()`). 웹·파일 화면만 개발할 때 Go 빌드가 없어도 서버가 뜬다.
 - **Bun.serve `maxRequestBodySize` = 51MB**(작은 업로드 50MB + 여유). 큰 파일은 조각 업로드(8MB)만.
 - **불안정하던 실행기 시험의 원인**: 실행기가 `.turn` 폴더를 `defer`로 지워서 "exit" 이벤트를 보낸 뒤에 지워졌다. exit 전에 지우도록 고쳤다(시험도 고정 대기 대신 이벤트 기준).
+
+## G installer-ops (설치·업데이트·백업·진단·메뉴바, 2026-10-21)
+
+- **설치 스크립트 = .pkg postinstall이 할 일**(`scripts/install-macos.sh`, 다시 실행해도 같은 결과). 서명된 .pkg로 감싸는 것은 Apple 인증서가 생긴 뒤(막힘 목록). 시험 설치는 `--id mycel-test`로 실제 설치와 폴더·계정·LaunchDaemon 이름이 겹치지 않는다(`tests/install/g-macos-install.ts`, root로 실행, 가짜 엔진).
+- **역할 계정은 `sysadminctl -roleAccount`가 아니라 `dscl`로 만든다.** macOS 26.3.1에서 root가 무인으로 sysadminctl을 부르니 `-UID 450`을 무시하고 502(사진·암호 정책이 있는 일반 사용자)로 만들었고, 이어진 변경이 아무도 답할 수 없는 승인을 기다리며 270초씩 멈췄다. 새 레코드에 한 번에 속성을 넣는 dscl은 즉시 끝난다.
+- **이미 있는 계정은 읽어서 확인만 하고 고치지 않는다.** macOS 26은 기존 사용자 레코드의 변경·삭제를 로그인한 관리자에게 승인받는다. 무인으로 하면 약 5분 멈춘 뒤 실패하고(-14987), 그 레코드는 재시동 전까지 바뀌지 않는다. LaunchDaemon 안에서 하면 바로 권한 오류. 그래서 제거 스크립트는 계정을 먼저 잠그고(셸 /usr/bin/false, 암호 없음, `;DisabledUser;`) 시간 제한을 두고 삭제를 시도하며, 못 지운 계정은 남은 항목으로 알려 준다. 실제 제품에서는 메뉴바 앱이 "설치 되돌리기"를 관리자 권한으로 실행하므로 owner가 승인 창을 본다.
+- **Full Disk Access가 필요한 단계**: `/var/at/cron.deny`·`at.deny` 쓰기와 `tmutil addexclusion -p`. .pkg의 postinstall은 이 권한을 가진 설치기에서 돌지만 터미널에서는 승인 창(무인이면 멈춤) 또는 거부가 된다. 설치 스크립트는 이 단계에 시간 제한을 두고 경고로 남기며, 진단 화면이 cron.deny·at.deny와 Time Machine 제외를 따로 확인한다. crontab·at 실행은 엔진 샌드박스(실행 파일은 엔진 폴더만)가 이미 막는다.
+- **실행기는 launchd 소켓 활성화 대신 스스로 `run-launcher/launcher.sock`을 만든다**(폴더 `_axagent:_axserver 750`, 소켓 0660 그룹 `_axserver`). 설계의 root 소유 폴더 + `launch_activate_socket`은 cgo가 필요해 다음 단계로 미뤘다. 엔진은 샌드박스 때문에 이 폴더에 닿지 못한다. 실행기는 서버 uid가 아닌 연결을 거부한다(root·엔진 계정으로 시험).
+- **실행기 시작 때 `kill(-1, SIGKILL)`을 쓰지 않는다.** macOS에서는 자기 자신도 죽어서 LaunchDaemon이 매번 시작 직후 SIGKILL로 끝났다(설치 시험에서 발견). 같은 uid의 다른 프로세스를 목록으로 찾아 하나씩 죽인다.
+- **엔진 샌드박스(`scripts/macos/engine.sb`)**: 기본 거부, 그 턴의 채팅 폴더(HOME·TMPDIR 포함)·엔진 폴더·다리·시스템 라이브러리·도구 소켓·`localhost:<프록시 포트>`만 허용. `/tmp`·`/private/var/tmp`·`/Users`·`/Volumes`·다른 채팅 폴더·셸 실행은 거부. 실행기 `--sandbox-profile`이 `sandbox-exec`로 감싼다(exec하므로 pid·세션 id 그대로). `LOCAL_LOGIN=1`(개발·owner 로그인)이면 `~/.claude`·`~/.codex`·로그인 키체인·직접 HTTPS를 더 연다. 이 구성에서 실제 `claude -p` 1턴과 `claude auth status`가 동작했다.
+- **pf**: `com.apple/250.<id>` anchor에 `pass out quick proto tcp to 127.0.0.1 port <proxy> user <engine>` + `block drop out quick user <engine>`. 루프백에서도 user 매치가 동작했다(다른 localhost 포트·서버 API·사무실 게이트웨이·1.1.1.1 모두 차단, 서버 계정은 영향 없음). **IPv6 루프백은 연결 직후부터만 막힌다**: 맥 pf가 IPv6 SYN에서는 소켓 주인을 못 찾아 `connect()`는 성공하지만 그 뒤 패킷이 모두 버려져 데이터가 오가지 않는다(시험은 연결이 아니라 데이터 왕복으로 판정). 샌드박스가 ::1도 막으므로 두 겹 모두 유지된다. pf-load는 부팅마다 참조 하나를 잡고 토큰을 `run/pf.token`에 적어 제거 때 그 참조만 푼다(시험 전후 pf 상태 동일 확인).
+- **부트스트랩(Go, `native/cmd/mycel-bootstrap`)**: 서버 LaunchDaemon은 서버가 아니라 이것을 띄운다. `app/current`의 manifest(sha256)를 확인하고(릴리스 키가 생기면 Ed25519 서명도, 그전에는 `--allow-unsigned`로 무결성만), 대기 중 업데이트가 120초 안에 `/api/health`에 그 버전으로 답하지 않거나 3번 죽으면 이전 버전으로 되돌린다. 평소 5분 안에 5번 넘게 죽으면 1→2→…60초 간격.
+- **번들 형식은 tar.gz 대신 tar.zst**(우리 스트리밍 tar + node:zlib zstd, 설치·업데이트 모두 우리 코드로 푼다). 서버는 `bun build`로 한 파일(`server/src/main.js`)과 관리 CLI(`admin.js`), 버전은 빌드 때 넣는다.
+- **백업**: DB는 VACUUM INTO(자식 bun 프로세스에서, 서버 이벤트 루프를 막지 않게) → `data/backups/<id>.sqlite`, 팀 폴더는 `.system/backups/<id>/team.tar.zst` + manifest + deleted 목록. 7일마다 전체, 그 사이는 크기·수정 시각이 바뀐 파일만. 14일 보관, 남는 백업이 기대는 이전 백업은 지우지 않는다. 설계서의 "날짜별 cp -c 사본" 대신 이 방식을 쓴 이유: 작업 지시(목록 비교 tar+zstd)와 스파이크 B 결과, APFS가 아닌 볼륨에서도 같은 동작.
+- **API 복원은 DB만**(설계 6번 탭). 확인한 사본을 `data/restore-staged.db`에 두고 서버가 다음 시작 때 DB를 열기 전에 바꾼다(`main.ts`의 `applyPendingRestore`). 이전 DB는 `data/backups/before-restore-*`에 남긴다. 다른 맥으로 옮기기·외장 디스크 보관은 관리 CLI의 암호 걸린 archive(age) → `restore-archive`(임시 폴더에 풀고 전부 성공했을 때만 새 폴더로).
+- **내보내기**: 대화·메모리는 요청한 owner 본인 것만(관리자도 남의 대화를 볼 수 없다는 원칙), 파일은 팀 폴더 전체(`.system/`·이전 내보내기 제외).
+- **진단 문구는 ko/en/id**(요청자 언어). 메뉴바용 `status/status.json`은 30초마다 쓰고 개인정보(이름·대화)를 넣지 않는다. 엔진 로그인 확인은 local-login이면 `claude auth status`·`codex login status`(이메일은 버림), 역할 계정 모드면 `secrets/claude-oauth-token` 유무.
+- **로그 폴더는 755**(설계는 admin 그룹 읽기): 실행기의 launchd 출력 파일을 엔진 계정 권한으로 여는데 750이면 경로를 못 지나 EX_CONFIG로 시작조차 못 했다. 서버 로그 파일 자체는 640(server:admin).
+- **연결 방식 변경**은 server.json의 `relay.url`에 저장하고 재시작 뒤 적용. Cloudflare·Tailscale은 이번 버전에서 고를 수 없다(409와 안내).

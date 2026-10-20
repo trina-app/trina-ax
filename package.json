@@ -20,7 +20,9 @@
     "test:unit": "bun test tests/unit",
     "test:stage1": "bun run tests/stage1.ts",
     "test:stage1:fast": "bun run tests/stage1.ts --no-claude --no-docker",
-    "test:fuzz:fast": "bun run tests/fuzz/run-fast.ts"
+    "test:fuzz:fast": "bun run tests/fuzz/run-fast.ts",
+    "build:bundle": "bun scripts/build-bundle.ts",
+    "build:menubar": "bash menubar/build.sh"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",
