@@ -22,31 +22,6 @@ export type EngineErrorCode = z.infer<typeof EngineErrorCode>
 export const AuthMode = z.enum(['proxy', 'local-login'])
 export type AuthMode = z.infer<typeof AuthMode>
 
-export interface RunInput {
-  turnId: string
-  chatId: string
-  /** per-chat empty working folder (no team files) */
-  chatDir: string
-  model?: string
-  fallbackModel?: string
-  systemPrompt: string
-  message: string
-  attachments: { path: string; name: string }[]
-  sessionId?: string
-  resume?: boolean
-  history?: { role: 'user' | 'assistant'; content: string }[]
-  tools: { token: string }
-  modelProxy?: { baseUrl: string; token: string }
-  timeoutMs: number
-  maxTurns: number
-}
-
-export interface Engine {
-  id: 'claude-code' | 'openai' | string
-  check(): Promise<{ ok: boolean; detail?: string }>
-  run(input: RunInput, signal: AbortSignal): AsyncIterable<EngineEvent>
-}
-
 // ---------------- launcher protocol (server <-> native launcher, JSON lines over launcher.sock) ----------------
 export const LaunchRequest = z.object({
   op: z.literal('run'),

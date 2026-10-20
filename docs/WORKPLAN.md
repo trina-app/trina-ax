@@ -32,7 +32,7 @@ bun run test:stage1:fast    # 위 + 2만 파일 벤치 (도커·실제 엔진 �
 bun run tests/linux/run.ts  # 리눅스 도커 작업 (native/bin/linux-<arch> 먼저 빌드)
 ```
 
-CI(`.github/workflows/ci.yml`): typecheck, native 빌드 + go vet, unit, fast fuzz, 리눅스 도커 작업. 실제 엔진 시험은 CI에서 돌지 않는다.
+CI(`.github/workflows/ci.yml`): typecheck(웹·데스크톱 포함), native 빌드 + go vet, unit, fast fuzz, 웹 단위 시험·빌드, Node 25 중계 시험, 리눅스 도커 작업. 실제 엔진 시험은 CI에서 돌지 않는다. 2026-10-21 현재 GitHub Actions 작업이 결제 문제로 아예 시작되지 않는다(README "Build and test").
 
 ## 2. 계약 (shared/src/api)
 
@@ -155,7 +155,7 @@ export const chatsRoutes: RouteModule = {
 
 ### B — server-chat-realtime (포트 19120–19129)
 - 소유: `server/src/routes/chats.ts`, `routes/ws.ts`, `routes/memories.ts`, `routes/browser.ts`, `server/src/chat/*`, `server/src/realtime/*`, 대기열, 엔진 통합(`server/src/engine/*`의 확장은 B가 맡는다), `shared/src/api/chats.ts`·`memories.ts`·`ws.ts`·`browser.ts`, 마이그레이션 200–299, `tests/unit/b-*.test.ts`.
-- 구현: 채팅·메시지(트리: `parent_id`, `chats.active_leaf_id`, `branch`), 대기열(동시 실행 수 = 설정 `concurrency`, `queue.position`), 턴 실행(`ctx.core()` + `TurnRunner`), 0.3초마다 DB 저장, `message.*` 이벤트, 중지, 다시 생성·수정(팀 폴더 변경은 되돌리지 않음), 답변 아래 파일 요약(`file_events`), `ask_user`(`turn.request` → `POST /api/turns/:id/answer`), 메모리(remember/forget 도구 + REST), 프로젝트, `RealtimeHub`(사용자별 seq·epoch·링 버퍼·resync/reset·20초 프로토콜 핑·느린 클라이언트 4408), 브라우저 중계(`browser.call`을 턴을 보낸 창으로, `callId`로 중복 제거, 끊긴 동안의 호출 재전송, 롱폴링 대체 경로), 엔진에 브라우저 도구 노출(입력 스키마는 E가 `shared/src/browser-tools.ts`에 정의).
+- 구현: 채팅·메시지(트리: `parent_id`, `chats.active_leaf_id`, `branch`), 대기열(동시 실행 수 = 설정 `concurrency`, `queue.position`), 턴 실행(`ctx.core()` + `TurnExec`, `server/src/chat/turn.ts`; stage 1의 `TurnRunner`는 실제 엔진 시험용으로 `tests/lib/stage1-runner.ts`에 있다), 0.3초마다 DB 저장, `message.*` 이벤트, 중지, 다시 생성·수정(팀 폴더 변경은 되돌리지 않음), 답변 아래 파일 요약(`file_events`), `ask_user`(`turn.request` → `POST /api/turns/:id/answer`), 메모리(remember/forget 도구 + REST), 프로젝트, `RealtimeHub`(사용자별 seq·epoch·링 버퍼·resync/reset·20초 프로토콜 핑·느린 클라이언트 4408), 브라우저 중계(`browser.call`을 턴을 보낸 창으로, `callId`로 중복 제거, 끊긴 동안의 호출 재전송, 롱폴링 대체 경로), 엔진에 브라우저 도구 노출(입력 스키마는 E가 `shared/src/browser-tools.ts`에 정의).
 - 아티팩트 도구 호출 처리(저장·`artifact.updated`)는 C의 서비스(`server/src/tools/artifact*`)를 부른다.
 
 ### C — server-files-tools (포트 19130–19139)

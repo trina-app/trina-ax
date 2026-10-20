@@ -68,6 +68,8 @@ export class MockServer {
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
   jobs = new Map<string, Job>()
   pendingAsk = new Map<string, (v: unknown) => void>()
+  /** open cards by turn (GET /api/chats/:id/requests after a reload) */
+  openAsks = new Map<string, { turnId: string; chatId: string; messageId: string; request: TurnRequest }>()
   stopped = new Set<string>()
   settings: TeamSettings = defaultSettings()
   /** every request the client made (method + path), for assertions */
@@ -109,6 +111,7 @@ export class MockServer {
     this.settings = defaultSettings()
     this.activeLeaf.clear()
     this.pendingAsk.clear()
+    this.openAsks.clear()
     this.stopped.clear()
     this.revoked.clear()
     if (!this.setupNeeded) this.seed()
@@ -265,8 +268,10 @@ export class MockServer {
       const request: TurnRequest = /safety/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
         : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
+      this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
     }
@@ -414,6 +419,7 @@ export class MockServer {
       return chat
     },
     listMessages: (c) => ({ items: this.path(c.params.id!), nextCursor: null }),
+    listTurnRequests: (c) => ({ items: [...this.openAsks.values()].filter((r) => r.chatId === c.params.id) }),
     sendMessage: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const dup = this.messages.find((m) => (m as Message & { cmid?: string }).cmid === c.body.clientMessageId)

@@ -1,19 +1,22 @@
-// One chat turn end to end: token, launcher, stream parsing, pid binding, session stash/restore,
-// resume fallback, refusal retry, audit and usage records.
+// Stage-1 turn driver for the real-engine suites (engine lockdown regressions, tests/e2e/e2e.ts): one turn straight on
+// the core (token, launcher, stream parsing, pid binding, session stash/restore, resume fallback, refusal retry,
+// audit and usage records), without the chat runtime's queue, steps and realtime events. The product's turns are
+// server/src/chat/turn.ts; both build the engine launch with the same server/src/engine builders and the same
+// instructions (server/src/chat/prompt.ts), so these suites check what the product actually starts.
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { EngineEvent } from '@mycel/shared'
-import type { Running } from '../server'
-import { buildSystemPrompt } from './prompt'
-import { buildClaudeLaunch, type ClaudeConf } from './claude'
-import { buildCodexLaunch, prepareCodexHome, type CodexConf } from './codex'
-import { ClaudeStreamParser } from './claude-parse'
-import { CodexEventParser } from './codex-parse'
-import { Utf8Lines, Utf8Text } from './lines'
-import type { LaunchRequest } from '@mycel/shared'
-import { newId } from '../db'
-import { issueProxyToken, revokeProxyTokens } from '../proxy/model-proxy'
+import type { EngineEvent, LaunchRequest } from '@mycel/shared'
+import type { Running } from '../../server/src/server'
+import { buildTurnPrompt } from '../../server/src/chat/prompt'
+import { buildClaudeLaunch, type ClaudeConf } from '../../server/src/engine/claude'
+import { buildCodexLaunch, prepareCodexHome, type CodexConf } from '../../server/src/engine/codex'
+import { ClaudeStreamParser } from '../../server/src/engine/claude-parse'
+import { CodexEventParser } from '../../server/src/engine/codex-parse'
+import { newId } from '../../server/src/db'
+import type { Principal } from '../../server/src/policy/access'
+import { issueProxyToken, revokeProxyTokens } from '../../server/src/proxy/model-proxy'
+import { Utf8Lines, Utf8Text } from '../../server/src/engine/lines'
 
 export interface TurnRequest {
   userId: string; chatId: string; message: string
@@ -43,11 +46,13 @@ export class TurnRunner {
 
   private sessionStash(chatId: string, sid: string) { return path.join(this.srv.cfg.dataDir, 'sessions', chatId, `${sid}.jsonl`) }
 
-  private history(chatId: string): string {
-    const rows = this.srv.db.query("SELECT role, content FROM messages WHERE chat_id = ? AND status = 'done' ORDER BY created_at, rowid").all(chatId) as any[]
-    if (!rows.length) return ''
-    const body = rows.map((r) => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content}`).join('\n\n')
-    return `<earlier_conversation>\n${body.slice(-30000)}\n</earlier_conversation>\n\n`
+  /** done messages of the chat, oldest first (a fresh engine session gets them in its instructions, like the product) */
+  private history(chatId: string): { role: 'user' | 'assistant'; content: string }[] {
+    return this.srv.db.query("SELECT role, content FROM messages WHERE chat_id = ? AND status = 'done' ORDER BY created_at, rowid").all(chatId) as { role: 'user' | 'assistant'; content: string }[]
+  }
+
+  private prompt(user: Principal, history: { role: 'user' | 'assistant'; content: string }[] | null): string {
+    return buildTurnPrompt(this.srv.files, { user, groupNames: user.groups, locale: 'en', timeZone: 'UTC', memories: [], project: null, browser: false, tools: [], history })
   }
 
   private async runLocked(req: TurnRequest): Promise<TurnResult> {
@@ -56,15 +61,14 @@ export class TurnRunner {
     db.query('INSERT OR IGNORE INTO chats (id, user_id, engine, model) VALUES (?,?,?,?)').run(req.chatId, req.userId, req.engine, req.model ?? null)
     const chat = db.query('SELECT * FROM chats WHERE id = ?').get(req.chatId) as any
     if (chat.user_id !== req.userId) throw new Error('chat belongs to another user')
-    const historyText = this.history(req.chatId)
+    const history = this.history(req.chatId)
     db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?,?,?,?, 'done')").run(newId(), req.chatId, 'user', req.message)
     const { turn, token } = turns.create(req.userId, req.chatId, req.engine, req.model ?? null)
     const chatDir = path.join(cfg.agentRoot, req.chatId)
-    const systemPrompt = buildSystemPrompt(files, user)
     const res: TurnResult = { turnId: turn.id, text: '', events: [], sessionId: null, error: null, retried: [], exitCode: null, stderr: '' }
     try {
-      if (req.engine === 'claude-code') await this.claudeTurn(req, res, { turnId: turn.id, token, chatDir, systemPrompt, chat, historyText })
-      else await this.codexTurn(req, res, { turnId: turn.id, token, chatDir, systemPrompt, historyText })
+      if (req.engine === 'claude-code') await this.claudeTurn(req, res, { turnId: turn.id, token, chatDir, chat, prompt: (fresh) => this.prompt(user, fresh ? history : null) })
+      else await this.codexTurn(req, res, { turnId: turn.id, token, chatDir, systemPrompt: this.prompt(user, history) })
     } finally {
       const usage = res.events.filter((e) => e.type === 'usage') as any[]
       const sum = usage.reduce((a, u) => ({ i: a.i + u.inputTokens, o: a.o + u.outputTokens, c: a.c + (u.costUsd ?? 0) }), { i: 0, o: 0, c: 0 })
@@ -95,7 +99,7 @@ export class TurnRunner {
     return { exit, stderr: err.text }
   }
 
-  private async claudeTurn(req: TurnRequest, res: TurnResult, t: { turnId: string; token: string; chatDir: string; systemPrompt: string; chat: any; historyText: string }) {
+  private async claudeTurn(req: TurnRequest, res: TurnResult, t: { turnId: string; token: string; chatDir: string; chat: any; prompt: (fresh: boolean) => string }) {
     const conf = this.engines.claude!
     let sid: string = t.chat.engine_session_id ?? ''
     let resume = !!sid && fs.existsSync(this.sessionStash(req.chatId, sid))
@@ -106,8 +110,7 @@ export class TurnRunner {
     for (let attempt = 0; attempt < 3; attempt++) {
       const parser = new ClaudeStreamParser()
       const events: EngineEvent[] = []
-      const message = resume ? req.message : t.historyText + req.message
-      const lr = buildClaudeLaunch({ turnId: t.turnId, chatDir: t.chatDir, token: t.token, systemPrompt: t.systemPrompt, message, sessionId: sid, resume,
+      const lr = buildClaudeLaunch({ turnId: t.turnId, chatDir: t.chatDir, token: t.token, systemPrompt: t.prompt(!resume), message: req.message, sessionId: sid, resume,
         stash: resume ? fs.readFileSync(this.sessionStash(req.chatId, sid)) : null, model, maxTurns: req.maxTurns ?? 12, timeoutMs: req.timeoutMs ?? 20 * 60_000, proxyToken }, conf)
       const { exit, stderr } = await this.launch(t.turnId, lr, (l) => { for (const e of parser.push(l)) { events.push(e); req.onEvent?.(e) } })
       res.exitCode = exit?.code ?? null; res.stderr = stderr; res.init = parser.init; res.result = parser.result
@@ -138,11 +141,11 @@ export class TurnRunner {
     }
   }
 
-  private async codexTurn(req: TurnRequest, res: TurnResult, t: { turnId: string; token: string; chatDir: string; systemPrompt: string; historyText: string }) {
+  private async codexTurn(req: TurnRequest, res: TurnResult, t: { turnId: string; token: string; chatDir: string; systemPrompt: string }) {
     const conf = this.engines.codex!
     prepareCodexHome(conf.codexHome, conf.auth)
     const parser = new CodexEventParser()
-    const lr = buildCodexLaunch({ turnId: t.turnId, chatDir: t.chatDir, token: t.token, systemPrompt: t.systemPrompt, message: t.historyText + req.message, timeoutMs: req.timeoutMs ?? 20 * 60_000 }, conf)
+    const lr = buildCodexLaunch({ turnId: t.turnId, chatDir: t.chatDir, token: t.token, systemPrompt: t.systemPrompt, message: req.message, timeoutMs: req.timeoutMs ?? 20 * 60_000 }, conf)
     const { exit, stderr } = await this.launch(t.turnId, lr, (l) => { for (const e of parser.push(l)) { res.events.push(e); req.onEvent?.(e) } })
     prepareCodexHome(conf.codexHome, conf.auth) // move a refreshed auth.json back to the real login
     res.exitCode = exit?.code ?? null; res.stderr = stderr; res.codexItems = parser.itemTypes

@@ -29,6 +29,20 @@ test('browse, previews (CSV, Markdown, HTML in the sandbox), conflict copies, re
   await expect(page.getByTestId('upload-button')).toBeDisabled()
 })
 
+test('cancelling a chunked upload drops its session on the server', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  // hold the second chunk so the upload is still running when the person cancels
+  await page.route(/\/api\/upload-sessions\/[^/]+\/chunks\/1$/, () => {})
+  await page.getByTestId('files-input').setInputFiles([{ name: 'cancel-me.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(9 * 1024 * 1024, 3) }])
+  const list = page.getByTestId('upload-list')
+  await expect.poll(async () => ((await (await page.request.post('/__test/log')).json()) as string[]).some((l) => /\/chunks\/0$/.test(l))).toBe(true)
+  await list.getByRole('button', { name: '취소' }).click()
+  await expect(list).toHaveCount(0)
+  await expect.poll(async () => ((await (await page.request.post('/__test/log')).json()) as string[]).some((l) => /^DELETE \/api\/upload-sessions\//.test(l))).toBe(true)
+})
+
 test('upload small and chunked files, new folder, rename, trash and restore', async ({ page }) => {
   await reset(page)
   await signIn(page)

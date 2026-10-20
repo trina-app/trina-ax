@@ -66,7 +66,8 @@ export function dispatch(ev: ServerEvent) {
       relay?.cancel(ev.data.callId)
       return
     case 'session.ended':
-      useSession.getState().signedOut('ended')
+      // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen
+      if (useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('ended')
       return
   }
 }
@@ -85,7 +86,8 @@ export function startLive() {
     },
     onState: (s: ConnState) => {
       useUi.getState().setConn(s)
-      if (s === 'signed-out') useSession.getState().signedOut('expired')
+      // session.ended (handled above) comes before the close and already says why
+      if (s === 'signed-out' && useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('expired')
     },
     onHello: ({ serverVersion }) => {
       if (firstServerVersion === null) firstServerVersion = serverVersion

@@ -119,6 +119,20 @@ test('a safety check the server raised has its own header, never the "AI asks" o
   await expect(card).toHaveCount(0)
 })
 
+test('ask_user card is back after a page reload and the answer still reaches the turn', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'please ask me something')
+  await expect(page.getByTestId('ask-card')).toContainText('어느 분기를 볼까요?')
+  await page.reload()
+  const card = page.getByTestId('ask-card')
+  await expect(card).toContainText('어느 분기를 볼까요?')
+  await card.getByLabel('3분기').check()
+  await card.getByRole('button', { name: '답하기' }).click()
+  await expect(card).toHaveCount(0)
+  await expect(lastAnswer(page)).toContainText('You chose "q3"')
+})
+
 test('an error answer offers retry', async ({ page }) => {
   await reset(page)
   await signIn(page)

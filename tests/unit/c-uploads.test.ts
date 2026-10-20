@@ -5,6 +5,7 @@ import path from 'node:path'
 import { UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
 import { componentC } from '../../server/src/team-files/component'
 import { imageSize } from '../../server/src/uploads/image'
+import { MAX_OPEN_SESSIONS } from '../../server/src/uploads/sessions'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
 import { which } from '../../server/src/config'
 
@@ -41,6 +42,21 @@ describe('upload sessions', () => {
     // a retried complete answers the same; the part file is gone
     expect((await A.json(`/api/upload-sessions/${s.body.id}/complete`, { method: 'POST', as: 'alice' })).body).toEqual(done.body)
     expect(fs.existsSync(path.join(A.data, 'uploads', `${s.body.id}.part`))).toBe(false)
+  })
+  test('unfinished sessions are limited per person until cancelled: a cancel frees the slot and the part file', async () => {
+    const data = blob(UPLOAD_CHUNK_SIZE + 1, 3)
+    const ids: string[] = []
+    for (let i = 0; i < MAX_OPEN_SESSIONS; i++) {
+      const s = await create({ kind: 'path', path: `shared/limit-${i}.bin` }, data, 'bob')
+      expect(s.status).toBe(201)
+      ids.push(s.body.id)
+    }
+    expect((await create({ kind: 'path', path: 'shared/limit-x.bin' }, data, 'bob')).status).toBe(429)
+    expect((await A.json(`/api/upload-sessions/${ids[0]}`, { method: 'DELETE', as: 'bob' })).status).toBe(204)
+    expect(fs.existsSync(path.join(A.data, 'uploads', `${ids[0]}.part`))).toBe(false)
+    const again = await create({ kind: 'path', path: 'shared/limit-x.bin' }, data, 'bob')
+    expect(again.status).toBe(201)
+    for (const id of [...ids.slice(1), again.body.id]) await A.json(`/api/upload-sessions/${id}`, { method: 'DELETE', as: 'bob' })
   })
   test('in-order upload is hashed on the way; wrong chunk sizes and numbers are refused', async () => {
     const data = blob(UPLOAD_CHUNK_SIZE + 10, 7)

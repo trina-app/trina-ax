@@ -66,8 +66,11 @@
 - **잠금 구성은 설계서 그대로 + 세 가지**: ① 소유자 결정으로 내장 `WebSearch`만 허용(`--tools WebSearch`, 허용 목록 = 우리 도구 6개 + WebSearch). ② 잠금 회귀 시험에서 Claude Code 2.1.304가 `--setting-sources ""`에서도 내장 플러그인 2개(`cc-plugin-agents-md`, `cc-plugin-plugin-authoring`)를 싣는 것을 발견 → `--settings`의 `enabledPlugins`로 끈다. agents-md는 AGENTS.md를 맥락에 넣는 경로라 막아야 한다. ③ `--include-hook-events`를 붙여 훅이 돌면 스트림에 보이게 한다.
 - **지침은 `--append-system-prompt-file`**(파일, 인자 아님). Claude Code 기본 지침(도구 사용법)은 유지한다. 서버가 `skills/`의 팀 규칙을 넣고, 실제로 e2e 답변이 팀 규칙대로 한국어로 나왔다.
 - **거절(`refused`) 재시도는 다른 모델로 1회**(지정 없으면 sonnet↔opus). 정상 요청이 실제로 거절되는 경우를 만들 수 없어 스트림 파서 단위 테스트로만 확인했다.
-- **이어가기 실패 처리**: 보관본이 없으면 새 세션 + DB 대화 기록을 메시지 앞에 붙인다(e2e T5로 확인). 보관본이 있는데 엔진이 "No conversation found"를 내면 같은 방식으로 1회 재시작한다.
+- **이어가기 실패 처리**: 보관본이 없으면 새 세션 + DB 대화 기록을 지침의 `<previous_conversation>`에 넣는다(제품의 `chat/prompt.ts`와 같음; e2e T5로 확인. 처음 stage 1에서는 메시지 앞에 붙였다). 보관본이 있는데 엔진이 "No conversation found"를 내면 같은 방식으로 1회 재시작한다.
 - **사용량**: 프록시 모드에서는 프록시가 센 값이 기준이고, 엔진이 보고한 값은 프록시 기록이 없을 때만 적는다. 가격표는 대략값(코드에 표시).
+
+- **git 맥락 차단(`CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`, 설정 `includeGitInstructions: false`)** — 잠금 회귀를 다시 돌리다 세션 기록에서 찾았다: 채팅 폴더가 git 저장소 안에 있으면 Claude Code가 그 저장소의 `git status`·브랜치·최근 커밋 메시지를 모델 맥락에 넣는다(시험의 `tests/.work`는 저장소 안). 잠금 회귀가 이제 서버가 보관한 세션 기록에 git 블록이 없는지 확인한다.
+- **로컬 로그인(DEV)에서는 로그인한 계정의 이메일이 모델 맥락에 들어간다** — Claude Code가 `~/.claude.json`의 계정 정보로 "The user's email address is …"를 붙이고, 이를 끄는 스위치가 없다(2.1.305 확인; HOME을 바꾸면 키체인 로그인을 못 찾는다). 그래서 DEV 모드에서는 팀원의 AI가 owner의 Claude 계정 이메일을 알 수 있다. 역할 계정 설치(엔진 고유 토큰·HOME)에는 그 계정 정보가 없다. 잠금 회귀는 이 상태를 `ownerEmailInContext`로 보고만 한다(실패로 치지 않음).
 
 ## 엔진: Codex CLI (소유자 결정: API가 아니라 `codex exec`)
 

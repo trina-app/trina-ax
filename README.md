@@ -33,6 +33,8 @@ bun run dev
 
 Data lives in `~/.team-ax-dev` (team folder, database, relay registry); delete it to start over. On the first start
 the server log prints a setup link (`/setup?token=…`) that creates the team and its owner.
+`bun run dev admin status | reset-link [--username U]` runs the account CLI on that data (a one-time password reset
+link for a forgotten owner password); plain `bun run admin` works on `<repo>/.dev`, the folder of `bun run dev:server`.
 
 ## Build and test
 
@@ -50,3 +52,57 @@ bun run e2e:ui                # whole product in a real browser + the Electron a
 ```
 
 Needs Bun, Go, Node 25 (relay), `rg`, `pandoc`, `pdftotext`, `ffmpeg` (Homebrew), Docker for the Linux job.
+
+CI (`.github/workflows/ci.yml`) runs typecheck, the native build + `go vet`, unit tests, the fast fuzzers, web unit tests
+and build, the relay suite on Node 25 and the Linux Docker job. Real-engine tests never run in CI (they need the
+owner's logins). As of 2026-10-21 the GitHub Actions jobs of this repository do not start at all ("recent account
+payments have failed or your spending limit needs to be increased"), so every red run on `main` is that, not a test
+failure; run `bun run typecheck && bun run test` locally until the billing is fixed.
+
+## Install on a Mac (role-account mode)
+
+```sh
+bun run build:bundle                                    # native helpers, web/dist, then scripts/build-bundle.ts
+sudo scripts/install-macos.sh --from dist/release --allow-unsigned --engine claude=<path to claude>
+sudo scripts/uninstall-macos.sh [--delete-data]
+sudo bun tests/install/g-macos-install.ts               # install test: a throwaway copy with a fake engine
+```
+
+The installer (what the signed setup package will run) creates the hidden role accounts `_axserver` (server) and
+`_axagent` (engine), the LaunchDaemons, the sandbox profile and pf rules, `config/server.json` and a one-time setup
+code; flags and the full list are in its header. The engine running as `_axagent` needs its own subscription login
+(`claude setup-token`, `codex login --device-auth`), which only the owner can do — until then use `bun run dev`
+(see "Not done yet").
+
+## Security model (short)
+
+Design tabs 2 and 7 are the source; `docs/DECISIONS.md` records where the code differs and why.
+
+- **One permission function** (`server/src/policy`) decides every read and write, for people (REST, file screen) and
+  for the AI (tools) alike: folder rules per group, a personal folder `users/<id>/` per person, owner/admin rules,
+  strict name rules, and "not found or no access" with the same wording so hidden folders do not show.
+- **The AI reaches team files only through our tools.** The engine (Claude Code / Codex CLI) runs with a locked
+  profile: no shell, no built-in file tools, no CLAUDE.md / skills / hooks / plugins / git context, only the team MCP
+  tools plus Claude's WebSearch. The tools are served over a Unix socket behind `mycel-gate` (Go), which reads the
+  caller's process from the kernel; a per-turn token is accepted only from that turn's engine session.
+  `tests/engine/lockdown-*.ts` re-checks the profile against the real CLIs.
+- **Role-account mode adds OS isolation:** the engine runs as `_axagent` under `sandbox-exec` (`scripts/macos/engine.sb`)
+  with a pf anchor, in per-chat folders the launcher creates; the server account never runs anything from those
+  folders. In DEV mode (`bun run dev`) the engine runs as you and only the locked profile and the tool gate apply;
+  in this mode Claude Code also puts your Claude account's email into every turn's context (no switch for it).
+- **Web:** cookie sessions (`__Host-`), a CSRF header on every write, an Origin check on WebSockets, a strict CSP
+  without inline scripts; artifacts and HTML previews run in sandboxed frames that load `/sandbox/frame` and get
+  their document by postMessage. Owner-only actions that cannot be undone (update, restore, connection change,
+  ownership) ask for the password again.
+- **Relay:** stores nothing it forwards and logs no client IPs (team ids, byte counts and times only).
+- **Desktop browser pane:** never opens the team's own addresses or this computer; office-network sites and every
+  new site need the person's answer in the pane's own toolbar; password fields are refused.
+
+## Not done yet (needs the owner)
+
+- Running the engine as `_axagent`: the owner's `claude setup-token` and `codex login --device-auth`. Until then the
+  product runs in DEV mode as the current user (local-login); the role-account installer is tested with a fake engine.
+- Apple signing and notarization (desktop app, menubar app, helpers), the production relay (Linux + Cloudflare,
+  `*.treesoop.com`), mail (invites are copy-a-link by design for now), a company API key for the model-proxy mode
+  (code and tests only: with `engine.authMode: "proxy"` Claude Code reports `proxy_mode` as not available).
+- GitHub Actions billing (see Build and test).

@@ -49,6 +49,8 @@ interface UserState {
   lastActive: number
 }
 
+type SessionEndReason = Parameters<RealtimeHub['disconnectUser']>[1]
+
 export type ClientFrameHandler = (s: { userId: string; windowId: string }, f: ClientFrame) => void
 export type WindowListener = (userId: string, windowId: string, state: 'open' | 'closed') => void
 
@@ -274,21 +276,33 @@ export class Hub implements RealtimeHub {
     for (const l of this.windowListeners) try { l(s.userId, s.windowId, 'closed') } catch {}
   }
 
-  disconnectUser(userId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void {
+  disconnectUser(userId: string, reason: SessionEndReason): void {
     const u = this.users.get(userId)
     if (!u) return
-    for (const s of [...u.sockets.values()]) {
-      s.closed = true
-      try { s.conn.close(WsClose.unauthorized, reason) } catch {}
-    }
+    for (const s of [...u.sockets.values()]) this.endSocket(u, s, reason)
     u.sockets.clear()
   }
 
   /** Close sockets that belong to one session (logout of one device, the other sessions after a password change). */
-  disconnectSession(sessionId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked' = 'logout') {
+  disconnectSession(sessionId: string, reason: SessionEndReason = 'logout') {
     for (const u of this.users.values()) {
-      for (const [w, s] of [...u.sockets]) if (s.sessionId === sessionId) { s.closed = true; u.sockets.delete(w); try { s.conn.close(WsClose.unauthorized, reason) } catch {} }
+      for (const [w, s] of [...u.sockets]) if (s.sessionId === sessionId) { u.sockets.delete(w); this.endSocket(u, s, reason) }
     }
+  }
+
+  /**
+   * session.ended to this socket only, then close 4401 (contract ws.ts). The event takes the person's next seq but is
+   * not kept in the replay buffer: the person's other sessions may still be signed in, and a window that signs in
+   * again must not replay it and sign itself out.
+   */
+  private endSocket(u: UserState, s: Socket, reason: SessionEndReason) {
+    if (s.ready && !s.closed) {
+      const ev: ServerEvent = { type: 'session.ended', seq: ++u.seq, at: this.o.now(), data: { reason } }
+      this.send(s, JSON.stringify(ev))
+    }
+    s.closed = true
+    try { s.conn.close(WsClose.unauthorized, reason) } catch {}
+    for (const l of this.windowListeners) try { l(s.userId, s.windowId, 'closed') } catch {}
   }
 
   // ---------------- queries for other parts of B ----------------

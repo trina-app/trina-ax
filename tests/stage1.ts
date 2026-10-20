@@ -45,7 +45,7 @@ if (!args.has('--no-claude')) {
   const { runClaudeLockdown } = await import('./engine/lockdown-claude')
   const { runCodexLockdown } = await import('./engine/lockdown-codex')
   const { runE2E } = await import('./e2e/e2e')
-  await step('engine lockdown regression: Claude Code (1 real call)', async () => { const r = await runClaudeLockdown(); return { ok: !r.failed, summary: `claude ${r.claudeVersion} ${r.model}; tools ${r.tools.join(',')}; ${r.checks.length - r.failed}/${r.checks.length} checks`, detail: r.checks } })
+  await step('engine lockdown regression: Claude Code (1 real call)', async () => { const r = await runClaudeLockdown(); return { ok: !r.failed, summary: `claude ${r.claudeVersion} ${r.model}; tools ${r.tools.join(',')}; ${r.checks.length - r.failed}/${r.checks.length} checks${r.ownerEmailInContext ? '; note: the signed-in account email is in the engine context (local-login)' : ''}`, detail: r.checks } })
   if (!args.has('--no-codex')) await step('engine lockdown regression: Codex CLI (1 real call)', async () => { const r: any = await runCodexLockdown(); return { ok: !r.failed, summary: r.skipped ?? `model ${r.model}; items ${JSON.stringify(r.items)}; ${r.checks.length - r.failed}/${r.checks.length} checks`, detail: r.checks } })
   await step('e2e as alice (5 Claude turns + 1 Codex turn)', async () => { const r = await runE2E({ codex: !args.has('--no-codex') }); return { ok: !r.failed, summary: `${r.checks.length - r.failed}/${r.checks.length} checks; turns: ${r.turns.map((t: any) => `${t.engine}:${t.seconds}s[${t.tools.join('+')}]`).join(' ')}`, detail: { checks: r.checks, turns: r.turns } } })
 }
