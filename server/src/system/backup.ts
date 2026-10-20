@@ -427,6 +427,16 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
       }
       throw e
     }
+    // engine session stashes belong to the replaced DB: a chat keeps its session id across turns and the stash is
+    // overwritten after each one, so a stash could hold turns the restored DB does not have. Kept aside with the old
+    // DB; every chat starts its next turn on a fresh session from the restored history.
+    const sessions = path.join(dataDir, 'sessions')
+    if (fs.existsSync(sessions)) {
+      try { rename(sessions, path.join(keep, 'sessions')) } catch (e) {
+        log.error('could not move the engine session stashes aside; removing them', { err: e })
+        fs.rmSync(sessions, { recursive: true, force: true })
+      }
+    }
     fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep }), { mode: 0o600 })
     log.info('database restored from backup', { backupId: p.backupId, previousDb: keep })
     return { applied: true, backupId: p.backupId }
