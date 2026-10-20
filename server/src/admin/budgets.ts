@@ -1,6 +1,7 @@
-// Budgets (tab 1 "모델 프록시 예산") and usage. Budgets are stored and shown with the current spend; they are
-// enforced only in proxy mode (company key), by whoever starts turns / the model proxy calling checkBudgets().
-// In the default subscription (local-login) mode there is no real cost, so nothing is blocked here.
+// Budgets (tab 1 "모델 프록시 예산" / "구독 모드 예산") and usage. Budgets are stored and shown with the current spend.
+// A "block" budget that is used up stops new turns in every mode (chat routes call budgetBlock()): in subscription mode
+// the tokens are what the team shares, and the admin screen offers the limit there too. USD limits only fill up in
+// company-key mode, where turns carry a cost.
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
@@ -87,9 +88,38 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
     OR (subject_type = 'group' AND subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?))`).all(userId, userId) as BudgetRow[]
   return rows.map((r) => {
     const budget = toBudget(db, r, now)
-    const exceeded = budget.usedUsd >= budget.limitUsd || (budget.limitTokens !== null && budget.usedTokens >= budget.limitTokens)
+    // a USD limit of 0 means "no money limit" (the form says so); tokens count in every mode
+    const exceeded = (budget.limitUsd > 0 && budget.usedUsd >= budget.limitUsd) || (budget.limitTokens !== null && budget.usedTokens >= budget.limitTokens)
     return { budget, exceeded }
   })
+}
+
+type T3 = Record<Locale, string>
+const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini' }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini' } }
+
+/** When the period of a budget starts again (server-local midnight / the 1st). */
+export function periodEnd(period: Budget['period'], now = new Date()): Date {
+  const d = periodStart(period, now)
+  if (period === 'day') d.setDate(d.getDate() + 1)
+  else d.setMonth(d.getMonth() + 1)
+  return d
+}
+
+/**
+ * A used-up "block" budget that applies to this person, as an error to answer the send with (tab 5 "사용 한도 도달":
+ * the person's own limit is checked before sending, not by queueing). null when they may start a turn.
+ */
+export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string } | null {
+  const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
+  if (!hit) return null
+  const at = new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(periodEnd(hit.budget.period, now))
+  const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].ko
+  const message = {
+    ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
+    en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,
+    id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`,
+  }[locale]
+  return { budget: hit.budget, message }
 }
 
 // ---------------- usage ----------------

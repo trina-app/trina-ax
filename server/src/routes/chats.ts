@@ -14,6 +14,7 @@ import { CHAT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } 
 import { canRead, canWrite, ensureProjectFolder } from '../chat/projects'
 import { tr } from '../chat/i18n'
 import { safeModel } from '../chat/engines'
+import { budgetBlock } from '../admin/budgets'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -71,6 +72,12 @@ function messageInChat(rt: ChatRuntime, chatId: string, id: string): MessageRow 
   const m = rt.store.messageRow(id)
   if (!m || m.chat_id !== chatId) fail('not_found')
   return m!
+}
+
+/** A used-up "block" budget of this person stops the turn before it is queued (tab 5 "사용 한도 도달"). */
+function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
+  const b = budgetBlock(ctx.db, userId, locale)
+  if (b) fail('budget_exceeded', b.message)
 }
 
 const isClientIdClash = (e: unknown) => /UNIQUE constraint failed: messages\.chat_id, messages\.client_message_id/.test(String((e as Error)?.message ?? e))
@@ -184,6 +191,7 @@ export const chatsRoutes: RouteModule = {
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
       }
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = pickEngine(rt, chat, body)
       try {
         return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model,
@@ -207,6 +215,7 @@ export const chatsRoutes: RouteModule = {
       const question = messageInChat(rt, chat.id, target.parent_id!)
       if (question.role !== 'user') fail('validation', tr('notAssistantMessage', c.get('locale')))
       if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
+      checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = pickEngine(rt, chat, body)
       return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, answerTo: question })
     })
@@ -219,6 +228,7 @@ export const chatsRoutes: RouteModule = {
       if (target.role !== 'user') fail('validation', tr('notUserMessage', c.get('locale')))
       if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model } = pickEngine(rt, chat, body)
       try {
         return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model,

@@ -125,3 +125,17 @@ test('a password reset by an admin stays visible in the person\'s security setti
   await expect(p2.getByTestId('last-reset')).toContainText('팀장에게 알려 주세요')
   await other.close()
 })
+
+test('a message the server refuses says why under it (a used-up usage limit), with send again and delete', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.getByTestId('composer-input').fill('first question')
+  await page.getByTestId('send').click()
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+  await page.getByTestId('composer-input').fill('one more, over my limit')
+  await page.getByTestId('send').click()
+  const failed = page.getByTestId('send-failed')
+  await expect(failed).toContainText('보내지 못했어요.')
+  await expect(failed).toContainText('오늘 AI 사용 한도를 다 썼어요')
+  await expect(failed.getByRole('button', { name: '다시 보내기' })).toBeVisible()
+})

@@ -416,6 +416,8 @@ export class MockServer {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const dup = this.messages.find((m) => (m as Message & { cmid?: string }).cmid === c.body.clientMessageId)
       if (dup) fail('conflict', 409)
+      // like the server when the person's "block" usage limit is used up (refused before anything is queued)
+      if (String(c.body.content).includes('over my limit')) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 10월 22일 오전 12:00부터 다시 쓸 수 있어요.')
       const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const atts = (c.body.attachmentIds as string[]).map((id) => this.attachments.get(id)).filter(Boolean).map((a) => { const { data: _d, ...rest } = a!; return rest })
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments: atts, author: { id: c.user.id, name: c.user.name } })
