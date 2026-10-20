@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7, type BrowserCall, type ClientFrame, type Job } from '@mycel/shared/api'
-import { BrowserRelay, NO_PANE_ERROR, toBrowserResult } from '../../src/lib/browserRelay'
-import type { DesktopApi } from '../../src/lib/desktop'
+import type { DesktopBridge } from '@mycel/shared'
+import { BrowserRelay, NO_PANE_ERROR } from '../../src/lib/browserRelay'
 import { dateBucket, formatRelative, formatSize } from '../../src/lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../../src/lib/paths'
 import { iconKind, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
@@ -62,33 +62,44 @@ describe('format and preview kinds', () => {
 
 describe('browser relay (browser.call → desktop pane → browser.result)', () => {
   const call = (callId: string): BrowserCall => ({ callId, turnId: uuidv7(), chatId: uuidv7(), tool: 'navigate', args: { url: 'https://example.com' }, deadline: Date.now() + 60_000 })
-  test('a window without the pane answers at once with an explanation', () => {
+  const bridge = (run: (c: BrowserCall) => Promise<unknown>, cancelled: string[] = []) =>
+    ({ bridgeVersion: 1, appVersion: '0.1.0', platform: 'darwin', browser: { run, cancel: (id: string) => cancelled.push(id) } }) as unknown as DesktopBridge
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+
+  test('a window without the pane answers at once with an explanation, again when the call is replayed', () => {
     const sent: ClientFrame[] = []
-    const relay = new BrowserRelay((f) => sent.push(f), () => undefined)
+    const relay = new BrowserRelay((f) => sent.push(f), () => null)
     relay.handleCall(call('c1'))
-    relay.handleCall(call('c1')) // re-sent after a reconnect: ignored
-    expect(sent).toEqual([{ type: 'browser.ack', callId: 'c1' }, { type: 'browser.result', result: { callId: 'c1', ok: false, content: [], error: NO_PANE_ERROR } }])
+    relay.handleCall(call('c1')) // re-sent after a reconnect: the server still needs the result
+    const one: ClientFrame[] = [{ type: 'browser.ack', callId: 'c1' }, { type: 'browser.result', result: { callId: 'c1', ok: false, content: [], error: NO_PANE_ERROR } }]
+    expect(sent).toEqual([...one, ...one])
   })
-  test('the desktop pane runs it once and the result goes back; cancel stops a running call', async () => {
+
+  test('the desktop app runs a call once; a replay gets the ack while running and the kept result after', async () => {
     const sent: ClientFrame[] = []
-    let resolve!: (r: { content: { type: 'text'; text: string }[]; isError: boolean }) => void
-    const cancelled: string[] = []
-    const app = { browser: { call: () => new Promise((r) => (resolve = r)), cancel: (id: string) => cancelled.push(id), endTurn: () => {} } } as unknown as DesktopApi
+    let resolve!: (r: unknown) => void
+    let runs = 0
+    const app = bridge(() => { runs++; return new Promise((r) => (resolve = r)) })
     const relay = new BrowserRelay((f) => sent.push(f), () => app)
     relay.handleCall(call('c2'))
-    resolve({ content: [{ type: 'text', text: 'opened' }], isError: false })
-    await new Promise((r) => setTimeout(r, 0))
-    expect(sent.at(-1)).toEqual({ type: 'browser.result', result: { callId: 'c2', ok: true, content: [{ type: 'text', text: 'opened' }], error: undefined } })
+    relay.handleCall(call('c2'))
+    expect(sent).toEqual([{ type: 'browser.ack', callId: 'c2' }, { type: 'browser.ack', callId: 'c2' }])
+    resolve({ callId: 'c2', ok: true, content: [{ type: 'text', text: 'opened' }] })
+    await tick()
+    const result: ClientFrame = { type: 'browser.result', result: { callId: 'c2', ok: true, content: [{ type: 'text', text: 'opened' }] } }
+    expect(sent.at(-1)).toEqual(result)
+    relay.handleCall(call('c2'))
+    expect(sent.at(-1)).toEqual(result)
+    expect(runs).toBe(1)
+  })
+
+  test('cancel reaches the desktop app', () => {
+    const cancelled: string[] = []
+    const app = bridge(() => new Promise(() => {}), cancelled)
+    const relay = new BrowserRelay(() => {}, () => app)
     relay.handleCall(call('c3'))
     relay.cancel('c3')
     expect(cancelled).toEqual(['c3'])
-    resolve({ content: [], isError: false })
-    await new Promise((r) => setTimeout(r, 0))
-    expect(sent.filter((f) => f.type === 'browser.result')).toHaveLength(1)
-  })
-  test('results keep only allowed image types and the error text', () => {
-    const r = toBrowserResult('c', { isError: true, content: [{ type: 'text', text: 'no such element' }, { type: 'image', mimeType: 'image/gif', data: 'x' }, { type: 'image', mimeType: 'image/png', data: 'AAAA', shareToChat: true }] })
-    expect(r).toEqual({ callId: 'c', ok: false, error: 'no such element', content: [{ type: 'text', text: 'no such element' }, { type: 'image', mime: 'image/png', data: 'AAAA', shareToChat: true }] })
   })
 })
 
@@ -157,23 +168,22 @@ describe('links inside drawn documents', () => {
 })
 
 describe('browser relay limits', () => {
-  test('an oversized screenshot or a malformed pane answer still gets a browser.result', async () => {
+  test('a malformed or failing desktop answer still gets a browser.result the contract accepts', async () => {
     const sent: ClientFrame[] = []
     const call = (callId: string): BrowserCall => ({ callId, turnId: uuidv7(), chatId: uuidv7(), tool: 'computer', args: {}, deadline: Date.now() + 60_000 })
-    const huge = 'A'.repeat(20_000_001)
-    let answer: unknown = { content: [{ type: 'image', data: huge, mimeType: 'image/png' }], isError: false }
-    const app = { browser: { call: async () => answer, cancel() {}, endTurn() {} } } as unknown as DesktopApi
+    let answer: () => Promise<unknown> = async () => ({ callId: 'bad', ok: true, content: [{ type: 'text', text: 1 }] })
+    const app = { bridgeVersion: 1, browser: { run: () => answer(), cancel() {} } } as unknown as DesktopBridge
     const { ClientFrame: CF } = await import('@mycel/shared/api')
     const relay = new BrowserRelay((f) => sent.push(CF.parse(f)), () => app)
-    relay.handleCall(call('big'))
-    await new Promise((r) => setTimeout(r, 0))
-    const big = sent.find((f) => f.type === 'browser.result' && f.result.callId === 'big')
-    expect(big && big.type === 'browser.result' && big.result.content[0]).toEqual({ type: 'text', text: 'The screenshot was too large to send back.' })
-    answer = { content: [{ type: 'text', text: 1 }], isError: false }
     relay.handleCall(call('bad'))
     await new Promise((r) => setTimeout(r, 0))
     const bad = sent.find((f) => f.type === 'browser.result' && f.result.callId === 'bad')
     expect(bad && bad.type === 'browser.result' && bad.result.ok).toBe(false)
+    answer = async () => { throw new Error('pane crashed') }
+    relay.handleCall(call('boom'))
+    await new Promise((r) => setTimeout(r, 0))
+    const boom = sent.find((f) => f.type === 'browser.result' && f.result.callId === 'boom')
+    expect(boom && boom.type === 'browser.result' && boom.result.error).toContain('pane crashed')
   })
 })
 

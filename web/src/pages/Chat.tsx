@@ -5,9 +5,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Link, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isDesktop } from '../lib/desktop'
+import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { formatDate } from '../lib/format'
-import { setSidePanel } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
@@ -186,11 +185,7 @@ function ChatView({ chatId }: { chatId: string }) {
             <FolderKanban size={13} aria-hidden /> {t('sidebar.projects')}
           </Link>
         )}
-        {isDesktop() && (
-          <IconButton label={t('browser.title')} onClick={() => setSidePanel({ kind: 'browser' })}>
-            <Globe size={16} />
-          </IconButton>
-        )}
+        {isDesktop() && <BrowserToggle />}
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8">
@@ -256,3 +251,16 @@ function TrashedBanner({ chat, onRestored }: { chat: Chat; onRestored: (c: Chat)
   )
 }
 
+/** Desktop app only: open / close the in-app Browser pane the desktop app draws next to this page. */
+function BrowserToggle() {
+  const t = useT()
+  const pane = usePaneState()
+  return (
+    <IconButton label={pane.driving ? t('browser.driving') : t('browser.title')} onClick={() => desktop()?.pane.toggle()} aria-pressed={pane.open} className={pane.open ? 'bg-hover text-ink' : undefined} data-testid="browser-toggle">
+      <span className="relative inline-flex">
+        <Globe size={16} />
+        {pane.driving && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden />}
+      </span>
+    </IconButton>
+  )
+}

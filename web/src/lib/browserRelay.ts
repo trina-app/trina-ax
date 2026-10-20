@@ -1,61 +1,43 @@
 // browser.call → this window's in-app Browser pane (desktop app) → browser.result over the WebSocket.
-// The server sends each call only to the window that sent the turn and may re-send it after a reconnect, so calls
-// are deduped by callId. A window without the pane (plain browser, PWA) answers at once with an error the AI can
-// act on, instead of letting the turn wait for the deadline.
+// The server sends each call only to the window that sent the turn and sends it again after a reconnect until a
+// result arrives. In the desktop app the shared relay (shared/src/desktop-bridge.ts createBrowserRelay) runs each
+// call once, answers a repeated call with its ack or its kept result, and checks the desktop's answer against the
+// contract. A window without the pane (plain browser, PWA) answers at once with an error the AI can act on, instead
+// of letting the turn wait for the deadline.
+import { createBrowserRelay, type BrowserRelay as SharedRelay, type DesktopBridge } from '@mycel/shared'
 import type { BrowserCall, BrowserResult, ClientFrame } from '@mycel/shared/api'
-import { desktop, type DesktopApi, type DesktopToolResult } from './desktop'
-
-const SEEN_MAX = 500
-/** BrowserResultContent image limit (shared/src/api/browser.ts) */
-const IMAGE_DATA_MAX = 20_000_000
+import { desktop } from './desktop'
 
 export const NO_PANE_ERROR = 'This window has no in-app browser. The person is using the web or mobile app; the browser tools work only in the Team AX desktop app.'
-
-export function toBrowserResult(callId: string, r: DesktopToolResult): BrowserResult {
-  const content: BrowserResult['content'] = []
-  for (const c of r.content.slice(0, 20)) {
-    if (c.type === 'text') content.push({ type: 'text', text: c.text.slice(0, 2_000_000) })
-    else if (c.data.length > IMAGE_DATA_MAX) content.push({ type: 'text', text: 'The screenshot was too large to send back.' })
-    else if (c.mimeType === 'image/png' || c.mimeType === 'image/jpeg' || c.mimeType === 'image/webp') content.push({ type: 'image', mime: c.mimeType, data: c.data, shareToChat: c.shareToChat })
-  }
-  const errText = r.isError ? r.content.find((c) => c.type === 'text')?.text : undefined
-  return { callId, ok: !r.isError, content, error: errText ? errText.slice(0, 4000) : undefined }
-}
+const NO_PANE_KEEP = 200
 
 export class BrowserRelay {
-  private seen = new Set<string>()
-  private running = new Map<string, string>() // callId -> chatId
+  private inner: { bridge: DesktopBridge; relay: SharedRelay } | null = null
+  private noPane = new Set<string>()
 
-  constructor(private send: (f: ClientFrame) => void, private app: () => DesktopApi | undefined = desktop) {}
+  constructor(private send: (f: ClientFrame) => void, private app: () => DesktopBridge | null = desktop) {}
+
+  private relayFor(bridge: DesktopBridge): SharedRelay {
+    if (this.inner?.bridge !== bridge) {
+      // the window id is checked by the server (each window gets only its own calls), so the relay is fed calls
+      // directly with run() and never needs it
+      this.inner = { bridge, relay: createBrowserRelay({ bridge, windowId: '', send: (f) => this.send(f) }) }
+    }
+    return this.inner.relay
+  }
 
   handleCall(call: BrowserCall) {
-    if (this.seen.has(call.callId)) return
-    this.seen.add(call.callId)
-    if (this.seen.size > SEEN_MAX) this.seen.delete(this.seen.values().next().value!)
+    const bridge = this.app()
+    if (bridge) return this.relayFor(bridge).run(call)
+    // no pane: answer every time the call comes (a replay after a reconnect needs the result again)
     this.send({ type: 'browser.ack', callId: call.callId })
-    const app = this.app()
-    if (!app) {
-      this.send({ type: 'browser.result', result: { callId: call.callId, ok: false, content: [], error: NO_PANE_ERROR } })
-      return
-    }
-    if (Date.now() > call.deadline) return
-    this.running.set(call.callId, call.chatId)
-    void app.browser
-      .call(call.chatId, call.tool, call.args, call.callId)
-      .catch((e: unknown): DesktopToolResult => ({ content: [{ type: 'text', text: `Browser pane error: ${e instanceof Error ? e.message : String(e)}` }], isError: true }))
-      .then((r) => {
-        if (!this.running.delete(call.callId)) return // cancelled meanwhile
-        try {
-          this.send({ type: 'browser.result', result: toBrowserResult(call.callId, r) })
-        } catch (e) {
-          // a result the contract refuses (malformed pane answer): the AI still gets an answer instead of a timeout
-          this.send({ type: 'browser.result', result: { callId: call.callId, ok: false, content: [], error: `Browser pane returned an invalid result: ${e instanceof Error ? e.message.slice(0, 500) : 'unknown'}` } })
-        }
-      })
+    const result: BrowserResult = { callId: call.callId, ok: false, content: [], error: NO_PANE_ERROR }
+    this.send({ type: 'browser.result', result })
+    this.noPane.add(call.callId)
+    if (this.noPane.size > NO_PANE_KEEP) this.noPane.delete(this.noPane.values().next().value!)
   }
 
   cancel(callId: string) {
-    if (!this.running.delete(callId)) return
     this.app()?.browser.cancel(callId)
   }
 }
