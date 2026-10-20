@@ -1,0 +1,12 @@
+{
+  "name": "@mycel/tests",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@mycel/server": "workspace:*",
+    "@mycel/shared": "workspace:*",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

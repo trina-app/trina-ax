@@ -1,0 +1,9 @@
+node_modules/
+native/bin/
+.tmp/
+*.db
+*.db-wal
+*.db-shm
+tests/.work/
+tests/out/
+tests/.work-*.ts

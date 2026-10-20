@@ -1,0 +1,14 @@
+{
+  "name": "@mycel/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@mycel/shared": "workspace:*",
+    "hono": "4.13.13",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "4.6.7"
+  }
+}
