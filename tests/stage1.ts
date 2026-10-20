@@ -7,6 +7,7 @@ import { runFuzz } from './fuzz/fuzz'
 import { runRedos } from './perf/redos'
 import { runBench } from './perf/bench'
 import { WORK } from './lib/env'
+import { runLinuxJob } from './linux/run'
 
 const ROOT = path.resolve(import.meta.dir, '..')
 const args = new Set(process.argv.slice(2))
@@ -23,7 +24,7 @@ async function step(name: string, fn: () => Promise<{ ok: boolean; summary: stri
 const sh = (cmd: string[], cwd = ROOT, env: Record<string, string> = {}) => { const p = Bun.spawnSync(cmd, { cwd, env: { ...process.env, ...env } }); return { code: p.exitCode, out: p.stdout.toString() + p.stderr.toString() } }
 
 await step('typecheck', async () => { const r = sh(['bunx', 'tsc', '-p', 'tsconfig.json', '--noEmit']); return { ok: r.code === 0, summary: r.code === 0 ? 'no errors' : r.out.slice(0, 800) } })
-await step('native build (darwin-arm64, linux-arm64) + go vet', async () => {
+await step('native build (darwin + linux) + go vet', async () => {
   const v = sh(['go', 'vet', './...'], path.join(ROOT, 'native')); const b = sh(['bash', 'native/build.sh'])
   return { ok: v.code === 0 && b.code === 0, summary: b.out.trim().split('\n').join(', ') + (v.code ? ' vet: ' + v.out : '') }
 })
@@ -39,16 +40,7 @@ await step('grep benchmark (20k files)', async () => {
   const r = await runBench(5)
   return { ok: r.worstMs < 1000 && !r.leaks && !r.errors, summary: `${r.gen.files} files; worst median ${r.worstMedianMs} ms, worst single ${r.worstMs} ms; leaks ${r.leaks}; office index ${r.indexMs} ms`, detail: r.rows }
 })
-if (!args.has('--no-docker')) await step('Linux job in Docker (unprivileged accounts: fuzzers, backstop, reaper, unit)', async () => {
-  const b = sh(['docker', 'build', '-q', '-f', 'tests/linux/Dockerfile', '-t', 'mycel-linux-test', '.'])
-  if (b.code) return { ok: false, summary: 'docker build failed: ' + b.out.slice(-800) }
-  const r = sh(['docker', 'run', '--rm', 'mycel-linux-test'])
-  const line = r.out.split('\n').find((l) => l.startsWith('MYCEL_LINUX_RESULT '))
-  if (!line) return { ok: false, summary: r.out.slice(-1500) }
-  const o = JSON.parse(line.slice('MYCEL_LINUX_RESULT '.length))
-  const failed = o.checks.filter((c: any) => !c.ok)
-  return { ok: r.code === 0 && !failed.length, summary: `${o.checks.length - failed.length}/${o.checks.length} checks; fuzz inproc ${o.fuzz_inproc.calls} calls ${o.fuzz_inproc.fails} fails, socket ${o.fuzz_socket.calls} calls ${o.fuzz_socket.fails} fails; unit ${String(o.unit).replace(/\s+/g, ' ')}`, detail: o.checks }
-})
+if (!args.has('--no-docker')) await step('Linux job in Docker (unprivileged accounts: fuzzers, backstop, reaper, unit)', async () => runLinuxJob())
 if (!args.has('--no-claude')) {
   const { runClaudeLockdown } = await import('./engine/lockdown-claude')
   const { runCodexLockdown } = await import('./engine/lockdown-codex')

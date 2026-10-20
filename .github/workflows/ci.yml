@@ -1,0 +1,76 @@
+# CI: typecheck, native build, unit tests, fast fuzz, and the Linux job with unprivileged accounts in Docker.
+# Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
+# run locally with `bun run test:stage1`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.3.12
+  PANDOC_VERSION: 3.9.0.2
+
+jobs:
+  check:
+    name: typecheck, native, unit, fast fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils
+          curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          sudo dpkg -i /tmp/pandoc.deb
+          rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Native build (darwin + linux, amd64 + arm64) and go vet
+        run: |
+          ARCHS="amd64 arm64" bash native/build.sh
+          cd native && go vet ./...
+      - name: Unit tests
+        run: bun run test:unit
+      - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
+        run: bun run test:fuzz:fast
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-bin
+          path: native/bin/
+          retention-days: 7
+
+  linux-docker:
+    name: Linux job (separate server / engine / person accounts)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - name: Native build (linux amd64)
+        run: ARCHS=amd64 bash native/build.sh
+      - name: Build and run the Docker job
+        run: bun run tests/linux/run.ts
