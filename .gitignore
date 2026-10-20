@@ -9,3 +9,4 @@ tests/out/
 tests/.work-*.ts
 tests/out/
 .dev/
+tests/.cache/
