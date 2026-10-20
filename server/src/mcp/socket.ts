@@ -48,7 +48,7 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
         turns.authenticate(msg?.hello?.token, s.peer!, 3000, (seen) => { s.turn = seen }).then((t) => {
           if (typeof t === 'string') return reject(sock, s, t)
           s.turn = t
-          s.handle = makeHandler(files, db, { user: files.principal(t.userId), turnId: t.id, files: t.files })
+          s.handle = makeHandler(files, db, { user: files.principal(t.userId), turnId: t.id, files: t.files }, t.tools)
           s.stage = 'mcp'
           connLog.run(t.id, t.userId, '(connect)', `accepted peer=${JSON.stringify(s.peer)}`, 1)
           pump(sock)

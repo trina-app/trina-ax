@@ -55,33 +55,36 @@ export function prepareCodexHome(codexHome: string, auth: CodexConf['auth'], rea
   if (!st || !st.isSymbolicLink()) fs.symlinkSync(realAuth, link)
 }
 
-export function codexArgs(conf: CodexConf): string[] {
+/** seconds codex waits for one MCP tool call (ask_user waits for a person; codex's default is about 60 s) */
+export const CODEX_TOOL_TIMEOUT_SEC = 1800
+
+export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: string } = {}): string[] {
   return ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '--ignore-rules', '--ignore-user-config',
     '-s', 'read-only',
     '-c', 'approval_policy="never"',
     '-c', 'project_doc_max_bytes=0',
     '-c', 'web_search="live"',
     '-c', `model_catalog_json=${JSON.stringify(conf.catalog)}`,
-    '-c', `model=${JSON.stringify(conf.model)}`,
+    '-c', `model=${JSON.stringify(o.model ?? conf.model)}`,
     ...CODEX_DISABLED_FEATURES.flatMap((f) => ['-c', `features.${f}=false`]),
     '-c', 'mcp_servers.team.command="{BRIDGE}"',
     '-c', 'mcp_servers.team.args=["--turn-dir","{CHAT_DIR}","--sock","{TOOLS_SOCK}"]',
     '-c', 'mcp_servers.team.startup_timeout_sec=20',
-    '-c', 'mcp_servers.team.tool_timeout_sec=120',
+    '-c', `mcp_servers.team.tool_timeout_sec=${CODEX_TOOL_TIMEOUT_SEC}`,
     // our server decides every call (authorize); codex's own approval would just block them with approval_policy=never
     '-c', 'mcp_servers.team.default_tools_approval_mode="approve"',
-    '-c', `mcp_servers.team.enabled_tools=${JSON.stringify(Object.keys(FILE_TOOLS))}`,
+    '-c', `mcp_servers.team.enabled_tools=${JSON.stringify([...Object.keys(FILE_TOOLS), ...(o.extraTools ?? [])])}`,
   ]
 }
 
-export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number }, conf: CodexConf): LaunchRequest {
+export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string }, conf: CodexConf): LaunchRequest {
   fs.mkdirSync(conf.agentHome, { recursive: true, mode: 0o700 })
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   // codex has no system-prompt file option that keeps its tool instructions; the instructions travel on stdin
   // (never argv/env) ahead of the user's message.
   const stdin = `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`
   return {
-    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args: codexArgs(conf),
+    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args: codexArgs(conf, { extraTools: i.extraTools, model: i.model }),
     env: { PATH: '/usr/bin:/bin', HOME: conf.agentHome, CODEX_HOME: conf.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8' },
     token: i.token, systemPrompt: '', stdin, timeoutMs: i.timeoutMs,
   }

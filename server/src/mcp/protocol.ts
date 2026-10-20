@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
+import type { TurnToolSet } from '../turns'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as any
@@ -11,7 +12,7 @@ const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
 })
 export const MCP_TOOL_NAMES = toolList.map((t) => t.name)
 
-export function makeHandler(files: FileService, db: Database, ctx: ToolCtx) {
+export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extra?: TurnToolSet) {
   const audit = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok) VALUES (?,?,?,?,?)')
   return async function handle(msg: any): Promise<any | null> {
     if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return null
@@ -21,11 +22,17 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx) {
         return reply({ protocolVersion: typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '2025-06-18',
           capabilities: { tools: {} }, serverInfo: { name: 'team', version: '0.1.0' } })
       case 'ping': return reply({})
-      case 'tools/list': return reply({ tools: toolList })
+      case 'tools/list': return reply({ tools: extra ? [...toolList, ...extra.list()] : toolList })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
+        if (extra?.has(name)) {
+          const out = await extra.call(name, msg.params?.arguments ?? {}).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
+          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
+          return reply({ content: out.content, ...(out.isError ? { isError: true } : {}) })
+        }
         const out = await files.call(name, msg.params?.arguments ?? {}, ctx)
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
+        try { extra?.afterFileTool?.(name, !!out.isError, msg.params?.arguments) } catch {}
         return reply({ content: [{ type: 'text', text: out.text }], ...(out.isError ? { isError: true } : {}) })
       }
       default:

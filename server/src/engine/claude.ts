@@ -46,14 +46,19 @@ export function sessionLocation(conf: ClaudeConf, chatDir: string) {
   return { restoreDir: path.join(projects, 'restored'), collectDir: projects }
 }
 
+/** Claude Code gives up on an MCP tool call after this (ask_user / browser site confirmations wait up to 15 minutes). */
+export const MCP_TOOL_TIMEOUT_MS = 1_800_000
+
 export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
+  /** our MCP tools besides the six file tools offered to this turn (remember, ask_user, browser tools, make_file ...) */
+  extraTools?: string[]
 }, conf: ClaudeConf): LaunchRequest {
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events',
     '--tools', ENGINE_BUILTIN_ALLOWED.join(','),
-    '--allowedTools', CLAUDE_ALLOWED_TOOLS.join(','),
+    '--allowedTools', [...CLAUDE_ALLOWED_TOOLS, ...(i.extraTools ?? []).map((t) => TEAM_TOOL_PREFIX + t)].join(','),
     '--strict-mcp-config', '--mcp-config', '{MCP_CONFIG}',
     '--setting-sources', '',
     '--settings', JSON.stringify(CLAUDE_LOCK_SETTINGS),
@@ -67,7 +72,8 @@ export function buildClaudeLaunch(i: {
   // temp files stay in the chat folder: with only TMPDIR, Claude Code still creates /tmp/claude-<uid> and
   // /tmp/cc-socks-<uid>, so CLAUDE_CODE_TMPDIR is set too (macOS spike 2026-10-21)
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
-  const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV }
+  const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV,
+    MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS) }
   if (conf.authMode === 'local-login') {
     // dev/test: the CLI's own login. Its macOS keychain entry is tied to the default config dir and the
     // user, so HOME stays the real home and CLAUDE_CONFIG_DIR is not set in this mode.

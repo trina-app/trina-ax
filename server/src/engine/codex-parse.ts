@@ -1,6 +1,6 @@
 // `codex exec --json` events -> EngineEvent
 import type { EngineEvent } from '@mycel/shared'
-import { classifyError } from './claude-parse'
+import { TOOL_OUTPUT_MAX, classifyError, toolResultText } from './claude-parse'
 
 export class CodexEventParser {
   sessionId: string | null = null
@@ -22,11 +22,14 @@ export class CodexEventParser {
           break
         case 'reasoning': if (ev.type === 'item.completed' && it.text) out.push({ type: 'thinking', delta: it.text }); break
         case 'mcp_tool_call':
-          if (ev.type === 'item.started') out.push({ type: 'tool_start', id: it.id, name: `mcp__${it.server}__${it.tool}`, summary: JSON.stringify(it.arguments ?? {}).slice(0, 300) })
-          else out.push({ type: 'tool_end', id: it.id, ok: it.status === 'completed' && !it.error && !it.result?.is_error })
+          if (ev.type === 'item.started') out.push({ type: 'tool_start', id: it.id, name: `mcp__${it.server}__${it.tool}`, summary: JSON.stringify(it.arguments ?? {}).slice(0, 300), input: it.arguments ?? {} })
+          else {
+            const text = toolResultText(it.result?.content) || (it.error ? String(it.error?.message ?? it.error) : '')
+            out.push({ type: 'tool_end', id: it.id, ok: it.status === 'completed' && !it.error && !it.result?.is_error, output: text.slice(0, TOOL_OUTPUT_MAX) })
+          }
           break
         case 'web_search':
-          if (ev.type === 'item.started') out.push({ type: 'tool_start', id: it.id, name: 'web_search', summary: String(it.query ?? '').slice(0, 200) })
+          if (ev.type === 'item.started') out.push({ type: 'tool_start', id: it.id, name: 'web_search', summary: String(it.query ?? '').slice(0, 200), input: { query: it.query ?? '' } })
           else out.push({ type: 'tool_end', id: it.id, ok: true })
           break
         case 'command_execution': case 'file_change': case 'collab_tool_call':
