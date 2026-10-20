@@ -430,7 +430,7 @@ export class TurnExec {
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L) }
     const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
     const answer = await this.waitForPerson({
-      kind: 'ask_user', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })

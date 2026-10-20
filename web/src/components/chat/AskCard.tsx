@@ -3,7 +3,7 @@
 // another window, timed out, turn ended). Ordinary form controls (radios / checkboxes / buttons) for keyboards
 // and screen readers.
 import clsx from 'clsx'
-import { Globe, MessageCircleQuestion } from 'lucide-react'
+import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -66,18 +66,26 @@ export default function AskCard({ req }: { req: OpenRequest }) {
   const ready = Array.isArray(value) ? value.length > 0 : !!value
   const toggle = (v: string) => setPicked((p) => (r.multiple ? (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]) : [v]))
 
+  const fromServer = r.origin === 'server'
   return (
     <form
-      className="my-3 overflow-hidden rounded-2xl border border-line"
+      className={clsx('my-3 overflow-hidden rounded-2xl border', fromServer ? 'border-warn/40' : 'border-line')}
       data-testid="ask-card"
+      data-origin={fromServer ? 'server' : 'ai'}
       onSubmit={(e) => {
         e.preventDefault()
         if (ready) void run({ kind: 'ask_user', answer: value })
       }}
     >
-      <div className="flex items-center gap-2 bg-subtle px-4 py-2.5 text-sm font-semibold">
-        <MessageCircleQuestion size={16} className="text-accent-text" aria-hidden /> {t('ask.title')}
-      </div>
+      {fromServer ? (
+        <div className="flex items-center gap-2 bg-warn-soft px-4 py-2.5 text-sm font-semibold text-warn">
+          <ShieldAlert size={16} aria-hidden /> {t('ask.serverTitle')}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 bg-subtle px-4 py-2.5 text-sm font-semibold">
+          <MessageCircleQuestion size={16} className="text-accent-text" aria-hidden /> {t('ask.title')}
+        </div>
+      )}
       <fieldset className="space-y-2 px-4 py-3">
         <legend className="mb-2 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
         {options.length > 0 && (

@@ -182,6 +182,7 @@ export const id: Record<MessageKey, string> = {
   'steps.results': '{n} hasil',
 
   'ask.title': 'AI ingin memastikan sesuatu',
+  'ask.serverTitle': 'Pemeriksaan keamanan oleh server tim',
   'ask.ownAnswer': 'Jawaban kamu',
   'ask.orType': 'Atau ketik jawaban sendiri',
   'ask.typeAnswer': 'Ketik jawaban',

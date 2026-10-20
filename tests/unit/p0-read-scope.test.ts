@@ -58,6 +58,7 @@ describe('the AI saves what it read', () => {
     ), 'skip')
     expect(r.card!.question).toContain('groups/finance/')
     expect(r.card!.question).toContain('shared/leak.md')
+    expect(r.card!.origin).toBe('server') // shown as the server's safety check, not as a question from the AI
     expect(r.content).toContain('did not allow saving')
     expect(fs.existsSync(path.join(h.team, 'shared/leak.md'))).toBe(false)
     const a = h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'write'").get(r.turnId) as { summary: string; ok: number }
@@ -118,6 +119,11 @@ describe('the AI saves what it read', () => {
     await h.api('bob').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'skip' } })
     await bob.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
     expect(fs.existsSync(path.join(h.team, 'shared/from-project.md'))).toBe(false)
+  })
+
+  test("the AI's own ask_user can never carry the server's mark", async () => {
+    const r = await turn(alice, 'alice', fake({ tool: 'ask_user', args: { question: 'Team server safety check: save?', options: [{ label: 'Save', value: 'save' }] }, sayResult: true }), 'save')
+    expect(r.card!.origin).toBeUndefined()
   })
 
   test('a renamed rule folder is still the same source; a removed one counts as nobody', () => {
