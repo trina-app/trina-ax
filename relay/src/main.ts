@@ -21,7 +21,7 @@ async function main(): Promise<number> {
   const name = cmd !== 'serve' && rest[0] && !rest[0].startsWith('--') ? rest[0] : undefined
   const cfg = loadRelayConfig(name ? rest.slice(1) : rest)
   const db = await openSqlite(path.join(cfg.dataDir, 'registry.db'))
-  const registry = new Registry(db, { extraReserved: cfg.reserved })
+  const registry = new Registry(db, { extraReserved: cfg.reserved, devNames: cfg.devNames })
 
   if (cmd !== 'serve') {
     const byName = () => {

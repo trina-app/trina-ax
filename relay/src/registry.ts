@@ -75,22 +75,32 @@ export function newRecoveryCode(): string {
 }
 const normCode = (c: string) => c.toUpperCase().replace(/[^A-Z0-9]/g, '')
 
-export interface RegistryOptions { extraReserved?: string[]; now?: () => number }
+export interface RegistryOptions {
+  extraReserved?: string[]
+  /** dev relay only (--dev): built-in reserved names that may be registered anyway, e.g. 'demo' for
+   * http://demo.localhost:19161 in `bun run dev`. Never set in production. */
+  devNames?: string[]
+  now?: () => number
+}
 
 export class Registry {
   readonly db: SqlDb
   private extraReserved: string[]
+  private devNames: Set<string>
   private now: () => number
 
   constructor(db: SqlDb, o: RegistryOptions = {}) {
     this.db = db
     this.extraReserved = o.extraReserved ?? []
+    this.devNames = new Set((o.devNames ?? []).filter((n) => !this.extraReserved.includes(n)))
     this.now = o.now ?? Date.now
     db.exec('PRAGMA journal_mode = WAL')
     db.exec('PRAGMA foreign_keys = ON')
     db.exec(SCHEMA)
     const ins = db.prepare('INSERT OR IGNORE INTO reservations (name, team_id, reason, hold_until) VALUES (?, NULL, ?, NULL)')
-    for (const n of [...RESERVED_TEAM_NAMES, ...this.extraReserved]) ins.run(n, 'reserved')
+    for (const n of [...RESERVED_TEAM_NAMES, ...this.extraReserved]) if (!this.devNames.has(n)) ins.run(n, 'reserved')
+    const free = db.prepare("DELETE FROM reservations WHERE name = ? AND team_id IS NULL AND reason = 'reserved'")
+    for (const n of this.devNames) free.run(n)
   }
 
   // ------------------------------------------------------------ lookups
@@ -111,7 +121,7 @@ export class Registry {
   /** null when `name` can be given to `forTeam` (or to a new team), else the reason. */
   nameProblem(name: string, forTeam?: string): TeamNameProblem | 'taken' | null {
     const p = checkTeamName(name, this.extraReserved)
-    if (p) return p
+    if (p && !(p === 'reserved' && this.devNames.has(name))) return p
     const r = this.db.prepare('SELECT team_id, reason, hold_until FROM reservations WHERE name = ?').get(name) as { team_id: string | null; reason: string; hold_until: string | null } | undefined
     if (r) {
       const held = r.hold_until === null || Date.parse(r.hold_until) > this.now()

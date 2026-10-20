@@ -55,6 +55,17 @@ describe('registry', () => {
     expect(r.nameProblem('nope')).toBe('reserved')
   })
 
+  test('dev relay: devNames frees a built-in reserved name (demo) but never an operator reservation', async () => {
+    const db = await openSqlite(':memory:')
+    const prod = new Registry(db)
+    expect(code(() => prod.register(regReq('demo').req, BITS))).toBe('name_reserved')
+    // same database opened by a dev relay: the stored reservation goes away and demo can be registered
+    const dev = new Registry(db, { devNames: ['demo', 'blockedname'], extraReserved: ['blockedname'] })
+    expect(dev.register(regReq('demo').req, BITS).name).toBe('demo')
+    expect(code(() => dev.register(regReq('blockedname').req, BITS))).toBe('name_reserved')
+    expect(code(() => dev.register(regReq('www').req, BITS))).toBe('name_reserved')
+  })
+
   test('rename holds the old name for a year; release holds it too; holds expire', async () => {
     let now = Date.now()
     const r = await registry(() => now)

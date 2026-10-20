@@ -46,6 +46,8 @@ export interface RelayConfig {
   stats: boolean
   /** extra reserved names (comma separated in RELAY_RESERVED) */
   reserved: string[]
+  /** --dev only: built-in reserved names that may be registered anyway (RELAY_DEV_NAMES, default 'demo') */
+  devNames: string[]
   /** registrations per IP per hour (memory only, never stored) */
   registerPerIpPerHour: number
 }
@@ -101,6 +103,7 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     clientWsCap: num(env.RELAY_CLIENT_WS_CAP, DEFAULTS.clientWsCap),
     stats: bool.has('stats') || env.RELAY_STATS === '1' || dev,
     reserved: (env.RELAY_RESERVED ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+    devNames: dev ? (env.RELAY_DEV_NAMES ?? 'demo').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : [],
     registerPerIpPerHour: num(env.RELAY_REGISTER_PER_IP, dev ? 1000 : 10),
   }
 }
