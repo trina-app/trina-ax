@@ -4,7 +4,8 @@
 // Where the file is:   --config <path>  >  $MYCEL_CONFIG  >  dev: <repo>/.dev/server.json (optional)
 //                                                           prod: /Library/Application Support/mycel/config/server.json
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
-// MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN.
+// MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
+// MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay).
 // Relative paths in the file are resolved against the file's folder.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -121,7 +122,10 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     logDir: logDirRaw ? path.resolve(base, logDirRaw) : null,
     logLevel: level,
     engine: { authMode: f.engine.authMode, claudeBin: f.engine.claudeBin, codexBin: f.engine.codexBin },
-    relay: f.relay,
+    relay: {
+      url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
+      teamName: env[P + 'RELAY_TEAM'] ?? f.relay.teamName,
+    },
     update: f.update,
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,

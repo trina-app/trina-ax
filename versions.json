@@ -12,5 +12,8 @@
   "typescript": "5.9.3",
   "codex-cli": "0.163.0",
   "pandoc-linux-test-image": "3.9.0.2 (GitHub release .deb)",
-  "bun-docker-image": "oven/bun:1.3.12-debian"
+  "bun-docker-image": "oven/bun:1.3.12-debian",
+  "node-relay": "25.6.0 (relay only: node:http + ws; Bun.serve has no streaming backpressure)",
+  "ws": "8.18.0",
+  "@types/ws": "8.18.1"
 }

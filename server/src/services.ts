@@ -26,6 +26,24 @@ export interface SessionService {
   verifyPassword(userId: string, password: string, info: RequestInfo): Promise<boolean>
 }
 
+/**
+ * A WebSocket that did not come through Bun.serve's upgrade: a browser WebSocket proxied by the relay as a stream
+ * (component F, server/src/relay-client). Tab 4 "중계로 들어온 요청": the relay client wraps it as a RealtimeConn
+ * (relay-client/realtime-conn.ts) and the realtime hub attaches it with RealtimeHub.attach exactly like a direct
+ * upgrade (same cookie / Origin / ticket checks on `req`, same seq / resume rules); only keep-alive differs (the
+ * relay pings the browser). The handshake is already complete when the hub sees it (subprotocol in `protocol`).
+ */
+export interface VirtualWebSocket {
+  readonly protocol: string
+  /** bytes queued for the client and not yet delivered (slow-client check, close 4408 like a direct socket) */
+  readonly bufferedAmount: number
+  readonly readyState: 'open' | 'closing' | 'closed'
+  send(data: string | Uint8Array): void
+  close(code?: number, reason?: string): void
+  onMessage: ((data: string | Uint8Array) => void) | null
+  onClose: ((code: number, reason: string) => void) | null
+}
+
 /** Component B (server/src/realtime/*). */
 export interface RealtimeHub {
   /** Send to every open window of one person (adds seq/at, keeps it in the replay buffer). */
@@ -116,6 +134,13 @@ export interface JobService {
 /** Component F (server/src/relay-client/*). G's /api/admin/connection reads it. */
 export interface RelayStatusProvider {
   status(): ConnectionStatus
+  /**
+   * Move the team address to this server's key with the recovery code printed at registration (a restore on another
+   * Mac, or a lost key file: state not_registered, detail 'recovery_needed'; `teamId` from the printed recovery sheet when this
+   * server has no registration at all). Rejects with a message when the relay
+   * refuses the code. Component G puts it behind an owner screen.
+   */
+  recover?(recoveryCode: string, teamId?: string): Promise<ConnectionStatus>
 }
 
 export interface Services {
