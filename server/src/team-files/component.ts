@@ -56,6 +56,8 @@ export function componentC(ctx: AppContext): ComponentC {
         run: async (h) => {
           try { return await transcribe(stt, own, name, { language: o.language, locale: locale(userId) }, h) } finally { fs.rmSync(own, { force: true }) }
         },
+        // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
+        discard: () => fs.rmSync(own, { force: true }),
       })
     },
     sweep() {

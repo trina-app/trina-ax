@@ -126,8 +126,10 @@ export interface JobHandle {
 }
 /** Component C (server/src/jobs/*). G uses it for backup / restore / update / export. */
 export interface JobService {
-  /** Create a job row (queued), run it in the background, publish job.progress / job.done. Returns the job id. */
-  start(o: { kind: JobKind; userId: string | null; run: (h: JobHandle) => Promise<unknown> }): string
+  /** Create a job row (queued), run it in the background, publish job.progress / job.done. Returns the job id.
+   * `discard` runs instead of `run` when the job never starts (canceled while queued, server shutting down): it
+   * removes what was set aside for the job (a transcription's audio file). */
+  start(o: { kind: JobKind; userId: string | null; run: (h: JobHandle) => Promise<unknown>; discard?: () => void }): string
   cancel(id: string): boolean
 }
 
