@@ -14,7 +14,10 @@ export const CLAUDE_LOCK_ENV: Record<string, string> = {
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   DISABLE_AUTOUPDATER: '1',
 }
-export const CLAUDE_LOCK_SETTINGS = { autoMemoryEnabled: false, disableAllHooks: true }
+// Claude Code 2.1.304 ships built-in plugins that load even with --setting-sources "" (seen in the lockdown run):
+// cc-plugin-agents-md would feed AGENTS.md files into the context. They are switched off explicitly.
+export const CLAUDE_BUILTIN_PLUGINS_OFF = ['cc-plugin-agents-md@builtin', 'cc-plugin-plugin-authoring@builtin']
+export const CLAUDE_LOCK_SETTINGS = { autoMemoryEnabled: false, disableAllHooks: true, enabledPlugins: Object.fromEntries(CLAUDE_BUILTIN_PLUGINS_OFF.map((p) => [p, false])) }
 /** exactly what the engine may call */
 export const CLAUDE_ALLOWED_TOOLS = [...Object.keys(FILE_TOOLS).map((t) => TEAM_TOOL_PREFIX + t), ...ENGINE_BUILTIN_ALLOWED]
 

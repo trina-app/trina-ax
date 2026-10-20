@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { LaunchRequest } from '@mycel/shared'
+import { FILE_TOOLS, type LaunchRequest } from '@mycel/shared'
 
 export const CODEX_DISABLED_FEATURES = ['shell_tool', 'unified_exec', 'unified_exec_tty', 'code_mode', 'code_mode_host', 'code_mode_interrupt', 'code_mode_only',
   'multi_agent', 'multi_agent_v2', 'apps', 'browser_use', 'browser_use_external', 'browser_use_full_cdp_access', 'in_app_browser', 'computer_use',
@@ -68,6 +68,9 @@ export function codexArgs(conf: CodexConf): string[] {
     '-c', 'mcp_servers.team.args=["--turn-dir","{CHAT_DIR}","--sock","{TOOLS_SOCK}"]',
     '-c', 'mcp_servers.team.startup_timeout_sec=20',
     '-c', 'mcp_servers.team.tool_timeout_sec=120',
+    // our server decides every call (authorize); codex's own approval would just block them with approval_policy=never
+    '-c', 'mcp_servers.team.default_tools_approval_mode="approve"',
+    '-c', `mcp_servers.team.enabled_tools=${JSON.stringify(Object.keys(FILE_TOOLS))}`,
   ]
 }
 

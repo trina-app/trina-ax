@@ -8,7 +8,9 @@ export interface Peer { pid: number; uid: number; gid: number; pgid: number; sid
 export interface Turn {
   id: string; userId: string; chatId: string; tokenHash: string
   files: TurnFiles
-  /** engine process group (= session id; the launcher starts the engine with setsid) */
+  /** engine session id (= engine pid = its process group; the launcher starts the engine with setsid).
+   * Tool connections must come from this session. Engines may put helpers in their own process group
+   * (Codex does this for MCP servers) but cannot leave the session without setsid, which yields a new id. */
   pgid: number | null
   revoked: boolean
   waiters: (() => void)[]
@@ -42,15 +44,16 @@ export class TurnRegistry {
     this.db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(status, new Date().toISOString(), err ?? null, turnId)
   }
   /** Validate a bridge connection. Returns the turn or a reason. */
-  async authenticate(token: unknown, peer: Peer, waitMs = 3000): Promise<Turn | string> {
+  async authenticate(token: unknown, peer: Peer, waitMs = 3000, seen?: (t: Turn) => void): Promise<Turn | string> {
     if (typeof token !== 'string' || token.length < 20) return 'missing token'
     const t = this.byHash.get(h(token))
     if (!t || t.revoked) return 'unknown or expired token'
+    seen?.(t)
     if (peer.uid !== this.agentUid) return `peer uid ${peer.uid} is not the engine account`
     if (t.pgid === null) await new Promise<void>((res) => { t.waiters.push(res); setTimeout(res, waitMs) })
     if (t.revoked) return 'turn ended'
     if (t.pgid === null) return 'turn engine not started'
-    if (peer.pgid !== t.pgid || peer.sid !== t.pgid) return `peer process ${peer.pid} is not part of this turn's engine (pgid ${peer.pgid}/sid ${peer.sid} != ${t.pgid})`
+    if (peer.sid !== t.pgid) return `peer process ${peer.pid} is not part of this turn's engine (session ${peer.sid} != ${t.pgid})`
     return t
   }
 }
