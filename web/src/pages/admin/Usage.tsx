@@ -1,20 +1,19 @@
 // Usage per person / engine / model / day / group: turns and tokens (cost only means something in company-key mode).
 import { useMemo, useState } from 'react'
 import { api, API } from '../../lib/api'
-import { formatNumber, formatUsd } from '../../lib/format'
+import { formatNumber, formatUsd, localDay } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { Field, inputCls } from '../../components/ui'
 import { Card, Loadable, useLoad } from './common'
 
 type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group'
-const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 
 export default function Usage() {
   const t = useT()
   const locale = useLocale()
   const [groupBy, setGroupBy] = useState<GroupBy>('user')
-  const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 29 * 86400_000)))
-  const [to, setTo] = useState(() => isoDay(new Date()))
+  const [from, setFrom] = useState(() => localDay(new Date(Date.now() - 29 * 86400_000)))
+  const [to, setTo] = useState(() => localDay(new Date()))
   const range = useMemo(() => ({ from: new Date(`${from}T00:00:00`).toISOString(), to: new Date(`${to}T23:59:59`).toISOString() }), [from, to])
   const state = useLoad(() => api.call(API.usage, { query: { groupBy, ...range } }), [groupBy, range])
   const max = Math.max(1, ...(state.data?.rows.map((r) => r.inputTokens + r.outputTokens) ?? [1]))

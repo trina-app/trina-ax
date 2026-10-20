@@ -170,7 +170,11 @@ describe('settings, budgets, usage, audit', () => {
     expect((await admin.call('GET', '/api/admin/usage?groupBy=model')).rows.map((r: any) => r.label).sort()).toEqual(['(default)', 'gpt-x', 'sonnet'])
     expect((await admin.call('GET', '/api/admin/usage?groupBy=group')).rows).toEqual([{ key: group, label: 'Ops', turns: 2, inputTokens: 110, outputTokens: 55, costUsd: 0.75 }])
     const from = new Date(Date.now() - 60 * 86_400_000).toISOString()
-    expect((await admin.call('GET', `/api/admin/usage?groupBy=day&from=${encodeURIComponent(from)}`)).rows).toHaveLength(2)
+    const days = (await admin.call('GET', `/api/admin/usage?groupBy=day&from=${encodeURIComponent(from)}`)).rows
+    expect(days).toHaveLength(2)
+    // days of the server's own time zone, not UTC days
+    const local = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    expect(days.map((r: any) => r.key)).toEqual([local(new Date(Date.now() - 40 * 86_400_000)), local(new Date())])
     expect((await admin.try('GET', `/api/admin/usage?from=${encodeURIComponent(new Date().toISOString())}&to=${encodeURIComponent(from)}`)).status).toBe(400)
   })
   test('audit: admin, sign-in, file and tool events newest first, filters, stable cursor pages', async () => {

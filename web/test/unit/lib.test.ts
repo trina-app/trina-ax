@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ApiError, ERROR_MESSAGES, uuidv7, type BrowserCall, type ClientFrame, type Job } from '@mycel/shared/api'
 import type { DesktopBridge } from '@mycel/shared'
 import { BrowserRelay, NO_PANE_ERROR } from '../../src/lib/browserRelay'
-import { dateBucket, formatRelative, formatSize } from '../../src/lib/format'
+import { dateBucket, formatRelative, formatSize, localDay } from '../../src/lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../../src/lib/paths'
 import { iconKind, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
 import { errorText, PreviewTooLargeError, readBounded } from '../../src/lib/api'
@@ -226,5 +226,13 @@ describe('errorText', () => {
   test('the default validation message follows the UI language and names the field problem', () => {
     const e = validation(ERROR_MESSAGES.validation!.en, { 'body.name': 'too long' })
     expect(errorText(e, 'ko', 'net')).toBe(`${ERROR_MESSAGES.validation!.ko} (too long)`)
+  })
+})
+
+describe('localDay', () => {
+  test('the local calendar day, also when the UTC day differs', () => {
+    const d = new Date(2026, 9, 21, 0, 30) // 00:30 local on 21 October
+    expect(localDay(d)).toBe('2026-10-21')
+    expect(localDay(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05')
   })
 })

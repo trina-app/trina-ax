@@ -63,3 +63,9 @@ export function dateBucket(iso: string, now = new Date()): DateBucket {
 export function fmtDuration(s: number) {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
+
+/** YYYY-MM-DD of the person's own calendar day (date inputs). Not toISOString(): that is the UTC day, which in
+ * Seoul is still "yesterday" until 09:00, and the usage screen then left out everything of today. */
+export function localDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
