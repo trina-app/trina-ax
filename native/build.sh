@@ -6,7 +6,7 @@ ARCHS="${ARCHS:-arm64}"
 for os in darwin linux; do
   for arch in $ARCHS; do
     out="bin/$os-$arch"; mkdir -p "$out"
-    for c in mycel-bridge mycel-gate mycel-launcher; do
+    for c in mycel-bridge mycel-gate mycel-launcher mycel-bootstrap; do
       CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$out/$c" "./cmd/$c"
     done
     echo "built $out"

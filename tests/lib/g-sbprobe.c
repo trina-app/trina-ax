@@ -1,0 +1,53 @@
+// Sandbox / firewall probe for the installer-ops tests (component G). One operation per run, exit 0 = allowed.
+//   probe read <file> | write <file> | list <dir> | tcp <ip> <port> | unix <socket path> | exec <program>
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+static int fail(const char *what) { fprintf(stderr, "%s: %s\n", what, strerror(errno)); return 1; }
+
+int main(int argc, char **argv) {
+  if (argc < 3) { fprintf(stderr, "usage: probe read|write|list|tcp|unix|exec <arg> [port]\n"); return 2; }
+  const char *op = argv[1], *a = argv[2];
+  if (!strcmp(op, "read")) {
+    char buf[64]; int fd = open(a, O_RDONLY); if (fd < 0) return fail("open");
+    if (read(fd, buf, sizeof buf) < 0) return fail("read"); return 0;
+  }
+  if (!strcmp(op, "write")) {
+    int fd = open(a, O_WRONLY | O_CREAT | O_TRUNC, 0600); if (fd < 0) return fail("open");
+    if (write(fd, "x", 1) != 1) return fail("write"); close(fd); unlink(a); return 0;
+  }
+  if (!strcmp(op, "list")) { DIR *d = opendir(a); if (!d) return fail("opendir"); return readdir(d) ? 0 : 1; }
+  if (!strcmp(op, "tcp")) {
+    if (argc < 4) return 2;
+    struct sockaddr_storage ss; memset(&ss, 0, sizeof ss); socklen_t len;
+    struct sockaddr_in *s4 = (struct sockaddr_in *)&ss; struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&ss;
+    if (inet_pton(AF_INET, a, &s4->sin_addr) == 1) { s4->sin_family = AF_INET; s4->sin_port = htons(atoi(argv[3])); len = sizeof *s4; }
+    else if (inet_pton(AF_INET6, a, &s6->sin6_addr) == 1) { s6->sin6_family = AF_INET6; s6->sin6_port = htons(atoi(argv[3])); len = sizeof *s6; }
+    else return 2;
+    int fd = socket(ss.ss_family, SOCK_STREAM, 0); if (fd < 0) return fail("socket");
+    struct timeval tv = { 3, 0 }; setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    if (connect(fd, (struct sockaddr *)&ss, len) < 0) return fail("connect"); return 0;
+  }
+  if (!strcmp(op, "unix")) {
+    struct sockaddr_un su; memset(&su, 0, sizeof su); su.sun_family = AF_UNIX;
+    strncpy(su.sun_path, a, sizeof su.sun_path - 1);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0); if (fd < 0) return fail("socket");
+    if (connect(fd, (struct sockaddr *)&su, sizeof su) < 0) return fail("connect"); return 0;
+  }
+  if (!strcmp(op, "exec")) {
+    pid_t p = fork(); if (p < 0) return fail("fork");
+    if (p == 0) { execl(a, a, (char *)0); _exit(127); }
+    int st; waitpid(p, &st, 0); return WIFEXITED(st) && WEXITSTATUS(st) != 127 ? 0 : 1;
+  }
+  return 2;
+}
