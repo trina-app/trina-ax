@@ -394,3 +394,112 @@ test('step 3e: stop a running answer', async ({ browser }) => {
   await expect(page.getByTestId('send')).toBeVisible()
   await ctx.close()
 })
+
+// ---------------------------------------------------------------------------------------------- step 4 (bob, Codex)
+
+test('step 4: bob chats with Codex (one short turn)', async ({ browser }) => {
+  const st = readState()
+  const { ctx, page } = await as(browser, DIRECT, st.bob)
+  let chatId = st.bobChat as string | undefined
+  if (chatId) await page.goto(`${DIRECT}/c/${chatId}`)
+  else {
+    chatId = await newChat(page, DIRECT, 'What is 6 times 7? Answer with just the number.', 'Codex')
+    writeState({ bobChat: chatId })
+  }
+  expect(await waitAnswer(page, null, 180_000)).toBe('done')
+  await expect(lastAnswer(page)).toContainText('42')
+  const chat = await api<{ engine: string | null }>(page.request, DIRECT, 'GET', `/api/chats/${chatId}`)
+  expect(chat.engine).toBe('codex')
+  await ctx.close()
+})
+
+// ---------------------------------------------------------------------------------------------- step 5 (conflicts)
+
+const NOTES = 'shared/team-notes.md'
+
+/** Open a text file in the side panel's editor (Files screen). */
+async function openEditor(page: Page, base: string, path: string) {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  await page.goto(`${base}/files?path=${encodeURIComponent(path.slice(0, path.lastIndexOf('/')))}`)
+  await page.getByTestId('file-row').filter({ hasText: name }).getByRole('button', { name, exact: true }).click()
+  const panel = page.getByTestId('file-panel')
+  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(name)
+  await panel.getByTestId('file-edit').click()
+  await expect(panel.getByTestId('file-editor')).toBeVisible()
+  return panel
+}
+
+const conflictRows = (page: Page) => page.getByTestId('file-row').filter({ hasText: 'team-notes (충돌 사본' })
+
+test('step 5a: two people edit the same shared file at once: the later save becomes a conflict copy in Files', async ({ browser }) => {
+  const st = readState()
+  const o = await as(browser, DIRECT, st.owner)
+  const a = await as(browser, RELAYED, st.alice)
+  const before = await conflictRows(o.page).count()
+  const op = await openEditor(o.page, DIRECT, NOTES)
+  const ap = await openEditor(a.page, RELAYED, NOTES)
+  const oText = await op.getByTestId('file-editor').inputValue()
+  expect(oText).toContain('Status: draft')
+  await ap.getByTestId('file-editor').fill(oText.replace('Status: draft', 'Status: in review'))
+  await ap.getByTestId('file-save').click()
+  await expect(a.page.getByText('저장했어요.')).toBeVisible()
+
+  await op.getByTestId('file-editor').fill(oText.replace('Next meeting: Monday', 'Next meeting: Tuesday'))
+  await op.getByTestId('file-save').click()
+  await expect(o.page.getByText(/충돌 사본\(shared\/team-notes \(충돌 사본 - Olga/)).toBeVisible()
+  await expect(op).toContainText('Next meeting: Tuesday')
+
+  // both see the copy in Files (live update for alice: files.changed), the original kept alice's version
+  await expect(conflictRows(o.page)).toHaveCount(before + 1)
+  await a.page.goto(`${RELAYED}/files?path=shared`)
+  await expect(conflictRows(a.page).first()).toContainText('충돌 사본')
+  const orig = await api<{ content: string }>(a.page.request, RELAYED, 'GET', `/api/files/content?path=${encodeURIComponent(NOTES)}`)
+  expect(orig.content).toContain('Status: in review')
+  expect(orig.content).toContain('Next meeting: Monday')
+  await o.ctx.close()
+  await a.ctx.close()
+})
+
+test('step 5b: alice\'s AI edits the note it read while the owner saves it: the AI\'s version becomes a conflict copy', async ({ browser }) => {
+  const st = readState()
+  const o = await as(browser, DIRECT, st.owner)
+  const a = await as(browser, RELAYED, st.alice)
+  await a.page.goto(`${RELAYED}/files?path=shared`)
+  const aiCopies = a.page.getByTestId('file-row').filter({ hasText: 'team-notes (충돌 사본 - Alice' })
+  const copiesBefore = await aiCopies.count()
+  const op = await openEditor(o.page, DIRECT, NOTES)
+  const text = await op.getByTestId('file-editor').inputValue()
+  const status = /Status: .*/.exec(text)![0]
+  const wanted = `Status: reviewed by Alice ${new Date().toISOString().slice(11, 19)}`
+  await op.getByTestId('file-editor').fill(text.replace(/Next meeting: \w+/, 'Next meeting: Wednesday'))
+
+  const ws = recordWs(a.page)
+  const chatId = await newChat(
+    a.page,
+    RELAYED,
+    `Please do these steps in order, one tool call at a time. 1) Read ${NOTES}. 2) List the folder shared/. 3) Read shared/launch-plan.md. ` +
+      `4) Then use the edit tool on ${NOTES} to replace the text "${status}" with "${wanted}". Finally tell me in one sentence what happened.`,
+  )
+  writeState({ aliceConflictChat: chatId })
+  // as soon as the AI has read the note, the owner saves his change (the AI's read is now stale)
+  await expect.poll(() => ws.events.some((e) => e.type === 'message.step' && e.data?.step?.status === 'ok' && /team-notes/.test(JSON.stringify(e.data.step))), { timeout: 120_000, intervals: [50] }).toBe(true)
+  await op.getByTestId('file-save').click()
+  await expect(o.page.getByText('저장했어요.')).toBeVisible()
+
+  expect(await waitAnswer(a.page, null)).toBe('done')
+  const summary = lastAnswer(a.page).getByTestId('file-summary')
+  await expect(summary).toContainText('충돌 사본')
+  // the summary under the answer links the copy: it has the AI's change on top of the owner's version
+  await summary.getByRole('button').first().click()
+  await summary.getByRole('button', { name: /team-notes \(충돌 사본 - Alice/ }).click()
+  await expect(a.page.getByTestId('file-panel')).toContainText(wanted)
+  await expect(a.page.getByTestId('file-panel')).toContainText('Next meeting: Wednesday')
+  // the original kept the owner's save
+  const notes = await api<{ content: string }>(a.page.request, RELAYED, 'GET', `/api/files/content?path=${encodeURIComponent(NOTES)}`)
+  expect(notes.content).toContain('Next meeting: Wednesday')
+  expect(notes.content).toContain(status)
+  await a.page.goto(`${RELAYED}/files?path=shared`)
+  await expect(aiCopies).toHaveCount(copiesBefore + 1)
+  await o.ctx.close()
+  await a.ctx.close()
+})
