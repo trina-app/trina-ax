@@ -50,5 +50,19 @@ expect(daemonState(launchctlExit: 0, output: "state = waiting") == .notRunning, 
 expect(Lang.current(["en-US"]) == .en && Lang.current(["id-ID"]) == .id && Lang.current(["fr"]) == .ko, "language choice")
 expect(parseHealth("{\"ok\":true,\"version\":\"1\",\"uptimeSec\":3}".data(using: .utf8)!) == Health(ok: true, version: "1"), "health parses")
 
+// status.json is written by the server account: nothing in it may make the admin's app open a non-web URL
+var evil = s!
+evil.webUrl = "file:///Applications/Calculator.app"
+m = menuState(status: evil, statusAge: 10, health: healthy, daemon: .running, lang: .ko)
+expect(m.webUrl == nil, "file:// web URL from status.json is dropped")
+evil.webUrl = "x-apple.systempreferences:com.apple.Foo"
+expect(menuState(status: evil, statusAge: 10, health: healthy, daemon: .running, lang: .ko).webUrl == nil, "custom URL scheme dropped")
+expect(safeWebURL("https://acme.treesoop.com/x") != nil && safeWebURL("http://acme.localhost:19100") != nil, "http(s) team addresses allowed")
+expect(safeWebURL("https://user:pw@evil.example") == nil && safeWebURL("javascript:alert(1)") == nil && safeWebURL(nil) == nil, "credentials / javascript refused")
+expect(safeLocalURL("http://127.0.0.1:47820", fallback: "F") == "http://127.0.0.1:47820", "loopback health URL kept")
+expect(safeLocalURL("http://evil.example:80", fallback: "F") == "F" && safeLocalURL("file:///etc/passwd", fallback: "F") == "F" && safeLocalURL("http://127.0.0.1:1/x?y", fallback: "F") == "F", "non-loopback health URL replaced")
+f.firewall = "fail"
+expect(menuState(status: f, statusAge: 10, health: healthy, daemon: .running, lang: .en).alert?.contains("refused") == false, "firewall alert does not promise a refusal the server does not make")
+
 print(failures == 0 ? "all menubar model tests passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

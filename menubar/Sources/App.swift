@@ -24,7 +24,7 @@ struct Settings {
 
 @MainActor
 final class Monitor: ObservableObject {
-    @Published var state = MenuState(icon: .off, headline: "Team AX", lines: [], alert: nil, offerLoginItems: false, webUrl: nil, logsDir: nil)
+    @Published var state = MenuState(icon: .off, headline: "Team AX", lines: [], alert: nil, offerLoginItems: false, webUrl: nil)
     let settings = Settings.load()
     private var timer: Timer?
     private var notifiedReplaced = false
@@ -43,8 +43,8 @@ final class Monitor: ObservableObject {
         } else {
             status = nil
         }
-        let local = status?.localUrl ?? "http://127.0.0.1:47820"
-        let label = status?.label ?? "app.treesoop.\(settings.productId)"
+        let local = safeLocalURL(status?.localUrl, fallback: "http://127.0.0.1:47820")
+        let label = "app.treesoop.\(settings.productId)"
         Task.detached {
             let health = await Self.fetchHealth(local)
             let daemon: DaemonState = health?.ok == true ? .running : Self.launchd(label)
@@ -88,9 +88,11 @@ final class Monitor: ObservableObject {
         }
     }
 
-    func open(_ s: String?) { if let s, let u = URL(string: s) { NSWorkspace.shared.open(u) } }
-    func openLogs() { if let d = state.logsDir ?? Optional("/Library/Logs/\(settings.productId)") { NSWorkspace.shared.open(URL(fileURLWithPath: d)) } }
-    func openLoginItems() { open("x-apple.systempreferences:com.apple.LoginItems-Settings.extension") }
+    /// web pages only (safeWebURL): the address comes from status.json, which the server account writes
+    func openWeb(_ s: String?) { if let u = safeWebURL(s) { NSWorkspace.shared.open(u) } }
+    /// fixed, root-owned folder shown in Finder (never "opened": opening a path could launch an app)
+    func openLogs() { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: "/Library/Logs/\(settings.productId)") }
+    func openLoginItems() { if let u = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") { NSWorkspace.shared.open(u) } }
 }
 
 @main
@@ -103,7 +105,7 @@ struct TeamAXMenubar: App {
             if let a = monitor.state.alert { Text("⚠︎ " + a) }
             ForEach(Array(monitor.state.lines.enumerated()), id: \.offset) { _, l in Text(l) }
             Divider()
-            if monitor.state.webUrl != nil { Button(label("웹 화면 열기", "Open web screen", "Buka layar web")) { monitor.open(monitor.state.webUrl) } }
+            if monitor.state.webUrl != nil { Button(label("웹 화면 열기", "Open web screen", "Buka layar web")) { monitor.openWeb(monitor.state.webUrl) } }
             if monitor.state.offerLoginItems { Button(label("로그인 항목 설정 열기", "Open Login Items settings", "Buka pengaturan Item Masuk")) { monitor.openLoginItems() } }
             Button(label("로그 폴더 열기", "Open logs folder", "Buka folder log")) { monitor.openLogs() }
             Button(label("새로 고침", "Refresh", "Muat ulang")) { monitor.refresh() }

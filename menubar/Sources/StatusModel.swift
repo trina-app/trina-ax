@@ -60,8 +60,26 @@ public struct MenuState: Equatable {
     public var alert: String?
     /// offer the "Login Items" shortcut (daemon switched off in System Settings)
     public var offerLoginItems: Bool
+    /// only ever an http(s) address (see safeWebURL)
     public var webUrl: String?
-    public var logsDir: String?
+}
+
+// status.json is written by the server account; this app runs as the logged-in administrator. Nothing read from it
+// may make the app open anything but a web page (a file:// URL or an app path would launch a program as the admin),
+// so URLs are checked here and the logs folder is a fixed path (Monitor.openLogs), never taken from the file.
+
+/// The URL if it is an http(s) web address with a host, else nil.
+public func safeWebURL(_ s: String?) -> URL? {
+    guard let s, let u = URL(string: s), let scheme = u.scheme?.lowercased(), scheme == "http" || scheme == "https",
+          let host = u.host, !host.isEmpty, u.user == nil, u.password == nil else { return nil }
+    return u
+}
+
+/// The health-check base: only http://127.0.0.1:<port> or http://localhost:<port> (no path); otherwise `fallback`.
+public func safeLocalURL(_ s: String?, fallback: String) -> String {
+    guard let s, let u = URL(string: s), u.scheme == "http", u.host == "127.0.0.1" || u.host == "localhost",
+          let port = u.port, port > 0, port < 65536, u.path.isEmpty || u.path == "/", u.query == nil, u.user == nil else { return fallback }
+    return "http://\(u.host!):\(port)"
 }
 
 enum T {
@@ -91,7 +109,7 @@ public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Hea
             lines.append(T.s(lang, "서버가 응답하지 않습니다.", "The server does not answer.", "Server tidak merespons."))
         }
         return MenuState(icon: .off, headline: "\(product): " + T.s(lang, "꺼짐", "off", "mati"), lines: lines, alert: nil,
-                         offerLoginItems: offer, webUrl: nil, logsDir: status?.logsDir)
+                         offerLoginItems: offer, webUrl: nil)
     }
     var lines: [String] = []
     var alert: String? = nil
@@ -111,9 +129,9 @@ public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Hea
         }
         lines.append(T.s(lang, "실행 중 \(s.queue.running) · 대기 \(s.queue.queued)", "\(s.queue.running) running · \(s.queue.queued) waiting", "\(s.queue.running) berjalan · \(s.queue.queued) menunggu"))
         if s.firewall == "fail" {
-            alert = alert ?? T.s(lang, "방화벽 꺼짐 — 복구(관리자 비밀번호)가 필요합니다. 새 질문을 받지 않습니다.",
-                                 "Firewall off — repair needed (admin password). New questions are refused.",
-                                 "Firewall mati — perlu perbaikan (kata sandi admin). Pertanyaan baru ditolak.")
+            alert = alert ?? T.s(lang, "AI 엔진 방화벽 꺼짐 — 복구(관리자 비밀번호)가 필요합니다.",
+                                 "AI engine firewall off — repair needed (admin password).",
+                                 "Firewall mesin AI mati — perlu perbaikan (kata sandi admin).")
         }
         lines.append(contentsOf: s.problems.prefix(5))
         if icon != .replaced {
@@ -124,7 +142,7 @@ public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Hea
         icon = .warn
     }
     return MenuState(icon: icon, headline: "\(product): " + T.s(lang, "켜짐", "on", "aktif") + " (\(h.version))", lines: lines, alert: alert,
-                     offerLoginItems: false, webUrl: status?.webUrl, logsDir: status?.logsDir)
+                     offerLoginItems: false, webUrl: safeWebURL(status?.webUrl)?.absoluteString)
 }
 
 /// launchctl print system/<label>.server output -> daemon state (exit code 113 = not loaded / switched off).
