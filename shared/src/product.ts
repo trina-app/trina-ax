@@ -1,8 +1,11 @@
-// The working name lives here and only here (it will be renamed). Everything else imports PRODUCT.
+// The product name lives here and only here. Everything else imports PRODUCT.
 export const PRODUCT = {
-  /** machine name: folders, sockets, bundle ids, temp-file prefixes */
+  /** machine name: folders, sockets, bundle ids, temp-file prefixes, env prefix (MYCEL_*). Keep stable. */
   id: 'mycel',
-  displayName: 'Mycel',
+  /** what people see in the UI, window titles, the menubar app and emails */
+  displayName: 'Team AX',
+  /** prefix of environment variables the server reads (MYCEL_PORT, MYCEL_CONFIG, ...) */
+  envPrefix: 'MYCEL_',
   /** MCP server name the engine sees: tools appear as mcp__team__<tool> */
   mcpServerName: 'team',
   /** prefix for the server's own temp files inside the team folder (never visible to tools) */

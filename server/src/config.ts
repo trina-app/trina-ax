@@ -64,7 +64,8 @@ export function defaultConfig(over: Partial<ServerConfig> & { teamRoot: string; 
   }
 }
 
-/** Production layout (design tab 6). Stage 3 installer creates these with the right owners. */
+/** Production layout (design tab 6). Stage 3 installer creates these with the right owners.
+ * Folder names use the machine id, not the display name (no spaces, survives a rename of the display name). */
 export const PROD_LAYOUT = {
-  base: `/Library/Application Support/${PRODUCT.displayName}`,
+  base: `/Library/Application Support/${PRODUCT.id}`,
 } as const

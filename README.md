@@ -1,4 +1,4 @@
-# mycel (working name)
+# Team AX (code id `mycel`)
 
 A team AI workspace that runs on one Mac mini: a chat app on top of a shared team folder, where every member's AI sees only the folders that member may see. Licensed AGPL-3.0 (`ee/` is reserved for enterprise features).
 
