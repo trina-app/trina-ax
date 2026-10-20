@@ -50,11 +50,22 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
     async call(name, args) {
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      if (name === 'make_file' && args && typeof args === 'object') {
+        // the new file carries what the chat read, and the `source` file it is made from
+        const a = args as { output?: unknown; source?: unknown }
+        const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
+        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
+      }
       const out = await t.call(args)
       exec.afterTool()
       return { content: out.content, isError: out.isError, summary: out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}` }
     },
-    afterFileTool: (name, _isError, args) => { exec.noteTaint(name, args); exec.afterTool() },
+    afterFileTool: (name, _isError, args) => { exec.noteTaint(name, args); exec.noteReads(); exec.afterTool() },
+    beforeFileTool: async (name, args) => {
+      if (name !== 'write' && name !== 'edit') return null
+      const p = (args as { file_path?: unknown } | null)?.file_path
+      return typeof p === 'string' ? exec.confirmWidening(p) : null
+    },
   }
 }
 

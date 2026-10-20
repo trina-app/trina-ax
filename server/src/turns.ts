@@ -16,6 +16,8 @@ export interface TurnToolSet {
   call(name: string, args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary: string }>
   /** after a file tool call (the runtime publishes files.changed) */
   afterFileTool?(name: string, isError: boolean, args: unknown): void
+  /** before a file tool call: a refusal text stops it (the person declined a confirmation card) */
+  beforeFileTool?(name: string, args: unknown): Promise<string | null>
 }
 export interface Turn {
   id: string; userId: string; chatId: string; tokenHash: string

@@ -39,6 +39,13 @@ export const TEXT = {
   asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}'),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab'),
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?'),
+  widenConfirm: t('AI가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 합니다. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
+    'The AI read content fewer people can see ({sources}) and now wants to save to {target}, which {n} people can see. Save it?',
+    'AI membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?'),
+  widenSave: t('저장하기', 'Save', 'Simpan'),
+  widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan'),
+  scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi'),
+  scopeRoot: t('팀 폴더 맨 위', 'the top of the team folder', 'bagian atas folder tim'),
   webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}'),
   thinking: t('생각하는 중', 'Thinking', 'Berpikir'),
 } satisfies Record<string, T>

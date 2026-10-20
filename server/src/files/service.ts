@@ -20,6 +20,8 @@ void ENGINE_BUILTIN_ALLOWED
 /** Per-turn memory the server keeps about files (design: "서버가 턴마다 파일별로 마지막 read 때의 해시를 기억"). */
 export class TurnFiles {
   readHashes = new Map<string, string>()
+  /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
+  readPaths = new Set<string>()
   bytesWritten = 0
   filesWritten = new Set<string>()
 }
@@ -111,6 +113,7 @@ export class FileService {
       pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
     })
+    for (const f of res.files) ctx.files.readPaths.add(f)
     return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
 
@@ -121,6 +124,7 @@ export class FileService {
     const { bytes } = readRegular(r.abs)
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext })
     ctx.files.readHashes.set(r.rel, sha256(bytes))
+    ctx.files.readPaths.add(r.rel)
     const lines = text.split(/\r?\n/)
     if (lines.length && lines[lines.length - 1] === '') lines.pop()
     const off = a.offset ?? 1, lim = a.limit ?? 2000
