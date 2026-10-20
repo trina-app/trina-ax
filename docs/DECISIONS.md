@@ -109,3 +109,20 @@
 - **엔진 코어(도구 관문·실행기)는 처음 쓸 때 시작**(`ctx.core()`). 웹·파일 화면만 개발할 때 Go 빌드가 없어도 서버가 뜬다.
 - **Bun.serve `maxRequestBodySize` = 51MB**(작은 업로드 50MB + 여유). 큰 파일은 조각 업로드(8MB)만.
 - **불안정하던 실행기 시험의 원인**: 실행기가 `.turn` 폴더를 `defer`로 지워서 "exit" 이벤트를 보낸 뒤에 지워졌다. exit 전에 지우도록 고쳤다(시험도 고정 대기 대신 이벤트 기준).
+
+## E — 데스크톱 앱 (2026-10-21)
+
+- **브라우저 명령은 웹 화면의 WebSocket으로 받아 preload 다리로 넘긴다.** `browser.call`은 그 턴을 보낸 창(windowId)으로 오고, 그 창의 WebSocket은 웹 화면(D)이 연다. 데스크톱 메인 프로세스가 따로 WebSocket을 열면 같은 windowId가 둘이 되어 4409로 서로 밀어낸다. 그래서 웹 화면은 `shared/src/desktop-bridge.ts`의 `createBrowserRelay`로 `browser.ack` → `window.mycelDesktop.browser.run(call)` → `browser.result`만 하면 된다. 같은 callId는 웹 쪽 relay와 데스크톱 pane 양쪽에서 한 번만 실행한다(재연결 뒤 재전송 대비).
+- **사이트 허용·사내망 확인 창, "AI가 사용 중" 표시는 데스크톱 자체 화면(브라우저 패널 도구 막대)에 둔다.** 웹 화면에 두면 중계·Cloudflare에서 바뀐 화면이 사람 대신 "허용"을 누를 수 있다(5번 탭: 변조된 화면이 보내는 명령은 못 막는다). 명령은 보낼 수 있어도 허용은 사람만 한다. 그래서 브라우저 패널은 데스크톱이 직접 배치하는 오른쪽 분할 영역이다(웹 화면이 자리를 알려 주는 Saram 방식 대신). 웹은 `pane.open/close/toggle/onState`만 쓴다.
+- **"이번만 허용"은 턴 단위(`turnId`)다.** Saram은 채팅 단위로 턴이 끝날 때 지웠는데, 이제 모든 호출에 turnId가 있어 그대로 키로 쓴다. "항상"은 팀마다 `<userData>/teams/<id>/permissions.json`.
+- **사내망(사설·루프백·링크로컬·CGNAT·ULA·멀티캐스트, IPv4 매핑·NAT64·6to4·Teredo 안의 IPv4 포함, `*.local`·`*.localhost`·점 없는 이름 등)은 사이트 허용과 따로 묻는다.** example.com을 공개 사이트로 허용했어도 DNS가 사내 주소를 가리키면 다시 묻는다. 주 프레임 이동(리다이렉트 포함)은 묻고, 하위 요청(fetch·이미지·WebSocket·iframe)은 그 페이지 자체가 허용된 사내 페이지가 아니면 막는다. 사람이 주소창에 직접 친 주소는 묻지 않는다. 남는 위험: Chromium이 연결할 때 DNS를 다시 풀기 때문에 그 사이 답이 바뀌는 재바인딩은 미리 못 막는다 → 문서 응답의 실제 IP(CDP `remoteIPAddress`)가 사내 주소이면 탭을 멈추는 사후 차단만 한다.
+- **비밀번호 입력란 차단은 페이지가 바꿀 수 없는 격리 world에서 확인한다**(`executeJavaScriptInIsolatedWorld`). 클릭 지점·포커스 확인. ref로 가리키는 form_input은 페이지 world의 ref 표를 써야 해서 페이지가 속일 수 있다(그 페이지는 어차피 입력값을 읽을 수 있으므로 같은 등급의 남는 위험). 포커스가 교차 출처 iframe 안이면 하위 프레임을 각각 확인한다. Tab·Enter·Esc·화살표 키는 비밀번호 칸에서도 허용(입력이 아님).
+- **AI가 운전 중일 때 페이지 대화상자(alert/confirm/prompt)는 자동 처리**: alert는 닫고 confirm·prompt는 취소, 내용은 콘솔 기록으로 AI가 읽는다. 대화상자가 열리면 CDP가 멈추기 때문. 사람이 쓸 때는 그대로 사람이 답한다.
+- **아티팩트·미리보기 프레임의 RTCPeerConnection 제거는 CDP `Page.addScriptToEvaluateOnNewDocument` + 자동 연결(OOPIF)로 한다.** 프레임 단위 preload는 nodeIntegrationInSubFrames를 켜야 해서 쓰지 않는다. 최상위 프레임은 건드리지 않는다. 하위 프레임의 http(s) 이동은 팀 출처가 아니면 `will-frame-navigate`에서 막는다(srcdoc·blob·data는 허용).
+- **사무실 직접 연결은 6번 탭 방식(쿠키 옮기기)을 따른다.** 5번 탭은 Bearer 토큰 + `onBeforeSendHeaders`, 6번 탭은 메인 프로세스가 세션 쿠키를 다른 출처에 넣는 방식이라 서로 다르다. 6번 탭 방식은 웹 코드 변경이 없고(토큰을 웹이 보지 않음) 이미지·다운로드·WebSocket이 그대로 쿠키로 인증된다. 쿠키는 팀 전용 partition의 쿠키 저장소(디스크에서 OS 키체인으로 암호화)에만 있어 safeStorage에 따로 두지 않는다. 직접 연결 정보는 `GET /api/connect-info`(중계 경로, 정식 TLS)로 받아 고정하고, LAN 주소마다 1초 안에 지문 고정 health 확인이 되면 직접, 아니면 팀 주소. 시작·창 포커스(30초 간격)·60초마다 다시 확인한다. 지문이 다르면 직접 연결을 멈추고 알림을 띄운 뒤 팀 주소로 돌아간다. Bonjour 탐색은 하지 않고 connect-info의 `lanHosts`를 쓴다(Node에 mDNS가 없어 의존성을 늘리지 않으려고).
+- **"사무실 직접 연결/원격 연결" 표시는 창 제목과 다리(`connection.get/onChange`)로 준다.** 화면 오른쪽 아래에 데스크톱이 겹쳐 그리면 웹 화면의 버튼을 가린다. 웹(D)이 다리 값으로 오른쪽 아래에 보이면 된다.
+- **팀마다 session partition 두 개**: `persist:team-<id>`(팀 화면), `persist:team-<id>-browser`(앱 안 브라우저). 팀 id는 주소가 아니라 무작위 값이라, 팀을 지웠다가 다시 추가하면 새 저장소로 시작한다. 지울 때 두 partition의 저장소·캐시와 허용 목록 파일을 지운다.
+- **팀 주소 입력 규칙**: 점 없는 이름은 `<이름>.treesoop.com`(https), 주소에서 경로는 버리고 출처만 쓴다. http는 `localhost`·`*.localhost`·`127.x`·`[::1]`(개발)만. 추가하기 전에 `/api/health`가 계약 모양인지 확인한다. 이름은 로그인 뒤 `/api/me`의 팀 이름으로 바뀐다.
+- **데스크톱 자체 화면은 `mycel-ui://app/`(표준·보안 스킴, CSP `script-src 'self'`)로 제공**하고 메모리 전용 partition을 쓴다. IPC는 채널마다 보낸 view를 확인한다(환영 화면 채널은 환영 view에서만, 패널 채널은 패널 view에서만, 다리 채널은 팀 화면 최상위 프레임 + 팀 출처에서만).
+- **빌드는 Bun 번들러**(esbuild 의존성 없이). Bun이 Electron의 postinstall을 돌리지 않으므로(신뢰 목록 밖) 데스크톱의 build·test 스크립트가 처음 쓸 때 Electron 바이너리를 받는다. 저장소 전체 `bun install`은 Electron을 내려받지 않는다.
+- **맥 빌드는 서명 없는 arm64 dmg**(`identity: null`). 서명·공증은 owner의 Apple 인증서가 필요하다. 껍데기 자동 업데이트(electron-updater)도 맥에서는 서명된 빌드가 필요해서 이번에는 넣지 않았다. 윈도우는 NSIS x64 설정만(서명 없음, `signAndEditExecutable: false`로 rcedit·wine 불필요).
