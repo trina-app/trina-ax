@@ -319,3 +319,22 @@
 - **빌드는 Bun 번들러**(esbuild 의존성 없이). Bun이 Electron의 postinstall을 돌리지 않으므로(신뢰 목록 밖) 데스크톱의 build·test 스크립트가 처음 쓸 때 Electron 바이너리를 받는다. 저장소 전체 `bun install`은 Electron을 내려받지 않는다.
 - **패키징된 앱은 Electron 퓨즈를 켠다**(`build.electronFuses`): `ELECTRON_RUN_AS_NODE`·`NODE_OPTIONS`·`--inspect` 무시, 쿠키 디스크 암호화, `app.asar`에서만 코드 읽기, file:// 특권 없음. 같은 사용자 권한의 다른 프로그램이 이 앱(마이크 권한을 가진)을 Node로 띄우거나 디버거를 붙이는 길을 막는다. 그래서 패키징 앱 시험은 Playwright 대신 프로세스로 띄우고 가짜 서버로 확인한다. Info.plist에 `NSLocalNetworkUsageDescription`(macOS 15+ 로컬 네트워크 권한, 사무실 직접 연결용)을 넣는다.
 - **맥 빌드는 서명 없는 arm64 dmg**(`identity: null`). 서명·공증은 owner의 Apple 인증서가 필요하다. 껍데기 자동 업데이트(electron-updater)도 맥에서는 서명된 빌드가 필요해서 이번에는 넣지 않았다. 윈도우는 NSIS x64 설정만(서명 없음, `signAndEditExecutable: false`로 rcedit·wine 불필요).
+
+## 통합 (main, 2026-10-21)
+
+컴포넌트 A–G 브랜치를 A → C → B → F → G → D → E 순서로 main에 합쳤다. 합치면서 고친 이음매:
+
+- **턴 도구**: C의 도구(make_file, share_file, artifact, web_fetch)는 C의 레지스트리(`tools/registry.ts`)에만 있었고, B의 채팅 턴은 `ctx.services.turnTools`만 본다. `registerCTools`가 각 C 도구를 `turnTools`에도 넣는다(레지스트리를 거쳐 입력 검사·오류 변환·감사 요약이 같다). 턴 도구 결과에 `summary`를 더해 C의 감사 문구가 `tool_events`에 남는다. 도구 묶음이 없는 stage 1 턴은 MCP 처리기가 레지스트리를 그대로 쓴다.
+- **첨부**: C의 `Attachments`를 `ctx.services.attachments`로 설치했다(전에는 첨부가 있는 메시지가 모두 거절됐다).
+- **files.changed는 C가 주인**: B와 C가 같은 쓰기를 두 번 알렸다. B의 발행은 C가 없을 때만 쓰는 대체 경로다.
+- **disconnectSession**: 인터페이스는 `(sessionId, reason)`(A), B 구현은 `(userId, sessionId)`라 기기 하나 로그아웃이 아무 소켓도 닫지 않았다. 허브가 세션 id로 모든 사람에서 찾는다.
+- **중계 WebSocket**: F의 `attachVirtual`과 B의 `attach`를 B의 `attach` 하나로 합쳤다(위 F 절).
+- **Codex 실행 파일**: 실행기 허용 목록(context.ts)과 채팅 런타임(chat/engines.ts)이 Codex를 다르게 찾아 "is not allowed"로 모든 Codex 턴이 실패했다. `findCodexBin()` 하나로 찾는다. 실패한 엔진 시도는 실행기 종료 정보와 stderr 끝을 로그에 남긴다.
+- **데스크톱 다리**: 웹은 Saram식 `window.mycelDesktop`(pane.setBounds 등)을 썼지만 E는 `shared/src/desktop-bridge.ts`의 `DesktopBridge`(창은 데스크톱이 그림, 사이트 질문도 데스크톱 UI)를 구현했다. 웹이 공유 계약을 쓰도록 바꿨다: 호출은 공유 `createBrowserRelay`로(재연결 뒤 다시 온 호출에 보관한 결과를 다시 보냄), 채팅 머리글의 브라우저 단추는 `pane.toggle()`, 데스크톱 안에서는 로그인·초대·재설정을 `client: 'desktop'`으로 보낸다(B는 desktop 세션의 턴에만 브라우저 도구를 준다).
+- **웹 경로**: C의 공유 링크 `/files/view?path=…`와 A의 재설정 링크 `/reset-password/<token>` 화면을 웹에 더했다.
+- **앱 안 브라우저 UA**: User-Agent에 `MycelBrowser/1`이 있으면 세션 미들웨어가 401(5번 탭 이중 방어, E가 요청).
+- **X-Frame-Options**: CSP `frame-ancestors`로 액자 규칙을 정한 응답(`/sandbox/frame`)에는 DENY를 붙이지 않는다. `'none'`이거나 없으면 그대로 DENY.
+- **시험 하네스**: 가짜 세션 서비스를 실제 모듈 *뒤에* 둔다(`init()`이 순서대로 돌아 A의 실제 서비스가 가짜를 덮었다).
+- **@types/node**: 데스크톱이 Electron용 @types/node 24를 고정해 루트 typecheck가 두 판을 읽었다. 루트에 26.6.5를 고정했다.
+- **개발 실행**: `bun run dev` = 서버(19100, 빌드된 웹 제공, local-login 엔진) + Node 25 중계(`http://demo.localhost:19161`), 데이터 `~/.team-ax-dev`. 개발 중계(`--dev`)는 `RELAY_DEV_NAMES`(기본 demo)를 내장 예약어에서 풀어 준다(운영 중계에는 없음).
+- **Claude Code 2.1.305 고정**: 설치된 CLI가 스스로 올라갔고, 잠금 회귀 시험(실제 호출 1회)이 통과해 고정 버전을 올렸다.
