@@ -6,6 +6,8 @@
 //   @fake {"tool": "read", "args": {...}}    call one of our tools; {"sayResult": true} also says the result,
 //                                            {"sayLength": true} only its length and the start of its last line
 //   @fake {"sleep": 300}                     wait
+//   @fake {"saySplit": "한글"}               one text delta whose stdout line is written in two pieces, cut inside
+//                                            the first multi-byte character (the launcher reads them separately)
 //   @fake {"refuseUnless": "sonnet"}         refuse unless --model contains the word
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
@@ -115,6 +117,19 @@ async function say(text: string) {
   }
 }
 
+async function saySplit(text: string) {
+  if (codex || !text) return say(text)
+  if (!blockOpen) { out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } }); blockOpen = true }
+  answer += text
+  const line = Buffer.from(JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } }) + '\n')
+  // first byte of a multi-byte character, plus one: the cut lands inside that character
+  const first = line.findIndex((b) => b >= 0xc0)
+  const cut = first >= 0 ? first + 1 : line.length >> 1
+  await new Promise<void>((res) => process.stdout.write(line.subarray(0, cut), () => res()))
+  await Bun.sleep(150)
+  await new Promise<void>((res) => process.stdout.write(line.subarray(cut), () => res()))
+}
+
 async function tool(name: string, args: unknown): Promise<string> {
   closeBlock()
   await startBridge()
@@ -160,6 +175,7 @@ for (const d of directives) {
     if (d.sayResult) await say(r)
     if (d.sayLength) await say(`length=${r.length} tail=${r.trimEnd().split('\n').at(-1)?.slice(0, 12)}`)
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
+  else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
   else if (d.crashOnce) {

@@ -11,7 +11,7 @@ import { makeHandler } from './protocol'
 
 export interface McpSocketServer { path: string; secret: string; stop(): void; connections: number; rejected: { reason: string; peer?: Peer }[] }
 
-type S = { buf: string; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; queue: Promise<void>
+type S = { buf: string; dec: TextDecoder; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; queue: Promise<void>
   /** bytes the kernel did not take yet (Bun's socket.write may write only part; the rest goes out on drain) */
   out: Buffer[] }
 
@@ -87,12 +87,14 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
   const server = Bun.listen<S>({
     unix: sockPath,
     socket: {
-      open(sock) { sock.data = { buf: '', stage: 'gate', queue: Promise.resolve(), out: [] }; state.connections++ },
+      open(sock) { sock.data = { buf: '', dec: new TextDecoder('utf-8'), stage: 'gate', queue: Promise.resolve(), out: [] }; state.connections++ },
       drain(sock) { if (sock.data) flush(sock) },
       data(sock, chunk) {
         const s = sock.data
         if (s.stage === 'closed') return
-        s.buf += chunk.toString()
+        // one decoder per connection: a read may end in the middle of a multi-byte character (Korean file names,
+        // file contents in write calls), which a per-chunk toString() would turn into U+FFFD
+        s.buf += s.dec.decode(chunk, { stream: true })
         if (s.buf.length > 64 * 1024 * 1024) return reject(sock, s, 'message too large')
         pump(sock)
       },

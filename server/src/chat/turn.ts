@@ -11,6 +11,7 @@ import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary,
 import { buildClaudeLaunch, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, prepareCodexHome, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser } from '../engine/claude-parse'
+import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
 import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
@@ -242,20 +243,19 @@ export class TurnExec {
     const h = core.launcher.launch(lr)
     this.handle = h
     if (this.stopReason) h.kill()
-    let buf = '', stderr = ''
+    // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
+    const out = new Utf8Lines()
+    const err = new Utf8Text(20000)
     let exit: any = null
     for await (const e of h.events) {
       if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
-      else if (e.ev === 'stdout') {
-        buf += Buffer.from(e.b64, 'base64').toString('utf8')
-        let i
-        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onLine(l) }
-      } else if (e.ev === 'stderr') { if (stderr.length < 20000) stderr += Buffer.from(e.b64, 'base64').toString('utf8') }
+      else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
+      else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') exit = e
     }
-    if (buf.trim()) onLine(buf)
+    for (const l of out.end()) if (l.trim()) onLine(l)
     this.handle = null
-    return { exit, stderr }
+    return { exit, stderr: err.text }
   }
 
   // ---------------- engine events -> answer ----------------
