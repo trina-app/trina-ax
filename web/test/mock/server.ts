@@ -50,6 +50,8 @@ export class MockServer {
   sessions = new Map<string, string>() // token -> user id
   users: User[] = []
   passwords = new Map<string, string>()
+  /** last password reset by an admin, per user id (Me.passwordReset) */
+  resets = new Map<string, NonNullable<Me['passwordReset']>>()
   groups: Group[] = []
   invites: (Invite & { token: string })[] = []
   folders: Folder[] = []
@@ -87,6 +89,7 @@ export class MockServer {
     for (const ws of this.sockets) ws.close(1012, 'reset')
     this.sessions.clear()
     this.passwords.clear()
+    this.resets.clear()
     this.users = []
     this.groups = []
     this.invites = []
@@ -181,6 +184,7 @@ export class MockServer {
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() },
       server: { version: this.serverVersion, dev: true },
+      passwordReset: this.resets.get(u.id) ?? null,
     }
     void sid
   }
@@ -623,7 +627,13 @@ export class MockServer {
       this.users = this.users.filter((u) => u.id !== c.params.id)
       return undefined
     },
-    resetPassword: () => ({ temporaryPassword: 'reset-password-9' }),
+    resetPassword: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      this.passwords.set(u!.username, 'reset-password-9')
+      u!.mustChangePassword = true
+      this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
+      return { temporaryPassword: 'reset-password-9' }
+    },
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
