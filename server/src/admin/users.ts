@@ -140,6 +140,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     ctx.db.query('DELETE FROM group_members WHERE user_id = ?').run(id)
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query('DELETE FROM password_resets WHERE user_id = ?').run(id)
+    ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ?").run(id)
   })()
   authOf(ctx).endUserSessions(id, 'revoked')
   resetEngineSessions(ctx, id)

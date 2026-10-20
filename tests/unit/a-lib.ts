@@ -63,7 +63,7 @@ export async function harness(name: string, over: Partial<AppConfig> = {}): Prom
   auth.now = () => Date.now() + offset
   const h: Harness = {
     ctx, app, auth, hub,
-    fetch(p, init = {}) {
+    async fetch(p, init = {}) {
       const base = init.base ?? 'http://team.localhost'
       return app.fetch(new Request(base + p, init), { ip: init.ip === undefined ? '10.0.0.7' : init.ip, via: init.via ?? 'test' })
     },
@@ -101,13 +101,13 @@ export class Client {
     return res
   }
 
-  async call<T = any>(method: string, p: string, body?: unknown, extra?: Record<string, string>): Promise<T> {
+  async call(method: string, p: string, body?: unknown, extra?: Record<string, string>): Promise<any> {
     const res = await this.raw(method, p, body, extra)
     const text = await res.text()
     const json = text ? JSON.parse(text) : undefined
     if (!res.ok) throw new ApiFail(res.status, json, res.headers)
     if (json && typeof json === 'object' && 'token' in json && typeof json.token === 'string' && json.me) this.token = json.token
-    return json as T
+    return json
   }
 
   /** status + body, never throws */
