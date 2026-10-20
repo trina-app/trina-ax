@@ -222,7 +222,8 @@ export const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set(PANE_TOOLS.map((t
 /** URLs a call would open (navigate / preview_start, and navigate steps inside browser_batch). */
 export function urlsOf(tool: string, args: Record<string, unknown>): string[] {
   const out: string[] = []
-  if ((tool === 'navigate' || tool === 'preview_start') && typeof args.url === 'string' && args.url !== 'back' && args.url !== 'forward') out.push(args.url)
+  // any tool's url (navigate, preview_start, and whatever else the desktop accepts a url for); back/forward are history moves
+  if (typeof args.url === 'string' && !(tool === 'navigate' && (args.url === 'back' || args.url === 'forward'))) out.push(args.url)
   if (tool === 'browser_batch' && Array.isArray(args.actions)) {
     for (const a of args.actions as { name?: unknown; input?: Record<string, unknown> }[]) {
       if (a && typeof a.name === 'string' && a.input && typeof a.input === 'object') out.push(...urlsOf(a.name, a.input))

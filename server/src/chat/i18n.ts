@@ -34,6 +34,7 @@ export const TEXT = {
   yes: t('기억하기', 'Remember', 'Ingat'),
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat'),
   remembered: t('기억함: {text}', 'Remembered: {text}', 'Diingat: {text}'),
+  notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}'),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus'),
   asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}'),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab'),

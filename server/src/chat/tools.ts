@@ -9,7 +9,7 @@ import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, urlsOf } from '../realtime/browser-tools'
-import { hostOf, isPrivateHost } from '../realtime/private-net'
+import { browserUrl, isPrivateHost } from '../realtime/private-net'
 import { MEMORY_ITEM_MAX } from './prompt'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
@@ -95,7 +95,7 @@ function bTools(exec: TurnExec): Tool[] {
             options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
           } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
           if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {
-            exec.patchToolStep('remember', () => ({ detail: tr('notAnswered', L) }))
+            exec.patchToolStep('remember', () => ({ label: tr('notRemembered', L, { text: value }).slice(0, 500), detail: tr('notAnswered', L) }))
             return { ...text('The user did not confirm, so nothing was remembered. Do not try again unless the user asks.'), summary: 'remember -> not confirmed' }
           }
           source = 'user'
@@ -151,7 +151,9 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
     async call(rawArgs) {
       const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
       for (const url of urlsOf(name, args)) {
-        const host = hostOf(url)
+        const u = browserUrl(url)
+        if (!u.ok) return { ...text(`Cannot open ${url.slice(0, 200)}: ${u.reason}.`, true), summary: `${name} -> refused url (${u.reason})` }
+        const host = u.host
         if (!host || !(await isPrivateHost(host))) continue
         if (exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host)) continue
         const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
