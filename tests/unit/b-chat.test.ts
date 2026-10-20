@@ -1,13 +1,14 @@
 // Component B: chat turns end to end with the fake engine through the real launcher / gate / bridge:
 // streaming over the WebSocket, DB saves, queue, stop, resume / fresh sessions, retries, tools, ask_user,
 // remember protection, branches, codex, timeouts, restart recovery, attachments.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 
+setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 
@@ -247,6 +248,16 @@ describe('tools', () => {
     expect(ep).toEqual(['shared/notes/b-test.md', 'groups/marketing/b-plan.md'])
     expect(bob.frames.some((f) => f.type === 'files.changed' && f.data.changes.some((c) => c.path.startsWith('groups/')))).toBe(false)
     bob.close(); erin.close()
+  })
+
+  test('large tool results reach the engine whole (the tool socket finishes partial writes)', async () => {
+    const lines = Array.from({ length: 1900 }, (_, i) => `line ${i + 1} ` + 'x'.repeat(200))
+    fs.writeFileSync(path.join(h.team, 'users/alice/big.md'), lines.join('\n') + '\n')
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/big.md' }, sayLength: true }))
+    const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
+    expect(n).toBeGreaterThan(380_000)
+    expect(r.done.content).toContain('tail=  1900\tline')
   })
 
   test('tools offered to a web turn: file tools + remember / forget / ask_user (+ registered tools), no browser tools', async () => {

@@ -3,7 +3,8 @@
 // It speaks MCP to our tools through the bridge the launcher configured, keeps a session file the way Claude
 // does (so stash / restore / resume can be tested), and follows directives found in the user's message:
 //   @fake {"say": "text"}                    stream text (in small chunks)
-//   @fake {"tool": "read", "args": {...}}    call one of our tools; {"sayResult": true} also says the result
+//   @fake {"tool": "read", "args": {...}}    call one of our tools; {"sayResult": true} also says the result,
+//                                            {"sayLength": true} only its length and the start of its last line
 //   @fake {"sleep": 300}                     wait
 //   @fake {"refuseUnless": "sonnet"}         refuse unless --model contains the word
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
@@ -157,6 +158,7 @@ for (const d of directives) {
   else if (d.tool) {
     const r = await tool(d.tool, d.args ?? {})
     if (d.sayResult) await say(r)
+    if (d.sayLength) await say(`length=${r.length} tail=${r.trimEnd().split('\n').at(-1)?.slice(0, 12)}`)
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })

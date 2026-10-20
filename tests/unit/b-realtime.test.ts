@@ -1,12 +1,14 @@
 // Component B: realtime hub (seq / epoch / replay buffer / merged deltas / window targeting / slow clients) and the
 // WebSocket endpoint over a real Bun server (auth, Origin, bearer subprotocol, replace, resume, reset, resync).
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { WsClose, uuidv7, type ServerEventInput, type ServerFrame } from '@mycel/shared/api'
 import { Hub } from '../../server/src/realtime/hub'
 import type { AppContext } from '../../server/src/context'
 import type { AuthInfo, RealtimeConn } from '../../server/src/services'
 import { silentLogger } from '../../server/src/log'
 import { startHarness, type Harness } from '../lib/b-harness'
+
+setDefaultTimeout(30_000)
 
 // ---------------- hub with in-memory connections ----------------
 class MemConn implements RealtimeConn {

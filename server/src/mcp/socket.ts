@@ -11,7 +11,27 @@ import { makeHandler } from './protocol'
 
 export interface McpSocketServer { path: string; secret: string; stop(): void; connections: number; rejected: { reason: string; peer?: Peer }[] }
 
-type S = { buf: string; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; queue: Promise<void> }
+type S = { buf: string; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; queue: Promise<void>
+  /** bytes the kernel did not take yet (Bun's socket.write may write only part; the rest goes out on drain) */
+  out: Buffer[] }
+
+/** Write everything, in order: what the socket does not take now is kept and flushed on drain. */
+function send(sock: any, data: string) {
+  const s: S = sock.data
+  const b = Buffer.from(data)
+  if (s.out.length) { s.out.push(b); return }
+  const n = sock.write(b)
+  if (n < b.length) s.out.push(b.subarray(Math.max(0, n)))
+}
+function flush(sock: any) {
+  const s: S = sock.data
+  while (s.out.length) {
+    const b = s.out[0]!
+    const n = sock.write(b)
+    if (n < b.length) { s.out[0] = b.subarray(Math.max(0, n)); return }
+    s.out.shift()
+  }
+}
 
 export function startMcpSocket(sockPath: string, files: FileService, db: Database, turns: TurnRegistry): McpSocketServer {
   fs.mkdirSync(path.dirname(sockPath), { recursive: true, mode: 0o700 })
@@ -25,7 +45,7 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
     s.stage = 'closed'
     state.rejected.push({ reason, peer: s.peer })
     connLog.run(s.turn?.id ?? null, s.turn?.userId ?? null, '(connect)', `rejected: ${reason} peer=${JSON.stringify(s.peer ?? null)}`.slice(0, 1000), 0)
-    try { sock.write(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'not authorized: ' + reason } }) + '\n') } catch {}
+    try { send(sock, JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'not authorized: ' + reason } }) + '\n') } catch {}
     try { sock.end() } catch {}
   }
 
@@ -58,7 +78,7 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
         s.queue = s.queue.then(async () => {
           if (turn.revoked) return reject(sock, s, 'turn ended')
           const out = await s.handle!(msg).catch((e) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }))
-          if (out && s.stage === 'mcp') try { sock.write(JSON.stringify(out) + '\n') } catch {}
+          if (out && s.stage === 'mcp') try { send(sock, JSON.stringify(out) + '\n') } catch {}
         })
       }
     }
@@ -67,7 +87,8 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
   const server = Bun.listen<S>({
     unix: sockPath,
     socket: {
-      open(sock) { sock.data = { buf: '', stage: 'gate', queue: Promise.resolve() }; state.connections++ },
+      open(sock) { sock.data = { buf: '', stage: 'gate', queue: Promise.resolve(), out: [] }; state.connections++ },
+      drain(sock) { if (sock.data) flush(sock) },
       data(sock, chunk) {
         const s = sock.data
         if (s.stage === 'closed') return

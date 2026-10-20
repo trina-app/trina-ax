@@ -9,7 +9,7 @@ import { buildApp } from '../../server/src/app'
 import type { AppConfig } from '../../server/src/app-config'
 import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
-import { silentLogger } from '../../server/src/log'
+import { createLogger, silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
 import { startServer } from '../../server/src/server'
 import type { AuthInfo, SessionService } from '../../server/src/services'
@@ -133,7 +133,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   if (o.concurrency) db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('concurrency', ?)").run(JSON.stringify(o.concurrency))
   const bin = fakeEngineBin(path.join(base, 'bin'))
   const ctx = createContext({
-    config: cfg, db, log: silentLogger,
+    config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,
     startCore: (c) => startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [] } }),
   })
   // unix socket paths must stay short (macOS: 104 bytes)
