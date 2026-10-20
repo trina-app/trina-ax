@@ -11,6 +11,9 @@
 // TEAM_AX_DEV_DIR. Flags: --vite, --no-relay, --team <name> (default demo), --rebuild-web, --no-web-build.
 // Output is prefixed per process; Ctrl-C stops everything. A relay that dies is restarted (like its service manager
 // would); any other process ending stops the rest.
+//
+//   bun run dev admin <command>   the account CLI (server/src/auth/cli.ts: status, create-owner, reset-link) on THIS
+//                                 data folder; plain `bun run admin` uses the dev:server folder <repo>/.dev instead
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,6 +30,20 @@ const RELAY_PORT = 19161
 const RELAY_MIN_NODE = 25
 
 const say = (s: string) => console.log(`\x1b[1m[dev]\x1b[0m ${s}`)
+
+/** where `bun run dev` keeps the server's data (the account CLI must look at the same database) */
+const dataEnv = (): Record<string, string> => ({
+  MYCEL_MODE: 'dev',
+  MYCEL_DATA_DIR: process.env.MYCEL_DATA_DIR ?? path.join(DEV_HOME, 'data'),
+  MYCEL_TEAM_ROOT: process.env.MYCEL_TEAM_ROOT ?? path.join(DEV_HOME, 'team'),
+})
+
+if (args[0] === 'admin') {
+  const p = Bun.spawnSync(['bun', path.join(ROOT, 'server', 'src', 'auth', 'cli.ts'), ...args.slice(1)], {
+    cwd: ROOT, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...(process.env as Record<string, string>), ...dataEnv() },
+  })
+  process.exit(p.exitCode ?? 1)
+}
 
 function run(cmd: string[], cwd = ROOT): boolean {
   say(cmd.join(' '))
@@ -83,10 +100,8 @@ fs.mkdirSync(path.join(DEV_HOME, 'relay'), { recursive: true })
 const P = 'MYCEL_'
 const serverEnv: Record<string, string> = {
   ...(process.env as Record<string, string>),
-  [P + 'MODE']: 'dev',
+  ...dataEnv(),
   [P + 'PORT']: String(SERVER_PORT),
-  [P + 'DATA_DIR']: process.env[P + 'DATA_DIR'] ?? path.join(DEV_HOME, 'data'),
-  [P + 'TEAM_ROOT']: process.env[P + 'TEAM_ROOT'] ?? path.join(DEV_HOME, 'team'),
   [P + 'PUBLIC_ORIGINS']: process.env[P + 'PUBLIC_ORIGINS'] ?? [`http://localhost:${SERVER_PORT}`, `http://127.0.0.1:${SERVER_PORT}`, `http://${TEAM}.localhost:${RELAY_PORT}`].join(','),
   [P + 'RELAY_URL']: relay ? `ws://127.0.0.1:${RELAY_PORT}/connect` : '',
   [P + 'RELAY_TEAM']: TEAM,

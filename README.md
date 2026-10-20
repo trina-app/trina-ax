@@ -33,6 +33,8 @@ bun run dev
 
 Data lives in `~/.team-ax-dev` (team folder, database, relay registry); delete it to start over. On the first start
 the server log prints a setup link (`/setup?token=…`) that creates the team and its owner.
+`bun run dev admin status | reset-link [--username U]` runs the account CLI on that data (a one-time password reset
+link for a forgotten owner password); plain `bun run admin` works on `<repo>/.dev`, the folder of `bun run dev:server`.
 
 ## Build and test
 
