@@ -8,9 +8,10 @@ import type { AppContext } from '../context'
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
-/** Request path for logs: one-time secrets in the path (invite and password reset links) are replaced by "***". */
+/** Request path for logs: one-time secrets in the path (invite and password reset links: the API and the web pages
+ * /invite/<token>, /reset-password/<token> that the links open) are replaced by "***". */
 export function loggablePath(p: string): string {
-  return p.replace(/^(\/api\/(?:invites|password-resets)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password)\/)[^/]+/, '$1***')
 }
 
 /**
