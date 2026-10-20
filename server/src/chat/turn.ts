@@ -18,7 +18,7 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
-import { buildTurnPrompt } from './prompt'
+import { buildTurnContext, buildTurnPrompt, type PromptInput } from './prompt'
 import { safeModel } from './engines'
 import { engineError, stepLabel, tr } from './i18n'
 import type { ChatRuntime } from './runtime'
@@ -156,12 +156,15 @@ export class TurnExec {
     if (rt.projectTaints(project, spec.userId)) this.taint()
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
 
-    const prompt = (fresh: boolean) => buildTurnPrompt(rt.files, {
+    const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       history: fresh ? rt.history(userMsg.parent_id) : null,
     })
+    const prompt = (fresh: boolean) => buildTurnPrompt(rt.files, promptInput(fresh))
     const message = composeMessage(userMsg)
+    // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message
+    const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, spec.model, spec.turnId)
     this.registered = true
     turn.files = this.files
@@ -177,7 +180,7 @@ export class TurnExec {
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
         const lr = buildClaudeLaunch({
-          turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message, sessionId: sid, resume,
+          turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools,
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
