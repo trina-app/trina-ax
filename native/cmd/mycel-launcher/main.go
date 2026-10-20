@@ -252,6 +252,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if st, err := os.Lstat(chat); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("bad chat folder")
 	}
+	_ = os.MkdirAll(filepath.Join(chat, ".tmp"), 0o700) // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
 	turn := filepath.Join(chat, ".turn")
 	_ = os.RemoveAll(turn)
 	if err := os.Mkdir(turn, 0o700); err != nil {

@@ -72,10 +72,8 @@ export function codexArgs(conf: CodexConf): string[] {
 }
 
 export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number }, conf: CodexConf): LaunchRequest {
-  fs.mkdirSync(i.chatDir, { recursive: true, mode: 0o700 })
   fs.mkdirSync(conf.agentHome, { recursive: true, mode: 0o700 })
-  const tmp = path.join(i.chatDir, '.tmp')
-  fs.mkdirSync(tmp, { recursive: true, mode: 0o700 })
+  const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   // codex has no system-prompt file option that keeps its tool instructions; the instructions travel on stdin
   // (never argv/env) ahead of the user's message.
   const stdin = `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`

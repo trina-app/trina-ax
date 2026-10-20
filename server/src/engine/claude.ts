@@ -28,7 +28,11 @@ export interface ClaudeConf {
 }
 
 /** Claude names its project folder after the cwd with every non-alphanumeric character replaced by '-' */
-export const projectSlug = (dir: string) => fs.realpathSync(dir).replace(/[^a-zA-Z0-9]/g, '-')
+export const projectSlug = (dir: string) => {
+  let parent = path.dirname(dir)
+  try { parent = fs.realpathSync(parent) } catch {}
+  return path.join(parent, path.basename(dir)).replace(/[^a-zA-Z0-9]/g, '-')
+}
 
 export function sessionLocation(conf: ClaudeConf, chatDir: string) {
   if (conf.authMode === 'local-login') {
@@ -43,9 +47,8 @@ export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
 }, conf: ClaudeConf): LaunchRequest {
-  fs.mkdirSync(i.chatDir, { recursive: true, mode: 0o700 })
   const args = [
-    '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events',
     '--tools', ENGINE_BUILTIN_ALLOWED.join(','),
     '--allowedTools', CLAUDE_ALLOWED_TOOLS.join(','),
     '--strict-mcp-config', '--mcp-config', '{MCP_CONFIG}',
@@ -60,8 +63,7 @@ export function buildClaudeLaunch(i: {
   ]
   // temp files stay in the chat folder: with only TMPDIR, Claude Code still creates /tmp/claude-<uid> and
   // /tmp/cc-socks-<uid>, so CLAUDE_CODE_TMPDIR is set too (macOS spike 2026-10-21)
-  const tmp = path.join(i.chatDir, '.tmp')
-  fs.mkdirSync(tmp, { recursive: true, mode: 0o700 })
+  const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV }
   if (conf.authMode === 'local-login') {
     // dev/test: the CLI's own login. Its macOS keychain entry is tied to the default config dir and the

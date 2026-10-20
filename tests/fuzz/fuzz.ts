@@ -6,8 +6,8 @@ import { startServer } from '../../server/src/server'
 import { fakeTurn } from '../lib/run-turn'
 import { buildCases, judge, scanForPwn } from './cases'
 
-export async function runFuzz(mode: 'inproc' | 'socket', name = 'fuzz-' + mode) {
-  const env = makeEnv(name)
+export async function runFuzz(mode: 'inproc' | 'socket', name = 'fuzz-' + mode, o: { cfg?: any; start?: any; engineCmd?: string } = {}) {
+  const env = makeEnv(name, o.cfg)
   const cases = buildCases(env.fx.base, env.fx.team, env.fx.caseSensitive)
   const fails: { label: string; why: string; text: string }[] = []
   if (mode === 'inproc') {
@@ -19,7 +19,7 @@ export async function runFuzz(mode: 'inproc' | 'socket', name = 'fuzz-' + mode) 
     env.db.close()
   } else {
     env.db.close()
-    const srv = await startServer(env.cfg, { launcher: { allowCmds: [process.execPath] } })
+    const srv = await startServer(env.cfg, o.start ?? { launcher: { allowCmds: [process.execPath] } })
     const r = await fakeTurn(srv, 'alice', { calls: cases.map((c) => ({ tool: c.tool, args: c.args })) })
     if (r.results.length !== cases.length) fails.push({ label: 'socket run', why: `only ${r.results.length}/${cases.length} results`, text: r.stderr.slice(0, 500) })
     r.results.forEach((res: any, i: number) => { const why = judge(cases[i], res.text, res.isError); if (why) fails.push({ label: cases[i].label, why, text: res.text.slice(0, 200) }) })

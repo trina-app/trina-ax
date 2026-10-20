@@ -4,7 +4,7 @@ import { defaultConfig, type ServerConfig } from '../../server/src/config'
 import { FileService, TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { makeFixture, seed, type Fixture } from './fixtures'
 
-export const WORK = path.resolve(import.meta.dir, '..', '.work')
+export const WORK = process.env.MYCEL_WORK ?? path.resolve(import.meta.dir, '..', '.work')
 
 export function makeEnv(name: string, over: Partial<ServerConfig> = {}) {
   const fx: Fixture = makeFixture(path.join(WORK, name))

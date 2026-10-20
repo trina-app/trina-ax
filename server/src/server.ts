@@ -33,7 +33,7 @@ export function proxyPeerCheck(srv: Running) {
   }
 }
 
-export async function startServer(cfg: ServerConfig, o: { launcher?: { allowCmds: string[]; sessionRoots?: string[] }; toolsSockMode?: string } = {}): Promise<Running> {
+export async function startServer(cfg: ServerConfig, o: { launcher?: { allowCmds: string[]; sessionRoots?: string[] }; externalLauncher?: string; toolsSockMode?: string } = {}): Promise<Running> {
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   fs.mkdirSync(cfg.runDir, { recursive: true, mode: 0o755 })
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
@@ -44,7 +44,7 @@ export async function startServer(cfg: ServerConfig, o: { launcher?: { allowCmds
   const procs: Subprocess<any, any, any>[] = []
   procs.push(await startGate(cfg.nativeBin, toolsSock, mcp.path, mcp.secret, o.toolsSockMode ?? '0600'))
   const launcherSock = path.join(cfg.runDir, 'private', 'launcher.sock')
-  let launcher: Launcher | null = null
+  let launcher: Launcher | null = o.externalLauncher ? new SocketLauncher(o.externalLauncher) : null
   if (o.launcher) {
     procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots }))
     launcher = new SocketLauncher(launcherSock)

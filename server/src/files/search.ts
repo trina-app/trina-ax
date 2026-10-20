@@ -200,7 +200,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const mainArgs = [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), '--glob', '!' + OFFICE_GLOB, ...excludeArgs(excludes), '-e', o.pattern, '--', ...roots.filter((r) => !isOffice(r))]
   const id = (p: string) => { const r = strip(p); return { shown: r, real: r } }
   const r1 = await runRg(d.rg, mainArgs, d.fx.root, recSep, handler(id), d.timeoutMs)
-  if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').slice(-3).join(' '))
+  if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
   if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats }
 
   // office documents: the same ripgrep over the extracted-text cache, paths mapped back to the originals
