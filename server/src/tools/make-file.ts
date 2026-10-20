@@ -25,13 +25,17 @@ import { which } from '../config'
 import { publishChanges } from '../team-files/changes'
 import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
-import { isolation, makeWorkDir, runIsolated } from './isolate'
+import { makeWorkDir, runIsolated } from './isolate'
 
 type Input = z.output<typeof MakeFileInput>
 export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string }
 
 const MAX_SOURCE = 10 * 1024 * 1024
 const MAX_IMAGE = 20 * 1024 * 1024
+const MAX_IMAGES = 200
+const MAX_IMAGES_BYTES = 100 * 1024 * 1024
+/** pandoc's JSON tree of a 10 MB Markdown file stays well below this */
+const MAX_AST = 200 * 1024 * 1024
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff'])
 export const PDF_FONTS = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic', 'Helvetica Neue', 'Arial', 'Libertinus Serif']
 
@@ -60,7 +64,7 @@ export class MakeFile {
     } else {
       text = a.content!
       if (Buffer.byteLength(text) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
-      kind = a.format === 'xlsx' && !/^\s*\|.*\|\s*$/m.test(text) ? (text.includes('\t') && !text.includes(',') ? 'tsv' : 'csv') : 'markdown'
+      kind = a.format === 'xlsx' && !hasPipeRow(text) ? (text.includes('\t') && !text.includes(',') ? 'tsv' : 'csv') : 'markdown'
     }
     // ---- output path (extension follows the format)
     let outRel = a.output.replace(/\/+$/, '')
@@ -74,63 +78,95 @@ export class MakeFile {
       if (a.format === 'xlsx') await this.xlsx(text, kind, produced)
       else {
         if (!this.conv.pandoc) throw new ToolError('pandoc is not installed on the server; ask the owner to run `brew install pandoc`')
+        let input: string
+        let from: 'json' | 'csv'
         let images = 0
-        if (kind === 'markdown') ({ md: text, images } = this.copyImages(c, text, baseDir, work))
-        // pandoc --sandbox reads nothing but the input, so it cannot embed images. With images we rely on the OS
-        // sandbox instead (the work folder is all it can read and holds only checked copies). No OS sandbox: no images.
-        const pandocSandbox = images === 0 || isolation() === 'none' ? ['--sandbox'] : []
-        if (images && pandocSandbox.length) throw new ToolError('images cannot be embedded on this server (no converter sandbox available); remove the images')
-        const input = path.join(work, kind === 'markdown' ? 'in.md' : `in.${kind}`)
-        fs.writeFileSync(input, kind === 'tsv' ? tsvToCsv(text) : text)
-        const from = kind === 'markdown' ? 'markdown' : 'csv'
-        if (a.format === 'pdf') await this.pdf(work, path.basename(input), from)
+        if (kind === 'markdown') {
+          if (/<(img|image|object|embed|iframe|video|audio|source|picture)\b/i.test(text)) throw new ToolError('HTML image tags are not supported; use Markdown images ![alt](path) with team-folder paths')
+          // Markdown -> pandoc's document tree first (pandoc --sandbox reads nothing but in.md). Every image of the
+          // document, whatever syntax it was written in (inline, reference, <angle brackets>, attributes), is an
+          // Image node there: each one is checked and pointed at a checked copy in the work folder, so the second
+          // pandoc run can only read those copies.
+          fs.writeFileSync(path.join(work, 'in.md'), text)
+          const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', 'markdown', '-t', 'json', '-o', 'ast.json', 'in.md'], workDir: work, timeoutMs: 120_000 })
+          if (j.code !== 0) throw new ToolError(convertError('pandoc', j.stderr, j.killed, work))
+          const astFile = path.join(work, 'ast.json')
+          if (fs.statSync(astFile).size > MAX_AST) throw new ToolError('the document is too large to convert')
+          const ast = JSON.parse(fs.readFileSync(astFile, 'utf8'))
+          images = this.copyImages(c, ast, baseDir, work)
+          fs.writeFileSync(astFile, JSON.stringify(ast))
+          input = 'ast.json'
+          from = 'json'
+        } else {
+          input = `in.${kind}`
+          fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
+          from = 'csv'
+        }
+        if (a.format === 'pdf') await this.pdf(work, input, from)
         else {
-          const args = [...pandocSandbox, '--fail-if-warnings', '--resource-path=.', '-f', from, '-t', a.format, '-o', path.basename(produced), path.basename(input)]
+          // without images pandoc reads only the files on its command line (--sandbox); with images it must read
+          // the copies, which are the only image paths left in the tree (and the OS sandbox, when there is one,
+          // keeps it inside the work folder anyway)
+          const args = [...(images === 0 ? ['--sandbox'] : []), '--fail-if-warnings', '--resource-path=.', '-f', from, '-t', a.format, '-o', path.basename(produced), input]
           if (a.template) args.push('--reference-doc', this.template(c, a.template, a.format, work))
           const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
-          if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed))
+          if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
-      return await this.place(c, out.segs, produced, out.exists)
+      return await this.place(c, out.segs, produced)
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
   /**
    * Images: only files in the team folder the person may read, by relative path (to the source file, or to the
-   * team root), are copied into the work folder; the Markdown then points at the copies. Anything else (web
-   * addresses, absolute paths, hidden or missing files, images in raw HTML) stops the conversion with a message.
+   * team root), are copied into the work folder; the Image nodes of the document tree then point at the copies.
+   * Anything else (web addresses, data: URLs, absolute paths, hidden or missing files) stops the conversion.
    */
-  private copyImages(c: ToolCtx, md: string, baseDir: string[], work: string): { md: string; images: number } {
+  private copyImages(c: ToolCtx, ast: unknown, baseDir: string[], work: string): number {
     let n = 0
+    let bytes = 0
     const fx = this.files.fx
     const rules = this.files.rules()
-    if (/<img\b|<image\b|<object\b|<embed\b|<iframe\b/i.test(md)) throw new ToolError('HTML image tags are not supported; use Markdown images ![alt](path) with team-folder paths')
     const bad = (target: string, why: string): never => { throw new ToolError(`image '${target.slice(0, 200)}': ${why}. Images must be files in the team folder you can read, given by a relative path (no web addresses or absolute paths).`) }
-    const out = md.replace(/(!\[[^\]]*\]\()\s*<?([^)\s>]+)>?((?:\s+"[^"]*")?\s*\))/g, (_whole, pre: string, target: string, post: string) => {
+    const local = (target: string): string => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//')) bad(target, 'web addresses are not fetched')
       if (target.startsWith('/') || target.startsWith('~') || target.startsWith('\\')) bad(target, 'absolute paths are not allowed')
-      const x = ext(target)
-      if (!IMAGE_EXT.has(x)) bad(target, 'not an image file')
       let decoded = target
       try { decoded = decodeURIComponent(target) } catch { /* keep */ }
+      const x = ext(decoded)
+      if (!IMAGE_EXT.has(x)) bad(target, 'not an image file')
+      if (++n > MAX_IMAGES) bad(target, `more than ${MAX_IMAGES} images`)
       const candidates = [path.posix.normalize([...baseDir, decoded].join('/')), path.posix.normalize(decoded)]
       for (const rel of candidates) {
         if (rel.startsWith('..')) continue
+        let abs: string, size: number
         try {
           const r = authorize(fx, rules, c.user, rel, 'read')
-          const st = checkRegular(r.abs)
-          if (st.size > MAX_IMAGE) bad(target, 'larger than 20 MB')
-          const local = `img-${++n}.${x}`
-          fs.copyFileSync(r.abs, path.join(work, local))
-          return `${pre}${local}${post}`
-        } catch (e) { if (e instanceof ToolError && e.message.startsWith('image ')) throw e }
+          abs = r.abs
+          size = checkRegular(abs).size
+        } catch { continue }
+        if (size > MAX_IMAGE) bad(target, 'larger than 20 MB')
+        if ((bytes += size) > MAX_IMAGES_BYTES) bad(target, 'the images together are larger than 100 MB')
+        const name = `img-${n}.${x}`
+        fs.copyFileSync(abs, path.join(work, name))
+        return name
       }
       return bad(target, 'not found or no access')
-    })
-    // reference-style images ![x][ref] with [ref]: target
-    if (/^\s*\[[^\]]+\]:\s*\S+\.(png|jpe?g|gif|webp|svg|bmp|tiff?)\b/im.test(out)) throw new ToolError('reference-style images are not supported; write ![alt](path) inline')
-    return { md: out, images: n }
+    }
+    // iterative walk (a deeply nested document must not overflow the stack)
+    const stack: unknown[] = [ast]
+    while (stack.length) {
+      const v = stack.pop()
+      if (Array.isArray(v)) { for (const x of v) if (x && typeof x === 'object') stack.push(x); continue }
+      if (!v || typeof v !== 'object') continue
+      const node = v as { t?: unknown; c?: unknown }
+      if (node.t === 'Image' && Array.isArray(node.c) && Array.isArray(node.c[2]) && typeof node.c[2][0] === 'string') {
+        node.c[2][0] = local(node.c[2][0])
+      }
+      for (const x of Object.values(node)) if (x && typeof x === 'object') stack.push(x)
+    }
+    return n
   }
 
   private template(c: ToolCtx, tpl: string, format: string, work: string): string {
@@ -144,10 +180,10 @@ export class MakeFile {
     return local
   }
 
-  private async pdf(work: string, input: string, from: string) {
+  private async pdf(work: string, input: string, from: 'json' | 'csv') {
     if (!this.conv.typst) throw new ToolError('typst is not installed on the server; ask the owner to run `brew install typst`')
     const t = await runIsolated({ cmd: this.conv.pandoc!, args: ['--sandbox', '--fail-if-warnings', '-f', from, '-t', 'typst', '-o', 'body.typ', input], workDir: work, timeoutMs: 120_000 })
-    if (t.code !== 0) throw new ToolError(convertError('pandoc', t.stderr, t.killed))
+    if (t.code !== 0) throw new ToolError(convertError('pandoc', t.stderr, t.killed, work))
     const pre = [
       `#set page(paper: "a4", margin: (x: 2cm, y: 2.2cm), numbering: "1")`,
       `#set text(font: (${PDF_FONTS.map((f) => JSON.stringify(f)).join(', ')}), size: 10.5pt, lang: "ko")`,
@@ -160,7 +196,7 @@ export class MakeFile {
     ].join('\n')
     fs.writeFileSync(path.join(work, 'doc.typ'), pre + fs.readFileSync(path.join(work, 'body.typ'), 'utf8'))
     const r = await runIsolated({ cmd: this.conv.typst, args: ['compile', '--root', work, 'doc.typ', 'out.pdf'], workDir: work, timeoutMs: 120_000 })
-    if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed))
+    if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
   private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string) {
@@ -194,17 +230,21 @@ export class MakeFile {
   }
 
   /** Put the produced file into the team folder (policy checked again) and record it. */
-  private async place(c: ToolCtx, segs: string[], produced: string, existed: boolean): Promise<MadeFile> {
+  private async place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {
     const cfg = this.ctx.engineConfig
     const size = fs.statSync(produced).size
     if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
     const fx = this.files.fx
     const rules = this.files.rules()
-    let target = segs
     let conflictOf: string | undefined
     let action: 'create' | 'update' = 'create'
-    const rel0 = segs.join('/')
-    if (existed) {
+    // looked at again now, not before the conversion: someone may have saved a file there in the meantime
+    const now = authorize(fx, rules, c.user, segs.join('/'), 'write', { mustExist: false, createDirs: true })
+    if (now.exists && now.st!.isDirectory()) throw new ToolError(`'${now.rel}' is a folder`)
+    segs = now.segs
+    let target = segs
+    const rel0 = now.rel
+    if (now.exists) {
       const abs = path.join(fx.root, ...segs)
       checkRegular(abs)
       const cur = await hashFile(abs)
@@ -238,9 +278,10 @@ export class MakeFile {
   }
 }
 
-function convertError(tool: string, stderr: string, killed: string | null): string {
+function convertError(tool: string, stderr: string, killed: string | null, work: string): string {
   if (killed === 'timeout') return `${tool} took too long`
-  const s = stderr.replace(/\/[^\s"']*\/(mycel-conv-[^/\s]+)\//g, '').trim()
+  // the server's own folders stay out of the message (plain string replace: stderr echoes the document)
+  const s = stderr.slice(0, 16 * 1024).split(work + '/').join('').split(work).join('.').trim()
   if (/Could not fetch resource|PandocResourceNotFound|file not found|failed to load file|access denied/i.test(s))
     return `an image or file the document refers to is not available. Images must be files in the team folder you can read, given by a relative path (no web addresses or absolute paths). (${tool}: ${s.split('\n').slice(0, 3).join(' ').slice(0, 300)})`
   return `${tool} could not convert the document: ${s.split('\n').slice(0, 4).join(' ').slice(0, 400) || 'unknown error'}`
@@ -269,6 +310,12 @@ export function parseCsv(s: string, sep = ','): string[][] {
 }
 const tsvToCsv = (s: string) => parseCsv(s, '\t').map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(',')).join('\n') + '\n'
 
+// Line patterns of pipe tables. Only [ \t] (never \s, which spans lines) and no two adjacent quantifiers over the
+// same characters, so a 10 MB line of spaces or newlines is matched in linear time.
+const PIPE_ROW = /^[ \t]*\|.*\|[ \t]*$/
+const PIPE_SEP = /^\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?$/
+const hasPipeRow = (s: string) => /^[ \t]*\|.*\|[ \t]*$/m.test(s)
+
 /** Markdown pipe tables, each with the nearest heading above it as its title. */
 export function markdownTables(md: string): { title?: string; rows: string[][] }[] {
   const lines = md.split(/\r?\n/)
@@ -278,10 +325,10 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
   for (let i = 0; i < lines.length; i++) {
     const h = /^#{1,6}\s+(.*)$/.exec(lines[i]!)
     if (h) { heading = h[1]!.trim(); continue }
-    if (/^\s*\|.*\|\s*$/.test(lines[i]!) && i + 1 < lines.length && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1]!)) {
+    if (PIPE_ROW.test(lines[i]!) && i + 1 < lines.length && PIPE_SEP.test(lines[i + 1]!.trim())) {
       const rows = [cells(lines[i]!)]
       let j = i + 2
-      while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j]!)) rows.push(cells(lines[j++]!))
+      while (j < lines.length && PIPE_ROW.test(lines[j]!)) rows.push(cells(lines[j++]!))
       out.push({ title: heading, rows: rows.map((r) => r.map((c) => c.replace(/\*\*(.*?)\*\*/g, '$1').replace(/`([^`]*)`/g, '$1'))) })
       heading = undefined
       i = j - 1
