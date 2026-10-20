@@ -1,5 +1,6 @@
 // Vite: dev server on 19140 (component D's port range) proxying /api (REST + WebSocket) to the team server's dev
-// port 19100; production build to web/dist, which the team server serves (server/src/routes/web.ts).
+// port 19100 (and /vendor, /sandbox: the artifact frames' libraries and receiver document; the Host header is kept so
+// the receiver's CSP names this dev origin); production build to web/dist, which the team server serves (server/src/routes/web.ts).
 // Artifact libraries (React, recharts, lucide, mermaid, Tailwind) are bundled separately into dist/vendor by
 // scripts/build-vendor.ts and served from /vendor/ (artifact frames may not load anything from public CDNs).
 import tailwindcss from '@tailwindcss/vite'
@@ -18,7 +19,7 @@ export default defineConfig({
   server: {
     port: 19140,
     strictPort: true,
-    proxy: { '/api': { target: API_TARGET, ws: true, changeOrigin: false }, '/vendor': { target: API_TARGET } },
+    proxy: { '/api': { target: API_TARGET, ws: true, changeOrigin: false }, '/vendor': { target: API_TARGET }, '/sandbox': { target: API_TARGET, changeOrigin: false } },
   },
   preview: { port: 19141, strictPort: true },
   build: {

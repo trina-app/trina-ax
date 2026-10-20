@@ -229,6 +229,7 @@ export const ko = {
   'preview.unsupported': '이 형식은 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.truncated': '파일 앞부분만 보여요.',
   'preview.cantOpen': '{what}을(를) 열 수 없어요: {error}',
+  'preview.openLink': '이 주소를 새 창에서 열까요?\n\n{url}',
   'preview.kind.docx': 'Word 문서',
   'preview.kind.pptx': '프레젠테이션',
   'preview.kind.sheet': '스프레드시트',

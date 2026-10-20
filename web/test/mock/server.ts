@@ -266,6 +266,8 @@ export class MockServer {
         ? 'import { useState } from "react"\nimport { Plus } from "lucide-react"\nexport default function App() {\n  const [n, setN] = useState(0)\n  return <button className="rounded bg-emerald-600 px-3 py-2 text-white" onClick={() => setN(n + 1)}><Plus size={14} /> count {n}</button>\n}\n'
         : /broken/i.test(prompt)
           ? '<h1>Broken</h1><script>throw new Error("boom")</script>'
+          : /wander/i.test(prompt)
+            ? `<h1>Wanderer</h1><script>setTimeout(function () { location.href = ${JSON.stringify(/home/i.test(prompt) ? "/" : "https://example.com/")} }, 1500)</script>`
           : '<h1 id="t">Hello artifact</h1><script>document.getElementById("t").textContent += " (ran)"; fetch("https://example.com/x").catch(()=>{})</script>'
       const type = react ? ('react' as const) : ('html' as const)
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key, type, title: react ? 'Counter' : 'Hello page', status: 'writing', content: content.slice(0, 20), artifact: null } })
@@ -739,7 +741,7 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return serveWeb(req, { dist, downloads: null, dev: false, devPort: 0 }) ?? new Response('no', { status: 404 })
+    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, downloads: null, dev: false, devPort: 0 }) ?? new Response('no', { status: 404 }))
     this.log.push(`${req.method} ${p}`)
     const route = this.routes.find((r) => r.ep.method === req.method && r.re.test(p))
     try {
@@ -858,6 +860,36 @@ function defaultSettings(): TeamSettings {
   return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7 }
 }
 
+/** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */
+function pageHeaders(res: Response): Response {
+  const h = new Headers(res.headers)
+  h.set('X-Content-Type-Options', 'nosniff')
+  h.set('Referrer-Policy', 'same-origin')
+  h.set('X-Frame-Options', 'DENY')
+  h.set('Cross-Origin-Opener-Policy', 'same-origin')
+  return new Response(res.body, { status: res.status, headers: h })
+}
+
+/** pandoc's docx with an altChunk (an HTML part docx-preview would draw in an unsandboxed srcdoc iframe). */
+function withAltChunk(docx: string): boolean {
+  const dir = `${docx}.d`
+  try {
+    fs.rmSync(dir, { recursive: true, force: true })
+    if (Bun.spawnSync(['unzip', '-q', docx, '-d', dir]).exitCode !== 0) return false
+    fs.writeFileSync(`${dir}/word/chunk.html`, '<html><body><p>alt chunk</p><script>top.document.title = "pwned-altchunk"</script><img src="x" onerror="top.document.title = \'pwned-altchunk\'"></body></html>')
+    const doc = `${dir}/word/document.xml`
+    fs.writeFileSync(doc, fs.readFileSync(doc, 'utf8').replace('</w:body>', '<w:altChunk r:id="rIdAlt1"/></w:body>').replace(/(<w:sectPr[\s\S]*?<\/w:sectPr>)(<w:altChunk r:id="rIdAlt1"\/>)/, '$2$1'))
+    const rels = `${dir}/word/_rels/document.xml.rels`
+    fs.writeFileSync(rels, fs.readFileSync(rels, 'utf8').replace('</Relationships>', '<Relationship Id="rIdAlt1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="chunk.html"/></Relationships>'))
+    const types = `${dir}/[Content_Types].xml`
+    fs.writeFileSync(types, fs.readFileSync(types, 'utf8').replace('</Types>', '<Override PartName="/word/chunk.html" ContentType="text/html"/></Types>'))
+    fs.rmSync(docx)
+    return Bun.spawnSync(['zip', '-q', '-r', '-X', docx, '.'], { cwd: dir }).exitCode === 0
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 let office: [string, Uint8Array][] | null = null
 /** PDF / xlsx / docx / pptx samples for the preview tests (docx and pptx need pandoc; skipped without it). */
 function officeFixtures(): [string, Uint8Array][] {
@@ -866,11 +898,23 @@ function officeFixtures(): [string, Uint8Array][] {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['month', 'spend'], ['July', 1200], ['August', 900]]), 'Q3 spend')
   out.push(['docs/spend.xlsx', new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)])
-  for (const [name, to, md] of [['brand.docx', 'docx', '# Brand guidelines\n\nPrimary color: mint.\n'], ['kickoff.pptx', 'pptx', '# Q4 kickoff\n\n- Launch in November\n']] as const) {
+  // a sheet whose cells link to javascript: and to a web page
+  const links = XLSX.utils.aoa_to_sheet([['evil cell', 'web cell']])
+  links.A1!.l = { Target: 'javascript:top.document.title="pwned-xlsx"' }
+  links.B1!.l = { Target: 'https://example.com/sheet' }
+  const wb2 = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb2, links, 'links')
+  out.push(['docs/links.xlsx', new Uint8Array(XLSX.write(wb2, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)])
+  const docs = [
+    ['brand.docx', 'docx', '# Brand guidelines\n\nPrimary color: mint.\n'],
+    ['kickoff.pptx', 'pptx', '# Q4 kickoff\n\n- Launch in November\n'],
+    ['links.docx', 'docx', '# Links\n\n[evil link](javascript:top.document.title="pwned-docx") and [web link](https://example.com/doc) and [app link](/admin/members)\n'],
+  ] as const
+  for (const [name, to, md] of docs) {
     try {
       const tmp = `${process.env.TMPDIR ?? '/tmp'}/mycel-mock-${process.pid}-${name}`
       const p = Bun.spawnSync(['pandoc', '-f', 'markdown', '-t', to, '-o', tmp], { stdin: enc.encode(md) })
-      if (p.exitCode === 0) {
+      if (p.exitCode === 0 && (name !== 'links.docx' || withAltChunk(tmp))) {
         out.push([`docs/${name}`, new Uint8Array(fs.readFileSync(tmp))])
         fs.rmSync(tmp, { force: true })
       }

@@ -231,6 +231,7 @@ export const en: Record<MessageKey, string> = {
   'preview.unsupported': "This format can't be previewed. Download it to open it.",
   'preview.truncated': 'Only the beginning of the file is shown.',
   'preview.cantOpen': "Can't open the {what}: {error}",
+  'preview.openLink': 'Open this address in a new window?\n\n{url}',
   'preview.kind.docx': 'Word document',
   'preview.kind.pptx': 'presentation',
   'preview.kind.sheet': 'spreadsheet',

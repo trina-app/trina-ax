@@ -231,6 +231,7 @@ export const id: Record<MessageKey, string> = {
   'preview.unsupported': 'Format ini tidak bisa dipratinjau. Unduh untuk membukanya.',
   'preview.truncated': 'Hanya bagian awal file yang ditampilkan.',
   'preview.cantOpen': 'Tidak bisa membuka {what}: {error}',
+  'preview.openLink': 'Buka alamat ini di jendela baru?\n\n{url}',
   'preview.kind.docx': 'dokumen Word',
   'preview.kind.pptx': 'presentasi',
   'preview.kind.sheet': 'spreadsheet',

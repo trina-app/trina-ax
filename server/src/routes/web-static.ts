@@ -6,34 +6,111 @@ import { PRODUCT } from '@mycel/shared'
 
 export const WEB_DEV_URL = 'http://localhost:19140'
 
+const HOST_RE = /^[A-Za-z0-9.\-:[\]]+$/
+/** The request's Host when it is a plain host[:port] (never a header value that could add directives). */
+export const cleanHost = (host: string | null | undefined): string | null => (host && HOST_RE.test(host) ? host : null)
+
 /**
- * CSP of the app shell (tab 5). Artifact and HTML-preview frames are srcdoc documents, which inherit this policy on
- * top of their own (artifactCsp in web/src/lib/artifacts.ts), so script-src keeps 'unsafe-inline' and data: (React
- * artifacts run as data: modules) — the frame's own CSP is the strict one. frame-src limits where a frame may
- * navigate (no external pages inside the app); connect-src only this server (REST + WebSocket); img-src keeps
- * external images out of answers.
+ * CSP of the app shell (tab 5 "부모 앱 CSP"). No inline scripts, no data:/blob: scripts and no eval: answers, file
+ * names and Office previews are drawn into this page, and this policy is the backstop against XSS there. Artifact and
+ * HTML / SVG preview frames are not srcdoc documents (those would inherit this policy and need it loosened): they load
+ * /sandbox/frame, which has its own policy (frameCsp). 'wasm-unsafe-eval' lets the page compile WebAssembly (sha256 of
+ * large uploads), not JavaScript. frame-src 'self': a frame may not navigate to another site inside the app.
  */
 export function appCsp(host: string | null): string {
-  const ws = host && /^[A-Za-z0-9.\-:[\]]+$/.test(host) ? ` wss://${host} ws://${host}` : ''
+  const h = cleanHost(host)
+  const ws = h ? ` wss://${h} ws://${h}` : ''
   return [
     "default-src 'self'",
-    // 'wasm-unsafe-eval' lets the page compile WebAssembly (sha256 of large uploads) — not JavaScript eval
-    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' data: blob:",
+    "script-src 'self' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     // blob: = files the page itself already holds (pdf.js reads the preview's blob URL from its worker)
     `connect-src 'self' blob:${ws}`,
     "media-src 'self' data: blob:",
-    "worker-src 'self' blob:",
-    "frame-src 'self' blob:",
-    "child-src 'self' blob:",
+    "worker-src 'self'",
+    "frame-src 'self'",
+    "child-src 'self'",
     "manifest-src 'self'",
     "object-src 'none'",
-    "base-uri 'self'",
+    "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join('; ')
+}
+
+/** Path of the fixed receiver document artifact and HTML / SVG preview frames load (tab 5 "아티팩트 격리 규칙"). */
+export const SANDBOX_FRAME_PATH = '/sandbox/frame'
+
+/**
+ * The policy of everything that runs in a sandbox frame, minus the parts that depend on how it is delivered.
+ * web/src/lib/artifacts.ts (artifactCsp) builds the same directives for the meta tag it puts first in every frame
+ * document; tests/unit/d-web.test.ts checks the two stay equal.
+ */
+export function sandboxPolicy(vendor: string[]): string {
+  const v = vendor.join(' ')
+  return [
+    "default-src 'none'",
+    `script-src 'unsafe-inline' data: blob: ${v}`,
+    `style-src 'unsafe-inline' ${v}`,
+    'img-src data: blob:',
+    `font-src ${v}`,
+    "connect-src 'none'",
+    "form-action 'none'",
+    "frame-src 'none'",
+    "child-src 'none'",
+    "worker-src 'none'",
+    "manifest-src 'none'",
+    'media-src data: blob:',
+    "base-uri 'none'",
+  ].join('; ')
+}
+
+/**
+ * Response CSP of /sandbox/frame: `sandbox allow-scripts` (an opaque origin even if someone opens the URL directly or
+ * frames it without the attribute), the sandbox policy with this server's /vendor/ (the origin the request came in
+ * on: relay address or the office address; http and https both, the TLS may end before this server), and only this
+ * server may frame it. frame-ancestors also makes browsers ignore the X-Frame-Options: DENY every page gets.
+ */
+export function frameCsp(host: string): string {
+  const origins = [`https://${host}`, `http://${host}`]
+  return `sandbox allow-scripts; ${sandboxPolicy(origins.map((o) => `${o}/vendor/`))}; frame-ancestors ${origins.join(' ')}`
+}
+
+/**
+ * The receiver: a fixed document with no content of its own. It says "ready" to its parent, takes one document from
+ * the parent (event.source === parent only) and writes it over itself; the document keeps this response's CSP.
+ * Everything the AI or a file wrote arrives only through postMessage, never through the URL.
+ */
+export const SANDBOX_RECEIVER = `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>
+(function () {
+  var done = false;
+  window.addEventListener("message", function (e) {
+    if (done || e.source !== window.parent) return;
+    var d = e.data;
+    if (!d || d.source !== "mycel-host" || d.type !== "render" || typeof d.html !== "string") return;
+    done = true;
+    document.open();
+    document.write(d.html);
+    document.close();
+  });
+  window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*");
+})();
+</script></body></html>`
+
+function serveSandboxFrame(host: string | null): Response {
+  const h = cleanHost(host)
+  if (!h) return new Response('Bad Host header', { status: 400 })
+  return new Response(SANDBOX_RECEIVER, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'content-security-policy': frameCsp(h),
+      'cache-control': 'no-cache',
+      'referrer-policy': 'no-referrer',
+      'cross-origin-resource-policy': 'same-origin',
+    },
+  })
 }
 
 const devPage = (port: number) => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -82,6 +159,7 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   const root = path.resolve(o.dist)
 
   if (p.startsWith('/downloads/')) return serveDownload(p.slice('/downloads'.length), o.downloads)
+  if (p === SANDBOX_FRAME_PATH) return serveSandboxFrame(url.host)
 
   const index = path.join(root, 'index.html')
   if (!fs.existsSync(index)) {

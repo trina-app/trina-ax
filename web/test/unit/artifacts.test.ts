@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { artifactCsp, artifactFileName, buildArtifactSrcdoc, findImports, SANDBOX, scriptJson, sucraseCompile, unsupportedImports, wrapHtml } from '../../src/lib/artifacts'
+import { artifactCsp, artifactFileName, buildArtifactDocument, findImports, SANDBOX, scriptJson, sucraseCompile, unsupportedImports, wrapHtml } from '../../src/lib/artifacts'
 
 const O = 'https://acme.treesoop.com'
 const MSG = { unsupportedImports: (l: string) => `unsupported: ${l}`, compileError: (m: string) => `compile: ${m}`, noDefaultExport: 'no default' }
@@ -42,7 +42,7 @@ describe('artifact isolation (tab 5)', () => {
 describe('React artifacts', () => {
   test('compiled outside the frame, imports mapped to /vendor/', async () => {
     const compile = await sucraseCompile()
-    const r = buildArtifactSrcdoc('react', 'import { useState } from "react"\nimport { Plus } from "lucide-react"\nexport default function A(){ const [n] = useState(1); return <b><Plus />{n}</b> }', O, compile, MSG)
+    const r = buildArtifactDocument('react', 'import { useState } from "react"\nimport { Plus } from "lucide-react"\nexport default function A(){ const [n] = useState(1); return <b><Plus />{n}</b> }', O, compile, MSG)
     expect(r.ok).toBe(true)
     if (!r.ok) return
     expect(r.html).toContain('<script type="importmap">')
@@ -54,8 +54,8 @@ describe('React artifacts', () => {
   })
   test('unsupported imports and compile errors are reported, not run', async () => {
     const compile = await sucraseCompile()
-    expect(buildArtifactSrcdoc('react', 'import x from "left-pad"\nexport default () => null', O, compile, MSG)).toEqual({ ok: false, error: 'unsupported: left-pad' })
-    const bad = buildArtifactSrcdoc('react', 'export default function A( { return <div> }', O, compile, MSG)
+    expect(buildArtifactDocument('react', 'import x from "left-pad"\nexport default () => null', O, compile, MSG)).toEqual({ ok: false, error: 'unsupported: left-pad' })
+    const bad = buildArtifactDocument('react', 'export default function A( { return <div> }', O, compile, MSG)
     expect(bad.ok).toBe(false)
     expect(!bad.ok && bad.error.startsWith('compile:')).toBe(true)
   })
@@ -67,9 +67,9 @@ describe('React artifacts', () => {
 
 describe('other types and file names', () => {
   test('mermaid uses the vendor bundle; svg is framed', () => {
-    const m = buildArtifactSrcdoc('mermaid', 'graph TD; A-->B', O, null, MSG)
+    const m = buildArtifactDocument('mermaid', 'graph TD; A-->B', O, null, MSG)
     expect(m.ok && m.html).toContain(`${O}/vendor/mermaid.js`)
-    const s = buildArtifactSrcdoc('svg', '<svg><circle r="3"/></svg>', O, null, MSG)
+    const s = buildArtifactDocument('svg', '<svg><circle r="3"/></svg>', O, null, MSG)
     expect(s.ok && s.html).toContain('Content-Security-Policy')
   })
   test('artifactFileName by type and language', () => {

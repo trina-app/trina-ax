@@ -11,7 +11,8 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES } from '../../server/src/routes'
-import { appCsp, safeFile, serveWeb } from '../../server/src/routes/web-static'
+import { appCsp, frameCsp, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb } from '../../server/src/routes/web-static'
+import { artifactCsp, SANDBOX_FRAME_URL } from '../../web/src/lib/artifacts'
 import { WORK } from '../lib/env'
 
 const BASE = path.join(WORK, 'd-web')
@@ -71,8 +72,12 @@ describe('web app serving', () => {
       expect(csp).toContain("frame-ancestors 'none'")
       expect(csp).toContain("img-src 'self' data: blob:")
       expect(csp).toContain("connect-src 'self' blob: wss://acme.localhost ws://acme.localhost")
-      expect(csp).toContain("frame-src 'self' blob:")
+      expect(csp).toContain("frame-src 'self';")
+      expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval';")
+      expect(csp).toContain("base-uri 'none'")
       expect(csp).not.toContain("'unsafe-eval'")
+      // no inline, data: or blob: scripts in the app page (tab 5: the XSS backstop for answers and previews)
+      expect(csp).not.toMatch(/script-src[^;]*('unsafe-inline'|data:|blob:)/)
       expect(r.headers.get('x-frame-options')).toBe('DENY')
     }
   })
@@ -129,8 +134,32 @@ describe('web app serving', () => {
     expect(prod.status).toBe(500)
     expect(serveWeb(new Request('http://x/api/me'), { dist: DIST, downloads: null, dev: false, devPort: 0 })).toBeNull()
   })
-  test('the CSP never puts a hostile Host header into the policy', () => {
+  test('the CSP never puts a hostile Host header into the policy', async () => {
     expect(appCsp('evil.example; script-src *')).not.toContain('evil')
     expect(appCsp(null)).toContain("connect-src 'self' blob:;")
+    const opts = { dist: DIST, downloads: null, dev: false, devPort: 0 }
+    expect(serveWeb(new Request('http://x/sandbox/frame'), opts)!.status).toBe(200)
+    // a host the policy could not name safely gets no receiver at all
+    expect(serveWeb(new Request('http://a_b/sandbox/frame'), opts)!.status).toBe(400)
+  })
+  test('the sandbox receiver: fixed document, sandbox CSP, framable only by this server (overrides X-Frame-Options)', async () => {
+    const r = await get('/sandbox/frame?v=2026')
+    expect(r.status).toBe(200)
+    expect(await r.text()).toBe(SANDBOX_RECEIVER)
+    expect(r.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    const csp = r.headers.get('content-security-policy')!
+    expect(csp).toBe(frameCsp('acme.localhost'))
+    expect(csp.startsWith('sandbox allow-scripts; ')).toBe(true)
+    expect(csp).toContain("default-src 'none'")
+    expect(csp).toContain("connect-src 'none'")
+    expect(csp).toContain('frame-ancestors https://acme.localhost http://acme.localhost')
+    expect(csp).toContain('https://acme.localhost/vendor/ http://acme.localhost/vendor/')
+    expect(r.headers.get('set-cookie')).toBeNull()
+    // the receiver only takes a document from its parent
+    expect(SANDBOX_RECEIVER).toContain('e.source !== window.parent')
+    expect(SANDBOX_FRAME_URL.startsWith('/sandbox/frame?v=')).toBe(true)
+  })
+  test('the meta CSP the web app writes into frames is the same policy as the receiver header', () => {
+    expect(artifactCsp('https://acme.localhost')).toBe(sandboxPolicy(['https://acme.localhost/vendor/']))
   })
 })

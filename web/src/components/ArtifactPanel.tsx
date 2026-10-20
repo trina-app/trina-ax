@@ -6,7 +6,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Download, FolderInput, Loader
 import { useEffect, useMemo, useState } from 'react'
 import type { ArtifactType } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../lib/api'
-import { artifactFileName, buildArtifactSrcdoc, FRAME_TYPES, sucraseCompile, type CompileFn, type Srcdoc } from '../lib/artifacts'
+import { artifactFileName, buildArtifactDocument, FRAME_TYPES, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { joinPath } from '../lib/paths'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
@@ -50,10 +50,10 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const type: ArtifactType | undefined = writing ? live!.type : artifact?.type ?? summary?.type ?? live?.type
   const title = (writing ? live!.title : summary?.title ?? live?.title) || artifactKey
 
-  const [srcdoc, setSrcdoc] = useState<Srcdoc | null>(null)
+  const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true
-    setSrcdoc(null)
+    setFrameDoc(null)
     setRuntimeError(null)
     if (writing || !artifact || !FRAME_TYPES.includes(artifact.type)) return
     const msgs = {
@@ -63,7 +63,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     }
     const run = async () => {
       const compile = artifact.type === 'react' ? await (compiler ??= sucraseCompile()) : null
-      if (alive) setSrcdoc(buildArtifactSrcdoc(artifact.type, artifact.content, location.origin, compile, msgs))
+      if (alive) setFrameDoc(buildArtifactDocument(artifact.type, artifact.content, location.origin, compile, msgs))
     }
     void run()
     return () => {
@@ -185,10 +185,10 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           <div className="mx-auto max-w-3xl p-6">
             <Markdown text={content} />
           </div>
-        ) : srcdoc && !srcdoc.ok ? (
-          <p className="p-6 text-sm text-danger">{srcdoc.error}</p>
-        ) : srcdoc ? (
-          <SandboxFrame key={artifact?.id} html={srcdoc.html} title={title} onError={setRuntimeError} />
+        ) : frameDoc && !frameDoc.ok ? (
+          <p className="p-6 text-sm text-danger">{frameDoc.error}</p>
+        ) : frameDoc ? (
+          <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} />
         ) : (
           <Spinner className="p-6" />
         )}

@@ -1,12 +1,17 @@
-// How artifacts (and HTML / SVG / XML file previews) run: an opaque-origin iframe (sandbox="allow-scripts" only)
-// whose document starts with a Content-Security-Policy that blocks every network request except this team
-// server's /vendor/ libraries (tab 5 "아티팩트 격리 규칙"). The document always goes in through srcdoc, never a
-// blob: URL (blob: inherits the app's origin). React artifacts are compiled here, outside the frame (sucrase), so
-// the frame needs no 'unsafe-eval'. Ported from Saram/chat-proto sandbox.ts, with the sandbox tightened and the CDN
-// imports replaced by /vendor/.
+// How artifacts (and HTML / SVG file previews) run (tab 5 "아티팩트 격리 규칙"): an opaque-origin iframe
+// (sandbox="allow-scripts" only) that loads the team server's fixed receiver document /sandbox/frame, whose response
+// CSP blocks every network request except this server's /vendor/ libraries. The document built here goes in through
+// postMessage (components/SandboxFrame.tsx) — never srcdoc or a blob: URL, which would inherit the app's CSP or
+// origin — and starts with a meta CSP of the same policy (a second layer). React artifacts are compiled here, outside
+// the frame (sucrase), so the frame needs no 'unsafe-eval'. Ported from Saram/chat-proto sandbox.ts, with the
+// sandbox tightened and the CDN imports replaced by /vendor/.
 import type { ArtifactType } from '@mycel/shared/api'
 
 export const SANDBOX = 'allow-scripts'
+
+const BUILD = typeof __WEB_BUILD__ === 'string' ? __WEB_BUILD__ : 'dev'
+/** The receiver document every sandbox frame loads (server/src/routes/web-static.ts SANDBOX_RECEIVER). */
+export const SANDBOX_FRAME_URL = `/sandbox/frame?v=${encodeURIComponent(BUILD)}`
 
 /** Libraries a React artifact may import, served by the team server (scripts/build-vendor.ts). */
 export const VENDOR_MODULES = {
@@ -24,7 +29,10 @@ export function vendorBase(origin: string) {
   return `${origin}/vendor/`
 }
 
-/** The frame's CSP. connect-src / form-action / frame-src 'none': nothing the artifact sees can leave the page. */
+/**
+ * The frame's CSP (meta tag). connect-src / form-action / frame-src 'none': nothing the artifact sees can leave the
+ * page. Same directives as sandboxPolicy() in server/src/routes/web-static.ts (checked by tests/unit/d-web.test.ts).
+ */
 export function artifactCsp(origin: string): string {
   const v = vendorBase(origin)
   return [
@@ -48,10 +56,14 @@ const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').
 /** JSON for inside an inline <script>: no "</script>" or "<!--" can end it early. */
 export const scriptJson = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 
-/** Posts runtime errors and the "loaded" signal to the host; the host checks event.source. */
+/**
+ * Posts runtime errors to the host, and "leaving" when the document is about to be replaced (it tried to navigate
+ * away); the host checks event.source.
+ */
 const BRIDGE = `<script>(function(){
   var report = function (m) { try { parent.postMessage({ source: "mycel-frame", type: "error", message: String(m).slice(0, 2000) }, "*"); } catch (e) {} };
   window.__report = report;
+  window.addEventListener("pagehide", function () { try { parent.postMessage({ source: "mycel-frame", type: "leaving" }, "*"); } catch (e) {} });
   window.addEventListener("error", function (e) { report(e.message || e.error); });
   window.addEventListener("unhandledrejection", function (e) { report(e.reason && e.reason.message || e.reason); });
   document.addEventListener("securitypolicyviolation", function (e) { report("Blocked by the sandbox: " + e.violatedDirective + " " + (e.blockedURI || "")); });
@@ -73,7 +85,7 @@ export function wrapHtml(content: string, origin: string): string {
   return `<!doctype html><html>${head(origin)}<body>${body}</body></html>`
 }
 
-export type Srcdoc = { ok: true; html: string } | { ok: false; error: string }
+export type FrameDoc = { ok: true; html: string } | { ok: false; error: string }
 
 /** Bare imports used by the code that the vendor bundle doesn't have. */
 export function findImports(code: string): string[] {
@@ -95,14 +107,14 @@ export const sucraseCompile = async (): Promise<CompileFn> => {
   return (code) => transform(code, { transforms: ['jsx', 'typescript'], jsxRuntime: 'automatic', production: true }).code
 }
 
-export interface SrcdocMessages {
+export interface FrameDocMessages {
   unsupportedImports: (list: string) => string
   compileError: (msg: string) => string
   noDefaultExport: string
 }
 
 /** The document an artifact runs as. Markdown and code are shown by the host, not in a frame. */
-export function buildArtifactSrcdoc(type: ArtifactType, content: string, origin: string, compile: CompileFn | null, msg: SrcdocMessages): Srcdoc {
+export function buildArtifactDocument(type: ArtifactType, content: string, origin: string, compile: CompileFn | null, msg: FrameDocMessages): FrameDoc {
   const v = vendorBase(origin)
   switch (type) {
     case 'html':
