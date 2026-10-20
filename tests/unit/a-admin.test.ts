@@ -28,7 +28,7 @@ describe('engines', () => {
     owner = await withOwner(h)
     admin = (await addMember(h, owner, { username: 'adam', role: 'admin' })).client
     bins = path.join(h.ctx.config.dataDir, '..', 'bins')
-    const claudeOk = fakeBin(bins, 'claude-ok', `case "$1" in --version) echo "2.1.304 (Claude Code)";; auth) echo '{"loggedIn": true, "authMethod": "claude.ai"}';; *) exit 2;; esac`)
+    const claudeOk = fakeBin(bins, 'claude-ok', `case "$1" in --version) echo "2.1.305 (Claude Code)";; auth) echo '{"loggedIn": true, "authMethod": "claude.ai"}';; *) exit 2;; esac`)
     const codexOk = fakeBin(bins, 'codex-ok', `case "$1" in --version) echo "codex-cli 0.163.0";; login) echo "Logged in using ChatGPT";; *) exit 2;; esac`)
     h.ctx.config.engine = { authMode: 'local-login', claudeBin: claudeOk, codexBin: codexOk }
     fs.mkdirSync(path.join(h.ctx.config.dataDir, 'engine'), { recursive: true })
@@ -39,7 +39,7 @@ describe('engines', () => {
 
   test('installed + logged in + pinned version -> ok, with models; no model call is made', async () => {
     const r = await admin.call('GET', '/api/admin/engines')
-    expect(r.engines.map((e: any) => [e.id, e.status, e.version, e.authMode])).toEqual([['claude-code', 'ok', '2.1.304', 'local-login'], ['codex', 'ok', '0.163.0', 'local-login']])
+    expect(r.engines.map((e: any) => [e.id, e.status, e.version, e.authMode])).toEqual([['claude-code', 'ok', '2.1.305', 'local-login'], ['codex', 'ok', '0.163.0', 'local-login']])
     expect(r.engines[0].models.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku'])
     expect(r.engines[1].models).toEqual([{ id: 'gpt-x', label: 'GPT-X' }])
     expect(r).toMatchObject({ defaultEngine: 'claude-code', defaultModel: null, concurrency: 3, accounts: [] })
@@ -47,7 +47,7 @@ describe('engines', () => {
   test('not installed, not logged in, other version, failed lockdown, timeouts', async () => {
     h.ctx.config.engine.claudeBin = '/nonexistent/claude'
     expect(await check('claude-code')).toMatchObject({ installed: false, status: 'not_installed', version: null })
-    h.ctx.config.engine.claudeBin = fakeBin(bins, 'claude-out', `case "$1" in --version) echo "2.1.304 (Claude Code)";; auth) echo '{"loggedIn": false}'; exit 1;; esac`)
+    h.ctx.config.engine.claudeBin = fakeBin(bins, 'claude-out', `case "$1" in --version) echo "2.1.305 (Claude Code)";; auth) echo '{"loggedIn": false}'; exit 1;; esac`)
     const out = await check('claude-code')
     expect(out).toMatchObject({ installed: true, status: 'not_logged_in' })
     expect(out.detail).toContain('claude')

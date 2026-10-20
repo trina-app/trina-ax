@@ -5,7 +5,7 @@
   "ripgrep": "15.2.0",
   "pandoc": "3.9.0.2",
   "poppler-pdftotext": "26.x (Homebrew poppler / Debian poppler-utils)",
-  "claude-code": "2.1.304",
+  "claude-code": "2.1.305",
   "zod": "4.6.7",
   "hono": "4.13.13",
   "xlsx": "0.20.3",
