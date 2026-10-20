@@ -102,10 +102,10 @@ describe('events', () => {
   test('a gap reloads the thread from REST', async () => {
     const a = msg({ role: 'assistant', status: 'streaming', content: 'abc' })
     useChats.setState({ threads: { [CHAT]: { messages: [a], nextCursor: null, stale: false } } })
-    route = () => json({ items: [{ ...a, content: 'abcdefgh' }], nextCursor: null })
+    route = (_m, p) => (p.endsWith('/requests') ? json({ items: [] }) : json({ items: [{ ...a, content: 'abcdefgh' }], nextCursor: null }))
     useChats.getState().handleEvent({ type: 'message.delta', seq: 1, at: 0, data: { chatId: CHAT, messageId: a.id, offset: 6, text: 'gh' } })
     await tick()
-    expect(calls.map((c) => c.path)).toEqual([`/api/chats/${CHAT}/messages`])
+    expect(calls.map((c) => c.path).sort()).toEqual([`/api/chats/${CHAT}/messages`, `/api/chats/${CHAT}/requests`])
     expect(useChats.getState().threads[CHAT]!.messages[0]!.content).toBe('abcdefgh')
   })
 
@@ -122,6 +122,39 @@ describe('events', () => {
     h({ type: 'turn.request', seq: 2, at: 0, data: { turnId, chatId: CHAT, messageId, request: { kind: 'ask_user', requestId: 'r2', question: 'Q?' } } })
     h({ type: 'turn.request.closed', seq: 3, at: 0, data: { turnId, requestId: 'r2', reason: 'timeout' } })
     expect(useChats.getState().requests).toEqual({})
+  })
+
+  test('loading a thread brings back the open cards of its running turn (page reload, resync)', async () => {
+    const turnId = uuidv7()
+    const messageId = uuidv7()
+    const card = (requestId: string, chatId = CHAT) => ({ turnId, chatId, messageId, request: { kind: 'ask_user' as const, requestId, question: 'Q?' } })
+    const other = uuidv7()
+    // r-gone was open before but the server no longer lists it (closed while we were away); another chat's card stays
+    useChats.setState({ requests: { 'r-gone': card('r-gone'), 'r-other': card('r-other', other) } })
+    route = (_m, p) => (p.endsWith('/requests') ? json({ items: [card('r-open')] }) : json({ items: [], nextCursor: null }))
+    await useChats.getState().loadThread(CHAT)
+    expect(Object.keys(useChats.getState().requests).sort()).toEqual(['r-open', 'r-other'])
+  })
+
+  test('cards that open or close over the socket while the list is on its way are not undone by it', async () => {
+    const turnId = uuidv7()
+    const messageId = uuidv7()
+    const card = (requestId: string) => ({ turnId, chatId: CHAT, messageId, request: { kind: 'ask_user' as const, requestId, question: 'Q?' } })
+    const h = useChats.getState().handleEvent
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    route = async (_m, p) => {
+      if (!p.endsWith('/requests')) return json({ items: [], nextCursor: null })
+      await gate
+      return json({ items: [card('r-closing')] }) // computed before r-closing closed and before r-new opened
+    }
+    const loading = useChats.getState().loadThread(CHAT)
+    await tick()
+    h({ type: 'turn.request', seq: 1, at: 0, data: { turnId, chatId: CHAT, messageId, request: card('r-new').request } })
+    h({ type: 'turn.request.closed', seq: 2, at: 0, data: { turnId, requestId: 'r-closing', reason: 'answered' } })
+    release()
+    await loading
+    expect(Object.keys(useChats.getState().requests)).toEqual(['r-new'])
   })
 
   test('artifact writing opens the panel once and keeps the code; done bumps the list', () => {

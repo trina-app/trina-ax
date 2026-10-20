@@ -78,6 +78,25 @@ const outbox = new Map<string, { chatId: string; clientMessageId: string; conten
  * cap the thread is simply reloaded from REST when the message appears.
  */
 const pending = new Map<string, Pending>()
+/** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
+const closedRequests = new Set<string>()
+const CLOSED_REQUESTS_MAX = 200
+const rememberClosed = (id: string) => {
+  closedRequests.add(id)
+  if (closedRequests.size > CLOSED_REQUESTS_MAX) closedRequests.delete(closedRequests.values().next().value!)
+}
+
+/**
+ * This chat's open cards after a listTurnRequests answer: the server's list, plus cards that arrived over the socket
+ * while the request was on its way (not in `before`); cards closed meanwhile stay closed; other chats untouched.
+ */
+export function mergeOpenRequests(current: Record<string, OpenRequest>, chatId: string, open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+  const listed = new Set(open.map((r) => r.request.requestId))
+  const next: Record<string, OpenRequest> = {}
+  for (const [id, r] of Object.entries(current)) if (r.chatId !== chatId || listed.has(id) || !before.has(id)) next[id] = r
+  for (const r of open) if (r.chatId === chatId && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
+  return next
+}
 export const PENDING_MESSAGES_MAX = 50
 export const PENDING_EVENTS_MAX = 2000
 const pendingOf = (id: string) => {
@@ -182,6 +201,7 @@ export const useChats = create<ChatsState>((set, get) => {
     reset: () => {
       outbox.clear()
       pending.clear()
+      closedRequests.clear()
       set(initial())
     },
 
@@ -204,9 +224,16 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async loadThread(chatId) {
-      const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } })
+      // open ask_user / browser site cards come with the thread: after a reload or a resync the events that opened
+      // them are not replayed, and the running turn would otherwise wait for an answer nobody can give
+      const before = new Set(Object.keys(get().requests))
+      const [page, open] = await Promise.all([
+        api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } }),
+        api.call(API.listTurnRequests, { params: { id: chatId } }).catch(() => null),
+      ])
       setThread(chatId, (t) => ({ messages: mergeFresh(t.messages, page.items), nextCursor: page.nextCursor, stale: false }))
       flushPending(chatId, page.items.map((m) => m.id))
+      if (open) set((s) => ({ requests: mergeOpenRequests(s.requests, chatId, open.items, before) }))
     },
 
     async loadOlder(chatId) {
@@ -356,6 +383,7 @@ export const useChats = create<ChatsState>((set, get) => {
           return
         }
         case 'turn.request.closed':
+          rememberClosed(ev.data.requestId)
           set((s) => {
             const next = { ...s.requests }
             delete next[ev.data.requestId]
