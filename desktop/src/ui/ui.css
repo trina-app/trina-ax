@@ -1,0 +1,383 @@
+/* The desktop app's own screens: welcome / team list and the browser pane toolbar. */
+:root {
+  --bg: #f7f6f3;
+  --panel: #ffffff;
+  --text: #1f1e1c;
+  --muted: #5f5b54;
+  --line: #dedad2;
+  --accent: #0f766e;
+  --accent-text: #ffffff;
+  --danger: #b42318;
+  --warn-bg: #fff4e5;
+  --warn-line: #f2b45a;
+  --focus: #1d4ed8;
+  --chrome: #eceae4;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1b19;
+    --panel: #26241f;
+    --text: #f2efe9;
+    --muted: #b3ada3;
+    --line: #3a372f;
+    --accent: #2dd4bf;
+    --accent-text: #0b2a27;
+    --danger: #ff8a7a;
+    --warn-bg: #3a2c12;
+    --warn-line: #a8792b;
+    --focus: #93b4ff;
+    --chrome: #2b2924;
+    color-scheme: dark;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+}
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+button.danger {
+  color: var(--danger);
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---------------- welcome ---------------- */
+.welcome {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+.card {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px;
+}
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+.sub {
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+.field {
+  display: flex;
+  gap: 8px;
+}
+.field input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.error {
+  color: var(--danger);
+  min-height: 1.45em;
+  margin: 8px 0 0;
+}
+.teams {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.teams h2 {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.teams ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.teams li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+.teams .open {
+  flex: 1;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 6px 4px;
+  min-width: 0;
+}
+.teams .open .origin {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag {
+  font-size: 11px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.confirm {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 6px 0;
+}
+.confirm .row,
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------------- browser pane toolbar ---------------- */
+body.pane {
+  background: var(--chrome);
+  overflow: hidden;
+}
+body.pane.driving {
+  background: var(--accent);
+}
+.splitter {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--line);
+}
+#toolbar {
+  background: var(--chrome);
+  border-left: 1px solid var(--line);
+  padding: 6px 8px 6px 10px;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  max-width: 200px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.tab.active {
+  background: var(--panel);
+  border-color: var(--line);
+}
+.tab .title {
+  border: none;
+  background: transparent;
+  padding: 4px 6px 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+.tab .x,
+.icon {
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.icon:hover,
+.tab .x:hover {
+  background: var(--line);
+  color: var(--text);
+}
+.spacer {
+  flex: 1;
+}
+.nav {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+}
+.nav form {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+.nav input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: var(--panel);
+}
+.driving-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+body.driving .driving-bar {
+  display: flex;
+}
+.driving-bar .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.driving-bar button {
+  margin-left: auto;
+  padding: 2px 10px;
+  color: var(--text);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.prompt {
+  margin-top: 8px;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.prompt.private {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+.prompt h2 {
+  font-size: 14px;
+  margin: 0 0 4px;
+  word-break: break-all;
+}
+.prompt p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.prompt .url {
+  font-size: 12px;
+  word-break: break-all;
+}
+.activity {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.activity div {
+  font-size: 12px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.sites {
+  margin-top: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.sites ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.sites li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.sites li span {
+  flex: 1;
+  word-break: break-all;
+}
+.empty {
+  padding: 24px 16px;
+  color: var(--muted);
+  text-align: center;
+}

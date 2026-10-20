@@ -32,5 +32,6 @@
   "web:zustand": "5.0.15",
   "web:react-router-dom": "7.18.4",
   "vendor (artifact frames, /vendor/)": "react 19.3.0, lucide-react 1.54.0, recharts 3.10.1, mermaid 11.17.2, @tailwindcss/browser 4.3.3",
-  "playwright (web e2e)": "1.64.1 (chromium 1248)"
+  "playwright (web e2e)": "1.64.1 (chromium 1248)",
+  "@types/node (root typecheck; desktop pins its own for Electron)": "26.6.5"
 }

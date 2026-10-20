@@ -1,11 +1,93 @@
 {
   "name": "@mycel/desktop",
+  "productName": "Team AX",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
-  "description": "Mac / Windows Electron shell with the in-app Browser pane. Component E.",
-  "dependencies": {
-    "@mycel/shared": "workspace:*"
+  "author": "TreeSoop",
+  "homepage": "https://treesoop.com",
+  "description": "Team AX desktop app: the team's web page plus the in-app browser pane the AI can use. Component E.",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "bun build.ts",
+    "app": "bun build.ts && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:e2e": "bun build.ts && playwright test -c e2e/playwright.config.ts",
+    "dist:mac": "NODE_ENV=production bun build.ts && electron-builder --mac dmg --arm64 --publish never",
+    "dist:win": "NODE_ENV=production bun build.ts && electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "@mycel/shared": "workspace:*",
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.13.3",
+    "electron": "44.7.2",
+    "electron-builder": "26.0.12",
+    "zod": "4.6.7"
+  },
+  "build": {
+    "appId": "com.treesoop.mycel",
+    "productName": "Team AX",
+    "copyright": "Copyright © 2026 TreeSoop. AGPL-3.0-only.",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "package.json"
+    ],
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false,
+      "resetAdHocDarwinSignature": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "hardenedRuntime": false,
+      "artifactName": "Team-AX-${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Voice input in chats uses the microphone. / 채팅 음성 입력에 마이크를 사용합니다.",
+        "LSApplicationCategoryType": "public.app-category.productivity",
+        "NSLocalNetworkUsageDescription": "Connects straight to your team server inside the office. / 사무실 안에서 팀 서버에 직접 연결합니다."
+      }
+    },
+    "dmg": {
+      "sign": false,
+      "artifactName": "Team-AX-${version}-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "Team-AX-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Team-AX-Setup-${version}-win-${arch}.${ext}"
+    }
   }
 }
