@@ -198,7 +198,7 @@ export class OpsService {
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
-      add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(lastB.createdAt, lastB.scope)))
+      add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
     }
     try {
       const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string }
