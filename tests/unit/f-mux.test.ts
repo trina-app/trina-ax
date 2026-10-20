@@ -1,6 +1,6 @@
 // Stream multiplexer: two Mux instances joined in memory (relay side opens streams, team side serves them).
 import { describe, expect, test } from 'bun:test'
-import { DataFlag, FrameType, Mux, RstCode, decodeFrames, readWsClose, streamBody, type OpenMeta, type Stream } from '@mycel/shared/relay-protocol'
+import { DataFlag, FrameError, FrameType, Mux, RstCode, closePayload, decodeFrames, encodeFrame, parseRst, readWsClose, streamBody, type OpenMeta, type Stream } from '@mycel/shared/relay-protocol'
 
 const meta = (kind: 'http' | 'ws' = 'http'): OpenMeta => ({ kind, method: 'GET', path: '/x', host: 'a.localhost', proto: 'http', headers: [], clientIp: '127.0.0.1' })
 const tick = () => new Promise((r) => setTimeout(r, 0))
@@ -21,7 +21,11 @@ function pair(o: { win?: number; maxStreams?: number; highWater?: number; onOpen
   relay = new Mux({ send: (b) => { wire.toTeam += b.byteLength; wire.frames.push(b[0]); toTeam.push(b); queueMicrotask(flush) }, buffered: () => 0 }, { role: 'relay', initialWindow: win, highWater: 1 << 30, maxStreams: 100 })
   // the team side sees its unsent bytes as transport backlog (like a socket buffer)
   const backlog = () => toRelay.reduce((n, b) => n + b.byteLength, 0)
-  team = new Mux({ send: (b) => { wire.toRelay += b.byteLength; toRelay.push(b); queueMicrotask(flush) }, buffered: backlog }, { role: 'team', initialWindow: win, highWater: o.highWater ?? 1 << 30, maxStreams: o.maxStreams ?? 100, onOpen: o.onOpen })
+  team = new Mux({ send: (b) => { wire.toRelay += b.byteLength; toRelay.push(b); queueMicrotask(flush) }, buffered: backlog }, { role: 'team', initialWindow: win, highWater: o.highWater ?? 1 << 30, maxStreams: o.maxStreams ?? 100, onOpen: (s) => {
+    // the team side answers every stream first (the relay resets a stream whose DATA comes before RESPONSE)
+    s.respond({ status: s.isWs ? 101 : 200, headers: [] })
+    o.onOpen?.(s)
+  } })
   return { relay, team, wire, flush }
 }
 
@@ -208,5 +212,122 @@ describe('Mux', () => {
     t.onRst = (c) => { code2 = c }
     t.recv(new Uint8Array(1), DataFlag.WS_BINARY)
     expect(code2).toBe(RstCode.PROTOCOL)
+  })
+})
+
+// ------------------------------------------------------------------ review fixes: a peer must not be able to break
+// the connection for everyone or grow the other side's memory
+
+describe('Mux hardening', () => {
+  const noop = { send: () => {}, buffered: () => 0 }
+  const hdr = (type: number, id: number, payload: Uint8Array = new Uint8Array(0), flags = 0) => encodeFrame(type, id, flags, payload)
+  const json = (o: unknown) => new TextEncoder().encode(JSON.stringify(o))
+
+  test('the relay side treats an OPEN from the team server as a connection error (no RST queued per OPEN)', () => {
+    const sent: Uint8Array[] = []
+    const relay = new Mux({ send: (b) => sent.push(b), buffered: () => 0 }, { role: 'relay', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10 })
+    expect(() => relay.onMessage(hdr(FrameType.OPEN, 1, json(meta())))).toThrow(FrameError)
+    expect(sent.length).toBe(0)
+  })
+
+  test('a malformed OPEN resets only its own stream; the connection and later streams keep working', () => {
+    const sent: Uint8Array[] = []
+    const opened: Stream[] = []
+    const team = new Mux({ send: (b) => sent.push(b), buffered: () => 0 }, { role: 'team', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10, onOpen: (s) => opened.push(s) })
+    // absolute-form target, too many headers, not JSON: each would have dropped every stream on the connection
+    team.onMessage(hdr(FrameType.OPEN, 1, json({ ...meta(), path: 'http://evil.example/x' })))
+    team.onMessage(hdr(FrameType.OPEN, 3, json({ ...meta(), headers: Array.from({ length: 300 }, (_, i) => [`x-h${i}`, 'v']) })))
+    team.onMessage(hdr(FrameType.OPEN, 5, new TextEncoder().encode('{nope')))
+    team.onMessage(hdr(FrameType.OPEN, 7, json(meta())))
+    const rsts = sent.flatMap((b) => decodeFrames(b)).filter((f) => f.type === FrameType.RST)
+    expect(rsts.map((f) => [f.id, parseRst(f.payload).code])).toEqual([[1, RstCode.PROTOCOL], [3, RstCode.PROTOCOL], [5, RstCode.PROTOCOL]])
+    expect(opened.map((s) => s.id)).toEqual([7])
+    expect(team.closed).toBe(false)
+  })
+
+  test('a PING flood while the transport is backed up queues one PONG, not one per PING', () => {
+    const sent: Uint8Array[] = []
+    let backed = true
+    const team = new Mux({ send: (b) => sent.push(b), buffered: () => (backed ? 1 << 30 : 0) }, { role: 'relay', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10 })
+    const ping = hdr(FrameType.PING, 0, new Uint8Array(8))
+    const batch = new Uint8Array(ping.byteLength * 5000)
+    for (let i = 0; i < 5000; i++) batch.set(ping, i * ping.byteLength)
+    for (let i = 0; i < 100; i++) team.onMessage(batch) // 500,000 PINGs
+    backed = false
+    team.pump()
+    const pongs = sent.flatMap((b) => decodeFrames(b)).filter((f) => f.type === FrameType.PONG)
+    expect(pongs.length).toBe(1)
+    // once sent, the next PING is answered again
+    team.onMessage(ping)
+    expect(sent.flatMap((b) => decodeFrames(b)).filter((f) => f.type === FrameType.PONG).length).toBe(2)
+  })
+
+  test('a peer that makes us queue control frames without reading is cut off (FrameError)', () => {
+    const team = new Mux({ send: () => {}, buffered: () => 1 << 30 }, { role: 'team', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10, maxCtrlQueue: 64 * 1024 })
+    let id = 1
+    const bad = () => hdr(FrameType.OPEN, id += 2, new TextEncoder().encode('{bad'))
+    expect(() => { for (let i = 0; i < 10_000; i++) team.onMessage(bad()) }).toThrow('not reading')
+  })
+
+  test('the relay side resets a stream whose DATA comes before its RESPONSE', () => {
+    const relay = new Mux(noop, { role: 'relay', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10 })
+    const s = relay.open(meta())
+    let code = 0
+    s.onRst = (c) => { code = c }
+    relay.onMessage(hdr(FrameType.DATA, s.id, new Uint8Array(10)))
+    expect(code).toBe(RstCode.PROTOCOL)
+  })
+
+  test('DATA after a WebSocket close piece resets the stream (a close-piece flood can not pile up)', () => {
+    const relay = new Mux(noop, { role: 'relay', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10 })
+    const s = relay.open(meta('ws'))
+    let closes = 0
+    let code = 0
+    s.onData = (_b, f) => { if (f & DataFlag.WS_CLOSE) closes++ }
+    s.onRst = (c) => { code = c }
+    relay.onMessage(hdr(FrameType.RESPONSE, s.id, json({ status: 101, headers: [] })))
+    const close = closePayload(1000, '')
+    for (let i = 0; i < 1000; i++) relay.onMessage(hdr(FrameType.DATA, s.id, close, DataFlag.WS_CLOSE))
+    expect(closes).toBe(1)
+    expect(code).toBe(RstCode.PROTOCOL)
+  })
+
+  test('no END goes out after a stream was reset', async () => {
+    const sent: Uint8Array[] = []
+    let backed = true
+    const relay = new Mux({ send: (b) => sent.push(b), buffered: () => (backed ? 1 << 30 : 0) }, { role: 'relay', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10 })
+    const s = relay.open(meta())
+    s.end()
+    s.rst(RstCode.CANCEL)
+    backed = false
+    relay.pump()
+    const types = sent.flatMap((b) => decodeFrames(b)).map((f) => f.type)
+    expect(types).toEqual([FrameType.OPEN, FrameType.RST])
+  })
+
+  test('end({ cancelUnread }) sends END, then RST only if the peer is still sending', async () => {
+    const answered: Stream[] = []
+    const { relay } = pair({ onOpen: (s) => answered.push(s) })
+    const upload = relay.open({ ...meta(), method: 'POST' })
+    const done = relay.open(meta())
+    done.end()
+    await settle()
+    let rst = 0
+    let ended = false
+    upload.onRst = (c) => { rst = c }
+    upload.onEnd = () => { ended = true }
+    void upload.write(new Uint8Array(1000)) // request body still open
+    answered[0].end({ cancelUnread: true })
+    answered[1].end({ cancelUnread: true })
+    await settle()
+    expect(ended).toBe(true) // END first: the answer is complete
+    expect(rst).toBe(RstCode.CANCEL) // then the unread upload is stopped
+    expect(done.reset).toBeNull() // the other request had ended: no RST
+  })
+
+  test('an OPEN that cannot be encoded leaves no stream behind', () => {
+    const relay = new Mux(noop, { role: 'relay', initialWindow: 65536, highWater: 1 << 20, maxStreams: 10 })
+    expect(() => relay.open({ ...meta(), headers: [['x-big', 'x'.repeat(40_000)]] })).toThrow(FrameError)
+    expect(relay.streams.size).toBe(0)
   })
 })

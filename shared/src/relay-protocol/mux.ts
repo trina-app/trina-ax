@@ -33,9 +33,18 @@ export interface MuxOptions {
   onGoaway?: (g: Goaway) => void
   onEvent?: (e: RelayEvent) => void
   onPong?: (rttMs: number) => void
+  /** default MAX_CTRL_QUEUE_BYTES */
+  maxCtrlQueue?: number
 }
 
 const now = () => performance.now()
+
+/**
+ * Control frames the peer can make us queue (PONGs, RSTs, WINDOWs) while it does not read: past this many queued
+ * bytes the connection is dropped (FrameError from onMessage -> close 4004). OPEN frames (<= 32 KB each, at most
+ * maxStreams of them) fit below it.
+ */
+export const MAX_CTRL_QUEUE_BYTES = 24 * 1024 * 1024
 
 export class Mux {
   readonly streams = new Map<number, Stream>()
@@ -46,6 +55,9 @@ export class Mux {
   readonly stats = { framesIn: 0, framesOut: 0, bytesIn: 0, bytesOut: 0, streamsOpened: 0 }
   private io: MuxTransport
   private ctrl: Uint8Array[] = []
+  private ctrlBytes = 0
+  /** a PONG is queued and not sent yet: further PINGs are not answered twice (a flood can't grow the queue) */
+  private pongQueued = false
   private ready: Stream[] = []
   private timer: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
@@ -63,12 +75,14 @@ export class Mux {
   open(meta: OpenMeta): Stream {
     if (this.opt.role !== 'relay') throw new Error('only the relay opens streams')
     if (this.closed) throw new Error('mux closed')
+    // encode first: an OPEN that can't be encoded (FrameError) must not leave a stream behind
+    const payload = jsonPayload(meta)
     const id = this.nextId
     this.nextId += 2
     const s = new Stream(this, id, meta)
     this.streams.set(id, s)
     this.stats.streamsOpened++
-    this.ctrlFrame(encodeFrame(FrameType.OPEN, id, 0, jsonPayload(meta)))
+    this.ctrlFrame(encodeFrame(FrameType.OPEN, id, 0, payload))
     return s
   }
 
@@ -83,6 +97,7 @@ export class Mux {
   ctrlFrame(f: Uint8Array): void {
     if (this.closed) return
     this.ctrl.push(f)
+    this.ctrlBytes += f.byteLength
     this.pump()
   }
 
@@ -99,7 +114,10 @@ export class Mux {
     let n = 0
     while (this.io.buffered() < this.opt.highWater) {
       let f = this.ctrl.shift()
-      if (!f) {
+      if (f) {
+        this.ctrlBytes -= f.byteLength
+        if (f[0] === FrameType.PONG) this.pongQueued = false
+      } else {
         const s = this.ready.shift()
         if (!s) break
         s.inReady = false
@@ -135,13 +153,17 @@ export class Mux {
       const s = this.streams.get(fr.id)
       switch (fr.type) {
         case FrameType.OPEN: {
-          if (this.opt.role === 'relay') {
-            this.ctrlFrame(encodeFrame(FrameType.RST, fr.id, 0, rstPayload(RstCode.REFUSED, 'relay accepts no streams')))
-            break
-          }
+          if (this.opt.role === 'relay') throw new FrameError('the relay accepts no streams')
           if (fr.id % 2 !== 1 || fr.id <= this.highestPeerId) throw new FrameError(`bad stream id ${fr.id}`)
           this.highestPeerId = fr.id
-          const meta = parseOpenMeta(parseJsonPayload(fr.payload))
+          let meta: OpenMeta
+          try {
+            meta = parseOpenMeta(parseJsonPayload(fr.payload))
+          } catch (e) {
+            // one bad request head resets its own stream only, never the whole connection (and everyone's streams)
+            this.ctrlFrame(encodeFrame(FrameType.RST, fr.id, 0, rstPayload(RstCode.PROTOCOL, e instanceof Error ? e.message : 'bad OPEN')))
+            break
+          }
           if (this.streams.size >= this.opt.maxStreams) {
             this.ctrlFrame(encodeFrame(FrameType.RST, fr.id, 0, rstPayload(RstCode.REFUSED, 'too many streams')))
             break
@@ -169,6 +191,8 @@ export class Mux {
           if (s) s.grant(readU32(fr.payload))
           break
         case FrameType.PING:
+          if (this.pongQueued) break
+          this.pongQueued = true
           this.ctrlFrame(encodeFrame(FrameType.PONG, 0, 0, fr.payload.slice()))
           break
         case FrameType.PONG:
@@ -183,6 +207,7 @@ export class Mux {
           break
       }
     }
+    if (this.ctrlBytes > (this.opt.maxCtrlQueue ?? MAX_CTRL_QUEUE_BYTES)) throw new FrameError('peer is not reading its connection')
   }
 
   /** The transport died: reset every stream on it locally (only the streams of this connection are affected). */
@@ -193,6 +218,7 @@ export class Mux {
     const all = [...this.streams.values()]
     this.streams.clear()
     this.ctrl = []
+    this.ctrlBytes = 0
     this.ready = []
     for (const s of all) s.recvRst(RstCode.CONN_LOST, reason)
   }
@@ -214,6 +240,8 @@ export class Stream {
   endQueued = false
   endSent = false
   endRecv = false
+  /** WebSocket: the peer's close piece arrived (nothing but END may follow) */
+  wsCloseRecv = false
   reset: { code: number; reason: string } | null = null
   head: ResponseHead | null = null
   inReady = false
@@ -288,11 +316,17 @@ export class Stream {
     this.mux.markReady(this)
   }
 
-  end(): void {
+  /**
+   * Half-close. `cancelUnread`: once END is on the wire, reset the stream if the peer is still sending (an HTTP
+   * answer is complete but the app did not want the rest of the request body: stop the upload instead of carrying it).
+   */
+  end(o: { cancelUnread?: boolean } = {}): void {
     if (this.reset || this.endQueued) return
     this.endQueued = true
+    this.cancelUnread = !!o.cancelUnread
     this.mux.markReady(this)
   }
+  private cancelUnread = false
 
   rst(code: number, reason = ''): void {
     if (this.reset) return
@@ -322,11 +356,14 @@ export class Stream {
   }
 
   takeFrame(quantum: number): Uint8Array | undefined {
+    if (this.reset) return undefined
     const head = this.out[0]
     if (!head) {
       if (this.endQueued && !this.endSent) {
         this.endSent = true
         this.maybeDone()
+        // after the END frame this returns has been sent (pump sends it right away)
+        if (this.cancelUnread && !this.endRecv) queueMicrotask(() => { if (!this.endRecv) this.rst(RstCode.CANCEL, 'request body not read') })
         return encodeFrame(FrameType.END, this.id)
       }
       return undefined
@@ -358,8 +395,12 @@ export class Stream {
   recv(b: Uint8Array, flags: number): void {
     if (this.reset) return
     if (this.endRecv) { this.protocolReset('DATA after END'); return }
+    // the relay's streams answer with RESPONSE before any DATA (the scheduler sends control frames first)
+    if (this.mux.opt.role === 'relay' && !this.head) { this.protocolReset('DATA before RESPONSE'); return }
+    if (this.wsCloseRecv) { this.protocolReset('DATA after WebSocket close'); return }
     if (flags & DataFlag.WS_CLOSE) {
       if (!this.isWs) { this.protocolReset('WS_CLOSE on an HTTP stream'); return }
+      this.wsCloseRecv = true
       this.onData?.(b.slice(), flags)
       return
     }
