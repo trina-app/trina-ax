@@ -1,43 +1,38 @@
 // Route module "web" — owner: component D (docs/WORKPLAN.md).
 // Serves the built web app (web/dist) with SPA fallback: every non-/api GET that is not a file gets index.html.
-// In dev without a build, it points to the Vite dev server (bun run dev:web, port 19140) instead.
-import fs from 'node:fs'
+//   /assets/*       hashed Vite output: cached forever
+//   /vendor/*       libraries for artifact frames (web/scripts/build-vendor.ts). Artifact frames have an opaque
+//                   origin, so these answer with Access-Control-Allow-Origin: * (module scripts need CORS);
+//                   hashed chunks are immutable, the entry files (react.js, …) revalidate
+//   /sw.js          service worker: never cached, scope /
+//   /downloads/*    desktop app installers the owner put in <data>/downloads (index.json lists them)
+//   everything else index.html with the app's Content-Security-Policy (no-cache, so a new build shows up)
+// In dev without a build, it points to the Vite dev server (bun run --cwd web dev, port 19140) instead.
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { REPO_ROOT } from '../app-config'
 import type { RouteModule } from './module'
+import { serveWeb, type WebOptions } from './web-static'
 
-export const WEB_DIST = process.env[PRODUCT.envPrefix + 'WEB_DIST'] ?? path.join(REPO_ROOT, 'web', 'dist')
-export const WEB_DEV_URL = 'http://localhost:19140'
-
-const devPage = (port: number) => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${PRODUCT.displayName}</title></head><body style="font-family:system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem;line-height:1.6">
-<h1>${PRODUCT.displayName} — dev server</h1>
-<p>The API is running on port ${port}. The web app is not built yet.</p>
-<p>Run <code>bun run dev:web</code> and open <a href="${WEB_DEV_URL}">${WEB_DEV_URL}</a> (it proxies <code>/api</code> here), or build it with <code>bun run --cwd web build</code>.</p>
-</body></html>`
+export { appCsp, safeFile, serveWeb, WEB_DEV_URL, type WebOptions } from './web-static'
+export const WEB_DIST_DEFAULT = path.join(REPO_ROOT, 'web', 'dist')
+const envDist = () => process.env[PRODUCT.envPrefix + 'WEB_DIST']
+const envDownloads = () => process.env[PRODUCT.envPrefix + 'DOWNLOADS_DIR']
 
 export const webRoutes: RouteModule = {
   name: 'web',
   owner: 'D',
   register(kit, ctx) {
-    const root = path.resolve(WEB_DIST)
+    const opts: WebOptions = {
+      dist: envDist() ?? WEB_DIST_DEFAULT,
+      downloads: envDownloads() ?? path.join(ctx.config.dataDir, 'downloads'),
+      dev: ctx.config.mode === 'dev',
+      devPort: ctx.config.listen.port,
+    }
     kit.raw('GET', '*', async (c, next) => {
-      if (c.req.path.startsWith('/api/') || c.req.path === '/api') return next()
-      const index = path.join(root, 'index.html')
-      if (!fs.existsSync(index)) {
-        if (ctx.config.mode === 'dev') return c.html(devPage(ctx.config.listen.port))
-        return c.text(`${PRODUCT.displayName}: web app missing (${root})`, 500)
-      }
-      const rel = decodeURIComponent(c.req.path).replace(/^\/+/, '')
-      const file = path.resolve(root, rel)
-      if (rel && file.startsWith(root + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile()) {
-        const res = new Response(Bun.file(file))
-        // hashed assets can be cached forever; everything else revalidates
-        if (/\/assets\//.test(c.req.path)) res.headers.set('Cache-Control', 'public, max-age=31536000, immutable')
-        return res
-      }
-      return new Response(Bun.file(index), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' } })
+      const res = serveWeb(c.req.raw, opts)
+      if (!res) return next()
+      return res
     })
   },
 }
