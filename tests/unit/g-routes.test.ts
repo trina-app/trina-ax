@@ -19,7 +19,7 @@ import type { AuthInfo, SessionService } from '../../server/src/services'
 import { jobFromRow } from '../../server/src/system/job-runner'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
-import { uptimeText } from '../../server/src/system/messages'
+import { stepText, uptimeText } from '../../server/src/system/messages'
 import { WORK } from '../lib/env'
 
 const BASE = path.join(WORK, 'g-routes')
@@ -102,6 +102,16 @@ describe('auth levels', () => {
   })
 })
 
+describe('job progress wording', () => {
+  test('step ids become words; numbers are kept; unknown text passes through', () => {
+    expect(stepText('ko', 'team folder')).toBe('팀 폴더 보관 중')
+    expect(stepText('en', 'download')).toBe('Downloading the new version')
+    expect(stepText('id', 'archive 3/7')).toBe('Memulihkan folder tim (3/7)')
+    expect(stepText('ko', '진행 중인 답변 1개가 끝나기를 기다리는 중')).toBe('진행 중인 답변 1개가 끝나기를 기다리는 중')
+    expect(stepText('ko', null)).toBeNull()
+  })
+})
+
 describe('uptime wording', () => {
   test('days / hours / minutes in each language', () => {
     expect(uptimeText(59, 'ko')).toBe('0분')
@@ -150,6 +160,8 @@ describe('backup, restore, export jobs', () => {
     const job = await waitJob(ctx, jobId)
     expect(job.status).toBe('done')
     expect(job.result).toMatchObject({ backupId: expect.stringMatching(/-manual$/) })
+    // the progress line under the button is words in the owner's language, not the worker's step id ("done")
+    expect(job.message).toBe('마무리 중')
     const list = (await (await req('/api/admin/backups', { as: 'owner' })).json()) as { items: { id: string; scope: string }[] }
     expect(list.items[0]).toMatchObject({ scope: 'full' })
   })

@@ -54,7 +54,11 @@ export const BackupMeta = z.object({
 })
 export type BackupMeta = z.infer<typeof BackupMeta>
 
-export class BackupError extends Error { name = 'BackupError' }
+export class BackupError extends Error {
+  name = 'BackupError'
+  /** disk_space: not enough room for a backup (the owner can fix it by freeing space) */
+  constructor(message: string, readonly reason: 'disk_space' | 'other' = 'other') { super(message) }
+}
 
 export interface BackupProgress { (fraction: number | null, message: string): void }
 
@@ -174,7 +178,7 @@ export class BackupManager {
     const L = this.o.layout
     const progress = o.progress ?? (() => {})
     const free = Math.min(diskSpace(L.dataDir).free, diskSpace(L.teamRoot).free)
-    if (free < BACKUP_MIN_FREE_BYTES) throw new BackupError(`not enough free disk space for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`)
+    if (free < BACKUP_MIN_FREE_BYTES) throw new BackupError(`not enough free disk space for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`, 'disk_space')
     await fsp.mkdir(L.dbBackupsDir, { recursive: true, mode: 0o700 })
     const now = this.now()
     let id = `${stamp(now)}-${o.kind}`
