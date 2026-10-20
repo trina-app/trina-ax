@@ -1,5 +1,5 @@
 // App-wide middleware, in order: request context -> security headers -> session -> CSRF -> (routes) -> access log.
-import type { MiddlewareHandler } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 import { CSRF_HEADER, localeFromAcceptLanguage, uuidv7 } from '@mycel/shared/api'
 import type { AppEnv } from './env'
 import { fail } from './errors'
@@ -10,6 +10,17 @@ const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 /** Request path for logs: one-time secrets in the path (invite and password reset links) are replaced by "***". */
 export function loggablePath(p: string): string {
   return p.replace(/^(\/api\/(?:invites|password-resets)\/)[^/]+/, '$1***')
+}
+
+/**
+ * Set a response header after the handler ran WITHOUT re-wrapping the response. Hono's c.header() on a finished
+ * response does new Response(res.body, res): that turns a Bun.file() body (sent with sendfile, constant memory)
+ * into a JS stream (Bun.serve has no backpressure for those: a 600 MB download grew the server to 1.6 GB) and,
+ * with Bun 1.3.12, a Bun.file().slice() body loses its end (Range responses sent the rest of the file).
+ */
+function setHeader(c: Context<AppEnv>, name: string, value: string) {
+  if (c.finalized) { try { c.res.headers.set(name, value); return } catch { /* immutable headers (fetched response) */ } }
+  c.header(name, value)
 }
 
 /** request id, transport info, logger, default locale. Client-sent X-Forwarded-For / CF-Connecting-IP / X-Real-IP
@@ -25,7 +36,7 @@ export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
     c.set('locale', localeFromAcceptLanguage(c.req.header('accept-language')))
     const t0 = performance.now()
     await next()
-    c.header('X-Request-Id', requestId)
+    setHeader(c, 'X-Request-Id', requestId)
     const auth = c.get('auth')
     c.get('log').debug('http', { method: c.req.method, path: loggablePath(c.req.path), status: c.res.status, ms: Math.round(performance.now() - t0), user: auth?.user.id ?? null, via: info.via })
   }
@@ -34,13 +45,13 @@ export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
 export function securityHeaders(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     await next()
-    c.header('X-Content-Type-Options', 'nosniff')
-    c.header('Referrer-Policy', 'same-origin')
+    setHeader(c, 'X-Content-Type-Options', 'nosniff')
+    setHeader(c, 'Referrer-Policy', 'same-origin')
     if (c.req.path.startsWith('/api/')) {
-      if (!c.res.headers.has('Cache-Control')) c.header('Cache-Control', 'no-store')
+      if (!c.res.headers.has('Cache-Control')) setHeader(c, 'Cache-Control', 'no-store')
     } else {
-      c.header('X-Frame-Options', 'DENY')
-      c.header('Cross-Origin-Opener-Policy', 'same-origin')
+      setHeader(c, 'X-Frame-Options', 'DENY')
+      setHeader(c, 'Cross-Origin-Opener-Policy', 'same-origin')
     }
   }
 }

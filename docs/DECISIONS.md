@@ -134,3 +134,33 @@
 - **`RealtimeHub.disconnectSession`(선택 메서드)을 더했다.** 로그아웃·"이 기기 로그아웃"·비밀번호 변경 뒤의 다른 세션은 그 세션의 소켓만 닫아야 한다(`disconnectUser`는 지금 창까지 4401로 닫아 재연결하지 않는다). B가 구현하기 전에는 세션이 DB에서 지워진 것으로 끝난다.
 - **열린 초대는 만든 사람의 권한을 따른다**: 만든 사람이 삭제·비활성화되거나 admin에서 member가 되면 아직 안 쓴 초대는 취소된다. 동시에 같은 아이디로 만들거나 비슷한 아이디(`a.b`·`a-b`)로 가입해도 500이 나지 않게 `users.id`는 쓰기 트랜잭션 안에서 정한다.
 - **주기 정리**(1시간마다, 시작 5초 뒤 한 번): 만료 세션, 지난 로그인 시도, 지난 재설정 링크, 보관 기간 지난 감사 기록, 삭제한 계정의 채팅·메모리.
+
+## C — 파일 화면·업로드·작업·도구 (server-files-tools, 2026-10-21)
+
+코드: `server/src/team-files/*`(파일 화면 서비스, 다운로드, files.changed, 컴포넌트 허브 `componentC(ctx)`), `server/src/uploads/*`, `server/src/jobs/*`, `server/src/tools/*`(make_file·share_file·artifact·web_fetch·변환기 격리·도구 등록), 라우트 `files.ts`·`artifacts.ts`·`jobs.ts`, 마이그레이션 `301_c_files.sql`.
+
+- **변환기 격리(3번 탭)는 이번에는 서버 프로세스 안에서 sandbox-exec(맥)·bwrap(리눅스)로 한다**(`tools/isolate.ts`). 네트워크 금지, 변환기 자신 외 exec·fork 금지, 빈 작업 폴더에만 쓰기, /Users·임시 폴더·팀 폴더·서버 데이터의 *내용* 읽기 금지(메타데이터는 허용: typst·pandoc이 cwd의 상위 폴더를 stat한다), 시간·출력 한도. 설계의 "실행기가 _axagent로 실행"은 실행기 프로토콜 확장이 필요해 뒤로 미뤘다(G/실행기). 리눅스에 bwrap이 없으면 격리 없이 돌고 pandoc `--sandbox`·typst `--root`만 남는다(`isolation()`이 'none'을 알려 줌). Stage 1의 글자 추출(read·grep)도 이 경로로 바꿨다.
+- **whisper.cpp는 Metal 셰이더 캐시(`DARWIN_USER_CACHE_DIR/com.apple.metal`) 읽기·쓰기를 허용해야 한다.** 막으면 매번 셰이더를 다시 컴파일해 0.4초 걸릴 일이 15초 걸린다(실측).
+- **pandoc `--sandbox`는 명령줄의 입력 파일 말고는 아무것도 못 읽어서 docx·pptx에 그림을 넣을 수 없다.** 그래서 그림은 우리가 검사한다: 마크다운을 먼저 `pandoc --sandbox -t json`으로 문서 트리로 바꾸고, 트리의 **모든 Image 노드**(인라인·참조식·`<꺾쇠>`·속성 붙은 것·링크 안 그림 어느 문법이든)를 검사해 팀 폴더 상대 경로 + 읽기 권한이 있는 그림만 작업 폴더에 복사하고 노드를 그 사본으로 바꾼다(그림 200개·합계 100MB까지). 웹 주소·`data:`·절대 경로·숨긴 파일은 변환 전에 오류, HTML `<img>` 등은 안내 오류. 그다음 `-f json`으로 문서를 만든다. 그림이 없으면 `--sandbox`, 있으면 트리에 남은 그림 경로가 사본뿐이라 `--sandbox` 없이 돌린다(OS 샌드박스가 있으면 그 안에서). `--fail-if-warnings`는 항상. (리뷰: 처음의 정규식 방식은 참조식 그림·공백 있는 꺾쇠 경로를 놓쳐 pandoc이 OS 샌드박스가 허용하는 아무 파일이나 읽을 수 있었다.)
+- **사람·AI가 고른 입력을 다루는 코드에는 되짚는(backtracking) 정규식을 쓰지 않는다.** 서버는 프로세스 하나라 정규식 하나가 몇 시간 돌면 팀 전체가 멈춘다. 리뷰에서 찾은 것: web_fetch의 HTML→글자(60KB 열린 태그 3.7초, 5MB면 수 시간 → 한 번 훑는 토크나이저로 교체), 파일 내용 응답의 끝 `\uFFFD+$`(잘못된 UTF-8로 가득한 파일 → 바이트에서 경계 계산), make_file의 표 감지 `^\s*\|`(줄바꿈만 10MB → `[ \t]`만 쓰는 패턴). 시험: `tests/unit/c-review.test.ts`.
+- **휴지통에 간 폴더는 폴더 규칙을 가지고 간다**: 규칙은 경로로 저장되므로, 지울 때 그 폴더와 하위의 `folders` 행을 휴지통 경로(`.system/trash/<월>/<id>/…`)로 옮겨 두고, 되돌릴 때 되돌린 경로(" (복원됨)" 이름이어도)로 다시 옮긴다. 휴지통·버전 열람 권한은 옮겨 둔 규칙을 원래 자리에 있는 것처럼 읽는다. 영구 삭제하면 그 규칙과 그 아래에서 저장된 버전도 같이 지운다. (전에는 규칙이 원래 경로에 남아 같은 이름으로 새로 만든 폴더가 규칙을 물려받고, 다른 이름으로 되돌린 비밀 폴더는 규칙 없이 돌아왔다.)
+- **make_file이 기존 파일을 만나면**: 이 턴에 그 버전을 read했으면 덮어쓰고(이전 내용은 버전), 아니면 충돌 사본 이름으로 저장한다(설계 "있으면 충돌 사본").
+- **web_fetch는 Bun fetch·node:http를 쓰지 않고 net/tls 소켓 위의 작은 HTTP/1.1 GET**이다. 둘 다 `HTTP(S)_PROXY` 환경 변수를 따르고 끌 수 없으며(실측), IP를 고정할 수 없다. 한 번 푼 주소(전역 유니캐스트 허용 목록, IPv4-mapped는 안의 IPv4로 검사, 서버 자신의 주소 거부)로 직접 연결하고 Host·SNI는 원래 이름. 이름 규칙: localhost·*.local·*.internal·*.home.arpa·*.lan·한 단어 이름 거부. 압축 해제는 스트리밍으로 5MB에서 끊는다(Bun 1.3.12의 `gunzipSync({maxOutputLength})` 경로가 테스트 중 프로세스를 죽였다). 결과는 `<external_data>`로 감싸고 tool_events에 URL 전체를 남긴다. 성공하면 `ctx.files.events`에 `'external'`을 내보낸다(B의 remember 보호용).
+- **Bun 1.3.12 함정 두 개와 대응**: ① Hono의 `c.header()`는 끝난 응답을 `new Response(res.body, res)`로 다시 감싼다 → 파일 응답이 JS 스트림이 되어 배압 없이 메모리에 쌓인다. 기반 미들웨어를 헤더 직접 설정으로 고쳤다. ② `Bun.file().slice()` 본문을 스트림으로 읽으면 끝을 무시하고 파일 끝까지 나오고, `slice().stream()`은 끝나지 않는다. 그래서 전체 파일은 `Bun.file`(sendfile), Range는 우리 pull 스트림으로 한 응답에 최대 8MB(Content-Range로 알림, 미디어·PDF 뷰어는 다음 부분을 다시 요청). 중계(F)가 `res.body`를 읽어도 정확하고 메모리는 요청당 8MB 이하.
+- **휴지통 목록은 원래 경로에 쓰기 권한이 있는 항목만**(4번 탭; 계약 요약도 그렇게 고침). 영구 삭제 `DELETE /api/files/trash/:id`(admin 이상)를 계약에 더했다. 폴더 삭제는 폴더째 `.system/trash/`로 rename(읽지 않음), 되돌리기도 폴더째.
+- **버전·휴지통의 folder_id·path_at_save는 트리거로 채운다**(stage 1 도구 쓰기도 같이). `file_versions.path`는 *지금* 경로(이동 API가 고침), `path_at_save`는 그대로. 열람은 folder_id 폴더의 지금 경로와 파일의 지금 경로 둘 다 읽기 권한(폴더 행이 없으면 path_at_save) — 비밀 폴더에서 공용으로 옮긴 파일의 옛 버전은 계속 숨는다(시험 있음).
+- **폴더 이동·삭제는 그 안의 규칙 폴더 전부에 쓰기 권한이 있어야 한다.** 아니면 users/<나>/ 아래로 옮겨(규칙 무시 구역) 숨은 하위 폴더를 손에 넣을 수 있다. 루트·users/·users/<id>/·.system/은 옮기거나 지울 수 없다. 대소문자만 바꾸는 이름 변경은 대소문자 무시 볼륨에서 그대로 된다.
+- **조각 업로드**: 조각은 희소 파일 `<data>/uploads/<id>.part`의 제자리(offset)에 바로 쓴다(조립 단계 없음). 조각이 순서대로 오면 sha256을 오는 길에 계산(Hash.copy로 실패한 조각은 버림)해 complete가 즉시 끝난다. complete 재시도는 같은 답(`upload_sessions.result`). sha 불일치면 받은 조각 목록을 비운다. 열린 세션은 사람당 10개, 디스크 여유(크기+1GB) 확인. 대상 폴더는 미리 있어야 한다.
+- **첨부**: `attachments` 테이블(id로 찾음, B는 `componentC(ctx).attachments.byIds()`), 썸네일은 격리된 ffmpeg(sips는 사용자 임시 폴더에 써야 해서 샌드박스 안에서 실패), ffmpeg가 없으면 2MB 이하 png/jpg/gif/webp 원본.
+- **작업은 본인 것만 본다**(4번 탭 "본인 작업만"): 받아쓰기 결과는 그 사람의 말이라 owner도 남의 작업은 404. 사람이 없는 작업(user_id NULL: 시스템 백업·업데이트)만 owner가 본다. 영구 삭제도 휴지통 열람과 같은 조건(원래 경로 쓰기 권한)을 더 요구한다: admin이라도 남의 users/<id>/ 휴지통 항목은 못 지운다.
+- **조각 업로드 complete가 겹치면**(큰 파일 해시 중 클라이언트가 시간 초과로 다시 부름) 두 번째는 첫 번째 결과를 기다려 같은 답을 받는다. 그동안 조각·취소는 409. 디스크 여유 확인은 끝나지 않은 세션들이 앞으로 쓸 크기까지 더한다(희소 파일).
+- **작업(JobService)**: 무거운 종류(transcribe·backup·restore·update·export)는 종류별 한 번에 하나. 진행 이벤트는 0.5초에 한 번. 실패 문구는 그 사람의 언어(ko/en/id), 예상 못 한 오류는 일반 문구만. 재시작 시 queued/running → failed("서버가 다시 시작되어…").
+- **받아쓰기 모델 기본값은 `small`(다국어, 488MB, sha256 고정)**, 처음 쓸 때 `<data>/models/whisper/`로 내려받는다. `MYCEL_WHISPER_MODEL=tiny|base|small`, `MYCEL_WHISPER_MODEL_DIR`, `MYCEL_WHISPER_BIN`으로 바꿀 수 있다. 시험은 tiny를 `tests/.cache/whisper`(git 무시)에 한 번 받아 쓰고, `say`로 만든 음성을 실제로 받아쓴다(맥).
+- **share_file 링크**: preview = 웹 화면 경로 `/files/view?path=`(D가 구현), download = `/api/files/download?...`. 둘 다 여는 사람의 세션으로 다시 권한 확인.
+- **보관 기간 설정**: `settings`의 `trashRetentionDays`(기본 30), `fileHistoryRetentionDays`(기본 7, 1번 탭)를 키별 JSON 숫자 또는 `team` 객체의 같은 이름 필드로 읽는다(A가 저장 형식을 정하면 맞춘다). 정리는 1시간마다.
+
+다른 컴포넌트가 알아야 할 것:
+- **B**: 비파일 도구는 `toolRegistry(ctx.files).register({...})`로 등록한다(`server/src/tools/registry.ts`, MCP 목록·호출·감사가 자동). **엔진 허용 목록(Claude `--allowedTools`, Codex `enabled_tools`)은 아직 파일 도구 6개뿐이라 make_file 등 새 도구를 엔진이 부르려면 `engine/claude.ts`·`codex.ts`에 이름을 더하고 잠금 회귀 시험을 돌려야 한다**(B 몫). 아티팩트 저장은 `componentC(ctx).artifacts.apply()`(도구가 이미 부름), "writing" 미리보기 이벤트는 B. web_fetch 뒤 remember 확인은 `ctx.files.events.on('external')`.
+- **D**: `/files/view?path=` 화면, 내용 응답 헤더 `x-content-sha256`(저장 시 baseSha256), 썸네일 `/api/uploads/:id/thumbnail`, 받아쓰기 `POST /api/transcribe` → `job.done`.
+- **F**: 다운로드 응답 본문을 그대로 창 단위로 읽으면 된다(전체 파일은 지연 읽기, Range는 8MB 이하 스트림).
+- **G**: `ctx.services.jobs`가 설치돼 있다(`jobs` 모듈 init). 진단에 `isolation()`(sandbox-exec / bwrap / none)과 whisper·typst·ffmpeg 유무를 보여 주면 좋다.

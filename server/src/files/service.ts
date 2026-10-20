@@ -146,9 +146,11 @@ export class FileService {
       saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
       atomicWrite(this.fx.root, r.segs, data)
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'update', size: data.length, sha256: sha256(data), detail: { tool } })
+      this.changed(ctx, r.rel, 'update')
     } else {
       atomicWrite(this.fx.root, r.segs, data, { createDirs: true })
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'create', size: data.length, sha256: sha256(data), detail: { tool } })
+      this.changed(ctx, r.rel, 'create')
     }
     seen.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
@@ -180,9 +182,15 @@ export class FileService {
     saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
     atomicWrite(this.fx.root, r.segs, data)
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'update', size: data.length, sha256: sha256(data), detail: { tool: 'edit' } })
+    this.changed(ctx, r.rel, 'update')
     ctx.files.readHashes.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     return { text: `Edited ${r.rel} (${a.replace_all ? n : 1} replacement${(a.replace_all ? n : 1) > 1 ? 's' : ''})`, summary: `edit ${r.rel} -> ${a.replace_all ? n : 1} replacements` }
+  }
+
+  /** 'changed' event { path, action, userId, turnId } for live file-screen updates (component C publishes files.changed) */
+  private changed(ctx: ToolCtx, rel: string, action: 'create' | 'update') {
+    this.events.emit('changed', { path: rel, action, userId: ctx.user.id, userName: ctx.user.name, turnId: ctx.turnId })
   }
 
   private limits(ctx: ToolCtx, rel: string, size: number) {
@@ -206,6 +214,7 @@ export class FileService {
     const last = this.db.query("SELECT e.user_id, u.name FROM file_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.path = ? AND e.action IN ('update','create') ORDER BY e.id DESC LIMIT 1").get(rel) as any
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null } })
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: rel } })
+    this.changed(ctx, copyRel, 'create')
     this.events.emit('conflict', { path: rel, copy: copyRel, users: [ctx.user.id, last?.user_id].filter(Boolean) })
     const who = last?.name ? ` by ${last.name}` : ''
     return { text: `Conflict: '${rel}' was changed${who} after you read it. The original was left unchanged; your version was saved as '${copyRel}'. Tell the user about both files.`,

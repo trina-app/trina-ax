@@ -319,6 +319,8 @@ export const TrashItem = z.object({
   turnId: Uuid7.nullable(),
   deletedAt: IsoTime,
   purgeAt: IsoTime,
+  /** a whole folder was deleted (restored as one); absent = file */
+  type: z.enum(['file', 'folder']).optional(),
 })
 export type TrashItem = z.infer<typeof TrashItem>
 
