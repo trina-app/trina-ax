@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -127,12 +128,20 @@ func record(st *appState, from *string, to, result, detail string) {
 
 // ---------- app/current ----------
 
+// a version is a folder name in app/versions/ (shared/src/install.ts BundleManifest.version), never a path
+var versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$`)
+
+func validVersion(v string) bool { return versionRe.MatchString(v) && v != "." && v != ".." }
+
 func currentVersion() (string, error) {
 	t, err := os.Readlink(filepath.Join(*appDir, "current"))
 	if err != nil {
 		return "", err
 	}
 	v := filepath.Base(t)
+	if !validVersion(v) {
+		return "", fmt.Errorf("app/current points to %q, not a version folder", t)
+	}
 	if filepath.Clean(t) != filepath.Join("versions", v) && filepath.Clean(t) != filepath.Join(*appDir, "versions", v) {
 		return "", fmt.Errorf("app/current points outside versions/: %s", t)
 	}
@@ -140,6 +149,9 @@ func currentVersion() (string, error) {
 }
 
 func switchTo(v string) error {
+	if !validVersion(v) {
+		return fmt.Errorf("not a version name: %q", v)
+	}
 	tmp := filepath.Join(*appDir, fmt.Sprintf(".current-%d", os.Getpid()))
 	_ = os.Remove(tmp)
 	if err := os.Symlink(filepath.Join("versions", v), tmp); err != nil {
@@ -163,6 +175,9 @@ type manifest struct {
 func keyID(pub []byte) string { h := sha256.Sum256(pub); return hex.EncodeToString(h[:8]) }
 
 func verifyVersion(v string) error {
+	if !validVersion(v) {
+		return fmt.Errorf("not a version name: %q", v)
+	}
 	dir := filepath.Join(*appDir, "versions", v)
 	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
 	if err != nil {

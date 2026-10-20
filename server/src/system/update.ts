@@ -221,6 +221,8 @@ export class UpdateManager {
    */
   async switchTo(version: string): Promise<{ from: string; to: string }> {
     if (!this.o.appDir) throw new UpdateError('updates are only possible on an installed server')
+    // a version is a folder name in app/versions/: never a path ("../x", "a/b")
+    if (!BundleManifest.shape.version.safeParse(version).success) throw new UpdateError(`not a version name: ${JSON.stringify(version)}`)
     if (version === this.o.version) throw new UpdateError(`version ${version} is already running`)
     const dir = path.join(this.versionsDir(), version)
     if (!fs.existsSync(dir)) throw new UpdateError(`version ${version} is not staged`)

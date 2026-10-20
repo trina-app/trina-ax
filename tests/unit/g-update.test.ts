@@ -105,6 +105,10 @@ describe('update manager', () => {
     const st = AppState.parse(JSON.parse(fs.readFileSync(path.join(app, 'state.json'), 'utf8')))
     expect(st).toMatchObject({ pending: '2.0.0', previous: '1.0.0', attempts: 0 })
     await expect(u.switchTo('9.9.9')).rejects.toThrow(/not staged/)
+    // a version is a folder name, never a path: a verified bundle outside versions/ cannot become app/current
+    await fakeVersion(path.join(W, 'mgr', 'outside'), 'evil', 'ok')
+    await expect(u.switchTo('../../outside/versions/evil')).rejects.toThrow(/not a version name/)
+    expect(fs.readlinkSync(path.join(app, 'current'))).toBe('versions/2.0.0')
 
     const dev = new UpdateManager({ appDir: null, dataDir: path.join(W, 'mgr', 'data'), version: '1.0.0', channel: 'stable', feedUrl: null, log: silentLogger })
     expect(dev.status()).toMatchObject({ current: '1.0.0', available: null, previous: null })
