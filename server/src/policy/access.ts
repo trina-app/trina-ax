@@ -36,10 +36,11 @@ export class RuleSet {
   access(p: Principal, segs: readonly string[]): Access {
     if (segs.length && segs[0] === PRODUCT.systemDir) return 'none'
     if (segs.some((s) => s.startsWith(PRODUCT.tmpPrefix))) return 'none'
-    if (p.role === 'owner') return 'write'
-    const inUsers = segs[0] === 'users' && segs.length >= 2
-    if (inUsers && segs[1] === p.id) return 'write' // own folder: always write
-    if (p.role === 'admin' && !inUsers) return 'write' // admin: everything except other people's users/<id>/
+    // users/<id>/ (tab 2 rules 2-3): the person's own folder is always write; anyone else's is none for every role,
+    // owner and admin included, and rules there are ignored (the admin API refuses them; a moved folder or a
+    // restored backup could still bring one in).
+    if (segs[0] === 'users' && segs.length >= 2) return segs[1] === p.id ? 'write' : 'none'
+    if (p.role === 'owner' || p.role === 'admin') return 'write' // everything else
     for (let len = segs.length; len >= 0; len--) {
       const rules = this.byPath.get(segs.slice(0, len).join('/'))
       if (!rules) continue
@@ -51,11 +52,14 @@ export class RuleSet {
 
   /** true when something strictly below `segs` is readable (so the folder may be listed for navigation) */
   hasVisibleDescendant(p: Principal, segs: readonly string[]): boolean {
-    if (p.role === 'owner') return true
-    const cands = [...this.ruleFolders().map((f) => (f === '' ? [] : f.split('/'))), ['users', p.id]]
-    if (p.role === 'admin') cands.push(['_admin_any_'])
+    if (segs.length && segs[0] === PRODUCT.systemDir) return false
+    if (segs[0] === 'users') {
+      if (segs.length === 1) return true // own personal folder below
+      return segs[1] === p.id
+    }
+    if (p.role === 'owner' || p.role === 'admin') return true
+    const cands = [...this.ruleFolders().map((f) => (f === '' ? [] : f.split('/'))).filter((c) => c[0] !== 'users'), ['users', p.id]]
     for (const c of cands) {
-      if (c[0] === '_admin_any_') { if (!(segs[0] === 'users' && segs.length >= 2)) return true; continue }
       if (c.length > segs.length && segs.every((s, i) => s === c[i]) && atLeast(this.access(p, c), 'read')) return true
     }
     return false
