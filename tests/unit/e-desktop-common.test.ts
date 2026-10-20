@@ -1,0 +1,212 @@
+// Pure parts of the desktop app: team addresses, the team list, site permissions, result shaping, key input,
+// bridge sender checks and the UI strings (desktop/src/common/*).
+import { describe, expect, test } from 'bun:test'
+import { isLoopbackHost, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
+import { pickLocale, STRINGS, t } from '../../desktop/src/common/i18n'
+import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
+import { siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
+import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
+import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
+import { BrowserResult } from '../../shared/src/api/browser'
+
+describe('team addresses', () => {
+  test('a bare team name becomes <name>.treesoop.com over https', () => {
+    expect(parseTeamAddress('acme')).toEqual({ ok: true, origin: `https://acme.${TEAM_DOMAIN}`, host: `acme.${TEAM_DOMAIN}`, dev: false })
+    expect(parseTeamAddress('  ACME  ')).toMatchObject({ ok: true, origin: `https://acme.${TEAM_DOMAIN}` })
+  })
+
+  test('hosts without a scheme get https, loopback dev hosts get http; paths are dropped', () => {
+    expect(parseTeamAddress('acme.treesoop.com/chats/1')).toMatchObject({ ok: true, origin: 'https://acme.treesoop.com' })
+    expect(parseTeamAddress('myteam.localhost:19161')).toMatchObject({ ok: true, origin: 'http://myteam.localhost:19161', dev: true })
+    expect(parseTeamAddress('localhost:19100')).toMatchObject({ ok: true, origin: 'http://localhost:19100' })
+    expect(parseTeamAddress('127.0.0.1:19100')).toMatchObject({ ok: true, origin: 'http://127.0.0.1:19100' })
+    expect(parseTeamAddress('https://acme.treesoop.com:443/')).toMatchObject({ ok: true, origin: 'https://acme.treesoop.com' })
+  })
+
+  test('plain http to a real host, credentials, other schemes and junk are refused', () => {
+    expect(parseTeamAddress('')).toEqual({ ok: false, error: 'empty' })
+    expect(parseTeamAddress('http://acme.treesoop.com')).toEqual({ ok: false, error: 'insecure' })
+    expect(parseTeamAddress('http://192.168.0.10:8443')).toEqual({ ok: false, error: 'insecure' })
+    expect(parseTeamAddress('https://user:pw@acme.treesoop.com')).toEqual({ ok: false, error: 'credentials' })
+    expect(parseTeamAddress('ftp://acme.treesoop.com')).toEqual({ ok: false, error: 'unsupported_scheme' })
+    expect(parseTeamAddress('file:///etc/passwd')).toEqual({ ok: false, error: 'unsupported_scheme' })
+    expect(parseTeamAddress('acme team')).toEqual({ ok: false, error: 'invalid' })
+    expect(parseTeamAddress('https://')).toEqual({ ok: false, error: 'invalid' })
+  })
+
+  test('helpers', () => {
+    expect(isLoopbackHost('a.b.localhost')).toBe(true)
+    expect(isLoopbackHost('[::1]')).toBe(true)
+    expect(isLoopbackHost('localhost.evil.com')).toBe(false)
+    expect(originOf('https://a.b/c?d')).toBe('https://a.b')
+    expect(originOf('about:blank')).toBe('')
+    expect(originOf('nonsense')).toBe('')
+    expect(teamLabel('https://acme.treesoop.com')).toBe('acme')
+    expect(teamLabel('http://myteam.localhost:19161')).toBe('myteam')
+    expect(teamLabel('https://team.example.com')).toBe('team.example.com')
+  })
+})
+
+describe('team list', () => {
+  test('add (deduplicated by origin), touch, rename, remove, sort, partitions', () => {
+    let f = emptyTeams()
+    const a = addTeam(f, 'https://a.treesoop.com', 'a', 'aaaaaaaaaaaaaaaa', '2026-10-01T00:00:00Z')
+    f = a.file
+    const again = addTeam(f, 'https://a.treesoop.com', 'a2', 'bbbbbbbbbbbbbbbb', '2026-10-02T00:00:00Z')
+    expect(again.existed).toBe(true)
+    expect(again.team.id).toBe('aaaaaaaaaaaaaaaa')
+    f = addTeam(f, 'https://b.treesoop.com', 'b', 'cccccccccccccccc', '2026-10-02T00:00:00Z').file
+    f = touchTeam(f, 'cccccccccccccccc', '2026-10-03T00:00:00Z')
+    expect(f.lastTeamId).toBe('cccccccccccccccc')
+    expect(sortedTeams(f).map((x) => x.label)).toEqual(['b', 'a'])
+    f = updateTeam(f, 'aaaaaaaaaaaaaaaa', { label: 'Acme' })
+    expect(f.teams[0].label).toBe('Acme')
+    f = removeTeam(f, 'cccccccccccccccc')
+    expect(f.lastTeamId).toBeNull()
+    expect(f.teams).toHaveLength(1)
+    expect(partitionFor('aaaaaaaaaaaaaaaa', 'app')).toBe('persist:team-aaaaaaaaaaaaaaaa')
+    expect(partitionFor('aaaaaaaaaaaaaaaa', 'browser')).toBe('persist:team-aaaaaaaaaaaaaaaa-browser')
+  })
+
+  test('a broken file starts empty instead of crashing', () => {
+    expect(readTeams(null)).toEqual(emptyTeams())
+    expect(readTeams('{nope')).toEqual(emptyTeams())
+    expect(readTeams(JSON.stringify({ version: 2, teams: [] }))).toEqual(emptyTeams())
+    const ok = JSON.stringify({ version: 1, teams: [{ id: 'aaaaaaaaaaaa', origin: 'https://a.b', label: 'a', addedAt: 'x', lastOpenedAt: null }], lastTeamId: null })
+    expect(readTeams(ok).teams[0].direct).toBeNull()
+  })
+
+  test('fingerprints and versions', () => {
+    expect(normalizeFingerprint('ab:cd:ef')).toBe('AB:CD:EF')
+    expect(normalizeFingerprint('abcdef')).toBe('AB:CD:EF')
+    expect(compareVersions('0.1.0', '0.1.0')).toBe(0)
+    expect(compareVersions('0.2.0', '0.10.0')).toBe(-1)
+    expect(compareVersions('1.0.0', '0.99.9')).toBe(1)
+  })
+})
+
+describe('site permissions', () => {
+  test('keys drop www. and keep ports; non-http has no key', () => {
+    expect(siteKey('https://www.Example.com/a')).toBe('example.com')
+    expect(siteKey('http://127.0.0.1:19153/x')).toBe('127.0.0.1:19153')
+    expect(siteKey('about:blank')).toBe('')
+    expect(siteKey('javascript:alert(1)')).toBe('')
+  })
+
+  test('once is per turn, always is saved, deny saves nothing, scopes are separate', () => {
+    const p = new SitePermissions()
+    expect(p.grant('site', 'shop.test', 'once', 'turn-1')).toBe(false)
+    expect(p.isAllowed('site', 'shop.test', 'turn-1')).toBe(true)
+    expect(p.isAllowed('site', 'shop.test', 'turn-2')).toBe(false)
+    expect(p.isAllowed('private', 'shop.test', 'turn-1')).toBe(false)
+    expect(p.grant('site', 'shop.test', 'deny', 'turn-1')).toBe(false)
+    expect(p.grant('site', 'news.test', 'always')).toBe(true)
+    expect(p.grant('site', 'news.test', 'always')).toBe(false)
+    expect(p.isAllowed('site', 'news.test', 'any')).toBe(true)
+    p.forgetTurn('turn-1')
+    expect(p.isAllowed('site', 'shop.test', 'turn-1')).toBe(false)
+    p.grant('private', '192.168.0.10', 'always')
+    expect(p.toJSON()).toEqual({ always: ['news.test'], privateAlways: ['192.168.0.10'] })
+    expect(p.revoke('192.168.0.10')).toBe(true)
+    expect(new SitePermissions(p.toJSON()).list()).toEqual({ always: ['news.test'], privateAlways: [] })
+  })
+
+  test('only the newest turns keep their once grants; junk in the saved file is ignored', () => {
+    const p = new SitePermissions({ always: ['ok.test', 3 as unknown as string, ''], privateAlways: 'x' as unknown as string[] })
+    expect(p.list()).toEqual({ always: ['ok.test'], privateAlways: [] })
+    for (let i = 0; i < 40; i++) p.grant('site', 'h', 'once', `t${i}`)
+    expect(p.isAllowed('site', 'h', 't0')).toBe(false)
+    expect(p.isAllowed('site', 'h', 't39')).toBe(true)
+  })
+})
+
+describe('browser results on the wire', () => {
+  test('texts are merged into one item, images follow, shared screenshots are flagged', () => {
+    const r = toBrowserResult('c', { isError: false, content: [{ type: 'text', text: 'a' }, { type: 'image', data: 'AAAA', mimeType: 'image/jpeg', share: true }, { type: 'text', text: 'b' }] })
+    expect(r).toEqual({ callId: 'c', ok: true, content: [{ type: 'text', text: 'a\nb' }, { type: 'image', mime: 'image/jpeg', data: 'AAAA', shareToChat: true }] })
+    expect(BrowserResult.safeParse(r).success).toBe(true)
+  })
+
+  test('at most 20 items: the newest images stay and the model is told', () => {
+    const imgs = Array.from({ length: 30 }, (_, i) => ({ type: 'image' as const, data: `D${i}`, mimeType: 'image/png' }))
+    const r = toBrowserResult('c', { isError: false, content: imgs })
+    expect(r.content).toHaveLength(MAX_ITEMS)
+    expect((r.content[1] as { data: string }).data).toBe('D11')
+    expect((r.content[0] as { text: string }).text).toContain('11 images left out')
+    expect(BrowserResult.safeParse(r).success).toBe(true)
+  })
+
+  test('errors carry an error string; huge texts are cut; unknown image types are dropped', () => {
+    const r = toBrowserResult('c', { isError: true, content: [{ type: 'text', text: 'x'.repeat(3_000_000) }, { type: 'image', data: 'A', mimeType: 'image/gif' }] })
+    expect(r.ok).toBe(false)
+    expect(r.error!.length).toBeLessThanOrEqual(4000)
+    expect((r.content[0] as { text: string }).text.length).toBeLessThanOrEqual(2_000_000)
+    expect(r.content).toHaveLength(1)
+    expect(BrowserResult.safeParse(r).success).toBe(true)
+    expect(errorResult('c', 'nope')).toEqual({ callId: 'c', ok: false, content: [{ type: 'text', text: 'nope' }], error: 'nope' })
+  })
+})
+
+describe('key input and URL redaction', () => {
+  test('combos map to CDP key events', () => {
+    expect(parseKeyCombo('Enter').def.key).toBe('Enter')
+    const sel = parseKeyCombo('cmd+a')
+    expect(sel.modifiers).toBe(4)
+    expect(sel.command).toBe('selectAll')
+    expect(sel.def.text).toBeUndefined()
+    expect(parseKeyCombo('shift+Tab').modifiers).toBe(8)
+    expect(parseKeyCombo('F5').def.keyCode).toBe(116)
+    expect(() => parseKeyCombo('Hyper')).toThrow('Unknown key')
+  })
+
+  test('secrets in URLs are redacted', () => {
+    expect(redactUrl('https://a.b/cb?code=123&state=x&token=t')).toBe('https://a.b/cb?code=REDACTED&state=x&token=REDACTED')
+    expect(redactUrl('https://u:p@a.b/')).toBe('https://u:REDACTED@a.b/')
+    expect(redactUrl('not a url')).toBe('not a url')
+  })
+})
+
+describe('bridge senders', () => {
+  const origins = ['https://acme.treesoop.com', 'https://127.0.0.1:8443']
+  test('only the top frame of the app view at a team origin is trusted', () => {
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/chats/1', isTop: true, isAppView: true }, origins)).toBe(true)
+    expect(isTrustedAppSender({ url: 'https://127.0.0.1:8443/', isTop: true, isAppView: true }, origins)).toBe(true)
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', isTop: false, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'https://acme.treesoop.com/', isTop: true, isAppView: false }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'https://evil.treesoop.com/', isTop: true, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender({ url: 'about:srcdoc', isTop: true, isAppView: true }, origins)).toBe(false)
+    expect(isTrustedAppSender(null, origins)).toBe(false)
+  })
+
+  test('own screens are recognised by scheme and host', () => {
+    expect(isOwnUiUrl(`${UI_ORIGIN}/welcome.html`)).toBe(true)
+    expect(isOwnUiUrl('https://app/welcome.html')).toBe(false)
+    expect(isOwnUiUrl(`${UI_ORIGIN.replace('app', 'evil')}/x`)).toBe(false)
+  })
+})
+
+describe('UI strings', () => {
+  test('ko, en and id have exactly the same keys and no empty strings', () => {
+    const keys = Object.keys(STRINGS.ko).sort()
+    for (const l of ['en', 'id'] as const) expect(Object.keys(STRINGS[l]).sort()).toEqual(keys)
+    for (const l of ['ko', 'en', 'id'] as const) for (const k of keys) expect((STRINGS[l] as Record<string, string>)[k].length).toBeGreaterThan(0)
+  })
+
+  test('placeholders are the same in every language', () => {
+    const ph = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join(',')
+    for (const k of Object.keys(STRINGS.ko) as (keyof typeof STRINGS.ko)[]) {
+      expect(ph(STRINGS.en[k])).toBe(ph(STRINGS.ko[k]))
+      expect(ph(STRINGS.id[k])).toBe(ph(STRINGS.ko[k]))
+    }
+  })
+
+  test('locale choice and formatting', () => {
+    expect(pickLocale(['ko-KR'])).toBe('ko')
+    expect(pickLocale(['fr-FR', 'en-US'])).toBe('en')
+    expect(pickLocale(['in-ID'])).toBe('id')
+    expect(pickLocale(['ja-JP'])).toBe('ko')
+    expect(t('en', 'perm.site.title', { host: 'shop.test' })).toBe('The AI wants to use shop.test')
+    expect(t('ko', 'err.notTeamServer')).toBe('이 주소는 Team AX 팀 서버가 아니에요.')
+  })
+})

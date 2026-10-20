@@ -1,0 +1,4 @@
+dist/
+release/
+e2e/.work/
+*.tsbuildinfo
