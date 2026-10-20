@@ -24,7 +24,7 @@ export const TEXT = {
   errRefused: t('AI가 이 요청에 답하지 않았습니다. 표현을 바꿔 다시 시도해 주세요.', 'The AI declined this request. Try rephrasing it.', 'AI menolak permintaan ini. Coba ubah kalimatnya.'),
   errCrash: t('AI 엔진이 예기치 않게 멈췄습니다. 다시 시도해 주세요.', 'The AI engine stopped unexpectedly. Please try again.', 'Mesin AI berhenti tiba-tiba. Coba lagi.'),
   errInterrupted: t('서버가 다시 시작되어 답변이 중단되었습니다.', 'The answer was interrupted because the server restarted.', 'Jawaban terputus karena server dimulai ulang.'),
-  errEngineMissing: t('AI 엔진을 사용할 수 없습니다. 관리자 화면의 진단을 확인해 주세요.', 'The AI engine is not available. Check diagnostics in the admin screen.', 'Mesin AI tidak tersedia. Periksa diagnostik di layar admin.'),
+  errEngineMissing: t('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).'),
   errProxyMode: t('회사 API 키 모드는 이 버전에서 아직 켤 수 없습니다. 구독 로그인 모드를 써 주세요.', 'Company API key mode cannot be turned on in this version yet. Use the subscription login mode.', 'Mode kunci API perusahaan belum bisa diaktifkan di versi ini. Gunakan mode login langganan.'),
   errUserDisabled: t('계정을 사용할 수 없습니다.', 'This account is not active.', 'Akun ini tidak aktif.'),
 
