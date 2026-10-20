@@ -14,7 +14,7 @@ import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
 import { startServer } from '../../server/src/server'
 import type { AuthInfo, SessionService } from '../../server/src/services'
 import { configureChat, getChatRuntime, type ChatRuntimeOptions } from '../../server/src/chat/runtime'
-import { StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
+import { LocalEngines, StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
 import { makeFixture, seed } from './fixtures'
 import { WORK } from './env'
 
@@ -113,7 +113,7 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   /** start the launcher with these extra allowed commands (real engines) */
   allowCmds?: string[]
   sessionRoots?: string[]
-  /** fake engine (default) or caller-provided engines */
+  /** the real engines of this machine (owner's local logins) instead of the fake one */
   realEngines?: boolean
   concurrency?: number
 }
@@ -138,7 +138,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   })
   // unix socket paths must stay short (macOS: 104 bytes)
   ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
-  configureChat(ctx, { ...o, engines: o.realEngines ? o.engines : new StaticEngines(fakeEngines(bin, dataDir)) })
+  configureChat(ctx, { ...o, engines: o.realEngines ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir)) })
   const app = await buildApp(ctx, [sessionModule, ...ROUTE_MODULES])
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'test', server: s }) })
   const url = `http://127.0.0.1:${server.port}`
