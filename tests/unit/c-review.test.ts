@@ -118,6 +118,41 @@ describe('make_file images: every image of the document is checked, whatever its
   })
 })
 
+describe('trashed folders take their rules with them', () => {
+  test('a new folder at the old path gets no stale rules; the restored one keeps its rules under any name; purge drops both', async () => {
+    const db = A.ctx.db
+    fs.mkdirSync(path.join(A.team, 'shared/hr'), { recursive: true })
+    fs.writeFileSync(path.join(A.team, 'shared/hr/secret.md'), 'v1')
+    db.query("INSERT INTO folders (id, path) VALUES ('f_review_hr', 'shared/hr')").run()
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r1', 'f_review_hr', 'user', 'alice', 'write'), ('r2', 'f_review_hr', 'everyone', NULL, 'none')").run()
+    const save = await A.json('/api/files/content', { ...jsonBody({ path: 'shared/hr/secret.md', content: 'v2 SECRET', baseSha256: sha256hex('v1') }, 'PUT'), as: 'alice' })
+    expect(save.status).toBe(200)
+    expect((await A.json('/api/files/content?path=shared/hr/secret.md', { as: 'bob' })).status).toBe(404)
+    const del = await A.json('/api/files?path=shared/hr', { method: 'DELETE', as: 'alice' })
+    expect(del.status).toBe(200)
+    // bob makes his own shared/hr: it is an ordinary shared folder now
+    expect((await A.json('/api/files/mkdir', { ...jsonBody({ path: 'shared/hr' }), as: 'bob' })).status).toBe(201)
+    expect((await A.json('/api/files/tree?path=shared/hr', { as: 'bob' })).status).toBe(200)
+    // the trash item stays alice's (bob had no access to the folder when it was deleted)
+    const bobTrash = await A.json('/api/files/trash', { as: 'bob' })
+    expect(bobTrash.body.items.map((i: any) => i.id)).not.toContain(del.body.trashId)
+    expect((await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'bob' })).status).toBe(404)
+    const back = await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'alice' })
+    expect(back.status).toBe(200)
+    expect(back.body.entry.path).toBe('shared/hr (복원됨)')
+    expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (복원됨)/secret.md'), { as: 'alice' })).body.content).toBe('v2 SECRET')
+    expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (복원됨)/secret.md'), { as: 'bob' })).status).toBe(404)
+    expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (복원됨)/secret.md'), { as: 'erin' })).status).toBe(404)
+    // the old version (saved under the folder's rules) stays hidden from bob at the old path, now his folder
+    expect((await A.json('/api/files/history?path=shared/hr/secret.md', { as: 'bob' })).body.items).toEqual([])
+    // trash it again and purge: the parked rules and the history kept under them are gone
+    const again = await A.json('/api/files?path=' + encodeURIComponent('shared/hr (복원됨)'), { method: 'DELETE', as: 'alice' })
+    expect((await A.req(`/api/files/trash/${again.body.trashId}`, { method: 'DELETE', as: 'carol' })).status).toBe(204)
+    expect(db.query("SELECT 1 FROM folders WHERE id = 'f_review_hr'").get()).toBeNull()
+    expect(db.query("SELECT 1 FROM file_versions WHERE folder_id = 'f_review_hr'").get()).toBeNull()
+  })
+})
+
 describe('upload sessions', () => {
   test('two completes at the same time (a client retry during the hash) get the same answer', async () => {
     const data = new Uint8Array(UPLOAD_CHUNK_SIZE + 5).fill(7)

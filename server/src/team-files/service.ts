@@ -311,12 +311,20 @@ export class TeamFiles {
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }
     else size = checkRegular(r.abs).size
-    const storage = moveIntoTrash(this.root, r.segs)
     const id = newId()
     const purgeAt = iso(Date.now() + settingNumber(this.ctx.db, 'trashRetentionDays', 30) * DAY)
-    this.ctx.db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
-      .run(id, r.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
-    fileEvent(this.ctx.db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id } })
+    const db = this.ctx.db
+    db.transaction(() => {
+      const storage = moveIntoTrash(this.root, r.segs)
+      try {
+        db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+          .run(id, r.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+        // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
+        // inherit them, and the deleted one gets them back wherever it is restored
+        if (isDir) rebaseFolders(db, r.rel, storage)
+        fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id } })
+      } catch (e) { fs.renameSync(path.join(this.root, ...storage.split('/')), r.abs); throw e }
+    })()
     this.dropTextCache(r.rel, isDir)
     this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }])
     return { trashId: id, purgeAt }
@@ -325,11 +333,9 @@ export class TeamFiles {
   // ---------------- history ----------------
   private versionVisible(user: Principal, rules: RuleSet, row: Pick<VersionRow, 'path' | 'folder_id' | 'path_at_save'>): boolean {
     if (!atLeast(rules.access(user, segsOf(row.path)), 'read')) return false
-    if (row.folder_id) {
-      const f = this.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(row.folder_id) as { path: string } | null
-      if (f && !atLeast(rules.access(user, segsOf(f.path)), 'read')) return false
-    } else if (row.path_at_save && !atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')) return false
-    return true
+    const f = row.folder_id ? this.folderLivePath(row.folder_id) : null
+    if (f !== null) return atLeast(rules.access(user, segsOf(f)), 'read')
+    return !row.path_at_save || atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')
   }
 
   history(userId: string, rel: string): { path: string; items: FileVersion[] } {
@@ -389,11 +395,29 @@ export class TeamFiles {
   }
 
   // ---------------- trash ----------------
+  /**
+   * The path a folders row stands for: its path, or for a folder parked with a trashed folder
+   * (.system/trash/<month>/<id>/...) the path it had before it was deleted. null: no such row.
+   */
+  private folderLivePath(folderId: string): string | null {
+    const f = this.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(folderId) as { path: string } | null
+    if (!f) return null
+    const segs = segsOf(f.path)
+    if (segs[0] !== PRODUCT.systemDir) return f.path
+    const storage = segs.slice(0, 4).join('/')
+    const t = this.ctx.db.query('SELECT original_path FROM trash_items WHERE storage_path = ?').get(storage) as { original_path: string } | null
+    return t ? t.original_path + f.path.slice(storage.length) : f.path
+  }
   private trashVisible(user: Principal, rules: RuleSet, t: TrashRow): boolean {
-    if (rules.access(user, segsOf(t.original_path)) !== 'write') return false
+    // a trashed folder's own (parked) rules count as if it were still in place
+    const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
+        THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
+      FROM folder_rules r JOIN folders f ON f.id = r.folder_id`).all(t.storage_path, t.original_path) as any) : rules
+    const access = (p: string) => r.access(user, segsOf(p))
+    if (access(t.original_path) !== 'write') return false
     if (t.folder_id) {
-      const f = this.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(t.folder_id) as { path: string } | null
-      if (f && !atLeast(rules.access(user, segsOf(f.path)), 'read')) return false
+      const f = this.folderLivePath(t.folder_id)
+      if (f !== null && !atLeast(access(f), 'read')) return false
     }
     return true
   }
@@ -441,8 +465,15 @@ export class TeamFiles {
     const parentRel = want.slice(0, -1).join('/')
     const pw = authorize(this.fx, rules, user, parentRel, 'write', { mustExist: false, createDirs: true })
     const name = pw.exists && pw.st!.isDirectory() ? restoredName(pw.abs, want[want.length - 1]!, isDir) : want[want.length - 1]!
+    // a folder's rules were parked with it (remove) and come back with it, also under a " (복원됨)" name
     const r = authorize(this.fx, rules, user, [...pw.segs, name].join('/'), 'write', { mustExist: false, createDirs: true })
     if (r.exists) fileError('conflict', 'restoreTaken')
+    if (isDir) {
+      const under = "path = ? OR substr(path, 1, length(?) + 1) = ? || '/'"
+      const parked = this.ctx.db.query(`SELECT 1 FROM folders WHERE ${under} LIMIT 1`).get(t.storage_path, t.storage_path, t.storage_path)
+      // rules already kept for the target path (a folder that is gone from disk): don't mix the two sets
+      if (parked && this.ctx.db.query(`SELECT 1 FROM folders WHERE ${under} LIMIT 1`).get(r.rel, r.rel, r.rel)) fileError('conflict', 'restoreTaken')
+    }
     const src = path.join(this.root, ...t.storage_path.split('/'))
     if (isDir) {
       const st = fs.lstatSync(src)
@@ -450,7 +481,10 @@ export class TeamFiles {
       let cur = this.root
       for (const s of r.segs.slice(0, -1)) { cur = path.join(cur, s); try { fs.mkdirSync(cur, { mode: 0o700 }) } catch (e: any) { if (e.code !== 'EEXIST') throw e } }
       verifyChain(this.root, r.segs, true)
-      fs.renameSync(src, r.abs)
+      this.ctx.db.transaction(() => {
+        rebaseFolders(this.ctx.db, t.storage_path, r.rel)
+        fs.renameSync(src, r.abs)
+      })()
     } else {
       checkRegular(src)
       installFile(this.root, r.segs, src)
@@ -469,10 +503,22 @@ export class TeamFiles {
     this.purgeRow(t)
     this.ctx.db.query('INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?,?,?,?)').run(byUserId, 'trash.purge', t.original_path, JSON.stringify({ trashId: id, size: t.size, kind: t.kind }))
   }
-  private purgeRow(t: Pick<TrashRow, 'id' | 'storage_path'>) {
+  private purgeRow(t: Pick<TrashRow, 'id' | 'storage_path' | 'kind'>) {
+    const db = this.ctx.db
     const abs = path.join(this.root, ...t.storage_path.split('/'))
     if (t.storage_path.startsWith(`${PRODUCT.systemDir}/trash/`)) fs.rmSync(abs, { recursive: true, force: true })
-    this.ctx.db.query('DELETE FROM trash_items WHERE id = ?').run(t.id)
+    if (t.kind === 'folder') {
+      // the folder's parked rules and the history kept under them go for good as well
+      const ids = (db.query("SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(t.storage_path, t.storage_path, t.storage_path) as { id: string }[]).map((x) => x.id)
+      for (const fid of ids) {
+        for (const v of db.query('SELECT id, storage_path FROM file_versions WHERE folder_id = ?').all(fid) as { id: string; storage_path: string | null }[]) {
+          if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })
+          db.query('DELETE FROM file_versions WHERE id = ?').run(v.id)
+        }
+        db.query('DELETE FROM folders WHERE id = ?').run(fid)
+      }
+    }
+    db.query('DELETE FROM trash_items WHERE id = ?').run(t.id)
   }
 
   // ---------------- uploads (small and chunked end here) ----------------
@@ -510,7 +556,7 @@ export class TeamFiles {
   sweep(now = Date.now()) {
     const db = this.ctx.db
     let trash = 0, versions = 0
-    for (const t of db.query('SELECT id, storage_path FROM trash_items WHERE restored_at IS NULL AND purge_at <= ?').all(iso(now)) as TrashRow[]) { this.purgeRow(t); trash++ }
+    for (const t of db.query('SELECT id, storage_path, kind FROM trash_items WHERE restored_at IS NULL AND purge_at <= ?').all(iso(now)) as TrashRow[]) { this.purgeRow(t); trash++ }
     const keepDays = settingNumber(db, 'fileHistoryRetentionDays', 7)
     const cutoff = iso(now - keepDays * DAY)
     for (const v of db.query('SELECT id, storage_path FROM file_versions WHERE created_at < ? LIMIT 5000').all(cutoff) as { id: string; storage_path: string | null }[]) {
@@ -520,6 +566,11 @@ export class TeamFiles {
     }
     return { trash, versions }
   }
+}
+
+/** Move the folders rows at `from` and below it to `to` (rules are kept by path). */
+function rebaseFolders(db: AppContext['db'], from: string, to: string) {
+  db.query("UPDATE folders SET path = ? || substr(path, length(?) + 1) WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").run(to, from, from, from, from)
 }
 
 /** The largest k <= n such that buf[0, k) does not end inside a UTF-8 sequence (looks at most 3 bytes back). */
