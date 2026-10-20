@@ -26,6 +26,23 @@ export interface SessionService {
   verifyPassword(userId: string, password: string, info: RequestInfo): Promise<boolean>
 }
 
+/**
+ * A WebSocket that did not come through Bun.serve's upgrade: a browser WebSocket proxied by the relay as a stream
+ * (component F, server/src/relay-client). Tab 4 "중계로 들어온 요청": the realtime hub attaches it exactly like a direct
+ * upgrade (same cookie / Origin / ticket checks on `req`, same seq / resume rules); only keep-alive differs (the relay
+ * pings the browser). The handshake is already complete when the hub sees it (subprotocol in `protocol`).
+ */
+export interface VirtualWebSocket {
+  readonly protocol: string
+  /** bytes queued for the client and not yet delivered (slow-client check, close 4408 like a direct socket) */
+  readonly bufferedAmount: number
+  readonly readyState: 'open' | 'closing' | 'closed'
+  send(data: string | Uint8Array): void
+  close(code?: number, reason?: string): void
+  onMessage: ((data: string | Uint8Array) => void) | null
+  onClose: ((code: number, reason: string) => void) | null
+}
+
 /** Component B (server/src/realtime/*). */
 export interface RealtimeHub {
   /** Send to every open window of one person (adds seq/at, keeps it in the replay buffer). */
@@ -34,6 +51,9 @@ export interface RealtimeHub {
   publishEach(build: (userId: string) => ServerEventInput | null): void
   /** Close every socket of a person (session.ended already published). */
   disconnectUser(userId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void
+  /** A WebSocket that arrived over the relay (GET /api/ws as a relay stream). Absent: the relay client closes it
+   * with 1013 ("realtime not available"). `req` carries the browser's path, query, cookies and Origin. */
+  attachVirtual?(ws: VirtualWebSocket, req: Request, info: RequestInfo): void
 }
 
 export interface JobHandle {
