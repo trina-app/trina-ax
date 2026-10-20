@@ -1,0 +1,11 @@
+{
+  "name": "@mycel/relay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Relay server (runs on Node 25; protocol v2). Component F.",
+  "dependencies": {
+    "@mycel/shared": "workspace:*"
+  }
+}

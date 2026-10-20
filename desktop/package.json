@@ -1,0 +1,11 @@
+{
+  "name": "@mycel/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Mac / Windows Electron shell with the in-app Browser pane. Component E.",
+  "dependencies": {
+    "@mycel/shared": "workspace:*"
+  }
+}

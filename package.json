@@ -2,13 +2,25 @@
   "name": "mycel",
   "private": true,
   "license": "AGPL-3.0-only",
-  "workspaces": ["shared", "server", "tests"],
+  "workspaces": [
+    "shared",
+    "server",
+    "web",
+    "desktop",
+    "relay",
+    "tests"
+  ],
   "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "dev:server": "bun --watch server/src/main.ts",
+    "start:server": "bun server/src/main.ts",
     "build:native": "bash native/build.sh",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "test": "bun test tests/unit",
     "test:unit": "bun test tests/unit",
     "test:stage1": "bun run tests/stage1.ts",
-    "test:stage1:fast": "bun run tests/stage1.ts --no-claude --no-docker"
+    "test:stage1:fast": "bun run tests/stage1.ts --no-claude --no-docker",
+    "test:fuzz:fast": "bun run tests/fuzz/run-fast.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",

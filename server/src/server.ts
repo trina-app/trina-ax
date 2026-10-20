@@ -1,8 +1,9 @@
-// Server bootstrap for stage 1: DB, file service, turn registry, MCP socket behind the native gate,
-// optional local launcher. (HTTP API, WebSocket, UI come in later stages.)
+// Engine core (stage 1): DB, file service, turn registry, MCP socket behind the native gate, optional local
+// launcher. The HTTP app (app.ts / main.ts) starts it on first use through AppContext.core().
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Subprocess } from 'bun'
+import type { Database } from 'bun:sqlite'
 import { openDb } from './db'
 import type { ServerConfig } from './config'
 import { FileService } from './files/service'
@@ -33,11 +34,21 @@ export function proxyPeerCheck(srv: Running) {
   }
 }
 
-export async function startServer(cfg: ServerConfig, o: { launcher?: { allowCmds: string[]; sessionRoots?: string[] }; externalLauncher?: string; toolsSockMode?: string } = {}): Promise<Running> {
+export interface StartOptions {
+  launcher?: { allowCmds: string[]; sessionRoots?: string[] }
+  externalLauncher?: string
+  toolsSockMode?: string
+  /** reuse an open DB / file service (the HTTP server owns them); otherwise opened here and closed by close() */
+  db?: Database
+  files?: FileService
+}
+
+export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Promise<Running> {
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   fs.mkdirSync(cfg.runDir, { recursive: true, mode: 0o755 })
-  const db = openDb(path.join(cfg.dataDir, 'app.db'))
-  const files = new FileService(db, cfg)
+  const ownDb = !o.db
+  const db = o.db ?? openDb(path.join(cfg.dataDir, 'app.db'))
+  const files = o.files ?? new FileService(db, cfg)
   const turns = new TurnRegistry(db, cfg.agentUid)
   const mcp = startMcpSocket(path.join(cfg.runDir, 'private', 'server.sock'), files, db, turns)
   const toolsSock = path.join(cfg.runDir, 'tools.sock')
@@ -52,6 +63,6 @@ export async function startServer(cfg: ServerConfig, o: { launcher?: { allowCmds
   return {
     cfg, db, files, turns, toolsSock, launcherSock, launcher,
     rejected: () => mcp.rejected,
-    async close() { for (const p of procs) { p.kill(); await p.exited } mcp.stop(); db.close() },
+    async close() { for (const p of procs) { p.kill(); await p.exited } mcp.stop(); if (ownDb) db.close() },
   }
 }
