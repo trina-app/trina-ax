@@ -56,11 +56,11 @@ export function client(o: Partial<RelayClientOptions> & Pick<RelayClientOptions,
   return c
 }
 
-export async function until<T>(fn: () => T | Promise<T>, timeoutMs = 5000, what = 'condition'): Promise<T> {
+export async function until<T>(fn: () => T | Promise<T>, timeoutMs = 5000, what = 'condition'): Promise<NonNullable<T>> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const v = await fn()
-    if (v) return v
+    if (v) return v as NonNullable<T>
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await Bun.sleep(10)
   }
