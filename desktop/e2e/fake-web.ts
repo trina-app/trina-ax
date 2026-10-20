@@ -20,7 +20,7 @@ if (bridge) {
 }
 
 function connect() {
-  const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/ws?windowId=${windowId}`, ['mycel.v1'])
+  const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/ws?windowId=${windowId}${bridge ? '&bridge=desktop' : ''}`, ['mycel.v1'])
   const relay = bridge ? createBrowserRelay({ bridge, windowId, send: (f) => ws.send(JSON.stringify(f)) }) : null
   ws.onopen = () => (state.ws = 'open')
   ws.onclose = () => {

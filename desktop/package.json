@@ -39,6 +39,15 @@
       "package.json"
     ],
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false,
+      "resetAdHocDarwinSignature": true
+    },
     "mac": {
       "target": [
         {
@@ -54,7 +63,8 @@
       "artifactName": "Team-AX-${version}-mac-${arch}.${ext}",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Voice input in chats uses the microphone. / 채팅 음성 입력에 마이크를 사용합니다.",
-        "LSApplicationCategoryType": "public.app-category.productivity"
+        "LSApplicationCategoryType": "public.app-category.productivity",
+        "NSLocalNetworkUsageDescription": "Connects straight to your team server inside the office. / 사무실 안에서 팀 서버에 직접 연결합니다."
       }
     },
     "dmg": {

@@ -51,12 +51,15 @@ interface Team {
   waiters: Map<string, ((r: BrowserResult) => void)[]>
   seq: number
   lastWindow?: string
+  /** windows whose page found the desktop bridge (fake-web.ts adds bridge=desktop to /api/ws) */
+  bridged: Set<string>
   /** test clock skew: this server's clock runs skewMs ahead of the real one (health time and call deadlines) */
   skewMs: number
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0 })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set() })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
+let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
 const json = (v: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json', ...headers } })
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -110,6 +113,7 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
   if (p === '/api/ws') {
     const windowId = url.searchParams.get('windowId') ?? ''
     if (!/^[A-Za-z0-9_-]{8,64}$/.test(windowId)) return new Response('bad windowId', { status: 400 })
+    if (url.searchParams.get('bridge') === 'desktop') t.bridged.add(windowId)
     return server.upgrade(req, { data: { team: t, windowId } }) ? undefined : new Response('upgrade failed', { status: 400 })
   }
   if (p === '/') return new Response(teamPage(t), { headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -128,8 +132,12 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     const v = crypto.randomUUID()
     return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax` })
   }
+  if (p === '/test/lan' && req.method === 'POST') {
+    await lanControl(t, Boolean(((await req.json()) as { up?: boolean }).up))
+    return json({ ok: true })
+  }
   if (p === '/test/whoami') return json({ session: sessionCookie(req), secure })
-  if (p === '/test/windows') return json({ windows: [...t.sockets.keys()], last: t.lastWindow ?? null })
+  if (p === '/test/windows') return json({ windows: [...t.sockets.keys()], last: t.lastWindow ?? null, bridged: [...t.bridged].filter((w) => t.sockets.has(w)) })
   if (p === '/test/call' && req.method === 'POST') {
     const b = (await req.json()) as { windowId?: string; tool: string; args?: Record<string, unknown>; callId?: string; turnId?: string; deadlineMs?: number }
     const windowId = b.windowId ?? t.lastWindow
@@ -198,12 +206,23 @@ const websocket = {
   },
 }
 
+/** the office (LAN) listeners; POST /test/lan {up} on a team port stops / restarts its listener (Wi-Fi changed) */
+const lanServers = new Map<Team, ReturnType<typeof Bun.serve>>()
+function startLan(t: Team) {
+  if (!t.direct || lanServers.has(t)) return
+  const c = t.direct.port === 19154 ? good : bad
+  lanServers.set(t, Bun.serve({ port: t.direct.port, hostname: '127.0.0.1', idleTimeout: 0, tls: { cert: c.cert, key: c.key }, websocket, fetch: (req, server) => teamFetch(t, req, server, true) }))
+}
+lanControl = async (t, up) => {
+  if (up) return startLan(t)
+  // force-close the listener and its open connections (the page's WebSocket included); don't wait for them
+  void lanServers.get(t)?.stop(true)
+  lanServers.delete(t)
+}
+
 for (const t of TEAMS) {
   Bun.serve({ port: t.port, hostname: '127.0.0.1', idleTimeout: 0, websocket, fetch: (req, server) => teamFetch(t, req, server, false) })
-  if (t.direct) {
-    const c = t.direct.port === 19154 ? good : bad
-    Bun.serve({ port: t.direct.port, hostname: '127.0.0.1', idleTimeout: 0, tls: { cert: c.cert, key: c.key }, websocket, fetch: (req, server) => teamFetch(t, req, server, true) })
-  }
+  startLan(t)
 }
 
 // ---------------------------------------------------------------- fixture website

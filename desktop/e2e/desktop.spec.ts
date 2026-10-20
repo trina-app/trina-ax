@@ -450,6 +450,31 @@ test.describe('office direct connection', () => {
     }
   })
 
+  test('when the office address stops answering, the window moves to the team address instead of going offline', async () => {
+    const userData = newUserData()
+    const app = await launch(userData)
+    try {
+      const w = await welcome(app)
+      await w.getByRole('textbox', { name: '팀 주소' }).fill('lan.localhost:19156')
+      await w.getByRole('button', { name: '연결' }).click()
+      const direct = await view(app, (u) => u.startsWith('https://127.0.0.1:19154'), 30_000)
+      await expect.poll(() => direct.evaluate(() => (window as any).testState?.connection?.route)).toBe('direct')
+      await fetch('http://127.0.0.1:19156/test/lan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ up: false }) })
+      // the page navigates (reload, a link) while the office address is gone
+      await app.evaluate(({ webContents }) => {
+        const wc = webContents.getAllWebContents().find((x) => x.getURL().startsWith('https://127.0.0.1:19154'))
+        wc?.reload()
+      })
+      const remote = await view(app, (u) => u.startsWith(LAN), 20_000)
+      await bindWindow(remote, LAN)
+      await expect.poll(() => remote.evaluate(() => (window as any).testState?.connection?.route)).toBe('remote')
+      await expect((await welcome(app)).getByTestId('offline')).toHaveCount(0)
+    } finally {
+      await fetch('http://127.0.0.1:19156/test/lan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ up: true }) })
+      await close(app)
+    }
+  })
+
   test('a LAN certificate that does not match the pin is refused and the team address is used', async () => {
     const app = await launch(newUserData())
     try {

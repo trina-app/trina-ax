@@ -45,6 +45,13 @@ page) and the always-shown notes (script runs, network bodies, blocked office re
 live in the desktop's own UI, not in the team page: a page served through the relay can send browser commands
 but cannot answer the person's prompts.
 
+The pane never opens the team's own addresses (relay and office), this computer (localhost, 127.0.0.0/8, ::1) or
+non-web schemes, whatever anyone answers; its User-Agent ends with `MycelBrowser/1` (`IN_APP_BROWSER_UA_MARK`)
+so the team server can refuse it as a second line.
+
+Packaged builds set Electron fuses (no `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` / `--inspect`, cookies encrypted on
+disk, code only from `app.asar`); the packaged-app test therefore starts the app as a plain process.
+
 ## Commands
 
 ```sh
@@ -68,3 +75,4 @@ Dev against the local team server: `bun run dev:server` at the repo root, then
 | `MYCEL_DESKTOP_USER_DATA` | user data folder (teams.json, partitions, allowed sites) |
 | `MYCEL_DESKTOP_TEAM` | team address to add and open at start (unpackaged builds only) |
 | `MYCEL_DESKTOP_TEST_PUBLIC_HOSTS` | names mapped to 127.0.0.1 and treated as public sites (unpackaged builds only; e2e) |
+| `MYCEL_DESKTOP_TEST_PRIVATE_HOSTS` | office-style names (e.g. `nas.lan`) mapped to 127.0.0.1 (unpackaged builds only; e2e) |
