@@ -1,5 +1,6 @@
 // App-wide middleware, in order: request context -> security headers -> session -> CSRF -> (routes) -> access log.
 import type { Context, MiddlewareHandler } from 'hono'
+import { isInAppBrowserUserAgent } from '@mycel/shared'
 import { CSRF_HEADER, localeFromAcceptLanguage, uuidv7 } from '@mycel/shared/api'
 import type { AppEnv } from './env'
 import { fail } from './errors'
@@ -50,15 +51,21 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
     if (c.req.path.startsWith('/api/')) {
       if (!c.res.headers.has('Cache-Control')) setHeader(c, 'Cache-Control', 'no-store')
     } else {
-      setHeader(c, 'X-Frame-Options', 'DENY')
+      // a page that says who may frame it (CSP frame-ancestors: the artifact receiver /sandbox/frame) keeps that rule;
+      // browsers ignore X-Frame-Options next to frame-ancestors anyway, so DENY there would only mislead
+      const ancestors = /(?:^|;)\s*frame-ancestors\s+([^;]*)/.exec(c.res.headers.get('content-security-policy') ?? '')?.[1]?.trim()
+      if (!ancestors || ancestors === "'none'") setHeader(c, 'X-Frame-Options', 'DENY')
       setHeader(c, 'Cross-Origin-Opener-Policy', 'same-origin')
     }
   }
 }
 
-/** Resolve the session (cookie or bearer) through the session service of component A. */
+/** Resolve the session (cookie or bearer) through the session service of component A. The desktop app's in-app
+ * browser (the pane the AI drives) marks its User-Agent; it never gets the team server, signed in or not (tab 5
+ * "앱 안 브라우저 분리": the desktop blocks team addresses, this is the second fence). */
 export function session(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    if (isInAppBrowserUserAgent(c.req.header('user-agent'))) fail('unauthorized')
     if (c.req.path.startsWith('/api/')) {
       try {
         const auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info'))

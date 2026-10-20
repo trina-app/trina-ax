@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import type { Hono } from 'hono'
+import { IN_APP_BROWSER_UA_MARK } from '@mycel/shared'
 import { API, ApiClient, ApiError, endpoint, multipart, binary, empty, listEndpoints, uuidv7, type Endpoint } from '@mycel/shared/api'
 import { buildApp } from '../../server/src/app'
 import { ConfigError, loadAppConfig, type AppConfig } from '../../server/src/app-config'
@@ -98,6 +99,14 @@ describe('auth levels', () => {
     expect((await req('/api/test/admin', { as: 'admin' })).status).toBe(200)
     expect((await req('/api/test/admin', { as: 'owner' })).status).toBe(200)
     expect((await req('/api/test/owner', { as: 'admin' })).status).toBe(403)
+  })
+  test("the desktop's in-app browser (User-Agent mark) gets 401 everywhere, signed in or not", async () => {
+    const ua = `Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 ${IN_APP_BROWSER_UA_MARK}`
+    for (const p of ['/api/test/admin', '/api/health', '/', '/c/123']) {
+      const r = await req(p, { as: 'owner', headers: { 'user-agent': ua } })
+      expect(r.status).toBe(401)
+    }
+    expect((await req('/api/test/admin', { as: 'owner', headers: { 'user-agent': ua.replace(IN_APP_BROWSER_UA_MARK, '') } })).status).toBe(200)
   })
   test('must-change-password users only reach allowed endpoints', async () => {
     const r = await req('/api/test/admin', { as: 'fresh' })

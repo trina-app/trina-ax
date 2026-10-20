@@ -155,6 +155,8 @@ describe('web app serving', () => {
     expect(csp).toContain('frame-ancestors https://acme.localhost http://acme.localhost')
     expect(csp).toContain('https://acme.localhost/vendor/ http://acme.localhost/vendor/')
     expect(r.headers.get('set-cookie')).toBeNull()
+    // frame-ancestors is the framing rule here; the app-wide X-Frame-Options: DENY is left off
+    expect(r.headers.get('x-frame-options')).toBeNull()
     // the receiver only takes a document from its parent
     expect(SANDBOX_RECEIVER).toContain('e.source !== window.parent')
     expect(SANDBOX_FRAME_URL.startsWith('/sandbox/frame?v=')).toBe(true)
