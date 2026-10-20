@@ -77,6 +77,8 @@ export const AskUserRequest = z.object({
   options: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
   multiple: z.boolean().optional(),
   allowText: z.boolean().optional(),
+  /** when the card closes by itself (the AI then continues without an answer) */
+  expiresAt: z.string().optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })

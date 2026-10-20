@@ -4,6 +4,7 @@ import { Uuid7 } from '../ids'
 import { EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty } from './endpoint'
 import { Chat, Message, Project } from './entities'
+import { TurnRequest } from './ws'
 
 // ---------------- chats ----------------
 export const ListChatsQuery = PageQuery.extend({
@@ -91,6 +92,10 @@ export const TurnAnswerBody = z.discriminatedUnion('kind', [
   }),
 ])
 export type TurnAnswerBody = z.infer<typeof TurnAnswerBody>
+/** Cards still waiting for an answer in this chat (after a reload / resync the client shows them again).
+ * browser_site requests are listed only for the window that sent the turn (X-Mycel-Window). */
+export const OpenTurnRequest = z.object({ turnId: Uuid7, chatId: Uuid7, messageId: Uuid7, request: TurnRequest })
+export type OpenTurnRequest = z.infer<typeof OpenTurnRequest>
 
 // ---------------- projects ----------------
 export const CreateProjectBody = z.object({
@@ -117,6 +122,7 @@ export const CHATS = {
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
   selectBranch: endpoint({ method: 'POST', path: '/api/chats/:id/branch', auth: 'user', owner: 'B', body: SelectBranchBody, response: MessagesPage, summary: 'Switch the visible branch ("< 2/3 >"); returns the newest page of the new path.' }),
+  listTurnRequests: endpoint({ method: 'GET', path: '/api/chats/:id/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: 'Open ask_user / browser site cards of the running turn of this chat.' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),
