@@ -6,6 +6,17 @@ import { uuidv7 } from '@mycel/shared'
 import { TurnFiles } from './files/service'
 
 export interface Peer { pid: number; uid: number; gid: number; pgid: number; sid: number }
+
+/** MCP content blocks our tools return. */
+export type McpContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+/** Tools of one turn besides the six file tools (set by the chat runtime before the engine starts). */
+export interface TurnToolSet {
+  list(): { name: string; description: string; inputSchema: Record<string, unknown> }[]
+  has(name: string): boolean
+  call(name: string, args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary: string }>
+  /** after a file tool call (the runtime publishes files.changed) */
+  afterFileTool?(name: string, isError: boolean, args: unknown): void
+}
 export interface Turn {
   id: string; userId: string; chatId: string; tokenHash: string
   files: TurnFiles
@@ -15,6 +26,8 @@ export interface Turn {
   pgid: number | null
   revoked: boolean
   waiters: (() => void)[]
+  /** extra tools of this turn (chat runtime); absent = file tools only (stage 1) */
+  tools?: TurnToolSet
 }
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
@@ -24,12 +37,15 @@ export class TurnRegistry {
   private byHash = new Map<string, Turn>()
   constructor(private db: Database, private agentUid: number) {}
 
-  create(userId: string, chatId: string, engine = 'claude-code', model: string | null = null): { turn: Turn; token: string } {
-    const id = uuidv7()
+  /** New turn + token. With `existingId` (a queued turn row the chat runtime made), the row is marked running
+   * instead of inserted. */
+  create(userId: string, chatId: string, engine = 'claude-code', model: string | null = null, existingId?: string): { turn: Turn; token: string } {
+    const id = existingId ?? uuidv7()
     const token = crypto.randomBytes(32).toString('base64url')
     const turn: Turn = { id, userId, chatId, tokenHash: h(token), files: new TurnFiles(), pgid: null, revoked: false, waiters: [] }
     this.byId.set(id, turn); this.byHash.set(turn.tokenHash, turn)
-    this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model) VALUES (?,?,?,?,?)').run(id, chatId, userId, engine, model)
+    if (existingId) this.db.query("UPDATE turns SET status = 'running', started_at = ?, engine = ?, model = ? WHERE id = ?").run(new Date().toISOString(), engine, model, id)
+    else this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model) VALUES (?,?,?,?,?)').run(id, chatId, userId, engine, model)
     return { turn, token }
   }
   get(id: string) { return this.byId.get(id) }

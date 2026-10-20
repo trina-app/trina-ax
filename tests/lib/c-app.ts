@@ -11,7 +11,7 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
-import type { AuthInfo, RealtimeHub } from '../../server/src/services'
+import type { AuthInfo, RealtimeConn, RealtimeHub } from '../../server/src/services'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import type { Running } from '../../server/src/server'
 import { WORK } from './env'
@@ -31,6 +31,7 @@ export class RecordingHub implements RealtimeHub {
     for (const u of this.online) { const ev = build(u); if (ev) this.events.push({ userId: u, ev }) }
   }
   disconnectUser() {}
+  async attach(conn: RealtimeConn) { conn.close(1012, 'not in tests') }
   of<T extends ServerEventInput['type']>(type: T, userId?: string) {
     return this.events.filter((e) => e.ev.type === type && (!userId || e.userId === userId)).map((e) => e.ev as Extract<ServerEventInput, { type: T }>)
   }
@@ -82,7 +83,8 @@ export async function makeCApp(name: string, extra: RouteModule[] = [], o: { sta
     },
     register() {},
   }
-  const app = await buildApp(ctx, [sessions, ...ROUTE_MODULES.filter((m) => m.name !== 'web'), ...extra])
+  // the test sessions / hub go last: init() runs in order, so they replace what the real modules installed
+  const app = await buildApp(ctx, [...ROUTE_MODULES.filter((m) => m.name !== 'web'), ...extra, sessions])
   const req: CApp['req'] = (p, init = {}) => {
     const h = new Headers(init.headers)
     if (init.as) h.set('x-test-user', init.as)

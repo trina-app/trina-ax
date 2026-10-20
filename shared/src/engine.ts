@@ -4,8 +4,10 @@ export const EngineErrorCode = z.enum(['auth', 'rate_limit', 'context', 'timeout
 export const EngineEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), delta: z.string() }),
   z.object({ type: z.literal('thinking'), delta: z.string() }),
-  z.object({ type: z.literal('tool_start'), id: z.string(), name: z.string(), summary: z.string() }),
-  z.object({ type: z.literal('tool_end'), id: z.string(), ok: z.boolean(), summary: z.string().optional() }),
+  /** input: the tool input as the engine sent it (server-side only: step labels, audit; never sent to clients raw) */
+  z.object({ type: z.literal('tool_start'), id: z.string(), name: z.string(), summary: z.string(), input: z.unknown().optional() }),
+  /** output: the tool result text (capped), e.g. WebSearch links for the search card */
+  z.object({ type: z.literal('tool_end'), id: z.string(), ok: z.boolean(), summary: z.string().optional(), output: z.string().optional() }),
   z.object({ type: z.literal('session'), sessionId: z.string() }),
   z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional() }),
   z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string() }),

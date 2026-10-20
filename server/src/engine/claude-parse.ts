@@ -12,6 +12,14 @@ export function classifyError(msg: string): EngineErrorCode {
   return 'crash'
 }
 
+/** tool results kept for step details / search cards (the full result stays in the engine session) */
+export const TOOL_OUTPUT_MAX = 20_000
+export function toolResultText(c: unknown): string {
+  if (typeof c === 'string') return c
+  if (Array.isArray(c)) return c.map((x: any) => (x?.type === 'text' && typeof x.text === 'string' ? x.text : '')).filter(Boolean).join('\n')
+  return ''
+}
+
 export class ClaudeStreamParser {
   private sawDeltas = false
   private textOpen = false
@@ -38,13 +46,16 @@ export class ClaudeStreamParser {
       const msg = ev.message ?? {}
       if (msg.stop_reason === 'refusal') this.refused = true
       for (const b of msg.content ?? []) {
-        if (b.type === 'tool_use') out.push({ type: 'tool_start', id: b.id, name: b.name, summary: JSON.stringify(b.input ?? {}).slice(0, 300) })
+        if (b.type === 'tool_use') out.push({ type: 'tool_start', id: b.id, name: b.name, summary: JSON.stringify(b.input ?? {}).slice(0, 300), input: b.input ?? {} })
         else if (b.type === 'text' && !this.sawDeltas && b.text) { this.text += (this.text ? '\n\n' : '') + b.text; out.push({ type: 'text', delta: b.text }) }
       }
       if (ev.error && ev.error !== 'refusal') out.push({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) })
       if (ev.error === 'refusal') this.refused = true
     } else if (ev.type === 'user') {
-      for (const b of ev.message?.content ?? []) if (b.type === 'tool_result') out.push({ type: 'tool_end', id: b.tool_use_id, ok: !b.is_error, summary: typeof b.content === 'string' ? b.content.slice(0, 200) : undefined })
+      for (const b of ev.message?.content ?? []) if (b.type === 'tool_result') {
+        const text = toolResultText(b.content)
+        out.push({ type: 'tool_end', id: b.tool_use_id, ok: !b.is_error, summary: text.slice(0, 200) || undefined, output: text.slice(0, TOOL_OUTPUT_MAX) })
+      }
     } else if (ev.type === 'result') {
       this.result = ev
       if (ev.session_id && !this.sessionId) this.sessionId = ev.session_id

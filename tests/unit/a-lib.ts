@@ -10,7 +10,7 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { authOf, type AuthService } from '../../server/src/auth/service'
-import type { RealtimeHub } from '../../server/src/services'
+import type { RealtimeConn, RealtimeHub } from '../../server/src/services'
 import { WORK } from '../lib/env'
 
 export const SETUP_TOKEN = 'setup-token-for-tests-0123456789'
@@ -35,6 +35,7 @@ export class RecordingHub implements RealtimeHub {
   publishEach() {}
   disconnectUser(userId: string, reason: string) { this.events.push({ kind: 'disconnectUser', target: userId, data: reason }) }
   disconnectSession(sessionId: string, reason: string) { this.events.push({ kind: 'disconnectSession', target: sessionId, data: reason }) }
+  async attach(conn: RealtimeConn) { conn.close(1012, 'not in tests') }
 }
 
 export interface Harness {
