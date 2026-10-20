@@ -9,7 +9,7 @@ import type { RelayEvent } from '@mycel/shared/relay-protocol'
 import type { AppContext } from '../context'
 import type { RelayStatusProvider } from '../services'
 import { RelayClient, relayApiBase, type RelayClientState } from './client'
-import { RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, type Registration } from './registration'
+import { RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, recoverWithCode, type Registration } from './registration'
 
 export { RelayClient, relayApiBase, responseHeaders } from './client'
 export { RelayWebSocket } from './virtual-ws'
@@ -82,6 +82,15 @@ export function startRelayClient(ctx: AppContext): RelayService {
       const state: ConnectionStatus['state'] = s.state === 'stopped' ? 'offline' : s.state
       return { mode, address: s.address ?? reg?.address ?? null, state, detail: s.detail, connectedSince: s.connectedSince ? new Date(s.connectedSince).toISOString() : null, direct }
     },
+    async recover(recoveryCode: string, teamId?: string): Promise<ConnectionStatus> {
+      if (!relayApi || !keyPair) throw new RelayRegistrationError('disabled', 'remote access through a relay is not configured')
+      if (client) throw new RelayRegistrationError('already_connected', 'this server already holds the team address')
+      if (regTimer) { clearTimeout(regTimer); regTimer = null }
+      const r = await recoverWithCode({ db: ctx.db, relayApi, key: keyPair.key, publicKey: keyPair.publicKey, recoveryCode, teamId })
+      log.warn('relay: team address moved to this server with the recovery code', { address: r.address })
+      if (!stopped) begin(r)
+      return service.status()
+    },
     client: () => client,
     registration: () => reg,
     stop() {
@@ -93,7 +102,8 @@ export function startRelayClient(ctx: AppContext): RelayService {
   }
   if (!url) return service
 
-  let relayApi: string
+  let relayApi: string | undefined
+  let keyPair: ReturnType<typeof loadOrCreateKey> | undefined
   try {
     relayApi = relayApiBase(url)
   } catch {
@@ -102,7 +112,6 @@ export function startRelayClient(ctx: AppContext): RelayService {
     return service
   }
   const name = ctx.config.relay.teamName ?? (ctx.config.mode === 'dev' ? DEV_TEAM_NAME : null)
-  let keyPair: ReturnType<typeof loadOrCreateKey>
   try {
     keyPair = loadOrCreateKey(ctx.config.dataDir)
   } catch (e) {
@@ -111,10 +120,11 @@ export function startRelayClient(ctx: AppContext): RelayService {
     return service
   }
   const { key, publicKey } = keyPair
+  const api: string = relayApi
 
   const beat = () => {
     if (!reg) return
-    heartbeat({ db: ctx.db, relayApi, teamId: reg.teamId, key, version: ctx.version }).catch((e) => log.debug('relay heartbeat failed', { err: e }))
+    heartbeat({ db: ctx.db, relayApi: api, teamId: reg.teamId, key, version: ctx.version }).catch((e) => log.debug('relay heartbeat failed', { err: e }))
   }
 
   const begin = (r: Registration) => {
@@ -136,7 +146,7 @@ export function startRelayClient(ctx: AppContext): RelayService {
           client.stop()
           client = null
           if (hbTimer) { clearInterval(hbTimer); hbTimer = null }
-          forgetRegistration(ctx.db, relayApi)
+          forgetRegistration(ctx.db, api)
           pre = { state: 'connecting', detail: 're_registering' }
           regTimer = setTimeout(register, 1000)
           return
@@ -168,12 +178,12 @@ export function startRelayClient(ctx: AppContext): RelayService {
   const register = () => {
     regTimer = null
     if (stopped) return
-    ensureRegistered({ db: ctx.db, dataDir: ctx.config.dataDir, relayApi, name, key, publicKey, log })
+    ensureRegistered({ db: ctx.db, dataDir: ctx.config.dataDir, relayApi: api, name, key, publicKey, log })
       .then((r) => { if (!stopped) begin(r) })
       .catch((e: unknown) => {
         const code = e instanceof RelayRegistrationError ? e.code : 'internal'
         // a taken / reserved / invalid name needs a person: don't retry; an unreachable relay: retry with backoff
-        const permanent = ['name_taken', 'name_reserved', 'invalid_name', 'key_in_use'].includes(code)
+        const permanent = ['name_taken', 'name_reserved', 'invalid_name', 'key_in_use', 'recovery_needed'].includes(code)
         pre = { state: permanent ? 'not_registered' : 'offline', detail: code }
         log.warn('relay registration failed', { code, err: e instanceof Error ? e.message : e, retry: !permanent })
         if (!permanent && !stopped) regTimer = setTimeout(register, Math.min(300_000, 5000 * 2 ** attempt++))

@@ -122,3 +122,32 @@ test('a second start with the same data folder reuses the registration (no new r
   expect(R.relay.registry.list().length).toBe(before)
   await ctx2.close()
 })
+
+test('restore on another Mac: the copied DB has the registration but the key is new -> recovery_needed, then the recovery code moves the address', async () => {
+  const dir3 = path.join(F_WORK, 'app-restored')
+  fs.rmSync(dir3, { recursive: true, force: true })
+  fs.mkdirSync(path.join(dir3, 'data'), { recursive: true })
+  // a DB copy (backups never hold the key: tab 6 "비밀값")
+  const src = openDb(path.join(ctx.config.dataDir, 'app.db'))
+  src.exec(`VACUUM INTO '${path.join(dir3, 'data', 'app.db')}'`)
+  src.close()
+  const db3 = openDb(path.join(dir3, 'data', 'app.db'))
+  const ctx3 = createContext({ config: { ...ctx.config, dataDir: path.join(dir3, 'data'), teamRoot: path.join(dir3, 'team') }, db: db3, log: silentLogger })
+  await buildApp(ctx3, [testModule, ...ROUTE_MODULES])
+  try {
+    await until(() => ctx3.services.relay?.status().detail === 'recovery_needed', 10_000, 'recovery needed')
+    expect(ctx3.services.relay!.status().state).toBe('not_registered')
+    const before = R.relay.registry.list().length
+    // a wrong code is refused and changes nothing
+    await expect(ctx3.services.relay!.recover!('AAAA-BBBB-CCCC-DDDD-EEEE')).rejects.toThrow('bad recovery code')
+    const code = /Recovery code: (\S+)/.exec(fs.readFileSync(path.join(ctx.config.dataDir, 'relay', 'recovery-code.txt'), 'utf8'))![1]
+    await ctx3.services.relay!.recover!(code.toLowerCase())
+    await until(() => ctx3.services.relay?.status().state === 'connected', 10_000, 'restored server connected')
+    expect(R.relay.registry.list().length).toBe(before) // same team, new key
+    expect(ctx3.services.relay!.status().address).toBe(`http://appteam.localhost:${PORT}`)
+    expect(recentRelayEvents(db3).map((e) => e.kind)).toContain('recovered')
+    expect((await fetch(teamUrl(PORT, 'appteam', '/api/health'))).status).toBe(200)
+  } finally {
+    await ctx3.close()
+  }
+})

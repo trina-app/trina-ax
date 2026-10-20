@@ -71,6 +71,13 @@ export interface JobService {
 /** Component F (server/src/relay-client/*). G's /api/admin/connection reads it. */
 export interface RelayStatusProvider {
   status(): ConnectionStatus
+  /**
+   * Move the team address to this server's key with the recovery code printed at registration (a restore on another
+   * Mac, or a lost key file: state not_registered, detail 'recovery_needed'; `teamId` from the printed recovery sheet when this
+   * server has no registration at all). Rejects with a message when the relay
+   * refuses the code. Component G puts it behind an owner screen.
+   */
+  recover?(recoveryCode: string, teamId?: string): Promise<ConnectionStatus>
 }
 
 export interface Services {

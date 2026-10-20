@@ -8,8 +8,9 @@ import type { Database } from 'bun:sqlite'
 import type { KeyObject } from 'node:crypto'
 import { uuidv7 } from '@mycel/shared'
 import {
-  apiSigningString, authorizationHeader, generateTeamKey, loadPrivateKey, powInput, publicKeyOf, registerSigningString,
-  signB64, type PowInfo, type RegisterRequest, type RegisterResponse, type RegistryError, type TeamInfo,
+  apiSigningString, authorizationHeader, generateTeamKey, keyRotationString, loadPrivateKey, powInput, publicKeyOf,
+  registerSigningString, signB64,
+  type PowInfo, type RegisterRequest, type RegisterResponse, type RegistryError, type TeamInfo, type UpdateTeamRequest,
 } from '@mycel/shared/relay-protocol'
 import { createHash } from 'node:crypto'
 
@@ -118,6 +119,9 @@ export async function solvePow(r: Pick<RegisterRequest, 'name' | 'publicKey' | '
 export async function ensureRegistered(o: { db: Database; dataDir: string; relayApi: string; name: string; key: KeyObject; publicKey: string; log: { info(m: string, f?: object): void; warn(m: string, f?: object): void } }): Promise<Registration> {
   const existing = getRegistration(o.db, o.relayApi)
   if (existing && existing.publicKey === o.publicKey) return existing
+  // this team already has the address there, under another key (restored on another Mac, or the key file was lost):
+  // registering again would only find the name taken. The owner moves it with the recovery code (recoverWithCode).
+  if (existing) throw new RelayRegistrationError('recovery_needed', `the team address ${existing.address} is registered with another key; enter the recovery code to move it to this server`)
   const pow = await call<PowInfo>(`${o.relayApi}/teams/pow`, { method: 'GET' })
   const ts = Date.now()
   const base = { name: o.name, publicKey: o.publicKey, ts }
@@ -139,6 +143,27 @@ export async function ensureRegistered(o: { db: Database; dataDir: string; relay
   ].join('\n'), { mode: 0o600 })
   recordRelayEvent(o.db, 'registered', r.address)
   o.log.warn('relay: team address registered; the recovery code was saved once, print it and delete the file', { address: r.address, file })
+  return reg
+}
+
+/**
+ * Lost key / restore: move the registered address (team id from this server's registration) to the current key with
+ * the recovery code. The new key signs the rotation; the relay disconnects whatever still uses the old key.
+ */
+export async function recoverWithCode(o: { db: Database; relayApi: string; key: KeyObject; publicKey: string; recoveryCode: string; teamId?: string }): Promise<Registration> {
+  const existing = getRegistration(o.db, o.relayApi)
+  const teamId = o.teamId ?? existing?.teamId
+  if (!teamId) throw new RelayRegistrationError('not_registered', 'this server has no team address at this relay to recover')
+  const code = o.recoveryCode.trim()
+  if (!code) throw new RelayRegistrationError('invalid_request', 'recovery code required')
+  const body: UpdateTeamRequest = { publicKey: o.publicKey, newKeySig: signB64(o.key, keyRotationString(teamId, o.publicKey)), recoveryCode: code }
+  const info = await call<TeamInfo>(`${o.relayApi}/teams/${teamId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const reg: Registration = {
+    relayApi: o.relayApi, teamId: info.teamId, teamName: info.name, publicKey: o.publicKey, address: info.address,
+    registeredAt: existing?.registeredAt ?? new Date().toISOString(), lastHeartbeatAt: info.lastHeartbeatAt,
+  }
+  saveRegistration(o.db, reg)
+  recordRelayEvent(o.db, 'recovered', info.address)
   return reg
 }
 
