@@ -109,3 +109,23 @@
 - **엔진 코어(도구 관문·실행기)는 처음 쓸 때 시작**(`ctx.core()`). 웹·파일 화면만 개발할 때 Go 빌드가 없어도 서버가 뜬다.
 - **Bun.serve `maxRequestBodySize` = 51MB**(작은 업로드 50MB + 여유). 큰 파일은 조각 업로드(8MB)만.
 - **불안정하던 실행기 시험의 원인**: 실행기가 `.turn` 폴더를 `defer`로 지워서 "exit" 이벤트를 보낸 뒤에 지워졌다. exit 전에 지우도록 고쳤다(시험도 고정 대기 대신 이벤트 기준).
+
+## F 중계 (relay, 2026-10-21)
+
+- **프레임은 스파이크 REPORT 그대로**: `[type u8][streamId u32][flags u8][len u32]`, payload 최대 64KB, type 1 OPEN·2 DATA·3 END·4 RST·5 WINDOW·6 PING·7 PONG·8 GOAWAY·9 RESPONSE·10 EVENT, RST 코드 1 CANCEL·2 CONN_LOST·3 FLOW_CONTROL·4 PROTOCOL·5 TEAM_OFFLINE·6 REFUSED·7 TIMEOUT·8 REPLACED, 제어 연결 닫기 코드 4003·4004·4008·4009. 설계서 6번 탭 "세부 규약"의 다른 번호표(2 HEAD, FIN 비트, opcode 바이트)는 따르지 않았다 — 작업 지시가 REPORT 기준이고 시험(t1–t8)이 이 형식으로 통과했기 때문. 설계서 표는 나중에 이 형식으로 맞춘다.
+- **REPORT에 없던 것 몇 가지를 더했다**: ① DATA 플래그 `WS_CLOSE`(4): WebSocket 닫기 코드를 실어 나른다(B의 4401 "재연결 금지"·4409·1012가 브라우저까지 가야 해서). 창을 쓰지 않고, 뒤에 END. ② 닫기 코드 4005(공통 버전 없음 → 팀 서버는 다시 붙지 않고 "업데이트 필요"), 4010(운영자가 팀 차단). ③ 브라우저 쪽 닫기 코드 4408(느림 → 이어받기). ④ OPEN/RESPONSE 헤더는 `[이름, 값]` 쌍 목록(Set-Cookie 여러 개를 보존). OPEN에 `host`·`proto`를 넣어 팀 서버가 공개 주소로 Request를 만든다(Origin 검사가 그대로 동작).
+- **핸드셰이크**: 중계가 `{t:'challenge', vs:[2], nonce, ts}`, 팀 서버가 `{t:'auth', v, team, instance, conn, ts, sig}`, 서명 문자열은 `mycel-relay-v2\n팀id\n인스턴스\nnonce\nts`(설계서의 버전 협상 + REPORT의 인스턴스). 팀은 이름이 아니라 등록 때 받은 팀 id로 붙는다(이름은 바뀔 수 있음).
+- **WebSocket은 팀 서버가 받아들인 뒤에 브라우저 핸드셰이크를 끝낸다**: 중계가 OPEN(kind ws)을 보내고 RESPONSE 101(+고른 subprotocol)을 받은 다음 `handleUpgrade`. 브라우저가 subprotocol을 보냈는데 서버가 하나를 고르지 않으면 Chrome이 연결을 끊기 때문. 팀 서버는 `mycel.v1`이 있으면 그것을, 없으면 첫 번째를 고른다. 팀이 꺼져 있으면 핸드셰이크를 끝낸 뒤 1013으로 닫는다(브라우저는 실패한 업그레이드의 상태 코드를 못 읽음).
+- **큰 WebSocket 메시지의 조각은 도착하는 즉시 창을 돌려준다**: 메시지 전체가 와야 창을 돌려주면 창(256KB)보다 큰 메시지가 영원히 끝나지 않는다(시험에서 발견). 대신 조립 버퍼에 16MB 상한.
+- **중계 경유 WebSocket과 실시간 허브의 이음매**: `server/src/services.ts`에 `VirtualWebSocket`과 `RealtimeHub.attachVirtual?(ws, req, info)`를 **추가**했다(설계서 4번 탭의 `WsHub.attach(conn, req, meta)`). B가 이 메서드를 구현하면 중계로 온 `/api/ws`가 직접 연결과 같은 인증(쿠키 + Origin, ticket)·이어받기 규칙으로 붙는다. 구현 전에는 중계 클라이언트가 연결을 받은 뒤 1013("realtime not available")으로 닫는다. 가상 소켓은 `bufferedAmount`(스트림에 쌓인 바이트)를 주므로 B의 4408 규칙이 그대로 쓰이고, 그보다 256KB 위에서 스트림을 RST하는 안전장치가 있다.
+- **중계 기록**: 로그 필드는 팀 id, 바이트 수, 스트림 수, 시각, 지속 시간뿐(`relay/src/log.ts`가 ip·path·host·url·headers 이름의 필드를 버리고, 시험이 로그 전체에서 IP·경로·호스트가 없는지 확인). 레지스트리에도 IP·이메일 열이 없다. 등록 횟수 제한(IP당 시간당 10회)은 메모리에만.
+- **재시작 보류(hold)**: 팀이 붙어 있지 않을 때 요청은 최대 5초 기다린다 — 중계가 시작한 지 5초 안이거나, 팀이 끊긴 지 5초 안이거나, 붙어 있지만 모든 연결이 점검 중일 때만. 한 번도 안 붙은 팀은 바로 503.
+- **멈춘 스트림 점검(stall probe)**: 응답 머리를 5초 넘게 기다리는 스트림이 있고 그 연결에서 5초 동안 아무것도 안 왔으면 PING, 10초 안에 아무 것도 안 오면 그 연결을 4008로 끊고(그 위 스트림은 502) 새 스트림을 주지 않는다. 45초 무응답 감지보다 훨씬 빨리 멈춘 팀 서버를 알아챈다(t5b: 약 4초).
+- **응답 시간 제한 100초는 요청 본문이 끝난 뒤부터**(느린 업로드가 504가 되지 않게). Cloudflare 524(100초)와 맞췄다.
+- **새 인스턴스 알림은 진짜 다른 서버가 살아 있었을 때만**: 같은 키로 새 인스턴스가 붙을 때 이전 인스턴스가 최근 25초 안에 무언가 보냈으면(살아 있는 다른 서버) 양쪽에 EVENT `instance_replaced`를 보내 owner·관리자에게 알린다. 팀 서버가 재시작하면서 남은 반쯤 죽은 연결을 대체하는 평범한 경우에는 알리지 않는다. 다른 키로 붙으려는 시도는 4003 + 연결된 팀에 `key_rejected`(1분에 한 번).
+- **팀 서버 쪽 상태 저장**: 개인 키는 `<data>/relay/team-key.pem`(600, 폴더 700), 등록 정보는 마이그레이션 `600_f_relay.sql`의 `relay_registrations`(중계 API 주소별), 연결 기록은 `relay_events`(30일, 진단 화면용). 복구 코드는 한 번만: `<data>/relay/recovery-code.txt`(600)와 로그 — 화면에 보여 주고 지우는 일은 G/A의 관리 화면 몫.
+- **등록은 처음 시작할 때 자동**(설정 `relay.url` + `relay.teamName`, 환경 변수 `MYCEL_RELAY_URL`·`MYCEL_RELAY_TEAM`). 이름이 이미 있음·예약어·형식 오류는 다시 시도하지 않고 상태 `not_registered`(+detail)로 보여 준다. 중계에 닿지 않으면 5초부터 최대 5분 간격으로 다시 시도. 개발 모드에서 이름을 안 주면 `myteam`.
+- **레지스트리 API의 서명**: `Authorization: MycelRelay team=<id>, ts=<ms>, sig=<b64>`, 서명 문자열 `mycel-relay-api-v1\nMETHOD\npath\nts\nsha256(body)`(±60초). 등록은 키 소유 서명 + 작업 증명(기본 20비트, 개발 8비트). 키를 잃었을 때는 복구 코드로 키만 바꿀 수 있다(새 키가 회전 문자열에 서명해야 함). 바꾸면 옛 키의 연결은 4003으로 끊긴다.
+- **예약어**: 지금 treesoop.com에 있는 레코드(www, 확인함) + relay·releases·api·mail 등 서비스 이름 + 공식처럼 보이는 이름(admin, support, treesoop, mycel, claude, openai …). 운영자가 `RELAY_RESERVED`로 더하거나 `node relay/src/main.ts block <이름>`으로 막는다.
+- **중계 실행 환경**: Node 25(`node:http` + `ws` 8.18.0, 레지스트리는 `node:sqlite`). 같은 코드가 Bun에서도 돌아서 단위 시험은 Bun 안에서(bun:sqlite) 돌리고, 실제 런타임 차이가 중요한 시험(t1–t9)은 Node 프로세스로 띄운다. 공용 프로토콜 파일은 Node가 바로 읽도록 `.ts` 확장자 import와 지울 수 있는 TypeScript만 쓴다.
+- **Bun 쪽 팀 서버의 송신 버퍼**: Bun 클라이언트 WebSocket은 `bufferedAmount`가 늘 0이라(REPORT) 팀 서버 쪽 다중화기는 스트림 창(256KB)으로만 메모리가 묶인다. 스트림마다 최대 창 하나 + 앱이 내놓은 조각 하나.
