@@ -88,7 +88,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
   return (
-    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message">
+    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id}>
       {m.attachments.map((a) => (
         <AttachmentView key={a.id} a={a} />
       ))}
@@ -237,7 +237,7 @@ export function AssistantMessage({
   const errText = m.error ? (known && Object.values(known).includes(m.error.message) ? known[locale] : m.error.message) : null
 
   return (
-    <div className="group flex gap-3" data-testid="assistant-message" data-status={m.status} aria-busy={streaming}>
+    <div className="group flex gap-3" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
       <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text" aria-hidden>
         <Sparkles size={15} />
       </div>
