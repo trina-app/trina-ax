@@ -37,8 +37,8 @@ export function codeOf(pre: Element | undefined): { lang: string | null; code: s
 let mermaidReady: Promise<typeof import('mermaid').default> | null = null
 const loadMermaid = () =>
   (mermaidReady ??= import('mermaid').then(({ default: m }) => {
-    const dark = document.documentElement.classList.contains('dark')
-    m.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'neutral' })
+    // always the light theme: diagrams sit on a white card in both app themes (readable when copied or printed)
+    m.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
     return m
   }))
 const drawn = new Map<string, string>()

@@ -3,6 +3,7 @@ import { reset, signIn } from './helpers'
 
 test('screenshots', async ({ page }) => {
   test.skip(!process.env.SHOTS, 'only with SHOTS=1')
+  if (process.env.DARK) await page.emulateMedia({ colorScheme: 'dark' })
   await reset(page)
   await signIn(page)
   await page.screenshot({ path: 'test-results/shot-home.png' })
