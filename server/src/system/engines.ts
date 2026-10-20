@@ -4,6 +4,7 @@
 // secrets/claude-oauth-token; Codex needs a separate device-auth login of the engine account. Never returns account
 // names or e-mail addresses.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 export interface EngineLogin {
@@ -16,8 +17,17 @@ export interface EngineLogin {
   reason: 'not_installed' | 'not_logged_in' | 'setup_token_missing' | 'engine_login_missing' | 'check_failed' | null
 }
 
+/**
+ * A minimal environment for the status commands. USER / LOGNAME are needed: Claude Code finds its macOS keychain
+ * entry by the account name, and without them `claude auth status` answers "loggedIn: false" for a working login.
+ */
+export function checkEnv(): Record<string, string> {
+  const user = os.userInfo().username
+  return { HOME: process.env.HOME ?? os.homedir(), PATH: process.env.PATH ?? '/usr/bin:/bin', USER: user, LOGNAME: user, DISABLE_AUTOUPDATER: '1' }
+}
+
 async function run(cmd: string[], timeoutMs: number): Promise<{ code: number; out: string }> {
-  const p = Bun.spawn(cmd, { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', cwd: '/', env: { HOME: process.env.HOME ?? '/', PATH: process.env.PATH ?? '/usr/bin:/bin', DISABLE_AUTOUPDATER: '1' } })
+  const p = Bun.spawn(cmd, { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', cwd: '/', env: checkEnv() })
   const t = setTimeout(() => p.kill('SIGKILL'), timeoutMs)
   try {
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
