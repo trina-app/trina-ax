@@ -58,6 +58,29 @@ func checkDedicated() error {
 	return nil
 }
 
+// killLeftovers kills every other process of this uid at start. Not kill(-1, SIGKILL): on macOS that also kills the
+// caller, so the LaunchDaemon died at every start (found by the install test, tests/install/g-macos-install.ts).
+func killLeftovers() {
+	me := os.Getpid()
+	for round := 0; round < 3; round++ {
+		ps, err := peer.OwnProcs(os.Getuid())
+		if err != nil {
+			return // no process list: the reaper catches orphans between turns
+		}
+		n := 0
+		for _, p := range ps {
+			if p.Pid != me {
+				_ = syscall.Kill(p.Pid, syscall.SIGKILL)
+				n++
+			}
+		}
+		if n == 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session.
 func reaper() {
 	me, myPpid := os.Getpid(), os.Getppid()
@@ -201,7 +224,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "mycel-launcher:", err)
 			os.Exit(2)
 		}
-		_ = syscall.Kill(-1, syscall.SIGKILL) // leftovers of a previous launcher (setsid escapees, crashed turns)
+		killLeftovers() // leftovers of a previous launcher (setsid escapees, crashed turns)
 		go reaper()
 	}
 	_ = os.Remove(*listen)
