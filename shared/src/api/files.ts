@@ -64,7 +64,23 @@ export const DeleteResult = z.object({ trashId: Uuid7, purgeAt: IsoTime })
 export const HistoryResponse = z.object({ path: RelPath, items: z.array(FileVersion) })
 /** Restore an old version of a file (the current content becomes a new version first). */
 export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7 })
+/** mine: only items the caller deleted */
 export const TrashQuery = PageQuery.extend({ mine: QueryBool.optional() })
+
+/** Response header of GET /api/files/content: sha256 of the whole file (send it back as baseSha256 when saving). */
+export const CONTENT_SHA_HEADER = 'x-content-sha256'
+
+/**
+ * Links the AI hands out with share_file (design tab 3). Both are team-server relative URLs; whoever opens them is
+ * checked again with their own session, so a link never grants access by itself.
+ * - preview: the web app's file viewer route (component D renders it from /api/files/content or /download)
+ * - download: the download endpoint itself
+ */
+export const FILE_VIEW_PATH = '/files/view'
+export function fileShareUrl(path: string, mode: 'preview' | 'download'): string {
+  const q = 'path=' + encodeURIComponent(path)
+  return mode === 'preview' ? `${FILE_VIEW_PATH}?${q}` : `/api/files/download?${q}&disposition=attachment`
+}
 
 // ---------------- attachments + upload sessions ----------------
 export const AttachmentUploadFields = z.object({ chatId: Uuid7, name: z.string().min(1).max(255).optional() })
@@ -95,8 +111,9 @@ export const FILES = {
   history: endpoint({ method: 'GET', path: '/api/files/history', auth: 'user', owner: 'C', query: PathQuery, response: HistoryResponse, summary: 'Version history of a file.' }),
   versionDownload: endpoint({ method: 'GET', path: '/api/files/history/:versionId/download', auth: 'user', owner: 'C', response: stream(true), summary: 'Download an old version (read access to its path).' }),
   restoreVersion: endpoint({ method: 'POST', path: '/api/files/restore', auth: 'user', owner: 'C', body: RestoreVersionBody, response: SaveResult, summary: 'Restore an old version of a file.' }),
-  trash: endpoint({ method: 'GET', path: '/api/files/trash', auth: 'user', owner: 'C', query: TrashQuery, response: page(TrashItem), summary: 'Trash items whose original path the caller can read.' }),
-  restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', response: MoveResult, summary: 'Put a trashed item back (write access to the original path).' }),
+  trash: endpoint({ method: 'GET', path: '/api/files/trash', auth: 'user', owner: 'C', query: TrashQuery, response: page(TrashItem), summary: 'Trash items the caller could restore (write access to the original path).' }),
+  restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', response: MoveResult, summary: 'Put a trashed item back (write access to the original path; " (복원됨)" is added when the name is taken).' }),
+  purgeTrash: endpoint({ method: 'DELETE', path: '/api/files/trash/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a trashed item for good (admin or owner).' }),
 
   uploadAttachment: endpoint({ method: 'POST', path: '/api/uploads', auth: 'user', owner: 'C', status: 201, body: multipart(AttachmentUploadFields, SMALL_UPLOAD_MAX), response: Attachment, summary: 'Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/.' }),
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment.' }),
