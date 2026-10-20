@@ -3,7 +3,7 @@
 // another account without root, so it asks this program over launcher.sock (only the server uid may connect).
 //
 // Protocol (JSON lines): server sends one LaunchRequest (see shared/src/engine.ts) and may later send
-// {"op":"kill"}. The launcher answers {"ev":"started","pid","pgid"}, then {"ev":"stdout"|"stderr","b64"} chunks,
+// {"op":"kill"}; closing the connection before the exit event counts as kill. The launcher answers {"ev":"started","pid","pgid"}, then {"ev":"stdout"|"stderr","b64"} chunks,
 // then {"ev":"exit","code","signal","session"}. The engine runs in a new session (setsid) so its process group
 // id = session id = engine pid; the whole group is killed when the turn ends.
 //
@@ -448,18 +448,25 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	go pump("stderr", stderr)
 
 	stopping := make(chan struct{}, 1)
+	stop := func() {
+		select {
+		case stopping <- struct{}{}:
+		default:
+		}
+	}
 	go func() { // control messages from the server
 		for {
 			l, err := r.ReadBytes('\n')
 			if err != nil {
+				// the server's end of this connection is gone (crash, kill -9, restart): nobody can read the answer
+				// or stop the turn any more, and the turn's token died with the server. Stop the engine now instead
+				// of letting it run (and spend the subscription) until the backstop timeout.
+				stop()
 				return
 			}
 			var m map[string]any
 			if json.Unmarshal(l, &m) == nil && m["op"] == "kill" {
-				select {
-				case stopping <- struct{}{}:
-				default:
-				}
+				stop()
 			}
 		}
 	}()
