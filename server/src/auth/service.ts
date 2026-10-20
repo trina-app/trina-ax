@@ -51,8 +51,10 @@ export function readToken(req: Request): { token: string; via: 'cookie' | 'beare
       if (p.startsWith(WS_BEARER_PREFIX)) { const t = p.slice(WS_BEARER_PREFIX.length); if (/^[A-Za-z0-9_-]{20,200}$/.test(t)) return { token: t, via: 'bearer' } }
     }
   }
+  // Only the cookie name of this scheme: on https only __Host-sid, which another *.treesoop.com site cannot set.
+  // Accepting the dev name there would let a sibling team address plant a session cookie (session fixation, tab 7).
   const cookies = parseCookies(req.headers.get('cookie'))
-  const c = cookies.get(SESSION_COOKIE) ?? cookies.get(DEV_SESSION_COOKIE)
+  const c = cookies.get(cookieFor(req.url).name)
   if (c && /^[A-Za-z0-9_-]{20,200}$/.test(c)) return { token: c, via: 'cookie' }
   return null
 }
@@ -107,12 +109,25 @@ export class AuthService implements SessionService {
   /** owner-reauth and "current password" checks; rate-limited per person. */
   async verifyPassword(userId: string, password: string, _info: RequestInfo): Promise<boolean> {
     const key = reauthKey(userId)
-    const wait = this.limiter.retryAfter([key])
-    if (wait > 0) fail('rate_limited', undefined, { retryAfter: wait })
+    const hold = this.limiter.hold([key])
+    if (hold.wait > 0) fail('rate_limited', undefined, { retryAfter: hold.wait })
     const u = getUser(this.db, userId)
-    const ok = !!u && u.status === 'active' && (await verifyPassword(password, u.password_hash))
-    if (!ok) { this.limiter.fail([key]); audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId }) }
+    let ok = false
+    try { ok = !!u && u.status === 'active' && (await verifyPassword(password, u.password_hash)) } catch (e) { hold.release(); throw e }
+    if (ok) hold.release()
+    else audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId })
     return ok
+  }
+
+  private recent = new Map<string, number>()
+  /** true at most once a minute per key (throttles audit rows for refused attempts); memory stays bounded */
+  firstInMinute(key: string): boolean {
+    const now = this.now()
+    const last = this.recent.get(key)
+    if (last !== undefined && now - last < 60_000) return false
+    if (this.recent.size >= 10_000) this.recent.clear()
+    this.recent.set(key, now)
+    return true
   }
 
   // ---------------- sessions ----------------

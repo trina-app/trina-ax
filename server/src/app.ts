@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import type { AppContext } from './context'
 import type { AppEnv } from './http/env'
 import { HttpError } from './http/errors'
-import { csrf, requestContext, securityHeaders, session } from './http/middleware'
+import { csrf, loggablePath, requestContext, securityHeaders, session } from './http/middleware'
 import { RouteKit } from './http/route'
 import { ROUTE_MODULES, type RouteModule } from './routes'
 
@@ -24,7 +24,7 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
       if (err.retryAfter !== undefined) c.header('Retry-After', String(err.retryAfter))
       return c.json({ error: err.body(locale, rid) }, err.status as 400)
     }
-    ;(c.get('log') ?? ctx.log).error('unhandled error', { err, method: c.req.method, path: c.req.path })
+    ;(c.get('log') ?? ctx.log).error('unhandled error', { err, method: c.req.method, path: loggablePath(c.req.path) })
     return c.json({ error: new HttpError('internal').body(locale, rid) }, 500)
   })
   app.notFound((c) => {

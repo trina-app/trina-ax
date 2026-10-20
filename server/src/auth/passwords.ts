@@ -1,21 +1,43 @@
 // Passwords: argon2id via Bun.password, the password policy, temporary passwords, opaque tokens.
 import crypto from 'node:crypto'
+import { fail } from '../http/errors'
 
 /** argon2id, 64 MiB, 2 passes (Bun's defaults; OWASP minimum is 19 MiB / 2). */
 const ARGON = { algorithm: 'argon2id', memoryCost: 65536, timeCost: 2 } as const
 
-export const hashPassword = (pw: string): Promise<string> => Bun.password.hash(pw, ARGON)
+// At most HASH_SLOTS argon2id runs at a time (64 MiB each) and at most HASH_QUEUE waiting: a flood of sign-in
+// requests (many IPs, made-up usernames) queues or gets 429 instead of exhausting memory and CPU.
+export const HASH_SLOTS = 4
+export const HASH_QUEUE = 200
+let active = 0
+const waiting: (() => void)[] = []
+export const hashLoad = () => ({ active, waiting: waiting.length })
 
-/** Verify; never throws (a malformed stored hash is a mismatch). */
+async function slot<T>(fn: () => Promise<T>): Promise<T> {
+  if (active < HASH_SLOTS) active++
+  else {
+    if (waiting.length >= HASH_QUEUE) fail('rate_limited', undefined, { retryAfter: 2 })
+    await new Promise<void>((r) => waiting.push(r)) // the finishing run hands its slot over
+  }
+  try { return await fn() } finally {
+    const next = waiting.shift()
+    if (next) next()
+    else active--
+  }
+}
+
+export const hashPassword = (pw: string): Promise<string> => slot(() => Bun.password.hash(pw, ARGON))
+
+/** Verify; a malformed stored hash is a mismatch. Throws only rate_limited when the server is saturated. */
 export async function verifyPassword(pw: string, hash: string | null | undefined): Promise<boolean> {
-  if (!hash) { await Bun.password.verify(pw, await dummyHash()).catch(() => false); return false }
-  try { return await Bun.password.verify(pw, hash) } catch { return false }
+  if (!hash) { const d = await dummyHash(); await slot(() => Bun.password.verify(pw, d).catch(() => false)); return false }
+  return slot(() => Bun.password.verify(pw, hash).catch(() => false))
 }
 
 let dummy: Promise<string> | null = null
 /** A real argon2id hash used when the account does not exist, so the response time does not reveal that. */
 export function dummyHash(): Promise<string> {
-  dummy ??= hashPassword(crypto.randomBytes(16).toString('hex'))
+  dummy ??= Bun.password.hash(crypto.randomBytes(16).toString('hex'), ARGON)
   return dummy
 }
 

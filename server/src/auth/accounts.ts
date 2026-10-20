@@ -97,18 +97,24 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const locale = c.get('locale')
   const ip = c.get('info').ip
   const keys = [accountKey(b.username), ...ipKeys(ip)]
-  const wait = a.limiter.retryAfter(keys)
-  if (wait > 0) {
-    audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: getUserByUsername(ctx.db, b.username)?.id ?? null, detail: { ip, via: c.get('info').via } })
-    fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: wait })
+  // counted before the (slow) password check, so parallel guesses cannot slip past the limit
+  const hold = a.limiter.hold(keys)
+  if (hold.wait > 0) {
+    // one audit row per client IP (or account, when the IP is unknown) and minute: a flood of refused attempts,
+    // even with made-up usernames, cannot fill the disk
+    if (a.firstInMinute(ip ? `rl-ip:${ip}` : `rl-user:${b.username.toLowerCase()}`)) {
+      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: getUserByUsername(ctx.db, b.username)?.id ?? null, detail: { ip, via: c.get('info').via } })
+    }
+    fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   }
   const u = getUserByUsername(ctx.db, b.username)
-  const ok = await verifyPassword(b.password, u?.password_hash)
+  let ok = false
+  try { ok = await verifyPassword(b.password, u?.password_hash) } catch (e) { hold.release(); throw e }
   if (!u || !ok) {
-    a.limiter.fail(keys)
     audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: c.get('info').via } })
     fail('unauthorized', msg('badLogin', locale))
   }
+  hold.release()
   if (u!.status !== 'active') fail('forbidden', msg('accountDisabled', locale))
   a.limiter.clear(accountKey(b.username))
   audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: c.get('info').via, client: b.client } })
@@ -190,15 +196,17 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   checkNewPassword(b.password, b.username, locale, 'body.password')
   const passwordHash = await hashPassword(b.password)
-  const id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
   const groups = existingGroups(ctx.db, parseIds(r!.group_ids))
   const settings = getTeamSettings(ctx.db)
+  let id = ''
   const tx = ctx.db.transaction(() => {
     const now = new Date(a.now()).toISOString()
+    if (usernameTaken(ctx.db, b.username)) throw new UsernameTaken()
+    // derived inside the transaction so a concurrent sign-up cannot take the same id
+    id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
     // one use only, even with concurrent accepts
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
     if (res.changes !== 1) return 'gone'
-    if (usernameTaken(ctx.db, b.username)) throw new UsernameTaken()
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: r!.role, locale: b.locale ?? settings.defaultLocale, mustChangePassword: false, groupIds: groups })
     audit(ctx.db, { actor: id, action: 'invite.accept', target: r!.id, detail: { userId: id, role: r!.role, groupIds: groups } })
     return 'ok'

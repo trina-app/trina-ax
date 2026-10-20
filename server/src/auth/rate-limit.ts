@@ -57,6 +57,27 @@ export class RateLimiter {
     return Math.max(wait, 0)
   }
 
+  /**
+   * Check the limits and, when under them, count this attempt right away (before the slow password check), so
+   * concurrent requests cannot all pass the check before any failure is recorded. Throws nothing: returns the wait
+   * in seconds (> 0 = refused, nothing recorded) or a hold whose `release()` un-counts the attempt when it succeeded.
+   */
+  hold(keys: LimitKey[]): { wait: number; release(): void } {
+    const wait = this.retryAfter(keys)
+    if (wait > 0) return { wait, release() {} }
+    const at = this.now()
+    const ids: number[] = []
+    const q = this.db.query('INSERT INTO login_attempts (key, at) VALUES (?, ?)')
+    this.db.transaction(() => { for (const k of keys) ids.push(Number(q.run(keyStr(k), at).lastInsertRowid)) })()
+    return {
+      wait: 0,
+      release: () => {
+        const del = this.db.query('DELETE FROM login_attempts WHERE id = ?')
+        this.db.transaction(() => { for (const id of ids) del.run(id) })()
+      },
+    }
+  }
+
   fail(keys: LimitKey[]): void {
     const at = this.now()
     const q = this.db.query('INSERT INTO login_attempts (key, at) VALUES (?, ?)')
