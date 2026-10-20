@@ -1,7 +1,7 @@
 // The web page's browser relay (shared/src/desktop-bridge.ts): ack, run once, re-send results after a replay,
 // window filtering, cancel, malformed results, old desktop apps.
 import { describe, expect, test } from 'bun:test'
-import { ConnectInfo, createBrowserRelay, DESKTOP_BRIDGE_VERSION, getDesktopBridge, type DesktopBridge } from '../../shared/src/desktop-bridge'
+import { browserResultChars, ConnectInfo, createBrowserRelay, DESKTOP_BRIDGE_VERSION, getDesktopBridge, IN_APP_BROWSER_UA_MARK, isInAppBrowserUserAgent, type DesktopBridge } from '../../shared/src/desktop-bridge'
 import type { BrowserCall, BrowserResult } from '../../shared/src/api/browser'
 import type { ClientFrame, ServerFrame } from '../../shared/src/api/ws'
 import { uuidv7 } from '../../shared/src/ids'
@@ -99,6 +99,59 @@ describe('createBrowserRelay', () => {
     expect(f.runs()).toBe(0)
     const r = sent.at(-1) as Extract<ClientFrame, { type: 'browser.result' }>
     expect(r.result.error).toContain('update the desktop app')
+  })
+
+  test('kept results are bounded by size: big screenshots do not pile up in the web page', async () => {
+    const big = 'x'.repeat(1000)
+    const f = fakeBridge(async (c) => ({ callId: c.callId, ok: true, content: [{ type: 'image', mime: 'image/jpeg', data: big }] }))
+    const sent: ClientFrame[] = []
+    const relay = createBrowserRelay({ bridge: f.bridge, windowId: 'win-aaaaaaaa', send: (x) => sent.push(x), keepChars: 2500 })
+    for (const id of ['a', 'b', 'c', 'd']) relay.handle(ev('win-aaaaaaaa', call({ callId: id })))
+    await tick()
+    expect(f.runs()).toBe(4)
+    // c and d (2000 chars) are still remembered: replays are answered without running again
+    relay.handle(ev('win-aaaaaaaa', call({ callId: 'd' })))
+    relay.handle(ev('win-aaaaaaaa', call({ callId: 'c' })))
+    await tick()
+    expect(f.runs()).toBe(4)
+    // a was forgotten: a replay of it runs again (the desktop app's own dedupe still answers it once)
+    relay.handle(ev('win-aaaaaaaa', call({ callId: 'a' })))
+    await tick()
+    expect(f.runs()).toBe(5)
+    expect(browserResultChars({ callId: 'x', ok: false, content: [{ type: 'text', text: 'abc' }], error: 'ab' })).toBe(5)
+  })
+
+  test('a closed WebSocket (send throws) or a bridge that throws synchronously does not break the relay', async () => {
+    let open = false
+    const sent: ClientFrame[] = []
+    const send = (x: ClientFrame) => {
+      if (!open) throw new Error('WebSocket is closed')
+      sent.push(x)
+    }
+    const f = fakeBridge(async (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'done' }] }))
+    const relay = createBrowserRelay({ bridge: f.bridge, windowId: 'win-aaaaaaaa', send })
+    expect(() => relay.handle(ev('win-aaaaaaaa', call()))).not.toThrow()
+    await tick()
+    // after the reconnect the server replays the call: the remembered result goes out, nothing runs twice
+    open = true
+    relay.handle(ev('win-aaaaaaaa', call()))
+    await tick()
+    expect(f.runs()).toBe(1)
+    expect(sent.map((x) => x.type)).toEqual(['browser.result'])
+
+    const sync = fakeBridge(() => {
+      throw new Error('ipc gone')
+    })
+    const out: ClientFrame[] = []
+    createBrowserRelay({ bridge: sync.bridge, windowId: 'win-aaaaaaaa', send: (x) => out.push(x) }).handle(ev('win-aaaaaaaa', call({ callId: 'c9' })))
+    await tick()
+    expect((out.at(-1) as Extract<ClientFrame, { type: 'browser.result' }>).result.error).toContain('ipc gone')
+  })
+
+  test('the in-app browser User-Agent mark is recognised (the team server refuses those requests)', () => {
+    expect(isInAppBrowserUserAgent(`Mozilla/5.0 (Macintosh) Chrome/140.0.0.0 Safari/537.36 ${IN_APP_BROWSER_UA_MARK}`)).toBe(true)
+    expect(isInAppBrowserUserAgent('Mozilla/5.0 (Macintosh) Chrome/140.0.0.0 Safari/537.36')).toBe(false)
+    expect(isInAppBrowserUserAgent(null)).toBe(false)
   })
 
   test('getDesktopBridge is null outside the desktop app', () => {

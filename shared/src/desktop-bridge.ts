@@ -20,6 +20,18 @@ export const DESKTOP_BRIDGE_GLOBAL = 'mycelDesktop'
 /** Bumped when the bridge changes incompatibly. The web page can ask for a minimum (createBrowserRelay). */
 export const DESKTOP_BRIDGE_VERSION = 1
 
+/**
+ * Token at the end of the User-Agent of the desktop app's in-app browser (the pane the AI drives). The pane never
+ * opens team addresses (blocked in the desktop app); as a second line the team server answers 401 to any request
+ * whose User-Agent contains this token (design tab 5 "앱 안 브라우저 분리"). Owner of the server check: A.
+ */
+export const IN_APP_BROWSER_UA_MARK = 'MycelBrowser/1'
+
+/** true when a User-Agent header comes from the desktop app's in-app browser. */
+export function isInAppBrowserUserAgent(ua: string | null | undefined): boolean {
+  return typeof ua === 'string' && ua.includes(IN_APP_BROWSER_UA_MARK)
+}
+
 export interface DesktopPaneTab {
   tabId: string
   title: string
@@ -107,6 +119,8 @@ export interface BrowserRelayOptions {
   minBridgeVersion?: number
   /** how many finished results to keep for re-sending after a reconnect (default 200) */
   keep?: number
+  /** and at most this many characters of them in total (screenshots are large; default 32 MB) */
+  keepChars?: number
 }
 
 export interface BrowserRelay {
@@ -122,13 +136,37 @@ export interface BrowserRelay {
  * Hands browser.call to the desktop app and sends browser.ack / browser.result back. A call that arrives again
  * (replay after a reconnect) is never run twice: running → ack again; finished → result again.
  */
+/** Characters a result holds (texts + base64 images): what the relay counts against keepChars. */
+export function browserResultChars(r: BrowserResult): number {
+  let n = r.error?.length ?? 0
+  for (const c of r.content) n += c.type === 'text' ? c.text.length : c.data.length
+  return n
+}
+
 export function createBrowserRelay(o: BrowserRelayOptions): BrowserRelay {
   const keep = o.keep ?? 200
-  const done = new Map<string, BrowserResult>()
+  const keepChars = o.keepChars ?? 32 * 1024 * 1024
+  const done = new Map<string, { r: BrowserResult; size: number }>()
+  let doneChars = 0
   const inFlight = new Set<string>()
   const remember = (callId: string, r: BrowserResult) => {
-    done.set(callId, r)
-    while (done.size > keep) done.delete(done.keys().next().value as string)
+    const size = browserResultChars(r)
+    done.set(callId, { r, size })
+    doneChars += size
+    // the newest result always stays (it may be the one a reconnect asks for)
+    while (done.size > 1 && (done.size > keep || doneChars > keepChars)) {
+      const [oldest, e] = done.entries().next().value as [string, { size: number }]
+      done.delete(oldest)
+      doneChars -= e.size
+    }
+  }
+  // a closed WebSocket throws on send: the result stays remembered and goes out again when the call is replayed
+  const send = (frame: ClientFrame) => {
+    try {
+      o.send(frame)
+    } catch {
+      // ignored on purpose (see above)
+    }
   }
   const fail = (callId: string, error: string): BrowserResult => ({ callId, ok: false, content: [{ type: 'text', text: error }], error })
 
@@ -137,21 +175,27 @@ export function createBrowserRelay(o: BrowserRelayOptions): BrowserRelay {
     if (!parsed.success) return
     const call = parsed.data
     const prev = done.get(call.callId)
-    if (prev) return o.send({ type: 'browser.result', result: prev })
-    if (inFlight.has(call.callId)) return o.send({ type: 'browser.ack', callId: call.callId })
+    if (prev) return send({ type: 'browser.result', result: prev.r })
+    if (inFlight.has(call.callId)) return send({ type: 'browser.ack', callId: call.callId })
     inFlight.add(call.callId)
-    o.send({ type: 'browser.ack', callId: call.callId })
+    send({ type: 'browser.ack', callId: call.callId })
     const finish = (r: BrowserResult) => {
       inFlight.delete(call.callId)
       const checked = BrowserResult.safeParse(r)
       const result = checked.success && r.callId === call.callId ? checked.data : fail(call.callId, 'The desktop app returned a malformed browser result.')
       remember(call.callId, result)
-      o.send({ type: 'browser.result', result })
+      send({ type: 'browser.result', result })
     }
     if (o.minBridgeVersion !== undefined && o.bridge.bridgeVersion < o.minBridgeVersion) {
       return finish(fail(call.callId, 'The desktop app is too old for browser tools. Ask the user to update the desktop app.'))
     }
-    o.bridge.browser.run(call).then(finish, (e: unknown) => finish(fail(call.callId, `Browser pane error: ${e instanceof Error ? e.message : String(e)}`)))
+    let pending: Promise<BrowserResult>
+    try {
+      pending = o.bridge.browser.run(call)
+    } catch (e) {
+      pending = Promise.reject(e)
+    }
+    pending.then(finish, (e: unknown) => finish(fail(call.callId, `Browser pane error: ${e instanceof Error ? e.message : String(e)}`)))
   }
 
   return {

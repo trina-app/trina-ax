@@ -1,6 +1,8 @@
 // Office-network guard for the in-app browser's session (design tab 7 "내부망 공격 … 앱 브라우저는 사람 확인").
-// A page the AI opened must not reach devices inside the office (router admin pages, NAS, the team server's
-// own LAN address) unless the person said so:
+// A page the AI opened must not reach devices inside the office (router admin pages, NAS) unless the person said so:
+//  - team addresses (relay and office), this computer (localhost, 127.0.0.0/8, ::1, names resolving there) are
+//    never reachable, whatever anyone answers (design tab 5 "앱 안 브라우저 분리"; redirects included, since
+//    every redirect hop comes through onBeforeRequest again)
 //  - main-frame navigations to a private address ask the person (once / always / deny), unless the address is
 //    already allowed, the person typed it, or the tab is already on an allowed office page (intranet browsing)
 //  - sub-requests (images, fetch, WebSocket, iframes) to private addresses are blocked unless the page itself is
@@ -9,6 +11,7 @@
 //    the tab (stopIfRebound, fed from the tab's CDP network events)
 import type { OnBeforeRequestListenerDetails, WebContents } from 'electron'
 import { redactUrl } from '../../common/input'
+import { isLoopbackIp } from '../../common/netaddr'
 import type { BrowserPane } from './pane'
 
 const FILTER = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }
@@ -26,11 +29,12 @@ function keyOf(url: string): { key: string; hostname: string } | null {
 export function installNetGuard(pane: BrowserPane) {
   const ses = pane.session
   const lastBlocked = new Map<string, number>()
-  const noteBlocked = (host: string) => {
+  const noteBlocked = (host: string, kind: 'blocked' | 'forbidden' = 'blocked') => {
     const now = Date.now()
     if ((lastBlocked.get(host) ?? 0) > now - 5000) return
     lastBlocked.set(host, now)
-    pane.activity('blocked', host)
+    if (lastBlocked.size > 200) lastBlocked.delete(lastBlocked.keys().next().value as string)
+    pane.activity(kind, host)
   }
 
   const approved = (key: string, turnId?: string) => pane.perms.isAllowed('private', key, turnId) || pane.userHosts.has(key)
@@ -44,6 +48,10 @@ export function installNetGuard(pane: BrowserPane) {
   async function decide(d: OnBeforeRequestListenerDetails): Promise<{ cancel?: boolean }> {
     const k = keyOf(d.url)
     if (!k) return { cancel: true }
+    if (await pane.forbidden(d.url)) {
+      noteBlocked(k.key, 'forbidden')
+      return { cancel: true }
+    }
     if ((await pane.classifier.classify(k.hostname)) === 'public') return {}
     const ctx = pane.currentCall()
     if (approved(k.key, ctx?.turnId)) return {}
@@ -78,12 +86,19 @@ export function installNetGuard(pane: BrowserPane) {
 export function stopIfRebound(pane: BrowserPane, wc: WebContents, url: string, ip: string | undefined): boolean {
   if (!ip) return false
   const k = keyOf(url)
-  if (!k || !pane.classifier.wasResolvedPublic(k.hostname)) return false
+  if (!k) return false
+  // answered from this computer: never allowed (unless it is a test name mapped there on purpose)
+  if (isLoopbackIp(ip) && !pane.classifier.isTestMapped(k.hostname)) return stopTab(pane, wc, k.key, 'forbidden')
+  if (!pane.classifier.wasResolvedPublic(k.hostname)) return false
   if (pane.classifier.classifyIpNow(ip) !== 'private') return false
   if (pane.perms.isAllowed('private', k.key, pane.currentCall()?.turnId) || pane.userHosts.has(k.key)) return false
+  return stopTab(pane, wc, k.key)
+}
+
+function stopTab(pane: BrowserPane, wc: WebContents, key: string, kind: 'blocked' | 'forbidden' = 'blocked'): boolean {
   if (wc.isDestroyed()) return false
   wc.stop()
   void wc.loadURL('about:blank').catch(() => {})
-  pane.activity('blocked', k.key)
+  pane.activity(kind, key)
   return true
 }

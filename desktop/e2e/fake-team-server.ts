@@ -4,7 +4,8 @@
 //   beta  http://beta.localhost:19152   second team (partition isolation)
 //   lan   http://lan.localhost:19156    announces an office address https://127.0.0.1:19154 (pinned certificate)
 //   bad   http://bad.localhost:19157    announces https://127.0.0.1:19155 with the WRONG fingerprint
-//   site  http://shop.test:19153 (= 127.0.0.1, "public" in tests) and http://127.0.0.1:19153 (office address)
+//   site  http://shop.test:19153 (= 127.0.0.1, "public" in tests) and http://nas.lan:19153 (= 127.0.0.1, an office
+//         address); http://127.0.0.1:19153 itself is "this computer", which the in-app browser never opens
 //
 // Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel.
 // Ports are in component E's range (19150–19159).
@@ -50,8 +51,10 @@ interface Team {
   waiters: Map<string, ((r: BrowserResult) => void)[]>
   seq: number
   lastWindow?: string
+  /** test clock skew: this server's clock runs skewMs ahead of the real one (health time and call deadlines) */
+  skewMs: number
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0 })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0 })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 const json = (v: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json', ...headers } })
@@ -60,10 +63,21 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function teamPage(t: Team) {
   const art = `<script>parent.postMessage({ rtc: typeof RTCPeerConnection, bridge: typeof window.mycelDesktop }, '*')</script>`
   const escape = `<script>setTimeout(() => { location.href = 'http://127.0.0.1:19153/frame-escape' }, 30)</script>`
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${t.name}</title><script>addEventListener('message', (e) => { if (e.data && typeof e.data === 'object' && 'rtc' in e.data) window.__frame = e.data })</script></head><body>
+  // an artifact that tries to get WebRTC back from a fresh same-origin child frame or a blob/data child document
+  const nested = `<body><script>
+const out = {}
+const f = document.createElement('iframe'); document.body.appendChild(f)
+try { out.child = typeof f.contentWindow.RTCPeerConnection; out.childCanMake = (() => { try { new f.contentWindow.RTCPeerConnection(); return 'made' } catch (e) { return String(e).slice(0, 80) } })() } catch (e) { out.child = 'error: ' + String(e).slice(0, 120) }
+try { out.childData = typeof f.contentWindow.RTCDataChannel } catch (e) { out.childData = 'error' }
+try { out.media = typeof navigator.mediaDevices } catch (e) { out.media = 'error' }
+const g = document.createElement('iframe'); g.srcdoc = '<script>parent.postMessage({ nestedSrcdoc: typeof RTCPeerConnection }, \\'*\\')<\\/script>'; document.body.appendChild(g)
+addEventListener('message', (e) => { if (e.data && 'nestedSrcdoc' in e.data) { out.srcdoc = e.data.nestedSrcdoc; parent.postMessage({ nested: out }, '*') } })
+</script></body>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${t.name}</title><script>addEventListener('message', (e) => { if (e.data && typeof e.data === 'object' && 'rtc' in e.data) window.__frame = e.data; if (e.data && typeof e.data === 'object' && 'nested' in e.data) window.__nested = e.data.nested })</script></head><body>
 <h1 id="team">${t.name}</h1><p id="bridge"></p>
 <a id="external" href="https://example.com/outside">outside</a>
 <iframe id="art" sandbox="allow-scripts" srcdoc="${esc(art)}"></iframe>
+<iframe id="nested" sandbox="allow-scripts" srcdoc="${esc(nested)}"></iframe>
 <iframe id="escape" sandbox="allow-scripts allow-top-navigation-by-user-activation" srcdoc="${esc(escape)}"></iframe>
 <script type="module" src="/app.js"></script></body></html>`
 }
@@ -100,7 +114,11 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
   }
   if (p === '/') return new Response(teamPage(t), { headers: { 'content-type': 'text/html; charset=utf-8' } })
   if (p === '/app.js') return new Response(appJs, { headers: { 'content-type': 'text/javascript' } })
-  if (p === '/api/health') return json({ ok: true, version: '0.0.0-test', schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: new Date().toISOString() })
+  if (p === '/api/health') return json({ ok: true, version: '0.0.0-test', schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: new Date(Date.now() + t.skewMs).toISOString() })
+  if (p === '/test/skew' && req.method === 'POST') {
+    t.skewMs = Number(((await req.json()) as { ms?: number }).ms ?? 0)
+    return json({ ok: true })
+  }
   if (p === '/api/me') return sessionCookie(req) ? json(me(t)) : json({ error: { code: 'unauthorized', message: 'sign in' } }, 401)
   if (p === '/api/connect-info') {
     if (!t.direct) return json({ error: { code: 'not_found', message: 'no direct connection' } }, 404)
@@ -122,7 +140,7 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
       chatId: uuidv7(),
       tool: b.tool as BrowserCall['tool'],
       args: b.args ?? {},
-      deadline: Date.now() + (b.deadlineMs ?? 120_000),
+      deadline: Date.now() + t.skewMs + (b.deadlineMs ?? 120_000),
     }
     if (!sendCall(t, call, windowId)) return json({ error: 'window not connected' }, 409)
     return json({ callId: call.callId, turnId: call.turnId })
@@ -219,10 +237,22 @@ Bun.serve({
     if (p === '/intranet.html') {
       return page(
         'Intranet probe',
-        `<p id="out">pending</p><script>fetch('http://127.0.0.1:19153/data.json').then(() => (document.getElementById('out').textContent = 'reached'), () => (document.getElementById('out').textContent = 'blocked'))</script>`,
+        `<p id="out">pending</p><script>fetch('http://nas.lan:19153/data.json').then(() => (document.getElementById('out').textContent = 'reached'), () => (document.getElementById('out').textContent = 'blocked'))</script>`,
       )
     }
-    if (p === '/redirect-private') return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:19153/index.html' } })
+    if (p === '/redirect-private') return new Response(null, { status: 302, headers: { location: 'http://nas.lan:19153/index.html' } })
+    if (p === '/redirect-team') return new Response(null, { status: 302, headers: { location: 'http://acme.localhost:19151/' } })
+    if (p === '/fetch-team') {
+      // a page the AI opened tries the team address and this computer (the person's team session must stay out of reach)
+      return page(
+        'Team probe',
+        `<p id="out">pending</p><script>
+const probe = (u) => fetch(u, { credentials: 'include' }).then(() => 'reached', () => 'blocked')
+Promise.all(['http://acme.localhost:19151/api/health', 'http://127.0.0.1:19151/api/health', 'http://localhost:19151/api/health'].map(probe)).then((r) => (document.getElementById('out').textContent = r.join(',')))
+</script>`,
+      )
+    }
+    if (p === '/ua') return page('ua', `<p id="ua">${esc(req.headers.get('user-agent') ?? '')}</p>`)
     if (p === '/set-cookie') {
       const r = page('cookie set', `<p id="c">set</p>`)
       r.headers.set('set-cookie', 'fixture=1; Path=/; Max-Age=3600')

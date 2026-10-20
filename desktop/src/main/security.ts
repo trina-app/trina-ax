@@ -51,6 +51,12 @@ export async function guardAppView(wc: WebContents, allowedOrigins: () => readon
     e.preventDefault()
     openExternal(e.url)
   })
+  // a team page that redirects elsewhere (or a link that does): the window stays on the team
+  wc.on('will-redirect', (e) => {
+    if (!e.isMainFrame || allowedOrigins().includes(originOf(e.url))) return
+    e.preventDefault()
+    openExternal(e.url)
+  })
   wc.on('will-frame-navigate', (e) => {
     if (e.isMainFrame) return
     const url = e.url

@@ -6,6 +6,7 @@
  *   MYCEL_DESKTOP_USER_DATA    user data folder (teams.json, partitions); also honoured when packaged
  *   MYCEL_DESKTOP_TEAM         team address to add and open at start (dev convenience)
  *   MYCEL_DESKTOP_TEST_PUBLIC_HOSTS  comma-separated names the browser maps to 127.0.0.1 and treats as public sites
+ *   MYCEL_DESKTOP_TEST_PRIVATE_HOSTS comma-separated office-style names (nas.lan) the browser maps to 127.0.0.1
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, sep } from 'node:path'
@@ -47,7 +48,16 @@ const testPublic = new Set(
         .filter(Boolean)
     : [],
 )
-if (testPublic.size) app.commandLine.appendSwitch('host-resolver-rules', [...testPublic].map((h) => `MAP ${h} 127.0.0.1`).join(', '))
+const testPrivate = new Set(
+  dev
+    ? (process.env.MYCEL_DESKTOP_TEST_PRIVATE_HOSTS ?? '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    : [],
+)
+const testMapped = new Set([...testPublic, ...testPrivate])
+if (testMapped.size) app.commandLine.appendSwitch('host-resolver-rules', [...testMapped].map((h) => `MAP ${h} 127.0.0.1`).join(', '))
 
 protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false } }])
 
@@ -63,7 +73,14 @@ const UI_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src
 
 function serveUi(req: Request): Response {
   const u = new URL(req.url)
-  const rel = normalize(decodeURIComponent(u.pathname)).replace(/^[/\\]+/, '')
+  let path: string
+  try {
+    path = decodeURIComponent(u.pathname)
+  } catch {
+    return new Response('not found', { status: 404 }) // malformed %-escape
+  }
+  if (path.includes('\0')) return new Response('not found', { status: 404 })
+  const rel = normalize(path).replace(/^[/\\]+/, '')
   const root = join(DIST, 'ui')
   const file = join(root, rel)
   if (u.host !== 'app' || !file.startsWith(root + sep) || !UI_TYPES[extname(file)]) return new Response('not found', { status: 404 })
@@ -116,6 +133,7 @@ function registerIpc() {
   ipcMain.on('ui:pane-resize', (e, screenX: number) => fromChrome(e) && Number.isFinite(screenX) && win!.setPaneFromScreenX(screenX))
   ipcMain.handle('ui:pane-sites', (e) => (fromChrome(e) ? (win!.pane?.perms.list() ?? { always: [], privateAlways: [] }) : null))
   ipcMain.on('ui:pane-site-remove', (e, host: string) => fromChrome(e) && win!.pane?.revokeSite(String(host)))
+  ipcMain.on('ui:pane-sites-clear', (e) => fromChrome(e) && win!.pane?.revokeAllSites())
 
   // team page bridge (shared/src/desktop-bridge.ts)
   ipcMain.on('bridge:info', (e) => {
@@ -190,7 +208,7 @@ async function createWindow() {
     distDir: DIST,
     pageScript: readFileSync(join(DIST, 'page-script.js'), 'utf8'),
     appVersion: app.getVersion(),
-    classifier: new HostClassifier(testPublic),
+    classifier: new HostClassifier(testPublic, testMapped),
     onTeamsChanged: () => buildMenu(),
   })
   win.win.on('closed', () => {

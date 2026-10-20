@@ -41,3 +41,10 @@ export function toBrowserResult(callId: string, r: PaneResult): BrowserResult {
 export function errorResult(callId: string, message: string): BrowserResult {
   return { callId, ok: false, content: [{ type: 'text', text: message }], error: cut(message, MAX_ERROR) }
 }
+
+/** Approximate memory a result holds (text characters + base64 image characters). */
+export function resultBytes(r: BrowserResult): number {
+  let n = r.error?.length ?? 0
+  for (const c of r.content) n += c.type === 'text' ? c.text.length : c.data.length
+  return n
+}

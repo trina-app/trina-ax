@@ -18,10 +18,11 @@ import { BaseWindow, BrowserWindow, WebContentsView, type Rectangle, type Sessio
 import { parseBrowserToolInput, type BrowserToolInput, type ParsedBrowserCall } from '@mycel/shared'
 import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared'
-import { errorResult, toBrowserResult, type PaneContent, type PaneResult } from '../../common/browser-result'
+import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
 import { siteKey, SitePermissions, type PermissionDecision, type SiteScope } from '../../common/site-permissions'
-import { BROWSER_TOOLS } from '@mycel/shared'
+import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK } from '@mycel/shared'
+import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
 import { debug } from '../debug'
@@ -35,7 +36,7 @@ export interface PanePrompt {
 }
 export interface PaneActivity {
   id: number
-  kind: 'script' | 'network' | 'blocked' | 'password'
+  kind: 'script' | 'network' | 'blocked' | 'forbidden' | 'password'
   host: string
   at: number
 }
@@ -52,6 +53,8 @@ export interface PaneHost {
   onActivity(a: PaneActivity): void
   /** saved permissions changed */
   onSavePermissions(p: ReturnType<SitePermissions['toJSON']>): void
+  /** hostnames of every team this app knows (relay and office addresses): never opened in the pane */
+  teamHosts(): ReadonlySet<string>
 }
 
 interface ConsoleEntry {
@@ -85,9 +88,17 @@ interface CallCtx {
   cancelled: boolean
   /** the person pressed stop, or the turn ended */
   abort: AbortController
+  /** the person's answers during this call, sent along with the result (the server logs them in tool_events) */
+  notes: string[]
 }
 
 const MAX_LOG = 500
+/** finished results kept for replays after a reconnect: count, total size, age */
+const KEEP_RESULTS = 300
+const KEEP_RESULT_BYTES = 64 * 1024 * 1024
+const KEEP_RESULT_MS = 15 * 60_000
+/** longest a single call may run whatever deadline it carries (setTimeout overflows past 2^31 ms) */
+const MAX_CALL_MS = 30 * 60_000
 const PROMPT_TIMEOUT_MS = 180_000
 const MOBILE_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
 const PRESETS: Record<string, { width: number; height: number; mobile: boolean } | null> = {
@@ -131,8 +142,11 @@ export class BrowserPane {
   private driving = 0
   private prompts: (PanePrompt & { settle: (d: PermissionDecision) => void; callId?: string })[] = []
   private calls = new Map<string, CallCtx>()
-  /** results of finished calls by callId (a replayed call returns the first result, never runs twice) */
-  private results = new Map<string, Promise<BrowserResult>>()
+  /** results by callId (a replayed call returns the first result, never runs twice); bounded by KEEP_RESULT_* */
+  private results = new Map<string, { p: Promise<BrowserResult>; settled: boolean; bytes: number; at: number }>()
+  private resultBytesKept = 0
+  /** server clock minus this computer's clock (call deadlines are server time) */
+  private clockOffsetMs = 0
   /** private hosts the person opened themselves from the address bar this session */
   readonly userHosts = new Set<string>()
   readonly perms: SitePermissions
@@ -149,11 +163,20 @@ export class BrowserPane {
     this.perms = new SitePermissions(saved)
     this.classifier = classifier
     this.pageScript = `window.__name = window.__name || ((f) => f);\n${pageScript}`
-    // look like plain Chrome: sites flag "Electron/..." or the app name as an outdated browser
+    // look like plain Chrome (sites flag "Electron/..." or the app name as an outdated browser), plus the
+    // in-app browser mark the team server refuses (second line behind the team-address block)
     const ua = session.getUserAgent()
-    const chrome = ua.replace(/ Electron\/\S+/, '').replace(/ \S*(mycel|team-ax|Team AX)\S*\/\S+/gi, '')
-    if (chrome !== ua) session.setUserAgent(chrome)
-    session.setPermissionRequestHandler((_wc, permission, done) => done(['fullscreen', 'clipboard-sanitized-write'].includes(permission)))
+    const chrome = ua
+      .replace(` ${IN_APP_BROWSER_UA_MARK}`, '')
+      .replace(/ Electron\/\S+/, '')
+      .replace(/ \S*(mycel|team-ax|Team AX)\S*\/\S+/gi, '')
+    const marked = `${chrome} ${IN_APP_BROWSER_UA_MARK}`
+    if (marked !== ua) session.setUserAgent(marked)
+    // sites in the pane get fullscreen and the copy button, nothing else (no camera, location, devices ...)
+    const allowed = new Set(['fullscreen', 'clipboard-sanitized-write'])
+    session.setPermissionRequestHandler((_wc, permission, done) => done(allowed.has(permission)))
+    session.setPermissionCheckHandler((_wc, permission) => allowed.has(permission))
+    session.setDevicePermissionHandler(() => false)
     installNetGuard(this)
   }
 
@@ -381,7 +404,11 @@ export class BrowserPane {
     } catch (e) {
       // ERR_ABORTED: a redirect or the page navigating again; anything else is a real failure
       const msg = String((e as Error).message ?? e)
-      if (/ERR_BLOCKED_BY_CLIENT/.test(msg)) throw new ToolError(`Opening ${url} was blocked: the user did not allow that office-network address.`)
+      if (/ERR_BLOCKED_BY_CLIENT/.test(msg)) {
+        throw new ToolError(
+          `Opening ${redactUrl(url)} was blocked: it led to an address the in-app browser may not open (the team's own address, this computer, or an office-network address the user did not allow).`,
+        )
+      }
       if (!/ERR_ABORTED/.test(msg)) throw new ToolError(`Could not load ${url}: ${msg.split('\n')[0]}`)
     }
   }
@@ -404,6 +431,12 @@ export class BrowserPane {
   async userNavigate(raw: string) {
     const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`
     if (!/^https?:/i.test(url)) return
+    const blocked = await this.forbidden(url)
+    if (blocked) {
+      this.show()
+      this.activity('forbidden', blocked.host || raw.trim().slice(0, 100))
+      return
+    }
     const key = siteKey(url)
     // the person typed it: an office address they open themselves needs no prompt
     if (key) this.userHosts.add(key)
@@ -501,6 +534,7 @@ export class BrowserPane {
         this.prompts.splice(i, 1)
         clearTimeout(timer)
         this.emitPrompts()
+        if (ctx && !ctx.cancelled) ctx.notes.push(decisionNote(req, d))
         resolve(d)
       }
       const timer = setTimeout(() => settle('deny'), PROMPT_TIMEOUT_MS)
@@ -533,11 +567,35 @@ export class BrowserPane {
     if (this.perms.revoke(host)) this.host.onSavePermissions(this.perms.toJSON())
   }
 
+  /** "Clear all" in the allowed-sites list: every saved site and office address of this team. */
+  revokeAllSites() {
+    if (this.perms.revokeAll()) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
+  /** Off limits whatever anyone answers: team addresses, this computer, non-web schemes (common/browser-block.ts). */
+  async forbidden(url: string): Promise<{ reason: BlockReason; host: string } | null> {
+    const reason = blockedUrl(url, this.host.teamHosts())
+    let host = ''
+    let hostname = ''
+    try {
+      const u = new URL(url)
+      host = u.host
+      hostname = u.hostname
+    } catch {
+      return { reason: 'scheme', host }
+    }
+    if (reason) return { reason, host }
+    return (await this.classifier.isLoopback(hostname)) ? { reason: 'loopback', host } : null
+  }
+
   /** May the AI act on / open `url` in this call? Asks the person when not allowed yet. */
   private async permit(ctx: CallCtx, url: string, tool: string): Promise<void> {
     const scheme = url.split(':')[0].toLowerCase()
-    if (scheme === 'about' || scheme === 'data' || url === '') return
-    if (scheme !== 'http' && scheme !== 'https') throw new ToolError(`Only http(s) pages can be opened in the browser pane (${url}).`)
+    // the tab's own blank page; data: pages are never opened for the AI (they would need no site permission)
+    if (url === '' || url === 'about:blank') return
+    if (scheme !== 'http' && scheme !== 'https') throw new ToolError(`Only http(s) pages can be opened in the browser pane (${redactUrl(url).slice(0, 200)}).`)
+    const blocked = await this.forbidden(url)
+    if (blocked) throw new ToolError(blockedMessage(blocked.reason, blocked.host))
     const host = siteKey(url)
     const hostname = new URL(url).hostname
     const isPrivate = (await this.classifier.classify(hostname)) === 'private'
@@ -559,28 +617,58 @@ export class BrowserPane {
 
   // --------------------------------------------------------------- calls
 
+  /** Server clock minus local clock, measured by the window from the team server's /api/health. */
+  setClockOffset(ms: number) {
+    this.clockOffsetMs = Number.isFinite(ms) ? Math.max(-7 * 86_400_000, Math.min(7 * 86_400_000, ms)) : 0
+  }
+
   /** Run one browser.call. The same callId twice returns the first result. */
   run(call: BrowserCall): Promise<BrowserResult> {
     const prev = this.results.get(call.callId)
-    if (prev) return prev
-    const p = this.runOnce(call)
-    this.results.set(call.callId, p)
-    while (this.results.size > 300) this.results.delete(this.results.keys().next().value as string)
-    return p
+    if (prev) return prev.p
+    const entry = { p: this.runOnce(call), settled: false, bytes: 0, at: Date.now() }
+    this.results.set(call.callId, entry)
+    void entry.p.then((r) => {
+      entry.settled = true
+      entry.at = Date.now()
+      if (this.results.get(call.callId) !== entry) return
+      entry.bytes = resultBytes(r)
+      this.resultBytesKept += entry.bytes
+      this.pruneResults()
+    })
+    this.pruneResults()
+    return entry.p
+  }
+
+  /** Forget the oldest finished results beyond the count / size / age limits (running calls always stay). */
+  private pruneResults() {
+    const now = Date.now()
+    for (const [id, e] of this.results) {
+      if (this.results.size <= KEEP_RESULTS && this.resultBytesKept <= KEEP_RESULT_BYTES && now - e.at < KEEP_RESULT_MS) break
+      if (!e.settled) continue
+      this.results.delete(id)
+      this.resultBytesKept -= e.bytes
+    }
+  }
+
+  /** How many results are kept and their total size (tests and diagnostics). */
+  keptResults(): { count: number; bytes: number } {
+    return { count: this.results.size, bytes: this.resultBytesKept }
   }
 
   private async runOnce(call: BrowserCall): Promise<BrowserResult> {
-    if (Date.now() > call.deadline) return errorResult(call.callId, 'The browser call arrived after its deadline; nothing was done.')
+    const remaining = call.deadline - (Date.now() + this.clockOffsetMs)
+    if (remaining <= 0) return errorResult(call.callId, 'The browser call arrived after its deadline; nothing was done.')
     const parsed = parseBrowserToolInput(call.tool, call.args)
     if (!parsed.ok) return errorResult(call.callId, parsed.error)
-    const ctx: CallCtx = { callId: call.callId, turnId: call.turnId, tool: call.tool, cancelled: false, abort: new AbortController() }
+    const ctx: CallCtx = { callId: call.callId, turnId: call.turnId, tool: call.tool, cancelled: false, abort: new AbortController(), notes: [] }
     debug('start', call.tool, call.callId)
     this.calls.set(call.callId, ctx)
     this.driving++
     this.layout()
     this.emit()
     // the server stops waiting at the deadline; stop working on it too
-    const deadline = setTimeout(() => this.cancelCtx(ctx, 'The browser call took too long and was stopped.'), Math.max(0, call.deadline - Date.now()))
+    const deadline = setTimeout(() => this.cancelCtx(ctx, 'The browser call took too long and was stopped.'), Math.min(remaining, MAX_CALL_MS))
     try {
       const aborted = new Promise<PaneResult>((resolve) =>
         ctx.abort.signal.addEventListener('abort', () => resolve(err(String((ctx.abort.signal.reason as Error)?.message ?? 'Stopped.'))), { once: true }),
@@ -588,7 +676,7 @@ export class BrowserPane {
       const work = parsed.call.tool === 'browser_batch' ? this.batch(ctx, parsed.call.input) : this.single(ctx, parsed.call)
       const r = await Promise.race([work, aborted])
       debug('end', call.tool, call.callId, r.isError ? `error: ${(r.content[0] as { text?: string })?.text?.slice(0, 300)}` : 'ok')
-      return toBrowserResult(call.callId, r)
+      return toBrowserResult(call.callId, ctx.notes.length ? { ...r, content: [{ type: 'text', text: ctx.notes.join('\n') }, ...r.content] } : r)
     } finally {
       clearTimeout(deadline)
       this.calls.delete(call.callId)
@@ -628,14 +716,25 @@ export class BrowserPane {
       if (tab?.popup && kind === 'mutates-tab') {
         throw new ToolError('That tab is a page-opened popup (often a sign-in window), which the AI may not drive, navigate, or close. Ask the user to finish or close it.')
       }
+      let checkedSite: string | undefined
       if (tab && kind !== 'no-tab-target' && call.tool !== 'navigate' && !call.tool.startsWith('tabs_')) {
         const before = tab.wc.getURL()
         await this.permit(ctx, before, call.tool)
         if (tab.wc.getURL() !== before && siteKey(tab.wc.getURL()) !== siteKey(before)) {
           throw new ToolError(`Page navigated from ${siteKey(before)} to ${siteKey(tab.wc.getURL())} during the permission check; retry.`)
         }
+        checkedSite = siteKey(before)
       }
       const result = await this.exec(ctx, tab, call)
+      // a page that moved to another site while it was read (or photographed) must not hand that site's content
+      // to the AI without the person's permission
+      if (tab && checkedSite !== undefined && returnsPageData(call) && !tab.wc.isDestroyed()) {
+        const now = tab.wc.getURL()
+        const site = siteKey(now)
+        if (site !== checkedSite && now !== 'about:blank' && !this.perms.isAllowed('site', site, ctx.turnId)) {
+          throw new ToolError(`The page moved to ${site || now.split(':')[0]} while ${call.tool} ran; nothing from it was returned. Run the tool again (the user will be asked about that site).`)
+        }
+      }
       if (tab && !tab.wc.isDestroyed()) await this.settle(tab, ctx.abort.signal)
       return result
     } catch (e) {
@@ -990,12 +1089,25 @@ export class BrowserPane {
     } else if (size) {
       await this.cdp(tab, 'Emulation.setDeviceMetricsOverride', { width: size.width, height: size.height, deviceScaleFactor: 0, mobile: size.mobile })
       await this.cdp(tab, 'Emulation.setTouchEmulationEnabled', { enabled: size.mobile, maxTouchPoints: size.mobile ? 5 : 1 })
-      if (size.mobile) await this.cdp(tab, 'Emulation.setUserAgentOverride', { userAgent: MOBILE_UA })
+      if (size.mobile) await this.cdp(tab, 'Emulation.setUserAgentOverride', { userAgent: `${MOBILE_UA} ${IN_APP_BROWSER_UA_MARK}` })
       notes.push(`viewport ${size.width}x${size.height}${size.mobile ? ' (mobile device: touch + Android user agent; reload so load-time checks re-run)' : ''}`)
     }
     if (!notes.length) throw new ToolError('Pass a preset, width and height, or colorScheme.')
     return ok(`Tab ${tab.id}: ${notes.join('; ')}.`)
   }
+}
+
+/** Tools whose result carries what the page shows (text, tree, pixels, script values). */
+function returnsPageData(call: ParsedBrowserCall): boolean {
+  if (BROWSER_TOOLS[call.tool].kind === 'reads-tab' || call.tool === 'javascript_tool') return true
+  return call.tool === 'computer' && (call.input.action === 'screenshot' || call.input.action === 'zoom')
+}
+
+/** The person's answer as the AI and the server log read it. */
+function decisionNote(req: Omit<PanePrompt, 'id'>, d: PermissionDecision): string {
+  const what = req.scope === 'private' ? `the office-network address ${req.host}` : req.host
+  if (d === 'deny') return `The user declined ${what}.`
+  return `The user allowed ${what} ${d === 'always' ? 'always (saved)' : 'for this turn'}.`
 }
 
 function normalize(url: string): string {

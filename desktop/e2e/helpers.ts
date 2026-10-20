@@ -11,7 +11,8 @@ export const BETA = 'http://beta.localhost:19152'
 export const LAN = 'http://lan.localhost:19156'
 export const BAD = 'http://bad.localhost:19157'
 export const SHOP = 'http://shop.test:19153'
-export const OFFICE_SITE = 'http://127.0.0.1:19153'
+/** an office-network name (mapped to 127.0.0.1 by the test build): asks the person */
+export const OFFICE_SITE = 'http://nas.lan:19153'
 
 export function newUserData(): string {
   return mkdtempSync(join(tmpdir(), 'teamax-desktop-'))
@@ -25,6 +26,7 @@ export async function launch(userData: string, env: Record<string, string> = {})
       ...(process.env as Record<string, string>),
       MYCEL_DESKTOP_USER_DATA: userData,
       MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test',
+      MYCEL_DESKTOP_TEST_PRIVATE_HOSTS: 'nas.lan',
       LANG: 'ko_KR.UTF-8',
       ...env,
     },
@@ -119,6 +121,11 @@ export async function run(origin: string, tool: string, args: Record<string, unk
 export async function cancel(origin: string, callId: string) {
   const port = new URL(origin).port
   await fetch(`http://127.0.0.1:${port}/test/cancel`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ callId, windowId: windows.get(port) }) })
+}
+
+export async function skew(origin: string, ms: number) {
+  const port = new URL(origin).port
+  await fetch(`http://127.0.0.1:${port}/test/skew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ms }) })
 }
 
 export async function siteHits(path: string): Promise<number> {

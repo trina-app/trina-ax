@@ -145,6 +145,7 @@ function activityText(a: PaneActivity) {
   if (a.kind === 'script') return tr('activity.script', { host: a.host || '—' })
   if (a.kind === 'network') return tr('activity.network', { host: a.host || '—' })
   if (a.kind === 'blocked') return tr('activity.blocked', { host: a.host })
+  if (a.kind === 'forbidden') return tr('activity.forbidden', { host: a.host })
   return tr('activity.password')
 }
 
@@ -181,6 +182,22 @@ function sitesBox() {
           ),
         )
       : h('p', {}, tr('pane.sitesNone')),
+    rows.length > 1
+      ? h(
+          'button',
+          {
+            type: 'button',
+            class: 'danger',
+            'data-testid': 'sites-clear',
+            onclick: async () => {
+              ui.pane.clearSites()
+              sites = (await ui.pane.sites()) ?? sites
+              render()
+            },
+          },
+          tr('pane.sitesClear'),
+        )
+      : null,
   )
 }
 

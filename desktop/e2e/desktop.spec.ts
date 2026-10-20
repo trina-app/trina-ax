@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import {
-  ACME, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, tabPage, teamPage, text, view, welcome,
+  ACME, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome,
 } from './helpers'
 
 const refOf = (s: string, label: string) => {
@@ -22,6 +22,8 @@ async function openShop(app: ElectronApplication, path = '/') {
   await answer(app, '이번만 허용', 'site')
   const r = await result(ACME, callId)
   expect(r.result.ok, text(r)).toBe(true)
+  // the person's answer travels with the result (the server keeps it in tool_events)
+  expect(text(r)).toContain('The user allowed shop.test:19153 for this turn.')
   return tabPage(app, (u) => u.startsWith(SHOP))
 }
 
@@ -44,6 +46,12 @@ test.describe('team address and window', () => {
       // artifact-like sandboxed frame: no bridge, no WebRTC; the top frame keeps both
       await expect.poll(() => page.evaluate(() => (window as any).__frame)).toEqual({ rtc: 'undefined', bridge: 'undefined' })
       expect(await page.evaluate(() => typeof RTCPeerConnection)).toBe('function')
+      // nor can it get WebRTC back from a fresh child frame (same-origin about:blank or srcdoc)
+      const nested = (await expect.poll(() => page.evaluate(() => (window as any).__nested)).toBeTruthy(), await page.evaluate(() => (window as any).__nested))
+      expect(nested.srcdoc).toBe('undefined')
+      expect(nested.media).toBe('undefined')
+      expect(String(nested.child)).not.toBe('function')
+      expect(nested.childCanMake).not.toBe('made')
       // a frame trying to navigate away is stopped
       await page.waitForTimeout(500)
       expect(await siteHits('/frame-escape')).toBe(0)
@@ -228,6 +236,83 @@ test.describe('browser tools over the team WebSocket', () => {
     const late = await run(ACME, 'tabs_context', {}, { deadlineMs: -1000 })
     expect(text(late)).toContain('after its deadline')
   })
+
+  test('deadlines are read on the server clock: a computer whose clock runs ahead still runs calls', async () => {
+    // the team server's clock is 10 minutes behind this computer
+    await skew(ACME, -600_000)
+    try {
+      const page = await teamPage(app, ACME)
+      await page.reload()
+      await bindWindow(page, ACME)
+      await page.waitForTimeout(500) // the window measures the offset after the page loaded
+      const r = await run(ACME, 'tabs_context', {}, { deadlineMs: 30_000 })
+      expect(r.result.ok, text(r)).toBe(true)
+      expect(text(await run(ACME, 'tabs_context', {}, { deadlineMs: -1000 }))).toContain('after its deadline')
+    } finally {
+      await skew(ACME, 0)
+      await (await teamPage(app, ACME)).reload()
+      await bindWindow(await teamPage(app, ACME), ACME)
+    }
+  })
+})
+
+test.describe('what the in-app browser never opens', () => {
+  let app: ElectronApplication
+  test.beforeAll(async () => {
+    app = await launch(newUserData())
+    await addTeam(app, 'acme.localhost:19151', ACME)
+  })
+  test.afterAll(async () => close(app))
+
+  test('the team address, this computer and data: pages are refused without asking', async () => {
+    newTurn()
+    const c = await chrome(app)
+    for (const [url, says] of [
+      [`${ACME}/api/me`, "team's own address"],
+      ['http://localhost:19153/', 'this computer'],
+      ['http://127.0.0.1:19153/', 'this computer'],
+      ['http://[::1]:19153/', 'this computer'],
+      ['http://0.0.0.0:19153/', 'this computer'],
+      ['data:text/html,<iframe src="http://shop.test:19153/cookie"></iframe>', 'Only http(s)'],
+      ['file:///etc/passwd', 'Only http(s)'],
+    ] as const) {
+      const r = await run(ACME, 'navigate', { url })
+      expect(r.result.ok, url).toBe(false)
+      expect(text(r), url).toContain(says)
+      await expect(c.getByTestId('permission-prompt')).toHaveCount(0)
+    }
+    const p = await run(ACME, 'preview_start', { url: `${ACME}/` })
+    expect(text(p)).toContain("team's own address")
+  })
+
+  test('pages cannot reach the team address or this computer, not even by redirect; the person cannot type them either', async () => {
+    const probe = await openShop(app, '/fetch-team')
+    await expect.poll(() => probe.evaluate(() => document.getElementById('out')!.textContent)).toBe('blocked,blocked,blocked')
+    const c = await chrome(app)
+    await expect(c.getByTestId('activity').locator('[data-kind="forbidden"]').first()).toBeVisible()
+
+    // redirect from an allowed site to the team address: stopped, the tab never shows the team page
+    const r = await run(ACME, 'navigate', { url: `${SHOP}/redirect-team` })
+    expect(r.result.ok).toBe(false)
+    expect(text(r)).toContain('was blocked')
+    expect(app.windows().filter((w) => w.url().startsWith(ACME))).toHaveLength(1) // only the team page itself
+
+    // the person types the team address into the pane: refused, shown in the toolbar
+    await c.getByTestId('pane-address').fill(`${ACME}/`)
+    await c.getByTestId('pane-address').press('Enter')
+    await expect(c.getByTestId('activity').locator('[data-kind="forbidden"]', { hasText: 'acme.localhost:19151' }).first()).toBeVisible()
+    await new Promise((r) => setTimeout(r, 500))
+    expect(app.windows().filter((w) => w.url().startsWith(ACME))).toHaveLength(1)
+  })
+
+  test('the in-app browser carries its User-Agent mark and looks like plain Chrome otherwise', async () => {
+    const r = await run(ACME, 'navigate', { url: `${SHOP}/ua` })
+    expect(r.result.ok, text(r)).toBe(true)
+    const ua = await (await tabPage(app, (u) => u === `${SHOP}/ua`)).locator('#ua').textContent()
+    expect(ua).toContain('MycelBrowser/1')
+    expect(ua).not.toContain('Electron')
+    expect(ua).not.toMatch(/Team AX|mycel\//i)
+  })
 })
 
 test.describe('office network and allowed sites', () => {
@@ -240,12 +325,12 @@ test.describe('office network and allowed sites', () => {
       await answer(app, '거부', 'private')
       const d = await result(ACME, denied.callId)
       expect(d.result.ok).toBe(false)
-      expect(text(d)).toContain('declined opening the office-network address 127.0.0.1:19153')
+      expect(text(d)).toContain('declined opening the office-network address nas.lan:19153')
 
       const intranet = await openShop(app, '/intranet.html')
       await expect.poll(() => intranet.evaluate(() => document.getElementById('out')!.textContent)).toBe('blocked')
       const c = await chrome(app)
-      await expect(c.getByTestId('activity').locator('[data-kind="blocked"]').first()).toContainText('127.0.0.1:19153')
+      await expect(c.getByTestId('activity').locator('[data-kind="blocked"]').first()).toContainText('nas.lan:19153')
 
       // a public page redirecting into the office: asked during the same call
       newTurn()
@@ -292,6 +377,19 @@ test.describe('office network and allowed sites', () => {
       await expect(c.getByTestId('sites')).toContainText('shop.test:19153')
       await c.getByTestId('sites').getByRole('button', { name: '삭제' }).click()
       await expect(c.getByTestId('sites')).toContainText('항상 허용한 사이트가 없어요.')
+      // "clear all" (shown with two or more saved sites)
+      for (const host of ['shop.test:19153', 'nas.lan:19153']) {
+        newTurn()
+        const g = await call(ACME, 'navigate', { url: `http://${host}/` })
+        await answer(app, '항상 허용')
+        expect((await result(ACME, g.callId)).result.ok).toBe(true)
+      }
+      await c.getByTestId('sites-button').click()
+      await c.getByTestId('sites-button').click()
+      await expect(c.getByTestId('sites').locator('li')).toHaveCount(2)
+      await c.getByTestId('sites-clear').click()
+      await expect(c.getByTestId('sites')).toContainText('항상 허용한 사이트가 없어요.')
+      await c.getByTestId('sites-button').click()
       newTurn()
       const asks = await call(ACME, 'navigate', { url: `${SHOP}/` })
       await answer(app, '이번만 허용', 'site')

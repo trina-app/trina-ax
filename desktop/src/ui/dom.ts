@@ -17,7 +17,7 @@ export interface PanePrompt {
 }
 export interface PaneActivity {
   id: number
-  kind: 'script' | 'network' | 'blocked' | 'password'
+  kind: 'script' | 'network' | 'blocked' | 'forbidden' | 'password'
   host: string
   at: number
 }
@@ -50,6 +50,7 @@ export interface MycelUi {
     resize(screenX: number): void
     sites(): Promise<{ always: string[]; privateAlways: string[] } | null>
     removeSite(host: string): void
+    clearSites(): void
   }
 }
 

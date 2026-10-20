@@ -113,3 +113,29 @@ export function classifyResolved(addresses: string[]): AddressClass {
   if (!addresses.length) return 'private'
   return addresses.some((a) => classifyIp(a) === 'private') ? 'private' : 'public'
 }
+
+/**
+ * This computer: 127.0.0.0/8, 0.0.0.0/8 (connects to this machine on macOS and Linux), ::1, ::, and the same
+ * addresses mapped into IPv6 (::ffff:127.0.0.1, ::127.0.0.1). The in-app browser never opens these (design tab 5
+ * "앱 안 브라우저 분리"): a local service, or the team server itself when the app runs on the server Mac.
+ */
+export function isLoopbackIp(ip: string): boolean {
+  const s = ip.replace(/^\[|\]$/g, '')
+  const a = v4(s)
+  if (a) return a[0] === 127 || a[0] === 0
+  const g = parseV6(s)
+  if (!g) return false
+  const zeroUpTo = (n: number) => g.slice(0, n).every((x) => x === 0)
+  if (zeroUpTo(7) && (g[7] === 1 || g[7] === 0)) return true
+  if (zeroUpTo(5) && (g[5] === 0xffff || g[5] === 0)) {
+    const hi = g[6] >> 8
+    return hi === 127 || hi === 0
+  }
+  return false
+}
+
+/** localhost, *.localhost and loopback IP literals (no DNS). */
+export function isLoopbackName(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  return h === 'localhost' || h.endsWith('.localhost') || isLoopbackIp(h)
+}

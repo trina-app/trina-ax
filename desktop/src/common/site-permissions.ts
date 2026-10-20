@@ -69,6 +69,14 @@ export class SitePermissions {
     return a || b
   }
 
+  /** Remove every saved site (the list's "clear all"). Returns true when something was removed. */
+  revokeAll(): boolean {
+    const had = this.always.site.size + this.always.private.size > 0
+    this.always.site.clear()
+    this.always.private.clear()
+    return had
+  }
+
   forgetTurn(turnId: string): void {
     this.once.delete(turnId)
   }

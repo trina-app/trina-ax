@@ -12,6 +12,7 @@ import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/s
 import { Health, Me } from '@mycel/shared/api'
 import { originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
+import { teamHostnames } from '../common/browser-block'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { UI_ORIGIN } from '../common/trust'
 import { directFromConnectInfo, fetchConnectInfo, mirrorSessionCookie, pinCertificates, probeDirect } from './direct'
@@ -208,8 +209,20 @@ export class AppWindow {
     app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return // -3: aborted (a new navigation replaced it)
       debug('team page failed to load', code, url)
-      if (this.app !== app) return
-      this.directOrigin = originOf(url) === this.directOrigin ? null : this.directOrigin
+      if (this.app !== app || !this.team) return
+      // the office address stopped answering (left the office, Wi-Fi changed): straight to the team address
+      if (this.directOrigin && originOf(url) === this.directOrigin) {
+        let path = '/'
+        try {
+          const u = new URL(url)
+          path = u.pathname + u.search + u.hash
+        } catch {
+          path = '/'
+        }
+        this.directOrigin = null
+        void this.loadOrigin(this.team.origin, path)
+        return
+      }
       this.mode = 'offline'
       this.layout()
       this.sendWelcome()
@@ -219,6 +232,7 @@ export class AppWindow {
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
       this.layout()
       void this.refreshTeamName()
+      void this.measureClock()
     })
     app.webContents.on('render-process-gone', (_e, d) => {
       debug('team page renderer gone', d.reason)
@@ -236,6 +250,7 @@ export class AppWindow {
         onPrompts: (p) => this.send(this.chrome, 'ui:pane-prompts', p),
         onActivity: (a) => this.send(this.chrome, 'ui:pane-activity', a),
         onSavePermissions: (p) => this.o.store.savePermissions(id, p),
+        teamHosts: () => teamHostnames(this.teams.teams),
       },
       browserSes,
       this.o.pageScript,
@@ -298,6 +313,26 @@ export class AppWindow {
   allowedOrigins(): string[] {
     if (!this.team) return []
     return this.directOrigin ? [this.team.origin, this.directOrigin] : [this.team.origin]
+  }
+
+  /** Call deadlines are server time: learn how far this computer's clock is off (from /api/health time). */
+  private async measureClock() {
+    const app = this.app
+    if (!app || !this.pane || !this.currentOrigin) return
+    try {
+      const t0 = Date.now()
+      const res = await app.webContents.session.fetch(`${this.currentOrigin}/api/health`, { signal: AbortSignal.timeout(5000), headers: { accept: 'application/json' } })
+      const t1 = Date.now()
+      const h = Health.safeParse(await res.json())
+      const server = h.success ? Date.parse(h.data.time) : NaN
+      if (!Number.isFinite(server) || this.app !== app) return
+      const offset = server - (t0 + t1) / 2
+      // a second or two is network noise; past that the clocks really differ
+      this.pane?.setClockOffset(Math.abs(offset) < 2000 ? 0 : offset)
+      debug('clock offset', Math.round(offset))
+    } catch {
+      // keep the previous offset
+    }
   }
 
   private async refreshTeamName() {

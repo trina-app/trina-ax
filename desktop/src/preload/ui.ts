@@ -1,5 +1,5 @@
 // Preload of the desktop app's own screens (welcome / team list and the browser pane toolbar), served from the
-// mycel-ui:// scheme. The main process answers each channel only for the view it belongs to (main/ui-ipc.ts).
+// mycel-ui:// scheme. The main process answers each channel only for the view it belongs to (main/main.ts registerIpc).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
@@ -38,5 +38,6 @@ contextBridge.exposeInMainWorld('mycelUi', {
     resize: (screenX: number) => ipcRenderer.send('ui:pane-resize', Number(screenX)),
     sites: () => ipcRenderer.invoke('ui:pane-sites'),
     removeSite: (host: string) => ipcRenderer.send('ui:pane-site-remove', String(host)),
+    clearSites: () => ipcRenderer.send('ui:pane-sites-clear'),
   },
 })
