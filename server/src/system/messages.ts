@@ -20,7 +20,7 @@ export const M = {
   diskTeam: { ko: '디스크 여유 공간(팀 폴더)', en: 'Free disk space (team folder)', id: 'Ruang disk kosong (folder tim)' },
   diskData: { ko: '디스크 여유 공간(서버 데이터)', en: 'Free disk space (server data)', id: 'Ruang disk kosong (data server)' },
   diskLow: (free: number, pct: number): T => ({ ko: `남은 공간 ${gb(free)} (${pct}%). 15% 아래입니다. 휴지통 비우기·오래된 버전 정리로 공간을 늘려 주세요.`, en: `${gb(free)} free (${pct}%), below 15%. Empty the trash or clean up old versions.`, id: `${gb(free)} kosong (${pct}%), di bawah 15%. Kosongkan tempat sampah atau hapus versi lama.` }),
-  diskReadOnly: (free: number): T => ({ ko: `남은 공간 ${gb(free)}. 공간이 부족해 새 질문·업로드·파일 쓰기를 막는 '읽기 전용' 단계입니다. 공간을 비워 주세요.`, en: `${gb(free)} free. The server is in read-only mode (no new questions, uploads or file writes) until space is freed.`, id: `${gb(free)} kosong. Server dalam mode baca-saja sampai ruang dikosongkan.` }),
+  diskReadOnly: (free: number): T => ({ ko: `남은 공간 ${gb(free)}. 공간이 거의 없어 답변·업로드·파일 저장이 실패할 수 있습니다. 휴지통 비우기·오래된 버전 정리로 바로 공간을 비워 주세요.`, en: `${gb(free)} free. Space is almost gone, so answers, uploads and file saves can fail. Free up space now (empty the trash, clean up old versions).`, id: `${gb(free)} kosong. Ruang hampir habis sehingga jawaban, unggahan, dan penyimpanan berkas bisa gagal. Segera kosongkan ruang.` }),
   diskOk: (free: number, pct: number): T => ({ ko: `${gb(free)} 남음 (${pct}%)`, en: `${gb(free)} free (${pct}%)`, id: `${gb(free)} kosong (${pct}%)` }),
 
   engineClaude: { ko: 'AI 엔진: Claude Code', en: 'AI engine: Claude Code', id: 'Mesin AI: Claude Code' },
@@ -39,7 +39,7 @@ export const M = {
   firewall: { ko: 'AI 엔진 방화벽(pf)', en: 'AI engine firewall (pf)', id: 'Firewall mesin AI (pf)' },
   firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${n} rules`, id: `Aktif, ${n} aturan` }),
   firewallDev: { ko: '개발 모드: AI 엔진이 현재 사용자로 실행되어 엔진 계정 방화벽을 쓰지 않습니다.', en: 'Development mode: the AI engine runs as the current user, so the engine-account firewall is not used.', id: 'Mode pengembangan: mesin AI berjalan sebagai pengguna saat ini, firewall akun mesin tidak dipakai.' },
-  firewallMissing: { ko: '방화벽 규칙 파일이 없습니다. 메뉴바 앱의 \'방화벽 복구\'(관리자 비밀번호)를 실행해 주세요. 복구 전에는 새 질문을 받지 않습니다.', en: 'The firewall rule file is missing. Run "Repair firewall" in the menubar app (admin password). New questions are refused until then.', id: 'Berkas aturan firewall hilang. Jalankan "Perbaiki firewall" di aplikasi menubar (kata sandi admin).' },
+  firewallMissing: { ko: '방화벽 규칙 파일이 없습니다. 메뉴바 앱의 \'방화벽 복구\'(관리자 비밀번호)를 실행해 주세요.', en: 'The firewall rule file is missing. Run "Repair firewall" in the menubar app (admin password).', id: 'Berkas aturan firewall hilang. Jalankan "Perbaiki firewall" di aplikasi menubar (kata sandi admin).' },
   firewallStale: { ko: '방화벽 상태가 15분 넘게 갱신되지 않았습니다. 메뉴바 앱의 \'방화벽 복구\'를 실행해 주세요.', en: 'The firewall status has not been refreshed for over 15 minutes. Run "Repair firewall" in the menubar app.', id: 'Status firewall tidak diperbarui lebih dari 15 menit. Jalankan "Perbaiki firewall" di aplikasi menubar.' },
   firewallOff: (why: string): T => ({ ko: `방화벽이 꺼져 있습니다(${why}). 다른 보안·VPN 앱이 pf를 바꿨을 수 있습니다. 메뉴바 앱의 '방화벽 복구'를 실행해 주세요.`, en: `The firewall is off (${why}). Another security or VPN app may have changed pf. Run "Repair firewall" in the menubar app.`, id: `Firewall mati (${why}). Aplikasi keamanan/VPN lain mungkin mengubah pf. Jalankan "Perbaiki firewall".` }),
 
