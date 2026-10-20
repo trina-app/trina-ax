@@ -41,3 +41,7 @@ function subscribe(l: () => void) {
 export function usePaneState(): DesktopPaneState {
   return useSyncExternalStore(subscribe, () => paneState, () => CLOSED)
 }
+
+/** What this window signs in as. The server offers browser tools only to turns sent from a desktop-app session
+ * (its window has the pane), so sign-in inside the desktop app must say so. */
+export const clientKind = (): 'web' | 'desktop' => (isDesktop() ? 'desktop' : 'web')

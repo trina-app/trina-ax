@@ -167,6 +167,15 @@ describe('links inside drawn documents', () => {
   })
 })
 
+describe('desktop app detection', () => {
+  test('sign-in says desktop inside the desktop app (browser tools are offered only there), web elsewhere', async () => {
+    const { clientKind } = await import('../../src/lib/desktop')
+    expect(clientKind()).toBe('web')
+    ;(globalThis as Record<string, unknown>).mycelDesktop = { bridgeVersion: 1 }
+    try { expect(clientKind()).toBe('desktop') } finally { delete (globalThis as Record<string, unknown>).mycelDesktop }
+  })
+})
+
 describe('browser relay limits', () => {
   test('a malformed or failing desktop answer still gets a browser.result the contract accepts', async () => {
     const sent: ClientFrame[] = []

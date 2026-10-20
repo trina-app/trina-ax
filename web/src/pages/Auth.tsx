@@ -8,6 +8,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { LOCALES, useLocale, useLocaleStore, useT } from '../i18n'
 import { useSession } from '../store/session'
+import { clientKind } from '../lib/desktop'
 import { Button, Field, inputCls } from '../components/ui'
 
 function AuthFrame({ title, children, sub }: { title: string; children: ReactNode; sub?: ReactNode }) {
@@ -69,7 +70,7 @@ export function Login() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     void run(async () => {
-      const r = await api.call(API.login, { body: { username: username.trim(), password, client: 'web', tokenMode: 'cookie' } })
+      const r = await api.call(API.login, { body: { username: username.trim(), password, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
       // the router sends a signed-in person on /login to ?next= (App.tsx AfterSignIn), or to /password
       if (r.me.user.mustChangePassword) navigate('/password', { replace: true })
@@ -178,7 +179,7 @@ export function AcceptInvite() {
     e.preventDefault()
     if (form.password !== form.password2) return setError(t('auth.passwordMismatch'))
     void run(async () => {
-      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { username: form.username.trim(), name: form.name.trim(), password: form.password, locale, client: 'web', tokenMode: 'cookie' } })
+      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { username: form.username.trim(), name: form.name.trim(), password: form.password, locale, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
       navigate('/', { replace: true })
     })
@@ -252,7 +253,7 @@ export function ResetPassword() {
     e.preventDefault()
     if (form.password !== form.password2) return setError(t('auth.passwordMismatch'))
     void run(async () => {
-      const r = await api.call(API.completePasswordReset, { params: { token: token! }, body: { newPassword: form.password, client: 'web', tokenMode: 'cookie' } })
+      const r = await api.call(API.completePasswordReset, { params: { token: token! }, body: { newPassword: form.password, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
       navigate('/', { replace: true })
     })
