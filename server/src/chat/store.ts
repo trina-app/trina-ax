@@ -161,7 +161,12 @@ function isStep(s: unknown): s is Step {
 
 /** Opaque cursor helpers (base64url JSON). */
 export const encodeCursor = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url')
-export function decodeCursor<T>(c: string | undefined): T | null {
+/** Decode a cursor whose fields `keys` are all strings; null when absent or not one of ours. */
+export function decodeCursor<K extends string>(c: string | undefined, keys: readonly K[]): Record<K, string> | null {
   if (!c) return null
-  try { return JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as T } catch { return null }
+  try {
+    const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as Record<string, unknown>
+    if (!v || typeof v !== 'object' || keys.some((k) => typeof v[k] !== 'string' || (v[k] as string).length > 200)) return null
+    return v as Record<K, string>
+  } catch { return null }
 }

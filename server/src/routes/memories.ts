@@ -15,7 +15,8 @@ export const memoriesRoutes: RouteModule = {
     const rt = getChatRuntime(ctx)
     kit.handle(API.listMemories, ({ query, auth }) => {
       const limit = query.limit ?? 50
-      const cur = decodeCursor<{ t: string; id: string }>(query.cursor)
+      const cur = decodeCursor(query.cursor, ['t', 'id'])
+      if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
       const rows = (cur
         ? ctx.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?').all(auth.user.id, cur.t, cur.t, cur.id, limit + 1)
         : ctx.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?').all(auth.user.id, limit + 1)) as Row[]

@@ -23,13 +23,17 @@ export interface EngineProvider {
   get(): EngineConfs
 }
 
+export const RECHECK_MISSING_MS = 30_000
+
 /** Resolve engines from the app config on first use (codex catalog written once). */
 export class LocalEngines implements EngineProvider {
   private cached: EngineConfs | null = null
-  constructor(private ctx: AppContext) {}
+  private cachedAt = 0
+  constructor(private ctx: AppContext, private now: () => number = Date.now) {}
 
   get(): EngineConfs {
-    if (this.cached) return this.cached
+    // a missing engine is looked for again after a while (the admin may install it without restarting the server)
+    if (this.cached && (!Object.keys(this.cached.problems).length || this.now() - this.cachedAt < RECHECK_MISSING_MS)) return this.cached
     const { config, engineConfig } = this.ctx
     const problems: EngineConfs['problems'] = {}
     let claude: ClaudeConf | null = null
@@ -59,6 +63,7 @@ export class LocalEngines implements EngineProvider {
       }
     } else problems.codex = 'engine_missing'
     this.cached = { claude, codex, problems, codexModels }
+    this.cachedAt = this.now()
     return this.cached
   }
 }
@@ -68,3 +73,8 @@ export class StaticEngines implements EngineProvider {
   constructor(private confs: EngineConfs) {}
   get() { return this.confs }
 }
+
+/** Model names go to the engine's argv (`--model <name>` / `-c model="<name>"`): letters, digits and . _ - : / [ ]
+ * only, never starting with "-" (so a model can never read as another option). */
+export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,99}$/
+export const safeModel = (m: unknown): m is string => typeof m === 'string' && MODEL_RE.test(m)

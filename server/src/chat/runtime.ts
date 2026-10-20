@@ -7,12 +7,13 @@ import path from 'node:path'
 import type { Attachment, ChatRunState, EngineId, FileChange, Locale, TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
-import { atLeast } from '../policy/access'
+import { atLeast, type Principal } from '../policy/access'
+import { canRead } from './projects'
 import { newId } from '../db'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
-import { LocalEngines, type EngineProvider } from './engines'
+import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
 import { engineError } from './i18n'
 
@@ -75,7 +76,6 @@ export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknow
   } catch { return fallback }
 }
 const isInt = (min: number, max: number) => (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
-const isStr = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length < 100
 
 export class ChatRuntime {
   readonly store: ChatStore
@@ -124,11 +124,11 @@ export class ChatRuntime {
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
   defaultEngine(): EngineId { return readSetting(this.db, 'defaultEngine', (v): v is EngineId => v === 'claude-code' || v === 'codex', 'claude-code') }
-  defaultModel(): string | null { return readSetting<string | null>(this.db, 'defaultModel', isStr, null) }
+  defaultModel(): string | null { return readSetting<string | null>(this.db, 'defaultModel', safeModel, null) }
   /** the team default model applies to the team default engine only */
   defaultModelFor(engine: EngineId): string | null { return engine === this.defaultEngine() ? this.defaultModel() : null }
   fallbackModel(model: string | undefined): string {
-    const set = readSetting<string | null>(this.db, 'engine.fallbackModel', isStr, null)
+    const set = readSetting<string | null>(this.db, 'engine.fallbackModel', safeModel, null)
     if (set && set !== model) return set
     return model?.includes('sonnet') ? 'opus' : 'sonnet'
   }
@@ -279,16 +279,17 @@ export class ChatRuntime {
   memoriesForPrompt(userId: string): { id: string; text: string }[] {
     return this.db.query('SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').all(userId) as { id: string; text: string }[]
   }
-  projectForChat(projectId: string | null) {
+  /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
+   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI). */
+  projectForChat(projectId: string | null, user: Principal) {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
-    return p ? { name: p.name, folderPath: p.folder_path, instructions: p.instructions } : null
+    if (!p || !canRead(this.files, user, p.folder_path)) return null
+    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by }
   }
   /** project instructions someone else wrote count as outside content (remember protection) */
-  projectTaints(projectId: string | null, userId: string): boolean {
-    if (!projectId) return false
-    const p = this.store.projectRow(projectId)
-    return !!p && p.created_by !== userId && p.instructions.trim() !== ''
+  projectTaints(project: { instructions: string; createdBy: string | null } | null, userId: string): boolean {
+    return !!project && project.createdBy !== userId && project.instructions.trim() !== ''
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
   history(leafId: string | null): { role: 'user' | 'assistant'; content: string }[] {
@@ -333,6 +334,11 @@ export class ChatRuntime {
     const queued = this.db.query(`SELECT t.id, t.chat_id, t.user_id, t.message_id, t.user_message_id, t.window_id, t.client_kind, t.engine, t.model
       FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.status = 'queued' AND c.deleted_at IS NULL ORDER BY COALESCE(t.queued_at, t.started_at), t.id`).all() as {
       id: string; chat_id: string; user_id: string; message_id: string | null; user_message_id: string | null; window_id: string | null; client_kind: string | null; engine: string; model: string | null }[]
+    // queued turns of chats in the trash never run (stop would have caught them; a crash between writes may not)
+    this.db.query(`UPDATE messages SET status = 'stopped', updated_at = ? WHERE status = 'streaming' AND id IN (SELECT t.message_id FROM turns t JOIN chats c ON c.id = t.chat_id
+      WHERE t.status = 'queued' AND c.deleted_at IS NOT NULL)`).run(now)
+    this.db.query(`UPDATE turns SET status = 'stopped', ended_at = ? WHERE status = 'queued'
+      AND (chat_id IN (SELECT id FROM chats WHERE deleted_at IS NOT NULL) OR chat_id NOT IN (SELECT id FROM chats))`).run(now)
     const seen = new Set<string>()
     for (const t of queued) {
       if (!t.message_id || !t.user_message_id || seen.has(t.chat_id)) {

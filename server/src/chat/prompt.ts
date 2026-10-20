@@ -46,6 +46,7 @@ export function teamRules(files: FileService, user: Principal): string {
   let out = ''
   try {
     const dir = path.join(files.fx.root, 'skills')
+    if (!fs.lstatSync(dir).isDirectory()) return '' // a symlinked skills/ could point outside the team folder
     for (const n of fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort().slice(0, SKILL_FILES_MAX)) {
       if (rules.access(user, ['skills', n]) === 'none') continue
       const st = fs.lstatSync(path.join(dir, n))
@@ -56,12 +57,19 @@ export function teamRules(files: FileService, user: Principal): string {
   return out
 }
 
+const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions']
+const BLOCK_TAG_RE = new RegExp(`<(/?)\\s*(${BLOCK_TAGS.join('|')})\\b`, 'gi')
+/** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
+export function neutralizeTags(s: string): string {
+  return s.replace(BLOCK_TAG_RE, (_m, slash: string, name: string) => `‹${slash}${name}`)
+}
+
 /** Memory block: newest first, each item cut to 300 chars, the whole block to 4 KB. */
 export function memoryBlock(memories: { id: string; text: string }[]): string {
   if (!memories.length) return ''
   let body = ''
   for (const m of memories) {
-    const line = `- [${m.id}] ${m.text.replace(/\s+/g, ' ').slice(0, MEMORY_ITEM_MAX)}\n`
+    const line = `- [${m.id}] ${neutralizeTags(m.text.replace(/\s+/g, ' ').slice(0, MEMORY_ITEM_MAX))}\n`
     if (body.length + line.length > MEMORY_BLOCK_MAX) break
     body += line
   }
@@ -81,7 +89,7 @@ export function historyBlock(history: { role: 'user' | 'assistant'; content: str
   let i = history.length - 1
   for (; i >= 0; i--) {
     const h = history[i]!
-    const s = `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`
+    const s = `${h.role === 'user' ? 'User' : 'Assistant'}: ${neutralizeTags(h.content)}`
     if (used + s.length > HISTORY_MAX_CHARS) {
       if (!parts.length) { parts.unshift(s.slice(s.length - HISTORY_MAX_CHARS)); used = HISTORY_MAX_CHARS; i-- }
       break
@@ -142,7 +150,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     sections.push([
       `## Project: ${i.project.name}`,
       `This chat belongs to the project "${i.project.name}". Its folder is ${i.project.folderPath || '(team root)'}; look there first and save project work there when you can write to it.`,
-      i.project.instructions.trim() ? `<project_instructions>\n${i.project.instructions.trim()}\n</project_instructions>` : '',
+      i.project.instructions.trim() ? `<project_instructions>\n${neutralizeTags(i.project.instructions.trim())}\n</project_instructions>` : '',
     ].filter(Boolean).join('\n'))
   }
   if (i.browser) sections.push(BROWSER_RULES)

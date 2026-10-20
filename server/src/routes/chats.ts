@@ -13,6 +13,7 @@ import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/ru
 import { CHAT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
 import { canRead, canWrite, ensureProjectFolder } from '../chat/projects'
 import { tr } from '../chat/i18n'
+import { safeModel } from '../chat/engines'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -43,8 +44,9 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   const pathRows = rt.store.pathTo(chat.active_leaf_id)
   let end = pathRows.length
   if (cursor) {
-    const c = decodeCursor<{ before: string }>(cursor)
-    const i = c ? pathRows.findIndex((m) => m.id === c.before) : -1
+    const c = decodeCursor(cursor, ['before'])
+    if (!c) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
+    const i = pathRows.findIndex((m) => m.id === c!.before)
     if (i < 0) return { items: [], nextCursor: null }
     end = i
   }
@@ -53,7 +55,13 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   return { items: slice.map((m) => rt.liveMessage(m)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
+/** A model name from the request: null/undefined pass, anything else must be a plain model name (it reaches argv). */
+function checkModel(model: string | null | undefined) {
+  if (model !== null && model !== undefined && !safeModel(model)) fail('validation', undefined, { fields: { 'body.model': 'not a model name' } })
+}
+
 function pickEngine(rt: ChatRuntime, chat: ChatRow, body: { engine?: EngineId; model?: string | null }): { engine: EngineId; model: string | null } {
+  checkModel(body.model)
   const engine: EngineId = body.engine ?? (chat.engine === 'codex' ? 'codex' : 'claude-code')
   const model = body.model !== undefined ? body.model : body.engine && body.engine !== chat.engine ? null : chat.model ?? rt.defaultModelFor(engine)
   return { engine, model: model ?? null }
@@ -91,7 +99,8 @@ export const chatsRoutes: RouteModule = {
         where.push(`(title LIKE ? ESCAPE '\\' OR id IN (SELECT chat_id FROM messages_fts WHERE content LIKE ? ESCAPE '\\'))`)
         args.push(like, like)
       }
-      const cur = decodeCursor<{ u: string; id: string }>(query.cursor)
+      const cur = decodeCursor(query.cursor, ['u', 'id'])
+      if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
       if (cur) { where.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); args.push(cur.u, cur.u, cur.id) }
       const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT ?`).all(...args, limit + 1) as ChatRow[]
       const more = rows.length > limit
@@ -101,6 +110,7 @@ export const chatsRoutes: RouteModule = {
     })
 
     kit.handle(API.createChat, ({ body, auth }) => {
+      checkModel(body.model)
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canRead(ctx.files, principal(ctx, auth), p.folder_path)) fail('not_found')
@@ -119,6 +129,7 @@ export const chatsRoutes: RouteModule = {
 
     kit.handle(API.updateChat, ({ params, body, auth }) => {
       const chat = ownChat(rt, auth, params.id)
+      checkModel(body.model)
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canRead(ctx.files, principal(ctx, auth), p.folder_path)) fail('not_found')
