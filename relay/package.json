@@ -6,6 +6,17 @@
   "type": "module",
   "description": "Relay server (runs on Node 25; protocol v2). Component F.",
   "dependencies": {
-    "@mycel/shared": "workspace:*"
+    "@mycel/shared": "workspace:*",
+    "ws": "8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts",
+    "dev:relay": "node --disable-warning=ExperimentalWarning src/main.ts --dev"
+  },
+  "engines": {
+    "node": ">=25"
   }
 }
