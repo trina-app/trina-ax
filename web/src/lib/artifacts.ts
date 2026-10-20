@@ -1,3 +1,4 @@
+/// <reference path="../env.d.ts" />
 // How artifacts (and HTML / SVG file previews) run (tab 5 "아티팩트 격리 규칙"): an opaque-origin iframe
 // (sandbox="allow-scripts" only) that loads the team server's fixed receiver document /sandbox/frame, whose response
 // CSP blocks every network request except this server's /vendor/ libraries. The document built here goes in through

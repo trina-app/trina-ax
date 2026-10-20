@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type TranscribeResult } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
+import { readDraft, writeDraft } from '../../lib/localData'
 import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
@@ -14,6 +15,7 @@ import { openFilePreview } from '../../lib/sidePanel'
 import { uploadFile } from '../../lib/upload'
 import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
+import { useMe } from '../../store/session'
 import { ENGINE_LABEL } from './Messages'
 import { IconButton } from '../ui'
 
@@ -29,16 +31,6 @@ interface Pending {
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 
-const draftKey = (id: string) => `mycel.draft:${id}`
-const readDraft = (id: string) => {
-  try { return localStorage.getItem(draftKey(id)) ?? '' } catch { return '' }
-}
-const writeDraft = (id: string, text: string) => {
-  try {
-    if (text) localStorage.setItem(draftKey(id), text)
-    else localStorage.removeItem(draftKey(id))
-  } catch { /* storage blocked */ }
-}
 
 export default function Composer({
   draftId,
@@ -68,7 +60,8 @@ export default function Composer({
 }) {
   const t = useT()
   const locale = useLocale()
-  const [text, setText] = useState(() => initialText ?? readDraft(draftId))
+  const userId = useMe()?.user.id ?? '-'
+  const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
   const [files, setFiles] = useState<Pending[]>([])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -81,7 +74,7 @@ export default function Composer({
   const taRef = useRef<HTMLTextAreaElement>(null)
   const recorder = useRecorder()
 
-  useEffect(() => writeDraft(draftId, text), [text, draftId])
+  useEffect(() => writeDraft(userId, draftId, text), [userId, text, draftId])
   // a non-empty draft or an upload means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   useEffect(() => (files.some((f) => f.status === 'uploading') ? markBusy('upload') : undefined), [files])
@@ -154,7 +147,7 @@ export default function Composer({
     try {
       await onSend(body, atts)
       setText('')
-      writeDraft(draftId, '')
+      writeDraft(userId, draftId, '')
       setFiles((p) => p.filter((f) => f.status !== 'done'))
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))

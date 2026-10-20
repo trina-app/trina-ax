@@ -2,6 +2,7 @@
 // upload session (8 MB chunks, sha256 checked by the server). A session survives a dropped connection and a page
 // reload: it is remembered per file (name, size, mtime, target) and continues from the chunks the server already has.
 import { createSHA256 } from 'hash-wasm'
+import { UPLOADS_KEY } from './localData'
 import { API, ApiError, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, type ApiClient, type UploadComplete, type UploadSession, type UploadTarget } from '@mycel/shared/api'
 
 /** Up to this size one request is enough (and shows progress less needed); bigger files go chunked. */
@@ -24,7 +25,7 @@ export interface UploadOptions {
   singleRequestMax?: number
 }
 
-const STORE_KEY = 'mycel.uploads'
+const STORE_KEY = UPLOADS_KEY
 /** unfinished upload sessions remembered for resuming */
 export const REMEMBER_MAX = 50
 

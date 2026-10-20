@@ -8,6 +8,7 @@ import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { dateBucket, type DateBucket } from '../lib/format'
+import { clearLocalData } from '../lib/localData'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
@@ -211,6 +212,7 @@ function AccountMenu() {
   }, [open])
   const logout = async () => {
     await api.call(API.logout).catch(() => {})
+    clearLocalData()
     signedOut()
     navigate('/login')
   }

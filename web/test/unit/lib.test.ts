@@ -159,7 +159,7 @@ describe('links inside drawn documents', () => {
 describe('browser relay limits', () => {
   test('an oversized screenshot or a malformed pane answer still gets a browser.result', async () => {
     const sent: ClientFrame[] = []
-    const call = (callId: string): BrowserCall => ({ callId, chatId: uuidv7(), tool: 'browser_screenshot' as BrowserCall['tool'], args: {}, deadline: Date.now() + 60_000 })
+    const call = (callId: string): BrowserCall => ({ callId, turnId: uuidv7(), chatId: uuidv7(), tool: 'computer', args: {}, deadline: Date.now() + 60_000 })
     const huge = 'A'.repeat(20_000_001)
     let answer: unknown = { content: [{ type: 'image', data: huge, mimeType: 'image/png' }], isError: false }
     const app = { browser: { call: async () => answer, cancel() {}, endTurn() {} } } as unknown as DesktopApi
@@ -174,5 +174,27 @@ describe('browser relay limits', () => {
     await new Promise((r) => setTimeout(r, 0))
     const bad = sent.find((f) => f.type === 'browser.result' && f.result.callId === 'bad')
     expect(bad && bad.type === 'browser.result' && bad.result.ok).toBe(false)
+  })
+})
+
+describe('local data per person', () => {
+  class Mem {
+    m = new Map<string, string>()
+    get length() { return this.m.size }
+    key(i: number) { return [...this.m.keys()][i] ?? null }
+    getItem(k: string) { return this.m.get(k) ?? null }
+    setItem(k: string, v: string) { this.m.set(k, v) }
+    removeItem(k: string) { this.m.delete(k) }
+  }
+  test('drafts are kept per person; signing out forgets drafts and remembered uploads only', async () => {
+    const { clearLocalData, readDraft, writeDraft, UPLOADS_KEY } = await import('../../src/lib/localData')
+    const s = new Mem()
+    writeDraft('olga', 'new', 'secret plan', s)
+    expect(readDraft('olga', 'new', s)).toBe('secret plan')
+    expect(readDraft('budi', 'new', s)).toBe('')
+    s.setItem(UPLOADS_KEY, '{}')
+    s.setItem('mycel.theme', 'dark')
+    clearLocalData(s)
+    expect([...s.m.keys()]).toEqual(['mycel.theme'])
   })
 })
