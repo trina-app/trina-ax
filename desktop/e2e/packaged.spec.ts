@@ -38,7 +38,9 @@ test('packaged app: fuses are set, it starts and the team page gets the bridge',
   )
   const before = (await (await fetch('http://127.0.0.1:19151/test/windows')).json()) as { bridged: string[] }
   // ELECTRON_RUN_AS_NODE must be ignored by the packaged app (fuse): it starts as the app anyway
-  const proc = spawn(exe, [], { env: { ...process.env, MYCEL_DESKTOP_USER_DATA: userData, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore' })
+  // --use-mock-keychain: the cookie-encryption key would otherwise come from the login keychain, and an unsigned
+  // build that changed since the key was made makes macOS ask the person (a dialog nobody answers in a test run)
+  const proc = spawn(exe, ['--use-mock-keychain'], { env: { ...process.env, MYCEL_DESKTOP_USER_DATA: userData, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore' })
   try {
     await expect
       .poll(async () => ((await (await fetch('http://127.0.0.1:19151/test/windows')).json()) as { bridged: string[] }).bridged.filter((w) => !before.bridged.includes(w)).length, { timeout: 30_000 })
