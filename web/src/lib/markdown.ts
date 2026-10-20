@@ -1,6 +1,7 @@
 // Text fixes before an answer's Markdown is rendered (no DOM, no network; test/unit/markdown.test.ts).
 // Ported from Saram web/src/lib/markdown.ts.
 import remend from 'remend'
+import { FILE_VIEW_PATH } from '@mycel/shared/api'
 
 // $…$ is math when (as in pandoc) the opening $ is followed and the closing $ preceded by a non-space, and the closing
 // $ is not followed by a digit: "$1$", "$x^2$" are math; "$5 coupon and $10 off" is not.
@@ -39,8 +40,18 @@ export type LinkKind =
 
 const SAFE_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:'])
 
+/** A team-folder path that names a file (has an extension), not a folder: share_file / make_file links to files. */
+export const looksLikeFile = (p: string) => /\.[A-Za-z0-9]{1,10}$/.test(p.slice(p.lastIndexOf('/') + 1))
+
+/** Where /files/view?path=… (the share link of C's share_file / make_file tools) goes inside the app. */
+export function fileViewTarget(p: string): { kind: 'file'; path: string; folder: string } | { kind: 'folder'; path: string } {
+  const clean = p.replace(/^\/+|\/+$/g, '')
+  return looksLikeFile(clean) ? { kind: 'file', path: clean, folder: clean.includes('/') ? clean.slice(0, clean.lastIndexOf('/')) : '' } : { kind: 'folder', path: clean }
+}
+
 /**
- * What a link in an answer points to. Team files (/api/files/download?path=…) open in the preview panel; other
+ * What a link in an answer points to. Team files (/api/files/download?path=…, /files/view?path=<file>) open in the
+ * preview panel; a shared folder (/files/view?path=<folder>) opens the files screen there; other
  * same-origin paths stay in the app; http(s)/mailto/tel open in a new tab; anything else (javascript:, data:, file:)
  * is not a link.
  */
@@ -54,6 +65,12 @@ export function classifyLink(href: string | undefined, origin: string): LinkKind
       return path ? { kind: 'team-file', path } : { kind: 'blocked' }
     }
     if (u.pathname.startsWith('/api/')) return { kind: 'blocked' }
+    if (u.pathname === FILE_VIEW_PATH) {
+      const path = u.searchParams.get('path')
+      if (path === null) return { kind: 'app', href: '/files' }
+      const target = fileViewTarget(path)
+      return target.kind === 'file' ? { kind: 'team-file', path: target.path } : { kind: 'app', href: `/files?path=${encodeURIComponent(target.path)}` }
+    }
     return { kind: 'app', href: u.pathname + u.search + u.hash }
   }
   return SAFE_SCHEMES.has(u.protocol) ? { kind: 'external', href: u.href } : { kind: 'blocked' }

@@ -33,6 +33,10 @@ describe('links in answers', () => {
   test('other API paths are never links; app paths stay in the app', () => {
     expect(classifyLink('/api/admin/users', O)).toEqual({ kind: 'blocked' })
     expect(classifyLink('/files?path=x', O)).toEqual({ kind: 'app', href: '/files?path=x' })
+    // share links from the AI's share_file / make_file tools (shared/src/api/files.ts fileShareUrl)
+    expect(classifyLink('/files/view?path=shared%2Freport.docx', O)).toEqual({ kind: 'team-file', path: 'shared/report.docx' })
+    expect(classifyLink(`${O}/files/view?path=groups%2Fmarketing`, O)).toEqual({ kind: 'app', href: '/files?path=groups%2Fmarketing' })
+    expect(classifyLink('/files/view', O)).toEqual({ kind: 'app', href: '/files' })
   })
   test('only http(s) / mailto / tel go out', () => {
     expect(classifyLink('https://example.com/a', O)).toEqual({ kind: 'external', href: 'https://example.com/a' })

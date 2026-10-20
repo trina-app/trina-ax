@@ -10,11 +10,12 @@ import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
-import { AcceptInvite, ForcedPassword, Login, Setup } from './pages/Auth'
+import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup } from './pages/Auth'
 import Home from './pages/Home'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
+const FileView = lazy(() => import('./pages/FileView'))
 const ProjectList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectList })))
 const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectHome })))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -76,6 +77,7 @@ function Gate() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/invite/:token" element={<AcceptInvite />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
     )
@@ -94,6 +96,7 @@ function Gate() {
           <Route index element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
           <Route path="files" element={<Files />} />
+          <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="settings" element={<Settings />} />
@@ -106,6 +109,8 @@ function Gate() {
         <Route path="/setup" element={<Navigate to="/" replace />} />
         <Route path="/password" element={<Navigate to="/" replace />} />
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
+        {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

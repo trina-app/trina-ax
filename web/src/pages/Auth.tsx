@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import type { InviteInfo, Locale } from '@mycel/shared/api'
+import type { InviteInfo, Locale, PasswordResetInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { LOCALES, useLocale, useLocaleStore, useT } from '../i18n'
@@ -220,6 +220,75 @@ export function AcceptInvite() {
         )}
         <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="invite-submit">
           {t('invite.accept')}
+        </Button>
+      </form>
+    </AuthFrame>
+  )
+}
+
+/** /reset-password/<token>: a one-time link an admin made (or the owner's recovery from the server Mac). */
+export function ResetPassword() {
+  const t = useT()
+  const locale = useLocale()
+  const { token } = useParams()
+  const signedIn = useSession((s) => s.signedIn)
+  const navigate = useNavigate()
+  const [info, setInfo] = useState<PasswordResetInfo | null | 'missing'>(null)
+  const [form, setForm] = useState({ password: '', password2: '' })
+  const { busy, error, run, setError } = useSubmit()
+  useEffect(() => {
+    let live = true
+    api.call(API.passwordResetInfo, { params: { token: token! } }).then(
+      (i) => live && setInfo(i),
+      (e) => live && (isApiError(e, 'not_found') || isApiError(e, 'gone') ? setInfo('missing') : setError(errorText(e, locale, t('error.network')))),
+    )
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (form.password !== form.password2) return setError(t('auth.passwordMismatch'))
+    void run(async () => {
+      const r = await api.call(API.completePasswordReset, { params: { token: token! }, body: { newPassword: form.password, client: 'web', tokenMode: 'cookie' } })
+      signedIn(r.me)
+      navigate('/', { replace: true })
+    })
+  }
+  if (info === null)
+    return (
+      <AuthFrame title={t('reset.title')}>
+        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
+      </AuthFrame>
+    )
+  if (info === 'missing' || !info.valid)
+    return (
+      <AuthFrame title={t('reset.title')}>
+        <p className="text-sm text-muted">{t('reset.invalid')}</p>
+        <Link to="/login" className="mt-4 inline-block text-sm text-accent-text underline">
+          {t('auth.signIn')}
+        </Link>
+      </AuthFrame>
+    )
+  return (
+    <AuthFrame title={t('reset.title')} sub={t('reset.sub', { name: info.name ?? '', username: info.username ?? '', date: info.expiresAt ? formatDateTime(info.expiresAt, locale) : '' })}>
+      <form onSubmit={submit} className="space-y-3">
+        <input type="text" name="username" value={info.username ?? ''} autoComplete="username" readOnly hidden />
+        <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
+          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={10} autoComplete="new-password" data-testid="reset-password" />
+        </Field>
+        <Field label={t('auth.passwordAgain')}>
+          <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" data-testid="reset-password2" />
+        </Field>
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
+        <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="reset-submit">
+          {t('reset.submit')}
         </Button>
       </form>
     </AuthFrame>

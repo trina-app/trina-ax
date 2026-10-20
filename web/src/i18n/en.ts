@@ -76,6 +76,10 @@ export const en: Record<MessageKey, string> = {
   'invite.joinTeam': 'Join {team}',
   'invite.sub': "You're invited as {role}. The link works until {date}.",
   'invite.accept': 'Create account and join',
+  'reset.title': "Set a new password",
+  'reset.invalid': "This link has expired or was already used. Ask an admin for a new one.",
+  'reset.sub': "Choose a new password for {name} ({username}). The link works until {date}.",
+  'reset.submit': "Save and sign in",
 
   'sidebar.label': 'Sidebar',
   'sidebar.open': 'Open menu',

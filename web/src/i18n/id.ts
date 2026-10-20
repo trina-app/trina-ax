@@ -76,6 +76,10 @@ export const id: Record<MessageKey, string> = {
   'invite.joinTeam': 'Gabung ke {team}',
   'invite.sub': 'Kamu diundang sebagai {role}. Link berlaku sampai {date}.',
   'invite.accept': 'Buat akun dan gabung',
+  'reset.title': "Atur kata sandi baru",
+  'reset.invalid': "Link ini sudah kedaluwarsa atau sudah dipakai. Minta link baru ke admin.",
+  'reset.sub': "Buat kata sandi baru untuk {name} ({username}). Link berlaku sampai {date}.",
+  'reset.submit': "Simpan dan masuk",
 
   'sidebar.label': 'Sidebar',
   'sidebar.open': 'Buka menu',

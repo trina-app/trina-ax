@@ -74,6 +74,10 @@ export const ko = {
   'invite.joinTeam': '{team} 팀에 참여하기',
   'invite.sub': '{role}으로 초대받았어요. 링크는 {date}까지 쓸 수 있어요.',
   'invite.accept': '계정 만들고 참여하기',
+  'reset.title': "비밀번호 다시 정하기",
+  'reset.invalid': "이 링크는 만료됐거나 이미 사용됐어요. 관리자에게 새 링크를 요청해 주세요.",
+  'reset.sub': "{name}({username}) 계정의 새 비밀번호를 정해 주세요. 링크는 {date}까지 쓸 수 있어요.",
+  'reset.submit': "새 비밀번호로 로그인",
 
   'sidebar.label': '사이드바',
   'sidebar.open': '메뉴 열기',
