@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { makeEnv } from '../lib/env'
+import { waitFor } from '../lib/wait'
 import { issueProxyToken, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
 
 const env = makeEnv('unit-proxy')
@@ -54,9 +55,9 @@ describe('model proxy', () => {
     const r = await call(key.url, { 'x-api-key': tok }, { model: 'claude-sonnet-x', stream: true, max_tokens: 5, messages: [] })
     const text = await r.text()
     expect(text).toContain('text_delta')
-    await Bun.sleep(20)
-    const after = env.db.query('SELECT output_tokens FROM turns WHERE id = ?').get(turnId) as any
-    expect(after.output_tokens - before.output_tokens).toBe(500)
+    // usage is written when the upstream stream ends, which can land just after the client finished reading
+    const grew = await waitFor(() => (env.db.query('SELECT output_tokens FROM turns WHERE id = ?').get(turnId) as any).output_tokens - before.output_tokens === 500, { timeoutMs: 3000 })
+    expect(grew).toBe(true)
   })
   test('budget block and per-turn cap return 429', async () => {
     env.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, action) VALUES ('b1','user','alice','day', 0.000001, 'block')").run()

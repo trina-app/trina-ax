@@ -258,7 +258,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if err := os.Mkdir(turn, 0o700); err != nil {
 		return err
 	}
-	defer os.RemoveAll(turn)
+	defer os.RemoveAll(turn) // early-error paths; the normal path removes it before reporting "exit" (below)
 	write := func(p, s string) error {
 		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
@@ -435,6 +435,10 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			_ = os.RemoveAll(s.Dir)
 		}
 	}
+	// Remove the per-turn files BEFORE reporting the exit: the server treats "exit" as "turn over" and may start
+	// the next turn in the same chat folder (or check that nothing is left). A deferred removal ran after the
+	// event was sent, so .turn was still there for a moment (flaky unit test, 1 in ~10 runs).
+	_ = os.RemoveAll(turn)
 	o.send(ev)
 	return nil
 }

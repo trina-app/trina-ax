@@ -5,6 +5,7 @@ import path from 'node:path'
 import { makeEnv } from '../lib/env'
 import { startServer, type Running } from '../../server/src/server'
 import { fakeTurn } from '../lib/run-turn'
+import { waitFor } from '../lib/wait'
 import type { SocketLauncher } from '../../server/src/native'
 
 let srv: Running
@@ -30,7 +31,8 @@ describe('tool gate', () => {
     ;(srv.turns as any).create = (...a: any[]) => { const r = (orig as any)(...a); stolen = r.token; return r }
     let reply = ''
     const r = await fakeTurn(srv, 'alice', { calls: [{ tool: 'read', args: { file_path: 'shared/glossary.md' } }], sleepMs: 2500 }, {
-      onStarted: async () => { await Bun.sleep(800); reply = await direct(srv.toolsSock, { hello: { token: stolen } }) },
+      // steal the token while the turn is certainly live: after the legit call returned, during the engine's sleep
+      onLine: async (l) => { if (l.tool === 'read' && !reply) reply = await direct(srv.toolsSock, { hello: { token: stolen } }) },
     })
     ;(srv.turns as any).create = orig
     expect(r.results[0].isError).toBe(false) // the legit bridge (in the group) works
@@ -58,11 +60,19 @@ describe('launcher', () => {
   test('token file is gone once the bridge started; system prompt file gone after first output; .turn removed at the end', async () => {
     const chatId = 'c_files'
     const chatDir = path.join(srv.cfg.agentRoot, chatId)
-    let during: string[] = []
-    await fakeTurn(srv, 'alice', { calls: [{ tool: 'list', args: {} }], sleepMs: 1500 }, { chatId, onStarted: async () => { await Bun.sleep(1000); during = fs.existsSync(path.join(chatDir, '.turn')) ? fs.readdirSync(path.join(chatDir, '.turn')) : [] } })
-    expect(during).toContain('mcp.json')
-    expect(during).not.toContain('token')
-    expect(during).not.toContain('system.md')
+    let during: string[] | null = null
+    // Look at .turn when the engine reports its first tool result: by then the bridge has started (it reads and
+    // deletes the token before connecting) and the engine has produced output (the launcher deletes system.md
+    // before forwarding the first stdout chunk). The engine then sleeps, so .turn still exists.
+    // (This used to be a fixed 1 s sleep after start, which failed when engine start-up was slow under load.)
+    await fakeTurn(srv, 'alice', { calls: [{ tool: 'list', args: {} }], sleepMs: 1500 }, {
+      chatId,
+      onLine: (l) => { if (l.tool === 'list' && during === null) during = fs.existsSync(path.join(chatDir, '.turn')) ? fs.readdirSync(path.join(chatDir, '.turn')) : [] },
+    })
+    expect(during).not.toBeNull()
+    expect(during!).toContain('mcp.json')
+    expect(during!).not.toContain('token')
+    expect(during!).not.toContain('system.md')
     expect(fs.existsSync(path.join(chatDir, '.turn'))).toBe(false)
   })
   test('the whole engine process group is killed at turn end', async () => {
@@ -71,9 +81,9 @@ describe('launcher', () => {
     const r = await fakeTurn(srv, 'alice', { calls: [], attack: script })
     const pid = +(/BGPID=(\d+)/.exec(JSON.stringify(r.lines))?.[1] ?? 0)
     expect(pid).toBeGreaterThan(0)
-    await Bun.sleep(200)
-    let alive = true; try { process.kill(pid, 0) } catch { alive = false }
-    expect(alive).toBe(false)
+    // the kill is immediate, but the orphan is reaped by launchd/init asynchronously; poll instead of a fixed sleep
+    const isAlive = () => { try { process.kill(pid, 0); return true } catch { return false } }
+    expect(await waitFor(() => !isAlive(), { timeoutMs: 5000 })).toBe(true)
   })
   test('only allowed engine binaries run; chat folder must sit directly under the agent root', async () => {
     const h = srv.launcher!.launch({ op: 'run', turnId: 'tx', chatDir: path.join(srv.cfg.agentRoot, 'c_x'), cmd: '/usr/bin/id', args: [], env: {}, token: 't', systemPrompt: '', stdin: '', timeoutMs: 1000 })
