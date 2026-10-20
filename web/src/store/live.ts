@@ -21,6 +21,9 @@ let relay: BrowserRelay | null = null
 let firstServerVersion: string | null = null
 
 export function dispatch(ev: ServerEvent) {
+  if (ev.type === 'message.done' && typeof document !== 'undefined' && document.hidden) {
+    useUi.getState().setUnseenDone(useUi.getState().unseenDone + 1)
+  }
   switch (ev.type) {
     case 'message.created':
     case 'message.delta':

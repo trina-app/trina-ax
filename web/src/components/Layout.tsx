@@ -1,14 +1,15 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
-import { Menu, MessageSquarePlus, WifiOff, RefreshCw } from 'lucide-react'
-import { lazy, Suspense, useEffect } from 'react'
+import { Menu, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { isBusy } from '../lib/busy'
 import { closeSidePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
+import { useMe } from '../store/session'
 import { useUi } from '../store/ui'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
@@ -67,6 +68,7 @@ export default function Layout() {
       <a href="#main" className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
+      <DevModeBanner />
       <ConnectionBanner />
       <div className="flex min-h-0 flex-1">
         {/* sidebar: fixed column on wide screens, drawer below md */}
@@ -114,6 +116,23 @@ export default function Layout() {
       </div>
       <SearchDialog />
       <UpdateWatcher />
+      <AttentionTitle />
+    </div>
+  )
+}
+
+/**
+ * Tab 5 "개발 모드 배너": a server in DEV mode runs the engines as the signed-in Mac user, without the engine account,
+ * firewall or sandbox. Everyone sees it on every screen and it cannot be closed.
+ */
+function DevModeBanner() {
+  const t = useT()
+  const dev = useMe()?.server.dev
+  if (!dev) return null
+  return (
+    <div role="note" className="flex items-center justify-center gap-2 bg-warn-soft px-3 py-1 text-center text-xs font-medium text-warn" data-testid="dev-banner">
+      <ShieldAlert size={14} className="shrink-0" aria-hidden />
+      {t('dev.banner')}
     </div>
   )
 }
@@ -130,6 +149,30 @@ function ConnectionBanner() {
       {offline ? t('conn.offline') : t('conn.reconnecting')}
     </div>
   )
+}
+
+/**
+ * Tab 5 "주의가 필요한 채팅": while the window is hidden, the tab title starts with "(N) " — N = questions the AI is
+ * waiting on plus answers that finished meanwhile — so someone in another tab sees that a chat needs them.
+ * Cleared when the window is seen again.
+ */
+export function AttentionTitle() {
+  const waiting = useChats((s) => Object.keys(s.requests).length)
+  const unseen = useUi((s) => s.unseenDone)
+  const [hidden, setHidden] = useState(() => typeof document !== 'undefined' && document.hidden)
+  useEffect(() => {
+    const h = () => {
+      setHidden(document.hidden)
+      if (!document.hidden) useUi.getState().setUnseenDone(0)
+    }
+    document.addEventListener('visibilitychange', h)
+    return () => document.removeEventListener('visibilitychange', h)
+  }, [])
+  const n = hidden ? waiting + unseen : 0
+  useEffect(() => {
+    document.title = n > 0 ? `(${n}) ${PRODUCT.displayName}` : PRODUCT.displayName
+  }, [n])
+  return null
 }
 
 /** After the server reports a new version: reload by itself once nothing would be lost (checked every 60 s). */

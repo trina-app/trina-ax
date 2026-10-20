@@ -18,12 +18,15 @@ interface UiState {
   /** the server reported a different version than the one this page was loaded with */
   updateReady: boolean
   searchOpen: boolean
+  /** answers that finished while the window was hidden (the tab title shows "(N) …" until it is seen again) */
+  unseenDone: number
   toast: (t: Omit<Toast, 'id'>) => number
   dismiss: (id: number) => void
   setConn: (s: ConnState) => void
   setDrawer: (open: boolean) => void
   setUpdateReady: (v: boolean) => void
   setSearchOpen: (v: boolean) => void
+  setUnseenDone: (n: number) => void
 }
 
 let nextId = 1
@@ -33,6 +36,7 @@ export const useUi = create<UiState>((set, get) => ({
   drawerOpen: false,
   updateReady: false,
   searchOpen: false,
+  unseenDone: 0,
   toast(t) {
     const id = nextId++
     set((s) => ({ toasts: [...s.toasts.slice(-4), { ...t, id }] }))
@@ -44,6 +48,7 @@ export const useUi = create<UiState>((set, get) => ({
   setDrawer: (drawerOpen) => set({ drawerOpen }),
   setUpdateReady: (updateReady) => set({ updateReady }),
   setSearchOpen: (searchOpen) => set({ searchOpen }),
+  setUnseenDone: (unseenDone) => set({ unseenDone }),
 }))
 
 export const toast = (t: Omit<Toast, 'id'>) => useUi.getState().toast(t)
