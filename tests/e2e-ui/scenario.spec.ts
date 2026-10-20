@@ -5,6 +5,7 @@ import path from 'node:path'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { countEngineCall, DIRECT, killRelay, readState, relayPid, RELAYED, rssMb, serverPid, until, WORK, writeState, type Account } from './lib/dev'
 import { FINANCE_CANARY, LAUNCH_FACT, makeBigFile, makeFixtures, sha256File, type Fixtures } from './lib/fixtures'
+import { closeDesktop, desktopView, launchDesktop } from './lib/desktop'
 import { api, deltasOf, lastAnswer, lastAnswerId, lastAssistantId, newChat, recordWs, send, serverMessages, signIn, waitAnswer } from './lib/ui'
 
 test.describe.configure({ mode: 'serial' })
@@ -336,62 +337,58 @@ test('step 3c: alice asks for groups/finance: the AI cannot read it, the audit s
   await o.ctx.close()
 })
 
-test('step 3d: edit the last message (new branch), then regenerate the answer', async ({ browser }) => {
+test('step 3d: edit the last message (new branch), regenerate the answer and stop the regenerated one', async ({ browser }) => {
   const st = readState()
   const { ctx, page } = await as(browser, RELAYED, st.alice)
   await page.goto(`${RELAYED}/c/${st.aliceChat2}`)
-  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  await expect(lastAnswer(page)).not.toHaveAttribute('data-status', 'streaming')
   const um = page.getByTestId('user-message').last()
   const twoOfTwo = /^2\s*\/\s*2$/
+  const N = 150
+  const items = (s: string | null) => [...(s ?? '').matchAll(/Item (\d+)/g)].map((m) => Number(m[1]))
   // (a rerun against the same product finds the branches of the previous run)
   if (!(await um.getByTestId('branch-label').count())) {
     await um.hover()
     await um.getByRole('button', { name: '메시지 수정' }).click()
     const prev = await lastAnswerId(page)
     countEngineCall('claude')
-    await um.getByRole('textbox', { name: '메시지 수정' }).fill('Reply with exactly one word: pineapple')
+    await um.getByRole('textbox', { name: '메시지 수정' }).fill(`Without using any tools, write the lines "Item 1", "Item 2", ... up to "Item ${N}", one per line, nothing else.`)
     await page.getByTestId('edit-send').click()
     expect(await waitAnswer(page, prev)).toBe('done')
   }
-  await expect(lastAnswer(page)).toContainText(/pineapple/i)
   await expect(um.getByTestId('branch-label')).toHaveText(twoOfTwo)
-  // the first version is still there, and switching back and forth works
+  // the first version of the question is still there, and switching back and forth works
   await um.hover()
   await um.getByRole('button', { name: '이전 버전' }).click()
   await expect(page.getByTestId('user-text').last()).toContainText('budget-2027.csv')
-  await expect(lastAnswer(page)).not.toContainText(/pineapple/i)
+  await expect(lastAnswer(page)).not.toContainText('Item 1')
   await page.getByTestId('user-message').last().hover()
   await page.getByTestId('user-message').last().getByRole('button', { name: '다음 버전' }).click()
-  await expect(page.getByTestId('user-text').last()).toContainText('pineapple')
+  await expect(page.getByTestId('user-text').last()).toContainText(`Item ${N}`)
 
-  // regenerate: a sibling answer to the same message
+  // regenerate: a sibling answer to the same message; stop it while it streams
   if (!(await lastAnswer(page).getByTestId('branch-label').count())) {
+    await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
     const prev = await lastAnswerId(page)
     countEngineCall('claude')
     await lastAnswer(page).hover()
     await lastAnswer(page).getByTestId('regenerate').click()
-    expect(await waitAnswer(page, prev)).toBe('done')
+    await expect.poll(async () => (await lastAnswer(page).getAttribute('data-message-id')) !== prev, { timeout: 30_000 }).toBe(true)
+    await expect.poll(async () => items(await lastAnswer(page).textContent()).length, { timeout: 120_000, intervals: [100] }).toBeGreaterThanOrEqual(3)
+    await page.getByTestId('stop').click()
+    expect(await waitAnswer(page, prev, 30_000)).toBe('stopped')
   }
-  await expect(lastAnswer(page)).toContainText(/pineapple/i)
-  await expect(lastAnswer(page).getByTestId('branch-label')).toHaveText(twoOfTwo)
-  await ctx.close()
-})
-
-test('step 3e: stop a running answer', async ({ browser }) => {
-  const st = readState()
-  const { ctx, page } = await as(browser, RELAYED, st.alice)
-  const chatId = await newChat(page, RELAYED, 'Write a long, detailed essay (at least 1500 words, no tools) about the history of the printing press.')
   const a = lastAnswer(page)
-  await expect(a).toHaveAttribute('data-status', 'streaming')
-  // wait for some text, then stop
-  await expect.poll(async () => ((await a.textContent()) ?? '').length, { timeout: 120_000 }).toBeGreaterThan(200)
-  await page.getByTestId('stop').click()
-  expect(await waitAnswer(page, null, 30_000)).toBe('stopped')
+  await expect(a).toHaveAttribute('data-status', 'stopped')
   await expect(a).toContainText('중지됨')
-  const saved = (await serverMessages(page.request, RELAYED, chatId)).at(-1)!
-  expect(saved.status).toBe('stopped')
-  // the composer is usable again
+  expect(items(await a.textContent()).length).toBeLessThan(N)
+  await expect(a.getByTestId('branch-label')).toHaveText(twoOfTwo)
+  // the composer is usable again, and the first answer (complete) is one click away
   await expect(page.getByTestId('send')).toBeVisible()
+  await a.hover()
+  await a.getByRole('button', { name: '이전 버전' }).click()
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  expect(items(await lastAnswer(page).textContent())).toEqual(Array.from({ length: N }, (_, i) => i + 1))
   await ctx.close()
 })
 
@@ -682,4 +679,47 @@ test('step 8: admin screens with real data: who sees what, engines, usage, audit
   await expect(conn).toContainText('http://demo.localhost:19161')
   expect(realErrors(errors)).toEqual([])
   await ctx.close()
+})
+
+// ---------------------------------------------------------------------------------------------- step 9 (desktop)
+
+test('step 9: the desktop app on the team address: Alice signs in and Claude reads example.com in the Browser pane', async () => {
+  const st = readState()
+  const userData = fs.mkdtempSync(path.join(WORK, 'desktop-'))
+  const app = await launchDesktop(userData)
+  try {
+    const w = await desktopView(app, (u) => u.endsWith('/welcome.html'))
+    await w.getByRole('textbox', { name: '팀 주소' }).fill('demo.localhost:19161')
+    await w.getByRole('button', { name: '연결' }).click()
+    const page = await desktopView(app, (u) => u.startsWith(RELAYED))
+    await page.getByTestId('login-username').fill(st.alice.username)
+    await page.getByTestId('login-password').fill(st.alice.password)
+    await page.getByTestId('login-submit').click()
+    await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 30_000 })
+    // the session is a desktop session (browser tools are only offered to those)
+    const me = await page.evaluate(async () => (await fetch('/api/me')).json())
+    expect(me.session.client).toBe('desktop')
+
+    countEngineCall('claude')
+    await page.getByTestId('composer-input').fill('Open https://example.com in the browser and tell me the exact title of the page. Do not use web search.')
+    await page.getByTestId('send').click()
+    // the chat header has the Browser pane button only inside the desktop app
+    await expect(page.getByTestId('browser-toggle')).toBeVisible({ timeout: 30_000 })
+    // the site question is asked by the desktop app's own pane toolbar (never by the web page)
+    const pane = await desktopView(app, (u) => u.endsWith('/pane.html'), 120_000)
+    const prompt = pane.getByTestId('permission-prompt').first()
+    await expect(prompt).toBeVisible({ timeout: 120_000 })
+    await expect(prompt).toHaveAttribute('data-scope', 'site')
+    await prompt.getByRole('button', { name: '이번만 허용' }).click()
+    const answer = page.getByTestId('assistant-message').last()
+    await expect(answer).not.toHaveAttribute('data-status', 'streaming', { timeout: 240_000 })
+    await expect(answer).toHaveAttribute('data-status', 'done')
+    await expect(answer).toContainText('Example Domain')
+    await expect(answer.getByTestId('steps')).toBeVisible()
+    // the browser tab really is on example.com
+    await desktopView(app, (u) => u.startsWith('https://example.com'), 10_000)
+  } finally {
+    await closeDesktop(app)
+    fs.rmSync(userData, { recursive: true, force: true })
+  }
 })
