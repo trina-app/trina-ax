@@ -1,6 +1,6 @@
 // Desktop app end to end: the real Electron app (dist/), real browser pane over CDP, fake team servers that speak
 // the shared WebSocket contract (browser.call -> browser.ack / browser.result), and a fixture website.
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import {
@@ -68,6 +68,32 @@ test.describe('team address and window', () => {
       const page = await teamPage(app, ACME)
       await expect(page.locator('#team')).toHaveText('Acme')
       expect(await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getTitle())).toBe('Acme Team — Team AX')
+    } finally {
+      await close(app)
+    }
+  })
+  test('an unreachable team server shows the offline screen with retry and the team list', async () => {
+    const userData = newUserData()
+    let app = await launch(userData)
+    try {
+      await addTeam(app, 'acme.localhost:19151', ACME)
+    } finally {
+      await close(app)
+    }
+    // the server moved away (simulated by pointing the remembered team at a closed port)
+    const f = teamsJson(userData)
+    f.teams[0].origin = 'http://gone.localhost:19159'
+    writeFileSync(join(userData, 'teams.json'), JSON.stringify(f))
+    app = await launch(userData)
+    try {
+      const w = await welcome(app)
+      await expect(w.getByTestId('offline')).toContainText('팀 서버에 연결할 수 없어요')
+      await expect(w.getByTestId('offline')).toContainText('http://gone.localhost:19159')
+      await w.getByRole('button', { name: '다시 시도' }).click()
+      await expect(w.getByTestId('offline')).toBeVisible()
+      await w.getByRole('button', { name: '다른 팀' }).click()
+      await expect(w.getByTestId('team')).toHaveCount(1)
+      await addTeam(app, 'beta.localhost:19152', BETA)
     } finally {
       await close(app)
     }
