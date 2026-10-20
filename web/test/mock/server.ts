@@ -253,7 +253,9 @@ export class MockServer {
     }
     if (/ask/i.test(prompt)) {
       const requestId = 'q1'
-      const request: TurnRequest = { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
+      const request: TurnRequest = /safety/i.test(prompt)
+        ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
+        : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })

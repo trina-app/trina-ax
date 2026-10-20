@@ -35,6 +35,11 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
           return reply({ content: out.content, ...(out.isError ? { isError: true } : {}) })
         }
         const registry = extra ? null : toolRegistry(files)
+        const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, msg.params?.arguments ?? {}).catch(() => 'The save could not be checked, so nothing was written. Try again.') : null
+        if (refusal) {
+          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not allowed by the user (wider audience)`, 0)
+          return reply({ content: [{ type: 'text', text: refusal }], isError: true })
+        }
         const out = registry?.has(name) ? await registry.call(name, msg.params?.arguments ?? {}, ctx) : await files.call(name, msg.params?.arguments ?? {}, ctx)
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
         try { extra?.afterFileTool?.(name, !!out.isError, msg.params?.arguments) } catch {}

@@ -25,6 +25,8 @@ import type { ChatRuntime } from './runtime'
 import type { MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet } from './tools'
+import { addSources, clearScope, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
+import { authorize } from '../policy/authorize'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -66,6 +68,8 @@ export class TurnExec {
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
+  /** folders the person allowed to receive content from a narrower read scope, this turn */
+  readonly widenAllowed = new Set<string>()
   readonly done: Promise<void>
 
   private resolveDone!: () => void
@@ -154,6 +158,8 @@ export class TurnExec {
     if (!resume && userMsg.parent_id === null) this.newSession()
     const project = rt.projectForChat(chat.project_id, this.principal)
     if (rt.projectTaints(project, spec.userId)) this.taint()
+    // project instructions go into the prompt: their folder joins the read scope (tab 7)
+    if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
 
     const promptInput = (fresh: boolean): PromptInput => ({
@@ -370,6 +376,7 @@ export class TurnExec {
    * sessions that carry the branch history keep the mark: the history holds what was seen before. */
   private newSession() {
     this.rt.db.query('UPDATE chats SET session_tainted = 0 WHERE id = ?').run(this.spec.chatId)
+    clearScope(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId) }
   get tainted(): boolean {
@@ -377,6 +384,8 @@ export class TurnExec {
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
+    // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
+    if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
     if (['read', 'grep', 'glob', 'list'].includes(tool)) {
       const a = (input ?? {}) as Record<string, unknown>
@@ -385,6 +394,51 @@ export class TurnExec {
       // own folder only; the attachment folder inside it holds files from elsewhere (uploads, shared screenshots)
       if ((p !== mine && !p.startsWith(mine + '/')) || p.startsWith(mine + '/.attachments')) this.taint()
     }
+  }
+
+  // ---------------- read scope (tab 7 "공용 폴더를 거친 유출") ----------------
+  /** Folders whose content the model saw in this turn (read / grep) join the chat's read scope. */
+  noteReads() {
+    const paths = this.files.readPaths
+    if (!paths.size) return
+    const rules = this.rt.files.rules()
+    const add = [...paths].map((p) => sourceOf(this.rt.db, rules, p))
+    paths.clear()
+    addSources(this.rt.db, this.spec.chatId, add)
+  }
+
+  /**
+   * Before the AI saves at `target`: when more people can read the target than can read what this chat read (plus
+   * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
+   * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
+   */
+  async confirmWidening(target: string, extraSources: string[] = []): Promise<string | null> {
+    this.noteReads()
+    const fs_ = this.rt.files
+    const rules = fs_.rules()
+    let segs: string[]
+    try { segs = authorize(fs_.fx, rules, this.principal!, target, 'write', { createDirs: true }).segs } catch { return null }
+    const extra: ReadSource[] = []
+    for (const p of extraSources) {
+      try { extra.push(sourceOf(this.rt.db, rules, authorize(fs_.fx, rules, this.principal!, p, 'read').rel)) } catch { /* the tool reports it */ }
+    }
+    const w = widening(this.rt.db, this.spec.chatId, segs, extra)
+    if (!w) return null
+    const dir = segs.slice(0, -1).join('/')
+    if (this.widenAllowed.has(dir)) return null
+    const L = this.spec.locale
+    const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L) }
+    const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
+    const answer = await this.waitForPerson({
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }),
+      options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
+      expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
+      this.widenAllowed.add(dir)
+      return null
+    }
+    return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${from}). Do not save it anywhere else that more people can see; ask the user where to put it.`
   }
 
   // ---------------- people answering (ask_user, browser site) ----------------

@@ -51,6 +51,8 @@ export interface RelayClientOptions {
   log: RelayClientLog
   onEvent?(e: RelayEvent, self: string): void
   onState?(s: RelayClientState): void
+  /** the relay told us the address this connection came from (the office's public exit address) */
+  onSeenIp?(ip: string): void
   /** overrides for tests */
   pingMs?: number
   deadMs?: number
@@ -193,6 +195,7 @@ export class RelayClient {
             c.mux.ping()
           }, pingMs)
           this.stats.connects++
+          if (r.seenIp) { try { this.o.onSeenIp?.(r.seenIp) } catch (err) { this.o.log.error('relay seenIp handler failed', { err }) } }
           this.setState({ address: r.address, name: r.name, lastError: null })
           this.updateConnState()
           this.o.log.info('relay connected', { idx, address: r.address, conns: this.liveConns() })

@@ -13,6 +13,7 @@ import { browserUrl, isPrivateHost } from '../realtime/private-net'
 import { MEMORY_ITEM_MAX } from './prompt'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
+import type { TurnPerson } from '../tools/url-gate'
 
 interface Tool {
   name: string
@@ -49,18 +50,44 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
     async call(name, args) {
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      if (name === 'make_file' && args && typeof args === 'object') {
+        // the new file carries what the chat read, and the `source` file it is made from
+        const a = args as { output?: unknown; source?: unknown }
+        const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
+        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
+      }
       const out = await t.call(args)
       exec.afterTool()
       return { content: out.content, isError: out.isError, summary: out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}` }
     },
-    afterFileTool: (name, _isError, args) => { exec.noteTaint(name, args); exec.afterTool() },
+    afterFileTool: (name, _isError, args) => { exec.noteTaint(name, args); exec.noteReads(); exec.afterTool() },
+    beforeFileTool: async (name, args) => {
+      if (name !== 'write' && name !== 'edit') return null
+      const p = (args as { file_path?: unknown } | null)?.file_path
+      return typeof p === 'string' ? exec.confirmWidening(p) : null
+    },
+  }
+}
+
+/** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
+export function turnPerson(exec: TurnExec): TurnPerson {
+  return {
+    locale: exec.spec.locale,
+    async confirm(question, allow, deny) {
+      const answer = await exec.waitForPerson({
+        kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }],
+        multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
+      } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
+      return answer === 'allow' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'allow')
+    },
+    *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
   }
 }
 
 function toolContext(exec: TurnExec): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
-    signal: exec.abort.signal, files: { user: exec.principal!, turnId: exec.spec.turnId, files: exec.files },
+    signal: exec.abort.signal, files: { user: exec.principal!, turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec) },
   }
 }
 
@@ -91,7 +118,7 @@ function bTools(exec: TurnExec): Tool[] {
         if (exec.tainted) {
           // this conversation has seen outside content: the person confirms before anything is kept (tab 3)
           const answer = await exec.waitForPerson({
-            kind: 'ask_user', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
+            kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
             options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
           } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
           if (answer !== 'yes' && !(Array.isArray(answer) && answer[0] === 'yes')) {

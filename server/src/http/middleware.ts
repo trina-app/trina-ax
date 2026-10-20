@@ -8,9 +8,10 @@ import type { AppContext } from '../context'
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
-/** Request path for logs: one-time secrets in the path (invite and password reset links) are replaced by "***". */
+/** Request path for logs: one-time secrets in the path (invite and password reset links: the API and the web pages
+ * /invite/<token>, /reset-password/<token> that the links open) are replaced by "***". */
 export function loggablePath(p: string): string {
-  return p.replace(/^(\/api\/(?:invites|password-resets)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password)\/)[^/]+/, '$1***')
 }
 
 /**
@@ -50,6 +51,11 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
     setHeader(c, 'Referrer-Policy', 'same-origin')
     if (c.req.path.startsWith('/api/')) {
       if (!c.res.headers.has('Cache-Control')) setHeader(c, 'Cache-Control', 'no-store')
+      // Every team address is the same site (<team>.treesoop.com), so SameSite=Lax sends the session cookie with an
+      // <img> / <video> / <script> another team's page points at this team's API. The response cannot be read
+      // there, but its size, type, dimensions or load / error events can (whether a file exists, an image's size),
+      // and Spectre-class reads need nothing more. CORP keeps every API response to this origin (design tab 7).
+      setHeader(c, 'Cross-Origin-Resource-Policy', 'same-origin')
     } else {
       // a page that says who may frame it (CSP frame-ancestors: the artifact receiver /sandbox/frame) keeps that rule;
       // browsers ignore X-Frame-Options next to frame-ancestors anyway, so DENY there would only mislead

@@ -180,6 +180,7 @@ export const ko = {
   'steps.results': '결과 {n}개',
 
   'ask.title': 'AI가 확인하고 싶어 해요',
+  'ask.serverTitle': '팀 서버의 안전 확인',
   'ask.ownAnswer': '직접 답하기',
   'ask.orType': '또는 직접 입력하세요',
   'ask.typeAnswer': '답을 입력하세요',

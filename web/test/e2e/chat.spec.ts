@@ -104,6 +104,19 @@ test('ask_user card: pick an option, the answer continues', async ({ page }) => 
   await expect(lastAnswer(page)).toContainText('You chose "q4"')
 })
 
+test('a safety check the server raised has its own header, never the "AI asks" one', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'ask me a safety question')
+  const card = page.getByTestId('ask-card')
+  await expect(card).toHaveAttribute('data-origin', 'server')
+  await expect(card).toContainText('팀 서버의 안전 확인')
+  await expect(card).not.toContainText('AI가 확인하고 싶어 해요')
+  await card.getByLabel('열지 않기').check()
+  await card.getByRole('button', { name: '답하기' }).click()
+  await expect(card).toHaveCount(0)
+})
+
 test('an error answer offers retry', async ({ page }) => {
   await reset(page)
   await signIn(page)

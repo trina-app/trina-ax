@@ -79,6 +79,10 @@ export const AskUserRequest = z.object({
   allowText: z.boolean().optional(),
   /** when the card closes by itself (the AI then continues without an answer) */
   expiresAt: z.string().optional(),
+  /** 'server': a safety check the server raised inside a tool call (an unseen web address, saving where more people
+   * see it, remember after outside content), shown with its own header. The AI's ask_user never sets it, so a
+   * question the AI writes cannot pass for one (design tab 7 "화면 보안"). */
+  origin: z.literal('server').optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })

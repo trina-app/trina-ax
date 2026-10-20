@@ -151,7 +151,7 @@ export interface GrepOpts {
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
   const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0 }
-  if (!roots.length) return { text: 'No matches', truncated: false, stats }
+  if (!roots.length) return { text: 'No matches', truncated: false, stats, files: new Set<string>() }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
   if (o.glob?.startsWith('!')) throw new ToolError('negated globs are not supported')
   const pathGlob = o.glob && o.glob.includes('/') ? new Bun.Glob(o.glob) : null
@@ -165,6 +165,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   else common.push('--files-with-matches', '--null')
 
   const out: string[] = []
+  /** files whose content (or the fact that they match) went into the result */
+  const files = new Set<string>()
   const seen = new Map<string, boolean>()
   const ok = (shown: string, real: string) => {
     if (!seen.has(real)) {
@@ -189,11 +191,15 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (!push('--')) return false
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
-      return push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
+      const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
+      if (pushed) files.add(m.real)
+      return pushed
     }
     const parts = rec.split('\0')
     const m = map(parts[0].replace(/^\n/, '')); if (!m || !ok(m.shown, m.real)) return
-    return push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
+    const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
+    if (pushed) files.add(m.real)
+    return pushed
   }
   const recSep: '\n' | '\0' = o.mode === 'files_with_matches' ? '\0' : '\n'
   // later globs win in ripgrep: user glob first, then the exclusions
@@ -201,7 +207,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const id = (p: string) => { const r = strip(p); return { shown: r, real: r } }
   const r1 = await runRg(d.rg, mainArgs, d.fx.root, recSep, handler(id), d.timeoutMs)
   if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
-  if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats }
+  if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats, files }
 
   // office documents: the same ripgrep over the extracted-text cache, paths mapped back to the originals
   if (!truncated && !o.type) {
@@ -222,5 +228,5 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let text = out.join('\n') || 'No matches'
   if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
-  return { text, truncated, stats }
+  return { text, truncated, stats, files }
 }

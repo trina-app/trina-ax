@@ -3,7 +3,7 @@
 // - http / https only, ports 80 and 443 only, no user:password@ in the URL
 // - names: no localhost / *.localhost / *.local / *.internal / *.home.arpa / single-label names
 // - the host is resolved ONCE (A + AAAA); every address must be global unicast (allow-list below; IPv4-mapped IPv6
-//   is checked as IPv4) and not one of this machine's own addresses; then the connection goes to that IP with the
+//   is checked as IPv4), not one of this machine's own addresses and not on one of its networks; then the connection goes to that IP with the
 //   original name as Host and TLS SNI — no second lookup, so DNS rebinding cannot switch the target
 // - our own HTTP/1.1 GET over node:net / node:tls: Bun's fetch and node:http follow HTTP(S)_PROXY from the
 //   environment and cannot be pinned to an address (measured), raw sockets can
@@ -64,6 +64,17 @@ export function parseV6(s: string): number[] | null {
   return head.length === 8 ? head : null
 }
 
+/** One spelling per address, for comparing: IPv4 as a.b.c.d (also when written IPv4-mapped in IPv6, any form), IPv6
+ * as 8 full lower-case groups. Anything else is returned trimmed and lower-cased. */
+export function normIp(ip: string): string {
+  const s = ip.trim().toLowerCase()
+  if (v4(s) !== null) return s
+  const g = parseV6(s)
+  if (!g) return s
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return `${g[6]! >>> 8}.${g[6]! & 255}.${g[7]! >>> 8}.${g[7]! & 255}`
+  return g.map((x) => x.toString(16).padStart(4, '0')).join(':')
+}
+
 /** true when `ip` (v4 or v6 text) is a global unicast address we may connect to. */
 export function isPublicAddress(ip: string): boolean {
   const n4 = v4(ip)
@@ -86,8 +97,55 @@ export function isPublicAddress(ip: string): boolean {
   return true
 }
 
-let ownAddrs: Set<string> | null = null
-const own = () => (ownAddrs ??= new Set(Object.values(os.networkInterfaces()).flat().filter(Boolean).map((i) => i!.address.toLowerCase())))
+/** a.b.c.d or IPv6 text -> bits (32 or 128 of them as a bigint), or null */
+function ipBits(ip: string): { v: 4 | 6; n: bigint } | null {
+  const n4 = v4(ip)
+  if (n4 !== null) return { v: 4, n: BigInt(n4) }
+  const g = parseV6(ip)
+  if (!g) return null
+  return { v: 6, n: g.reduce((acc, x) => (acc << 16n) | BigInt(x), 0n) }
+}
+
+/**
+ * This machine's own addresses and the networks its interfaces are on (design tab 7 "내부망 공격": the server's
+ * on-link ranges are refused even when they are public addresses, e.g. an office on a public /28, so web_fetch
+ * cannot reach the printer or NAS next to the server). Read again at most once a minute (Wi-Fi changes).
+ */
+interface LocalNets { addrs: Set<string>; nets: { v: 4 | 6; base: bigint; bits: number }[] }
+let localNets: { at: number; nets: LocalNets } | null = null
+export function ownNetworks(ifaces: ReturnType<typeof os.networkInterfaces> = os.networkInterfaces()): LocalNets {
+  const addrs = new Set<string>()
+  const nets: LocalNets['nets'] = []
+  for (const i of Object.values(ifaces).flat()) {
+    if (!i) continue
+    addrs.add(i.address.toLowerCase())
+    if (i.internal || !i.cidr) continue
+    const [ip, len] = i.cidr.split('/')
+    const b = ipBits(ip!)
+    const bits = Number(len)
+    if (!b || !Number.isInteger(bits)) continue
+    // a host route (/32, /128) is just the address; very wide "networks" (a misconfigured /0../7) are not used
+    if (bits < (b.v === 4 ? 8 : 32)) continue
+    const width = b.v === 4 ? 32 : 128
+    nets.push({ v: b.v, bits, base: b.n >> BigInt(width - bits) })
+  }
+  return { addrs, nets }
+}
+const local = (): LocalNets => {
+  const now = Date.now()
+  if (!localNets || now - localNets.at > 60_000) localNets = { at: now, nets: ownNetworks() }
+  return localNets.nets
+}
+/** Is the address one of this machine's own or on one of its networks? */
+export function isLocalAddress(ip: string, nets: LocalNets = local()): boolean {
+  if (nets.addrs.has(ip.toLowerCase())) return true
+  let b = ipBits(ip)
+  if (!b) return false
+  // IPv4-mapped IPv6: compare the IPv4 inside
+  if (b.v === 6 && b.n >> 32n === 0xffffn) b = { v: 4, n: b.n & 0xffffffffn }
+  const width = b.v === 4 ? 32 : 128
+  return nets.nets.some((x) => x.v === b!.v && b!.n >> BigInt(width - x.bits) === x.base)
+}
 
 export function checkHostName(host: string): string | null {
   const h = host.toLowerCase().replace(/\.$/, '')
@@ -107,6 +165,8 @@ export interface ResolveOptions {
   testAllow?: (ip: string) => boolean
   /** epoch ms: the name lookup gives up then (getaddrinfo itself can hang far longer than the fetch limit) */
   deadline?: number
+  /** the office's public exit addresses (relay-reported, tools/egress.ts): refused on every hop */
+  blockedIps?: () => readonly string[]
 }
 const sysLookup = (h: string) => dns.lookup(h, { all: true, verbatim: true })
 
@@ -132,9 +192,11 @@ export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promis
     } finally { clearTimeout(timer) }
   }
   if (!addrs.length) throw new ToolError(`could not resolve ${host}`)
+  const own = new Set((o.blockedIps?.() ?? []).map(normIp))
   for (const a of addrs) {
+    if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this office's own public address; the server cannot fetch it (it would reach the office's own router or devices)`)
     if (testOk(a.address)) continue
-    if (!isPublicAddress(a.address) || own().has(a.address.toLowerCase())) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
+    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
   }
   if ((port !== 80 && port !== 443) && !addrs.every((a) => testOk(a.address))) throw new ToolError('only ports 80 and 443 can be fetched')
   const pick = addrs.find((a) => a.family === 4) ?? addrs[0]!

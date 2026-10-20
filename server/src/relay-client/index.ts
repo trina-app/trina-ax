@@ -10,6 +10,7 @@ import type { AppContext } from '../context'
 import type { RelayStatusProvider } from '../services'
 import { RelayClient, relayApiBase, type RelayClientState } from './client'
 import { relayConn } from './realtime-conn'
+import { noteEgressIp } from '../tools/egress'
 import { RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, recoverWithCode, type Registration } from './registration'
 
 export { RelayClient, relayApiBase, responseHeaders } from './client'
@@ -159,6 +160,7 @@ export function startRelayClient(ctx: AppContext): RelayService {
         recordRelayEvent(ctx.db, s.state, s.detail)
         if (s.state === 'replaced') notifyAdmins(ctx, 'relay_replaced', 'warn')
       },
+      onSeenIp: (ip) => noteEgressIp(ctx, ip),
       onEvent: (ev: RelayEvent, self: string) => {
         if (ev.type === 'instance_replaced' && ev.by === self) { recordRelayEvent(ctx.db, 'took_over', ev.previous); notifyAdmins(ctx, 'relay_took_over', 'warn') }
         else if (ev.type === 'key_rejected') { recordRelayEvent(ctx.db, 'key_rejected', String(ev.count)); notifyAdmins(ctx, 'relay_key_rejected', 'warn') }

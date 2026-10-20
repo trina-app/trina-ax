@@ -53,6 +53,8 @@ interface Ctl {
   draining: boolean
   /** stall probe sent at (0 = none) */
   probeAt: number
+  /** where the team server connected from (told to it in the handshake only, never logged) */
+  ip: string | null
 }
 
 interface TeamState {
@@ -446,7 +448,7 @@ export class RelayServer {
     const name = this.teamName(req)
     if (name === null) {
       if ((req.url ?? '').split('?')[0] === '/connect') {
-        this.ctlWss.handleUpgrade(req, socket, head, (ws) => this.onControl(ws))
+        this.ctlWss.handleUpgrade(req, socket, head, (ws) => this.onControl(ws, this.clientIp(req)))
         return
       }
       rawHttp(socket, 404)
@@ -616,8 +618,8 @@ export class RelayServer {
 
   // ------------------------------------------------------------------ control connections
 
-  private onControl(ws: WebSocket): void {
-    const c: Ctl = { ws, nonce: randomBytes(32).toString('base64'), authed: false, team: null, keyId: '', instance: '', idx: 0, mux: null, since: Date.now(), draining: false, probeAt: 0 }
+  private onControl(ws: WebSocket, ip: string | null): void {
+    const c: Ctl = { ws, nonce: randomBytes(32).toString('base64'), authed: false, team: null, keyId: '', instance: '', idx: 0, mux: null, since: Date.now(), draining: false, probeAt: 0, ip }
     ws.send(JSON.stringify({ t: 'challenge', vs: SUPPORTED_VERSIONS, nonce: c.nonce, ts: Date.now() }))
     const authTimer = setTimeout(() => { if (!c.authed) ws.close(ControlClose.AUTH_FAILED, 'auth timeout') }, AUTH_TIMEOUT_MS)
     ws.on('message', (data: RawData, isBinary: boolean) => {
@@ -704,6 +706,7 @@ export class RelayServer {
     const ok: AuthOk = {
       t: 'ok', v: m.v, initialWindow: this.cfg.initialWindow, maxStreams: this.cfg.maxStreamsPerConn, pingMs: Math.min(20_000, Math.floor(this.cfg.silenceMs / 2)), silenceMs: this.cfg.silenceMs,
       address: teamAddress(this.cfg, row.name), name: row.name, conns: [...t.conns].filter((o) => o.instance === m.instance).length,
+      ...(c.ip ? { seenIp: c.ip } : {}),
     }
     c.ws.send(JSON.stringify(ok))
     this.log.info('ctl_connected', { team: t.id, idx: c.idx, conns: t.conns.size, offlineMs: wasOffline ? Date.now() - wasOffline : null })

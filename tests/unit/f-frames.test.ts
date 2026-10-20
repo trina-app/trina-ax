@@ -122,6 +122,9 @@ describe('JSON payloads', () => {
     const ok = { t: 'ok', v: 2, initialWindow: 262144, maxStreams: 512, pingMs: 20000, silenceMs: 45000, address: 'https://a.example', name: 'a', conns: 1 }
     expect(parseAuthReply(ok)).toEqual(ok as never)
     expect(() => parseAuthReply({ ...ok, initialWindow: 10 })).toThrow(FrameError)
+    // the relay-seen address is optional; anything that is not an IP address is dropped, not passed on
+    expect(parseAuthReply({ ...ok, seenIp: '2001:db8::7' })).toEqual({ ...ok, seenIp: '2001:db8::7' } as never)
+    expect(parseAuthReply({ ...ok, seenIp: '1.2.3.4; evil' })).toEqual(ok as never)
     expect(authSigningString('t', 'i', 'n', 5)).toBe('mycel-relay-v2\nt\ni\nn\n5')
   })
   test('header forwarding strips hop-by-hop and spoofable headers', () => {

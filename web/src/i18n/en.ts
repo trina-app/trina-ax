@@ -182,6 +182,7 @@ export const en: Record<MessageKey, string> = {
   'steps.results': '{n} results',
 
   'ask.title': 'The AI has a question',
+  'ask.serverTitle': 'Safety check by the team server',
   'ask.ownAnswer': 'Your answer',
   'ask.orType': 'Or type your own answer',
   'ask.typeAnswer': 'Type your answer',

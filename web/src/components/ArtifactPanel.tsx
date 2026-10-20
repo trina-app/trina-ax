@@ -6,7 +6,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Download, FolderInput, Loader
 import { useEffect, useMemo, useState } from 'react'
 import type { ArtifactType } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../lib/api'
-import { artifactFileName, buildArtifactDocument, FRAME_TYPES, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
+import { artifactFileName, buildArtifactDocument, fixPromptError, FRAME_TYPES, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { joinPath } from '../lib/paths'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
@@ -93,7 +93,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     try {
       await send({
         chatId,
-        content: t('artifact.fixPrompt', { title, key: artifact.key, version: artifact.version, error: runtimeError }),
+        content: t('artifact.fixPrompt', { title, key: artifact.key, version: artifact.version, error: fixPromptError(runtimeError) }),
         attachments: [],
         author: { id: me.user.id, name: me.user.name },
       })
