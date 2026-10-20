@@ -4,7 +4,7 @@
 import clsx from 'clsx'
 import { Brain, Download, Laptop, Monitor, Smartphone, Trash2, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useParams } from 'react-router-dom'
+import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { Locale, Memory, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -26,6 +26,8 @@ const TABS: { id: string; label: MessageKey; icon: typeof User }[] = [
 export default function Settings() {
   const t = useT()
   const { tab = 'profile' } = useParams()
+  // an old or mistyped link (/settings/devices) would show an empty page: open the profile instead
+  if (!TABS.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('settings.title')} />

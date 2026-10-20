@@ -14,6 +14,8 @@ test('first-run setup creates the team and signs the owner in', async ({ page })
   await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
   await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
   await expect(page.getByTestId('owner-checklist')).toBeVisible()
+  // the starting folder rules come with every team: "set folder permissions" is still to do
+  await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
 })
 
 test('wrong password shows the error; sign out returns to the sign-in page', async ({ page }) => {

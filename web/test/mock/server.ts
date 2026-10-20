@@ -645,7 +645,7 @@ export class MockServer {
     listFolders: () => ({ items: this.folders }),
     createFolder: (c) => {
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: true, createdAt: now(), rules: [] }
-      f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: null, updatedAt: now() }))
+      f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
       this.folders.push(f)
       return { status: 201, body: f }
     },

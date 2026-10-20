@@ -51,16 +51,29 @@ export default function Files() {
 
   const go = useCallback((p: string, sel?: string) => setParams(sel ? { path: p, select: sel } : p ? { path: p } : {}), [setParams])
 
+  /** the folder the table last showed: a not_found for it means access changed while it was open (tab 5 "권한 회수") */
+  const shown = useRef<string | null>(null)
   const load = useCallback(async () => {
     setError(null)
     try {
-      const r = await api.call(API.tree, { query: { path, limit: 200 } })
-      setTree(r)
+      setTree(await api.call(API.tree, { query: { path, limit: 200 } }))
+      shown.current = path
     } catch (e) {
       if (isApiError(e, 'not_found') && path) {
-        // gone or no longer visible: the nearest folder we can still see
-        toast({ level: 'warn', text: t('files.accessChanged') })
-        go(parentPath(path))
+        // gone or not visible: climb to the nearest folder we can see, then say so once (not once per level)
+        const wasShown = shown.current === path
+        let up = parentPath(path)
+        while (up) {
+          try {
+            await api.call(API.tree, { query: { path: up, limit: 1 } })
+            break
+          } catch (e2) {
+            if (!isApiError(e2, 'not_found')) break
+            up = parentPath(up)
+          }
+        }
+        toast({ level: 'warn', text: t(wasShown ? 'files.accessChanged' : 'files.folderNotFound') })
+        setParams(up ? { path: up } : {}, { replace: true })
         return
       }
       setError(errorText(e, locale, t('error.network')))
