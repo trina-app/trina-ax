@@ -94,6 +94,12 @@ export class TurnExec {
   }
 
   get id() { return this.spec.turnId }
+  /** The person as they are now (role and groups change while a turn runs; tab 2 "권한 회수"). Tools use this, not
+   * the copy taken when the turn started. Throws Denied for a disabled or deleted account. */
+  livePrincipal(): Principal {
+    this.principal = this.rt.files.principal(this.spec.userId)
+    return this.principal
+  }
   get waitingForPerson() { return this.humanWaits > 0 }
 
   // ---------------- lifecycle ----------------

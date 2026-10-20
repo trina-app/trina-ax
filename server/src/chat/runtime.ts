@@ -68,6 +68,12 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
   return rows.length
 }
 
+/** A disabled or deleted account: its running and queued turns stop now (they would otherwise go on with the
+ * engine for up to 20 minutes on the owner's subscription; their tool calls are already refused). */
+export function stopTurnsOf(ctx: AppContext, userId: string): number {
+  return runtimes.get(ctx)?.stopUserTurns(userId) ?? 0
+}
+
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
 export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknown) => v is T, fallback: T): T {
   try {
@@ -162,6 +168,13 @@ export class ChatRuntime {
     return n
   }
   queuedCount() { return this.queued.length }
+  /** Stop every running and queued turn of one person (account disabled / deleted). */
+  stopUserTurns(userId: string): number {
+    const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
+    let n = 0
+    for (const chatId of chats) if (this.stopChat(chatId)) n++
+    return n
+  }
 
   private enqueue(spec: TurnSpec) {
     this.queued.push(spec)
