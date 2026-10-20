@@ -5,6 +5,7 @@
 // Not the default in stage 1 (owner 2026-10-21: subscriptions only); covered by tests against a fake upstream.
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
+import { audit } from '../admin/audit'
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
@@ -32,6 +33,65 @@ export interface ProxyOpts {
   /** return false to refuse (e.g. TCP peer not in the turn's process group) */
   peerCheck?: (clientPort: number, serverPort: number, turnId: string) => Promise<boolean>
   port?: number
+}
+
+// ---------------- forwarding rules (design tab 7 "모델 프록시를 통한 외부 전송", tab 3 "모델 호출") ----------------
+// The proxy holds the real credential. A broken or new-version engine could ask the model company to send data out for
+// it: an MCP connector (mcp_servers), code execution (container), server tools such as web_fetch, or image / document
+// blocks the API downloads from a URL. Only what Claude Code needs passes: POST /v1/messages (and count_tokens),
+// custom tools plus the web_search server tool, and content blocks whose data is inline. Anything else is a 403.
+
+/** content block types that carry nothing the API would fetch or run */
+const BLOCK_TYPES = new Set(['text', 'image', 'document', 'tool_use', 'tool_result', 'thinking', 'redacted_thinking', 'server_tool_use', 'web_search_tool_result', 'tool_reference', 'search_result'])
+/** image / document sources that are inline data */
+const INLINE_SOURCES = new Set(['base64', 'text', 'content'])
+export const PROXY_PATHS = new Set(['/v1/messages', '/v1/messages/count_tokens'])
+const MODEL_RE = /^claude-[a-z0-9][a-z0-9.-]{0,79}$/
+
+function checkBlocks(v: unknown, depth: number): string | null {
+  if (typeof v === 'string') return null
+  if (!Array.isArray(v)) return 'content must be a string or a list of blocks'
+  if (depth > 8) return 'content nested too deep'
+  for (const b of v as Record<string, unknown>[]) {
+    if (!b || typeof b !== 'object') return 'bad content block'
+    const type = String(b.type)
+    if (!BLOCK_TYPES.has(type)) return `content block type ${type.slice(0, 40)} is not allowed`
+    if (type === 'image' || type === 'document') {
+      const src = b.source as Record<string, unknown> | undefined
+      if (!src || !INLINE_SOURCES.has(String(src.type))) return `${type} blocks must carry their data inline (no url / file sources)`
+      if (src.type === 'content') { const r = checkBlocks(src.content, depth + 1); if (r) return r }
+    }
+    if (type === 'server_tool_use' && b.name !== 'web_search') return `server tool ${String(b.name).slice(0, 40)} is not allowed`
+    if (type === 'tool_result' && b.content !== undefined) { const r = checkBlocks(b.content, depth + 1); if (r) return r }
+  }
+  return null
+}
+
+/** null = forward; else why the request is refused. `body` is the parsed JSON (null when there is none / not JSON). */
+export function checkProxyRequest(method: string, url: URL, body: unknown): string | null {
+  if (method !== 'POST' || !PROXY_PATHS.has(url.pathname)) return `${method} ${url.pathname.slice(0, 80)} is not forwarded`
+  for (const [k, v] of url.searchParams) if (k !== 'beta' || v !== 'true') return 'unexpected query parameter'
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'the body must be a JSON object'
+  const b = body as Record<string, unknown>
+  for (const k of ['mcp_servers', 'container']) if (k in b) return `${k} is not allowed`
+  if (typeof b.model !== 'string' || !MODEL_RE.test(b.model)) return 'model is not a Claude model name'
+  if (b.tools !== undefined) {
+    if (!Array.isArray(b.tools)) return 'tools must be a list'
+    for (const t of b.tools as Record<string, unknown>[]) {
+      const type = t && typeof t === 'object' ? t.type : undefined
+      if (type === undefined || type === null || type === 'custom') continue
+      if (typeof type === 'string' && /^web_search_\d+$/.test(type)) continue
+      return `tool type ${String(type).slice(0, 40)} is not allowed`
+    }
+  }
+  if (b.system !== undefined) { const r = checkBlocks(b.system, 0); if (r) return r }
+  if (!Array.isArray(b.messages)) return 'messages must be a list'
+  for (const m of b.messages as Record<string, unknown>[]) {
+    if (!m || typeof m !== 'object') return 'bad message'
+    const r = checkBlocks(m.content, 0)
+    if (r) return r
+  }
+  return null
 }
 
 function apiError(status: number, type: string, message: string) {
@@ -92,8 +152,14 @@ export function startModelProxy(o: ProxyOpts) {
         headers.set('anthropic-beta', [...beta].join(','))
       }
       const body = req.method === 'GET' ? undefined : await req.arrayBuffer()
-      let model = 'unknown'
-      try { if (body) model = JSON.parse(new TextDecoder().decode(body)).model ?? model } catch {}
+      let parsed: unknown = null
+      try { if (body) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
+      const refused = checkProxyRequest(req.method, url, parsed)
+      if (refused) {
+        audit(db, { actor: row.user_id, action: 'proxy.refused', target: row.turn_id, detail: { reason: refused } })
+        return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
+      }
+      let model = String((parsed as { model?: unknown }).model ?? 'unknown')
       const up = await fetch(o.upstream.baseUrl.replace(/\/$/, '') + url.pathname + url.search, { method: req.method, headers, body })
       const outHeaders = new Headers(up.headers); outHeaders.delete('content-encoding'); outHeaders.delete('content-length')
       if (!url.pathname.startsWith('/v1/messages') || url.pathname.includes('count_tokens')) return new Response(up.body, { status: up.status, headers: outHeaders })
