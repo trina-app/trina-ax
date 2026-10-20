@@ -1,4 +1,4 @@
-# CI: typecheck, native build, unit tests, fast fuzz, and the Linux job with unprivileged accounts in Docker.
+# CI: typecheck (incl. web + desktop), native build, unit tests, fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
 # Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
 # run locally with `bun run test:stage1`.
 name: CI
@@ -22,9 +22,9 @@ env:
 
 jobs:
   check:
-    name: typecheck, native, unit, fast fuzz
+    name: typecheck, native, unit, fast fuzz, web, relay
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -51,6 +51,15 @@ jobs:
         run: bun run test:unit
       - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
         run: bun run test:fuzz:fast
+      - name: Web unit tests and build
+        run: |
+          bun run test:web
+          bun run build:web
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - name: Relay conformance and hardening (real Node 25 relay)
+        run: bun run test:relay
       - uses: actions/upload-artifact@v4
         with:
           name: native-bin
