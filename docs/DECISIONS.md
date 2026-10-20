@@ -69,6 +69,9 @@
 - **이어가기 실패 처리**: 보관본이 없으면 새 세션 + DB 대화 기록을 메시지 앞에 붙인다(e2e T5로 확인). 보관본이 있는데 엔진이 "No conversation found"를 내면 같은 방식으로 1회 재시작한다.
 - **사용량**: 프록시 모드에서는 프록시가 센 값이 기준이고, 엔진이 보고한 값은 프록시 기록이 없을 때만 적는다. 가격표는 대략값(코드에 표시).
 
+- **git 맥락 차단(`CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`, 설정 `includeGitInstructions: false`)** — 잠금 회귀를 다시 돌리다 세션 기록에서 찾았다: 채팅 폴더가 git 저장소 안에 있으면 Claude Code가 그 저장소의 `git status`·브랜치·최근 커밋 메시지를 모델 맥락에 넣는다(시험의 `tests/.work`는 저장소 안). 잠금 회귀가 이제 서버가 보관한 세션 기록에 git 블록이 없는지 확인한다.
+- **로컬 로그인(DEV)에서는 로그인한 계정의 이메일이 모델 맥락에 들어간다** — Claude Code가 `~/.claude.json`의 계정 정보로 "The user's email address is …"를 붙이고, 이를 끄는 스위치가 없다(2.1.305 확인; HOME을 바꾸면 키체인 로그인을 못 찾는다). 그래서 DEV 모드에서는 팀원의 AI가 owner의 Claude 계정 이메일을 알 수 있다. 역할 계정 설치(엔진 고유 토큰·HOME)에는 그 계정 정보가 없다. 잠금 회귀는 이 상태를 `ownerEmailInContext`로 보고만 한다(실패로 치지 않음).
+
 ## 엔진: Codex CLI (소유자 결정: API가 아니라 `codex exec`)
 
 설계서 3번 탭은 "Codex CLI는 셸을 꺼도 실행 도구가 남는다 → API 어댑터"였다. 소유자 결정으로 CLI를 쓰되 최대한 잠갔다. codex-cli 0.163.0에서 확인한 것:

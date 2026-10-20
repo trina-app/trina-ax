@@ -12,12 +12,15 @@ export const CLAUDE_LOCK_ENV: Record<string, string> = {
   CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: '1',
   CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+  // without it Claude Code puts `git status`, the branch and recent commits of whatever repository the chat folder
+  // sits in into the model's context (seen in the lockdown run: the server's own checkout and its commit messages)
+  CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: '1',
   DISABLE_AUTOUPDATER: '1',
 }
 // Claude Code 2.1.304 ships built-in plugins that load even with --setting-sources "" (seen in the lockdown run):
 // cc-plugin-agents-md would feed AGENTS.md files into the context. They are switched off explicitly.
 export const CLAUDE_BUILTIN_PLUGINS_OFF = ['cc-plugin-agents-md@builtin', 'cc-plugin-plugin-authoring@builtin']
-export const CLAUDE_LOCK_SETTINGS = { autoMemoryEnabled: false, disableAllHooks: true, enabledPlugins: Object.fromEntries(CLAUDE_BUILTIN_PLUGINS_OFF.map((p) => [p, false])) }
+export const CLAUDE_LOCK_SETTINGS = { autoMemoryEnabled: false, disableAllHooks: true, includeGitInstructions: false, enabledPlugins: Object.fromEntries(CLAUDE_BUILTIN_PLUGINS_OFF.map((p) => [p, false])) }
 /** exactly what the engine may call */
 export const CLAUDE_ALLOWED_TOOLS = [...Object.keys(FILE_TOOLS).map((t) => TEAM_TOOL_PREFIX + t), ...ENGINE_BUILTIN_ALLOWED]
 
