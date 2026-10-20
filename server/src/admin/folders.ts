@@ -15,6 +15,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
+import { audit } from './audit'
 
 export interface FolderRow { id: string; path: string; created_at: string }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string }
@@ -140,12 +141,18 @@ export function ruleRows(db: Database): RuleRowWithPath[] {
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 
 /**
- * For every person present in both states, the folders (with rules in either state) where they could read before
- * and cannot now. Access anywhere in the tree equals the access at its deepest rule folder, so checking the rule
- * folders covers every path.
+ * Paths whose access decides access everywhere: the team root plus every folder that carries rules in either state.
+ * Outside users/, access at any path equals the access at its deepest rule folder, or at the root when no rule
+ * folder is above it (owner / admin: write everywhere). The root matters when someone loses the admin role: the
+ * folders without rules they could read are only covered by it.
  */
+function decidingPaths(before: AccessState, after: AccessState, extraPaths: readonly string[] = []): string[] {
+  return [...new Set(['', ...before.rules.ruleFolders(), ...after.rules.ruleFolders(), ...extraPaths])].filter((p) => !isUsersPath(p)).sort()
+}
+
+/** For every person present in both states, the top-most folders where they could read before and cannot now. */
 export function readLosses(before: AccessState, after: AccessState, extraPaths: readonly string[] = []): Map<string, string[]> {
-  const paths = [...new Set([...before.rules.ruleFolders(), ...after.rules.ruleFolders(), ...extraPaths])].filter((p) => !isUsersPath(p)).sort()
+  const paths = decidingPaths(before, after, extraPaths)
   const afterBy = new Map(after.principals.map((p) => [p.id, p]))
   const out = new Map<string, string[]>()
   for (const pb of before.principals) {
@@ -186,7 +193,7 @@ export function chatsWithEngineSession(db: Database, userId: string): number {
  * After any change that can narrow access (rules, group membership, role): reset the engine sessions of people who
  * lost read access somewhere, tell their open windows, and return who lost what (for the audit record).
  */
-export function afterAccessChange(ctx: AppContext, before: AccessState): { userId: string; paths: string[]; chatsReset: number }[] {
+export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null }): { userId: string; paths: string[]; chatsReset: number }[] {
   const after = captureState(ctx.db)
   const losses = readLosses(before, after)
   const out: { userId: string; paths: string[]; chatsReset: number }[] = []
@@ -195,13 +202,15 @@ export function afterAccessChange(ctx: AppContext, before: AccessState): { userI
     out.push({ userId, paths, chatsReset })
   }
   // every person whose access changed in any way re-reads open folders (tab 5 "권한 회수")
+  const paths = decidingPaths(before, after)
   for (const pb of before.principals) {
     const pa = after.principals.find((p) => p.id === pb.id)
     if (!pa) continue
-    const paths = [...new Set([...before.rules.ruleFolders(), ...after.rules.ruleFolders()])].filter((p) => !isUsersPath(p))
     const changed = paths.filter((p) => before.rules.access(pb, segsOf(p)) !== after.rules.access(pa, segsOf(p)))
-    if (changed.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: changed.join(', ') } })
+    if (changed.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: changed.map((p) => p || '/').join(', ') } })
   }
+  // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion)
+  if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out } })
   return out
 }
 

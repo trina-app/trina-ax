@@ -58,11 +58,21 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
   const groups = checkGroups(ctx, b.groupIds, locale)
   const temp = temporaryPassword()
   const passwordHash = await hashPassword(temp)
-  const id = b.id ?? deriveUserId(ctx.db, b.username, ctx.files.fx.root)
-  ctx.db.transaction(() => {
-    insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? getTeamSettings(ctx.db).defaultLocale, mustChangePassword: true, groupIds: groups })
-    audit(ctx.db, { actor: auth.user.id, action: 'user.create', target: id, detail: { role: b.role, groupIds: groups } })
-  })()
+  let id = ''
+  try {
+    // the id is derived inside the write transaction: a concurrent request (another create, an invite accepted
+    // meanwhile) cannot take it between the check and the insert
+    ctx.db.transaction(() => {
+      if (usernameTaken(ctx.db, b.username)) throw new UniqueTaken('body.username')
+      id = b.id ?? deriveUserId(ctx.db, b.username, ctx.files.fx.root)
+      insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? getTeamSettings(ctx.db).defaultLocale, mustChangePassword: true, groupIds: groups })
+      audit(ctx.db, { actor: auth.user.id, action: 'user.create', target: id, detail: { role: b.role, groupIds: groups } })
+    }).immediate()
+  } catch (e) {
+    if (e instanceof UniqueTaken) fail('conflict', e.field === 'body.username' ? msg('usernameTaken', locale) : undefined, { fields: { [e.field]: 'taken' } })
+    if (isUniqueViolation(e)) fail('conflict', undefined, { fields: { [b.id ? 'body.id' : 'body.username']: 'taken' } })
+    throw e
+  }
   ensurePersonalFolder(ctx.files.fx.root, id)
   return { user: toUser(ctx.db, getUser(ctx.db, id)!), temporaryPassword: temp }
 }
@@ -98,8 +108,18 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     authOf(ctx).endUserSessions(id, 'disabled')
     resetEngineSessions(ctx, id)
   }
-  if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before)
+  if (changed.status === 'disabled' || changed.role === 'member') revokeInvitesBy(ctx, id)
+  if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   return toUser(ctx.db, getUser(ctx.db, id)!)
+}
+
+class UniqueTaken extends Error { constructor(public field: string) { super(field) } }
+/** SQLite unique / primary key violation (a concurrent insert won). */
+export const isUniqueViolation = (e: unknown) => e instanceof Error && /UNIQUE constraint failed|PRIMARY KEY/i.test(e.message)
+
+/** Open invites made by someone who can no longer invite (deleted, disabled, no longer admin) stop working. */
+export function revokeInvitesBy(ctx: AppContext, userId: string): number {
+  return ctx.db.query('UPDATE invites SET revoked_at = ? WHERE created_by = ? AND used_at IS NULL AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
 const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
@@ -119,8 +139,11 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
   const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1").get() as { id: string } | null
   if (!owner) return null
   const label = ARCHIVE_DIR[getTeamSettings(ctx.db).defaultLocale]
-  const dir = path.join(root, 'users', owner.id, label)
+  const ownerDir = path.join(root, 'users', owner.id)
+  const dir = path.join(ownerDir, label)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  // the archive must be a real folder inside the owner's personal folder, not a link leading elsewhere
+  for (const p of [ownerDir, dir]) if (!fs.lstatSync(p).isDirectory()) throw new Error(`archive folder is not a plain folder: ${p}`)
   let name = id
   for (let i = 2; fs.existsSync(path.join(dir, name)); i++) name = `${id}-${i}`
   fs.renameSync(src, path.join(dir, name))
@@ -144,9 +167,16 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   })()
   authOf(ctx).endUserSessions(id, 'revoked')
   resetEngineSessions(ctx, id)
-  const movedTo = handlePersonalFolder(ctx, id, personalFolder)
-  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo } })
-  afterAccessChange(ctx, before)
+  revokeInvitesBy(ctx, id)
+  // the account is gone either way; a folder that could not be handled stays where it is (only nobody sees it now)
+  let movedTo: string | null = null
+  let folderError: string | null = null
+  try { movedTo = handlePersonalFolder(ctx, id, personalFolder) } catch (e) {
+    folderError = (e as Error).message
+    c.get('log').error('personal folder of a deleted member was not handled', { err: e, userId: id })
+  }
+  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo, ...(folderError ? { folderError } : {}) } })
+  afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
 }
 
 export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: string): Promise<{ temporaryPassword: string }> {

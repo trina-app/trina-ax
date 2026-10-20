@@ -73,14 +73,15 @@ export const adminRoutes: RouteModule = {
         audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules } })
         return row
       })()
-      const losing = afterAccessChange(ctx, before)
-      if (losing.length) audit(ctx.db, { actor: auth.user.id, action: 'folder.access_lost', target: p, detail: { losing } })
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: p })
       return toFolder(ctx, f)
     })
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
       const f = getFolder(ctx.db, params.id)
       if (!f) fail('not_found')
+      // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
+      if (f!.path === 'users' || f!.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
       validateRules(ctx.db, body.rules, c.get('locale'))
       const before = captureState(ctx.db)
       const old = rulesOf(ctx.db, f!.id)
@@ -88,8 +89,7 @@ export const adminRoutes: RouteModule = {
         replaceRules(ctx.db, f!.id, body.rules, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f!.path, detail: { before: old, after: body.rules } })
       })()
-      const losing = afterAccessChange(ctx, before)
-      if (losing.length) audit(ctx.db, { actor: auth.user.id, action: 'folder.access_lost', target: f!.path, detail: { losing } })
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })
       return toFolder(ctx, f!)
     })
 
@@ -103,8 +103,7 @@ export const adminRoutes: RouteModule = {
         ctx.db.query('DELETE FROM folders WHERE id = ?').run(f!.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f!.path, detail: { before: old } })
       })()
-      const losing = afterAccessChange(ctx, before)
-      if (losing.length) audit(ctx.db, { actor: auth.user.id, action: 'folder.access_lost', target: f!.path, detail: { losing } })
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })
     })
 
     kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
@@ -174,6 +173,6 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.usage, ({ query }) => usage(ctx.db, query))
-    kit.handle(API.audit, ({ query }) => listAudit(ctx.db, query))
+    kit.handle(API.audit, ({ query, auth }) => listAudit(ctx.db, query, auth.user.id))
   },
 }

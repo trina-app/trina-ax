@@ -1,5 +1,7 @@
 // Groups (tab 1 `groups`, tab 2): creating a group also creates groups/<name>/, its folders row and the rule
 // "this group writes" in one go. Membership changes can narrow access, so they go through afterAccessChange (H7).
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
 import type { Group, GroupBody, Locale, UpdateGroupBody } from '@mycel/shared/api'
@@ -7,7 +9,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
-import { badSegment } from '../policy/names'
+import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
 import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath } from './folders'
@@ -37,10 +39,20 @@ function nameTaken(ctx: AppContext, name: string, except?: string): boolean {
   return !!ctx.db.query('SELECT 1 FROM groups WHERE lower(name) = lower(?) AND id IS NOT ?').get(name, except ?? null)
 }
 
-/** Folder name for a group: the group name itself when it is a valid name, else "group-<short id>". */
-function folderNameFor(name: string, id: string): string {
+/**
+ * Folder name for a new group: the group name itself when it is a valid name, else "group-<short id>". Never an
+ * existing folder (on disk or in `folders`, compared like the file tools compare names): a new group must not
+ * inherit the files of an old one (e.g. a group renamed or deleted earlier kept its groups/<name>/ folder).
+ */
+function folderNameFor(ctx: AppContext, name: string, id: string): string {
   const n = name.normalize('NFC').trim()
-  return n && !badSegment(n) && !n.includes('/') ? n : `group-${id.slice(-8)}`
+  const base = n && !badSegment(n) && !n.includes('/') ? n : `group-${id.slice(-8)}`
+  const taken = new Set<string>()
+  try { for (const e of fs.readdirSync(path.join(ctx.files.fx.root, 'groups'))) taken.add(foldKey(e)) } catch {}
+  for (const r of ctx.db.query("SELECT path FROM folders WHERE path LIKE 'groups/%'").all() as { path: string }[]) taken.add(foldKey(r.path.split('/')[1] ?? ''))
+  let out = base
+  for (let i = 2; taken.has(foldKey(out)); i++) out = `${base}-${i}`
+  return out
 }
 
 export function createGroup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof GroupBody>): Group {
@@ -50,7 +62,7 @@ export function createGroup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Gr
   const memberIds = checkMembers(ctx, b.memberIds, locale)
   const id = newId()
   const before = captureState(ctx.db)
-  const folder = resolveFolderPath(ctx, `groups/${folderNameFor(b.name, id)}`, { create: true, locale })
+  const folder = resolveFolderPath(ctx, `groups/${folderNameFor(ctx, b.name, id)}`, { create: true, locale })
   ctx.db.transaction(() => {
     const f = ensureFolderRow(ctx.db, folder.path)
     ctx.db.query('INSERT INTO groups (id, name, description, folder_id) VALUES (?, ?, ?, ?)').run(id, b.name, b.description ?? null, f.id)
@@ -61,7 +73,7 @@ export function createGroup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Gr
       .run(newId(), f.id, id, auth.user.id, new Date().toISOString())
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds } })
   })()
-  afterAccessChange(ctx, before)
+  afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -83,7 +95,7 @@ export function updateGroup(c: Context<AppEnv>, ctx: AppContext, id: string, b: 
     }
     audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds } })
   })()
-  if (memberIds) afterAccessChange(ctx, before)
+  if (memberIds) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -99,5 +111,5 @@ export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): vo
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
     audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name } })
   })()
-  afterAccessChange(ctx, before)
+  afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
 }

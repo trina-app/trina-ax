@@ -31,9 +31,42 @@ function decodeCursor(c: string): [string, string] {
   return fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
 }
 
-/** Newest first, keyset-paginated over (at, sid). `path` limits the list to file events at or under that path. */
-export function listAudit(db: Database, f: AuditFilter): Page<AuditEntry> {
+// Other people's personal folders users/<id>/ are none for owner and admin too (tab 2, tab 7), so the audit list must
+// not show what is inside them: file names, sizes and hashes there are replaced by "users/<id>/…" for everyone but
+// the folder's own person. Errs on the side of hiding: any "users/<x>/" after a non-name character matches, in any
+// letter case (a refused call shows the path as typed, and the team folder may be case-insensitive).
+const PERSONAL = /(^|[^A-Za-z0-9._-])users\/([^/\s'"]+)\//i
+const PERSONAL_ALL = new RegExp(PERSONAL.source, 'gi')
+
+/** Does `s` mention a path inside someone else's personal folder? */
+function mentionsOtherPersonal(s: string, viewer: string): boolean {
+  for (const m of s.matchAll(PERSONAL_ALL)) if (m[2]!.toLowerCase() !== viewer) return true
+  return false
+}
+/** Hide paths inside other people's personal folders; keeps the folder (whose it is) and nothing below it. */
+export function redactPersonal(s: string, viewer: string): string {
+  if (!mentionsOtherPersonal(s, viewer)) return s
+  const ids = [...new Set([...s.matchAll(PERSONAL_ALL)].map((m) => m[2]!.toLowerCase()).filter((id) => id !== viewer))]
+  const head = s.trim().split(/\s+/)[0] ?? ''
+  const tail = ids.map((id) => `users/${id}/…`).join(', ')
+  // a path (file event target, detail value) becomes just the folder; a summary keeps its first word (the tool)
+  return PERSONAL.test(head) || /^users\//i.test(s.trim()) ? tail : `${head} ${tail}`
+}
+function redactValue(v: unknown, viewer: string): unknown {
+  if (typeof v === 'string') return redactPersonal(v, viewer)
+  if (Array.isArray(v)) return v.map((x) => redactValue(x, viewer))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redactValue(x, viewer)]))
+  return v
+}
+
+/**
+ * Newest first, keyset-paginated over (at, sid). `path` limits the list to file events at or under that path.
+ * `viewer` (the admin reading the list) sees inside their own personal folder only.
+ */
+export function listAudit(db: Database, f: AuditFilter, viewer: string): Page<AuditEntry> {
   const limit = Math.min(Math.max(f.limit ?? 50, 1), 200)
+  // filtering by a path inside someone else's personal folder would tell whether such a file exists
+  if (f.path !== undefined && mentionsOtherPersonal(f.path + '/', viewer)) return { items: [], nextCursor: null }
   const parts: string[] = []
   const args: (string | number)[] = []
   const want = (s: AuditEntry['source']) => (!f.source || f.source === s) && (f.path === undefined || s === 'file')
@@ -74,16 +107,20 @@ export function listAudit(db: Database, f: AuditFilter): Page<AuditEntry> {
   const more = rows.length > limit
   const page = rows.slice(0, limit)
   return {
-    items: page.map((r) => ({
-      id: r.sid,
-      source: r.source,
-      at: r.at,
-      actor: r.actor_id ? { id: r.actor_id, name: r.actor_name ?? r.actor_id } : null,
-      action: r.action,
-      target: r.target,
-      turnId: r.turn_id && /^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(r.turn_id) ? r.turn_id : null,
-      detail: parseDetail(r.detail),
-    })),
+    items: page.map((r) => {
+      const hidden = r.source === 'file' && r.target !== null && mentionsOtherPersonal(r.target, viewer)
+      return {
+        id: r.sid,
+        source: r.source,
+        at: r.at,
+        actor: r.actor_id ? { id: r.actor_id, name: r.actor_name ?? r.actor_id } : null,
+        action: r.action,
+        target: r.target === null ? null : redactPersonal(r.target, viewer),
+        turnId: r.turn_id && /^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(r.turn_id) ? r.turn_id : null,
+        // size / sha256 of a file nobody but its owner may see would still identify it
+        detail: hidden ? null : (redactValue(parseDetail(r.detail), viewer) as Record<string, unknown> | null),
+      }
+    }),
     nextCursor: more ? encodeCursor(page[page.length - 1]!) : null,
   }
 }
