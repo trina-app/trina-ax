@@ -12,6 +12,8 @@ const td = new TextDecoder()
 /** Safety net above the hub's own slow-client limit. */
 export const VIRTUAL_WS_MAX_BACKLOG = WS_MAX_BUFFERED_BYTES + 256 * 1024
 const CLOSE_WAIT_MS = 5000
+/** largest message accepted from the browser side */
+const MAX_INCOMING_MESSAGE = 16 * 1024 * 1024
 
 export class RelayWebSocket implements VirtualWebSocket {
   readonly protocol: string
@@ -20,6 +22,7 @@ export class RelayWebSocket implements VirtualWebSocket {
   onClose: ((code: number, reason: string) => void) | null = null
   private s: Stream
   private frag: Uint8Array[] = []
+  private fragBytes = 0
   private closeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(s: Stream, protocol: string) {
@@ -65,16 +68,24 @@ export class RelayWebSocket implements VirtualWebSocket {
       this.closed(code, reason)
       return
     }
-    if (flags & DataFlag.WS_CONT) { this.frag.push(b); return }
+    // every piece returns its window when it arrives (a message may be bigger than the window); the assembly
+    // buffer is bounded instead (the relay caps browser messages at 4 MB)
+    this.s.consumed(b.byteLength)
+    if (flags & DataFlag.WS_CONT) {
+      this.fragBytes += b.byteLength
+      if (this.fragBytes > MAX_INCOMING_MESSAGE) { this.s.rst(RstCode.FLOW_CONTROL, 'message too large'); this.closed(1009, 'message too large'); return }
+      this.frag.push(b)
+      return
+    }
     let msg = b
     if (this.frag.length) {
-      const total = this.frag.reduce((n, x) => n + x.byteLength, b.byteLength)
+      const total = this.fragBytes + b.byteLength
       msg = new Uint8Array(total)
       let o = 0
       for (const x of [...this.frag, b]) { msg.set(x, o); o += x.byteLength }
       this.frag = []
+      this.fragBytes = 0
     }
-    this.s.consumed(msg.byteLength)
     if (this.readyState !== 'open') return
     try {
       this.onMessage?.(flags & DataFlag.WS_BINARY ? msg : td.decode(msg))

@@ -489,9 +489,12 @@ export class RelayServer {
         return
       }
       if (flags & DataFlag.WS_CONT) {
+        // pieces of a big message: return their window at once (a message may be larger than the window);
+        // the assembly buffer is bounded by MAX_WS_MESSAGE instead
         frag.push(b)
         fragBytes += b.byteLength
-        if (fragBytes > MAX_WS_MESSAGE) { s.rst(RstCode.FLOW_CONTROL, 'message too large'); ws.close(ClientClose.TOO_BIG, 'message too large') }
+        if (fragBytes > MAX_WS_MESSAGE) { s.rst(RstCode.FLOW_CONTROL, 'message too large'); ws.close(ClientClose.TOO_BIG, 'message too large'); return }
+        s.consumed(b.byteLength)
         return
       }
       const msg = frag.length ? Buffer.concat([...frag, b]) : Buffer.from(b.buffer, b.byteOffset, b.byteLength)
@@ -499,7 +502,7 @@ export class RelayServer {
       fragBytes = 0
       countOut(msg.byteLength)
       ws.send(msg, { binary: !!(flags & DataFlag.WS_BINARY) })
-      credit(msg.byteLength)
+      credit(b.byteLength)
     }
     s.onEnd = () => { if (ws.readyState === WebSocket.OPEN) ws.close(ClientClose.NORMAL, '') }
     s.onRst = (code) => {
