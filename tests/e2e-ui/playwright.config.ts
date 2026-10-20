@@ -5,6 +5,7 @@
 //   bun run e2e:ui                         fresh data folder, whole scenario (about 10 Claude and 1 Codex call)
 //   E2E_REUSE=1 bun run e2e:ui -g "step 6" rerun one step against the product the last run left running
 //                                          (E2E_KEEP=1 on the first run keeps it running afterwards)
+//   E2E_RESUME=1 bun run e2e:ui -g "step 6|step 7"  start the product again on the last run's data, run some steps
 //
 // Engine calls are metered across runs (tests/.work/e2e-ui/engine-calls.json; E2E_MAX_CLAUDE / E2E_MAX_CODEX).
 import { defineConfig } from '@playwright/test'

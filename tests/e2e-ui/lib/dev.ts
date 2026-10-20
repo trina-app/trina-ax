@@ -70,14 +70,19 @@ export async function until<T>(fn: () => T | Promise<T>, ms: number, what: strin
   throw new Error(`timed out waiting for ${what}${last ? `: ${last}` : ''}`)
 }
 
-/** Start `bun run dev` with a fresh data folder; resolves once the server and the relay route answer. */
-export async function startDev(): Promise<State> {
+/**
+ * Start `bun run dev` with a fresh data folder (or, with keepData, on the data the last run left: the team, its
+ * people and chats stay, the server starts a new run); resolves once the server and the relay route answer.
+ */
+export async function startDev(o: { keepData?: boolean } = {}): Promise<State> {
   for (const port of [SERVER_PORT, RELAY_PORT]) {
     if (listeners(port).length) throw new Error(`port ${port} is in use: stop the other dev run first (or E2E_REUSE=1)`)
   }
-  fs.rmSync(DEV_HOME, { recursive: true, force: true })
+  if (!o.keepData) {
+    fs.rmSync(DEV_HOME, { recursive: true, force: true })
+    fs.rmSync(STATE_FILE, { force: true })
+  }
   fs.mkdirSync(DEV_HOME, { recursive: true })
-  fs.rmSync(STATE_FILE, { force: true })
   const log = fs.openSync(DEV_LOG, 'w')
   const child = spawn('bun', ['run', 'scripts/dev.ts'], {
     cwd: REPO,
@@ -86,6 +91,11 @@ export async function startDev(): Promise<State> {
     env: { ...process.env, TEAM_AX_DEV_DIR: DEV_HOME, NO_COLOR: '1' },
   })
   child.unref()
+  if (o.keepData) {
+    await until(() => healthy(DIRECT), 180_000, 'the team server')
+    await until(() => healthy(RELAYED), 30_000, 'the relay route to the team')
+    return writeState({ devPid: child.pid })
+  }
   const token = await until(() => /setupToken ([A-Za-z0-9_-]+)/.exec(fs.readFileSync(DEV_LOG, 'utf8'))?.[1], 180_000, 'the setup token in dev.log')
   await until(() => healthy(DIRECT), 30_000, 'the team server')
   await until(() => healthy(RELAYED), 30_000, 'the relay route to the team')

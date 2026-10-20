@@ -6,6 +6,7 @@ export default async function globalSetup() {
     console.log(`[e2e-ui] reusing the running product (dev pid ${readState().devPid})`)
     return
   }
-  const s = await startDev()
+  // E2E_RESUME=1: start the product again on the data of the last run (e.g. to continue after a failed step)
+  const s = await startDev({ keepData: process.env.E2E_RESUME === '1' })
   console.log(`[e2e-ui] bun run dev started (pid ${s.devPid}); log: tests/.work/e2e-ui/dev.log`)
 }

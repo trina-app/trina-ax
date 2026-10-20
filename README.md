@@ -45,6 +45,8 @@ bun run test:stage1           # + real engines (local claude / codex logins) and
 bun run e2e:web               # Playwright against the built web app
 bun run test:desktop:e2e      # Electron app with a fake team server
 bun run test:b:e2e            # chat turns with the real engines (calls Claude / Codex)
+bun run e2e:ui                # whole product in a real browser + the Electron app against bun run dev
+                              # (real engines: about 9 Claude and 1 Codex calls; see tests/e2e-ui/playwright.config.ts)
 ```
 
 Needs Bun, Go, Node 25 (relay), `rg`, `pandoc`, `pdftotext`, `ffmpeg` (Homebrew), Docker for the Linux job.

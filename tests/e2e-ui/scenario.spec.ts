@@ -345,7 +345,7 @@ test('step 3d: edit the last message (new branch), regenerate the answer and sto
   const um = page.getByTestId('user-message').last()
   const twoOfTwo = /^2\s*\/\s*2$/
   const N = 150
-  const items = (s: string | null) => [...(s ?? '').matchAll(/Item (\d+)/g)].map((m) => Number(m[1]))
+  const items = (s: string | null) => [...(s ?? '').matchAll(/Item (\d+)\b/g)].map((m) => Number(m[1]))
   // (a rerun against the same product finds the branches of the previous run)
   if (!(await um.getByTestId('branch-label').count())) {
     await um.hover()
@@ -374,21 +374,21 @@ test('step 3d: edit the last message (new branch), regenerate the answer and sto
     await lastAnswer(page).hover()
     await lastAnswer(page).getByTestId('regenerate').click()
     await expect.poll(async () => (await lastAnswer(page).getAttribute('data-message-id')) !== prev, { timeout: 30_000 }).toBe(true)
-    await expect.poll(async () => items(await lastAnswer(page).textContent()).length, { timeout: 120_000, intervals: [100] }).toBeGreaterThanOrEqual(3)
+    await expect.poll(async () => items(await lastAnswer(page).innerText()).length, { timeout: 120_000, intervals: [100] }).toBeGreaterThanOrEqual(3)
     await page.getByTestId('stop').click()
     expect(await waitAnswer(page, prev, 30_000)).toBe('stopped')
   }
   const a = lastAnswer(page)
   await expect(a).toHaveAttribute('data-status', 'stopped')
   await expect(a).toContainText('중지됨')
-  expect(items(await a.textContent()).length).toBeLessThan(N)
+  expect(items(await a.innerText()).length).toBeLessThan(N)
   await expect(a.getByTestId('branch-label')).toHaveText(twoOfTwo)
   // the composer is usable again, and the first answer (complete) is one click away
   await expect(page.getByTestId('send')).toBeVisible()
   await a.hover()
   await a.getByRole('button', { name: '이전 버전' }).click()
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
-  expect(items(await lastAnswer(page).textContent())).toEqual(Array.from({ length: N }, (_, i) => i + 1))
+  expect(items(await lastAnswer(page).innerText())).toEqual(Array.from({ length: N }, (_, i) => i + 1))
   await ctx.close()
 })
 
@@ -526,16 +526,16 @@ test('step 6: the relay dies mid-answer: the page shows "reconnecting", resumes,
   // the same server run: the new socket resumed after the last event it had (no reset / reload)
   expect(hello.at(-1)!.resumed).toBe(true)
 
-  const seq = (s: string) => [...s.matchAll(/Line (\d+)/g)].map((m) => Number(m[1]))
+  const seq = (s: string) => [...s.matchAll(/Line (\d+)\b/g)].map((m) => Number(m[1]))
   const saved = (await serverMessages(page.request, RELAYED, chatId)).at(-1)!
   const expected = Array.from({ length: N }, (_, i) => i + 1)
   expect(seq(saved.content)).toEqual(expected)
   // what the page shows is exactly the saved answer: nothing lost, nothing twice
-  expect(seq((await a.textContent()) ?? '')).toEqual(expected)
+  expect(seq(await a.innerText())).toEqual(expected)
   // and after a reload too
   await page.reload()
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
-  expect(seq((await lastAnswer(page).textContent()) ?? '')).toEqual(expected)
+  expect(seq(await lastAnswer(page).innerText())).toEqual(expected)
   await ctx.close()
 })
 
