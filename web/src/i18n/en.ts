@@ -698,7 +698,7 @@ export const en: Record<MessageKey, string> = {
   'system.backupScope.incremental': 'Incremental',
   'system.restore': 'Restore',
   'system.restoreTitle': 'Restore this backup?',
-  'system.restoreBody': 'Every change after {date} (chats, files, settings) is lost. This cannot be undone.',
+  'system.restoreBody': 'Every change after {date} to chats, memories, settings, folder rules and accounts is lost, and chats deleted since then come back. The server restarts and everyone has to sign in again. Files in the team folder stay as they are now (bring files back from their version history or the trash). This cannot be undone.',
   'system.restoreDone': 'Restored. Please reload the page.',
   'system.export': 'Export',
   'system.exportDesc': "Chats as Markdown, memories as CSV and the team folder as is, saved into the owner's exports folder.",

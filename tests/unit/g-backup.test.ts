@@ -145,6 +145,8 @@ describe('backups', () => {
 describe('DB restore (staged, applied at the next start)', () => {
   test('rows written after the backup are gone after the restore; the old DB is kept aside', async () => {
     const e = setup('restore')
+    const t = new Date().toISOString()
+    e.db.query("INSERT INTO sessions (id, user_id, token_hash, client, created_at, last_seen_at, expires_at) VALUES ('s-old', 'olga', 'h-old', 'web', ?, ?, ?)").run(t, t, '2099-01-01T00:00:00Z')
     const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
     e.db.query("INSERT INTO users (id, username, name, role) VALUES ('later', 'later', 'Later', 'member')").run()
     const p = await e.mgr.stageDbRestore(m.id, 'olga')
@@ -155,6 +157,8 @@ describe('DB restore (staged, applied at the next start)', () => {
     const db = openDb(e.dbFile)
     expect(db.query("SELECT id FROM users WHERE id = 'later'").get()).toBeNull()
     expect(db.query("SELECT id FROM users WHERE id = 'olga'").get()).not.toBeNull()
+    // a sign-in that existed at backup time (and may have been revoked since) does not come back: everyone signs in again
+    expect(db.query('SELECT COUNT(*) AS n FROM sessions').get()).toEqual({ n: 0 })
     db.close()
     expect(fs.readdirSync(e.layout.dbBackupsDir).some((n) => n.startsWith('before-restore-'))).toBe(true)
     expect(fs.existsSync(path.join(e.cfg.dataDir, 'restore-pending.json'))).toBe(false)

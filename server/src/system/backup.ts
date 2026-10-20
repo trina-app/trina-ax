@@ -386,6 +386,11 @@ export class BackupManager {
  * Called by the server at start, BEFORE the DB is opened: if a restore was staged, keep the current DB files in
  * data/backups/before-restore-<time>/ and put the staged copy in place. Failures leave the current DB untouched.
  */
+function endSessions(file: string): void {
+  const db = new Database(file)
+  try { db.run('DELETE FROM sessions') } finally { db.close() }
+}
+
 export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): { applied: boolean; backupId?: string; error?: string } {
   const rename = o.rename ?? fs.renameSync
   const pf = path.join(dataDir, 'restore-pending.json')
@@ -400,6 +405,9 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
   try {
     if (path.dirname(path.resolve(p.file)) !== path.resolve(dataDir) || !fs.existsSync(p.file)) throw new Error('staged copy missing')
     inspectDbCopy(p.file)
+    // Sign-ins come back with the old DB: someone who signed out, was disabled or whose device was revoked after the
+    // backup would be signed in again. The restore screen says everyone signs in again (design tab 5), so it is so.
+    endSessions(p.file)
     const live = path.join(dataDir, 'app.db')
     const keep = path.join(dataDir, 'backups', `before-restore-${stamp(new Date())}`)
     fs.mkdirSync(keep, { recursive: true, mode: 0o700 })

@@ -698,7 +698,7 @@ export const id: Record<MessageKey, string> = {
   'system.backupScope.incremental': 'Inkremental',
   'system.restore': 'Pulihkan',
   'system.restoreTitle': 'Pulihkan backup ini?',
-  'system.restoreBody': 'Semua perubahan setelah {date} (chat, file, pengaturan) akan hilang. Tidak bisa dibatalkan.',
+  'system.restoreBody': 'Semua perubahan setelah {date} pada chat, memori, pengaturan, aturan folder, dan akun hilang, dan chat yang dihapus sejak itu kembali. Server dimulai ulang dan semua orang harus masuk lagi. Berkas di folder tim tetap seperti sekarang (pulihkan berkas dari riwayat versi atau tempat sampah). Ini tidak bisa dibatalkan.',
   'system.restoreDone': 'Sudah dipulihkan. Muat ulang halaman.',
   'system.export': 'Ekspor',
   'system.exportDesc': 'Chat sebagai Markdown, memori sebagai CSV, dan folder tim apa adanya, disimpan ke folder exports milik owner.',
