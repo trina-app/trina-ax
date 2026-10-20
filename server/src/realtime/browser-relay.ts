@@ -30,6 +30,7 @@ interface Pending {
   settle(r: BrowserResult): void
 }
 interface Poller { lastSeen: number; waiters: Set<() => void> }
+export const MAX_POLLERS_PER_USER = 50
 
 export class BrowserRelay {
   private pending = new Map<string, Pending>()
@@ -117,7 +118,11 @@ export class BrowserRelay {
   async poll(userId: string, windowId: string, waitMs: number, signal?: AbortSignal): Promise<BrowserCall[]> {
     const k = this.key(userId, windowId)
     let p = this.pollers.get(k)
-    if (!p) { p = { lastSeen: Date.now(), waiters: new Set() }; this.pollers.set(k, p) }
+    if (!p) {
+      p = { lastSeen: Date.now(), waiters: new Set() }
+      this.pollers.set(k, p)
+      this.capPollers(userId)
+    }
     p.lastSeen = Date.now()
     const take = () => {
       const now = Date.now()
@@ -142,6 +147,14 @@ export class BrowserRelay {
     poller.lastSeen = Date.now()
     calls = take()
     return calls
+  }
+
+  /** A person polls for at most MAX_POLLERS_PER_USER windows; the longest-idle one without a waiting request goes. */
+  private capPollers(userId: string) {
+    const mine = [...this.pollers].filter(([k]) => k.startsWith(userId + '\u0000'))
+    if (mine.length <= MAX_POLLERS_PER_USER) return
+    const idle = mine.filter(([, p]) => !p.waiters.size).sort((a, b) => a[1].lastSeen - b[1].lastSeen)
+    for (const [k] of idle.slice(0, mine.length - MAX_POLLERS_PER_USER)) this.pollers.delete(k)
   }
 
   /** The window reconnected: send its open calls again (it ignores callIds it already ran). */

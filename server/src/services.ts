@@ -52,6 +52,7 @@ export interface RealtimeConn {
   /** WebSocket protocol ping; absent where the transport keeps itself alive (relay) */
   ping?(): void
   onMessage(fn: (data: string) => void): void
+  /** called once when the connection closes; registering after it already closed calls `fn` right away */
   onClose(fn: () => void): void
 }
 

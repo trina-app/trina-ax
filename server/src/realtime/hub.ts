@@ -13,6 +13,8 @@ import { originAllowed } from '../http/middleware'
 /** Hard caps on top of the contract's "at least 2000 events / 5 minutes" (memory stays bounded per person). */
 export const REPLAY_MAX_EVENTS = 20_000
 export const REPLAY_MAX_BYTES = 16 * 1024 * 1024
+/** Open windows per person; past this the oldest one is closed (a team member can't pile up sockets). */
+export const MAX_SOCKETS_PER_USER = 50
 /** Merged delta entries stop growing past this (a new entry starts). */
 const MAX_MERGED_DELTA = 256 * 1024
 
@@ -194,8 +196,13 @@ export class Hub implements RealtimeHub {
     if (prev) { prev.closed = true; u.sockets.delete(windowId); try { prev.conn.close(WsClose.replaced, 'replaced by a newer connection') } catch {} }
     const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, ready: false, closed: false }
     u.sockets.set(windowId, s)
+    while (u.sockets.size > MAX_SOCKETS_PER_USER) {
+      const [, oldest] = u.sockets.entries().next().value as [string, Socket]
+      this.drop(oldest, WsClose.replaced)
+    }
     conn.onMessage((d) => this.onMessage(s, d))
     conn.onClose(() => this.onClose(s))
+    if (s.closed) return // the connection went away during the session lookup
 
     const epoch = this.ctx.epoch
     const resumeAsked = q.data.epoch !== undefined || q.data.after !== undefined
@@ -305,14 +312,15 @@ export class Hub implements RealtimeHub {
   /** Forget people with no sockets whose buffer has aged out (the buffer must outlive WS_REPLAY_MIN_MS). */
   sweep() {
     const now = this.o.now()
-    for (const [id, u] of this.users) {
+    for (const u of this.users.values()) {
       if (u.sockets.size) continue
       if (now - u.lastActive > Math.max(this.o.replayMinMs, 10 * 60_000) && (!u.buffer.length || now - u.buffer[u.buffer.length - 1]!.at > this.o.replayMinMs)) {
         // keep the seq counter so a later resume in this epoch is answered with resync, not with a wrong replay
         u.buffer = []
         u.bytes = 0
       }
-      if (!u.buffer.length && now - u.lastActive > 24 * 3600_000) this.users.delete(id)
+      // the person's entry itself stays (a few numbers per account): dropping it would restart seq at 1 in this
+      // epoch, and a window resuming with an old `after` could then be answered with a replay that skips events
     }
   }
 

@@ -21,15 +21,18 @@ interface WsData {
   protocol: string
 }
 
-/** Wrap a Bun ServerWebSocket as a RealtimeConn. */
-export function bunConn(ws: ServerWebSocket<WsData>, hooks: { message: ((d: string) => void)[]; close: (() => void)[] }): RealtimeConn {
+export interface ConnHooks { message: ((d: string) => void)[]; close: (() => void)[]; closed: boolean }
+
+/** Wrap a Bun ServerWebSocket as a RealtimeConn. The hub registers its handlers only after the (async) session
+ * lookup; a socket that closed meanwhile calls a late onClose handler at once, so it never stays "open". */
+export function bunConn(ws: ServerWebSocket<WsData>, hooks: ConnHooks): RealtimeConn {
   return {
-    send(d) { ws.send(d) },
+    send(d) { if (!hooks.closed) ws.send(d) },
     close(code, reason) { try { ws.close(code, reason) } catch {} },
     bufferedAmount() { try { return ws.getBufferedAmount() } catch { return 0 } },
-    ping() { ws.ping() },
+    ping() { if (!hooks.closed) ws.ping() },
     onMessage(fn) { hooks.message.push(fn) },
-    onClose(fn) { hooks.close.push(fn) },
+    onClose(fn) { if (hooks.closed) fn(); else hooks.close.push(fn) },
   }
 }
 
@@ -46,7 +49,7 @@ export const wsRoutes: RouteModule = {
       const offered = (req.headers.get('sec-websocket-protocol') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
       // answer with our protocol name, never echo the bearer-token protocol
       const chosen = offered.includes(WS_PROTOCOL) ? WS_PROTOCOL : null
-      const hooks = { message: [] as ((d: string) => void)[], close: [] as (() => void)[] }
+      const hooks: ConnHooks = { message: [], close: [], closed: false }
       const data: WsData = {
         url: new URL(req.url),
         protocol: chosen ?? '',
@@ -62,7 +65,7 @@ export const wsRoutes: RouteModule = {
             const d = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data as ArrayBuffer)
             for (const f of hooks.message) f(d)
           },
-          onClose() { for (const f of hooks.close) f() },
+          onClose() { hooks.closed = true; for (const f of hooks.close.splice(0)) f() },
         },
       }
       const ok = server!.upgrade(req, { data, headers: chosen ? { 'Sec-WebSocket-Protocol': chosen } : undefined })
