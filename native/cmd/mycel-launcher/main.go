@@ -37,8 +37,8 @@ type liveSet struct {
 	m  map[int]bool
 }
 
-func (l *liveSet) add(p int) { l.mu.Lock(); l.m[p] = true; l.mu.Unlock() }
-func (l *liveSet) del(p int) { l.mu.Lock(); delete(l.m, p); l.mu.Unlock() }
+func (l *liveSet) add(p int)      { l.mu.Lock(); l.m[p] = true; l.mu.Unlock() }
+func (l *liveSet) del(p int)      { l.mu.Lock(); delete(l.m, p); l.mu.Unlock() }
 func (l *liveSet) has(p int) bool { l.mu.Lock(); defer l.mu.Unlock(); return l.m[p] }
 
 var live = &liveSet{m: map[int]bool{}}
@@ -56,6 +56,29 @@ func checkDedicated() error {
 		return fmt.Errorf("--dedicated-account refused: uid %d looks like a person", uid)
 	}
 	return nil
+}
+
+// killLeftovers kills every other process of this uid at start. Not kill(-1, SIGKILL): on macOS that also kills the
+// caller, so the LaunchDaemon died at every start (found by the install test, tests/install/g-macos-install.ts).
+func killLeftovers() {
+	me := os.Getpid()
+	for round := 0; round < 3; round++ {
+		ps, err := peer.OwnProcs(os.Getuid())
+		if err != nil {
+			return // no process list: the reaper catches orphans between turns
+		}
+		n := 0
+		for _, p := range ps {
+			if p.Pid != me {
+				_ = syscall.Kill(p.Pid, syscall.SIGKILL)
+				n++
+			}
+		}
+		if n == 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session.
@@ -124,7 +147,53 @@ var (
 	dedicated  = flag.Bool("dedicated-account", false, "this launcher runs as the dedicated engine account: kill every other process of this uid at start and reap orphans between turns (refused for human/root uids)")
 	sessRoots  multi
 	allowCmd   multi
+	// macOS: run every engine inside sandbox-exec with this profile (root/engine.sb, design tab 2 "기본 ② 샌드박스").
+	// The profile gets the turn's chat folder, the agent root, the engine's folder, the bridge, the tools socket and the
+	// model proxy port as parameters. Empty = no sandbox (stage-1 tests, Linux).
+	sandboxProfile = flag.String("sandbox-profile", "", "macOS: sandbox-exec profile every engine runs under")
+	proxyPort      = flag.Int("proxy-port", 0, "model proxy port the sandbox allows (127.0.0.1)")
+	localLogin     = flag.Bool("local-login", false, "sandbox: also allow the account's own ~/.claude, ~/.codex, login keychain and direct HTTPS (dev / owner login mode)")
 )
+
+const sandboxExec = "/usr/bin/sandbox-exec"
+
+// engineCommand wraps the engine in sandbox-exec when a profile is configured. sandbox-exec applies the profile and
+// then exec()s the engine, so the pid (= session id = process group the server checks) stays the same.
+func engineCommand(cmdPath string, args []string, chat string) (*exec.Cmd, error) {
+	if *sandboxProfile == "" {
+		return exec.Command(cmdPath, args...), nil
+	}
+	real, err := filepath.EvalSymlinks(cmdPath)
+	if err != nil {
+		return nil, fmt.Errorf("engine: %v", err)
+	}
+	// the kernel matches sandbox paths after resolving symlinks (/tmp -> /private/tmp, /var -> /private/var)
+	resolve := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+			return filepath.Join(r, filepath.Base(p))
+		}
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	ll := "0"
+	if *localLogin {
+		ll = "1"
+	}
+	sargs := []string{"-f", *sandboxProfile,
+		"-D", "CHAT_DIR=" + resolve(chat),
+		"-D", "AGENT_ROOT=" + resolve(filepath.Clean(*agentRoot)),
+		"-D", "ENGINE_DIR=" + filepath.Dir(real),
+		"-D", "BRIDGE=" + resolve(*bridgePath),
+		"-D", "TOOLS_SOCK=" + resolve(*toolsSock),
+		"-D", fmt.Sprintf("PROXY_PORT=%d", *proxyPort),
+		"-D", "LOCAL_LOGIN=" + ll,
+		"-D", "USER_HOME=" + resolve(home),
+		real}
+	return exec.Command(sandboxExec, append(sargs, args...)...), nil
+}
 
 func main() {
 	listen := flag.String("listen", "", "launcher.sock path")
@@ -136,12 +205,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: mycel-launcher --listen <sock> --agent-root <dir> --bridge <path> --tools-sock <path> --allow-cmd <engine> [--server-uid N]")
 		os.Exit(2)
 	}
+	if *sandboxProfile != "" {
+		if runtime.GOOS != "darwin" {
+			fmt.Fprintln(os.Stderr, "mycel-launcher: --sandbox-profile is macOS only")
+			os.Exit(2)
+		}
+		if _, err := os.Stat(*sandboxProfile); err != nil {
+			fmt.Fprintln(os.Stderr, "mycel-launcher: sandbox profile:", err)
+			os.Exit(2)
+		}
+		if _, err := os.Stat(sandboxExec); err != nil {
+			fmt.Fprintln(os.Stderr, "mycel-launcher: sandbox-exec missing:", err)
+			os.Exit(2)
+		}
+	}
 	if *dedicated {
 		if err := checkDedicated(); err != nil {
 			fmt.Fprintln(os.Stderr, "mycel-launcher:", err)
 			os.Exit(2)
 		}
-		_ = syscall.Kill(-1, syscall.SIGKILL) // leftovers of a previous launcher (setsid escapees, crashed turns)
+		killLeftovers() // leftovers of a previous launcher (setsid escapees, crashed turns)
 		go reaper()
 	}
 	_ = os.Remove(*listen)
@@ -322,7 +405,10 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	for k, v := range req.Env {
 		env = append(env, k+"="+subst.Replace(v))
 	}
-	cmd := exec.Command(req.Cmd, args...)
+	cmd, err := engineCommand(req.Cmd, args, chat)
+	if err != nil {
+		return err
+	}
 	cmd.Dir = chat
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

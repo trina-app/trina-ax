@@ -38,6 +38,12 @@ export const AppConfigFile = z.object({
     authMode: AuthMode.default('local-login'),
     claudeBin: z.string().optional(),
     codexBin: z.string().optional(),
+    /** installed layout (tab 6, written by scripts/install-macos.sh): sockets <runDir>/tools.sock + private/, per-chat
+     * engine folders, the LaunchDaemon launcher socket and the engine account uid. Dev: derived from dataDir. */
+    runDir: z.string().optional(),
+    agentRoot: z.string().optional(),
+    launcherSock: z.string().optional(),
+    agentUid: z.number().int().nonnegative().optional(),
   }).default({ authMode: 'local-login' }),
   relay: z.object({
     /** wss://relay.example/connect; null = no relay */
@@ -63,7 +69,7 @@ export interface AppConfig {
   dataDir: string
   logDir: string | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  engine: { authMode: 'local-login' | 'proxy'; claudeBin?: string; codexBin?: string }
+  engine: { authMode: 'local-login' | 'proxy'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number }
   relay: { url: string | null; teamName: string | null }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null }
   validateResponses: boolean
@@ -121,7 +127,13 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     dataDir: env[P + 'DATA_DIR'] ? path.resolve(cwd, env[P + 'DATA_DIR']!) : f.dataDir ? abs(f.dataDir) : def.dataDir,
     logDir: logDirRaw ? path.resolve(base, logDirRaw) : null,
     logLevel: level,
-    engine: { authMode: f.engine.authMode, claudeBin: f.engine.claudeBin, codexBin: f.engine.codexBin },
+    engine: {
+      authMode: f.engine.authMode, claudeBin: f.engine.claudeBin, codexBin: f.engine.codexBin,
+      ...(f.engine.runDir ? { runDir: abs(f.engine.runDir) } : {}),
+      ...(f.engine.agentRoot ? { agentRoot: abs(f.engine.agentRoot) } : {}),
+      ...(f.engine.launcherSock ? { launcherSock: abs(f.engine.launcherSock) } : {}),
+      ...(f.engine.agentUid !== undefined ? { agentUid: f.engine.agentUid } : {}),
+    },
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
       teamName: env[P + 'RELAY_TEAM'] ?? f.relay.teamName,

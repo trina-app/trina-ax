@@ -14,7 +14,8 @@ import { startServer, type Running } from './server'
 import { noSessions, nullRealtime, type Services } from './services'
 import pkg from '../package.json'
 
-export const SERVER_VERSION: string = pkg.version
+/** Release builds set the version at bundle time (scripts/build-bundle.ts: --define process.env.MYCEL_BUILD_VERSION). */
+export const SERVER_VERSION: string = process.env.MYCEL_BUILD_VERSION || pkg.version
 
 export interface AppContext {
   config: AppConfig
@@ -58,7 +59,7 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   if (!fs.existsSync(gate)) throw new CoreUnavailableError(`native helpers not built (${gate} missing): run \`bun run build:native\``)
   if (ctx.config.mode === 'prod') {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect
-    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660' })
+    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660' })
   }
   const codex = ctx.config.engine.codexBin ?? which('codex')
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
@@ -74,6 +75,9 @@ export function createContext(o: ContextOptions): AppContext {
     dataDir: config.dataDir,
     authMode: config.engine.authMode,
     ...(config.engine.claudeBin ? { claudeBin: config.engine.claudeBin } : {}),
+    ...(config.engine.runDir ? { runDir: config.engine.runDir } : {}),
+    ...(config.engine.agentRoot ? { agentRoot: config.engine.agentRoot } : {}),
+    ...(config.engine.agentUid !== undefined ? { agentUid: config.engine.agentUid } : {}),
   })
   const closers: (() => void | Promise<void>)[] = []
   let core: Promise<Running> | null = null

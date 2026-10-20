@@ -25,7 +25,9 @@
     "test:b:e2e": "bun run tests/e2e/b-chat-e2e.ts",
     "dev:relay": "node --disable-warning=ExperimentalWarning relay/src/main.ts --dev",
     "dev:server:relay": "MYCEL_RELAY_URL=ws://127.0.0.1:19161/connect bun --watch server/src/main.ts",
-    "test:relay": "bun test tests/relay"
+    "test:relay": "bun test tests/relay",
+    "build:bundle": "bun scripts/build-bundle.ts",
+    "build:menubar": "bash menubar/build.sh"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",

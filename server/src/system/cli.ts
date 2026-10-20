@@ -1,0 +1,156 @@
+// Admin command line for the installed server (component G). Bundled as server/src/admin.js next to main.js and run
+// as the server account by the admin scripts (scripts/*-macos.sh) and the install test:
+//
+//   sudo -u _axserver <base>/app/current/bin/bun <base>/app/current/server/src/admin.js <command> ...
+//
+// Commands (MYCEL_CONFIG / MYCEL_MODE=prod select the installation, like the server itself):
+//   backup [--scope db|full]                     back up now (same as the nightly backup)
+//   list-backups                                 JSON list
+//   archive --out <file> [--password-stdin]      DB + team folder in one .tar.zst(.age) stream, for an external disk
+//   restore-archive --in <file> --to <dir> [--password-stdin]
+//                                                decrypt + unpack into a NEW folder; it appears only when the whole
+//                                                archive decrypted and unpacked cleanly and the DB passes its check
+//   restore-team --backup <id> --to <dir>        rebuild the team folder as it was at a backup (new folder)
+//   stage-restore --backup <id>                  check a DB backup and stage it; the server swaps it in at its next
+//                                                start (same as POST /api/admin/restore)
+//   stage-update <bundle.tar.zst>                verify and unpack a release into app/versions/
+//   switch <version> [--restart] | rollback [--restart]
+//                                                point app/current at a staged version; --restart stops the running
+//                                                server (pid from status/status.json) so root/bootstrap starts it
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import { loadAppConfig } from '../app-config'
+import { SERVER_VERSION } from '../context'
+import { openDb } from '../db'
+import { createLogger } from '../log'
+import { BackupManager, inspectDbCopy, vacuumInto } from './backup'
+import { resolveLayout } from './layout'
+import { walkTree } from './manifest'
+import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
+import { extractTar, tarStream, type TarEntryInput } from './tar'
+import { UpdateManager } from './update'
+
+function arg(args: string[], name: string): string | null {
+  const i = args.indexOf(name)
+  return i >= 0 ? args[i + 1] ?? null : null
+}
+
+async function readPassword(args: string[]): Promise<string | null> {
+  if (!args.includes('--password-stdin')) return null
+  const text = await new Response(Bun.stdin.stream()).text()
+  const pw = text.replace(/\r?\n$/, '')
+  if (pw.length < 8) throw new Error('password must be at least 8 characters')
+  return pw
+}
+
+export async function main(argv: string[]): Promise<number> {
+  const [cmd, ...args] = argv
+  const cfg = loadAppConfig({ argv: [] })
+  const log = createLogger({ level: 'warn' })
+  const layout = resolveLayout(cfg)
+  const out = (v: unknown) => console.log(JSON.stringify(v, null, 1))
+  const dbFile = path.join(cfg.dataDir, 'app.db')
+  const updates = () => new UpdateManager({ appDir: layout.appDir, dataDir: cfg.dataDir, version: SERVER_VERSION, channel: cfg.update.channel, feedUrl: cfg.update.feedUrl, log })
+  const backups = () => {
+    const db = openDb(dbFile)
+    return { db, mgr: new BackupManager({ db, dbFile, layout, log, version: SERVER_VERSION }) }
+  }
+
+  switch (cmd) {
+    case 'backup': {
+      const { db, mgr } = backups()
+      try { out(await mgr.run({ kind: 'manual', scope: arg(args, '--scope') === 'db' ? 'db' : 'full' })) } finally { db.close() }
+      return 0
+    }
+    case 'list-backups': {
+      const { db, mgr } = backups()
+      try { out(mgr.list()) } finally { db.close() }
+      return 0
+    }
+    case 'archive': {
+      const dest = arg(args, '--out')
+      if (!dest) throw new Error('archive needs --out <file>')
+      const pw = await readPassword(args)
+      const tmpDb = path.join(cfg.dataDir, `archive-${process.pid}.sqlite`)
+      await vacuumInto(dbFile, tmpDb)
+      try {
+        const tree = await walkTree(cfg.teamRoot, { exclude: ['.system/backups'] })
+        const entries: TarEntryInput[] = [
+          { name: 'db', type: 'dir' }, { name: 'db/app.sqlite', type: 'file', source: tmpDb },
+          { name: 'team', type: 'dir' },
+          ...tree.dirs.map((d) => ({ name: `team/${d.rel}`, type: 'dir' as const, mode: d.mode, mtimeMs: d.mtimeMs })),
+          ...tree.files.map((f) => ({ name: `team/${f.rel}`, type: 'file' as const, source: f.abs })),
+        ]
+        const z = zstdCompress(tarStream(entries))
+        const w = await writeAtomic(pw ? ageEncrypt(z, pw) : z, path.resolve(dest), 0o600)
+        out({ file: path.resolve(dest), size: w.size, sha256: w.sha256, encrypted: !!pw, files: tree.files.length })
+      } finally {
+        await fsp.rm(tmpDb, { force: true })
+      }
+      return 0
+    }
+    case 'restore-archive': {
+      const src = arg(args, '--in'), to = arg(args, '--to')
+      if (!src || !to) throw new Error('restore-archive needs --in <file> --to <new folder>')
+      const target = path.resolve(to)
+      if (fs.existsSync(target)) throw new Error(`${target} already exists`)
+      const encrypted = await isAgeFile(src)
+      const pw = await readPassword(args)
+      if (encrypted && !pw) throw new Error('this archive is encrypted: pass the password on stdin with --password-stdin')
+      const tmp = `${target}.partial-${process.pid}`
+      await fsp.mkdir(tmp, { recursive: true, mode: 0o700 })
+      try {
+        const raw = readFileChunks(src)
+        const n = await extractTar(zstdDecompress(encrypted ? ageDecrypt(raw, pw!) : raw), tmp)
+        inspectDbCopy(path.join(tmp, 'db', 'app.sqlite'))
+        if (!fs.existsSync(path.join(tmp, 'team'))) throw new Error('archive has no team folder')
+        await fsp.rename(tmp, target)
+        out({ restoredTo: target, entries: n })
+      } catch (e) {
+        await fsp.rm(tmp, { recursive: true, force: true })
+        throw e
+      }
+      return 0
+    }
+    case 'restore-team': {
+      const id = arg(args, '--backup'), to = arg(args, '--to')
+      if (!id || !to) throw new Error('restore-team needs --backup <id> --to <new folder>')
+      const { db, mgr } = backups()
+      try { out(await mgr.restoreTeamTo(id, path.resolve(to))) } finally { db.close() }
+      return 0
+    }
+    case 'stage-restore': {
+      const id = arg(args, '--backup')
+      if (!id) throw new Error('stage-restore needs --backup <id>')
+      const { db, mgr } = backups()
+      try { out(await mgr.stageDbRestore(id, null)) } finally { db.close() }
+      return 0
+    }
+    case 'stage-update': {
+      if (!args[0]) throw new Error('stage-update needs a bundle file')
+      out(await updates().stage(path.resolve(args[0])))
+      return 0
+    }
+    case 'switch':
+    case 'rollback': {
+      if (cmd === 'switch' && !args[0]) throw new Error('switch needs a version')
+      out(cmd === 'switch' ? await updates().switchTo(args[0]!) : await updates().rollBack())
+      if (args.includes('--restart')) {
+        const pid = (JSON.parse(fs.readFileSync(path.join(layout.statusDir, 'status.json'), 'utf8')) as { pid: number }).pid
+        process.kill(pid, 'SIGTERM')
+      }
+      return 0
+    }
+    default:
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-update|switch|rollback (see server/src/system/cli.ts)')
+      return 2
+  }
+}
+
+if (import.meta.main) {
+  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
+    console.error(`error: ${(e as Error).message}`)
+    process.exit(1)
+  })
+}
