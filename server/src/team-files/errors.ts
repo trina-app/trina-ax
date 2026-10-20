@@ -26,6 +26,7 @@ export const MSG = {
   chunkSize: { ko: '조각 크기가 맞지 않습니다.', en: 'Wrong chunk size.', id: 'Ukuran potongan salah.' },
   expired: { ko: '업로드가 만료되었습니다(24시간). 다시 시작하세요.', en: 'This upload expired (24 h). Start again.', id: 'Unggahan kedaluwarsa (24 jam).' },
   notChat: { ko: '내 채팅이 아닙니다.', en: 'Not one of your chats.', id: 'Bukan obrolan Anda.' },
+  completing: { ko: '업로드를 마무리하는 중이라 취소할 수 없습니다.', en: 'The upload is being finished and cannot be canceled now.', id: 'Unggahan sedang diselesaikan dan tidak dapat dibatalkan.' },
   restoreTaken: { ko: '같은 이름이 있어 되돌릴 수 없습니다.', en: 'Cannot restore: the name is taken.', id: 'Tidak dapat dipulihkan: nama sudah dipakai.' },
 } satisfies Record<string, Msg>
 export type MsgKey = keyof typeof MSG

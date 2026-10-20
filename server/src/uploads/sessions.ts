@@ -31,6 +31,8 @@ export type TranscribeStarter = (userId: string, file: string, name: string) => 
 export class UploadSessions {
   /** running sha256 over the contiguous prefix of chunks (only kept in memory; a restart re-hashes at complete) */
   private hashes = new Map<string, { hash: crypto.Hash; next: number }>()
+  /** complete() in progress: a retried complete (client timed out during the hash of a big file) joins it */
+  private completing = new Map<string, Promise<UploadComplete>>()
   transcribe: TranscribeStarter | null = null
 
   constructor(private ctx: AppContext, private files: TeamFiles, private attachments: Attachments) {
@@ -56,7 +58,9 @@ export class UploadSessions {
     this.checkTarget(userId, target)
     let free = Infinity
     try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
-    if (free < size + DISK_MARGIN) fileError('payload_too_large', 'diskFull')
+    // part files are sparse: what unfinished sessions will still write counts as used
+    const reserved = (db.query('SELECT COALESCE(SUM(size), 0) AS n FROM upload_sessions WHERE result IS NULL AND expires_at > ?').get(new Date().toISOString()) as { n: number }).n
+    if (free < size + reserved + DISK_MARGIN) fileError('payload_too_large', 'diskFull')
     const id = newId()
     const fd = fs.openSync(this.part(id), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600)
     try { fs.ftruncateSync(fd, size) } finally { fs.closeSync(fd) }
@@ -86,6 +90,7 @@ export class UploadSessions {
   async putChunk(userId: string, id: string, n: number, body: AsyncIterable<Uint8Array>): Promise<{ received: number[] }> {
     const r = this.row(userId, id)
     if (r.result) return { received: JSON.parse(r.received) }
+    if (this.completing.has(id)) fileError('conflict', 'completing')
     const count = chunkCount(r.size, r.chunk_size)
     if (!Number.isInteger(n) || n < 0 || n >= count) fileError('validation', 'chunkSize', { n: `chunk number must be 0..${count - 1}` })
     const already: number[] = JSON.parse(r.received)
@@ -123,6 +128,15 @@ export class UploadSessions {
   async complete(userId: string, id: string): Promise<UploadComplete> {
     const r = this.row(userId, id)
     if (r.result) return JSON.parse(r.result)
+    const running = this.completing.get(id)
+    if (running) return running
+    const p = this.finish(userId, r).finally(() => this.completing.delete(id))
+    this.completing.set(id, p)
+    return p
+  }
+
+  private async finish(userId: string, r: Row): Promise<UploadComplete> {
+    const id = r.id
     const count = chunkCount(r.size, r.chunk_size)
     const received = new Set<number>(JSON.parse(r.received))
     const missing: number[] = []
@@ -154,6 +168,7 @@ export class UploadSessions {
 
   cancel(userId: string, id: string) {
     this.row(userId, id)
+    if (this.completing.has(id)) fileError('conflict', 'completing')
     this.drop(id)
   }
   private drop(id: string) {
@@ -165,7 +180,10 @@ export class UploadSessions {
   /** Expired sessions and orphan part files. */
   sweep(now = Date.now()): number {
     let n = 0
-    for (const r of this.ctx.db.query('SELECT id FROM upload_sessions WHERE expires_at <= ?').all(new Date(now).toISOString()) as { id: string }[]) { this.drop(r.id); n++ }
+    for (const r of this.ctx.db.query('SELECT id FROM upload_sessions WHERE expires_at <= ?').all(new Date(now).toISOString()) as { id: string }[]) {
+      if (this.completing.has(r.id)) continue
+      this.drop(r.id); n++
+    }
     try {
       for (const f of fs.readdirSync(this.dir())) {
         const id = f.replace(/\.part$/, '')
