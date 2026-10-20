@@ -87,6 +87,7 @@ export class RelayServer {
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private startedAt = Date.now()
   private stopping = false
+  private sweeps = 0
   private registerHits = new Map<string, number[]>()
   readonly counters = {
     ctlConnects: 0, ctlDrops: 0, silentDrops: 0, stallDrops: 0, authFail: 0, replaced: 0,
@@ -573,7 +574,9 @@ export class RelayServer {
     try { m = parseAuth(JSON.parse(raw)) } catch { this.reject(c, ControlClose.PROTOCOL_ERROR, 'protocol', 'bad auth message'); return }
     if (!SUPPORTED_VERSIONS.includes(m.v)) { this.reject(c, ControlClose.VERSION, 'version', `relay speaks protocol ${SUPPORTED_VERSIONS.join(',')}`); return }
     const row = this.registry.team(m.team)
-    if (!row || row.status === 'released') { this.counters.authFail++; this.reject(c, ControlClose.AUTH_FAILED, 'auth_failed', 'unknown team'); return }
+    // 'unknown team' (the registry has no such team: the team server may register again) vs 'team released'
+    if (!row) { this.counters.authFail++; this.reject(c, ControlClose.AUTH_FAILED, 'auth_failed', 'unknown team'); return }
+    if (row.status === 'released') { this.counters.authFail++; this.reject(c, ControlClose.AUTH_FAILED, 'auth_failed', 'team released'); return }
     if (row.status === 'suspended') { this.reject(c, ControlClose.SUSPENDED, 'suspended', 'team suspended'); return }
     const key: KeyRow | undefined = this.registry.currentKey(row.id)
     const fresh = Math.abs(Date.now() - m.ts) <= AUTH_MAX_SKEW_MS
@@ -586,6 +589,10 @@ export class RelayServer {
       return
     }
     const t = this.teamState(row.id, row.name)
+    if ([...t.conns].filter((o) => o.instance === m.instance && !o.draining).length >= this.cfg.maxConnsPerTeam) {
+      this.reject(c, ControlClose.PROTOCOL_ERROR, 'protocol', 'too many control connections')
+      return
+    }
     // newer instance wins (same key): the old one gets GOAWAY(replaced) + 4009 and must not reconnect
     if (t.instance && t.instance !== m.instance && t.conns.size) {
       const live = [...t.conns].some((o) => o.mux && Date.now() - o.mux.lastRecv < LIVE_INSTANCE_MS)
@@ -600,8 +607,6 @@ export class RelayServer {
       }
       t.replacedPrevious = live ? previous : null
     }
-    const sameInstance = [...t.conns].filter((o) => o.instance === m.instance && !o.draining)
-    if (sameInstance.length >= this.cfg.maxConnsPerTeam) { this.reject(c, ControlClose.PROTOCOL_ERROR, 'protocol', 'too many control connections'); return }
     t.instance = m.instance
     c.authed = true
     c.team = t
@@ -690,7 +695,7 @@ export class RelayServer {
       }
     }
     // registry changes: suspended teams and rotated keys lose their connections
-    if (Math.floor(now / 1000) % 5 === 0) {
+    if (++this.sweeps % 5 === 0) {
       for (const t of this.teams.values()) {
         if (!t.conns.size) continue
         const row = this.registry.team(t.id)

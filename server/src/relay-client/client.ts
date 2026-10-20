@@ -107,7 +107,7 @@ export class RelayClient {
   private setState(p: Partial<RelayClientState>): void {
     const prev = this.st
     this.st = { ...this.st, ...p }
-    if (prev.state !== this.st.state || prev.detail !== this.st.detail || prev.conns !== this.st.conns) this.o.onState?.(this.state)
+    if (prev.state !== this.st.state || prev.detail !== this.st.detail || prev.conns !== this.st.conns || prev.lastError !== this.st.lastError) this.o.onState?.(this.state)
   }
 
   private liveConns(): number {

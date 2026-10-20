@@ -101,6 +101,16 @@ test('GET /api/ws over the relay is attached through RealtimeHub.attachVirtual',
   ws.close()
 })
 
+test('a relay that forgot the team (registry reset): the server registers the address again by itself', async () => {
+  const old = R.relay.registry.teamByName('appteam')!
+  R.relay.registry.db.exec(`DELETE FROM teams WHERE id = '${old.id}'`)
+  R.relay.invalidateNames()
+  R.relay.disconnectTeam(old.id, 4003, 'test')
+  await until(() => { const t = R.relay.registry.teamByName('appteam'); return t && t.id !== old.id }, 10_000, 'registered again')
+  await until(() => ctx.services.relay?.status().state === 'connected', 10_000, 'connected again')
+  expect((await fetch(teamUrl(PORT, 'appteam', '/api/health'))).status).toBe(200)
+})
+
 test('a second start with the same data folder reuses the registration (no new registration)', async () => {
   const before = R.relay.registry.list().length
   const db2 = openDb(path.join(ctx.config.dataDir, 'app.db'))

@@ -64,6 +64,10 @@ export function getRegistration(db: Database, relayApi: string): Registration | 
   return r ? { relayApi: r.relay_api, teamId: r.team_id, teamName: r.team_name, publicKey: r.public_key, address: r.address, registeredAt: r.registered_at, lastHeartbeatAt: r.last_heartbeat_at } : null
 }
 
+export function forgetRegistration(db: Database, relayApi: string): void {
+  db.query('DELETE FROM relay_registrations WHERE relay_api = ?').run(relayApi)
+}
+
 function saveRegistration(db: Database, r: Registration): void {
   db.query(`INSERT INTO relay_registrations (relay_api, team_id, team_name, public_key, address, registered_at, last_heartbeat_at) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(relay_api) DO UPDATE SET team_id = excluded.team_id, team_name = excluded.team_name, public_key = excluded.public_key, address = excluded.address, registered_at = excluded.registered_at, last_heartbeat_at = excluded.last_heartbeat_at`)

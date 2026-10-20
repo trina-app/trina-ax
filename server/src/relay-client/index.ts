@@ -9,7 +9,7 @@ import type { RelayEvent } from '@mycel/shared/relay-protocol'
 import type { AppContext } from '../context'
 import type { RelayStatusProvider } from '../services'
 import { RelayClient, relayApiBase, type RelayClientState } from './client'
-import { RelayRegistrationError, ensureRegistered, heartbeat, loadOrCreateKey, recordRelayEvent, type Registration } from './registration'
+import { RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, type Registration } from './registration'
 
 export { RelayClient, relayApiBase, responseHeaders } from './client'
 export { RelayWebSocket } from './virtual-ws'
@@ -130,6 +130,17 @@ export function startRelayClient(ctx: AppContext): RelayService {
         return true
       },
       onState: (s) => {
+        // the relay no longer knows this team (its registry was reset, or the address was released): register again
+        if (s.state === 'offline' && s.detail === 'auth_failed' && s.lastError === 'unknown team' && client) {
+          log.warn('relay does not know this team any more; registering the address again', { name })
+          client.stop()
+          client = null
+          if (hbTimer) { clearInterval(hbTimer); hbTimer = null }
+          forgetRegistration(ctx.db, relayApi)
+          pre = { state: 'connecting', detail: 're_registering' }
+          regTimer = setTimeout(register, 1000)
+          return
+        }
         if (s.state === lastState) return
         lastState = s.state
         recordRelayEvent(ctx.db, s.state, s.detail)
