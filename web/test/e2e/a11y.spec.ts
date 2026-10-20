@@ -47,3 +47,39 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await expect(page.getByTestId('members-table')).toBeVisible()
   await audit(page, 'admin (phone)')
 })
+
+// Every admin section, the other settings tabs, projects, trash, an ask card and the file preview panel, in both
+// themes: the screens an owner configures the team on are as readable as the chat.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the remaining screens have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await signIn(page)
+    for (const s of ['groups', 'folders', 'engines', 'usage', 'audit', 'settings', 'system']) {
+      await page.goto(`/admin/${s}`)
+      await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
+      await page.waitForTimeout(300)
+      await audit(page, `admin/${s}`)
+    }
+    for (const s of ['security', 'memory', 'apps']) {
+      await page.goto(`/settings/${s}`)
+      await page.waitForTimeout(300)
+      await audit(page, `settings/${s}`)
+    }
+    await page.goto('/projects')
+    await page.waitForTimeout(300)
+    await audit(page, 'projects')
+    await page.goto('/trash')
+    await page.waitForTimeout(300)
+    await audit(page, 'trash')
+    await page.goto('/files?path=marketing')
+    await page.getByTestId('file-row').filter({ hasText: 'plan.md' }).first().getByRole('button').first().click()
+    await page.waitForTimeout(500)
+    await audit(page, 'file preview')
+    await page.goto('/')
+    await page.getByTestId('composer-input').fill('please ask me something')
+    await page.getByTestId('send').click()
+    await expect(page.getByTestId('ask-card')).toBeVisible()
+    await audit(page, 'ask card')
+  })
+}
