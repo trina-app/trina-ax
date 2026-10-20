@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
+import { toolRegistry } from '../tools/registry'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as any
@@ -21,10 +22,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx) {
         return reply({ protocolVersion: typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '2025-06-18',
           capabilities: { tools: {} }, serverInfo: { name: 'team', version: '0.1.0' } })
       case 'ping': return reply({})
-      case 'tools/list': return reply({ tools: toolList })
+      // file tools first, then the tools other components registered (tools/registry.ts)
+      case 'tools/list': return reply({ tools: [...toolList, ...toolRegistry(files).list()] })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
-        const out = await files.call(name, msg.params?.arguments ?? {}, ctx)
+        const extra = toolRegistry(files)
+        const out = extra.has(name) ? await extra.call(name, msg.params?.arguments ?? {}, ctx) : await files.call(name, msg.params?.arguments ?? {}, ctx)
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
         return reply({ content: [{ type: 'text', text: out.text }], ...(out.isError ? { isError: true } : {}) })
       }
