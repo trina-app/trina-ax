@@ -235,3 +235,101 @@ describe('export', () => {
     expect(memoriesCsv([{ id: '1', text: 'a,b\nc', created_at: 't', source_chat_id: null }])).toContain('"a,b\nc"')
   })
 })
+
+describe('review fixes (component G)', () => {
+  test('export leaves out other people\'s private users/<id>/ folders but keeps the owner\'s own', async () => {
+    const e = setup('export-privacy')
+    fs.mkdirSync(path.join(e.cfg.teamRoot, 'users', 'bob'), { recursive: true })
+    fs.writeFileSync(path.join(e.cfg.teamRoot, 'users', 'bob', 'diary.txt'), 'bob private')
+    const r = await runExport(e.db, e.cfg.teamRoot, { ownerId: 'olga', what: ['files'] })
+    const out = path.join(W, 'export-privacy-out')
+    fs.mkdirSync(out)
+    await extractTar(zstdDecompress(readFileChunks(path.join(e.cfg.teamRoot, r.path))), out)
+    const root = path.join(out, fs.readdirSync(out)[0]!)
+    expect(fs.existsSync(path.join(root, 'files', 'users', 'bob'))).toBe(false)
+    expect(fs.readFileSync(path.join(root, 'files', 'users', 'olga', 'note.txt'), 'utf8')).toBe('private')
+    expect(fs.existsSync(path.join(root, 'files', 'shared', 'plan.md'))).toBe(true)
+    await expect(runExport(e.db, e.cfg.teamRoot, { ownerId: '../bob', what: ['files'] })).rejects.toThrow(/owner id/)
+    e.db.close()
+  })
+
+  test('incremental restore: a file that became a folder, and a folder that became a file', async () => {
+    const e = setup('kind-change')
+    const T = e.cfg.teamRoot
+    fs.writeFileSync(path.join(T, 'shared', 'thing'), 'a file')
+    fs.mkdirSync(path.join(T, 'shared', 'dir'))
+    fs.writeFileSync(path.join(T, 'shared', 'dir', 'inner.txt'), 'inner')
+    const full = await e.mgr.run({ kind: 'manual', scope: 'full' })
+    e.setClock(new Date('2026-10-02T04:00:00Z'))
+    fs.rmSync(path.join(T, 'shared', 'thing'))
+    fs.mkdirSync(path.join(T, 'shared', 'thing'))
+    fs.writeFileSync(path.join(T, 'shared', 'thing', 'now-a-folder.txt'), 'x')
+    fs.rmSync(path.join(T, 'shared', 'dir'), { recursive: true })
+    fs.writeFileSync(path.join(T, 'shared', 'dir'), 'now a file')
+    const inc = await e.mgr.run({ kind: 'daily', scope: 'full' })
+    expect(inc.team!.base).toBe(full.id)
+    const dest = path.join(W, 'kind-change-restored')
+    await e.mgr.restoreTeamTo(inc.id, dest)
+    expect(fs.readFileSync(path.join(dest, 'shared', 'thing', 'now-a-folder.txt'), 'utf8')).toBe('x')
+    expect(fs.readFileSync(path.join(dest, 'shared', 'dir'), 'utf8')).toBe('now a file')
+    e.db.close()
+  })
+
+  test('a file that vanishes between listing and archiving is neither expected on restore nor brought back', async () => {
+    const e = setup('vanish')
+    const T = e.cfg.teamRoot
+    fs.writeFileSync(path.join(T, 'shared', 'temp.txt'), 'v1')
+    const full = await e.mgr.run({ kind: 'manual', scope: 'full' })
+    e.setClock(new Date('2026-10-02T04:00:00Z'))
+    fs.writeFileSync(path.join(T, 'shared', 'temp.txt'), 'v2 longer') // changed -> in the next archive's list
+    fs.writeFileSync(path.join(T, 'shared', 'brand-new.txt'), 'new')
+    let vanish = true
+    const mgr = new BackupManager({ db: e.db, dbFile: e.dbFile, layout: e.layout, log: silentLogger, version: '0.1.0', now: () => new Date('2026-10-02T04:00:00Z'),
+      afterWalk: () => { if (vanish) { fs.rmSync(path.join(T, 'shared', 'temp.txt')); fs.rmSync(path.join(T, 'shared', 'brand-new.txt')) } } })
+    const inc = await mgr.run({ kind: 'daily', scope: 'full' })
+    vanish = false
+    expect(inc.team!.base).toBe(full.id)
+    const dest = path.join(W, 'vanish-restored')
+    await mgr.restoreTeamTo(inc.id, dest) // used to fail: the list expected the vanished files
+    expect(fs.existsSync(path.join(dest, 'shared', 'temp.txt'))).toBe(false) // the v1 copy from the full one must not come back
+    expect(fs.existsSync(path.join(dest, 'shared', 'brand-new.txt'))).toBe(false)
+    // it reappears: the next backup takes it
+    fs.writeFileSync(path.join(T, 'shared', 'brand-new.txt'), 'back')
+    const inc2 = await mgr.run({ kind: 'manual', scope: 'full' })
+    const dest2 = path.join(W, 'vanish-restored-2')
+    await mgr.restoreTeamTo(inc2.id, dest2)
+    expect(fs.readFileSync(path.join(dest2, 'shared', 'brand-new.txt'), 'utf8')).toBe('back')
+    e.db.close()
+  })
+
+  test('a restored folder with a file the backup does not have is refused', async () => {
+    const e = setup('extra')
+    const full = await e.mgr.run({ kind: 'manual', scope: 'full' })
+    const man = path.join(e.layout.teamBackupsDir, full.id, 'manifest.json')
+    const m = JSON.parse(fs.readFileSync(man, 'utf8'))
+    delete m['shared/plan.md']
+    fs.writeFileSync(man, JSON.stringify(m))
+    const dest = path.join(W, 'extra-restored')
+    await expect(e.mgr.restoreTeamTo(full.id, dest)).rejects.toThrow(/does not/)
+    expect(fs.existsSync(dest)).toBe(false)
+    e.db.close()
+  })
+
+  test('applying a staged restore that fails half-way puts the live DB (and its WAL) back', async () => {
+    const e = setup('restore-half')
+    const m = await e.mgr.run({ kind: 'manual', scope: 'db' })
+    e.db.query("INSERT INTO users (id, username, name, role) VALUES ('after', 'after', 'After', 'member')").run()
+    await e.mgr.stageDbRestore(m.id, 'olga')
+    e.db.close()
+    const staged = path.join(e.cfg.dataDir, 'restore-staged.db')
+    const r = applyPendingRestore(e.cfg.dataDir, silentLogger, {
+      rename: (a, b) => { if (a === staged) throw new Error('disk error'); fs.renameSync(a, b) },
+    })
+    expect(r.applied).toBe(false)
+    expect(fs.existsSync(e.dbFile)).toBe(true)
+    const db = openDb(e.dbFile)
+    expect(db.query("SELECT id FROM users WHERE id = 'after'").get()).not.toBeNull()
+    db.close()
+    expect(JSON.parse(fs.readFileSync(path.join(e.cfg.dataDir, 'restore-result.json'), 'utf8')).ok).toBe(false)
+  })
+})

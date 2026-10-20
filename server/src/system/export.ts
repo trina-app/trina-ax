@@ -3,12 +3,12 @@
 // to users/<owner>/exports/ in the team folder. Component G.
 //
 // Privacy: nobody, the owner included, reads other people's conversations or memories (tab 1/7), so chats and
-// memories are the requesting owner's own; the files part is the whole team folder (the owner may read all of it),
-// without .system/ and without earlier exports.
+// memories are the requesting owner's own; the files part is the team folder without .system/, without other
+// people's private users/<id>/ folders (tab 6 "내보내기") and without earlier exports.
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, UserId } from '@mycel/shared'
 import { walkTree } from './manifest'
 import { ageEncrypt, writeAtomic, zstdCompress } from './streams'
 import { tarStream, type TarEntryInput } from './tar'
@@ -56,42 +56,57 @@ export function memoriesCsv(rows: { id: string; text: string; created_at: string
   return '﻿' + ['id,text,created_at,source_chat_id', ...rows.map((r) => [r.id, r.text, r.created_at, r.source_chat_id ?? ''].map(csvCell).join(','))].join('\r\n') + '\r\n'
 }
 
+/**
+ * Folders of the team folder the export leaves out: .system/, the owner's earlier exports and every OTHER person's
+ * users/<id>/ (design tab 6 "내보내기": other people's private folders are not exported; the owner's own is).
+ */
+export async function exportExcludes(teamRoot: string, ownerId: string): Promise<string[]> {
+  const out = [PRODUCT.systemDir, `users/${ownerId}/exports`]
+  let names: string[] = []
+  try { names = await fsp.readdir(path.join(teamRoot, 'users')) } catch {}
+  for (const n of names) if (n !== ownerId) out.push(`users/${n}`)
+  return out
+}
+
 export async function runExport(db: Database, teamRoot: string, req: ExportRequest, progress: (f: number | null, msg: string) => void = () => {}): Promise<{ path: string; size: number }> {
+  if (!UserId.safeParse(req.ownerId).success) throw new Error('bad owner id')
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
   const relDir = `users/${req.ownerId}/exports`
   const name = `${PRODUCT.id}-export-${stamp}.tar.zst${req.password ? '.age' : ''}`
-  const entries: TarEntryInput[] = []
   const root = `export-${stamp}`
-  entries.push({ name: root, type: 'dir' })
-  if (req.what.includes('chats')) {
-    progress(0.05, 'chats')
-    const chats = db.query('SELECT id, title, created_at, updated_at, engine, active_leaf_id FROM chats WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(req.ownerId) as ChatRow[]
-    entries.push({ name: `${root}/chats`, type: 'dir' })
-    const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model FROM messages WHERE chat_id = ?')
-    const used = new Set<string>()
-    for (const c of chats) {
-      let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
-      if (used.has(base)) base += ` ${c.id.slice(-6)}`
-      used.add(base)
-      entries.push({ name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id))) })
+  const tree = req.what.includes('files') ? await walkTree(teamRoot, { exclude: await exportExcludes(teamRoot, req.ownerId) }) : null
+  const total = tree ? tree.files.reduce((a, f) => a + f.size, 0) || 1 : 1
+
+  // entries are produced one at a time while the archive is written: a long chat history is never all in memory
+  async function* entries(): AsyncGenerator<TarEntryInput> {
+    yield { name: root, type: 'dir' }
+    if (req.what.includes('chats')) {
+      progress(0.05, 'chats')
+      const chats = db.query('SELECT id, title, created_at, updated_at, engine, active_leaf_id FROM chats WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(req.ownerId) as ChatRow[]
+      yield { name: `${root}/chats`, type: 'dir' }
+      const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model FROM messages WHERE chat_id = ?')
+      const used = new Set<string>()
+      for (const c of chats) {
+        let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
+        if (used.has(base)) base += ` ${c.id.slice(-6)}`
+        used.add(base)
+        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id))) }
+      }
+    }
+    if (req.what.includes('memories')) {
+      progress(0.1, 'memories')
+      const rows = db.query('SELECT id, text, created_at, source_chat_id FROM memories WHERE user_id = ? ORDER BY created_at').all(req.ownerId) as { id: string; text: string; created_at: string; source_chat_id: string | null }[]
+      yield { name: `${root}/memories.csv`, type: 'file', data: enc(memoriesCsv(rows)) }
+    }
+    if (tree) {
+      progress(0.15, 'files')
+      yield { name: `${root}/files`, type: 'dir' }
+      for (const d of tree.dirs) yield { name: `${root}/files/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs }
+      for (const f of tree.files) yield { name: `${root}/files/${f.rel}`, type: 'file', source: f.abs }
     }
   }
-  if (req.what.includes('memories')) {
-    progress(0.1, 'memories')
-    const rows = db.query('SELECT id, text, created_at, source_chat_id FROM memories WHERE user_id = ? ORDER BY created_at').all(req.ownerId) as { id: string; text: string; created_at: string; source_chat_id: string | null }[]
-    entries.push({ name: `${root}/memories.csv`, type: 'file', data: enc(memoriesCsv(rows)) })
-  }
-  let total = 1
-  if (req.what.includes('files')) {
-    progress(0.15, 'files')
-    const tree = await walkTree(teamRoot, { exclude: [PRODUCT.systemDir, relDir] })
-    entries.push({ name: `${root}/files`, type: 'dir' })
-    for (const d of tree.dirs) entries.push({ name: `${root}/files/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
-    for (const f of tree.files) entries.push({ name: `${root}/files/${f.rel}`, type: 'file', source: f.abs })
-    total = tree.files.reduce((a, f) => a + f.size, 0) || 1
-  }
   let done = 0
-  const tar = tarStream(entries, (w) => { done += w.size; progress(0.15 + 0.8 * Math.min(1, done / total), 'files') })
+  const tar = tarStream(entries(), (w) => { if (w.name.startsWith(`${root}/files/`)) { done += w.size; progress(0.15 + 0.8 * Math.min(1, done / total), 'files') } })
   const out = req.password ? ageEncrypt(zstdCompress(tar), req.password) : zstdCompress(tar)
   const dir = path.join(teamRoot, relDir)
   await fsp.mkdir(dir, { recursive: true, mode: 0o700 })

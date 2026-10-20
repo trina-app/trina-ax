@@ -105,6 +105,8 @@ export interface BackupManagerOptions {
   log: Logger
   version: string
   now?: () => Date
+  /** tests: runs between listing the team folder and archiving it (files can vanish in between) */
+  afterWalk?: () => void | Promise<void>
 }
 
 export class BackupManager {
@@ -231,6 +233,7 @@ export class BackupManager {
     await fsp.mkdir(dir, { recursive: true, mode: 0o700 })
     await fsp.chmod(L.teamBackupsDir, 0o700).catch(() => {})
     const tree = await walkTree(L.teamRoot, { exclude: ['.system/backups'] })
+    await this.o.afterWalk?.()
     const now = toManifest(tree.files)
     const { changed, deleted } = diffManifest(prevManifest, now)
     const changedSet = new Set(changed)
@@ -242,14 +245,22 @@ export class BackupManager {
     for (const f of tree.files) if (changedSet.has(f.rel)) entries.push({ name: f.rel, type: 'file', source: f.abs })
     let changedWhileReading = 0
     let files = 0
+    const archived = new Set<string>()
     const written = await writeAtomic(zstdCompress(tarStream(entries, (w) => {
       files++
+      archived.add(w.name)
       done += w.size
       if (w.changedWhileReading) { changedWhileReading++; now[w.name] = { s: -1, m: -1 } } // re-archive next time
       else now[w.name] = { s: w.size, m: Math.floor(w.mtimeMs) }
       if (done - lastReport > 8 * 1024 ** 2) { lastReport = done; progress(Math.min(1, done / total)) }
     })), path.join(dir, 'team.tar.zst'))
-    for (const p of changed) if (!(p in now)) delete now[p] // vanished between the walk and the read
+    // vanished between the walk and the read: not in this archive, so not in its list either (otherwise the restore
+    // check would expect it, and the next backup would not notice when it comes back)
+    for (const p of changed) {
+      if (archived.has(p)) continue
+      delete now[p]
+      if (p in prevManifest) deleted.push(p) // the older copy in the chain must not come back on restore
+    }
     await fsp.writeFile(path.join(dir, 'manifest.json'), JSON.stringify(now), { mode: 0o600 })
     await fsp.writeFile(path.join(dir, 'deleted.json'), JSON.stringify(deleted), { mode: 0o600 })
     return { base, archiveSize: written.size, files, bytes: done, deleted: deleted.length, changedWhileReading }
@@ -340,13 +351,15 @@ export class BackupManager {
       for (const [i, bid] of ids.entries()) {
         progress(i / ids.length, `archive ${i + 1}/${ids.length}`)
         const dir = this.teamDir(bid)
-        await extractTar(zstdDecompress(readFileChunks(path.join(dir, 'team.tar.zst'))), dest)
+        // deletions first: they are paths of the previous state, and a deleted file may have become a folder (or the
+        // other way round) in this archive
         const deleted: string[] = JSON.parse(await fsp.readFile(path.join(dir, 'deleted.json'), 'utf8'))
         for (const p of deleted) {
           const t = path.join(dest, p)
           if (!t.startsWith(dest + path.sep)) throw new BackupError(`unsafe path in deleted.json: ${p}`)
           await fsp.rm(t, { force: true })
         }
+        await extractTar(zstdDecompress(readFileChunks(path.join(dir, 'team.tar.zst'))), dest, { replace: i > 0 })
       }
       const want: Manifest = JSON.parse(await fsp.readFile(path.join(this.teamDir(id), 'manifest.json'), 'utf8'))
       const got = toManifest((await walkTree(dest)).files)
@@ -355,6 +368,7 @@ export class BackupManager {
         const g = got[p]
         if (!g || g.s !== e.s) throw new BackupError(`restored folder does not match the backup at ${p}`)
       }
+      for (const p of Object.keys(got)) if (!(p in want)) throw new BackupError(`restored folder has a file the backup does not: ${p}`)
       progress(1, 'done')
       return { files: Object.keys(got).length }
     } catch (e) {
@@ -368,7 +382,8 @@ export class BackupManager {
  * Called by the server at start, BEFORE the DB is opened: if a restore was staged, keep the current DB files in
  * data/backups/before-restore-<time>/ and put the staged copy in place. Failures leave the current DB untouched.
  */
-export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>): { applied: boolean; backupId?: string; error?: string } {
+export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): { applied: boolean; backupId?: string; error?: string } {
+  const rename = o.rename ?? fs.renameSync
   const pf = path.join(dataDir, 'restore-pending.json')
   if (!fs.existsSync(pf)) return { applied: false }
   let p: RestorePending
@@ -384,8 +399,17 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
     const live = path.join(dataDir, 'app.db')
     const keep = path.join(dataDir, 'backups', `before-restore-${stamp(new Date())}`)
     fs.mkdirSync(keep, { recursive: true, mode: 0o700 })
-    for (const s of ['', '-wal', '-shm']) if (fs.existsSync(live + s)) fs.renameSync(live + s, path.join(keep, 'app.db' + s))
-    fs.renameSync(p.file, live)
+    const moved: string[] = []
+    try {
+      for (const s of ['', '-wal', '-shm']) if (fs.existsSync(live + s)) { rename(live + s, path.join(keep, 'app.db' + s)); moved.push(s) }
+      rename(p.file, live)
+    } catch (e) {
+      // put the current DB back exactly as it was (never start with no DB, or with a DB and someone else's WAL)
+      for (const s of moved.reverse()) {
+        try { fs.renameSync(path.join(keep, 'app.db' + s), live + s) } catch (e2) { log.error('could not put the database back after a failed restore', { file: live + s, kept: keep, err: e2 }) }
+      }
+      throw e
+    }
     fs.writeFileSync(result, JSON.stringify({ ok: true, backupId: p.backupId, at: new Date().toISOString(), previousDb: keep }), { mode: 0o600 })
     log.info('database restored from backup', { backupId: p.backupId, previousDb: keep })
     return { applied: true, backupId: p.backupId }
