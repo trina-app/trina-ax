@@ -21,13 +21,65 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"mycel/native/internal/peer"
 )
+
+// live turn sessions (engine pid = pgid = sid)
+type liveSet struct {
+	mu sync.Mutex
+	m  map[int]bool
+}
+
+func (l *liveSet) add(p int) { l.mu.Lock(); l.m[p] = true; l.mu.Unlock() }
+func (l *liveSet) del(p int) { l.mu.Lock(); delete(l.m, p); l.mu.Unlock() }
+func (l *liveSet) has(p int) bool { l.mu.Lock(); defer l.mu.Unlock(); return l.m[p] }
+
+var live = &liveSet{m: map[int]bool{}}
+
+// checkDedicated refuses reaping when the launcher runs as root or as a person (stage 1 runs as the owner!).
+func checkDedicated() error {
+	uid := os.Getuid()
+	if uid == 0 || uid == *serverUID {
+		return fmt.Errorf("--dedicated-account refused: uid %d is root or the server account", uid)
+	}
+	if runtime.GOOS == "darwin" && (uid < 450 || uid > 499) {
+		return fmt.Errorf("--dedicated-account refused: macOS role accounts use uid 450-499, this is %d", uid)
+	}
+	if runtime.GOOS == "linux" && uid >= 1000 && os.Getenv("MYCEL_ALLOW_REGULAR_UID_REAP") != "1" {
+		return fmt.Errorf("--dedicated-account refused: uid %d looks like a person", uid)
+	}
+	return nil
+}
+
+// reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session.
+func reaper() {
+	me, myPpid := os.Getpid(), os.Getppid()
+	mySid, _ := unix.Getsid(me)
+	for {
+		time.Sleep(5 * time.Second)
+		reapOnce(me, myPpid, mySid)
+	}
+}
+
+func reapOnce(me, myPpid, mySid int) {
+	ps, err := peer.OwnProcs(os.Getuid())
+	if err != nil {
+		return
+	}
+	for _, p := range ps {
+		if p.Pid == me || p.Pid == myPpid || p.Sid == mySid || live.has(p.Sid) || p.Ppid != 1 {
+			continue
+		}
+		_ = syscall.Kill(p.Pid, syscall.SIGKILL)
+	}
+}
 
 type fileSpec struct {
 	Rel     string `json:"rel"`
@@ -69,6 +121,7 @@ var (
 	bridgePath = flag.String("bridge", "", "path of mycel-bridge")
 	toolsSock  = flag.String("tools-sock", "", "path of tools.sock (gate)")
 	serverUID  = flag.Int("server-uid", os.Getuid(), "only this uid may send requests")
+	dedicated  = flag.Bool("dedicated-account", false, "this launcher runs as the dedicated engine account: kill every other process of this uid at start and reap orphans between turns (refused for human/root uids)")
 	sessRoots  multi
 	allowCmd   multi
 )
@@ -82,6 +135,14 @@ func main() {
 	if *listen == "" || *agentRoot == "" || *bridgePath == "" || *toolsSock == "" || len(allowCmd) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: mycel-launcher --listen <sock> --agent-root <dir> --bridge <path> --tools-sock <path> --allow-cmd <engine> [--server-uid N]")
 		os.Exit(2)
+	}
+	if *dedicated {
+		if err := checkDedicated(); err != nil {
+			fmt.Fprintln(os.Stderr, "mycel-launcher:", err)
+			os.Exit(2)
+		}
+		_ = syscall.Kill(-1, syscall.SIGKILL) // leftovers of a previous launcher (setsid escapees, crashed turns)
+		go reaper()
 	}
 	_ = os.Remove(*listen)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *listen, Net: "unix"})
@@ -130,6 +191,23 @@ func serve(c *net.UnixConn) {
 	r := bufio.NewReaderSize(c, 64<<20)
 	line, err := r.ReadBytes('\n')
 	if err != nil {
+		return
+	}
+	var probe struct {
+		Op         string `json:"op"`
+		ClientPort int    `json:"clientPort"`
+		ServerPort int    `json:"serverPort"`
+	}
+	_ = json.Unmarshal(line, &probe)
+	if probe.Op == "tcp-peer" { // model proxy: which engine process owns this loopback connection? (only this uid can see it)
+		pid, err := peer.TCPOwner(probe.ClientPort, probe.ServerPort)
+		if err != nil {
+			o.send(map[string]any{"ev": "error", "message": err.Error()})
+			return
+		}
+		pg, _ := unix.Getpgid(pid)
+		sid, _ := unix.Getsid(pid)
+		o.send(map[string]any{"ev": "peer", "pid": pid, "pgid": pg, "sid": sid})
 		return
 	}
 	var req request
@@ -254,6 +332,8 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		return err
 	}
 	pid := cmd.Process.Pid
+	live.add(pid)
+	defer live.del(pid)
 	o.send(map[string]any{"ev": "started", "pid": pid, "pgid": pid})
 	killGroup := func(sig syscall.Signal) { _ = syscall.Kill(-pid, sig) }
 
@@ -323,6 +403,12 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		}
 	}
 	killGroup(syscall.SIGKILL) // nothing of this turn survives (bridge, stray children)
+	if *dedicated {
+		live.del(pid)
+		me := os.Getpid()
+		sid, _ := unix.Getsid(me)
+		reapOnce(me, os.Getppid(), sid) // setsid escapees of this turn are orphans now
+	}
 	code := 0
 	if ee, ok := werr.(*exec.ExitError); ok {
 		code = ee.ExitCode()

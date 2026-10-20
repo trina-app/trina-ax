@@ -49,6 +49,19 @@ export interface LaunchHandle {
 
 export class SocketLauncher implements Launcher {
   constructor(private sock: string) {}
+  /** Which engine process owns this loopback TCP connection? Asked of the launcher because only the engine
+   * account can see its own processes (the server uid gets EPERM). */
+  tcpPeer(clientPort: number, serverPort: number): Promise<{ pid: number; pgid: number; sid: number } | null> {
+    return new Promise((res) => {
+      const c = net.createConnection(this.sock)
+      let b = ""
+      c.setEncoding("utf8")
+      c.on("connect", () => c.write(JSON.stringify({ op: "tcp-peer", clientPort, serverPort }) + "\n"))
+      c.on("data", (d: string) => { b += d })
+      c.on("close", () => { try { const j = JSON.parse(b.split("\n")[0]); res(j.ev === "peer" ? { pid: j.pid, pgid: j.pgid, sid: j.sid } : null) } catch { res(null) } })
+      c.on("error", () => res(null))
+    })
+  }
   launch(req: LaunchRequest): LaunchHandle {
     const c = net.createConnection(this.sock)
     c.write(JSON.stringify(req) + '\n')

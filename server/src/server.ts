@@ -22,6 +22,17 @@ export interface Running {
   close(): Promise<void>
 }
 
+/** Model-proxy peer check: the TCP client must be a process of the turn's engine session (lookup done by the launcher). */
+export function proxyPeerCheck(srv: Running) {
+  return async (clientPort: number, serverPort: number, turnId: string) => {
+    const t = srv.turns.get(turnId)
+    const l = srv.launcher as SocketLauncher | null
+    if (!t || t.pgid === null || !l?.tcpPeer) return false
+    const p = await l.tcpPeer(clientPort, serverPort)
+    return !!p && p.sid === t.pgid
+  }
+}
+
 export async function startServer(cfg: ServerConfig, o: { launcher?: { allowCmds: string[]; sessionRoots?: string[] }; toolsSockMode?: string } = {}): Promise<Running> {
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   fs.mkdirSync(cfg.runDir, { recursive: true, mode: 0o755 })
