@@ -91,3 +91,21 @@
 - **리눅스 Docker 테스트의 계정은 `useradd --system`**(axserver, axagent, 사람 계정 mallory). Debian pandoc 2.17은 pptx를 못 읽어서 이미지에는 맥과 같은 pandoc 3.9.0.2 릴리스를 깐다.
 - **실제 엔진 호출 수(이번 단계)**: Claude 15회 이하, Codex 15회 이하(탐색 포함).
 - **설계 확인 사항 중 Stage 3로 넘긴 것(맥 스파이크)**: 역할 계정 uid 450–499(`sysadminctl -roleAccount`), 홈은 `/var/empty`, `_axagent`를 `cron.deny`·`at.deny`에, 실행기는 launchd로만 시작(사용자 세션에서 sudo로 띄우지 않음).
+
+# 결정 기록 (Stage 2 기반: 계약·서버 골격, 2026-10-21)
+
+- **표시 이름 "Team AX", 코드 id `mycel` 유지.** 운영 폴더는 표시 이름이 아니라 id로(`/Library/Application Support/mycel`). 표시 이름을 바꿔도 데이터가 옮겨지지 않게.
+- **id는 UUIDv7, `users.id`만 예외(슬러그).** `users.id`는 개인 폴더 이름(`users/<id>/`)이라 사람이 팀 폴더에서 보게 되므로 읽을 수 있는 슬러그로 둔다. 턴·메시지·파일 버전·휴지통 id도 UUIDv7로 바꿨다(UUID는 실행기의 턴 id 규칙 `[A-Za-z0-9_-]`에 맞음).
+- **계약은 엔드포인트 객체 하나씩**(`shared/src/api`): 메서드·경로·인증 수준·주인 컴포넌트·query/body/response 스키마. 서버 `RouteKit`이 같은 객체로 검증하고, 클라이언트 `ApiClient`가 같은 객체로 부른다. OpenAPI 생성기는 쓰지 않았다(zod 4 스키마가 곧 문서).
+- **설계서 4번 탭 표에 없는 엔드포인트를 더했다**(화면에 필요해서): `GET/POST /api/setup`(첫 설정), `PATCH /api/me`·`/api/me/sessions`, `GET /api/invites/:token`, `GET /api/chats/:id`, 다시 생성·수정·가지 선택, 프로젝트 하나 조회, `PUT /api/files/content`(파일 화면 저장), `POST /api/files/mkdir`, 이전 버전 다운로드, 휴지통 목록·되돌리기, 첨부 썸네일, 조각 업로드 취소, `GET /api/artifacts/:id`, 메모리 하나 지우기, 관리자 초대·폴더·엔진 계정·예산 개별 조작, 백업 목록, 내보내기, 연결 방식, 브라우저 롱폴링(`/api/browser/*`). 설계서의 `/api/admin/folder-rules`는 `/api/admin/folders`(+`/:id/rules`)와 `/api/admin/folder-rules/preview`로 나눴다.
+- **대화는 트리**: 수정·다시 생성은 같은 부모의 형제 메시지를 만들고 `chats.active_leaf_id`가 보이는 길을 정한다. 메시지마다 `branch {index, count, siblingIds}`. 팀 폴더 파일 변경은 되돌리지 않는다(화면에 안내).
+- **보내기는 멱등**: `clientMessageId`(클라이언트가 만든 id). 재연결 뒤 같은 요청을 다시 보내도 메시지가 두 번 생기지 않는다(`messages_client_id` 유일 인덱스).
+- **CSRF는 사용자 정의 헤더 `x-mycel-csrf` + Origin/Sec-Fetch-Site 검사.** 토큰 방식 대신: 다른 사이트는 사용자 정의 헤더를 붙일 수 없고(사전 요청을 서버가 허락하지 않음), 중계·사무실 직접 연결 모두 같은 규칙. 로그인·초대 수락·첫 설정 같은 공개 양식에도 적용(로그인 CSRF 방지). Bearer 요청은 예외.
+- **개발 서버(http)는 `__Host-` 쿠키를 쓸 수 없다**(Secure 필요) → 개발용 쿠키 이름 `mycel-dev-sid`를 상수로 둠. 운영은 항상 `__Host-sid`.
+- **WebSocket 이어받기에 epoch**: 서버가 시작할 때마다 새 epoch. 스파이크에서 seq만으로는 서버 재시작 뒤 seq가 1부터 다시 시작해 위험했다 → epoch가 다르면 `reset`, 버퍼에서 밀려났으면 `resync`. 창마다 `windowId`(브라우저 도구가 턴을 보낸 창으로 가게).
+- **실제 IP는 `app.fetch`를 부른 쪽만 정한다**(Bun.serve는 소켓 상대 주소, 중계 클라이언트는 OPEN 프레임 메타데이터). 클라이언트가 보낸 `X-Forwarded-For`·`CF-Connecting-IP`는 어디서도 읽지 않는다(시험 있음).
+- **마이그레이션 번호를 컴포넌트별 범위로 나눴다**(001–099 기반, 100 A, 200 B, 300 C, 600 F, 700 G). 파일 이름에 컴포넌트 문자를 넣는 방식(`0A1_…`) 대신 정수 버전을 지켜 `schema_migrations.version` 정렬이 그대로 되게. 전방 호환 규칙과 `min_compatible_reader`는 스파이크 B 결과 그대로.
+- **개발 모드에서는 모든 JSON 응답을 계약으로 검사**(어긋나면 500 + 로그). 운영에서는 끈다(큰 목록 비용).
+- **엔진 코어(도구 관문·실행기)는 처음 쓸 때 시작**(`ctx.core()`). 웹·파일 화면만 개발할 때 Go 빌드가 없어도 서버가 뜬다.
+- **Bun.serve `maxRequestBodySize` = 51MB**(작은 업로드 50MB + 여유). 큰 파일은 조각 업로드(8MB)만.
+- **불안정하던 실행기 시험의 원인**: 실행기가 `.turn` 폴더를 `defer`로 지워서 "exit" 이벤트를 보낸 뒤에 지워졌다. exit 전에 지우도록 고쳤다(시험도 고정 대기 대신 이벤트 기준).

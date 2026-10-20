@@ -1,3 +1,3 @@
 # desktop
 
-Placeholder (stage 1 builds only server/, shared/, native/, tests/). See docs/DECISIONS.md and the design doc.
+Owned by component E (desktop app). See docs/WORKPLAN.md for scope, ports and the shared contract (shared/src/api).

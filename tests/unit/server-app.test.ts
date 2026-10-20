@@ -235,6 +235,10 @@ describe('system + web', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(401)
   })
+  test('ctx.appFetch (relay client path) reaches the app with the relay-provided IP', async () => {
+    const r = await ctx.appFetch(new Request('http://team.localhost/api/test/echo/r?n=1', { method: 'POST', body: '{"name":"via relay"}', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1', 'x-test-user': 'member' } }), { ip: '203.0.113.9', via: 'relay' })
+    expect(await r.json()).toMatchObject({ name: 'via relay', ip: '203.0.113.9' })
+  })
   test('non-API GET serves the web app (dev page without a build)', async () => {
     const r = await req('/chats/123')
     expect(r.status).toBe(200)

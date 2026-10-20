@@ -9,6 +9,7 @@ import { filesRoutes } from './files'
 import { jobsRoutes } from './jobs'
 import { memoriesRoutes } from './memories'
 import type { RouteModule } from './module'
+import { relayRoutes } from './relay'
 import { systemRoutes } from './system'
 import { webRoutes } from './web'
 import { wsRoutes } from './ws'
@@ -26,5 +27,6 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   filesRoutes, // C
   artifactsRoutes, // C
   jobsRoutes, // C
+  relayRoutes, // F
   webRoutes, // D (catch-all, keep last)
 ]

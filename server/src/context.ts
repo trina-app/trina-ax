@@ -9,6 +9,7 @@ import type { AppConfig } from './app-config'
 import { defaultConfig, which, type ServerConfig } from './config'
 import { FileService } from './files/service'
 import type { Logger } from './log'
+import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
 import { noSessions, nullRealtime, type Services } from './services'
 import pkg from '../package.json'
@@ -30,6 +31,8 @@ export interface AppContext {
   services: Services
   /** "METHOD /path" -> route module, filled by RouteKit */
   implemented: Map<string, string>
+  /** The finished app's fetch (set by buildApp). The relay client calls it in-process with the real client IP. */
+  appFetch(req: Request, env: AppBindings): Promise<Response>
   /** Tools gate + launcher + turn registry (stage 1 core). Started on first call; throws a clear error when the
    * native helpers are not built or the engine can't run. */
   core(): Promise<Running>
@@ -82,6 +85,7 @@ export function createContext(o: ContextOptions): AppContext {
     files: new FileService(db, engineConfig),
     services: { sessions: noSessions, realtime: nullRealtime, jobs: null, relay: null },
     implemented: new Map(),
+    async appFetch() { throw new Error('appFetch used before buildApp finished') },
     core() {
       if (!core) {
         core = (o.startCore ?? startLocalCore)(ctx).then((r) => { closers.push(() => r.close()); return r })

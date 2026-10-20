@@ -1,3 +1,3 @@
 # menubar
 
-Placeholder (stage 1 builds only server/, shared/, native/, tests/). See docs/DECISIONS.md and the design doc.
+Owned by component G (menubar app, installer). See docs/WORKPLAN.md for scope, ports and the shared contract (shared/src/api).

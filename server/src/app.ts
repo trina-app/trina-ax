@@ -35,5 +35,6 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
 
   for (const m of modules) await m.init?.(ctx)
   for (const m of modules) m.register(new RouteKit(app, ctx, m.name), ctx)
+  ctx.appFetch = async (req, env) => app.fetch(req, env)
   return app
 }
