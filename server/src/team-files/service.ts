@@ -124,8 +124,9 @@ export class TeamFiles {
     try { let off = 0; while (off < n) { const k = fs.readSync(fd, buf, off, n - off, off); if (k <= 0) break; off += k } } finally { fs.closeSync(fd) }
     if (buf.subarray(0, 8000).includes(0)) return { ...base, binary: true, content: null, truncated: false }
     const truncated = st.size > maxBytes
-    let text = new TextDecoder('utf-8').decode(buf)
-    if (truncated) text = text.replace(/\uFFFD+$/, '') // a multi-byte character cut at the limit
+    // a multi-byte character cut at the limit is dropped (on the bytes: a regex over the decoded text was quadratic
+    // for files full of invalid UTF-8)
+    const text = new TextDecoder('utf-8').decode(truncated ? buf.subarray(0, utf8Boundary(buf, n)) : buf)
     return { ...base, binary: false, content: text, truncated }
   }
 
@@ -460,9 +461,11 @@ export class TeamFiles {
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
     return { entry: this.entry(user, rules, r.segs) }
   }
+  /** Admin or owner (route auth), and like every trash action only for items the caller could restore: an admin has
+   * no access to other people's users/<id>/, so their trashed files stay out of reach too. */
   purgeTrash(id: string, byUserId: string) {
     const t = this.trashRow(id)
-    if (!t) throw new HttpError('not_found')
+    if (!t || !this.trashVisible(this.principal(byUserId), this.rules(), t)) throw new HttpError('not_found')
     this.purgeRow(t)
     this.ctx.db.query('INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?,?,?,?)').run(byUserId, 'trash.purge', t.original_path, JSON.stringify({ trashId: id, size: t.size, kind: t.kind }))
   }
@@ -517,6 +520,18 @@ export class TeamFiles {
     }
     return { trash, versions }
   }
+}
+
+/** The largest k <= n such that buf[0, k) does not end inside a UTF-8 sequence (looks at most 3 bytes back). */
+export function utf8Boundary(buf: Uint8Array, n: number): number {
+  let i = n
+  let back = 0
+  while (i > 0 && back < 3 && (buf[i - 1]! & 0xc0) === 0x80) { i--; back++ }
+  if (i === 0) return n
+  const lead = buf[i - 1]!
+  const len = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
+  // the sequence starting at i-1 needs `len` bytes; cut before it when they are not all there
+  return len > 1 && i - 1 + len > n ? i - 1 : n
 }
 
 /** SQLite default timestamps ("2026-10-21T03:04:05.678Z") are already ISO; older rows may lack the Z. */
