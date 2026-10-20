@@ -36,6 +36,7 @@ export const en: Record<MessageKey, string> = {
   'dev.banner': 'Development mode: no OS isolation. The AI runs with the permissions of this Mac\'s user account.',
   'update.ready': 'A new version is ready.',
   'update.reload': 'Reload',
+  'notice.accessChanged': 'Your folder access changed: {paths}',
 
   'role.owner': 'Owner',
   'role.admin': 'Admin',

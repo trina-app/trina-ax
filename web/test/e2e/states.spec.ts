@@ -89,3 +89,15 @@ test('an answer that finishes while the tab is hidden shows "(1)" in the title u
   await hide(page, false)
   await expect(page).toHaveTitle(/^[^(]/)
 })
+
+test('when an admin takes a folder away, the open files screen says so in words and moves to a folder still visible', async ({ page }) => {
+  await reset(page)
+  await signIn(page, BOB)
+  await page.goto('/files?path=marketing')
+  await expect(page.getByTestId('file-row').first()).toBeVisible()
+  await page.request.post('/__test/revoke', { data: { path: 'marketing' } })
+  // a sentence, not the bare folder list the server sends as data
+  await expect(page.getByText('폴더 권한이 바뀌었어요: marketing')).toBeVisible()
+  await expect(page.getByText('이 폴더에 대한 권한이 바뀌었어요.', { exact: false })).toBeVisible()
+  await expect(page).toHaveURL(/\/files$/)
+})

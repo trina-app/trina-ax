@@ -13,6 +13,8 @@ import { toast, useUi } from './ui'
 /** files.changed (only paths this person can read): the file screen refreshes the folder it shows. */
 export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'deleted' | 'cleared'; memory: Memory | null }>()
+/** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
+export const accessChanged = new Emitter<void>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
 
@@ -49,6 +51,12 @@ export function dispatch(ev: ServerEvent) {
       memoryChanged.emit(ev.data)
       return
     case 'notice':
+      if (ev.data.code === 'access_changed') {
+        // the server sends the folders whose access changed as data ("groups/finance, shared"), not a sentence
+        toast({ level: 'info', text: t('notice.accessChanged', { paths: ev.data.message }) })
+        accessChanged.emit()
+        return
+      }
       toast({ level: ev.data.level, text: ev.data.message, sticky: ev.data.level === 'error' })
       return
     case 'browser.call':

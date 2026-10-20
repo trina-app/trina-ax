@@ -13,7 +13,7 @@ import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
-import { filesChanged, reloadAsked } from '../store/live'
+import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import FolderPicker from '../components/FolderPicker'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, Tabs, confirmDialog, promptDialog } from '../components/ui'
@@ -91,9 +91,11 @@ export default function Files() {
       if (changes.some((c) => parentPath(c.path) === path || (c.from && parentPath(c.from) === path) || isInside(path, c.path))) void load()
     })
     const offB = reloadAsked.on(() => void load())
+    const offC = accessChanged.on(() => void load())
     return () => {
       offA()
       offB()
+      offC()
     }
   }, [path, load])
 

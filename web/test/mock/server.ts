@@ -5,7 +5,8 @@
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search";
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/reset {setup?: boolean}, POST /__test/drop-ws, POST /__test/server-version.
+// Test-only controls: POST /__test/reset {setup?: boolean}, POST /__test/drop-ws, POST /__test/server-version,
+// POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
 import { z } from 'zod'
 import {
   ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
@@ -106,6 +107,7 @@ export class MockServer {
     this.activeLeaf.clear()
     this.pendingAsk.clear()
     this.stopped.clear()
+    this.revoked.clear()
     if (!this.setupNeeded) this.seed()
   }
 
@@ -143,8 +145,11 @@ export class MockServer {
   }
 
   // ---------------- access (simplified policy) ----------------
+  /** folders taken away from everyone by POST /__test/revoke (an admin's rule change) */
+  revoked = new Set<string>()
   access(path: string, user: User): 'none' | 'read' | 'write' {
     if (path === '' ) return 'write'
+    if ([...this.revoked].some((r) => path === r || path.startsWith(r + '/'))) return 'none'
     if (path === 'secret' || path.startsWith('secret/')) return 'none'
     if (path.startsWith('users/')) {
       const owner = path.split('/')[1]
@@ -801,6 +806,11 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/log') return Response.json(this.log)
+    else if (p === '/__test/revoke') {
+      // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
+      this.revoked.add(String(body.path))
+      this.publish({ type: 'notice', data: { level: 'info', code: 'access_changed', message: String(body.path) } })
+    }
     return Response.json({ ok: true })
   }
 

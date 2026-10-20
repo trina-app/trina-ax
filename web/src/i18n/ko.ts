@@ -34,6 +34,7 @@ export const ko = {
   'dev.banner': '개발 모드: OS 격리 없음. AI가 이 맥의 사용자 계정 권한으로 실행돼요.',
   'update.ready': '새 버전이 준비됐어요.',
   'update.reload': '새로 고침',
+  'notice.accessChanged': '폴더 권한이 바뀌었어요: {paths}',
 
   'role.owner': '팀장',
   'role.admin': '관리자',

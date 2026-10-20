@@ -36,6 +36,7 @@ export const id: Record<MessageKey, string> = {
   'dev.banner': 'Mode pengembangan: tanpa isolasi OS. AI berjalan dengan izin akun pengguna Mac ini.',
   'update.ready': 'Versi baru sudah siap.',
   'update.reload': 'Muat ulang',
+  'notice.accessChanged': 'Akses folder kamu berubah: {paths}',
 
   'role.owner': 'Owner',
   'role.admin': 'Admin',
