@@ -14,6 +14,9 @@ import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M, tr } from './messages'
 import { UpdateManager } from './update'
 
+/** after a failed nightly backup, the next try waits this long */
+export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
+
 const RANK: Record<CheckStatus, number> = { ok: 0, unknown: 1, warn: 2, fail: 3 }
 export const worst = (xs: CheckStatus[]): CheckStatus => xs.reduce<CheckStatus>((a, b) => (RANK[b] > RANK[a] ? b : a), 'ok')
 
@@ -267,6 +270,11 @@ export class OpsService {
     const last = this.backups.metas().filter((m) => m.kind === 'daily').at(-1)
     const age = last ? now.getTime() - Date.parse(last.createdAt) : Infinity
     if (age < 20 * 3600_000) return false
+    // a failed attempt waits an hour (this check runs every 10 minutes; without the wait a backup that keeps failing
+    // read and compressed the whole team folder six times an hour)
+    const err = this.backups.lastError()
+    const errAt = err ? Date.parse(err.at) : NaN
+    if (Number.isFinite(errAt) && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
     return now.getHours() >= 3 || age > 30 * 3600_000
   }
 
