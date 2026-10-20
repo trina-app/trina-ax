@@ -97,6 +97,8 @@ const MAX_LOG = 500
 const MAX_ENTRY_CHARS = 10_000
 /** tabs and page-opened popups at most (a page cannot open windows without end) */
 const MAX_TABS = 20
+/** key presses in one computer key action at most (keys × repeat) */
+const MAX_KEY_PRESSES = 1000
 /** questions waiting for the person at most; more are denied at once (a page cannot flood the toolbar) */
 const MAX_PROMPTS = 5
 /** finished results kept for replays after a reconnect: count, total size, age */
@@ -1042,6 +1044,9 @@ export class BrowserPane {
         if (!text) throw new ToolError('key needs keys in text, e.g. "Enter" or "cmd+a".')
         const keys = text.split(/\s+/)
         if (keys.some((k) => /^(cmd|ctrl|meta|control)\+(=|-|0|\+)$/i.test(k))) throw new ToolError('Page zoom shortcuts are not supported; use the zoom action instead.')
+        if (keys.length * (input.repeat ?? 1) > MAX_KEY_PRESSES) {
+          throw new ToolError(`At most ${MAX_KEY_PRESSES} key presses per call (keys × repeat); use type for text.`)
+        }
         const parsed = keys.map((k) => parseKeyCombo(k)) // throws on unknown keys before anything is pressed
         if (parsed.some((p) => !SAFE_KEYS.has(p.def.key) || p.command) && (await this.passwordFocused(tab))) await this.refusePassword(tab)
         const repeat = input.repeat ?? 1

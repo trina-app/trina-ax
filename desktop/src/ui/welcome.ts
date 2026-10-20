@@ -66,11 +66,16 @@ function welcome() {
         busy = true
         error = ''
         render()
-        const r = await ui.welcome.add(draft)
-        busy = false
-        if (r && !r.ok) error = r.message
-        else if (r?.ok) draft = ''
-        render()
+        try {
+          const r = await ui.welcome.add(draft)
+          if (r && !r.ok) error = r.message
+          else if (r?.ok) draft = ''
+        } catch {
+          error = tr('err.unreachable')
+        } finally {
+          busy = false
+          render()
+        }
       },
     },
     h('label', { for: 'address', class: 'sr-only' }, tr('welcome.label')),
