@@ -16,6 +16,7 @@ import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
+import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
 
 export interface FolderRow { id: string; path: string; created_at: string }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string }
@@ -175,14 +176,8 @@ export function readLosses(before: AccessState, after: AccessState, extraPaths: 
  * they can no longer read; the conversation continues from the DB history). Returns how many chats were reset.
  */
 export function resetEngineSessions(ctx: AppContext, userId: string): number {
-  const chats = ctx.db.query('SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').all(userId) as { id: string }[]
-  if (!chats.length) return 0
-  ctx.db.query('UPDATE chats SET engine_session_id = NULL WHERE user_id = ? AND engine_session_id IS NOT NULL').run(userId)
-  for (const c of chats) {
-    if (!/^[A-Za-z0-9_-]+$/.test(c.id)) continue
-    fs.rmSync(path.join(ctx.config.dataDir, 'sessions', c.id), { recursive: true, force: true })
-  }
-  return chats.length
+  // one implementation (chat runtime): it also keeps turns running right now from storing their session at the end
+  return resetChatSessions(ctx, userId)
 }
 
 export function chatsWithEngineSession(db: Database, userId: string): number {

@@ -58,6 +58,8 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
  * For component A (folder rule changes, account changes). Returns the number of chats reset.
  */
 export function resetEngineSessions(ctx: AppContext, userId: string): number {
+  // turns of this person running right now keep their session until they end; they must not store it then
+  runtimes.get(ctx)?.revokeRunningSessions(userId)
   const rows = ctx.db.query('SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').all(userId) as { id: string }[]
   for (const r of rows) {
     ctx.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(r.id)
@@ -153,6 +155,12 @@ export class ChatRuntime {
     return i < 0 ? 0 : i + 1
   }
   runningCount() { return this.running.size }
+  /** The person's engine sessions were reset (access shrank) while these turns ran: they end without stashing. */
+  revokeRunningSessions(userId: string): number {
+    let n = 0
+    for (const e of this.running.values()) if (e.spec.userId === userId) { e.sessionRevoked = true; n++ }
+    return n
+  }
   queuedCount() { return this.queued.length }
 
   private enqueue(spec: TurnSpec) {

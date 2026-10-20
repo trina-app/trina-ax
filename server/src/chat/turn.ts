@@ -68,6 +68,8 @@ export class TurnExec {
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
   readonly done: Promise<void>
+  /** the person's sessions were reset while this turn ran (access shrank): the session is not kept at the end */
+  sessionRevoked = false
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -460,8 +462,9 @@ export class TurnExec {
   private stashSession(sid: string, b64: string) {
     const bytes = Buffer.from(b64, 'base64')
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))
-    if (bytes.length > SESSION_STASH_MAX) {
-      // too big to keep: the next turn starts a fresh session from the DB history
+    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked) {
+      // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
+      // turn starts a fresh session from the DB history
       fs.rmSync(dir, { recursive: true, force: true })
       this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
       return
