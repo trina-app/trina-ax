@@ -10,6 +10,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./api": "./src/api/index.ts"
+    "./api": "./src/api/index.ts",
+    "./relay-protocol": "./src/relay-protocol/index.ts"
   }
 }
