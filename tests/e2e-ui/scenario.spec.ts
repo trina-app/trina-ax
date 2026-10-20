@@ -3,8 +3,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { countEngineCall, DIRECT, readState, RELAYED, writeState, type Account } from './lib/dev'
-import { FINANCE_CANARY, LAUNCH_FACT, makeFixtures, type Fixtures } from './lib/fixtures'
+import { countEngineCall, DIRECT, killRelay, readState, relayPid, RELAYED, rssMb, serverPid, until, WORK, writeState, type Account } from './lib/dev'
+import { FINANCE_CANARY, LAUNCH_FACT, makeBigFile, makeFixtures, sha256File, type Fixtures } from './lib/fixtures'
 import { api, deltasOf, lastAnswer, lastAnswerId, lastAssistantId, newChat, recordWs, send, serverMessages, signIn, waitAnswer } from './lib/ui'
 
 test.describe.configure({ mode: 'serial' })
@@ -502,4 +502,184 @@ test('step 5b: alice\'s AI edits the note it read while the owner saves it: the 
   await expect(aiCopies).toHaveCount(copiesBefore + 1)
   await o.ctx.close()
   await a.ctx.close()
+})
+
+// ---------------------------------------------------------------------------------------------- step 6 (resume)
+
+test('step 6: the relay dies mid-answer: the page shows "reconnecting", resumes, and the answer is complete without gaps or repeats', async ({ browser }) => {
+  const st = readState()
+  const { ctx, page } = await as(browser, RELAYED, st.alice)
+  const ws = recordWs(page)
+  const N = 150
+  const chatId = await newChat(page, RELAYED, `Without using any tools, write the lines "Line 1", "Line 2", ... up to "Line ${N}", one per line, nothing else.`)
+  const a = lastAnswer(page)
+  await expect(a).toHaveAttribute('data-status', 'streaming')
+  await expect.poll(async () => /Line 2\d\b/.test((await a.textContent()) ?? ''), { timeout: 120_000, intervals: [100] }).toBe(true)
+  const relayBefore = relayPid()
+  killRelay()
+  await expect(page.getByTestId('conn-banner')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('conn-banner')).toContainText('다시 연결하는 중')
+  // dev.ts brings the relay back; the page reconnects by itself and the banner goes away
+  await until(() => relayPid() && relayPid() !== relayBefore, 20_000, 'the relay to restart')
+  await expect(page.getByTestId('conn-banner')).toBeHidden({ timeout: 60_000 })
+  expect(await waitAnswer(page, null)).toBe('done')
+  expect(ws.sockets).toBeGreaterThanOrEqual(2)
+  const hello = ws.events.filter((e) => e.type === 'hello') as { type: string; resumed?: boolean }[]
+  expect(hello.length).toBeGreaterThanOrEqual(2)
+  // the same server run: the new socket resumed after the last event it had (no reset / reload)
+  expect(hello.at(-1)!.resumed).toBe(true)
+
+  const seq = (s: string) => [...s.matchAll(/Line (\d+)/g)].map((m) => Number(m[1]))
+  const saved = (await serverMessages(page.request, RELAYED, chatId)).at(-1)!
+  const expected = Array.from({ length: N }, (_, i) => i + 1)
+  expect(seq(saved.content)).toEqual(expected)
+  // what the page shows is exactly the saved answer: nothing lost, nothing twice
+  expect(seq((await a.textContent()) ?? '')).toEqual(expected)
+  // and after a reload too
+  await page.reload()
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  expect(seq((await lastAnswer(page).textContent()) ?? '')).toEqual(expected)
+  await ctx.close()
+})
+
+// ---------------------------------------------------------------------------------------------- step 7 (big file)
+
+test('step 7: a 200 MB file goes up in chunks through the relay and comes back identical; server and relay memory stay bounded', async ({ browser }) => {
+  test.setTimeout(20 * 60_000)
+  const st = readState()
+  const big = makeBigFile(200)
+  const { ctx, page } = await as(browser, RELAYED, st.owner)
+  const name = path.basename(big.file)
+  const sPid = serverPid()!
+  const rPid = relayPid()!
+  const base = { server: rssMb(sPid), relay: rssMb(rPid) }
+  const peak = { ...base }
+  const sampler = setInterval(() => {
+    peak.server = Math.max(peak.server, rssMb(sPid) || 0)
+    peak.relay = Math.max(peak.relay, rssMb(rPid) || 0)
+  }, 250)
+  try {
+    // chunked upload sessions (8 MB pieces, sha256 checked by the server) from the Files screen
+    const sessions: string[] = []
+    page.on('request', (r) => { if (r.method() === 'PUT' && /\/api\/upload-sessions\/[^/]+\/chunks\/\d+/.test(r.url())) sessions.push(r.url()) })
+    // (a rerun replaces the copy of the previous run)
+    for (const n of [name, name.replace('.bin', ' (2).bin')]) await api(page.request, RELAYED, 'DELETE', `/api/files?path=${encodeURIComponent(`shared/${n}`)}`).catch(() => {})
+    await page.goto(`${RELAYED}/files?path=shared`)
+    await expect(page.getByTestId('file-table')).not.toContainText(name)
+    await page.getByTestId('files-input').setInputFiles(big.file)
+    await expect(page.getByTestId('upload-list')).toBeVisible()
+    await expect(page.getByTestId('file-table')).toContainText(name, { timeout: 15 * 60_000 })
+    expect(new Set(sessions).size).toBe(25) // 200 MB / 8 MB
+
+    // download it again through the relay (the page's own download link)
+    const row = page.getByTestId('file-row').filter({ hasText: name })
+    await row.hover()
+    await row.getByTestId('file-menu').click()
+    const dl = page.waitForEvent('download', { timeout: 60_000 })
+    await page.getByRole('menuitem', { name: '내려받기' }).click()
+    const d = await dl
+    const out = path.join(WORK, 'downloaded.bin')
+    await d.saveAs(out)
+    expect(fs.statSync(out).size).toBe(200 * 1024 * 1024)
+    expect(sha256File(out)).toBe(big.sha256)
+    fs.rmSync(out, { force: true })
+  } finally {
+    clearInterval(sampler)
+  }
+  console.log(`[step 7] rss MB at full speed: server ${base.server.toFixed(0)} -> peak ${peak.server.toFixed(0)}, relay ${base.relay.toFixed(0)} -> peak ${peak.relay.toFixed(0)}`)
+  // at full speed the peak is mostly garbage not yet collected; neither process may come near holding the file
+  expect(peak.server - base.server).toBeLessThan(200)
+  expect(peak.relay - base.relay).toBeLessThan(200)
+
+  // backpressure: a slow reader (about 8 MB/s) of the same download through the relay. Nothing may pile up in the
+  // relay or the server while the reader lags behind (the 200 MB are there to be buffered if anything did).
+  const cookie = (await ctx.cookies(RELAYED)).map((c) => `${c.name}=${c.value}`).join('; ')
+  const slowBase = { server: rssMb(sPid), relay: rssMb(rPid) }
+  const slowPeak = { ...slowBase }
+  const res = await fetch(`${RELAYED}/api/files/download?path=${encodeURIComponent(`shared/${name}`)}`, { headers: { cookie } })
+  expect(res.status).toBe(200)
+  const reader = res.body!.getReader()
+  let got = 0
+  const t0 = Date.now()
+  while (got < 48 * 1024 * 1024) {
+    const { value, done } = await reader.read()
+    if (done) break
+    got += value.byteLength
+    const ahead = got / (8 * 1024 * 1024) * 1000 - (Date.now() - t0)
+    if (ahead > 0) await new Promise((r) => setTimeout(r, ahead))
+    slowPeak.server = Math.max(slowPeak.server, rssMb(sPid))
+    slowPeak.relay = Math.max(slowPeak.relay, rssMb(rPid))
+  }
+  await reader.cancel()
+  console.log(`[step 7] rss MB with a slow reader: server ${slowBase.server.toFixed(0)} -> peak ${slowPeak.server.toFixed(0)}, relay ${slowBase.relay.toFixed(0)} -> peak ${slowPeak.relay.toFixed(0)}`)
+  expect(slowPeak.server - slowBase.server).toBeLessThan(64)
+  expect(slowPeak.relay - slowBase.relay).toBeLessThan(64)
+  await ctx.close()
+})
+
+// ---------------------------------------------------------------------------------------------- step 8 (admin)
+
+test('step 8: admin screens with real data: who sees what, engines, usage, audit, diagnostics', async ({ browser }) => {
+  const st = readState()
+  const { ctx, page } = await as(browser, DIRECT, st.owner)
+  const errors = watch(page)
+
+  // who sees what: proposing "everyone reads groups/finance" shows Alice gaining access; nothing is saved
+  await page.goto(`${DIRECT}/admin/folders`)
+  const fin = page.getByTestId('folder-list').locator('li').filter({ has: page.getByText('groups/finance', { exact: true }) })
+  await fin.getByRole('button', { name: '수정' }).click()
+  await page.getByTestId('rule-add').click()
+  await page.getByRole('dialog').getByLabel('대상').last().selectOption('everyone')
+  await page.getByTestId('rules-preview').click()
+  const preview = page.getByTestId('rules-preview-result')
+  await expect(preview).toContainText(st.alice.name)
+  await expect(preview).toContainText('groups/finance')
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await expect(fin).not.toContainText('모두')
+
+  // engines: both connected with the owner's own logins (DEV mode)
+  await page.goto(`${DIRECT}/admin/engines`)
+  await expect(page.getByTestId('engine-card')).toHaveCount(2)
+  for (const card of await page.getByTestId('engine-card').all()) await expect(card).toContainText('연결됨')
+
+  // usage: Alice used Claude, Bob used Codex
+  await page.goto(`${DIRECT}/admin/usage`)
+  const usage = page.getByTestId('usage-table')
+  await expect(usage).toContainText(st.alice.name)
+  await expect(usage).toContainText(st.bob.name)
+  await page.getByLabel('묶는 기준').selectOption('engine')
+  await expect(usage).toContainText(/claude/i)
+  await expect(usage).toContainText(/codex/i)
+  const byUser = await api<{ rows: { key: string; turns: number; inputTokens: number; outputTokens: number }[] }>(page.request, DIRECT, 'GET', '/api/admin/usage?groupBy=user')
+  const aliceRow = byUser.rows.find((r) => r.key === st.alice.id)!
+  expect(aliceRow.turns).toBeGreaterThanOrEqual(5)
+  expect(aliceRow.inputTokens + aliceRow.outputTokens).toBeGreaterThan(0)
+
+  // audit: Alice's tool calls (make_file, artifact) and file changes by the AI
+  await page.goto(`${DIRECT}/admin/audit`)
+  await page.getByLabel('종류').selectOption('tool')
+  await page.getByLabel('누가').selectOption(st.alice.id!)
+  const audit = page.getByTestId('audit-list')
+  await expect(audit).toContainText('make_file')
+  await expect(audit).toContainText('artifact')
+  await page.getByLabel('종류').selectOption('file')
+  // a file in someone's personal folder is listed without its name (admins do not see members' private files)
+  await expect(audit).toContainText(`users/${st.alice.id}/…`)
+  await expect(audit).not.toContainText('kestrel-report')
+  await expect(audit).toContainText('shared/team-notes.md')
+
+  // diagnostics and connection (owner only)
+  await page.goto(`${DIRECT}/admin/system`)
+  const diag = page.getByTestId('diagnostics')
+  await expect(diag.locator('li').first()).toBeVisible()
+  expect(await diag.locator('li').count()).toBeGreaterThanOrEqual(3)
+  // DEV mode runs the engines as this Mac's user with its own logins: both must show as signed in
+  await expect(diag.locator('li').filter({ hasText: 'Claude Code' })).toContainText('로그인됨')
+  await expect(diag.locator('li').filter({ hasText: 'Codex' })).toContainText('로그인됨')
+  await expect(diag.locator('li').filter({ hasText: '원격 접속' })).toContainText('http://demo.localhost:19161')
+  const conn = page.locator('section').filter({ has: page.getByRole('heading', { name: '연결', exact: true }) })
+  await expect(conn).toContainText('연결됨')
+  await expect(conn).toContainText('http://demo.localhost:19161')
+  expect(realErrors(errors)).toEqual([])
+  await ctx.close()
 })
