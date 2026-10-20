@@ -557,7 +557,7 @@ export const id: Record<MessageKey, string> = {
   'budgets.block': 'Blokir',
   'budgets.tokensUsed': 'Token {used} / {limit}',
 
-  'teamSettings.nameHint': 'Mengganti nama tim juga mengganti alamat tim.',
+  'teamSettings.nameHint': 'Nama yang tampil di aplikasi. Mengubahnya tidak mengubah alamat tim.',
   'teamSettings.nameOwnerOnly': 'Hanya owner yang bisa mengganti nama tim.',
   'teamSettings.defaultLocale': 'Bahasa bawaan tim',
   'teamSettings.updateChannel': 'Kanal update',

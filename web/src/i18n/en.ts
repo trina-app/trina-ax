@@ -557,7 +557,7 @@ export const en: Record<MessageKey, string> = {
   'budgets.block': 'Block',
   'budgets.tokensUsed': 'Tokens {used} / {limit}',
 
-  'teamSettings.nameHint': 'Changing the team name also changes the team address.',
+  'teamSettings.nameHint': 'The name shown in the app. Changing it does not change the team address.',
   'teamSettings.nameOwnerOnly': 'Only the owner can change the team name.',
   'teamSettings.defaultLocale': 'Team default language',
   'teamSettings.updateChannel': 'Update channel',

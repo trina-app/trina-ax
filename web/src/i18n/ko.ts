@@ -555,7 +555,7 @@ export const ko = {
   'budgets.block': '사용 막기',
   'budgets.tokensUsed': '토큰 {used} / {limit}',
 
-  'teamSettings.nameHint': '팀 이름을 바꾸면 팀 주소도 바뀌어요.',
+  'teamSettings.nameHint': '화면에 보이는 이름이에요. 바꿔도 팀 주소는 그대로예요.',
   'teamSettings.nameOwnerOnly': '팀 이름은 팀장만 바꿀 수 있어요.',
   'teamSettings.defaultLocale': '팀 기본 언어',
   'teamSettings.updateChannel': '업데이트 채널',
