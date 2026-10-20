@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
+const PORT = Number(process.env.MOCK_PORT ?? 19143)
+
 async function ask(page: Page, text: string) {
   await page.getByTestId('composer-input').fill(text)
   await page.getByTestId('send').click()
@@ -96,8 +98,8 @@ test('the receiver document: sandbox CSP header, framable only by this server, n
   const csp = r.headers()['content-security-policy']!
   expect(csp.startsWith('sandbox allow-scripts;')).toBe(true)
   expect(csp).toContain("connect-src 'none'")
-  expect(csp).toContain('script-src \'unsafe-inline\' data: blob: https://127.0.0.1:19143/vendor/ http://127.0.0.1:19143/vendor/')
-  expect(csp).toContain('frame-ancestors https://127.0.0.1:19143 http://127.0.0.1:19143')
+  expect(csp).toContain(`script-src 'unsafe-inline' data: blob: https://127.0.0.1:${PORT}/vendor/ http://127.0.0.1:${PORT}/vendor/`)
+  expect(csp).toContain(`frame-ancestors https://127.0.0.1:${PORT} http://127.0.0.1:${PORT}`)
   expect(r.headers()['set-cookie']).toBeUndefined()
   // the app page itself: no inline or data: scripts, no eval
   const app = (await page.request.get('/')).headers()['content-security-policy']!
