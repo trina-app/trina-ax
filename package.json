@@ -27,7 +27,12 @@
     "dev:server:relay": "MYCEL_RELAY_URL=ws://127.0.0.1:19161/connect bun --watch server/src/main.ts",
     "test:relay": "bun test tests/relay",
     "build:bundle": "bun scripts/build-bundle.ts",
-    "build:menubar": "bash menubar/build.sh"
+    "build:menubar": "bash menubar/build.sh",
+    "dev:web": "bun run --cwd web dev",
+    "build:web": "bun run --cwd web build",
+    "test:web": "bun run --cwd web test",
+    "typecheck:web": "bun run --cwd web typecheck",
+    "e2e:web": "bun run --cwd web build && bun run --cwd web e2e"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",

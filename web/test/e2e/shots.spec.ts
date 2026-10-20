@@ -1,0 +1,26 @@
+import { expect, test } from '@playwright/test'
+import { reset, signIn } from './helpers'
+
+test('screenshots', async ({ page }) => {
+  test.skip(!process.env.SHOTS, 'only with SHOTS=1')
+  if (process.env.DARK) await page.emulateMedia({ colorScheme: 'dark' })
+  await reset(page)
+  await signIn(page)
+  await page.screenshot({ path: 'test-results/shot-home.png' })
+  await page.getByTestId('composer-input').fill('Hello, show me files search')
+  await page.getByTestId('send').click()
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done', { timeout: 15000 })
+  await page.waitForTimeout(800)
+  await page.screenshot({ path: 'test-results/shot-chat.png' })
+  await page.getByTestId('composer-input').fill('make an artifact')
+  await page.getByTestId('send').click()
+  await expect(page.getByTestId('artifact-panel')).toBeVisible()
+  await page.waitForTimeout(1200)
+  await page.screenshot({ path: 'test-results/shot-artifact.png' })
+  await page.goto('/files?path=marketing')
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: 'test-results/shot-files.png' })
+  await page.goto('/admin/members')
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: 'test-results/shot-admin.png' })
+})

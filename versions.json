@@ -16,5 +16,21 @@
   "node-relay": "25.6.0 (relay only: node:http + ws; Bun.serve has no streaming backpressure)",
   "ws": "8.18.0",
   "@types/ws": "8.18.1",
-  "age-encryption": "0.3.1"
+  "age-encryption": "0.3.1",
+  "web:react": "19.3.0",
+  "web:vite": "8.3.4",
+  "web:tailwindcss": "4.3.3",
+  "web:react-markdown": "10.1.0",
+  "web:katex": "0.19.0",
+  "web:mermaid": "11.17.2",
+  "web:react-pdf / pdfjs-dist": "11.0.0 / 6.3.289",
+  "web:docx-preview": "0.4.1",
+  "web:pptx-preview": "1.0.7",
+  "web:highlight.js": "11.12.0",
+  "web:hash-wasm": "4.12.0",
+  "web:sucrase": "3.35.1",
+  "web:zustand": "5.0.15",
+  "web:react-router-dom": "7.18.4",
+  "vendor (artifact frames, /vendor/)": "react 19.3.0, lucide-react 1.54.0, recharts 3.10.1, mermaid 11.17.2, @tailwindcss/browser 4.3.3",
+  "playwright (web e2e)": "1.64.1 (chromium 1248)"
 }

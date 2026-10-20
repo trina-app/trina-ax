@@ -1,0 +1,153 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* dark mode follows the .dark class on <html> (lib/theme.ts: light / dark / system) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Semantic colour tokens. Text on canvas/surface keeps ≥ 4.5:1, borders and focus rings ≥ 3:1 (WCAG 2.2 AA). */
+:root {
+  --c-canvas: #faf9f6;
+  --c-surface: #ffffff;
+  --c-subtle: #f3f1ec;
+  --c-hover: #ebe8e1;
+  --c-line: #e2ded5;
+  --c-line-strong: #8f887c;
+  --c-ink: #1f1d1a;
+  --c-muted: #57524a;
+  --c-faint: #6e685e;
+  --c-accent: #2c6a59;
+  --c-accent-hover: #23574a;
+  --c-accent-ink: #ffffff;
+  --c-accent-soft: #e3efe9;
+  --c-accent-text: #245a4b;
+  --c-danger: #b42318;
+  --c-danger-soft: #fdecea;
+  --c-warn: #8a5a00;
+  --c-warn-soft: #fdf3dc;
+  --c-ok: #1d6b3a;
+  --c-ok-soft: #e5f3e9;
+  --c-code-bg: #1e1d1b;
+  --c-code-ink: #ece9e3;
+  --c-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px -6px rgb(0 0 0 / 0.08);
+}
+
+.dark {
+  --c-canvas: #1b1a18;
+  --c-surface: #232220;
+  --c-subtle: #2b2a27;
+  --c-hover: #34322e;
+  --c-line: #3b3934;
+  --c-line-strong: #8a8478;
+  --c-ink: #ece9e3;
+  --c-muted: #c2bcb1;
+  --c-faint: #a39d92;
+  --c-accent: #6fc3a7;
+  --c-accent-hover: #8dd3bb;
+  --c-accent-ink: #0f201a;
+  --c-accent-soft: #213a31;
+  --c-accent-text: #8dd3bb;
+  --c-danger: #ff8a7a;
+  --c-danger-soft: #3d1f1b;
+  --c-warn: #f2c66d;
+  --c-warn-soft: #3a2f17;
+  --c-ok: #7fd69c;
+  --c-ok-soft: #1d3324;
+  --c-code-bg: #141311;
+  --c-code-ink: #ece9e3;
+  --c-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px -6px rgb(0 0 0 / 0.5);
+}
+
+@theme {
+  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-subtle: var(--c-subtle);
+  --color-hover: var(--c-hover);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-accent-text: var(--c-accent-text);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-code-bg: var(--c-code-bg);
+  --color-code-ink: var(--c-code-ink);
+}
+
+html, body { height: 100%; }
+#root { height: var(--app-h, 100dvh); }
+body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--c-accent-soft); }
+
+/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields. */
+@media (hover: none) and (pointer: coarse) {
+  input, textarea, select { font-size: 16px; }
+}
+
+/* one visible focus style everywhere (3:1 against both themes) */
+/* (in the base layer, so a field inside a framed box can turn it off with outline-none and let the box show focus) */
+@layer base {
+  :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+}
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line) transparent; }
+
+.sr-only-focusable:not(:focus) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@keyframes blink { 0%, 100% { opacity: .2 } 50% { opacity: 1 } }
+.dot { animation: blink 1.2s infinite; }
+.dot:nth-child(2) { animation-delay: .2s }
+.dot:nth-child(3) { animation-delay: .4s }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Answer typography: Tailwind typography wired to our tokens (both themes). */
+.answer {
+  --tw-prose-body: var(--c-ink);
+  --tw-prose-headings: var(--c-ink);
+  --tw-prose-lead: var(--c-muted);
+  --tw-prose-links: var(--c-accent-text);
+  --tw-prose-bold: var(--c-ink);
+  --tw-prose-counters: var(--c-faint);
+  --tw-prose-bullets: var(--c-faint);
+  --tw-prose-hr: var(--c-line);
+  --tw-prose-quotes: var(--c-muted);
+  --tw-prose-quote-borders: var(--c-line);
+  --tw-prose-captions: var(--c-faint);
+  --tw-prose-code: var(--c-ink);
+  --tw-prose-pre-code: var(--c-code-ink);
+  --tw-prose-pre-bg: var(--c-code-bg);
+  --tw-prose-th-borders: var(--c-line);
+  --tw-prose-td-borders: var(--c-line);
+}
+
+/* highlight.js tokens (code blocks are always dark) */
+.hljs-comment, .hljs-quote { color: #8b8579; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #e8a87c; }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: #a6d189; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: #ef9f76; }
+.hljs-title, .hljs-section, .hljs-title.function_ { color: #8caaee; }
+.hljs-built_in, .hljs-class .hljs-title, .hljs-title.class_ { color: #e5c890; }
+.hljs-variable, .hljs-template-variable, .hljs-params { color: #eebebe; }
+.hljs-name, .hljs-tag, .hljs-selector-class, .hljs-selector-id { color: #81c8be; }
+.hljs-deletion { color: #e78284; }
+.hljs-meta { color: #99d1db; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
+/* docx-preview pages on a neutral background */
+.docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
+.docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
