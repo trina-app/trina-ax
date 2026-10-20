@@ -3,8 +3,6 @@
 // prefixed with one line {"gate":{secret, pid, uid, gid, pgid, sid}}. The secret arrives on stdin (first
 // line) when the server starts the gate, so a process that can reach the private socket cannot forge
 // peer data without it. Bun has no API for SO_PEERCRED / LOCAL_PEERPID; this is that small native piece.
-//
-// Also: `mycel-gate proc <pid>` prints {"pid","pgid","sid"} (used by the server for TCP peer checks).
 package main
 
 import (
@@ -20,23 +18,10 @@ import (
 	"strings"
 	"syscall"
 
-	"golang.org/x/sys/unix"
 	"mycel/native/internal/peer"
 )
 
 func main() {
-	if len(os.Args) >= 3 && os.Args[1] == "proc" {
-		pid, _ := strconv.Atoi(os.Args[2])
-		pg, e1 := unix.Getpgid(pid)
-		sid, e2 := unix.Getsid(pid)
-		if e1 != nil || e2 != nil {
-			fmt.Println(`{"error":"no such process"}`)
-			os.Exit(1)
-		}
-		b, _ := json.Marshal(map[string]int{"pid": pid, "pgid": pg, "sid": sid})
-		fmt.Println(string(b))
-		return
-	}
 	listen := flag.String("listen", "", "public socket path (tools.sock)")
 	upstream := flag.String("upstream", "", "server private socket path")
 	mode := flag.String("mode", "0600", "socket file mode (octal)")

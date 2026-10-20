@@ -7,3 +7,4 @@ native/bin/
 tests/.work/
 tests/out/
 tests/.work-*.ts
+tests/out/
