@@ -133,6 +133,17 @@ describe('mkdir / move / rename', () => {
     const ren = await A.json('/api/files/move', { ...jsonBody({ from: 'shared/mv/c.md', to: 'shared/mv/b.md', onExists: 'rename' }), as: 'alice' })
     expect(ren.body.entry.path).toBe('shared/mv/b (2).md')
   })
+  test('moving onto a path that still has history from an earlier file continues the version numbers', async () => {
+    write('shared/hv/old.md', 'o1')
+    await A.json('/api/files/content', { ...jsonBody({ path: 'shared/hv/old.md', content: 'o2', baseSha256: sha256hex('o1') }, 'PUT'), as: 'alice' })
+    await A.json('/api/files' + q({ path: 'shared/hv/old.md' }), { method: 'DELETE', as: 'alice' })
+    write('shared/hv/new.md', 'n1')
+    await A.json('/api/files/content', { ...jsonBody({ path: 'shared/hv/new.md', content: 'n2', baseSha256: sha256hex('n1') }, 'PUT'), as: 'alice' })
+    const r = await A.json('/api/files/move', { ...jsonBody({ from: 'shared/hv/new.md', to: 'shared/hv/old.md' }), as: 'alice' })
+    expect(r.status).toBe(200)
+    const h = await A.json('/api/files/history' + q({ path: 'shared/hv/old.md' }), { as: 'alice' })
+    expect(h.body.items.map((v: any) => [v.version, v.sha256])).toEqual([[2, sha256hex('n1')], [1, sha256hex('o1')]])
+  })
   test('moving a folder carries its rules and projects (folders.path follows)', async () => {
     const db = A.ctx.db
     write('groups/marketing/q4/plan.md', 'plan')

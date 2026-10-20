@@ -217,8 +217,8 @@ export class TeamFiles {
   private assertSubtreeWritable(user: Principal, rules: RuleSet, segs: string[]) {
     const base = segs.join('/')
     for (const f of rules.ruleFolders()) if (isUnder(base, f) && rules.access(user, segsOf(f)) !== 'write') fileError('forbidden', 'hiddenInside')
-    const users = this.ctx.db.query('SELECT path FROM folders').all() as { path: string }[]
-    for (const f of users) if (isUnder(base, f.path) && rules.access(user, segsOf(f.path)) !== 'write') fileError('forbidden', 'hiddenInside')
+    const rows = this.ctx.db.query('SELECT path FROM folders').all() as { path: string }[]
+    for (const f of rows) if (isUnder(base, f.path) && rules.access(user, segsOf(f.path)) !== 'write') fileError('forbidden', 'hiddenInside')
   }
 
   // ---------------- move / rename ----------------
@@ -255,15 +255,24 @@ export class TeamFiles {
     }
     verifyChain(this.root, fr.segs)
     verifyChain(this.root, target, true)
-    fs.renameSync(fr.abs, path.join(this.root, ...target))
+    // DB first, the rename last inside the same transaction: if anything fails nothing has moved
     db.transaction(() => {
-      const re = (table: string, col: string) => db.query(`UPDATE ${table} SET ${col} = ? || substr(${col}, length(?) + 1) WHERE ${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/'`).run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
+      const under = (col: string) => `(${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/')`
+      // history kept for a file that used to live at the new path: the moved history continues after it
+      const moved = db.query(`SELECT DISTINCT path FROM file_versions WHERE ${under('path')}`).all(fr.rel, fr.rel, fr.rel) as { path: string }[]
+      for (const m of moved) {
+        const np = toRel + m.path.slice(fr.rel.length)
+        const top = (db.query('SELECT MAX(version) AS v FROM file_versions WHERE path = ?').get(np) as { v: number | null }).v
+        if (top) db.query('UPDATE file_versions SET version = version + ? WHERE path = ?').run(top, m.path)
+      }
+      const re = (table: string, col: string) => db.query(`UPDATE ${table} SET ${col} = ? || substr(${col}, length(?) + 1) WHERE ${under(col)}`).run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
       re('folders', 'path')
       re('projects', 'folder_path')
       re('file_versions', 'path')
       re('attachments', 'path')
       fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
       fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen' } })
+      fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }])
