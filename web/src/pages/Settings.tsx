@@ -2,9 +2,9 @@
 // (install as an app / desktop app download). There is no screen for connecting a personal AI account: the owner
 // connects the engines once in the admin screens.
 import clsx from 'clsx'
-import { Brain, Download, Laptop, Monitor, Smartphone, Trash2, User } from 'lucide-react'
+import { Brain, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useParams } from 'react-router-dom'
+import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { Locale, Memory, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -26,6 +26,8 @@ const TABS: { id: string; label: MessageKey; icon: typeof User }[] = [
 export default function Settings() {
   const t = useT()
   const { tab = 'profile' } = useParams()
+  // an old or mistyped link (/settings/devices) would show an empty page: open the profile instead
+  if (!TABS.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('settings.title')} />
@@ -149,8 +151,16 @@ function Security() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const ICON = { web: Monitor, desktop: Laptop, mobile: Smartphone } as const
+  // tab 5: a reset by an admin (or the owner's recovery on the server Mac) stays visible here, so the person learns of it
+  const reset = useMeStrict().passwordReset
   return (
     <>
+      {reset && (
+        <p className="mb-6 flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="last-reset">
+          <ShieldAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
+          <span>{reset.by ? t('settings.lastReset', { name: reset.by.name, date: formatDateTime(reset.at, locale) }) : t('settings.lastResetRecovery', { date: formatDateTime(reset.at, locale) })}</span>
+        </p>
+      )}
       <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
         <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
       </Section>

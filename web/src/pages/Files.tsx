@@ -13,7 +13,7 @@ import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
-import { filesChanged, reloadAsked } from '../store/live'
+import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import FolderPicker from '../components/FolderPicker'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, Tabs, confirmDialog, promptDialog } from '../components/ui'
@@ -51,16 +51,29 @@ export default function Files() {
 
   const go = useCallback((p: string, sel?: string) => setParams(sel ? { path: p, select: sel } : p ? { path: p } : {}), [setParams])
 
+  /** the folder the table last showed: a not_found for it means access changed while it was open (tab 5 "권한 회수") */
+  const shown = useRef<string | null>(null)
   const load = useCallback(async () => {
     setError(null)
     try {
-      const r = await api.call(API.tree, { query: { path, limit: 200 } })
-      setTree(r)
+      setTree(await api.call(API.tree, { query: { path, limit: 200 } }))
+      shown.current = path
     } catch (e) {
       if (isApiError(e, 'not_found') && path) {
-        // gone or no longer visible: the nearest folder we can still see
-        toast({ level: 'warn', text: t('files.accessChanged') })
-        go(parentPath(path))
+        // gone or not visible: climb to the nearest folder we can see, then say so once (not once per level)
+        const wasShown = shown.current === path
+        let up = parentPath(path)
+        while (up) {
+          try {
+            await api.call(API.tree, { query: { path: up, limit: 1 } })
+            break
+          } catch (e2) {
+            if (!isApiError(e2, 'not_found')) break
+            up = parentPath(up)
+          }
+        }
+        toast({ level: 'warn', text: t(wasShown ? 'files.accessChanged' : 'files.folderNotFound') })
+        setParams(up ? { path: up } : {}, { replace: true })
         return
       }
       setError(errorText(e, locale, t('error.network')))
@@ -78,9 +91,11 @@ export default function Files() {
       if (changes.some((c) => parentPath(c.path) === path || (c.from && parentPath(c.from) === path) || isInside(path, c.path))) void load()
     })
     const offB = reloadAsked.on(() => void load())
+    const offC = accessChanged.on(() => void load())
     return () => {
       offA()
       offB()
+      offC()
     }
   }, [path, load])
 
@@ -200,7 +215,7 @@ export default function Files() {
             <IconButton label={t('common.refresh')} onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
-            <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite}>
+            <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
               <FolderPlus size={15} aria-hidden /> <span className="max-sm:hidden">{t('files.newFolder')}</span>
             </Button>
             <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()} disabled={!canWrite} data-testid="upload-button">
@@ -325,11 +340,12 @@ function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onDelete, onHi
   }, [menu])
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
   return (
-    <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'opacity-60')} data-testid="file-row">
+    <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
       <td className="px-2 py-1.5">
         <button type="button" onClick={onOpen} className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline" title={dim ? t('files.navigationOnly') : undefined}>
-          <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted')} aria-hidden />
+          <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           <span className="min-w-0 truncate">{e.name}</span>
+          {dim && <span className="sr-only">({t('files.navigationOnly')})</span>}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}
         </button>

@@ -101,6 +101,7 @@ export default function AskCard({ req }: { req: OpenRequest }) {
         {allowText && (
           <textarea
             aria-label={t('ask.ownAnswer')}
+            aria-describedby={`${name}-secrets`}
             className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2')}
             placeholder={options.length ? t('ask.orType') : t('ask.typeAnswer')}
             value={text}
@@ -109,6 +110,12 @@ export default function AskCard({ req }: { req: OpenRequest }) {
               if (!r.multiple && e.target.value) setPicked([])
             }}
           />
+        )}
+        {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
+        {allowText && (
+          <p id={`${name}-secrets`} className="text-xs text-faint" data-testid="ask-no-secrets">
+            {t('ask.noSecrets')}
+          </p>
         )}
       </fieldset>
       <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">

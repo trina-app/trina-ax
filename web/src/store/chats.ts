@@ -3,7 +3,7 @@
 // a reconnect that the server could not resume (reset/resync) everything is reloaded from REST.
 import { create } from 'zustand'
 import { uuidv7, type Attachment, type Chat, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
-import { api, API, isNetworkError } from '../lib/api'
+import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
@@ -170,7 +170,9 @@ export const useChats = create<ChatsState>((set, get) => {
           await sleep(Math.min(8000, 1000 * 2 ** attempt))
           continue
         }
-        setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'failed', e instanceof Error ? e.message : String(e)) }))
+        // the server's reason is already in the person's words (budget used up, attachment gone, …); a network
+        // failure has only the browser's English text, so the screen says "not sent" without it
+        setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'failed', e instanceof ApiError ? e.message : undefined) }))
         throw e
       }
     }

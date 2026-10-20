@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { AuditEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
-import { useLocale, useT } from '../../i18n'
+import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Field, Skeleton, inputCls } from '../../components/ui'
 import { Card, useLoad } from './common'
 
@@ -79,7 +79,9 @@ export default function Audit() {
                 <span className="w-36 shrink-0 text-xs text-faint tabular-nums">{formatDateTime(e.at, locale)}</span>
                 <Badge>{t(`audit.source.${e.source}`)}</Badge>
                 <span className="font-medium">{e.actor?.name ?? t('files.byAi')}</span>
-                <span className="text-muted">{e.action}</span>
+                <span className="text-muted" title={e.action}>
+                  {actionLabel(t, e)}
+                </span>
                 {e.target && <code className="min-w-0 truncate rounded bg-subtle px-1 text-xs">{e.target}</code>}
                 <ToolOutcome e={e} />
               </button>
@@ -97,6 +99,16 @@ export default function Audit() {
       )}
     </Card>
   )
+}
+
+/**
+ * What happened, in words: admin and sign-in actions ("auth.login" → "로그인"), file events ("conflict" → "충돌 사본
+ * 만듦"). Tool calls keep the tool's name (read, write, web_fetch: the summary next to it says what it did); the id
+ * stays in the tooltip for anyone matching it with the server log. Unknown ids are shown as they are.
+ */
+function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
+  const key = e.source === 'file' ? `audit.file.${e.action}` : e.source === 'tool' ? (e.action === '(connect)' ? 'audit.tool.connect' : '') : `audit.act.${e.action}`
+  return key && key in DICTS.ko ? t(key as MessageKey) : e.action
 }
 
 /** Tool calls: whether the call was refused (permission) or failed, and its one-line summary ("read groups/x -> denied: ..."). */

@@ -14,6 +14,8 @@ test('first-run setup creates the team and signs the owner in', async ({ page })
   await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
   await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
   await expect(page.getByTestId('owner-checklist')).toBeVisible()
+  // the starting folder rules come with every team: "set folder permissions" is still to do
+  await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
 })
 
 test('wrong password shows the error; sign out returns to the sign-in page', async ({ page }) => {
@@ -48,7 +50,12 @@ test('an invite link creates an account', async ({ page, browser }) => {
   await p2.goto(link)
   await expect(p2.getByRole('heading', { name: 'Acme 팀에 참여하기' })).toBeVisible()
   await p2.getByTestId('invite-name').fill('New Person')
+  // the username rule is checked while typing (a space, "!"), not by a browser bubble after the button
+  await p2.getByTestId('invite-username').fill('new bie!')
+  await expect(p2.getByTestId('invite-username')).toHaveAttribute('aria-invalid', 'true')
+  await expect(p2.getByRole('alert')).toContainText('영문·숫자와')
   await p2.getByTestId('invite-username').fill('newbie')
+  await expect(p2.getByTestId('invite-username')).not.toHaveAttribute('aria-invalid', 'true')
   await p2.getByTestId('invite-password').fill('another password 1')
   await p2.getByTestId('invite-password2').fill('another password 1')
   await p2.getByTestId('invite-submit').click()

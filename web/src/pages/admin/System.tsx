@@ -149,7 +149,6 @@ function Diagnostics() {
                       <span className="block font-medium">{c.label}</span>
                       {c.detail && <span className="block text-xs text-muted">{c.detail}</span>}
                     </span>
-                    <Badge>{c.group}</Badge>
                   </li>
                 )
               })}

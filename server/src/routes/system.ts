@@ -6,12 +6,13 @@ import { API, type Health, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
+import { JobFailure } from '../jobs/service'
 import type { JobService } from '../services'
 import { BackupError } from '../system/backup'
 import { ConnectionChangeError, connectionStatus, modeOf, saveConnectionMode } from '../system/connection'
 import { runExport } from '../system/export'
 import { LocalJobService } from '../system/job-runner'
-import { tr } from '../system/messages'
+import { M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { UpdateError } from '../system/update'
 import type { RouteModule } from './module'
@@ -107,17 +108,17 @@ export const systemRoutes: RouteModule = {
               await Bun.sleep(2000)
             }
             // 2) DB backup (an update never rolls the DB back by itself)
-            h.progress(0.2, 'backup')
+            h.progress(0.2, stepText(locale, 'backup'))
             await ops().backups.run({ kind: 'pre-update', scope: 'db' })
             // 3) bring the version in
             if (!staged) {
-              h.progress(0.3, 'download')
+              h.progress(0.3, stepText(locale, 'download'))
               const feed = await u.checkFeed()
               if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
-              await u.download(feed, (f) => h.progress(0.3 + 0.5 * f, 'download'))
+              await u.download(feed, (f) => h.progress(0.3 + 0.5 * f, stepText(locale, 'download')))
             }
             // 4) switch and restart; the bootstrap health-checks and rolls back on failure
-            h.progress(0.9, 'switch')
+            h.progress(0.9, stepText(locale, 'switch'))
             const r = await u.switchTo(target!)
             h.progress(1, tr(locale, T.restarting))
             scheduleRestart(ctx, `update to ${target}`)
@@ -131,12 +132,17 @@ export const systemRoutes: RouteModule = {
     kit.handle(API.listBackups, () => ({ items: ops().backups.list() }))
 
     kit.handle(API.startBackup, ({ c, body, auth }) => {
-      const jobId = exclusive('backup', c.get('locale'), () => jobs().start({
+      const locale = c.get('locale')
+      const jobId = exclusive('backup', locale, () => jobs().start({
         kind: 'backup', userId: auth.user.id,
         run: async (h) => {
           try {
-            const m = await ops().backups.run({ kind: 'manual', scope: body.scope, progress: (p, msg) => h.progress(p, msg) })
+            const m = await ops().backups.run({ kind: 'manual', scope: body.scope, progress: (p, msg) => h.progress(p, stepText(locale, msg)) })
             return { backupId: m.id, size: m.db.size + (m.team?.archiveSize ?? 0), createdAt: m.createdAt }
+          } catch (e) {
+            // the owner can do something about a full disk; anything else is told as a failed backup, not "server error"
+            if (e instanceof BackupError) throw new JobFailure('unavailable', e.reason === 'disk_space' ? M.backupNoSpace : M.backupFailed(e.message))
+            throw e
           } finally { release() }
         },
       }))
@@ -150,7 +156,7 @@ export const systemRoutes: RouteModule = {
         kind: 'restore', userId: auth.user.id,
         run: async (h) => {
           try {
-            h.progress(0.1, 'check')
+            h.progress(0.1, stepText(locale, 'check'))
             const p = await ops().backups.stageDbRestore(body.backupId, auth.user.id)
             const lostSince = ops().backups.createdAtOf(body.backupId)
             ctx.log.info('restore staged', { backupId: p.backupId, by: auth.user.id })
@@ -158,7 +164,7 @@ export const systemRoutes: RouteModule = {
             else h.progress(1, tr(locale, T.restartNeeded))
             return { backupId: p.backupId, restoredAt: p.requestedAt, lostSince }
           } catch (e) {
-            if (e instanceof BackupError) fail('conflict', e.message)
+            if (e instanceof BackupError) fail('conflict', tr(locale, M.restoreFailed(e.message)))
             throw e
           } finally { release() }
         },
@@ -167,10 +173,11 @@ export const systemRoutes: RouteModule = {
     })
 
     kit.handle(API.startExport, ({ c, body, auth }) => {
-      const jobId = exclusive('export', c.get('locale'), () => jobs().start({
+      const locale = c.get('locale')
+      const jobId = exclusive('export', locale, () => jobs().start({
         kind: 'export', userId: auth.user.id,
         run: async (h) => {
-          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, what: body.what, password: body.password }, (p, m) => h.progress(p, m)) } finally { release() }
+          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, what: body.what, password: body.password }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
       return { jobId }

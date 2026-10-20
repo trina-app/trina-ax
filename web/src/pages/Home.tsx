@@ -99,48 +99,56 @@ export default function Home() {
 
 const EXAMPLES: MessageKey[] = ['home.example1', 'home.example2', 'home.example3']
 
-/** "내 AI가 볼 수 있는 폴더" + example questions (translated templates, filled with the person's folder names). */
+/**
+ * "내 AI가 볼 수 있는 폴더" + example questions (translated templates, filled with the person's folder names).
+ * users/ itself is only a way to reach personal folders, so the card shows the person's own folder (users/<id>,
+ * where the AI saves by default) in its place, and the examples name team folders first.
+ */
 function FirstTime({ onExample }: { onExample: (text: string) => void }) {
   const t = useT()
+  const me = useMeStrict()
   const [folders, setFolders] = useState<FileEntry[] | null>(null)
   useEffect(() => {
     let live = true
     api.call(API.tree, { query: { path: '', limit: 50 } }).then(
-      (r) => live && setFolders(r.entries.filter((e) => e.type === 'folder' && e.access !== 'none')),
+      (r) => live && setFolders(r.entries.filter((e) => e.type === 'folder' && e.access !== 'none' && e.path !== 'users')),
       () => live && setFolders([]),
     )
     return () => {
       live = false
     }
   }, [])
-  const names = useMemo(() => (folders ?? []).map((f) => f.name), [folders])
+  const myFolder = t('home.myFolder')
+  // the examples name the path ("users/kim"): "내 폴더 폴더에…" would read badly, and the AI finds it as is
+  const names = useMemo(() => [...(folders ?? []).map((f) => f.name), `users/${me.user.id}`], [folders, me.user.id])
   if (!folders) return null
+  const shown: { key: string; name: string; title?: string; write: boolean }[] = [
+    ...folders.map((f) => ({ key: f.path, name: f.name, write: f.access === 'write' })),
+    { key: 'me', name: myFolder, title: `users/${me.user.id}`, write: true },
+  ]
   return (
     <div className="mt-6 space-y-4">
-      <section className="rounded-2xl border border-line bg-surface p-4" aria-labelledby="ft-folders">
+      <section className="rounded-2xl border border-line bg-surface p-4" aria-labelledby="ft-folders" data-testid="first-time-folders">
         <h2 id="ft-folders" className="mb-2 text-sm font-semibold">
           {t('home.foldersTitle')}
         </h2>
-        {folders.length ? (
-          <ul className="flex flex-wrap gap-2">
-            {folders.map((f) => (
-              <li key={f.path} className="inline-flex items-center gap-1.5 rounded-lg bg-subtle px-2.5 py-1.5 text-sm">
-                <Folder size={14} className="text-accent-text" aria-hidden />
-                {f.name}
-                <span className="inline-flex items-center gap-0.5 text-xs text-faint">
-                  {f.access === 'write' ? <Pencil size={11} aria-hidden /> : <Lock size={11} aria-hidden />}
-                  {t(f.access === 'write' ? 'files.canWrite' : 'files.readOnly')}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">{t('home.noFolders')}</p>
-        )}
+        <ul className="flex flex-wrap gap-2">
+          {shown.map((f) => (
+            <li key={f.key} className="inline-flex items-center gap-1.5 rounded-lg bg-subtle px-2.5 py-1.5 text-sm" title={f.title}>
+              <Folder size={14} className="text-accent-text" aria-hidden />
+              {f.name}
+              <span className="inline-flex items-center gap-0.5 text-xs text-faint">
+                {f.write ? <Pencil size={11} aria-hidden /> : <Lock size={11} aria-hidden />}
+                {t(f.write ? 'files.canWrite' : 'files.readOnly')}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {!folders.length && <p className="mt-2 text-sm text-muted">{t('home.noFolders')}</p>}
       </section>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {EXAMPLES.map((k, i) => {
-          const text = t(k, { folder: names[i % Math.max(1, names.length)] ?? t('files.root') })
+          const text = t(k, { folder: names[i % names.length]! })
           return (
             <button key={k} type="button" onClick={() => onExample(text)} className="rounded-xl border border-line px-3.5 py-3 text-left text-sm text-muted transition hover:bg-hover hover:text-ink" data-testid="example">
               {text}
@@ -169,7 +177,8 @@ function OwnerChecklist() {
       setState({
         engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),
         members: (u.status === 'fulfilled' && u.value.items.length > 1) || (i.status === 'fulfilled' && i.value.items.length > 0),
-        folders: f.status === 'fulfilled' && f.value.items.length > 0,
+        // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
+        folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
         backup: b.status === 'fulfilled' && b.value.items.length > 0,
       })
     })

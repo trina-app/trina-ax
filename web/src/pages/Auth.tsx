@@ -11,6 +11,12 @@ import { useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { Button, Field, inputCls } from '../components/ui'
 
+/**
+ * A username with characters the server refuses (tab 5: the invite screen checks the rule while typing), so the hint
+ * turns into an error at once instead of a browser bubble after pressing the button. Length is left to submit.
+ */
+export const usernameProblem = (v: string) => v.length > 0 && !/^[A-Za-z0-9._@-]*$/.test(v)
+
 function AuthFrame({ title, children, sub }: { title: string; children: ReactNode; sub?: ReactNode }) {
   const t = useT()
   const locale = useLocale()
@@ -132,7 +138,7 @@ export function Setup() {
         <Field label={t('auth.name')}>
           <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} />
         </Field>
-        <Field label={t('auth.username')} hint={t('auth.usernameHint')}>
+        <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={usernameProblem(form.username) ? t('auth.usernameHint') : null}>
           <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" />
         </Field>
         <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
@@ -205,7 +211,7 @@ export function AcceptInvite() {
         <Field label={t('auth.name')}>
           <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
         </Field>
-        <Field label={t('auth.username')} hint={t('auth.usernameHint')}>
+        <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={usernameProblem(form.username) ? t('auth.usernameHint') : null}>
           <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
         </Field>
         <Field label={t('auth.password')} hint={t('auth.passwordRule')}>

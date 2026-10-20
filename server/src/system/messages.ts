@@ -7,12 +7,45 @@ export const tr = (l: Locale, t: T) => t[l] ?? t.ko
 
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
 
+/** How long the server has been up, in the reader's words ("2일 3시간", "5 menit"). */
+export function uptimeText(sec: number, l: Locale): string {
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
+  const u = { ko: { d: '일', h: '시간', m: '분' }, en: { d: ' d', h: ' h', m: ' min' }, id: { d: ' hari', h: ' jam', m: ' menit' } }[l] ?? { d: '일', h: '시간', m: '분' }
+  return d ? `${d}${u.d} ${h}${u.h}` : h ? `${h}${u.h} ${m}${u.m}` : `${m}${u.m}`
+}
+
+/**
+ * Progress lines of system jobs (backup, update, restore, export), which the owner reads under the button. The
+ * workers report a short step id; this turns it into words ("archive 3/7" keeps its numbers).
+ */
+const STEPS: Record<string, T> = {
+  database: { ko: '데이터베이스 복사 중', en: 'Copying the database', id: 'Menyalin basis data' },
+  'team folder': { ko: '팀 폴더 보관 중', en: 'Archiving the team folder', id: 'Mengarsipkan folder tim' },
+  'cleaning up': { ko: '오래된 백업 정리 중', en: 'Removing old backups', id: 'Menghapus cadangan lama' },
+  done: { ko: '마무리 중', en: 'Finishing', id: 'Menyelesaikan' },
+  backup: { ko: '데이터베이스 백업 중', en: 'Backing up the database', id: 'Mencadangkan basis data' },
+  download: { ko: '새 버전 내려받는 중', en: 'Downloading the new version', id: 'Mengunduh versi baru' },
+  switch: { ko: '새 버전으로 바꾸는 중', en: 'Switching to the new version', id: 'Beralih ke versi baru' },
+  check: { ko: '백업 확인 중', en: 'Checking the backup', id: 'Memeriksa cadangan' },
+  chats: { ko: '채팅 모으는 중', en: 'Collecting chats', id: 'Mengumpulkan chat' },
+  memories: { ko: '메모리 모으는 중', en: 'Collecting memories', id: 'Mengumpulkan memori' },
+  files: { ko: '파일 묶는 중', en: 'Packing files', id: 'Mengemas berkas' },
+}
+export function stepText(l: Locale, step: string | null | undefined): string | null {
+  if (!step) return null
+  const known = STEPS[step]
+  if (known) return tr(l, known)
+  const archive = /^archive (\d+)\/(\d+)$/.exec(step)
+  if (archive) return tr(l, { ko: `팀 폴더 복원 중 (${archive[1]}/${archive[2]})`, en: `Restoring the team folder (${archive[1]}/${archive[2]})`, id: `Memulihkan folder tim (${archive[1]}/${archive[2]})` })
+  return step
+}
+
 export const M = {
   server: { ko: '서버', en: 'Server', id: 'Server' },
   serverDetail: (v: string, up: string): T => ({ ko: `버전 ${v}, ${up} 동안 실행 중`, en: `Version ${v}, running for ${up}`, id: `Versi ${v}, berjalan selama ${up}` }),
 
   relay: { ko: '원격 접속(중계 서버)', en: 'Remote access (relay)', id: 'Akses jarak jauh (relay)' },
-  relayOff: { ko: '중계 서버 연결이 설정되지 않았습니다. 사무실 안에서만 접속할 수 있습니다. 설정 > 연결에서 켤 수 있습니다.', en: 'No relay connection is set up, so the team can only connect from the office network. Turn it on in Settings > Connection.', id: 'Koneksi relay belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan di Pengaturan > Koneksi.' },
+  relayOff: { ko: '중계 서버 연결이 설정되지 않았습니다. 사무실 안에서만 접속할 수 있습니다. 관리자 > 시스템 > 연결에서 켤 수 있습니다.', en: 'No relay connection is set up, so the team can only connect from the office network. Turn it on in Admin > System > Connection.', id: 'Koneksi relay belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan di Admin > Sistem > Koneksi.' },
   relayConnecting: { ko: '중계 서버에 연결하는 중입니다. 몇 분이 지나도 그대로면 인터넷 연결을 확인해 주세요.', en: 'Connecting to the relay. If this stays for a few minutes, check the internet connection.', id: 'Sedang terhubung ke relay. Jika tetap begini beberapa menit, periksa koneksi internet.' },
   relayOffline: { ko: '중계 서버에 연결되지 않습니다. 맥의 인터넷 연결을 확인해 주세요. 사무실 안 직접 연결은 계속 됩니다.', en: 'Cannot reach the relay. Check the Mac\'s internet connection. Direct connections in the office still work.', id: 'Tidak dapat menjangkau relay. Periksa koneksi internet Mac. Koneksi langsung di kantor tetap berfungsi.' },
   relayReplaced: { ko: '다른 맥의 서버가 같은 팀 주소로 연결해 이 서버의 연결을 대신했습니다. 의도한 일이 아니면 팀 키를 바꿔 주세요.', en: 'A server on another Mac connected with this team\'s address and replaced this one. If you did not do this, rotate the team key.', id: 'Server di Mac lain terhubung dengan alamat tim ini dan menggantikan server ini. Jika bukan Anda, ganti kunci tim.' },
@@ -34,7 +67,7 @@ export const M = {
 
   queue: { ko: '대기열', en: 'Queue', id: 'Antrean' },
   queueDetail: (r: number, q: number, c: number): T => ({ ko: `실행 중 ${r}개, 대기 ${q}개 (동시 실행 ${c}개까지)`, en: `${r} running, ${q} waiting (up to ${c} at once)`, id: `${r} berjalan, ${q} menunggu (maks ${c} sekaligus)` }),
-  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 설정에서 동시 실행 수를 늘려 보세요.`, en: `${q} questions are waiting. If this lasts, raise the concurrency in Settings.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan jumlah eksekusi bersamaan di Pengaturan.` }),
+  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 관리자 > AI 엔진에서 동시 실행 수를 늘려 보세요.`, en: `${q} questions are waiting. If this lasts, raise "Answers at the same time" in Admin > AI engines.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan "Jawaban bersamaan" di Admin > Mesin AI.` }),
 
   firewall: { ko: 'AI 엔진 방화벽(pf)', en: 'AI engine firewall (pf)', id: 'Firewall mesin AI (pf)' },
   firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${n} rules`, id: `Aktif, ${n} aturan` }),
@@ -60,6 +93,7 @@ export const M = {
   backupOld: (h: number): T => ({ ko: `마지막 백업이 ${h}시간 전입니다. 서버가 새벽에 꺼져 있었는지 확인하고 '지금 백업'을 눌러 주세요.`, en: `The last backup is ${h} hours old. Check that the server was on overnight and use "Back up now".`, id: `Cadangan terakhir ${h} jam yang lalu. Pastikan server menyala semalam dan gunakan "Cadangkan sekarang".` }),
   backupOk: (when: string, scope: string): T => ({ ko: `마지막 백업 ${when} (${scope})`, en: `Last backup ${when} (${scope})`, id: `Cadangan terakhir ${when} (${scope})` }),
   backupFailed: (msg: string): T => ({ ko: `마지막 백업이 실패했습니다: ${msg}`, en: `The last backup failed: ${msg}`, id: `Cadangan terakhir gagal: ${msg}` }),
+  backupNoSpace: { ko: '디스크 공간이 부족해 백업하지 못했습니다(2GB 필요). 휴지통 비우기·오래된 버전 정리로 공간을 늘린 뒤 다시 해 주세요.', en: 'Not enough disk space for a backup (2 GB needed). Free up space (empty the trash, clean up old versions) and try again.', id: 'Ruang disk tidak cukup untuk cadangan (perlu 2 GB). Kosongkan ruang (tempat sampah, versi lama) lalu coba lagi.' },
   restoreFailed: (msg: string): T => ({ ko: `백업 복원이 실패해 기존 데이터를 그대로 두었습니다: ${msg}`, en: `Restoring a backup failed; the existing data was kept: ${msg}`, id: `Pemulihan cadangan gagal; data yang ada dipertahankan: ${msg}` }),
   timeMachine: { ko: 'Time Machine 제외 항목', en: 'Time Machine exclusions', id: 'Pengecualian Time Machine' },
   timeMachineOk: { ko: '비밀값·엔진 폴더가 Time Machine에서 빠져 있습니다.', en: 'Secrets and engine folders are excluded from Time Machine.', id: 'Rahasia dan folder mesin dikecualikan dari Time Machine.' },

@@ -5,6 +5,7 @@ const M = {
   badLogin: { ko: '아이디 또는 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.' },
   accountDisabled: { ko: '사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.', en: 'This account is disabled. Please contact your admin.', id: 'Akun ini dinonaktifkan. Hubungi admin Anda.' },
   tooManyAttempts: { ko: '로그인 시도가 너무 많습니다. 잠시 뒤 다시 시도해 주세요.', en: 'Too many sign-in attempts. Please try again later.', id: 'Terlalu banyak percobaan masuk. Coba lagi nanti.' },
+  wrongPassword: { ko: '비밀번호가 맞지 않습니다. 다시 입력해 주세요.', en: 'The password is wrong. Please enter it again.', id: 'Kata sandi salah. Masukkan lagi.' },
   wrongCurrentPassword: { ko: '현재 비밀번호가 맞지 않습니다.', en: 'The current password is wrong.', id: 'Kata sandi saat ini salah.' },
   weakPassword: { ko: '더 안전한 비밀번호를 정해 주세요.', en: 'Please choose a stronger password.', id: 'Pilih kata sandi yang lebih kuat.' },
   samePassword: { ko: '지금 비밀번호와 다른 비밀번호를 정해 주세요.', en: 'Choose a password different from the current one.', id: 'Pilih kata sandi yang berbeda dari yang sekarang.' },

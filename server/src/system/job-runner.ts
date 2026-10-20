@@ -6,6 +6,7 @@ import { uuidv7 } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
 import type { JobHandle, JobService } from '../services'
+import { JobFailure } from '../jobs/service'
 
 interface JobRow { id: string; kind: JobKind; status: JobStatus; progress: number | null; message: string | null; result: string | null; error: string | null; created_at: string; finished_at: string | null }
 
@@ -54,7 +55,7 @@ export class LocalJobService implements JobService {
         db.query("UPDATE jobs SET status = 'done', progress = 1, result = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(JSON.stringify(result ?? null), id)
       } catch (e) {
         const canceled = ac.signal.aborted
-        const err: ApiErrorBody = e instanceof HttpError ? e.body('ko') : { code: 'internal', message: (e as Error).message }
+        const err: ApiErrorBody = e instanceof HttpError ? e.body('ko') : e instanceof JobFailure ? { code: e.code, message: e.messages.ko } : { code: 'internal', message: (e as Error).message }
         db.query("UPDATE jobs SET status = ?, error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(canceled ? 'canceled' : 'failed', JSON.stringify(err), id)
         log.warn('job failed', { err: e })
       } finally {

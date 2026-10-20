@@ -19,6 +19,7 @@ import type { AuthInfo, SessionService } from '../../server/src/services'
 import { jobFromRow } from '../../server/src/system/job-runner'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
+import { stepText, uptimeText } from '../../server/src/system/messages'
 import { WORK } from '../lib/env'
 
 const BASE = path.join(WORK, 'g-routes')
@@ -101,6 +102,25 @@ describe('auth levels', () => {
   })
 })
 
+describe('job progress wording', () => {
+  test('step ids become words; numbers are kept; unknown text passes through', () => {
+    expect(stepText('ko', 'team folder')).toBe('팀 폴더 보관 중')
+    expect(stepText('en', 'download')).toBe('Downloading the new version')
+    expect(stepText('id', 'archive 3/7')).toBe('Memulihkan folder tim (3/7)')
+    expect(stepText('ko', '진행 중인 답변 1개가 끝나기를 기다리는 중')).toBe('진행 중인 답변 1개가 끝나기를 기다리는 중')
+    expect(stepText('ko', null)).toBeNull()
+  })
+})
+
+describe('uptime wording', () => {
+  test('days / hours / minutes in each language', () => {
+    expect(uptimeText(59, 'ko')).toBe('0분')
+    expect(uptimeText(3 * 3600 + 120, 'ko')).toBe('3시간 2분')
+    expect(uptimeText(2 * 86400 + 5 * 3600, 'id')).toBe('2 hari 5 jam')
+    expect(uptimeText(600, 'en')).toBe('10 min')
+  })
+})
+
 describe('diagnostics (dev)', () => {
   test('checks with localized details; OS controls are reported as not used in dev', async () => {
     const r = await req('/api/admin/diagnostics', { as: 'owner' })
@@ -113,6 +133,10 @@ describe('diagnostics (dev)', () => {
     expect(d.checks.find((c) => c.id === 'relay')!.detail).toContain('중계')
     const en = (await (await req('/api/admin/diagnostics', { as: 'ownerEn' })).json()) as Diagnostics
     expect(en.checks.find((c) => c.id === 'relay')!.detail).toContain('relay')
+    // written for the owner: uptime in their words, and the place to fix it named as the screen names it
+    expect(d.checks.find((c) => c.id === 'server')!.detail).toMatch(/\d+분 동안 실행 중/)
+    expect(en.checks.find((c) => c.id === 'server')!.detail).toMatch(/running for \d+ min/)
+    expect(d.checks.find((c) => c.id === 'relay')!.detail).toContain('관리자 > 시스템 > 연결')
     expect(d.disk.teamFolderFreeBytes).toBeGreaterThan(0)
   })
 
@@ -136,6 +160,8 @@ describe('backup, restore, export jobs', () => {
     const job = await waitJob(ctx, jobId)
     expect(job.status).toBe('done')
     expect(job.result).toMatchObject({ backupId: expect.stringMatching(/-manual$/) })
+    // the progress line under the button is words in the owner's language, not the worker's step id ("done")
+    expect(job.message).toBe('마무리 중')
     const list = (await (await req('/api/admin/backups', { as: 'owner' })).json()) as { items: { id: string; scope: string }[] }
     expect(list.items[0]).toMatchObject({ scope: 'full' })
   })

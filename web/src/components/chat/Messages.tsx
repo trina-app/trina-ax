@@ -133,6 +133,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
       {m.local?.state === 'failed' && (
         <span className="flex flex-wrap items-center justify-end gap-2 text-xs text-danger" role="alert" data-testid="send-failed">
           <AlertTriangle size={13} aria-hidden /> {t('chat.notSent')}
+          {m.local.error && <span className="basis-full text-right">{m.local.error}</span>}
           <button type="button" className="font-medium underline" onClick={() => void resend(chatId, m.id)}>
             {t('chat.sendAgain')}
           </button>

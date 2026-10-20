@@ -16,7 +16,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, Record<Locale, string>> = {
   range_not_satisfiable: { ko: '요청한 범위를 보낼 수 없습니다.', en: 'The requested range is not available.', id: 'Rentang yang diminta tidak tersedia.' },
   rate_limited: { ko: '요청이 너무 많습니다. 잠시 뒤 다시 시도해 주세요.', en: 'Too many requests. Please try again shortly.', id: 'Terlalu banyak permintaan. Coba lagi sebentar lagi.' },
   budget_exceeded: { ko: 'AI 사용 한도에 도달했습니다. 관리자에게 문의해 주세요.', en: 'The AI usage limit has been reached. Please contact your admin.', id: 'Batas penggunaan AI tercapai. Hubungi admin Anda.' },
-  engine_unavailable: { ko: 'AI 엔진을 사용할 수 없습니다. 관리자 화면의 진단을 확인해 주세요.', en: 'The AI engine is not available. Check diagnostics in the admin screen.', id: 'Mesin AI tidak tersedia. Periksa diagnostik di layar admin.' },
+  engine_unavailable: { ko: '지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', en: 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', id: 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).' },
   busy: { ko: '지금은 처리할 수 없습니다. 진행 중인 작업이 끝난 뒤 다시 시도해 주세요.', en: 'Busy right now. Try again when the running work is done.', id: 'Sedang sibuk. Coba lagi setelah pekerjaan yang berjalan selesai.' },
   unavailable: { ko: '팀 서버가 잠시 사용할 수 없습니다.', en: 'The team server is temporarily unavailable.', id: 'Server tim sementara tidak tersedia.' },
   internal: { ko: '서버 오류가 발생했습니다.', en: 'Something went wrong on the server.', id: 'Terjadi kesalahan pada server.' },

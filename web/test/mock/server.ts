@@ -5,7 +5,8 @@
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search";
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/reset {setup?: boolean}, POST /__test/drop-ws, POST /__test/server-version.
+// Test-only controls: POST /__test/reset {setup?: boolean}, POST /__test/drop-ws, POST /__test/server-version,
+// POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
 import { z } from 'zod'
 import {
   ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
@@ -49,6 +50,8 @@ export class MockServer {
   sessions = new Map<string, string>() // token -> user id
   users: User[] = []
   passwords = new Map<string, string>()
+  /** last password reset by an admin, per user id (Me.passwordReset) */
+  resets = new Map<string, NonNullable<Me['passwordReset']>>()
   groups: Group[] = []
   invites: (Invite & { token: string })[] = []
   folders: Folder[] = []
@@ -86,6 +89,7 @@ export class MockServer {
     for (const ws of this.sockets) ws.close(1012, 'reset')
     this.sessions.clear()
     this.passwords.clear()
+    this.resets.clear()
     this.users = []
     this.groups = []
     this.invites = []
@@ -106,6 +110,7 @@ export class MockServer {
     this.activeLeaf.clear()
     this.pendingAsk.clear()
     this.stopped.clear()
+    this.revoked.clear()
     if (!this.setupNeeded) this.seed()
   }
 
@@ -143,8 +148,11 @@ export class MockServer {
   }
 
   // ---------------- access (simplified policy) ----------------
+  /** folders taken away from everyone by POST /__test/revoke (an admin's rule change) */
+  revoked = new Set<string>()
   access(path: string, user: User): 'none' | 'read' | 'write' {
     if (path === '' ) return 'write'
+    if ([...this.revoked].some((r) => path === r || path.startsWith(r + '/'))) return 'none'
     if (path === 'secret' || path.startsWith('secret/')) return 'none'
     if (path.startsWith('users/')) {
       const owner = path.split('/')[1]
@@ -176,6 +184,7 @@ export class MockServer {
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() },
       server: { version: this.serverVersion, dev: true },
+      passwordReset: this.resets.get(u.id) ?? null,
     }
     void sid
   }
@@ -409,6 +418,8 @@ export class MockServer {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const dup = this.messages.find((m) => (m as Message & { cmid?: string }).cmid === c.body.clientMessageId)
       if (dup) fail('conflict', 409)
+      // like the server when the person's "block" usage limit is used up (refused before anything is queued)
+      if (String(c.body.content).includes('over my limit')) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 10월 22일 오전 12:00부터 다시 쓸 수 있어요.')
       const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const atts = (c.body.attachmentIds as string[]).map((id) => this.attachments.get(id)).filter(Boolean).map((a) => { const { data: _d, ...rest } = a!; return rest })
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments: atts, author: { id: c.user.id, name: c.user.name } })
@@ -620,7 +631,13 @@ export class MockServer {
       this.users = this.users.filter((u) => u.id !== c.params.id)
       return undefined
     },
-    resetPassword: () => ({ temporaryPassword: 'reset-password-9' }),
+    resetPassword: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      this.passwords.set(u!.username, 'reset-password-9')
+      u!.mustChangePassword = true
+      this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
+      return { temporaryPassword: 'reset-password-9' }
+    },
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
@@ -647,7 +664,7 @@ export class MockServer {
     listFolders: () => ({ items: this.folders }),
     createFolder: (c) => {
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: true, createdAt: now(), rules: [] }
-      f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: null, updatedAt: now() }))
+      f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
       this.folders.push(f)
       return { status: 201, body: f }
     },
@@ -803,6 +820,11 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/log') return Response.json(this.log)
+    else if (p === '/__test/revoke') {
+      // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
+      this.revoked.add(String(body.path))
+      this.publish({ type: 'notice', data: { level: 'info', code: 'access_changed', message: String(body.path) } })
+    }
     return Response.json({ ok: true })
   }
 

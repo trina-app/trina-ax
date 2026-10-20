@@ -127,6 +127,8 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
   const [menu, setMenu] = useState(false)
   const upsert = useChats((s) => s.upsertChat)
   const remove = useChats((s) => s.removeChat)
+  // the AI of this chat asked something (ask_user / site card) and waits: tab 5 "주의가 필요한 채팅"
+  const needsAnswer = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
   const navigate = useNavigate()
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {
@@ -166,8 +168,17 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
         onClick={onNavigate}
         className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg py-1.5 pr-8 pl-2.5 text-sm hover:bg-hover max-sm:py-2.5', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
       >
-        {chat.runState !== 'idle' && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />}
+        {needsAnswer ? (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
+        ) : (
+          chat.runState !== 'idle' && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />
+        )}
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
+        {needsAnswer && (
+          <span className="shrink-0 text-[11px] font-medium text-warn" data-testid="needs-answer">
+            {t('chat.needsAnswer')}
+          </span>
+        )}
       </NavLink>
       <button
         type="button"
