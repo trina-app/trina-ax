@@ -34,6 +34,9 @@ export interface RealtimeHub {
   publishEach(build: (userId: string) => ServerEventInput | null): void
   /** Close every socket of a person (session.ended already published). */
   disconnectUser(userId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void
+  /** Close the sockets of one session only (logout on one device, "sign out this device", the other sessions after
+   * a password change). Optional: without it the session's sockets stay open until they reconnect. Added by A. */
+  disconnectSession?(sessionId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void
 }
 
 export interface JobHandle {
@@ -65,4 +68,4 @@ export const noSessions: SessionService = {
   async resolve() { return null },
   async verifyPassword() { return false },
 }
-export const nullRealtime: RealtimeHub = { publish() {}, publishEach() {}, disconnectUser() {} }
+export const nullRealtime: RealtimeHub = { publish() {}, publishEach() {}, disconnectUser() {}, disconnectSession() {} }
