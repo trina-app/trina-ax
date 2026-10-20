@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { isSchema, type BinaryBody, type Endpoint, type MultipartBody, type ParamsOf, type ParsedQueryOf, type StreamResponse, type EmptyResponse } from '@mycel/shared/api'
 import type { AppEnv } from './env'
 import { HttpError, fail } from './errors'
+import { msg } from '../auth/messages'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
 
@@ -137,7 +138,8 @@ export class RouteKit {
       if (ep.auth === 'owner-reauth') {
         const pw = (body as { password?: unknown } | undefined)?.password
         if (typeof pw !== 'string' || !(await this.ctx.services.sessions.verifyPassword(auth!.user.id, pw, c.get('info')))) {
-          fail('forbidden', undefined, { fields: { 'body.password': 'wrong password' } })
+          // in words: the bare 'forbidden' text ("you do not have permission") sent owners looking for a missing right
+          fail('forbidden', msg('wrongPassword', c.get('locale')), { fields: { 'body.password': 'wrong password' } })
         }
       }
 

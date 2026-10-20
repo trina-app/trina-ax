@@ -133,7 +133,10 @@ describe('members and role guards', () => {
   })
   test('owner transfer needs the password again; the old owner becomes admin', async () => {
     const t = await addMember(h, owner, { username: 'tom' })
-    expect((await owner.try('POST', '/api/admin/transfer-ownership', { userId: t.id, password: 'wrong' })).status).toBe(403)
+    const wrong = await owner.try('POST', '/api/admin/transfer-ownership', { userId: t.id, password: 'wrong' })
+    expect(wrong.status).toBe(403)
+    // the owner mistyped the password: say that, not "you do not have permission" (ko is the owner's language)
+    expect(wrong.body.error.message).toBe('비밀번호가 맞지 않습니다. 다시 입력해 주세요.')
     expect((await admin.try('POST', '/api/admin/transfer-ownership', { userId: t.id, password: OWNER_PW })).status).toBe(403)
     await owner.call('POST', '/api/admin/transfer-ownership', { userId: t.id, password: OWNER_PW })
     expect((await t.client.call('GET', '/api/me')).user.role).toBe('owner')
