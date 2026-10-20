@@ -227,6 +227,11 @@ describe('trash', () => {
     expect((await A.req(`/api/files/trash/${d.body.trashId}`, { method: 'DELETE', as: 'alice' })).status).toBe(403)
     expect((await A.req(`/api/files/trash/${d.body.trashId}`, { method: 'DELETE', as: 'carol' })).status).toBe(204)
     expect(A.ctx.db.query('SELECT 1 FROM trash_items WHERE id = ?').get(d.body.trashId)).toBeNull()
+    // an admin has no access to other people's users/<id>/: their trash cannot be purged by id either
+    write('users/bob/mine.md', 'b')
+    const own = await A.json('/api/files' + q({ path: 'users/bob/mine.md' }), { method: 'DELETE', as: 'bob' })
+    expect((await A.req(`/api/files/trash/${own.body.trashId}`, { method: 'DELETE', as: 'carol' })).status).toBe(404)
+    expect(A.ctx.db.query('SELECT 1 FROM trash_items WHERE id = ?').get(own.body.trashId)).not.toBeNull()
     write('shared/expire.md', 'e')
     const e = await A.json('/api/files' + q({ path: 'shared/expire.md' }), { method: 'DELETE', as: 'alice' })
     const storage = (A.ctx.db.query('SELECT storage_path FROM trash_items WHERE id = ?').get(e.body.trashId) as any).storage_path

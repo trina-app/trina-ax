@@ -16,10 +16,11 @@ export const jobsRoutes: RouteModule = {
   init(ctx) { startComponentC(ctx) },
   register(kit, ctx) {
     const C = componentC(ctx)
-    /** own job; the owner may see any job (backups etc. run without a person) */
+    /** own jobs only (design tab 4 "본인 작업만": a transcription result is that person's words); jobs that belong to
+     * nobody (system backups, updates) are the owner's */
     const visible = (id: string, auth: { user: { id: string; role: string } }) => {
       const owner = C.jobs.ownerOf(id)
-      if (owner === undefined || (owner !== auth.user.id && auth.user.role !== 'owner')) throw new HttpError('not_found')
+      if (owner === undefined || (owner === null ? auth.user.role !== 'owner' : owner !== auth.user.id)) throw new HttpError('not_found')
     }
     kit.handle(API.getJob, ({ params, auth }) => {
       visible(params.id, auth)

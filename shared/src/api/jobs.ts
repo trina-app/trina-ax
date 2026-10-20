@@ -14,7 +14,7 @@ export const TranscribeFields = z.object({
 })
 
 export const JOBS = {
-  getJob: endpoint({ method: 'GET', path: '/api/jobs/:id', auth: 'user', owner: 'C', response: Job, summary: 'Own job (owner: any job). Result when done.' }),
+  getJob: endpoint({ method: 'GET', path: '/api/jobs/:id', auth: 'user', owner: 'C', response: Job, summary: 'Own job (jobs of nobody, e.g. system backups: the owner). Result when done.' }),
   cancelJob: endpoint({ method: 'POST', path: '/api/jobs/:id/cancel', auth: 'user', owner: 'C', response: Job, summary: 'Cancel a queued or running own job.' }),
   transcribe: endpoint({ method: 'POST', path: '/api/transcribe', auth: 'user', owner: 'C', status: 202, body: multipart(TranscribeFields, SMALL_UPLOAD_MAX), response: JobAccepted, summary: 'Voice input / recordings up to 50 MB (larger: upload session with target transcribe). Result: TranscribeResult.' }),
 } as const

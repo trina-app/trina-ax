@@ -87,13 +87,17 @@ describe('job service', () => {
 })
 
 describe('jobs API', () => {
-  test('own jobs only (the owner sees all); cancel', async () => {
+  test('own jobs only (the owner only sees jobs that belong to nobody); cancel', async () => {
     const id = C().jobs.start({ kind: 'export', userId: 'bob', run: async (h) => { while (!h.signal.aborted) await Bun.sleep(10); return null } })
     await Bun.sleep(20)
     expect((await A.json(`/api/jobs/${id}`, { as: 'bob' })).body.status).toBe('running')
     expect((await A.json(`/api/jobs/${id}`, { as: 'alice' })).status).toBe(404)
     expect((await A.json(`/api/jobs/${id}`, { as: 'carol' })).status).toBe(404) // admin is not owner
-    expect((await A.json(`/api/jobs/${id}`, { as: 'dana' })).status).toBe(200)
+    expect((await A.json(`/api/jobs/${id}`, { as: 'dana' })).status).toBe(404) // a member's job (a transcript) is theirs alone
+    const sys = C().jobs.start({ kind: 'backup', userId: null, run: async () => null })
+    await C().jobs.wait(sys)
+    expect((await A.json(`/api/jobs/${sys}`, { as: 'dana' })).status).toBe(200)
+    expect((await A.json(`/api/jobs/${sys}`, { as: 'carol' })).status).toBe(404)
     expect((await A.json(`/api/jobs/${id}/cancel`, { method: 'POST', as: 'alice' })).status).toBe(404)
     expect((await A.json(`/api/jobs/${id}/cancel`, { method: 'POST', as: 'bob' })).status).toBe(200)
     expect((await C().jobs.wait(id))!.status).toBe('canceled')
