@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, WrongPasswordError, writeAtomic, zstdCompress, zstdDecompress } from '../../server/src/system/streams'
-import { checkArchiveName, extractTar, readTar, tarStream, type TarEntryInput } from '../../server/src/system/tar'
+import { checkArchiveName, extractTar, readTar, tarHeaders, tarStream, USTAR_MAX_SIZE, type TarEntryInput } from '../../server/src/system/tar'
 import { PRODUCT } from '@mycel/shared'
 import { WORK } from '../lib/env'
 
@@ -148,5 +148,73 @@ describe('zstd + age', () => {
     await expect(writeAtomic((async function* () { yield Buffer.from('x'); throw new Error('boom') })(), file)).rejects.toThrow('boom')
     expect(fs.existsSync(file)).toBe(false)
     expect(fs.readdirSync(W).some((n) => n.startsWith(PRODUCT.tmpPrefix))).toBe(false)
+  })
+})
+
+describe('tar review fixes', () => {
+  /** one raw 512-byte header block (ustar) with a valid checksum */
+  function rawHeader(name: string, size: number, type: string): Uint8Array {
+    const h = Buffer.alloc(512)
+    h.write(name, 0, 'utf8')
+    h.write('0000644\0', 100); h.write('0000000\0', 108); h.write('0000000\0', 116)
+    h.write(size.toString(8).padStart(11, '0') + '\0', 124); h.write('00000000000\0', 136)
+    h.fill(0x20, 148, 156); h.write(type, 156); h.write('ustar\0', 257); h.write('00', 263)
+    let sum = 0
+    for (const b of h) sum += b
+    h.write(sum.toString(8).padStart(6, '0') + '\0 ', 148)
+    return h
+  }
+  const pad = (n: number) => Buffer.alloc((512 - (n % 512)) % 512)
+  async function* chunks(...parts: Uint8Array[]) { for (const p of parts) yield p }
+
+  test('files over 8 GiB carry their exact size in the PAX header (the ustar field tops out)', () => {
+    const big = USTAR_MAX_SIZE + 12345
+    const blocks = tarHeaders('video.mov', big, 0o644, Date.now(), 'file')
+    const pax = Buffer.from(blocks[1]!).toString('utf8')
+    expect(pax).toContain(` size=${big}\n`)
+    expect(Buffer.from(tarHeaders('small', 10, 0o644, Date.now(), 'file')[1]!).toString('utf8')).not.toContain('size=')
+  })
+
+  test('the reader uses the PAX size over the ustar field', async () => {
+    const pax = Buffer.from('10 size=5\n', 'utf8')
+    const body = Buffer.from('hello')
+    const archive = [rawHeader('PaxHeader/x', pax.length, 'x'), pax, pad(pax.length), rawHeader('x.txt', 0, '0'), body, pad(5), Buffer.alloc(1024)]
+    const got: { name: string; size: number; data: string }[] = []
+    await readTar(chunks(...archive), async (e, b) => { got.push({ name: e.name, size: e.size, data: (await collect(b)).toString() }) })
+    expect(got).toEqual([{ name: 'x.txt', size: 5, data: 'hello' }])
+  })
+
+  test('a global PAX header with a huge size is refused, not buffered', async () => {
+    // zstd turns gigabytes of zeros into a few bytes: the old reader read the whole "header" into memory
+    const archive = zstdCompress(chunks(rawHeader('pax_global_header', 2 ** 32, 'g'), Buffer.alloc(4 << 20)))
+    const before = process.memoryUsage().rss
+    await expect(readTar(zstdDecompress(archive), async () => {})).rejects.toThrow(/too large/)
+    expect(process.memoryUsage().rss - before).toBeLessThan(512 << 20)
+  })
+
+  test('a folder entry with a body is refused', async () => {
+    await expect(readTar(chunks(rawHeader('d/', 5, '5'), Buffer.from('abcde'), pad(5), Buffer.alloc(1024)), async () => {})).rejects.toThrow(/folder entry/)
+  })
+
+  test('when the consumer stops early, the source generator is closed (open files released)', async () => {
+    let closed = false
+    async function* src() { try { for (let i = 0; i < 1000; i++) yield crypto.getRandomValues(new Uint8Array(64 * 1024)) } finally { closed = true } }
+    for await (const _ of zstdCompress(src())) break
+    for (let i = 0; i < 50 && !closed; i++) await Bun.sleep(10)
+    expect(closed).toBe(true)
+  })
+
+  test('extract with replace: a folder becomes a file and a file becomes a folder', async () => {
+    const dest = path.join(W, 'replace')
+    fs.mkdirSync(path.join(dest, 'was-dir', 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(dest, 'was-dir', 'sub', 'f'), 'x')
+    fs.writeFileSync(path.join(dest, 'was-file'), 'y')
+    const tar = tarStream([
+      { name: 'was-dir', type: 'file', data: Buffer.from('now a file') },
+      { name: 'was-file/inner.txt', type: 'file', data: Buffer.from('now inside a folder') },
+    ])
+    await extractTar(tar, dest, { replace: true })
+    expect(fs.readFileSync(path.join(dest, 'was-dir'), 'utf8')).toBe('now a file')
+    expect(fs.readFileSync(path.join(dest, 'was-file', 'inner.txt'), 'utf8')).toBe('now inside a folder')
   })
 })

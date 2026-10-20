@@ -22,18 +22,21 @@ async function* fromNode(r: NodeJS.ReadableStream): AsyncGenerator<Uint8Array> {
   for await (const c of r as AsyncIterable<unknown>) yield asUint8(c)
 }
 
-export function zstdCompress(src: Bytes, level = 3): Bytes {
-  const z = zlib.createZstdCompress({ params: { [zlib.constants.ZSTD_c_compressionLevel]: level } })
+/** src -> transform; when the consumer stops early (error, break) the source generator is closed too, so files it
+ * has open (tarStream) are released instead of waiting forever in a suspended generator. */
+function through(src: Bytes, z: NodeJS.ReadWriteStream & { destroy(e?: Error): void }): Bytes {
   const input = Readable.from(src)
   input.on('error', (e) => z.destroy(e))
+  ;(z as unknown as NodeJS.EventEmitter).on('close', () => { if (!input.destroyed) input.destroy() })
   return fromNode(input.pipe(z))
 }
 
+export function zstdCompress(src: Bytes, level = 3): Bytes {
+  return through(src, zlib.createZstdCompress({ params: { [zlib.constants.ZSTD_c_compressionLevel]: level } }))
+}
+
 export function zstdDecompress(src: Bytes): Bytes {
-  const z = zlib.createZstdDecompress()
-  const input = Readable.from(src)
-  input.on('error', (e) => z.destroy(e))
-  return fromNode(input.pipe(z))
+  return through(src, zlib.createZstdDecompress())
 }
 
 function toWebStream(src: Bytes): ReadableStream<Uint8Array> {

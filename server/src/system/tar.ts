@@ -8,6 +8,10 @@ import path from 'node:path'
 
 const BLOCK = 512
 const CHUNK = 1 << 20
+/** largest size the 12-byte octal ustar field can hold */
+export const USTAR_MAX_SIZE = 8 ** 11 - 1
+/** PAX extended / global headers are small key=value lists; anything bigger is refused (never buffered) */
+const PAX_MAX = 1 << 20
 
 export interface TarEntryInput {
   /** archive path, forward slashes, no leading slash */
@@ -27,6 +31,11 @@ export interface TarWritten { name: string; size: number; mtimeMs: number; chang
 function octal(n: number, len: number): string {
   const s = Math.floor(n).toString(8)
   return s.length >= len ? '7'.repeat(len - 1) : s.padStart(len - 1, '0')
+}
+
+/** Header block(s) for one entry (exported for the format tests). */
+export function tarHeaders(name: string, size: number, mode: number, mtimeMs: number, type: 'file' | 'dir'): Uint8Array[] {
+  return entryHeaders(name, size, mode, mtimeMs, type)
 }
 
 function writeStr(buf: Uint8Array, off: number, len: number, s: string) {
@@ -66,7 +75,9 @@ function entryHeaders(name: string, size: number, mode: number, mtimeMs: number,
   const out: Uint8Array[] = []
   const fullName = type === 'dir' && !name.endsWith('/') ? name + '/' : name
   const ascii = /^[\x20-\x7e]*$/.test(fullName) && Buffer.byteLength(fullName) <= 99
+  // the ustar size field holds at most 8^11 - 1 bytes (8 GiB); bigger files carry their exact size in the PAX header
   const pax = paxRecord('mtime', (Math.floor(mtimeMs) / 1000).toFixed(3)) + (ascii ? '' : paxRecord('path', fullName))
+    + (type === 'file' && size > USTAR_MAX_SIZE ? paxRecord('size', String(size)) : '')
   const paxBytes = Buffer.from(pax, 'utf8')
   out.push(header('PaxHeader/' + (ascii ? fullName : 'entry').slice(0, 80), paxBytes.length, 0o644, mtimeMs / 1000, 'x'), paxBytes, pad(paxBytes.length))
   const shortName = ascii ? fullName : Buffer.from(fullName, 'utf8').subarray(0, 99).toString('utf8').replace(/�+$/, '')
@@ -197,7 +208,7 @@ export async function readTar(src: AsyncIterable<Uint8Array>, onEntry: (e: TarEn
     const size = parseOctal(h, 124, 12)
     const padLen = (BLOCK - (size % BLOCK)) % BLOCK
     if (type === 'x') {
-      if (size > 1 << 20) throw new Error('PAX header too large')
+      if (size > PAX_MAX) throw new Error('PAX header too large')
       const body = Buffer.from(await r.read(size))
       await r.read(padLen)
       pax = {}
@@ -213,29 +224,58 @@ export async function readTar(src: AsyncIterable<Uint8Array>, onEntry: (e: TarEn
       }
       continue
     }
-    if (type === 'g') { await r.read(size + padLen); continue }
+    if (type === 'g') {
+      // global header: ignored, but skipped as a stream (a crafted size must not make us buffer it)
+      if (size > PAX_MAX) throw new Error('PAX global header too large')
+      for await (const _ of r.take(size + padLen)) { /* skip */ }
+      continue
+    }
     const prefix = cstr(h, 345, 155)
     const rawName = pax.path ?? (prefix ? prefix + '/' + cstr(h, 0, 100) : cstr(h, 0, 100))
     const mtimeMs = pax.mtime ? Math.round(parseFloat(pax.mtime) * 1000) : parseOctal(h, 136, 12) * 1000
+    let fileSize = size
+    if (pax.size !== undefined) {
+      if (!/^[0-9]{1,16}$/.test(pax.size)) throw new Error('bad PAX size')
+      fileSize = Number(pax.size)
+    }
     pax = {}
     if (type !== '0' && type !== '\0' && type !== '5') throw new Error(`unsupported archive entry type ${JSON.stringify(type)} for ${rawName}`)
-    const entry: TarEntryOut = { name: checkArchiveName(rawName), type: type === '5' ? 'dir' : 'file', size: type === '5' ? 0 : size, mode: parseOctal(h, 100, 8), mtimeMs }
+    if (!Number.isSafeInteger(fileSize) || fileSize < 0) throw new Error(`bad entry size for ${rawName}`)
+    if (type === '5' && fileSize !== 0) throw new Error(`folder entry with a body: ${rawName}`)
+    const entry: TarEntryOut = { name: checkArchiveName(rawName), type: type === '5' ? 'dir' : 'file', size: type === '5' ? 0 : fileSize, mode: parseOctal(h, 100, 8), mtimeMs }
+    const bodyPad = (BLOCK - (entry.size % BLOCK)) % BLOCK
     let consumed = 0
     const body = (async function* () { for await (const c of r.take(entry.size)) { consumed += c.byteLength; yield c } })()
     await onEntry(entry, body)
     if (consumed < entry.size) for await (const _ of r.take(entry.size - consumed)) { /* skip */ }
-    if (entry.type === 'file') await r.read(padLen)
+    if (entry.type === 'file') await r.read(bodyPad)
     count++
   }
 }
 
-/** Extract a tar stream into `dest` (which must exist): regular files 0600/0644 as recorded, folders 0700/0755. */
-export async function extractTar(src: AsyncIterable<Uint8Array>, dest: string, o: { filter?: (name: string) => boolean } = {}): Promise<number> {
+/**
+ * Extract a tar stream into `dest` (which must exist): regular files 0600/0644 as recorded, folders 0700/0755.
+ * `replace`: a file entry may replace a folder of the same name that is already in `dest` (layering incremental
+ * backups: a folder that became a file).
+ */
+export async function extractTar(src: AsyncIterable<Uint8Array>, dest: string, o: { filter?: (name: string) => boolean; replace?: boolean } = {}): Promise<number> {
   const root = path.resolve(dest)
   return readTar(src, async (e, body) => {
     if (o.filter && !o.filter(e.name)) return
     const target = path.join(root, e.name)
     if (target !== root && !target.startsWith(root + path.sep)) throw new Error(`unsafe archive path: ${e.name}`)
+    if (o.replace) {
+      // a path component that is a file where the archive needs a folder, or a folder where it needs a file
+      const segs = e.name.split('/')
+      for (let i = 1; i <= segs.length; i++) {
+        const p = path.join(root, ...segs.slice(0, i))
+        const st = await fsp.lstat(p).catch(() => null)
+        if (!st) break
+        const wantDir = i < segs.length || e.type === 'dir'
+        if (wantDir && !st.isDirectory()) { await fsp.rm(p, { force: true }); break }
+        if (!wantDir && st.isDirectory()) await fsp.rm(p, { recursive: true, force: true })
+      }
+    }
     if (e.type === 'dir') {
       await fsp.mkdir(target, { recursive: true, mode: 0o700 })
       await fsp.chmod(target, (e.mode & 0o755) || 0o700) // never group/world-writable
