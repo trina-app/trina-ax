@@ -10,6 +10,7 @@ import { buildApp } from './app'
 import { createContext, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { createLogger, type Logger } from './log'
+import { applyPendingRestore } from './system/backup'
 
 /** Exit codes the menubar app / launchd wrapper understand. */
 export const EXIT = { ok: 0, config: 78, schemaTooNew: 75, startFailed: 1 } as const
@@ -30,6 +31,7 @@ export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve
 
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
+  applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())

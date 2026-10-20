@@ -1,0 +1,72 @@
+// Diagnostics wording in the three UI languages (ko default). Component G. "What to do about it" lines are written
+// for a non-technical owner: what is wrong, then what to try.
+import type { Locale } from '@mycel/shared/api'
+
+type T = { ko: string; en: string; id: string }
+export const tr = (l: Locale, t: T) => t[l] ?? t.ko
+
+const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
+
+export const M = {
+  server: { ko: '서버', en: 'Server', id: 'Server' },
+  serverDetail: (v: string, up: string): T => ({ ko: `버전 ${v}, ${up} 동안 실행 중`, en: `Version ${v}, running for ${up}`, id: `Versi ${v}, berjalan selama ${up}` }),
+
+  relay: { ko: '원격 접속(중계 서버)', en: 'Remote access (relay)', id: 'Akses jarak jauh (relay)' },
+  relayOff: { ko: '중계 서버 연결이 설정되지 않았습니다. 사무실 안에서만 접속할 수 있습니다. 설정 > 연결에서 켤 수 있습니다.', en: 'No relay connection is set up, so the team can only connect from the office network. Turn it on in Settings > Connection.', id: 'Koneksi relay belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan di Pengaturan > Koneksi.' },
+  relayConnecting: { ko: '중계 서버에 연결하는 중입니다. 몇 분이 지나도 그대로면 인터넷 연결을 확인해 주세요.', en: 'Connecting to the relay. If this stays for a few minutes, check the internet connection.', id: 'Sedang terhubung ke relay. Jika tetap begini beberapa menit, periksa koneksi internet.' },
+  relayOffline: { ko: '중계 서버에 연결되지 않습니다. 맥의 인터넷 연결을 확인해 주세요. 사무실 안 직접 연결은 계속 됩니다.', en: 'Cannot reach the relay. Check the Mac\'s internet connection. Direct connections in the office still work.', id: 'Tidak dapat menjangkau relay. Periksa koneksi internet Mac. Koneksi langsung di kantor tetap berfungsi.' },
+  relayReplaced: { ko: '다른 맥의 서버가 같은 팀 주소로 연결해 이 서버의 연결을 대신했습니다. 의도한 일이 아니면 팀 키를 바꿔 주세요.', en: 'A server on another Mac connected with this team\'s address and replaced this one. If you did not do this, rotate the team key.', id: 'Server di Mac lain terhubung dengan alamat tim ini dan menggantikan server ini. Jika bukan Anda, ganti kunci tim.' },
+
+  diskTeam: { ko: '디스크 여유 공간(팀 폴더)', en: 'Free disk space (team folder)', id: 'Ruang disk kosong (folder tim)' },
+  diskData: { ko: '디스크 여유 공간(서버 데이터)', en: 'Free disk space (server data)', id: 'Ruang disk kosong (data server)' },
+  diskLow: (free: number, pct: number): T => ({ ko: `남은 공간 ${gb(free)} (${pct}%). 15% 아래입니다. 휴지통 비우기·오래된 버전 정리로 공간을 늘려 주세요.`, en: `${gb(free)} free (${pct}%), below 15%. Empty the trash or clean up old versions.`, id: `${gb(free)} kosong (${pct}%), di bawah 15%. Kosongkan tempat sampah atau hapus versi lama.` }),
+  diskReadOnly: (free: number): T => ({ ko: `남은 공간 ${gb(free)}. 공간이 부족해 새 질문·업로드·파일 쓰기를 막는 '읽기 전용' 단계입니다. 공간을 비워 주세요.`, en: `${gb(free)} free. The server is in read-only mode (no new questions, uploads or file writes) until space is freed.`, id: `${gb(free)} kosong. Server dalam mode baca-saja sampai ruang dikosongkan.` }),
+  diskOk: (free: number, pct: number): T => ({ ko: `${gb(free)} 남음 (${pct}%)`, en: `${gb(free)} free (${pct}%)`, id: `${gb(free)} kosong (${pct}%)` }),
+
+  engineClaude: { ko: 'AI 엔진: Claude Code', en: 'AI engine: Claude Code', id: 'Mesin AI: Claude Code' },
+  engineCodex: { ko: 'AI 엔진: Codex', en: 'AI engine: Codex', id: 'Mesin AI: Codex' },
+  engineOk: (m: string | null): T => ({ ko: `로그인됨${m ? ` (${m})` : ''}`, en: `Signed in${m ? ` (${m})` : ''}`, id: `Sudah masuk${m ? ` (${m})` : ''}` }),
+  engineNotInstalled: { ko: '설치되어 있지 않습니다.', en: 'Not installed.', id: 'Tidak terpasang.' },
+  engineNotLoggedIn: { ko: '로그인되어 있지 않습니다. 설치 마법사의 \'AI 구독 연결\'을 다시 해 주세요.', en: 'Not signed in. Run "Connect AI subscription" in the setup assistant again.', id: 'Belum masuk. Jalankan lagi "Hubungkan langganan AI" di asisten penyiapan.' },
+  engineSetupToken: { ko: 'Claude 구독 장기 토큰이 없습니다. owner가 메뉴바 앱에서 \'AI 구독 연결\'(claude setup-token)을 해야 엔진 계정으로 AI가 동작합니다.', en: 'No long-lived Claude subscription token. The owner has to run "Connect AI subscription" (claude setup-token) in the menubar app.', id: 'Tidak ada token langganan Claude jangka panjang. Owner perlu menjalankan "Hubungkan langganan AI" (claude setup-token) di aplikasi menubar.' },
+  engineCodexLogin: { ko: 'Codex는 엔진 계정 전용 로그인(codex login --device-auth)이 필요합니다. 설치 마법사의 \'AI 구독 연결\'에서 진행해 주세요.', en: 'Codex needs its own engine-account login (codex login --device-auth). Do it in "Connect AI subscription".', id: 'Codex memerlukan login akun mesin sendiri (codex login --device-auth). Lakukan di "Hubungkan langganan AI".' },
+  engineCheckFailed: { ko: '로그인 상태를 확인하지 못했습니다. 잠시 뒤 다시 확인해 주세요.', en: 'Could not check the sign-in state. Try again in a moment.', id: 'Tidak dapat memeriksa status masuk. Coba lagi sebentar lagi.' },
+
+  queue: { ko: '대기열', en: 'Queue', id: 'Antrean' },
+  queueDetail: (r: number, q: number, c: number): T => ({ ko: `실행 중 ${r}개, 대기 ${q}개 (동시 실행 ${c}개까지)`, en: `${r} running, ${q} waiting (up to ${c} at once)`, id: `${r} berjalan, ${q} menunggu (maks ${c} sekaligus)` }),
+  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 설정에서 동시 실행 수를 늘려 보세요.`, en: `${q} questions are waiting. If this lasts, raise the concurrency in Settings.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan jumlah eksekusi bersamaan di Pengaturan.` }),
+
+  firewall: { ko: 'AI 엔진 방화벽(pf)', en: 'AI engine firewall (pf)', id: 'Firewall mesin AI (pf)' },
+  firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${n} rules`, id: `Aktif, ${n} aturan` }),
+  firewallDev: { ko: '개발 모드: AI 엔진이 현재 사용자로 실행되어 엔진 계정 방화벽을 쓰지 않습니다.', en: 'Development mode: the AI engine runs as the current user, so the engine-account firewall is not used.', id: 'Mode pengembangan: mesin AI berjalan sebagai pengguna saat ini, firewall akun mesin tidak dipakai.' },
+  firewallMissing: { ko: '방화벽 규칙 파일이 없습니다. 메뉴바 앱의 \'방화벽 복구\'(관리자 비밀번호)를 실행해 주세요. 복구 전에는 새 질문을 받지 않습니다.', en: 'The firewall rule file is missing. Run "Repair firewall" in the menubar app (admin password). New questions are refused until then.', id: 'Berkas aturan firewall hilang. Jalankan "Perbaiki firewall" di aplikasi menubar (kata sandi admin).' },
+  firewallStale: { ko: '방화벽 상태가 15분 넘게 갱신되지 않았습니다. 메뉴바 앱의 \'방화벽 복구\'를 실행해 주세요.', en: 'The firewall status has not been refreshed for over 15 minutes. Run "Repair firewall" in the menubar app.', id: 'Status firewall tidak diperbarui lebih dari 15 menit. Jalankan "Perbaiki firewall" di aplikasi menubar.' },
+  firewallOff: (why: string): T => ({ ko: `방화벽이 꺼져 있습니다(${why}). 다른 보안·VPN 앱이 pf를 바꿨을 수 있습니다. 메뉴바 앱의 '방화벽 복구'를 실행해 주세요.`, en: `The firewall is off (${why}). Another security or VPN app may have changed pf. Run "Repair firewall" in the menubar app.`, id: `Firewall mati (${why}). Aplikasi keamanan/VPN lain mungkin mengubah pf. Jalankan "Perbaiki firewall".` }),
+
+  sandbox: { ko: 'AI 엔진 샌드박스', en: 'AI engine sandbox', id: 'Sandbox mesin AI' },
+  sandboxOk: { ko: '모든 엔진 실행에 적용됨', en: 'Applied to every engine run', id: 'Diterapkan ke setiap eksekusi mesin' },
+  sandboxDev: { ko: '개발 모드: 엔진 실행기를 서버가 직접 띄우며 샌드박스 프로필을 쓰지 않습니다.', en: 'Development mode: the server starts the engine launcher itself without the sandbox profile.', id: 'Mode pengembangan: server menjalankan peluncur mesin tanpa profil sandbox.' },
+  sandboxMissing: { ko: '샌드박스 프로필이 없거나 실행기 설정에 빠져 있습니다. 메뉴바 앱에서 \'관리자 비밀번호가 필요한 업데이트\'(설치 다시 하기)를 실행해 주세요.', en: 'The sandbox profile is missing or not used by the launcher. Run the admin-password update (reinstall) from the menubar app.', id: 'Profil sandbox hilang atau tidak dipakai peluncur. Jalankan pembaruan dengan kata sandi admin dari aplikasi menubar.' },
+
+  launcher: { ko: 'AI 엔진 실행기', en: 'AI engine launcher', id: 'Peluncur mesin AI' },
+  launcherOk: { ko: '연결됨', en: 'Connected', id: 'Terhubung' },
+  launcherDown: { ko: '실행기에 연결할 수 없습니다. 맥을 다시 시작하거나 메뉴바 앱의 \'설치 다시 하기\'를 실행해 주세요.', en: 'Cannot reach the engine launcher. Restart the Mac or run "Reinstall" from the menubar app.', id: 'Tidak dapat menjangkau peluncur mesin. Mulai ulang Mac atau jalankan "Pasang ulang" dari aplikasi menubar.' },
+
+  backups: { ko: '백업', en: 'Backups', id: 'Cadangan' },
+  backupNone: { ko: '아직 백업이 없습니다. 매일 새벽 3시에 자동으로 만들어집니다. 지금 만들려면 \'지금 백업\'을 누르세요.', en: 'No backup yet. One is made every night at 03:00; use "Back up now" to make one now.', id: 'Belum ada cadangan. Dibuat otomatis setiap pukul 03:00; gunakan "Cadangkan sekarang".' },
+  backupOld: (h: number): T => ({ ko: `마지막 백업이 ${h}시간 전입니다. 서버가 새벽에 꺼져 있었는지 확인하고 '지금 백업'을 눌러 주세요.`, en: `The last backup is ${h} hours old. Check that the server was on overnight and use "Back up now".`, id: `Cadangan terakhir ${h} jam yang lalu. Pastikan server menyala semalam dan gunakan "Cadangkan sekarang".` }),
+  backupOk: (when: string, scope: string): T => ({ ko: `마지막 백업 ${when} (${scope})`, en: `Last backup ${when} (${scope})`, id: `Cadangan terakhir ${when} (${scope})` }),
+  backupFailed: (msg: string): T => ({ ko: `마지막 백업이 실패했습니다: ${msg}`, en: `The last backup failed: ${msg}`, id: `Cadangan terakhir gagal: ${msg}` }),
+  restoreFailed: (msg: string): T => ({ ko: `백업 복원이 실패해 기존 데이터를 그대로 두었습니다: ${msg}`, en: `Restoring a backup failed; the existing data was kept: ${msg}`, id: `Pemulihan cadangan gagal; data yang ada dipertahankan: ${msg}` }),
+  timeMachine: { ko: 'Time Machine 제외 항목', en: 'Time Machine exclusions', id: 'Pengecualian Time Machine' },
+  timeMachineOk: { ko: '비밀값·엔진 폴더가 Time Machine에서 빠져 있습니다.', en: 'Secrets and engine folders are excluded from Time Machine.', id: 'Rahasia dan folder mesin dikecualikan dari Time Machine.' },
+  timeMachineMissing: { ko: '비밀값·엔진 폴더가 Time Machine 백업에 들어갈 수 있습니다. 메뉴바 앱의 \'설치 다시 하기\'를 실행해 주세요.', en: 'Secrets or engine folders may be included in Time Machine. Run "Reinstall" from the menubar app.', id: 'Rahasia atau folder mesin mungkin masuk Time Machine. Jalankan "Pasang ulang".' },
+
+  update: { ko: '업데이트', en: 'Updates', id: 'Pembaruan' },
+  updateOk: (v: string): T => ({ ko: `버전 ${v}`, en: `Version ${v}`, id: `Versi ${v}` }),
+  updateRolledBack: (to: string, why: string): T => ({ ko: `새 버전이 정상적으로 켜지지 않아 ${to}(으)로 되돌렸습니다: ${why}`, en: `The new version did not start properly, so the server went back to ${to}: ${why}`, id: `Versi baru tidak berjalan dengan baik, server kembali ke ${to}: ${why}` }),
+  updateDev: { ko: '개발 모드에서는 업데이트를 쓰지 않습니다.', en: 'Updates are not used in development mode.', id: 'Pembaruan tidak dipakai di mode pengembangan.' },
+  releaseSig: { ko: '릴리스 서명', en: 'Release signature', id: 'Tanda tangan rilis' },
+  releaseUnsigned: { ko: '이 설치본은 릴리스 서명이 없는 개발·시험 빌드입니다(릴리스 서명 키가 아직 없음). 파일 무결성(sha256)만 확인합니다.', en: 'This is an unsigned development/test build (no release signing key yet). Only file integrity (sha256) is checked.', id: 'Ini build pengembangan/uji tanpa tanda tangan (belum ada kunci rilis). Hanya integritas berkas (sha256) yang diperiksa.' },
+  releaseSigned: { ko: '서명 확인됨', en: 'Signature verified', id: 'Tanda tangan terverifikasi' },
+}

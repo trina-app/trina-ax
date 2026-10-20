@@ -15,6 +15,7 @@ export const Health = z.object({
 export type Health = z.infer<typeof Health>
 
 export const CheckStatus = z.enum(['ok', 'warn', 'fail', 'unknown'])
+export type CheckStatus = z.infer<typeof CheckStatus>
 export const DiagnosticCheck = z.object({
   id: z.string(),
   /** e.g. relay, disk, engines, queue, pf_anchor, sandbox, backups, clock, launcher, tools_gate */
@@ -24,6 +25,7 @@ export const DiagnosticCheck = z.object({
   /** what to do about it, in the user's language */
   detail: z.string().nullable(),
 })
+export type DiagnosticCheck = z.infer<typeof DiagnosticCheck>
 export const Diagnostics = z.object({
   version: z.string(),
   host: z.object({ os: z.string(), arch: z.string(), hostname: z.string() }),
@@ -42,6 +44,7 @@ export const UpdateStatus = z.object({
   /** previous version kept for roll-back */
   previous: z.string().nullable(),
 })
+export type UpdateStatus = z.infer<typeof UpdateStatus>
 export const ReauthBody = z.object({ password: z.string().min(1).max(256) })
 export const StartUpdateBody = ReauthBody.extend({
   /** default: the available version; 'rollback' = switch back to the previous version */
@@ -57,12 +60,15 @@ export const BackupInfo = z.object({
   /** includes the team folder (full or incremental) or only the DB */
   scope: z.enum(['db', 'full', 'incremental']),
 })
+export type BackupInfo = z.infer<typeof BackupInfo>
 export const StartBackupBody = z.object({ scope: z.enum(['db', 'full']).default('full') })
 export const StartRestoreBody = ReauthBody.extend({ backupId: z.string().min(1).max(200) })
 /** Export (tab 6): chats as Markdown, memories as CSV, the team folder as is. Written to users/<owner>/exports/. */
 export const StartExportBody = z.object({ what: z.array(z.enum(['chats', 'memories', 'files'])).min(1), password: z.string().min(8).max(256).optional() })
+export type StartExportBody = z.infer<typeof StartExportBody>
 
 export const ConnectionMode = z.enum(['relay', 'self-relay', 'cloudflare', 'tailscale', 'direct-only'])
+export type ConnectionMode = z.infer<typeof ConnectionMode>
 export const ConnectionStatus = z.object({
   mode: ConnectionMode,
   /** team address, e.g. https://acme.treesoop.com (dev: http://acme.localhost:19100) */
