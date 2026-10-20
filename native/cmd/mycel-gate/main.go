@@ -25,12 +25,14 @@ func main() {
 	listen := flag.String("listen", "", "public socket path (tools.sock)")
 	upstream := flag.String("upstream", "", "server private socket path")
 	mode := flag.String("mode", "0600", "socket file mode (octal)")
+	exitWithParent := flag.Bool("exit-with-parent", false, "exit when stdin closes after the secret (the starting server is gone, even after kill -9)")
 	flag.Parse()
 	if *listen == "" || *upstream == "" {
 		fmt.Fprintln(os.Stderr, "usage: mycel-gate --listen <tools.sock> --upstream <server.sock> [--mode 0660] < secret")
 		os.Exit(2)
 	}
-	secret, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	in := bufio.NewReader(os.Stdin)
+	secret, err := in.ReadString('\n')
 	secret = strings.TrimSpace(secret)
 	if err != nil && secret == "" || len(secret) < 32 {
 		fmt.Fprintln(os.Stderr, "mycel-gate: secret missing on stdin")
@@ -44,6 +46,10 @@ func main() {
 	}
 	m, _ := strconv.ParseUint(*mode, 8, 32)
 	_ = os.Chmod(*listen, os.FileMode(m))
+	if *exitWithParent {
+		// the socket file stays: the next gate replaces it (removing it here could remove a newer gate's socket)
+		go func() { _, _ = io.Copy(io.Discard, in); os.Exit(0) }()
+	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sigs; _ = os.Remove(*listen); os.Exit(0) }()

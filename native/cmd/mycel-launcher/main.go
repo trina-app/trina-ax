@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -153,7 +154,33 @@ var (
 	sandboxProfile = flag.String("sandbox-profile", "", "macOS: sandbox-exec profile every engine runs under")
 	proxyPort      = flag.Int("proxy-port", 0, "model proxy port the sandbox allows (127.0.0.1)")
 	localLogin     = flag.Bool("local-login", false, "sandbox: also allow the account's own ~/.claude, ~/.codex, login keychain and direct HTTPS (dev / owner login mode)")
+	// the server starts this launcher itself (dev / local-login) and holds our stdin open: when the server dies, even
+	// by kill -9, the pipe closes and we stop every turn and exit instead of staying behind as an orphan
+	exitWithParent = flag.Bool("exit-with-parent", false, "stop all turns and exit when stdin closes (the starting server is gone)")
 )
+
+// stopAllAndExit ends every live turn (SIGTERM to its process group, SIGKILL after 5 s) and exits.
+func stopAllAndExit() {
+	groups := func() []int {
+		live.mu.Lock()
+		defer live.mu.Unlock()
+		out := make([]int, 0, len(live.m))
+		for p := range live.m {
+			out = append(out, p)
+		}
+		return out
+	}
+	for _, p := range groups() {
+		_ = syscall.Kill(-p, syscall.SIGTERM)
+	}
+	for deadline := time.Now().Add(5 * time.Second); len(groups()) > 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	for _, p := range groups() {
+		_ = syscall.Kill(-p, syscall.SIGKILL)
+	}
+	os.Exit(0)
+}
 
 const sandboxExec = "/usr/bin/sandbox-exec"
 
@@ -226,6 +253,9 @@ func main() {
 		}
 		killLeftovers() // leftovers of a previous launcher (setsid escapees, crashed turns)
 		go reaper()
+	}
+	if *exitWithParent {
+		go func() { _, _ = io.Copy(io.Discard, os.Stdin); stopAllAndExit() }()
 	}
 	_ = os.Remove(*listen)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *listen, Net: "unix"})
