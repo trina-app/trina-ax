@@ -28,7 +28,7 @@ beforeAll(async () => {
     { tool: 'ask_user', args: { question: 'SECRET-QUESTION-55?' } },
   ) } })
   ids.turn = r.turnId
-  ids.userMessage = r.userMessage.id
+  ids.userMessage = r.userMessage!.id
   ids.assistant = r.assistantMessage.id
   const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
   ids.request = card.data.request.requestId

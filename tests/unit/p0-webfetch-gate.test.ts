@@ -9,6 +9,7 @@ import { ToolError } from '../../server/src/policy/errors'
 import { fixPromptError } from '../../web/src/lib/artifacts'
 import { isLocalAddress, ownNetworks, resolveTarget } from '../../server/src/tools/web-fetch'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { egressOf, noteEgressIp, MAX_EGRESS_IPS } from '../../server/src/tools/egress'
 
 setDefaultTimeout(30_000)
 
@@ -135,6 +136,37 @@ describe('gateUrl', () => {
     rememberUrls(h.ctx.db, chat, ['https://gone.example/'])
     h.rt().purgeChat(chat)
     expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ?').get(chat)).toEqual({ n: 0 })
+  })
+})
+
+describe("the office's public exit address (design tab 7 \"내부망 공격\")", () => {
+  const lookup = (address: string) => async () => [{ address, family: address.includes(':') ? 6 : 4 }]
+  test('a name or a literal that points to it is refused, in any spelling', async () => {
+    const blockedIps = () => ['203.0.113.77'.replace('203.0.113', '93.184.216'), '2a01:4f8::1']
+    expect(resolveTarget('http://router.example/', { lookup: lookup('93.184.216.77'), blockedIps })).rejects.toThrow(/own public address/)
+    expect(resolveTarget('http://93.184.216.77/admin', { blockedIps })).rejects.toThrow(/own public address/)
+    expect(resolveTarget('http://[::ffff:93.184.216.77]/', { blockedIps })).rejects.toThrow(/own public address/)
+    expect(resolveTarget('https://nas.example/', { lookup: lookup('2A01:4F8::1'), blockedIps })).rejects.toThrow(/own public address/)
+    expect((await resolveTarget('http://other.example/', { lookup: lookup('93.184.216.78'), blockedIps })).ip).toBe('93.184.216.78')
+  })
+  test('addresses the relay reported are kept per server, newest first, bounded', () => {
+    const ctx = {}
+    expect(egressOf(ctx)).toEqual({ known: false, ips: [] })
+    noteEgressIp(ctx, '::ffff:93.184.216.77')
+    noteEgressIp(ctx, '93.184.216.77')
+    expect(egressOf(ctx)).toEqual({ known: true, ips: ['93.184.216.77'] })
+    for (let i = 0; i < 20; i++) noteEgressIp(ctx, `93.184.216.${i}`)
+    expect(egressOf(ctx).ips).toHaveLength(MAX_EGRESS_IPS)
+    expect(egressOf(ctx).ips[0]).toBe('93.184.216.19')
+  })
+  test('while it is unknown every URL needs the person, even one the person typed', async () => {
+    const chat = await chatWith('read https://docs.example/known')
+    const asked: string[] = []
+    expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/known', person(true, asked), { egressKnown: false })).toBe('confirmed')
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toContain('public address')
+    expect(gateUrl(h.ctx.db, chat, 'https://docs.example/known', null, { egressKnown: false })).rejects.toThrow(/nobody can confirm/)
+    expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/known', person(false), { egressKnown: true })).toBe('seen')
   })
 })
 

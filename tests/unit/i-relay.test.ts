@@ -10,6 +10,7 @@ import type { AppConfig } from '../../server/src/app-config'
 import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
+import { egressOf } from '../../server/src/tools/egress'
 import { F_WORK, startRelay, teamUrl, until, type InProcessRelay } from '../lib/f-relay'
 
 const PORT = 19169
@@ -109,4 +110,8 @@ test('relayConn: binary messages arrive as text, a late onClose runs at once, se
   let late = 0
   conn.onClose(() => late++)
   expect(late).toBe(1)
+})
+
+test("the relay tells the team server the address it connected from; web_fetch then knows the office's exit address", () => {
+  expect(egressOf(ctx)).toEqual({ known: true, ips: ['127.0.0.1'] })
 })

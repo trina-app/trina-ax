@@ -9,6 +9,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
 import { toolRegistry } from './registry'
+import { egressOf } from './egress'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
 import { resolveTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 
@@ -100,10 +101,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
     async run(a, t) {
       // the address rules first (a private target is refused without bothering the person), then where the URL came
       // from: an address the conversation never showed needs the person's OK (design tab 7, server/src/tools/url-gate.ts)
-      await resolveTarget(a.url, o.fetch)
+      const blockedIps = () => egressOf(ctx).ips
+      await resolveTarget(a.url, { ...o.fetch, blockedIps })
       const chatId = t.turnId ? (ctx.db.query('SELECT chat_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
-      const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null)
-      const r = await webFetch(a.url, { ...o.fetch, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext })
+      const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown: egressOf(ctx).known })
+      const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext })
       ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
       // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result")
       if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)])

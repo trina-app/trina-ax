@@ -64,6 +64,17 @@ export function parseV6(s: string): number[] | null {
   return head.length === 8 ? head : null
 }
 
+/** One spelling per address, for comparing: IPv4 as a.b.c.d (also when written IPv4-mapped in IPv6, any form), IPv6
+ * as 8 full lower-case groups. Anything else is returned trimmed and lower-cased. */
+export function normIp(ip: string): string {
+  const s = ip.trim().toLowerCase()
+  if (v4(s) !== null) return s
+  const g = parseV6(s)
+  if (!g) return s
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return `${g[6]! >>> 8}.${g[6]! & 255}.${g[7]! >>> 8}.${g[7]! & 255}`
+  return g.map((x) => x.toString(16).padStart(4, '0')).join(':')
+}
+
 /** true when `ip` (v4 or v6 text) is a global unicast address we may connect to. */
 export function isPublicAddress(ip: string): boolean {
   const n4 = v4(ip)
@@ -154,6 +165,8 @@ export interface ResolveOptions {
   testAllow?: (ip: string) => boolean
   /** epoch ms: the name lookup gives up then (getaddrinfo itself can hang far longer than the fetch limit) */
   deadline?: number
+  /** the office's public exit addresses (relay-reported, tools/egress.ts): refused on every hop */
+  blockedIps?: () => readonly string[]
 }
 const sysLookup = (h: string) => dns.lookup(h, { all: true, verbatim: true })
 
@@ -179,7 +192,9 @@ export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promis
     } finally { clearTimeout(timer) }
   }
   if (!addrs.length) throw new ToolError(`could not resolve ${host}`)
+  const own = new Set((o.blockedIps?.() ?? []).map(normIp))
   for (const a of addrs) {
+    if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this office's own public address; the server cannot fetch it (it would reach the office's own router or devices)`)
     if (testOk(a.address)) continue
     if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
   }

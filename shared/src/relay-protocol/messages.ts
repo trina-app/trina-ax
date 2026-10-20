@@ -70,6 +70,10 @@ export interface AuthOk {
   name: string
   /** live control connections of this instance including this one */
   conns: number
+  /** the address this control connection came from, as the relay saw it: the office's public exit address. The team
+   * server's web_fetch refuses it (a page could otherwise link to the office router or NAS behind that address and
+   * the fetch would loop back into the office; design tab 7 "내부망 공격"). Never logged by either side. */
+  seenIp?: string
 }
 export interface AuthFail { t: 'error'; code: 'auth_failed' | 'version' | 'suspended' | 'protocol'; message: string }
 
@@ -169,7 +173,8 @@ export function parseAuthReply(o: unknown): AuthOk | AuthFail {
   if (o.t !== 'ok') throw new FrameError('handshake: bad reply')
   if (!isInt(o.v) || !isInt(o.initialWindow) || o.initialWindow < 16384 || o.initialWindow > 16 * 1024 * 1024) throw new FrameError('handshake: bad ok')
   if (!isInt(o.maxStreams) || !isInt(o.pingMs) || !isInt(o.silenceMs) || !isStr(o.address, 300) || !isStr(o.name, 64) || !isInt(o.conns)) throw new FrameError('handshake: bad ok')
-  return { t: 'ok', v: o.v, initialWindow: o.initialWindow, maxStreams: o.maxStreams, pingMs: o.pingMs, silenceMs: o.silenceMs, address: o.address, name: o.name, conns: o.conns }
+  const seenIp = isStr(o.seenIp, 64) && /^[0-9a-f.:]{2,64}$/i.test(o.seenIp) ? { seenIp: o.seenIp } : {}
+  return { t: 'ok', v: o.v, initialWindow: o.initialWindow, maxStreams: o.maxStreams, pingMs: o.pingMs, silenceMs: o.silenceMs, address: o.address, name: o.name, conns: o.conns, ...seenIp }
 }
 
 // ---------------------------------------------------------------- headers

@@ -5,7 +5,8 @@
 //     web search results of this chat (this turn's and the saved steps of earlier answers), or in an earlier
 //     web_fetch result of this chat (chat_seen_urls);
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
-//   ③ also a card when the query string is longer than 200 characters, even for a URL from ①.
+//   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
+//   and a card for every URL while the office's public exit address is unknown (tools/egress.ts).
 // Not done here (follow-up): the "32 characters in common with a file read in this chat" check of ③ and the admin
 // allow-list of ④.
 import type { Database } from 'bun:sqlite'
@@ -100,6 +101,11 @@ const TEXT = {
     en: 'The AI wants to open an address that did not appear in this conversation. An address can carry data out, so check the whole address:\n\n{url}',
     id: 'AI ingin membuka alamat yang tidak muncul di percakapan ini. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}',
   },
+  noEgress: {
+    ko: '팀 서버가 아직 사무실의 공인 주소를 몰라서, AI가 여는 주소가 사무실 안의 공유기나 기기로 되돌아오는지 확인할 수 없습니다. 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The team server does not know the office\'s public address yet, so it cannot tell whether this address leads back into the office (router, devices). Check the whole address:\n\n{url}',
+    id: 'Server tim belum mengetahui alamat publik kantor, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke dalam kantor (router, perangkat). Periksa seluruh alamatnya:\n\n{url}',
+  },
   longQuery: {
     ko: 'AI가 여는 주소 뒤에 긴 내용이 붙어 있습니다. 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The address the AI wants to open carries a long query. An address can carry data out, so check the whole address:\n\n{url}',
@@ -115,21 +121,23 @@ export type GateResult = 'seen' | 'confirmed'
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
  * URLs pass.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const query = new URL(url).search.slice(1)
   const long = query.length > MAX_UNCONFIRMED_QUERY
-  if (!long) {
+  // the office's public exit address is not known yet (tools/egress.ts): no URL opens without the person
+  const noEgress = o.egressKnown === false
+  if (!long && !noEgress) {
     if (person) for (const u of person.turnUrls()) if (normUrl(u) === url) return 'seen'
     if (chatId && chatUrls(db, chatId).has(url)) return 'seen'
   }
   if (!person) throw new ToolError('this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
   const L = person.locale
-  const question = TEXT[long ? 'longQuery' : 'unseen'][L].replace('{url}', url.length > 2000 ? url.slice(0, 2000) + '…' : url)
+  const question = TEXT[long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'][L].replace('{url}', url.length > 2000 ? url.slice(0, 2000) + '…' : url)
   if (!(await person.confirm(question, TEXT.allow[L], TEXT.deny[L]))) {
     throw new ToolError('the user did not allow opening this address. Do not try other addresses to get around this; tell the user what you could not do')
   }
-  if (chatId && !long) rememberUrls(db, chatId, [url])
+  if (chatId && !long && !noEgress) rememberUrls(db, chatId, [url])
   return 'confirmed'
 }
