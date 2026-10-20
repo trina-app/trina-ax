@@ -9,7 +9,8 @@
 //
 // Data lives in ~/.team-ax-dev (team folder, data, relay registry); delete it to start over. Override with
 // TEAM_AX_DEV_DIR. Flags: --vite, --no-relay, --team <name> (default demo), --rebuild-web, --no-web-build.
-// Output is prefixed per process; Ctrl-C stops everything.
+// Output is prefixed per process; Ctrl-C stops everything. A relay that dies is restarted (like its service manager
+// would); any other process ending stops the rest.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -104,24 +105,37 @@ if (relay) {
 if (flag('--vite')) procs.push({ name: 'vite', cmd: ['bun', 'run', 'dev'], cwd: path.join(ROOT, 'web'), env: process.env as Record<string, string> })
 
 const colors = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m']
-const running = procs.map((p, i) => {
+type Running = (typeof procs)[number] & { child: ReturnType<typeof Bun.spawn>; tag: string }
+
+function pipe(stream: ReadableStream<Uint8Array>, tag: string) {
+  ;(async () => {
+    let buf = ''
+    const td = new TextDecoder()
+    for await (const ch of stream) {
+      buf += td.decode(ch, { stream: true })
+      let n
+      while ((n = buf.indexOf('\n')) >= 0) { process.stdout.write(tag + buf.slice(0, n) + '\n'); buf = buf.slice(n + 1) }
+    }
+    if (buf) process.stdout.write(tag + buf + '\n')
+  })()
+}
+
+function spawn(p: (typeof procs)[number], tag: string): ReturnType<typeof Bun.spawn> {
   const child = Bun.spawn(p.cmd, { cwd: p.cwd, stdout: 'pipe', stderr: 'pipe', stdin: 'inherit', env: p.env })
+  pipe(child.stdout as ReadableStream<Uint8Array>, tag)
+  pipe(child.stderr as ReadableStream<Uint8Array>, tag)
+  return child
+}
+
+const running: Running[] = procs.map((p, i) => {
   const tag = `${colors[i % colors.length]}[${p.name}]\x1b[0m `
-  for (const stream of [child.stdout, child.stderr]) {
-    ;(async () => {
-      let buf = ''
-      const td = new TextDecoder()
-      for await (const ch of stream as ReadableStream<Uint8Array>) {
-        buf += td.decode(ch, { stream: true })
-        let n
-        while ((n = buf.indexOf('\n')) >= 0) { process.stdout.write(tag + buf.slice(0, n) + '\n'); buf = buf.slice(n + 1) }
-      }
-      if (buf) process.stdout.write(tag + buf + '\n')
-    })()
-  }
-  return { ...p, child }
+  return { ...p, tag, child: spawn(p, tag) }
 })
 
+// The relay is restarted when it dies (in production its service manager does that): the team server keeps
+// reconnecting, and open browser tabs resume their WebSocket. Kill it (e.g. `kill $(lsof -ti tcp:19161
+// -sTCP:LISTEN)`) to try the reconnect path; it comes back after RELAY_RESTART_MS.
+const RELAY_RESTART_MS = 1500
 say(`data: ${DEV_HOME}`)
 say(`direct: http://localhost:${SERVER_PORT}`)
 if (relay) say(`relay:  http://${TEAM}.localhost:${RELAY_PORT}  (the team registers itself a few seconds after start)`)
@@ -132,8 +146,20 @@ let stopping = false
 const stop = () => { if (stopping) return; stopping = true; for (const p of running) p.child.kill('SIGTERM') }
 process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
+
+/** Resolves when a process that is not restarted ends (a crash of the server, or vite). */
+function watch(r: Running): Promise<{ name: string; code: number | null }> {
+  return r.child.exited.then(async (code) => {
+    if (r.name !== 'relay' || stopping) return { name: r.name, code }
+    say(`relay exited (${code}); restarting in ${RELAY_RESTART_MS} ms`)
+    await Bun.sleep(RELAY_RESTART_MS)
+    if (stopping) return { name: r.name, code }
+    r.child = spawn(r, r.tag)
+    return watch(r)
+  })
+}
 // one process ending (crash) stops the others, so a half-running dev setup never lingers
-const first = await Promise.race(running.map((p) => p.child.exited.then((code) => ({ name: p.name, code }))))
+const first = await Promise.race(running.map(watch))
 const byUser = stopping
 if (!byUser) say(`${first.name} exited (${first.code}); stopping the rest`)
 stop()
