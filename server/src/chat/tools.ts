@@ -13,6 +13,7 @@ import { browserUrl, isPrivateHost } from '../realtime/private-net'
 import { MEMORY_ITEM_MAX } from './prompt'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
+import type { TurnPerson } from '../tools/url-gate'
 
 interface Tool {
   name: string
@@ -57,10 +58,25 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
   }
 }
 
+/** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
+export function turnPerson(exec: TurnExec): TurnPerson {
+  return {
+    locale: exec.spec.locale,
+    async confirm(question, allow, deny) {
+      const answer = await exec.waitForPerson({
+        kind: 'ask_user', requestId: uuidv7(), question, options: [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }],
+        multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
+      } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
+      return answer === 'allow' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'allow')
+    },
+    *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
+  }
+}
+
 function toolContext(exec: TurnExec): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
-    signal: exec.abort.signal, files: { user: exec.principal!, turnId: exec.spec.turnId, files: exec.files },
+    signal: exec.abort.signal, files: { user: exec.principal!, turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec) },
   }
 }
 

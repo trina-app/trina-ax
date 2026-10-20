@@ -24,7 +24,13 @@ export class TurnFiles {
   filesWritten = new Set<string>()
 }
 
-export interface ToolCtx { user: Principal; turnId: string | null; files: TurnFiles }
+export interface ToolCtx {
+  user: Principal
+  turnId: string | null
+  files: TurnFiles
+  /** the person of a chat turn (component B): confirmation cards the server raises inside a tool call (web_fetch) */
+  person?: import('../tools/url-gate').TurnPerson
+}
 export interface ToolOutput { text: string; isError?: boolean; summary: string }
 
 const BINARY_WRITE = new Set(['docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])

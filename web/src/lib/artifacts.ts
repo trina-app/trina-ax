@@ -190,3 +190,13 @@ export function artifactFileName(a: { key: string; title: string | null; type: A
   }
   return `${base}.${EXT[a.type]}`
 }
+
+/**
+ * The runtime error text that goes into "ask the AI to fix it". The artifact chose this text (an error message can
+ * say anything), and the message is sent as the person's own words, where the server lets web_fetch open URLs without
+ * asking (design tab 7 "프롬프트 주입" ①). So URLs in it are defanged ("https[:]//…") and it is cut to 1,000 characters.
+ */
+export function fixPromptError(message: string): string {
+  const s = message.replace(/\b([a-z][a-z0-9+.-]{1,20}):\/\//gi, '$1[:]//')
+  return s.length > 1000 ? s.slice(0, 1000) + '…' : s
+}

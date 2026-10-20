@@ -79,7 +79,7 @@ export default function AskCard({ req }: { req: OpenRequest }) {
         <MessageCircleQuestion size={16} className="text-accent-text" aria-hidden /> {t('ask.title')}
       </div>
       <fieldset className="space-y-2 px-4 py-3">
-        <legend className="mb-2 text-sm font-medium">{r.question}</legend>
+        <legend className="mb-2 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
         {options.length > 0 && (
           <div className="flex flex-col gap-1.5">
             {options.map((o) => (
