@@ -271,6 +271,10 @@ Promise.all(['http://acme.localhost:19151/api/health', 'http://127.0.0.1:19151/a
 </script>`,
       )
     }
+    if (p === '/huge-viewport') {
+      // a page that lies about its size to the main world (the desktop must not build a giant bitmap from it)
+      return page('Huge', `<h1>huge</h1><script>for (const k of ['innerWidth', 'innerHeight']) Object.defineProperty(window, k, { get: () => 50000000 })</script>`)
+    }
     if (p === '/ua') return page('ua', `<p id="ua">${esc(req.headers.get('user-agent') ?? '')}</p>`)
     if (p === '/set-cookie') {
       const r = page('cookie set', `<p id="c">set</p>`)

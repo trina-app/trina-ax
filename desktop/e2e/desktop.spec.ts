@@ -305,6 +305,17 @@ test.describe('what the in-app browser never opens', () => {
     expect(app.windows().filter((w) => w.url().startsWith(ACME))).toHaveLength(1)
   })
 
+  test('a page that lies about its viewport size cannot make screenshots huge', async () => {
+    await openShop(app, '/huge-viewport')
+    const shot = await run(ACME, 'computer', { action: 'screenshot' })
+    expect(shot.result.ok, text(shot)).toBe(true)
+    expect(text(shot)).not.toContain('50000000')
+    const zoom = await run(ACME, 'computer', { action: 'zoom', region: [0, 0, 1e9, 1e9] })
+    expect(zoom.result.ok, text(zoom)).toBe(true)
+    const img = zoom.result.content.find((x) => x.type === 'image') as { data: string }
+    expect(img.data.length).toBeLessThan(5_000_000)
+  })
+
   test('the in-app browser carries its User-Agent mark and looks like plain Chrome otherwise', async () => {
     const r = await run(ACME, 'navigate', { url: `${SHOP}/ua` })
     expect(r.result.ok, text(r)).toBe(true)

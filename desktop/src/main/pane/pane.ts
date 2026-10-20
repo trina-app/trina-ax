@@ -93,6 +93,12 @@ interface CallCtx {
 }
 
 const MAX_LOG = 500
+/** one console entry / one URL kept in the logs at most this long (a page can log megabytes) */
+const MAX_ENTRY_CHARS = 10_000
+/** tabs and page-opened popups at most (a page cannot open windows without end) */
+const MAX_TABS = 20
+/** questions waiting for the person at most; more are denied at once (a page cannot flood the toolbar) */
+const MAX_PROMPTS = 5
 /** finished results kept for replays after a reconnect: count, total size, age */
 const KEEP_RESULTS = 300
 const KEEP_RESULT_BYTES = 64 * 1024 * 1024
@@ -275,6 +281,7 @@ export class BrowserPane {
   // ------------------------------------------------------------------ tabs
 
   private async createTab(url?: string, foreground = true): Promise<Tab> {
+    if (this.tabs.size >= MAX_TABS) throw new ToolError(`The browser pane already has ${this.tabs.size} tabs. Close some with tabs_close first.`)
     const view = new WebContentsView({
       webPreferences: { session: this.session, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, safeDialogs: true },
     })
@@ -315,7 +322,7 @@ export class BrowserPane {
       this.emit()
     })
     wc.setWindowOpenHandler(({ url, disposition }) => {
-      if (!/^(https?:|about:blank)/i.test(url)) return { action: 'deny' }
+      if (!/^(https?:|about:blank)/i.test(url) || this.tabs.size >= MAX_TABS) return { action: 'deny' }
       // window.open with features = a popup (often a sign-in window): a real window the person handles
       if (disposition === 'new-window') {
         return {
@@ -328,7 +335,7 @@ export class BrowserPane {
           },
         }
       }
-      void this.createTab(url, disposition === 'foreground-tab')
+      this.createTab(url, disposition === 'foreground-tab').catch((e) => debug('page-opened tab failed', String((e as Error).message ?? e)))
       return { action: 'deny' }
     })
     wc.on('did-create-window', (child) => {
@@ -362,7 +369,7 @@ export class BrowserPane {
           push(tab.console, { level: 'error', text: params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? 'Uncaught exception', host: tab.host })
           break
         case 'Network.requestWillBeSent':
-          tab.network.set(params.requestId, { id: params.requestId, method: params.request.method, url: params.request.url, type: String(params.type ?? 'Other').toLowerCase() })
+          tab.network.set(params.requestId, { id: params.requestId, method: String(params.request.method).slice(0, 20), url: String(params.request.url).slice(0, MAX_ENTRY_CHARS), type: String(params.type ?? 'Other').toLowerCase().slice(0, 40) })
           if (tab.network.size > MAX_LOG) tab.network.delete(tab.network.keys().next().value!)
           break
         case 'Network.responseReceived': {
@@ -389,7 +396,8 @@ export class BrowserPane {
       }
     })
     await this.cdp(tab, 'Runtime.enable')
-    await this.cdp(tab, 'Network.enable')
+    // bodies stay readable for read_network_requests, within bounds (a page can download huge files)
+    await this.cdp(tab, 'Network.enable', { maxTotalBufferSize: 32 * 1024 * 1024, maxResourceBufferSize: 4 * 1024 * 1024 })
     await this.cdp(tab, 'Page.enable')
     await this.cdp(tab, 'Page.addScriptToEvaluateOnNewDocument', { source: this.pageScript })
   }
@@ -441,8 +449,8 @@ export class BrowserPane {
     // the person typed it: an office address they open themselves needs no prompt
     if (key) this.userHosts.add(key)
     this.show()
-    const tab = this.activeTab() ?? (await this.createTab())
-    await this.load(tab, url).catch(() => {})
+    const tab = this.activeTab() ?? (await this.createTab().catch(() => undefined))
+    if (tab) await this.load(tab, url).catch(() => {})
   }
 
   userHistory(dir: 'back' | 'forward' | 'reload') {
@@ -475,7 +483,7 @@ export class BrowserPane {
 
   async newTab() {
     this.show()
-    await this.createTab(undefined, true)
+    await this.createTab(undefined, true).catch((e) => debug('new tab failed', String((e as Error).message ?? e)))
   }
 
   /** The stop button: end every running call and deny open prompts. */
@@ -538,6 +546,11 @@ export class BrowserPane {
         resolve(d)
       }
       const timer = setTimeout(() => settle('deny'), PROMPT_TIMEOUT_MS)
+      if (this.prompts.length >= MAX_PROMPTS) {
+        clearTimeout(timer)
+        if (ctx && !ctx.cancelled) ctx.notes.push(`Too many questions were waiting for the user; ${req.host} was not opened.`)
+        return resolve('deny')
+      }
       this.prompts.push({ id, ...req, settle, callId: ctx?.callId })
       this.emitPrompts()
     })
@@ -916,19 +929,27 @@ export class BrowserPane {
     return false
   }
 
+  /** CSS viewport size, read in the isolated world (the page can redefine innerWidth in its own world). */
   private async viewport(tab: Tab): Promise<{ width: number; height: number }> {
-    const r: any = await this.cdp(tab, 'Runtime.evaluate', { expression: '[innerWidth, innerHeight]', returnByValue: true }).catch(() => null)
-    const v = r?.result?.value
-    if (Array.isArray(v)) return { width: v[0], height: v[1] }
-    const b = tab.view.getBounds()
-    return { width: b.width, height: b.height }
+    const v = (await tab.wc.executeJavaScriptInIsolatedWorld(CHECK_WORLD, [{ code: '[innerWidth, innerHeight]' }]).catch(() => null)) as unknown
+    const sane = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= 16_384
+    if (Array.isArray(v) && sane(v[0]) && sane(v[1])) return { width: Math.round(v[0]), height: Math.round(v[1]) }
+    const b = tab.popup && !tab.popup.isDestroyed() ? tab.popup.getContentBounds() : tab.view.getBounds()
+    return { width: Math.max(1, b.width), height: Math.max(1, b.height) }
   }
 
   private async screenshot(tab: Tab, region?: number[], scale = 1): Promise<{ text: string; data: string }> {
     const vp = await this.viewport(tab)
-    const rect = region
-      ? { x: Math.round(region[0]), y: Math.round(region[1]), width: Math.max(1, Math.round(region[2] - region[0])), height: Math.max(1, Math.round(region[3] - region[1])) }
-      : undefined
+    // a zoom region is cut to the viewport (a huge region must not become a huge bitmap)
+    const fit = (v: number, max: number) => Math.min(Math.max(0, Math.round(v)), Math.max(1, Math.round(max)))
+    let rect: Rectangle | undefined
+    if (region) {
+      const x0 = fit(Math.min(region[0], region[2]), vp.width - 1)
+      const y0 = fit(Math.min(region[1], region[3]), vp.height - 1)
+      const x1 = fit(Math.max(region[0], region[2]), vp.width)
+      const y1 = fit(Math.max(region[1], region[3]), vp.height)
+      rect = { x: x0, y: y0, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) }
+    }
     let img = await tab.wc.capturePage(rect)
     if (img.isEmpty()) throw new ToolError('The tab is not being drawn (it is in the background or the pane is hidden). Front it with tabs_select, or read it with read_page / get_page_text.')
     // screenshots in CSS pixels so coordinates match; zoom keeps device pixels for small text
@@ -1125,7 +1146,8 @@ function originOf(url: string): string {
   }
 }
 
-function push<T>(list: T[], item: T) {
+function push(list: ConsoleEntry[], item: ConsoleEntry) {
+  if (item.text.length > MAX_ENTRY_CHARS) item.text = `${item.text.slice(0, MAX_ENTRY_CHARS)}… (cut)`
   list.push(item)
   if (list.length > MAX_LOG) list.splice(0, list.length - MAX_LOG)
 }
