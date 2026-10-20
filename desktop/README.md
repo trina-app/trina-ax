@@ -53,7 +53,7 @@ bun run app            # build and start; opens the welcome screen (MYCEL_DESKTO
 bun run typecheck
 bun run test:e2e       # build + Playwright-Electron suite against e2e/fake-team-server.ts (ports 19151–19157)
 bun run dist:mac       # unsigned arm64 .dmg in release/ (signing / notarization needs the owner's Apple certificate)
-bun run dist:win       # unsigned Windows NSIS installer config (x64); not built on macOS in this run
+bun run dist:win       # unsigned Windows NSIS installer (x64); builds on macOS without wine (no exe resource editing)
 ```
 
 Unit tests of the pure modules run with the rest of the repo (`bun run test:unit`, files `tests/unit/e-*.test.ts`).

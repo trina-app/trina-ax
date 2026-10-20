@@ -1,6 +1,6 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications, team list.
-// The main process re-checks every call: top frame only, team origin only (main/bridge.ts).
+// The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { DesktopBridge } from '@mycel/shared'
 
