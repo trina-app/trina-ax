@@ -16,7 +16,7 @@ export interface OpenMeta {
   proto: 'http' | 'https'
   /** request headers without hop-by-hop, Host, CF-*, X-Forwarded-* and similar (the relay strips them) */
   headers: HeaderList
-  /** real client IP (Cloudflare's CF-Connecting-IP or the socket peer). Never logged or stored by the relay. */
+  /** real client IP (CF-Connecting-IP when the peer is a trusted proxy, i.e. Cloudflare; else the socket peer). Never logged or stored by the relay. */
   clientIp: string | null
 }
 

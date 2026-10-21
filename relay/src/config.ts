@@ -4,6 +4,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULTS, DEFAULT_POW_BITS } from '@mycel/shared/relay-protocol'
+import { parseTrustedProxies, type IpRange } from './proxies.ts'
 
 export const DEV_RELAY_PORT = 19161
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -21,6 +22,11 @@ export interface RelayConfig {
   dataDir: string
   /** take the client IP from this header (production behind Cloudflare: cf-connecting-ip); null = socket peer */
   clientIpHeader: string | null
+  /**
+   * socket peers whose clientIpHeader is believed (default: Cloudflare's published ranges). Any other peer — someone
+   * who reached the origin directly — is identified by its socket address, whatever header it sends.
+   */
+  trustedProxies: IpRange[]
   powBits: number
   /** requests for a team that is not connected wait this long for it (relay restart / team reconnecting) */
   holdMs: number
@@ -88,6 +94,7 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     publicPort: pp !== undefined ? (pp === '' || pp === 'none' ? null : num(pp, 0)) : local ? port : null,
     dataDir: path.resolve(get('data', 'RELAY_DATA_DIR') ?? (dev ? path.join(REPO_ROOT, '.dev', 'relay') : '/var/lib/mycel-relay')),
     clientIpHeader: (get('client-ip-header', 'RELAY_CLIENT_IP_HEADER') ?? (local ? '' : 'cf-connecting-ip')).toLowerCase() || null,
+    trustedProxies: parseTrustedProxies(get('trusted-proxies', 'RELAY_TRUSTED_PROXIES') ?? 'cloudflare'),
     powBits: num(get('pow-bits', 'RELAY_POW_BITS'), dev ? 8 : DEFAULT_POW_BITS),
     holdMs: num(env.RELAY_HOLD_MS, 5000),
     silenceMs: num(env.RELAY_SILENCE_MS, DEFAULTS.silenceMs),

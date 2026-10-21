@@ -155,4 +155,23 @@ describe('relay hardening (Node 25 relay)', () => {
     // the relay still serves other teams
     expect((await fetch(teamUrl(PORT, 'victim', '/ok'))).status).toBe(200)
   }, 30_000)
+
+  test('a peer that is not a trusted proxy can not choose its client IP with CF-Connecting-IP (production header on)', async () => {
+    // the production setting (client IP from CF-Connecting-IP, only Cloudflare's ranges trusted); this test reaches
+    // the relay over loopback, like someone reaching the origin without going through Cloudflare
+    const port = 19183
+    const r = spawnNodeRelay(port, path.join(F_WORK, `hardening-cfip-${Date.now()}`), { RELAY_CLIENT_IP_HEADER: 'cf-connecting-ip' }, 'hardening-cfip-relay')
+    let tc: RelayClient | undefined
+    try {
+      await waitHttp(`http://127.0.0.1:${port}/healthz`)
+      const t = await registerTeam(`http://127.0.0.1:${port}`, 'ipcheck')
+      tc = client({ url: `ws://127.0.0.1:${port}/connect`, teamId: t.teamId, kp: t.kp, fetch: async (_req, info) => Response.json({ ip: info.ip }) })
+      await until(() => tc!.state.state === 'connected', 5000, 'ipcheck connected')
+      const res = await fetch(teamUrl(port, 'ipcheck', '/whoami'), { headers: { 'cf-connecting-ip': '10.0.0.5', 'x-forwarded-for': '203.0.113.9' } })
+      expect(((await res.json()) as { ip: string }).ip).toBe('127.0.0.1')
+    } finally {
+      tc?.stop()
+      r.kill()
+    }
+  }, 20_000)
 })
