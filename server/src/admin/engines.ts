@@ -220,6 +220,9 @@ export class EngineStatusCache {
   /** Drop one engine's last check (its setup changed). */
   forget(id: EngineId) { this.last.delete(id) }
 
+  /** The last check's status, without checking. */
+  peek(id: EngineId): EngineStatus['status'] | null { return this.last.get(id)?.status.status ?? null }
+
   async get(id: EngineId, enabled: boolean, locale: Locale, force = false): Promise<EngineStatus> {
     const c = this.last.get(id)
     if (!force && c && Date.now() - c.at < CACHE_MS && c.locale === locale) return { ...c.status, enabled }
@@ -232,6 +235,14 @@ export class EngineStatusCache {
     this.last.set(id, { at: Date.now(), status: s, locale })
     return { ...s, enabled }
   }
+}
+
+/** One cache per server, shared by Admin > AI engines and the composer's engine list (admin/engine-choice.ts). */
+const caches = new WeakMap<AppContext, EngineStatusCache>()
+export function engineStatusCache(ctx: AppContext): EngineStatusCache {
+  let c = caches.get(ctx)
+  if (!c) { c = new EngineStatusCache(() => engineEnv(ctx)); caches.set(ctx, c) }
+  return c
 }
 
 // ---------------- company keys (proxy mode; code-only for now) ----------------

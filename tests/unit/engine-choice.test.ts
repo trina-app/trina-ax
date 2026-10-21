@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type MemberEngineChoice } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { canChooseEngine, filterEnginePrefs, personalDefault, turnEngine } from '../../server/src/admin/engine-choice'
+import { canChooseEngine, filterEnginePrefs, personalDefault, readyEngines, turnEngine } from '../../server/src/admin/engine-choice'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -206,5 +206,16 @@ describe('Claude limit -> Codex fallback', () => {
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { limitFallback: false } })
     }
+  })
+})
+
+describe('only engines that can answer are offered', () => {
+  test('not installed / no setup token (problems) or signed out (status check) is left out; a failed or slow check is not', async () => {
+    const st = { 'claude-code': 'ok', codex: 'not_logged_in', api: 'ok' } as const
+    expect(await readyEngines(['claude-code', 'codex', 'api'], {}, async (id) => st[id])).toEqual(['claude-code', 'api'])
+    expect(await readyEngines(['claude-code', 'codex'], { 'claude-code': 'setup_token_missing' }, async () => 'ok')).toEqual(['codex'])
+    expect(await readyEngines(['claude-code', 'codex'], { codex: 'engine_missing' }, async () => 'ok')).toEqual(['claude-code'])
+    expect(await readyEngines(['claude-code', 'codex'], {}, async () => { throw new Error('boom') })).toEqual(['claude-code', 'codex'])
+    expect(await readyEngines(['claude-code'], {}, async () => 'error')).toEqual(['claude-code'])
   })
 })

@@ -5,13 +5,13 @@
 // Existing chats keep their engine; a chat whose engine the admin has since switched off is answered by the team
 // default (the turn shows a step saying so). Optional "Claude 한도에 닿으면 Codex로 넘기기" (off by default, never
 // while Codex is off, e.g. office mode): see chat/turn.ts.
-import { MemberEngineChoice, UserPrefs, type EngineId, type Locale } from '@mycel/shared/api'
+import { MemberEngineChoice, UserPrefs, type EngineId, type EngineStatus, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
-import { codexBetaAllowed, codexIsBeta, safeModel } from '../chat/engines'
+import { codexBetaAllowed, codexIsBeta, safeModel, type EngineConfs } from '../chat/engines'
 import { tr } from '../chat/i18n'
 import { enginesEnabled, getSetting, getTeamSettings, setSetting } from './settings'
-import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv } from './engines'
+import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv, engineStatusCache } from './engines'
 import { readApiEngine } from '../engine/api-agent'
 
 export const MEMBER_CHOICE_KEY = 'engines.memberChoice'
@@ -144,8 +144,22 @@ export function checkChatEngineChange(ctx: Ctx, p: Person, chat: { engine: strin
   if (body.engine !== undefined && body.engine !== chat.engine && !engineOn(ctx, body.engine)) engineOff(locale)
 }
 
+/** How long GET /api/engines waits for an engine's status check; a slower check goes on and is cached for next time. */
+const READY_WAIT_MS = 3_000
+
+/**
+ * The engines of `ids` that can answer here: set up (chat/engines.ts problems: no engine program, no setup token, no
+ * API settings) and not found signed out by the last status check (`claude auth status`, `codex login status`, the
+ * engine account's Codex login, the API key). A check that fails or is still running does not hide an engine.
+ */
+export async function readyEngines(ids: EngineId[], problems: EngineConfs['problems'], statusOf: (id: EngineId) => Promise<EngineStatus['status']>): Promise<EngineId[]> {
+  const signedOut = await Promise.all(ids.map((id) => problems[id] ? true
+    : Promise.race([statusOf(id).then((s) => s === 'not_logged_in', () => false), Bun.sleep(READY_WAIT_MS).then(() => false)])))
+  return ids.filter((_, i) => !signedOut[i])
+}
+
 /** GET /api/engines: what the composer may offer this person. */
-export function chatEnginesFor(ctx: AppContext, p: Person) {
+export async function chatEnginesFor(ctx: AppContext, p: Person, problems: EngineConfs['problems'], locale: Locale) {
   const def = teamDefault(ctx)
   const canChoose = canChooseEngine(ctx, p)
   if (!canChoose) return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: [] }
@@ -154,10 +168,10 @@ export function chatEnginesFor(ctx: AppContext, p: Person) {
   const api = readApiEngine(ctx.config.dataDir)
   const of = (id: EngineId) => id === 'api' && api ? { label: api.label, models: [{ id: api.model, label: api.label }] }
     : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? CLAUDE_MODELS : codexModels(env) }
-  return {
-    canChoose, defaultEngine: def.engine, defaultModel: def.model,
-    engines: choosableEngines(ctx, p).map((id) => ({ id, ...of(id) })),
-  }
+  // the same cached checks as Admin > AI engines
+  const cache = engineStatusCache(ctx)
+  const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => (await cache.get(id, true, locale)).status)
+  return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }
 }
 
 /** Own default engine / model (PATCH /api/me prefs): only for people who may pick; null clears it. */

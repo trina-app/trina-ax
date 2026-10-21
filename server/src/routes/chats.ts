@@ -148,7 +148,7 @@ export const chatsRoutes: RouteModule = {
       return { items: items.map((r) => chatOut(rt, r)), nextCursor: more && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
     })
 
-    kit.handle(API.chatEngines, ({ auth }) => chatEnginesFor(ctx, auth.user))
+    kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
 
     kit.handle(API.createChat, ({ c, body, auth }) => {
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))

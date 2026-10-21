@@ -10,7 +10,7 @@ import { createInvite, createResetLink, linkBase, listInvites, revokeInvite } fr
 import { msg } from '../auth/messages'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
-import { EngineStatusCache, addAccount, deleteAccount, engineEnv, listAccounts } from '../admin/engines'
+import { EngineStatusCache, addAccount, deleteAccount, engineStatusCache, listAccounts } from '../admin/engines'
 import {
   afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, listFolders, previewRules, replaceRules,
   resolveFolderPath, rulesOf, toFolder, validateRules,
@@ -46,7 +46,7 @@ export const adminRoutes: RouteModule = {
   name: 'admin',
   owner: 'A',
   register(kit, ctx) {
-    const engineCache = new EngineStatusCache(() => engineEnv(ctx))
+    const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------
     kit.handle(API.listUsers, () => ({ items: listUsers(ctx) }))
@@ -211,10 +211,14 @@ export const adminRoutes: RouteModule = {
       return enginesResponse(ctx, engineCache, locale)
     })
 
-    kit.handle(API.checkEngine, ({ c, params }) => {
+    kit.handle(API.checkEngine, async ({ c, params }) => {
       const id = EngineId.safeParse(params.id)
       if (!id.success) fail('not_found')
-      return engineCache.get(id.data as EngineIdT, enginesEnabled(ctx.db)[id.data as EngineIdT], c.get('locale'), true)
+      const before = engineCache.peek(id.data as EngineIdT)
+      const s = await engineCache.get(id.data as EngineIdT, enginesEnabled(ctx.db)[id.data as EngineIdT], c.get('locale'), true)
+      // signed in or out since the last check: open composers ask GET /api/engines again (it leaves signed-out engines out)
+      if (before !== s.status) ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED)
+      return s
     })
 
     kit.handle(API.addEngineAccount, ({ body, auth }) => {
