@@ -79,6 +79,9 @@ export const SPECS: Record<string, Spec> = {
   listChats: { build: (c) => c.get('/api/chats'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceChatTitle)) throw new Error(`${who}'s chat list shows alice's chat`) } },
   createChat: { build: (c) => c.post('/api/chats', { title: 'mine' }), scope: 'self' },
+  // engine / model choice is the admin's (r5-engine-choice.test.ts): members see canChoose false and no engines
+  chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',
+    check: (r, w, who) => { if (r.status === 200 && (who === 'memberIn' || who === 'other' || who === 'memberOut') && (r.json?.canChoose !== false || r.json?.engines?.length)) throw new Error(`${who} may pick the engine by default`) } },
   getChat: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat' },
   updateChat: { build: (c, w) => c.patch(`/api/chats/${w.ids.chatA}`, { title: 'pwned-by-' + crypto.randomUUID().slice(0, 4) }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's chat`) } },
@@ -108,6 +111,10 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} shared alice's private project`) } },
 
   // ---- memories (own only) ----
+  // scheduled tasks: own only (a schedule id of nobody: 404 for everyone, never another person's)
+  listSchedules: { build: (c) => c.get('/api/schedules'), scope: 'self' },
+  updateSchedule: { build: (c) => c.patch('/api/schedules/00000000-0000-7000-8000-000000000000', { enabled: false }), scope: 'self' },
+  deleteSchedule: { build: (c) => c.del('/api/schedules/00000000-0000-7000-8000-000000000000'), scope: 'self' },
   listMemories: { build: (c) => c.get('/api/memories'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceMemory)) throw new Error(`${who} sees alice's memory`) } },
   deleteMemory: { build: (c, w) => c.del(`/api/memories/${w.ids.memory}`), scope: 'own-alice',
@@ -211,7 +218,8 @@ export const SPECS: Record<string, Spec> = {
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
   engines: { build: (c) => c.get('/api/admin/engines'), scope: 'byLevel' },
-  updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3 }), scope: 'byLevel' },
+  // the request a member would make to let themselves pick the engine (and to send conversations to OpenAI)
+  updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },
   checkEngine: { build: (c) => c.post('/api/admin/engines/claude-code/check'), scope: 'byLevel' },
   addEngineAccount: { build: (c) => c.post('/api/admin/engines/accounts', { engine: 'anthropic', secret: 'sk-test-1234567890' }), scope: 'byLevel' },
   deleteEngineAccount: { build: (c) => c.del('/api/admin/engines/accounts/none'), scope: 'byLevel' },
@@ -240,6 +248,11 @@ export const SPECS: Record<string, Spec> = {
   startRestore: { skipPositive: true, build: (c) => c.post('/api/admin/restore', { backupId: 'nope', password: 'wrong' }), scope: 'byLevel' },
   startExport: { build: (c) => c.post('/api/admin/export', { what: ['memories'], password: '' }), scope: 'byLevel' },
   connection: { build: (c) => c.get('/api/admin/connection'), scope: 'byLevel' },
+  // connected folders (owner only; adding one asks for the password again)
+  listConnected: { build: (c) => c.get('/api/admin/connected'), scope: 'byLevel' },
+  addConnected: { skipPositive: true, build: (c) => c.post('/api/admin/connected', { name: 'nas', source: '/Volumes/none', password: 'wrong-pass' }), scope: 'byLevel' },
+  syncConnected: { build: (c) => c.post('/api/admin/connected/00000000-0000-7000-8000-000000000000/sync'), scope: 'byLevel' },
+  removeConnected: { build: (c) => c.del('/api/admin/connected/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
   updateConnection: { skipPositive: true, build: (c) => c.put('/api/admin/connection', { mode: 'direct', password: 'wrong' }), scope: 'byLevel' },
 }
 

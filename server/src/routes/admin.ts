@@ -21,6 +21,7 @@ import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, trans
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
+import { codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
@@ -29,8 +30,15 @@ async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale
   const enabled = enginesEnabled(ctx.db)
   const s = getTeamSettings(ctx.db)
   const engines = await Promise.all(EngineId.options.map((id) => cache.get(id, enabled[id], locale)))
-  return { engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, concurrency: s.concurrency, accounts: listAccounts(ctx) }
+  return {
+    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, concurrency: s.concurrency, accounts: listAccounts(ctx),
+    memberChoice: memberChoice(ctx), limitFallback: limitFallbackOn(ctx), limitFallbackAvailable: limitFallbackAvailable(ctx),
+  }
 }
+
+/** Realtime notice: who may pick the engine, or which engines are on, changed. Open windows ask GET /api/me and
+ * GET /api/engines again (the composer shows or hides its picker without a reload); the message carries nothing. */
+export const ENGINE_CHOICE_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
 
 export const adminRoutes: RouteModule = {
   name: 'admin',
@@ -153,18 +161,37 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.updateEngines, async ({ c, body, auth }) => {
       const locale = c.get('locale')
-      if (body.enabled) setEnginesEnabled(ctx.db, body.enabled)
-      const enabled = enginesEnabled(ctx.db)
       const s = getTeamSettings(ctx.db)
+      const enabled = { ...enginesEnabled(ctx.db), ...body.enabled }
       const def = body.defaultEngine ?? s.defaultEngine
-      if (!enabled[def]) fail('conflict', msg('engineDisabled', locale))
+      if (!enabled[def] || (def === 'codex' && codexOffHere(ctx))) fail('conflict', msg('engineDisabled', locale))
       if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', locale))
+      if (body.memberChoice) {
+        const groups = new Set(listGroups(ctx).map((g) => g.id))
+        if (body.memberChoice.groupIds.some((g) => !groups.has(g))) fail('validation', msg('unknownGroups', locale), { fields: { 'body.memberChoice.groupIds': 'unknown group' } })
+        const people = new Set((ctx.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
+        if (body.memberChoice.userIds.some((u) => !people.has(u))) fail('validation', msg('unknownUsers', locale), { fields: { 'body.memberChoice.userIds': 'unknown person' } })
+      }
+      // the fallback sends conversations to OpenAI: never while Codex is off (switched off here or by office mode)
+      const codexOn = enabled.codex && !codexOffHere(ctx)
+      if (body.limitFallback === true && !codexOn) fail('conflict', msg('limitFallbackNeedsCodex', locale))
+      const before = { enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: s.defaultEngine, defaultModel: s.defaultModel }
+      ctx.db.transaction(() => {
+        if (body.enabled) setEnginesEnabled(ctx.db, body.enabled)
+        if (body.memberChoice) setMemberChoice(ctx, body.memberChoice)
+        if (body.limitFallback !== undefined) setLimitFallback(ctx, body.limitFallback)
+        // switching Codex off also turns the fallback off: switching Codex back on must not quietly resume it
+        if (!codexOn) setLimitFallback(ctx, false)
+      })()
       updateTeamSettings(ctx.db, {
         ...(body.defaultEngine !== undefined ? { defaultEngine: body.defaultEngine } : {}),
         ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : body.defaultEngine !== undefined && body.defaultEngine !== s.defaultEngine ? { defaultModel: null } : {}),
         ...(body.concurrency !== undefined ? { concurrency: body.concurrency } : {}),
       })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.update', target: null, detail: body as Record<string, unknown> })
+      const after = getTeamSettings(ctx.db)
+      if (JSON.stringify(before) !== JSON.stringify({ enabled: enginesEnabled(ctx.db), memberChoice: memberChoice(ctx), defaultEngine: after.defaultEngine, defaultModel: after.defaultModel }))
+        ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED)
       return enginesResponse(ctx, engineCache, locale)
     })
 
@@ -206,7 +233,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.updateSettings, ({ c, body, auth }) => {
       const cur = getTeamSettings(ctx.db)
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
-      if (body.defaultEngine !== undefined && !enginesEnabled(ctx.db)[body.defaultEngine]) fail('conflict', msg('engineDisabled', c.get('locale')))
+      if (body.defaultEngine !== undefined && !engineOn(ctx, body.defaultEngine)) fail('conflict', msg('engineDisabled', c.get('locale')))
       if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', c.get('locale')))
       const next = updateTeamSettings(ctx.db, body)
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))

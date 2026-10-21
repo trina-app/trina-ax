@@ -106,18 +106,38 @@ export const EngineStatus = z.object({
   beta: z.boolean().optional(),
 })
 export type EngineStatus = z.infer<typeof EngineStatus>
+/**
+ * "팀원이 엔진 고르기 허용" (owner decision 2026-10-21: the engine and model are the admin's choice). Owner and admins
+ * always pick; everyone else uses the team default unless this lets them: 'off' (default) = nobody else, 'everyone',
+ * or 'selected' = the people in userIds and the members of groupIds.
+ */
+export const MemberEngineChoice = z.object({
+  mode: z.enum(['off', 'everyone', 'selected']),
+  groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
+  userIds: z.array(UserId).max(1000).default([]),
+})
+export type MemberEngineChoice = z.infer<typeof MemberEngineChoice>
 export const EnginesResponse = z.object({
   engines: z.array(EngineStatus),
   defaultEngine: EngineId,
   defaultModel: z.string().nullable(),
   concurrency: z.number().int(),
   accounts: z.array(EngineAccount),
+  memberChoice: MemberEngineChoice,
+  /** "Claude 한도에 닿으면 Codex로 넘기기" (off by default): a turn that hits the Claude subscription limit is answered by
+   * Codex instead, so the conversation also goes to OpenAI */
+  limitFallback: z.boolean(),
+  /** false while Codex is off (switched off here, or by the installation: office mode): the fallback cannot be on */
+  limitFallbackAvailable: z.boolean(),
 })
+export type EnginesResponse = z.infer<typeof EnginesResponse>
 export const UpdateEnginesBody = z.object({
   defaultEngine: EngineId.optional(),
   defaultModel: z.string().max(100).nullable().optional(),
   concurrency: z.number().int().min(1).max(16).optional(),
   enabled: z.partialRecord(EngineId, z.boolean()).optional(),
+  memberChoice: MemberEngineChoice.optional(),
+  limitFallback: z.boolean().optional(),
 })
 /** Company API key (proxy mode; code-only for now). The secret is stored outside the DB; only a reference + hint stay. */
 export const AddEngineAccountBody = z.object({ engine: z.enum(['anthropic', 'openai']), label: z.string().max(100).optional(), secret: z.string().min(10).max(500) })
@@ -173,7 +193,7 @@ export const ADMIN = {
   previewRules: endpoint({ method: 'POST', path: '/api/admin/folder-rules/preview', auth: 'admin', owner: 'A', body: PreviewBody, response: PreviewResponse, summary: '"Who sees what" for proposed rules, before saving.' }),
 
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),
-  updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable.' }),
+  updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex.' }),
   checkEngine: endpoint({ method: 'POST', path: '/api/admin/engines/:id/check', auth: 'admin', owner: 'A', response: EngineStatus, summary: 'Re-check one engine now (bounded, no model call unless needed).' }),
   addEngineAccount: endpoint({ method: 'POST', path: '/api/admin/engines/accounts', auth: 'owner', owner: 'A', status: 201, body: AddEngineAccountBody, response: EngineAccount, summary: 'Company API key for proxy mode (code-only for now).' }),
   deleteEngineAccount: endpoint({ method: 'DELETE', path: '/api/admin/engines/accounts/:id', auth: 'owner', owner: 'A', response: empty, status: 204, summary: 'Remove a company key.' }),

@@ -7,6 +7,7 @@ import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
 import { useChats } from './chats'
+import { useEngines } from './engines'
 import { useJobs } from './jobs'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
@@ -58,6 +59,12 @@ export function dispatch(ev: ServerEvent) {
       memoryChanged.emit(ev.data)
       return
     case 'notice':
+      if (ev.data.code === 'engine_choice_changed') {
+        // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
+        void useSession.getState().refreshMe()
+        void useEngines.getState().load(true)
+        return
+      }
       if (ev.data.code === 'locale_changed') {
         // the team default or this person's language changed (admin, another window): switch without a reload
         void useSession.getState().refreshMe()

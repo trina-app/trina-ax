@@ -5,14 +5,16 @@ import clsx from 'clsx'
 import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
-import type { Memory, Schedule, Session, Theme } from '@mycel/shared/api'
+import type { EngineId, Memory, Schedule, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { isStandalone, platform, useInstallPrompt } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
-import { useMeStrict, useSession } from '../store/session'
+import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { useEngines } from '../store/engines'
+import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
@@ -128,6 +130,7 @@ function Profile() {
           })}
         </div>
       </Section>
+      {canChooseEngine(me) && <MyEngine />}
       <Section title={t('settings.theme')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.theme')}>
           {(['system', 'light', 'dark'] as Theme[]).map((x) => (
@@ -138,6 +141,59 @@ function Profile() {
         </div>
       </Section>
     </>
+  )
+}
+
+/** "내 기본 엔진/모델" (only for people who may pick the engine): what new chats start with; empty = the team default. */
+function MyEngine() {
+  const t = useT()
+  const locale = useLocale()
+  const me = useMeStrict()
+  const updatePrefs = useSession((s) => s.updatePrefs)
+  const { loaded, engines, models, defaultEngine, defaultModel, load } = useEngines()
+  useEffect(() => void load(), [load])
+  const engine = me.user.prefs.engine && engines.includes(me.user.prefs.engine) ? me.user.prefs.engine : null
+  const model = engine ? me.user.prefs.model ?? null : null
+  const save = async (e: EngineId | null, m: string | null) => {
+    try {
+      await updatePrefs({ engine: e, model: e ? m : null })
+      toast({ level: 'success', text: t('common.saved') })
+    } catch (err) {
+      toast({ level: 'error', text: errorText(err, locale, t('error.network')) })
+    }
+  }
+  const teamLabel = ENGINE_LABEL[defaultEngine] + (defaultModel ? ` · ${models[defaultEngine]?.find((x) => x.id === defaultModel)?.label ?? defaultModel}` : '')
+  return (
+    <Section title={t('settings.myEngine')} desc={t('settings.myEngineHint')}>
+      {!loaded ? (
+        <Skeleton lines={2} />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2" data-testid="my-engine">
+          <Field label={t('settings.myEngine.engine')}>
+            <select className={inputCls} value={engine ?? ''} onChange={(e) => void save((e.target.value || null) as EngineId | null, null)} data-testid="my-engine-select">
+              <option value="">{t('settings.myEngine.team', { engine: teamLabel })}</option>
+              {engines.map((id) => (
+                <option key={id} value={id}>
+                  {ENGINE_LABEL[id]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {engine && (
+            <Field label={t('settings.myEngine.model')}>
+              <select className={inputCls} value={model ?? ''} onChange={(e) => void save(engine, e.target.value || null)} data-testid="my-model-select">
+                <option value="">{t('composer.defaultModel')}</option>
+                {(models[engine] ?? []).map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </div>
+      )}
+    </Section>
   )
 }
 
