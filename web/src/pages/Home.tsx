@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Attachment, FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
@@ -101,6 +102,7 @@ const EXAMPLES: MessageKey[] = ['home.example1', 'home.example2', 'home.example3
 
 /**
  * "내 AI가 볼 수 있는 폴더" + example questions (translated templates, filled with the person's folder names).
+ * Folders reached through a group or project rule (groups/마케팅, projects/x) are listed by their path.
  * users/ itself is only a way to reach personal folders, so the card shows the person's own folder (users/<id>,
  * where the AI saves by default) in its place, and the examples name team folders first.
  */
@@ -110,8 +112,8 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
   const [folders, setFolders] = useState<FileEntry[] | null>(null)
   useEffect(() => {
     let live = true
-    api.call(API.tree, { query: { path: '', limit: 50 } }).then(
-      (r) => live && setFolders(r.entries.filter((e) => e.type === 'folder' && e.access !== 'none' && e.path !== 'users')),
+    visibleFolders(async (path) => (await api.call(API.tree, { query: { path, limit: 50 } })).entries, { skip: (p) => p === 'users' || p.startsWith('users/') }).then(
+      (r) => live && setFolders(r),
       () => live && setFolders([]),
     )
     return () => {
@@ -120,10 +122,10 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
   }, [])
   const myFolder = t('home.myFolder')
   // the examples name the path ("users/kim"): "내 폴더 폴더에…" would read badly, and the AI finds it as is
-  const names = useMemo(() => [...(folders ?? []).map((f) => f.name), `users/${me.user.id}`], [folders, me.user.id])
+  const names = useMemo(() => [...(folders ?? []).map((f) => f.path), `users/${me.user.id}`], [folders, me.user.id])
   if (!folders) return null
   const shown: { key: string; name: string; title?: string; write: boolean }[] = [
-    ...folders.map((f) => ({ key: f.path, name: f.name, write: f.access === 'write' })),
+    ...folders.map((f) => ({ key: f.path, name: f.path, write: f.access === 'write' })),
     { key: 'me', name: myFolder, title: `users/${me.user.id}`, write: true },
   ]
   return (
