@@ -31,7 +31,13 @@ export interface ClaudeConf {
   agentHome: string
   /** subscription / company-key mode: the model proxy's address and the kind of credential behind it */
   modelProxy?: { baseUrl: string; kind: 'api-key' | 'oauth' }
+  /** local-login in office mode: the engine's HTTPS goes through the proxy's CONNECT tunnel (HTTPS_PROXY with a
+   * per-turn token; the sandbox allows no other network, security round 4b) */
+  connectProxy?: boolean
 }
+
+/** HTTPS_PROXY of a turn that tunnels through the local proxy: the per-turn token is the proxy password */
+export const turnProxyUrl = (port: number, token: string) => `http://turn:${token}@127.0.0.1:${port}`
 
 /** Claude names its project folder after the cwd with every non-alphanumeric character replaced by '-' */
 export const projectSlug = (dir: string) => {
@@ -55,6 +61,8 @@ export const MCP_TOOL_TIMEOUT_MS = 1_800_000
 export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
+  /** local-login through the CONNECT tunnel (office mode): the proxy port and this attempt's proxy token */
+  tunnel?: { port: number; token: string }
   /** our MCP tools besides the six file tools offered to this turn (remember, ask_user, browser tools, make_file ...) */
   extraTools?: string[]
 }, conf: ClaudeConf): LaunchRequest {
@@ -82,6 +90,9 @@ export function buildClaudeLaunch(i: {
     // user, so HOME stays the real home and CLAUDE_CONFIG_DIR is not set in this mode.
     env.HOME = os.homedir()
     for (const k of ['USER', 'LOGNAME']) if (process.env[k]) env[k] = process.env[k]!
+    // office mode: the only way out of the sandbox is the proxy port (the token is useless to any process outside this
+    // turn's engine session: the proxy checks the TCP peer through the launcher)
+    if (i.tunnel) env.HTTPS_PROXY = turnProxyUrl(i.tunnel.port, i.tunnel.token)
   } else {
     // subscription / company key: everything of the CLI stays in the chat folder (the only place the sandbox lets the
     // engine write); the launcher creates .home. The per-turn proxy token goes to the launcher, which hands it to the

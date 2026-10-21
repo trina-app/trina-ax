@@ -119,7 +119,7 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   concurrency?: number
   /** the production engine path instead of the fake wiring: the real core (startLocalCore: sandboxed launcher, model
    * proxy in subscription mode) and LocalEngines on this engine config */
-  realCore?: { engine: AppConfig['engine'] }
+  realCore?: { engine: AppConfig['engine']; office?: boolean }
   /** where the model proxy's Codex tunnels go (default: a refused local port) */
   proxyDial?: (host: string, port: number) => import('node:net').Socket
 }
@@ -135,6 +135,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error', engine: o.realCore?.engine ?? { authMode: 'local-login' },
     relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null,
+    ...(o.realCore?.office ? { office: true } : {}),
   }
   const db = openDb(path.join(dataDir, 'app.db'))
   seed(db)

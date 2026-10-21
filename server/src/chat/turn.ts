@@ -218,6 +218,10 @@ export class TurnExec {
         if (!core.proxy.ready) { this.error = engineError('proxy_down', spec.locale); return }
         this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
       }
+      // office mode with the Mac user's login: the engine's HTTPS goes through the proxy's CONNECT tunnel (the sandbox
+      // allows no other network); no proxy, no turn (fail closed)
+      const tunnelPort = !claude.modelProxy && claude.connectProxy ? core.proxy?.port ?? null : null
+      if (!claude.modelProxy && claude.connectProxy && !core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
       if (!resume) sid = crypto.randomUUID()
       let model = safeModel(spec.model) ? spec.model : undefined
       const retried = new Set<string>()
@@ -227,11 +231,12 @@ export class TurnExec {
         this.attemptHadOutput = false
         // the engine's credential for the model proxy: this turn and person only, revoked when the turn ends; a retry
         // gets a new one and the previous attempt's (its engine has exited) stops working at once
-        if (claude.modelProxy) revokeProxyTokens(rt.db, spec.turnId)
-        const proxyToken = claude.modelProxy ? issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 }) : undefined
+        if (claude.modelProxy || tunnelPort !== null) revokeProxyTokens(rt.db, spec.turnId)
+        const proxyToken = claude.modelProxy || tunnelPort !== null ? issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 }) : undefined
         const lr = buildClaudeLaunch({
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken,
+          ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()

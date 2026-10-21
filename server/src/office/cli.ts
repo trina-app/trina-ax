@@ -8,9 +8,13 @@
 //                       certificate when one appeared
 //   configure [--label L] [--app-port N] [--lan-port N] [--helper-port N|0] [--run-dir D] [--claude-bin P]
 //             [--codex-bin P] [--ca-constraints 0|1] [--public-host H|''] [--tunnel-token-file F]
-//             [--public-allow-from CIDR,…] [--public-countries KR,…]
+//             [--public-allow-from CIDR,…] [--public-countries KR,…] [--proxy-port N]
+//             [--claude-token-file F] [--claude-auth local-login|subscription]
 //                       write config/office.env (merged with what is there); --tunnel-token-file checks the
-//                       Cloudflare Tunnel connector token and copies it to config/tunnel-token (600)
+//                       Cloudflare Tunnel connector token and copies it to config/tunnel-token (600);
+//                       --claude-token-file checks the owner's `claude setup-token` token, copies it to
+//                       config/claude-oauth-token (600) and switches Claude to subscription mode (the model proxy with
+//                       per-turn tokens; engines never see this Mac's login). --claude-auth local-login switches back.
 //   install [--no-open] write the LaunchAgent, (re)start it, wait until it answers, print the addresses and the
 //                       first-run setup link (and open it on this Mac)
 //   start | stop | restart | status | logs [n] | info | card | setup-link
@@ -54,6 +58,7 @@ import {
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
+import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 import { updateView } from './update'
 
@@ -273,8 +278,13 @@ export function configure(home: string, args: string[], env: Record<string, stri
     ['--label', 'TEAMAX_LABEL'], ['--app-port', 'TEAMAX_APP_PORT'], ['--lan-port', 'TEAMAX_LAN_PORT'], ['--helper-port', 'TEAMAX_HELPER_PORT'],
     ['--run-dir', 'TEAMAX_RUN_DIR'], ['--claude-bin', 'TEAMAX_CLAUDE_BIN'], ['--codex-bin', 'TEAMAX_CODEX_BIN'], ['--ca-constraints', 'TEAMAX_CA_CONSTRAINTS'],
     ['--public-host', 'TEAMAX_PUBLIC_HOST'], ['--public-allow-from', 'TEAMAX_PUBLIC_ALLOW_FROM'], ['--public-countries', 'TEAMAX_PUBLIC_COUNTRIES'],
+    ['--proxy-port', 'TEAMAX_PROXY_PORT'], ['--claude-auth', 'TEAMAX_CLAUDE_AUTH'],
   ]
   for (const [f, k] of flags) { const v = arg(args, f); if (v !== undefined) cur[k] = v }
+  // the owner's setup-token: checked before anything is written, then subscription mode (unless --claude-auth says)
+  const claudeTokenFile = arg(args, '--claude-token-file')
+  const claudeToken = claudeTokenFile ? readClaudeToken(claudeTokenFile) : null
+  if (claudeToken && arg(args, '--claude-auth') === undefined) cur.TEAMAX_CLAUDE_AUTH = 'subscription'
   // a new LAN port moves the helper page along with it unless it was chosen explicitly
   if (arg(args, '--lan-port') !== undefined && arg(args, '--helper-port') === undefined) delete cur.TEAMAX_HELPER_PORT
   const s = settingsFrom(home, cur)
@@ -284,10 +294,28 @@ export function configure(home: string, args: string[], env: Record<string, stri
   const tokenFile = arg(args, '--tunnel-token-file')
   const token = tokenFile ? readTunnelToken(tokenFile) : null
   if (tokenFile && !s.publicHost) throw new Error('--tunnel-token-file needs --public-host <name> (the internet address this tunnel serves)')
+  const asHome = officePaths(path.resolve(arg(args, '--as-home') ?? home), env)
+  if (s.claudeAuth === 'subscription' && !claudeToken && !fs.existsSync(asHome.claudeToken) && !fs.existsSync(p.claudeToken))
+    throw new Error('subscription mode needs the owner\'s token: --claude-token-file <file with the output of `claude setup-token`>')
   fs.mkdirSync(p.config, { recursive: true, mode: 0o700 })
   fs.writeFileSync(p.env, settingsText(s), { mode: 0o600 })
   if (token) writeSecret(p.tunnelToken, token)
+  if (claudeToken) writeSecret(p.claudeToken, claudeToken + '\n')
   return s
+}
+
+/** The owner's long-lived Claude token from a file (the output of `claude setup-token`: one sk-ant-oat01-… line). Never
+ * printed. */
+export function readClaudeToken(file: string): string {
+  let raw: string
+  try {
+    const st = fs.lstatSync(file)
+    if (!st.isFile()) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' })
+    raw = fs.readFileSync(file, 'utf8')
+  } catch (e) { throw new Error(`Claude token file ${file}: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`) }
+  const t = raw.trim()
+  if (!TOKEN_RE.test(t)) throw new Error(`${file} is not a Claude subscription token (one line starting sk-ant-oat01-, made with \`claude setup-token\`)`)
+  return t
 }
 
 /**
@@ -418,9 +446,10 @@ async function listening(port: number): Promise<boolean> {
 
 /** The ports this installation needs that another program holds. office-install.sh runs this after stopping its own
  * agent, so a port held by the previous version of this installation is free again. */
-export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort' | 'helperPort'>): Promise<string[]> {
+export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort' | 'helperPort'> & Partial<Pick<OfficeSettings, 'proxyPort'>>): Promise<string[]> {
   const want: [number, string, string][] = [
     [s.appPort, '127.0.0.1', '--app-port'], [s.lanPort, '0.0.0.0', '--lan-port'],
+    ...(s.proxyPort ? [[s.proxyPort, '127.0.0.1', '--proxy-port'] as [number, string, string]] : []),
     ...(s.helperPort ? [[s.helperPort, '0.0.0.0', '--helper-port'] as [number, string, string]] : []),
   ]
   const out: string[] = []
