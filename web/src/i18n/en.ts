@@ -665,6 +665,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.auth.password_reset': 'Set a password with a reset link',
   'audit.act.auth.reauth_failed': 'Wrong password on a confirmation',
   'audit.act.proxy.refused': 'AI engine request blocked',
+  'audit.act.engine.subscription_rejected': 'Claude subscription token refused',
   'audit.file.create': 'New file',
   'audit.file.update': 'Changed a file',
   'audit.file.delete': 'Moved to trash',

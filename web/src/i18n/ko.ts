@@ -664,6 +664,7 @@ export const ko = {
   'audit.act.auth.password_reset': '재설정 링크로 비밀번호 변경',
   'audit.act.auth.reauth_failed': '비밀번호 재확인 실패',
   'audit.act.proxy.refused': 'AI 엔진의 외부 요청 막음',
+  'audit.act.engine.subscription_rejected': 'Claude 구독 토큰 거절됨',
   'audit.file.create': '새 파일',
   'audit.file.update': '파일 수정',
   'audit.file.delete': '휴지통으로 옮김',

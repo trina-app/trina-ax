@@ -17,6 +17,9 @@ export const DEV_DIR = path.join(REPO_ROOT, '.dev')
 export const PROD_BASE = `/Library/Application Support/${PRODUCT.id}`
 /** Foundation dev server port (component port ranges: docs/WORKPLAN.md). */
 export const DEV_PORT = 19100
+/** model proxy port when server.json names none (the installer's default --proxy-port) */
+export const DEFAULT_PROXY_PORT = 47821
+export const ANTHROPIC_API = 'https://api.anthropic.com'
 
 export const AppConfigFile = z.object({
   mode: z.enum(['dev', 'prod']).optional(),
@@ -34,8 +37,15 @@ export const AppConfigFile = z.object({
   logDir: z.string().nullable().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   engine: z.object({
-    /** local-login: owner's own CLI login, engine runs as the current user (dev / subscriptions). proxy: company key. */
+    /** local-login: owner's own CLI login, engine runs as the current user (dev). subscription: the owner's
+     * `claude setup-token` token in <install>/secrets/claude-oauth-token behind the model proxy (production, written
+     * by scripts/install-macos.sh). proxy: company key (code only, refused). */
     authMode: AuthMode.default('local-login'),
+    /** subscription mode: the model proxy's port on 127.0.0.1 (the installer's --proxy-port; pf and the launcher's
+     * sandbox allow the engine account only this port, so another value here only makes the engine fail closed) */
+    proxyPort: z.number().int().min(1).max(65535).optional(),
+    /** where the model proxy sends requests (tests point it at a fake upstream) */
+    modelUpstream: z.string().url().optional(),
     claudeBin: z.string().optional(),
     codexBin: z.string().optional(),
     /** installed layout (tab 6, written by scripts/install-macos.sh): sockets <runDir>/tools.sock + private/, per-chat
@@ -69,7 +79,7 @@ export interface AppConfig {
   dataDir: string
   logDir: string | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  engine: { authMode: 'local-login' | 'proxy'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number }
+  engine: { authMode: 'local-login' | 'proxy' | 'subscription'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number; modelUpstream?: string }
   relay: { url: string | null; teamName: string | null }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null }
   validateResponses: boolean
@@ -133,6 +143,8 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       ...(f.engine.agentRoot ? { agentRoot: abs(f.engine.agentRoot) } : {}),
       ...(f.engine.launcherSock ? { launcherSock: abs(f.engine.launcherSock) } : {}),
       ...(f.engine.agentUid !== undefined ? { agentUid: f.engine.agentUid } : {}),
+      ...(f.engine.proxyPort !== undefined ? { proxyPort: f.engine.proxyPort } : {}),
+      ...(f.engine.modelUpstream ? { modelUpstream: f.engine.modelUpstream } : {}),
     },
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,

@@ -28,6 +28,8 @@ import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet } from './tools'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
+import { budgetBlock } from '../admin/budgets'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -93,6 +95,9 @@ export class TurnExec {
   private patched = new Set<string>()
   private pendingPatches = new Map<string, ((s: Step) => Partial<Step>)[]>()
   private attemptHadOutput = false
+  /** set by the model proxy (upstream 401, budget used up, subscription limit): ends the turn with this error */
+  private proxyError: ApiErrorBody | null = null
+  private proxyUnsubscribe: (() => void) | null = null
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
@@ -188,6 +193,11 @@ export class TurnExec {
     const chatDir = path.join(core.cfg.agentRoot, spec.chatId)
 
     if (claude) {
+      if (claude.modelProxy && core.proxy) {
+        // subscription mode: no turn while the proxy cannot listen (fail closed); its findings end this turn
+        if (!core.proxy.ready) { this.error = engineError('proxy_down', spec.locale); return }
+        this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
+      }
       if (!resume) sid = crypto.randomUUID()
       let model = safeModel(spec.model) ? spec.model : undefined
       const retried = new Set<string>()
@@ -195,14 +205,17 @@ export class TurnExec {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
+        // the engine's credential for the model proxy: this turn and person only, revoked when the turn ends
+        const proxyToken = claude.modelProxy ? issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 }) : undefined
         const lr = buildClaudeLaunch({
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools,
+          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken,
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         if (exit?.session?.b64) this.stashSession(sid, exit.session.b64)
         if (this.stopReason) break
+        if (this.proxyError) { this.error = this.proxyError; break }
         const noConversation = /No conversation found/i.test(stderr + JSON.stringify(parser.result ?? ''))
         if (resume && noConversation && !retried.has('resume')) { // stash unusable -> fresh session from the DB history
           retried.add('resume'); resume = false; sid = crypto.randomUUID(); continue
@@ -250,6 +263,20 @@ export class TurnExec {
         break
       }
     }
+  }
+
+  /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
+   * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
+  private onProxyEvent(ev: ProxyTurnEvent) {
+    if (this.proxyError) return
+    const L = this.spec.locale
+    if (ev.type === 'auth') this.proxyError = engineError('auth', L)
+    else if (ev.type === 'budget') this.proxyError = { code: 'budget_exceeded', message: budgetBlock(this.rt.db, this.spec.userId, L)?.message ?? tr('errBudget', L) }
+    else {
+      const secs = ev.retryAt ? Math.max(1, Math.ceil((Date.parse(ev.retryAt) - Date.now()) / 1000)) : undefined
+      this.proxyError = engineError('rate_limit', L, secs)
+    }
+    if (ev.type !== 'auth') this.handle?.kill()
   }
 
   /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
@@ -560,6 +587,8 @@ export class TurnExec {
     if (this.clock) clearInterval(this.clock)
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
     this.rt.relay.cancelTurn(this.id)
+    this.proxyUnsubscribe?.()
+    try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const s of this.steps) if (s.status === 'running') { s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     if (this.stopReason === 'timeout' && !this.error) this.error = engineError('timeout', this.spec.locale)
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)

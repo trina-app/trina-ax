@@ -114,3 +114,56 @@ describe('root scripts', () => {
     expect(s).toContain('-type f -links 1')
   })
 })
+
+// root/set-claude-token (subscription mode): how the owner stores the `claude setup-token` token for the server account.
+// Run unprivileged here (MYCEL_SET_TOKEN_TEST=1, everything owned by the test user); the root run with the role
+// accounts is in tests/install/g-macos-install.ts.
+describe('set-claude-token', () => {
+  const base = path.join(W, 'set-token')
+  const secrets = path.join(base, 'secrets')
+  const dest = path.join(secrets, 'claude-oauth-token')
+  const TOKEN = 'sk-ant-oat01-' + 'a1B2_c3-'.repeat(8)
+  const run = (input: string, ...args: string[]) => {
+    const p = Bun.spawnSync(['/bin/bash', path.join(REPO, 'scripts', 'macos', 'set-claude-token.sh'), '--base', base, ...args],
+      { env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', MYCEL_SET_TOKEN_TEST: '1' }, stdin: Buffer.from(input), stdout: 'pipe', stderr: 'pipe' })
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() }
+  }
+  const fresh = () => { fs.rmSync(base, { recursive: true, force: true }); fs.mkdirSync(secrets, { recursive: true }); fs.chmodSync(secrets, 0o700) }
+
+  test('stores a setup-token from stdin as a 600 file; refuses anything else and changes nothing', () => {
+    fresh()
+    expect(run('hello world\n').code).not.toBe(0)
+    expect(run('sk-ant-api03-' + 'x'.repeat(40) + '\n').code).not.toBe(0) // an API key is not a subscription token
+    expect(run('', TOKEN).code).not.toBe(0) // never on the command line
+    expect(fs.existsSync(dest)).toBe(false)
+    const r = run(`  ${TOKEN}\r\n`)
+    expect(r.code).toBe(0)
+    expect(fs.readFileSync(dest, 'utf8')).toBe(TOKEN + '\n')
+    expect(fs.statSync(dest).mode & 0o777).toBe(0o600)
+    expect(r.out + r.err).not.toContain(TOKEN)
+    expect(fs.readdirSync(base).filter((n) => n.startsWith('.token-tmp'))).toEqual([]) // staging folder cleaned up
+  })
+
+  test('replaces a planted link instead of writing through it; --remove forgets the token', () => {
+    fresh()
+    const victim = path.join(W, 'victim-token')
+    fs.writeFileSync(victim, 'someone else\n')
+    fs.symlinkSync(victim, dest)
+    expect(run(TOKEN + '\n').code).toBe(0)
+    expect(fs.readFileSync(victim, 'utf8')).toBe('someone else\n')
+    expect(fs.lstatSync(dest).isSymbolicLink()).toBe(false)
+    expect(run('', '--remove').code).toBe(0)
+    expect(fs.existsSync(dest)).toBe(false)
+  })
+
+  test('refuses a secrets folder others can open, or a linked one', () => {
+    fresh()
+    fs.chmodSync(secrets, 0o755)
+    expect(run(TOKEN + '\n').code).not.toBe(0)
+    fs.rmSync(secrets, { recursive: true })
+    fs.mkdirSync(path.join(base, 'elsewhere'), { mode: 0o700 })
+    fs.symlinkSync(path.join(base, 'elsewhere'), secrets)
+    expect(run(TOKEN + '\n').code).not.toBe(0)
+    expect(fs.readdirSync(path.join(base, 'elsewhere'))).toEqual([])
+  })
+})

@@ -155,6 +155,8 @@ export interface Services {
   attachments?: AttachmentStore | null
   /** tools offered to engine turns besides the file tools (B, C) */
   turnTools?: TurnTool[]
+  /** subscription mode: the model proxy once the engine core runs (diagnostics show its state) */
+  modelProxy?: { readonly state: 'starting' | 'listening' | 'port_in_use' | 'stopped' } | null
 }
 
 /** Fallbacks before A and B land: nobody is signed in; events go nowhere. */

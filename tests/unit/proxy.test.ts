@@ -59,12 +59,17 @@ describe('model proxy', () => {
     const grew = await waitFor(() => (env.db.query('SELECT output_tokens FROM turns WHERE id = ?').get(turnId) as any).output_tokens - before.output_tokens === 500, { timeoutMs: 3000 })
     expect(grew).toBe(true)
   })
-  test('budget block and per-turn cap return 429', async () => {
+  test('budget block and per-turn cap: 403 budget_exceeded (not 429, which the SDK retries), nothing upstream', async () => {
+    const n = seen.length
     env.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, action) VALUES ('b1','user','alice','day', 0.000001, 'block')").run()
-    expect((await call(key.url, { 'x-api-key': tok })).status).toBe(429)
+    let r = await call(key.url, { 'x-api-key': tok })
+    expect(r.status).toBe(403)
+    expect((await r.json()).error).toEqual({ type: 'permission_error', message: 'budget_exceeded' })
     env.db.query("DELETE FROM budgets").run()
     const capped = issueProxyToken(env.db, turnId, 'alice', { budgetUsd: 0.000001 })
-    expect((await call(key.url, { 'x-api-key': capped })).status).toBe(429)
+    r = await call(key.url, { 'x-api-key': capped })
+    expect(r.status).toBe(403)
+    expect(seen.length).toBe(n)
   })
   test('revoked token (turn ended) is refused', async () => {
     revokeProxyTokens(env.db, turnId)

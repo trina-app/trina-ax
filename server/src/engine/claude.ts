@@ -27,9 +27,9 @@ export const CLAUDE_ALLOWED_TOOLS = [...Object.keys(FILE_TOOLS).map((t) => TEAM_
 export interface ClaudeConf {
   bin: string
   authMode: AuthMode
-  /** home of the engine account (proxy mode). local-login uses the real home (the CLI's login lives there). */
+  /** unused by proxy modes (HOME is <chat>/.home, inside the sandbox); local-login uses the real home */
   agentHome: string
-  /** proxy mode: the engine gets a per-turn token in the variable the upstream kind needs */
+  /** subscription / company-key mode: the model proxy's address and the kind of credential behind it */
   modelProxy?: { baseUrl: string; kind: 'api-key' | 'oauth' }
 }
 
@@ -83,16 +83,18 @@ export function buildClaudeLaunch(i: {
     env.HOME = os.homedir()
     for (const k of ['USER', 'LOGNAME']) if (process.env[k]) env[k] = process.env[k]!
   } else {
-    env.HOME = conf.agentHome
+    // subscription / company key: everything of the CLI stays in the chat folder (the only place the sandbox lets the
+    // engine write); the launcher creates .home. The per-turn proxy token goes to the launcher, which hands it to the
+    // engine on an inherited pipe (fd 3), never in the environment (other processes of the engine account can read it).
+    env.HOME = path.join(i.chatDir, '.home')
     env.CLAUDE_CONFIG_DIR = path.join(i.chatDir, '.claude')
     env.ANTHROPIC_BASE_URL = conf.modelProxy!.baseUrl
-    if (conf.modelProxy!.kind === 'oauth') env.CLAUDE_CODE_OAUTH_TOKEN = i.proxyToken!
-    else env.ANTHROPIC_API_KEY = i.proxyToken!
   }
   const loc = sessionLocation(conf, i.chatDir)
+  const modelToken = conf.authMode !== 'local-login' && i.proxyToken ? { kind: conf.modelProxy!.kind, value: i.proxyToken } : undefined
   return {
     op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt,
-    stdin: i.message, timeoutMs: i.timeoutMs,
+    stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}),
     ...(i.resume && i.stash ? { sessionRestore: { dir: loc.restoreDir, name: `${i.sessionId}.jsonl`, b64: i.stash.toString('base64') } } : {}),
     sessionCollect: { dir: loc.collectDir, name: `${i.sessionId}.jsonl`, removeDir: true },
   }

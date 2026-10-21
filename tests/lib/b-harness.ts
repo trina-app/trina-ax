@@ -116,6 +116,9 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   /** the real engines of this machine (owner's local logins) instead of the fake one */
   realEngines?: boolean
   concurrency?: number
+  /** the production engine path instead of the fake wiring: the real core (startLocalCore: sandboxed launcher, model
+   * proxy in subscription mode) and LocalEngines on this engine config */
+  realCore?: { engine: AppConfig['engine'] }
 }
 
 export async function startHarness(o: HarnessOptions): Promise<Harness> {
@@ -124,7 +127,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const dataDir = fx.data
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
-    teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error', engine: { authMode: 'local-login' },
+    teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error', engine: o.realCore?.engine ?? { authMode: 'local-login' },
     relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null,
   }
   const db = openDb(path.join(dataDir, 'app.db'))
@@ -134,11 +137,12 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const bin = fakeEngineBin(path.join(base, 'bin'))
   const ctx = createContext({
     config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,
-    startCore: (c) => startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [] } }),
+    ...(o.realCore ? {} : { startCore: (c: AppContext) => startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [] } }) }),
   })
-  // unix socket paths must stay short (macOS: 104 bytes)
-  ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
-  configureChat(ctx, { ...o, engines: o.realEngines ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir)) })
+  // unix socket paths must stay short (macOS: 104 bytes); the real core keeps them under the data folder, which the
+  // engine sandbox can reach (it refuses /tmp)
+  if (!o.realCore) ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
+  configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
   const app = await buildApp(ctx, [...ROUTE_MODULES, sessionModule])
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'test', server: s }) })

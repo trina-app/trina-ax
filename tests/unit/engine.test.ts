@@ -89,12 +89,17 @@ describe('locked engine invocations', () => {
     expect(r.stdin).toBe('hi')
     expect(r.env.ANTHROPIC_API_KEY).toBeUndefined()
   })
-  test('claude proxy mode: own config dir, per-turn token in the right variable', () => {
+  test('claude proxy modes: own config dir and home in the chat folder, per-turn token for the launcher pipe, never in env', () => {
     const base = { turnId: 't', chatDir, token: 'tok', systemPrompt: 's', message: 'm', sessionId: 'x', resume: false, stash: null, maxTurns: 3, timeoutMs: 1, proxyToken: 'mpx_1' }
     const k = buildClaudeLaunch(base, { bin: 'c', authMode: 'proxy', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'api-key' } })
-    expect(k.env).toMatchObject({ HOME: '/agent/home', CLAUDE_CONFIG_DIR: path.join(chatDir, '.claude'), ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_API_KEY: 'mpx_1' })
-    const o = buildClaudeLaunch(base, { bin: 'c', authMode: 'proxy', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth' } })
-    expect(o.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('mpx_1'); expect(o.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(k.env).toMatchObject({ HOME: path.join(chatDir, '.home'), CLAUDE_CONFIG_DIR: path.join(chatDir, '.claude'), ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' })
+    expect(k.modelToken).toEqual({ kind: 'api-key', value: 'mpx_1' })
+    const o = buildClaudeLaunch(base, { bin: 'c', authMode: 'subscription', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth' } })
+    expect(o.modelToken).toEqual({ kind: 'oauth', value: 'mpx_1' })
+    for (const r of [k, o]) {
+      expect(JSON.stringify(r.env)).not.toContain('mpx_1'); expect(JSON.stringify(r.args)).not.toContain('mpx_1')
+      expect(r.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined(); expect(r.env.ANTHROPIC_API_KEY).toBeUndefined()
+    }
     expect(o.sessionCollect).toEqual({ dir: path.join(chatDir, '.claude', 'projects'), name: 'x.jsonl', removeDir: true })
   })
   test('claude local-login keeps the real home (CLI login) and stashes under ~/.claude/projects/<slug>', () => {

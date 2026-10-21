@@ -12,7 +12,7 @@ import type { EngineAccount, EngineId, EngineStatus, Locale } from '@mycel/share
 import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { which } from '../config'
-import { CLAUDE_OAUTH_TOKEN_FILE } from '../system/engines'
+import { subscriptionTokenStatus } from '../proxy/subscription'
 import { resolveLayout } from '../system/layout'
 
 export const ENGINE_LABELS: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
@@ -50,7 +50,9 @@ export const T: Record<string, Record<Locale, string>> = {
   notInstalled: { ko: '서버 맥에 설치되어 있지 않습니다.', en: 'Not installed on the server Mac.', id: 'Belum terpasang di Mac server.' },
   claudeLogin: { ko: '서버 맥에서 owner가 `claude`를 실행해 로그인해야 합니다.', en: 'The owner must sign in by running `claude` on the server Mac.', id: 'Owner harus masuk dengan menjalankan `claude` di Mac server.' },
   codexLogin: { ko: '서버 맥에서 owner가 `codex login`으로 로그인해야 합니다.', en: 'The owner must sign in with `codex login` on the server Mac.', id: 'Owner harus masuk dengan `codex login` di Mac server.' },
-  setupToken: { ko: '전용 엔진 계정 모드에는 owner의 구독 장기 토큰이 필요합니다: 서버 맥에서 `claude setup-token`을 실행해 만든 토큰을 설치 폴더의 secrets/claude-oauth-token(/Library/Application Support/mycel/secrets, 권한 600)에 저장해야 합니다(docs/OWNER-TODO.md).', en: 'The dedicated engine account needs the owner\'s long-lived subscription token: run `claude setup-token` on the server Mac and store the token in secrets/claude-oauth-token of the install folder (/Library/Application Support/mycel/secrets, mode 600; docs/OWNER-TODO.md).', id: 'Akun mesin khusus memerlukan token langganan owner: jalankan `claude setup-token` di Mac server lalu simpan tokennya di secrets/claude-oauth-token di folder instalasi (/Library/Application Support/mycel/secrets, mode 600; docs/OWNER-TODO.md).' },
+  setupToken: { ko: '전용 엔진 계정 모드에는 owner의 구독 장기 토큰이 필요합니다: 서버 맥에서 `claude setup-token`으로 토큰을 만들고 `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"`으로 저장하세요(secrets/claude-oauth-token, docs/INSTALL.md 2.4).', en: 'The dedicated engine account needs the owner\'s long-lived subscription token: make one with `claude setup-token` on the server Mac and store it with `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` (secrets/claude-oauth-token, docs/INSTALL.md 2.4).', id: 'Akun mesin khusus memerlukan token langganan owner: buat dengan `claude setup-token` di Mac server lalu simpan dengan `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` (secrets/claude-oauth-token, docs/INSTALL.md 2.4).' },
+  setupTokenExpired: { ko: 'Claude 구독 장기 토큰이 만료되었습니다(1년). `claude setup-token`으로 새 토큰을 만들어 다시 저장하세요.', en: 'The long-lived Claude subscription token has expired (one year). Make a new one with `claude setup-token` and store it again.', id: 'Token langganan Claude sudah kedaluwarsa (satu tahun). Buat yang baru dengan `claude setup-token` lalu simpan lagi.' },
+  setupTokenInvalid: { ko: 'Claude가 구독 장기 토큰을 거절했습니다(취소되었거나 잘못 붙여 넣음). `claude setup-token`으로 새 토큰을 만들어 다시 저장하세요.', en: 'Claude refused the long-lived subscription token (revoked or pasted wrong). Make a new one with `claude setup-token` and store it again.', id: 'Claude menolak token langganan (dicabut atau salah tempel). Buat yang baru dengan `claude setup-token` lalu simpan lagi.' },
   codexDevice: { ko: '전용 엔진 계정의 Codex 로그인(`codex login --device-auth`)이 아직 없습니다.', en: 'The engine account has no Codex sign-in yet (`codex login --device-auth`).', id: 'Akun mesin belum masuk ke Codex (`codex login --device-auth`).' },
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없습니다.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.' },
   version: { ko: '고정 버전과 다릅니다(잠금 시험을 통과한 버전: {pinned}).', en: 'Differs from the pinned version (lockdown-tested: {pinned}).', id: 'Berbeda dari versi yang dikunci (lulus uji penguncian: {pinned}).' },
@@ -61,7 +63,7 @@ const t = (k: keyof typeof T, l: Locale, vars: Record<string, string> = {}) => T
 
 export interface EngineEnv {
   mode: 'dev' | 'prod'
-  authMode: 'local-login' | 'proxy'
+  authMode: 'local-login' | 'proxy' | 'subscription'
   claudeBin: string
   codexBin: string
   dataDir: string
@@ -74,6 +76,8 @@ export interface EngineEnv {
   /** CODEX_HOME for `codex login status` (null = the CLI's default) */
   codexHome: string | null
   hasCompanyKey(engine: 'anthropic' | 'openai'): boolean
+  /** the server's database (the model proxy notes a refused subscription token there) */
+  db?: import('bun:sqlite').Database
 }
 
 export function engineEnv(ctx: AppContext): EngineEnv {
@@ -93,13 +97,14 @@ export function engineEnv(ctx: AppContext): EngineEnv {
     ],
     codexHome,
     hasCompanyKey: (engine) => !!ctx.db.query("SELECT 1 FROM engine_accounts WHERE engine = ? AND status = 'ok'").get(engine),
+    db: ctx.db,
   }
 }
 
 /** auth mode as shown to the admin */
 export function shownAuthMode(env: EngineEnv): EngineStatus['authMode'] {
   if (env.authMode === 'proxy') return 'proxy'
-  return env.mode === 'prod' ? 'agent-own' : 'local-login'
+  return env.mode === 'prod' || env.authMode === 'subscription' ? 'agent-own' : 'local-login'
 }
 
 function pinned(env: EngineEnv, id: EngineId): string | null {
@@ -146,7 +151,10 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
     if (!env.hasCompanyKey(id === 'claude-code' ? 'anthropic' : 'openai')) return out('not_logged_in', t('companyKey', locale))
   } else if (id === 'claude-code') {
     if (mode === 'agent-own') {
-      if (!fs.existsSync(path.join(env.secretsDir, CLAUDE_OAUTH_TOKEN_FILE))) return out('not_logged_in', t('setupToken', locale))
+      const st = subscriptionTokenStatus(env.secretsDir, env.db ?? null)
+      if (st.state === 'missing') return out('not_logged_in', t('setupToken', locale))
+      if (st.state === 'expired') return out('not_logged_in', t('setupTokenExpired', locale))
+      if (st.state === 'invalid' || st.state === 'malformed') return out('not_logged_in', t('setupTokenInvalid', locale))
     } else {
       const s = await runCli(bin, ['auth', 'status', '--json'], { timeoutMs: 15_000 })
       let logged: boolean | null = null

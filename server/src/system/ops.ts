@@ -8,6 +8,8 @@ import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Local
 import { PfStatus, type StatusFile } from '@mycel/shared/install'
 import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
+import { DEFAULT_PROXY_PORT } from '../app-config'
+import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
 import { connectionStatus } from './connection'
@@ -37,7 +39,7 @@ export class OpsService {
   readonly layout: InstallLayout
   readonly backups: BackupManager
   readonly updates: UpdateManager
-  private engineCache: { at: number; v: EngineLogin[] } | null = null
+  private engineCache: { at: number; v: EngineLogin[]; stamp: string } | null = null
   private timers: ReturnType<typeof setInterval>[] = []
 
   constructor(private ctx: AppContext, private o: OpsOptions = {}) {
@@ -56,7 +58,9 @@ export class OpsService {
 
   async engines(): Promise<EngineLogin[]> {
     if (this.o.engines) return this.o.engines()
-    if (this.engineCache && Date.now() - this.engineCache.at < 5 * 60_000) return this.engineCache.v
+    // the subscription token's state changes without a restart (stored again, refused by the upstream): part of the key
+    const stamp = this.tokenStamp()
+    if (this.engineCache && Date.now() - this.engineCache.at < 5 * 60_000 && this.engineCache.stamp === stamp) return this.engineCache.v
     const cfg = this.ctx.config.engine
     const which = (n: string) => { for (const d of (process.env.PATH ?? '').split(':').concat(['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin')])) { const p = path.join(d, n); if (fs.existsSync(p)) return p } return null }
     const v = await checkEngines({
@@ -64,9 +68,17 @@ export class OpsService {
       claudeBin: cfg.claudeBin ?? this.ctx.engineConfig.claudeBin ?? which('claude'),
       codexBin: cfg.codexBin ?? which('codex'),
       secretsDir: this.layout.secretsDir,
+      db: this.ctx.db,
     })
-    this.engineCache = { at: Date.now(), v }
+    this.engineCache = { at: Date.now(), v, stamp }
     return v
+  }
+
+  private tokenStamp(): string {
+    let f = 'none', r = 'none'
+    try { const st = fs.lstatSync(tokenFile(this.layout.secretsDir)); f = `${st.ino}:${st.size}:${st.mtimeMs}` } catch {}
+    try { r = (this.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(REJECTED_KEY) as { value: string } | null)?.value ?? 'none' } catch {}
+    return `${f}|${r}`
   }
 
   queue(): { running: number; queued: number; concurrency: number } {
@@ -149,12 +161,24 @@ export class OpsService {
     for (const e of await this.engines()) {
       const label = t(e.engine === 'claude-code' ? M.engineClaude : M.engineCodex)
       const id = `engine.${e.engine}`
-      if (e.loggedIn) add(id, 'engines', label, 'ok', t(M.engineOk(e.method)))
+      if (e.loggedIn && e.reason === 'setup_token_expiring' && e.expiresAt) add(id, 'engines', label, 'warn', t(M.engineSetupTokenExpiring(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium' }).format(new Date(e.expiresAt)))))
+      else if (e.loggedIn) add(id, 'engines', label, 'ok', t(M.engineOk(e.method)))
+      else if (e.reason === 'setup_token_expired') add(id, 'engines', label, 'fail', t(M.engineSetupTokenExpired))
+      else if (e.reason === 'setup_token_invalid') add(id, 'engines', label, 'fail', t(M.engineSetupTokenInvalid))
       else if (e.reason === 'not_installed') add(id, 'engines', label, e.engine === 'codex' ? 'warn' : 'fail', t(M.engineNotInstalled))
       else if (e.reason === 'setup_token_missing') add(id, 'engines', label, 'fail', t(M.engineSetupToken))
       else if (e.reason === 'engine_login_missing') add(id, 'engines', label, 'warn', t(M.engineCodexLogin))
       else if (e.reason === 'check_failed') add(id, 'engines', label, 'unknown', t(M.engineCheckFailed))
       else add(id, 'engines', label, 'fail', t(M.engineNotLoggedIn))
+    }
+
+    // model proxy (subscription mode): listening, or its port taken by another program (design tab 1 "리슨")
+    if (this.ctx.config.engine.authMode === 'subscription') {
+      const port = this.ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT
+      const st = this.ctx.services.modelProxy?.state ?? null
+      if (st === 'listening') add('model_proxy', 'engines', t(M.modelProxy), 'ok', t(M.modelProxyOk(port)))
+      else if (st === 'port_in_use') add('model_proxy', 'engines', t(M.modelProxy), 'fail', t(M.modelProxyPortInUse(port)))
+      else add('model_proxy', 'engines', t(M.modelProxy), 'unknown', t(M.modelProxyNotStarted))
     }
 
     // queue
