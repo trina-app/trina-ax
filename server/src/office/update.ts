@@ -13,7 +13,7 @@
 //      the agents, app -> app.failed, app.previous -> app, the old version's `office.js install`, wait for the old
 //      version; that version is not tried again by the nightly run (`teamax update now` tries again)
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
-//      (electron-updater, generic provider) updates from the clinic's own Mac
+//      (electron-updater, generic provider) updates from the office's own Mac
 //
 // data/, team/, tls/ and config/ are never touched by an update (the installer keeps them; the rollback moves only
 // app folders). The updater's own files live in <home>/update/: settings.json (channel, time, paused), state.json
@@ -77,7 +77,7 @@ function writeJson(file: string, v: unknown) {
 }
 function readJson(file: string): unknown { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null } }
 
-/** a feed override is only honoured for this Mac (tests): the clinic's Mac never contacts anything but the feed */
+/** a feed override is only honoured for this Mac (tests): the office's Mac never contacts anything but the feed */
 export function feedOf(s: Pick<UpdateSettings, 'feed'>): string {
   const f = s.feed
   if (f && /^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/.test(f)) return f

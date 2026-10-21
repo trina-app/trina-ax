@@ -1,6 +1,6 @@
 // The office internet address, Cloudflare side (docs/OFFICE.md "인터넷 주소"). Runs on the OWNER's Mac (the one with
-// the Cloudflare login), not on the clinic's Mac: it makes the name answer through a Cloudflare Tunnel and writes the
-// connector token that the clinic's Mac then gets (`~/TeamAX/teamax public-address set <name> <token file>`).
+// the Cloudflare login), not on the office's Mac: it makes the name answer through a Cloudflare Tunnel and writes the
+// connector token that the office's Mac then gets (`~/TeamAX/teamax public-address set <name> <token file>`).
 //
 //   bun scripts/office/public-address.ts set    <name> (--cert FILE | --api-token-file FILE) [--port 47830]
 //                                                [--tunnel NAME [--share-tunnel]] [--token-out FILE] [--allow-apex]
@@ -23,7 +23,7 @@
 // or one an older remove left behind), so a name is served by one tunnel only; those tunnels are never deleted.
 // A tunnel's connector token (account, tunnel id, secret) is the same for every name the tunnel serves, and Cloudflare
 // spreads every name's visitors over all of the tunnel's connectors. So set refuses a tunnel that already serves
-// another name (one clinic's Mac would get the other clinic's token and traffic) unless --share-tunnel says one Mac
+// another name (one office's Mac would get the other office's token and traffic) unless --share-tunnel says one Mac
 // serves all of those names.
 // remove: deletes <name>'s CNAME (only a tunnel CNAME), drops <name> from the ingress of every remotely managed tunnel of
 // the account and deletes the tunnel the CNAME pointed to (or the default-named one, only when it has <name>'s rule)
@@ -33,7 +33,7 @@
 // --no-rotate skips that when the same Mac serves every name.
 // rotate: a new secret for the tunnel <name> points to (or --tunnel), its live connections closed, the new token
 // written; every copy of the old token stops connecting.
-// Changing the address later: `set <new name>`, then on the clinic's Mac `teamax public-address set <new name>
+// Changing the address later: `set <new name>`, then on the office's Mac `teamax public-address set <new name>
 // <token file>`, then `remove <old name>`.
 //
 // Credentials: --cert is a cloudflared origin certificate (`cloudflared tunnel login`; it carries an API token for one
@@ -262,7 +262,7 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
 
   const service = `http://127.0.0.1:${port}`
   const cur = created ? { config: {}, ingress: [] } : await ingressOf(api, zone.accountId, tunnel.id)
-  // one tunnel = one connector token for all its names: another clinic's Mac must never get this one's token
+  // one tunnel = one connector token for all its names: another office's Mac must never get this one's token
   const sharedWith = otherNames(host, cur.ingress)
   if (sharedWith.length && !o.shareTunnel) throw new Refused(`the tunnel ${tunnel.name} already serves ${sharedWith.join(', ')}; its connector token is the same for every name it serves, so the Mac given the token for ${host} could serve those names (and get their visitors) too: refused, nothing changed. Leave out --tunnel so ${host} gets a tunnel of its own (if ${host} already points to ${tunnel.name}, remove ${host} first), or add --share-tunnel when one Mac serves all of these names`)
   const ingress = ingressFor(host, port, cur.ingress)
@@ -333,7 +333,7 @@ export async function removeAddress(api: Api, cred: Pick<Credential, 'zoneId' | 
     else if (!others.length && !o.keepTunnel) {
       actions.push(`delete tunnel ${tunnel.name} (${tunnel.id})`)
       if (!o.dryRun) {
-        // a connector still running (the clinic's Mac) would keep the tunnel: its connections are closed first
+        // a connector still running (the office's Mac) would keep the tunnel: its connections are closed first
         try { await api('DELETE', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/connections`) } catch {}
         await api('DELETE', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}`)
       }
@@ -452,9 +452,9 @@ export async function main(argv: string[], apiFor: (c: Credential) => Api = (c) 
     const r = await setAddress(api, cred, { host, port, ...flags, shareTunnel: argv.includes('--share-tunnel') })
     for (const a of r.actions) console.log(`${flags.dryRun ? 'would ' : ''}${a}`)
     if (!r.actions.length) console.log('Cloudflare already set up (nothing changed)')
-    console.log(`\nhttps://${r.host} → tunnel ${r.tunnelName} (${r.tunnelId}) → ${r.service} on the clinic's Mac`)
+    console.log(`\nhttps://${r.host} → tunnel ${r.tunnelName} (${r.tunnelId}) → ${r.service} on the office's Mac`)
     if (r.tokenFile) {
-      console.log(`connector token: ${r.tokenFile} (600; not shown). Copy it to the clinic's Mac (AirDrop/USB), then there:`)
+      console.log(`connector token: ${r.tokenFile} (600; not shown). Copy it to the office's Mac (AirDrop/USB), then there:`)
       if (r.connectors) console.log(`  NOTE: this token is the one already running on ${r.connectors} connector(s) of ${r.tunnelName}; give it only to the Mac that already serves ${r.host}`)
       if (r.sharedWith.length) console.log(`  NOTE (--share-tunnel): this token also serves ${r.sharedWith.join(', ')}; give it only to the one Mac that serves all of them`)
       console.log(`  ~/TeamAX/teamax public-address set ${r.host} <the copied token file>`)

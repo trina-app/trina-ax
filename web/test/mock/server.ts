@@ -712,7 +712,7 @@ export class MockServer {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디입니다.')
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger4271')
-      return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://exampleteam.example.com' } }
+      return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
     updateUser: (c) => {
       const { locale, ...rest } = c.body
@@ -732,7 +732,7 @@ export class MockServer {
       this.passwords.set(u!.username, temp)
       u!.mustChangePassword = true
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
-      return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://exampleteam.example.com' }
+      return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://team.example.com' }
     },
     createResetLink: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)

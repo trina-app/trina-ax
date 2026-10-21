@@ -1,4 +1,4 @@
-// Office mode (docs/OFFICE.md): one Mac in a clinic or small office runs Team AX for the desks on its network, as
+// Office mode (docs/OFFICE.md): one Mac in a small office runs Team AX for the desks on its network, as
 // the signed-in macOS user, with that Mac's own Claude Code login (dev mode's engine setup: local-login, engine.sb
 // sandbox, the permission function, the engine lockdown). Bundled as app/server/src/office.js by
 // scripts/build-office.ts and run by app/bin/bun; `~/TeamAX/teamax <command>` is the short way to call it.
@@ -562,14 +562,14 @@ export function publicProblem(s: Pick<OfficeSettings, 'publicHost' | 'appPort'>,
   const h = s.publicHost
   if (r === 'origin') return [
     `https://${h} → 502: Cloudflare 터널은 연결됐지만 이 맥의 앱 포트(127.0.0.1:${s.appPort})가 아닌 곳을 가리킵니다 / the tunnel does not point at this Mac's app port.`,
-    `  원장님 맥에서 / on the owner's Mac: bun scripts/office/public-address.ts set ${h} --port ${s.appPort} --cert <cert 파일>`,
+    `  Cloudflare에 로그인한 맥에서 / on the Mac with the Cloudflare login: bun scripts/office/public-address.ts set ${h} --port ${s.appPort} --cert <cert 파일>`,
     '  (이 맥에서는 다시 할 일이 없습니다 / nothing to redo on this Mac)',
   ].join('\n')
   if (r === 'tunnel') return [
     `https://${h} → 530: 이 이름의 터널에 연결된 cloudflared가 없습니다 (토큰이 다른 터널 것이거나 cloudflared가 멈춤) / no connector for this name's tunnel.`,
-    `  확인 / check: ${tunnelLog} , teamax public-address status , 원장님 맥에서 public-address.ts status ${h}`,
+    `  확인 / check: ${tunnelLog} , teamax public-address status , Cloudflare에 로그인한 맥에서 public-address.ts status ${h}`,
   ].join('\n')
-  return `https://${h}: 아직 답이 없습니다 / no answer yet: 이름(DNS)과 인터넷 연결을 확인하세요 (원장님 맥에서 public-address.ts status ${h}), ${tunnelLog}`
+  return `https://${h}: 아직 답이 없습니다 / no answer yet: 이름(DNS)과 인터넷 연결을 확인하세요 (Cloudflare에 로그인한 맥에서 public-address.ts status ${h}), ${tunnelLog}`
 }
 
 async function publicAddress(home: string, args: string[]): Promise<number> {
@@ -592,7 +592,7 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     if (before.publicHost) await restartServer(s)
     console.log('인터넷 주소를 껐습니다 / internet address off. 사무실 안 주소는 그대로입니다 / the office addresses are unchanged.')
     const name = before.publicHost ?? '<name>'
-    console.log(`Cloudflare 쪽 이름·터널 지우기 (원장님 맥에서) / remove the name and tunnel at Cloudflare (on the owner's Mac): bun scripts/office/public-address.ts remove ${name} --cert <cert 파일>`)
+    console.log(`Cloudflare 쪽 이름·터널 지우기 (Cloudflare에 로그인한 맥에서) / remove the name and tunnel at Cloudflare (on the Mac with the Cloudflare login): bun scripts/office/public-address.ts remove ${name} --cert <cert 파일>`)
     return 0
   }
   if (sub === 'status') {

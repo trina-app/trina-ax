@@ -21,7 +21,7 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |
 | Phones | Production office address only; not tested |
-| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md), clinic PDF [office/Team-AX-치과-설치가이드.pdf](office/Team-AX-치과-설치가이드.pdf)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
+| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md), printable PDF [office/Team-AX-사무실모드-설치가이드.pdf](office/Team-AX-사무실모드-설치가이드.pdf)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
 
 **Production chats (subscription mode).** The installer writes `engine.authMode: "subscription"`. Claude Code runs
 as the hidden engine account `_axagent` under the sandbox and pf; the only address it can reach is the server's

@@ -55,7 +55,7 @@ export const officeUpdateRoutes: RouteModule = {
       if (!home) fail('conflict', tr(locale, T.notOffice))
       const v = view(home!)
       if (body.action === 'now') {
-        // the password again, like the owner's update and restore: this restarts the clinic's server
+        // the password again, like the owner's update and restore: this restarts the office's server
         if (!body.password || !(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
           fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
         }

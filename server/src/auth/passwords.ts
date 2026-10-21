@@ -42,7 +42,7 @@ export function dummyHash(): Promise<string> {
   return dummy
 }
 
-// Password rule (owner decision 2026-10-21, clinic pilot): at least 8 and at most 128 characters, not the username,
+// Password rule (owner decision 2026-10-21, first office pilot): at least 8 and at most 128 characters, not the username,
 // not one of the most common passwords. No character-class or "different characters" rules: they made passwords hard
 // to choose and remember at the desks. The same rule everywhere (setup, invite, forced and settings change, reset
 // link, a temporary password an admin types, the server CLI).

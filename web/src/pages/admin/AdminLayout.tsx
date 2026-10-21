@@ -34,7 +34,7 @@ export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
   const { section } = useParams()
-  // office mode: admins update the clinic's server from Admin > System too (only the automatic update card there)
+  // office mode: admins update the office's server from Admin > System too (only the automatic update card there)
   const [office, setOffice] = useState<boolean | null>(null)
   useEffect(() => {
     if (!isAdmin(me) || isOwner(me)) return

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { OWNER, reset, signIn, watchConsole } from './helpers'
 
-// first-run setup starts in the browser's language when none was picked (89e32d5, the clinic's own Mac): these two
+// first-run setup starts in the browser's language when none was picked (89e32d5, the office's own Mac): these two
 // run in an English browser
 test.describe('first-run setup in an English browser', () => {
   test.use({ locale: 'en-US' })
