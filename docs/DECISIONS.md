@@ -976,3 +976,11 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   보안 r4가 든 버전으로 처음 올라갈 때 서버가 사무실 CA를 한 번 새로 만든다(r4의 의도, 옛 CA는 `ca.crt.old-<날짜>`): 사무실 안
   대체 경로를 쓰는 데스크는 그때 CA를 한 번 다시 설치한다. 피드 이름을 처음 만든 직후 이 맥의 DNS가 "없는 이름"을 30분
   기억해서(SOA 최소 1800초) 그동안 받을 수 없었다: 새 이름은 쓰기 30분 전에 만든다.
+
+## Higgsfield 영상 만들기: generate_video (feat/higgsfield-video, 2026-10-21)
+
+- **AI 도구 `generate_video`**(`server/src/tools/higgsfield.ts`): 글 설명으로 3–15초 영상을 팀의 Higgsfield API 계정으로 만들고 .mp4를 팀 폴더에 저장한다(기본 `users/<id>/videos/`, make_file과 같은 `placeProduced`: 정책 재확인·충돌 사본·턴 한도·기록·실시간 알림). Higgsfield 문서대로 `POST https://api.higgsfield.ai/<모델>`(헤더 `Authorization: Key <id>:<secret>`, `Idempotency-Key`) → `/requests/<id>/status`를 5초마다(최대 15분) → `video.url`을 https·공용 주소 확인 후 내려받음(최대 200 MB).
+- **켜기**: 관리자가 `<data>/secrets/higgsfield.key`에 `키ID:비밀`을 한 줄로(권한 600) 넣고 서버를 다시 시작(사무실 모드 `~/TeamAX/data/secrets/higgsfield.key`, `teamax restart`). 파일이 없으면 도구 자체가 없다. 모델은 `MYCEL_HIGGSFIELD_VIDEO_ENDPOINT`(기본 `alibaba/happy-horse/text-to-video`, 계정에 따라 쓸 수 있는 모델이 다름).
+- **돈과 바깥으로 나가는 글**: 매번 서버가 띄우는 확인 카드(길이·비율·해상도·설명 전문)에서 사람이 "만들기"를 눌러야 요청이 나간다(거절하면 API 호출 0). 설명은 Higgsfield로 가므로 도구 설명에 개인·환자·기밀 정보를 넣지 말라고 적었다. 사람당 24시간 10개(`MYCEL_HIGGSFIELD_DAILY`). 실패·nsfw는 Higgsfield가 과금하지 않는다(문서).
+- **시험**: `MYCEL_HIGGSFIELD_API`(시험 전용)로 가짜 API를 가리킬 수 있다. 실제 키로는 아직 시험하지 않았다.
+

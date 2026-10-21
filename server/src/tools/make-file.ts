@@ -267,54 +267,61 @@ export class MakeFile {
     await wb.xlsx.writeFile(out)
   }
 
-  /** Put the produced file into the team folder (policy checked again) and record it. */
-  private async place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {
-    const cfg = this.ctx.engineConfig
-    const size = fs.statSync(produced).size
-    if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
-    const fx = this.files.fx
-    const rules = this.files.rules()
-    let conflictOf: string | undefined
-    let action: 'create' | 'update' = 'create'
-    // looked at again now, not before the conversion: someone may have saved a file there in the meantime
-    const now = authorize(fx, rules, c.user, segs.join('/'), 'write', { mustExist: false, createDirs: true })
-    if (now.exists && now.st!.isDirectory()) throw new ToolError(`'${now.rel}' is a folder`)
-    segs = now.segs
-    let target = segs
-    const rel0 = now.rel
-    if (now.exists) {
-      const abs = path.join(fx.root, ...segs)
-      checkRegular(abs)
-      const cur = await hashFile(abs)
-      if (c.files.readHashes.get(rel0) === cur) {
-        snapshotVersion(this.ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
-        action = 'update'
-      } else {
-        // never overwrite a file the AI has not read in this turn: keep both
-        const dir = segs.slice(0, -1)
-        let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(this.ctx.db))
-        if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
-        name = freeName(path.join(fx.root, ...dir), name)
-        target = authorize(fx, rules, c.user, [...dir, name].join('/'), 'write', { mustExist: false }).segs
-        conflictOf = rel0
-      }
-    }
-    if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
-    const sha = await hashFile(produced)
-    // final check right before the rename (rules may have changed during the conversion)
-    authorize(fx, this.files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
-    installFile(fx.root, target, produced)
-    const rel = target.join('/')
-    c.files.bytesWritten += size
-    c.files.filesWritten.add(rel)
-    c.files.readHashes.set(rel, sha)
-    // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
-    if (conflictOf) recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool: 'make_file' })
-    fileEvent(this.ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool: 'make_file', ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
-    this.files.extractText(rel)
-    publishChanges(this.ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
-    return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }
+  private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {
+    return placeProduced(this.ctx, this.files, c, segs, produced)
   }
+}
+
+/**
+ * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
+ * generated media such as generate_video). An existing file the AI has not read in this turn is kept (conflict copy).
+ */
+export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file'): Promise<MadeFile> {
+  const cfg = ctx.engineConfig
+  const size = fs.statSync(produced).size
+  if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+  const fx = files.fx
+  const rules = files.rules()
+  let conflictOf: string | undefined
+  let action: 'create' | 'update' = 'create'
+  // looked at again now, not before the conversion: someone may have saved a file there in the meantime
+  const now = authorize(fx, rules, c.user, segs.join('/'), 'write', { mustExist: false, createDirs: true })
+  if (now.exists && now.st!.isDirectory()) throw new ToolError(`'${now.rel}' is a folder`)
+  segs = now.segs
+  let target = segs
+  const rel0 = now.rel
+  if (now.exists) {
+    const abs = path.join(fx.root, ...segs)
+    checkRegular(abs)
+    const cur = await hashFile(abs)
+    if (c.files.readHashes.get(rel0) === cur) {
+      snapshotVersion(ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
+      action = 'update'
+    } else {
+      // never overwrite a file the AI has not read in this turn: keep both
+      const dir = segs.slice(0, -1)
+      let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db))
+      if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
+      name = freeName(path.join(fx.root, ...dir), name)
+      target = authorize(fx, rules, c.user, [...dir, name].join('/'), 'write', { mustExist: false }).segs
+      conflictOf = rel0
+    }
+  }
+  if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
+  const sha = await hashFile(produced)
+  // final check right before the rename (rules may have changed during the conversion)
+  authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
+  installFile(fx.root, target, produced)
+  const rel = target.join('/')
+  c.files.bytesWritten += size
+  c.files.filesWritten.add(rel)
+  c.files.readHashes.set(rel, sha)
+  // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
+  if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
+  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+  files.extractText(rel)
+  publishChanges(ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
+  return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }
 }
 
 function convertError(tool: string, stderr: string, killed: string | null, work: string): string {
