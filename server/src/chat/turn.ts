@@ -172,6 +172,13 @@ export class TurnExec {
     let sid = chat.engine_session_id ?? ''
     const stash = sid ? rt.sessionStash(spec.chatId, sid) : ''
     let resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
+    // a team file attached earlier on this branch that the person can no longer open: the stashed session still holds
+    // its content and answered from it (security round 4). Start from the DB history, where it is blanked. Moves and
+    // deletes reset the sessions of people who lose a file (FileService.dropSessionsOf); this covers any other way.
+    if (resume && this.branchLostAttachment(userMsg.parent_id)) {
+      resume = false
+      fs.rmSync(stash, { force: true })
+    }
     if (!resume && userMsg.parent_id === null) this.newSession()
     const project = rt.projectForChat(chat.project_id, this.principal)
     if (rt.projectTaints(project, spec.userId)) this.taint()
@@ -458,6 +465,12 @@ export class TurnExec {
   }
 
   // ---------------- attachments ----------------
+  /** a team-file attachment of an earlier message on the branch is no longer available to the person */
+  private branchLostAttachment(leafId: string | null): boolean {
+    const store = this.rt.store
+    return store.pathTo(leafId).some((m) => m.role === 'user' && hasAttachments(m) && store.attachmentsOf(m).some((a) => a.source === 'team' && a.unavailable))
+  }
+
   /**
    * The message's attachments as the engine gets them. Team-file references are looked up again with the person's
    * access now (a deleted or no longer readable file becomes "unavailable", nothing about it is said); a readable one
