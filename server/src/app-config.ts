@@ -44,8 +44,15 @@ export const AppConfigFile = z.object({
     /** subscription mode: the model proxy's port on 127.0.0.1 (the installer's --proxy-port; pf and the launcher's
      * sandbox allow the engine account only this port, so another value here only makes the engine fail closed) */
     proxyPort: z.number().int().min(1).max(65535).optional(),
-    /** where the model proxy sends requests (tests point it at a fake upstream) */
-    modelUpstream: z.string().url().optional(),
+    /** where the model proxy sends requests (tests point it at a fake upstream). The owner's token goes there, so
+     * HTTPS only; plain HTTP only to this Mac (a fake upstream in tests); no user:password in the address. */
+    modelUpstream: z.string().url().refine((u) => {
+      try {
+        const x = new URL(u)
+        if (x.username || x.password) return false
+        return x.protocol === 'https:' || (x.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(x.hostname))
+      } catch { return false }
+    }, 'modelUpstream must be https:// (http:// only for 127.0.0.1 / localhost)').optional(),
     claudeBin: z.string().optional(),
     codexBin: z.string().optional(),
     /** installed layout (tab 6, written by scripts/install-macos.sh): sockets <runDir>/tools.sock + private/, per-chat

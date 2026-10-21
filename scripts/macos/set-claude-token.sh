@@ -26,7 +26,8 @@ while [ $# -gt 0 ]; do
     --base) BASE=$2; shift 2 ;;
     --remove) REMOVE=1; shift ;;
     -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
-    *) die "unknown option $1 (the token goes on standard input, not on the command line)" ;;
+    # never echo the argument: it may be the token itself, pasted in the wrong place
+    *) die "unknown option (the token goes on standard input, not on the command line)" ;;
   esac
 done
 # unprivileged only for the repository's own tests (tests/unit/g-scripts.test.ts), which own the whole test folder

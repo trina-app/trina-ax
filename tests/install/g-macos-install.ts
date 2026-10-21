@@ -12,6 +12,7 @@
 // owner token arrives and the per-turn token never leaves; no request goes to Anthropic), update swap / bootstrap
 // roll-back / manual roll-back, backup + encrypted archive + restore, and that the uninstaller removes everything.
 // Prints a report and exits 1 if any check failed. Never asks for or stores a password: run it with sudo.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiClient } from '@mycel/shared/api'
@@ -348,6 +349,20 @@ async function subscription(asAgent: (...a: string[]) => boolean) {
     const diag = await me.call(API.diagnostics)
     const byId = (id: string) => diag.checks.find((c) => c.id === id)
     check('diagnostics: Claude Code signed in (setup-token), model proxy listening', byId('engine.claude-code')?.status === 'ok' && byId('model_proxy')?.status === 'ok', JSON.stringify([byId('engine.claude-code'), byId('model_proxy')]))
+
+    // a finished turn's proxy token is revoked; a valid-looking token used by an engine-account process that is not
+    // that turn's engine gets nothing upstream (the launcher's peer check, as the role account)
+    const sql = (q: string) => sh([BUN, '-e', `const { Database } = require('bun:sqlite'); const db = new Database(${JSON.stringify(`${BASE}/data/app.db`)}); console.log(JSON.stringify(db.query(${JSON.stringify(q)}).all()))`], { user: SRV })
+    const live = sql("SELECT COUNT(*) AS n FROM proxy_tokens p JOIN turns t ON t.id = p.turn_id WHERE p.revoked_at IS NULL AND t.status != 'running'")
+    check('proxy tokens of finished turns are revoked', live.code === 0 && JSON.parse(live.out)[0]?.n === 0, (live.out + live.err).trim().slice(0, 160))
+    const fake = 'mpx_' + crypto.randomBytes(32).toString('base64url')
+    const fakeHash = crypto.createHash('sha256').update(fake).digest('hex')
+    const ins = sql(`INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at) SELECT '${fakeHash}', id, user_id, '2999-01-01T00:00:00.000Z' FROM turns ORDER BY started_at DESC LIMIT 1 RETURNING turn_id`)
+    const before = seen.length
+    const stolenUse = sh(['/usr/bin/curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', `http://127.0.0.1:${PROXY}/v1/messages`, '-H', `authorization: Bearer ${fake}`, '-H', 'content-type: application/json',
+      '-d', JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })], { user: AGT })
+    check('engine account outside the turn: a turn token gets 403, nothing reaches the model service', ins.code === 0 && stolenUse.out.trim() === '403' && seen.length === before, JSON.stringify({ ins: (ins.out + ins.err).trim().slice(0, 80), status: stolenUse.out.trim(), err: stolenUse.err.trim().slice(0, 80), upstream: seen.length - before }))
+    sql(`DELETE FROM proxy_tokens WHERE token_hash = '${fakeHash}'`)
 
     // a token the model service refuses (revoked): the answer says so and diagnostics turn red; the old one back
     const WRONG = 'sk-ant-oat01-' + 'revokedtoken'.repeat(5)

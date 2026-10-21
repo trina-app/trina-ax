@@ -134,7 +134,9 @@ describe('set-claude-token', () => {
     fresh()
     expect(run('hello world\n').code).not.toBe(0)
     expect(run('sk-ant-api03-' + 'x'.repeat(40) + '\n').code).not.toBe(0) // an API key is not a subscription token
-    expect(run('', TOKEN).code).not.toBe(0) // never on the command line
+    const argTok = run('', TOKEN)
+    expect(argTok.code).not.toBe(0) // never on the command line
+    expect(argTok.out + argTok.err).not.toContain(TOKEN) // and a token pasted there is not printed back
     expect(fs.existsSync(dest)).toBe(false)
     const r = run(`  ${TOKEN}\r\n`)
     expect(r.code).toBe(0)

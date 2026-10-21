@@ -21,7 +21,7 @@ const seen: { method: string; path: string; headers: Record<string, string>; bod
 const enc = new TextEncoder()
 const ev = (type: string, o: Record<string, unknown>) => enc.encode(`event: ${type}\ndata: ${JSON.stringify({ type, ...o })}\n\n`)
 const upstream = Bun.serve({
-  port: 19701, hostname: '127.0.0.1', idleTimeout: 0,
+  port: Number(opt('--upstream-port') ?? 19701), hostname: '127.0.0.1', idleTimeout: 0,
   async fetch(req) {
     const u = new URL(req.url)
     const body = await req.text()

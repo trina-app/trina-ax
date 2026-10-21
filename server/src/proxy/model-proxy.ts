@@ -89,7 +89,7 @@ function checkBlocks(v: unknown, depth: number): string | null {
       if (src.type === 'content') { const r = checkBlocks(src.content, depth + 1); if (r) return r }
     }
     if (type === 'server_tool_use' && b.name !== 'web_search') return `server tool ${String(b.name).slice(0, 40)} is not allowed`
-    if (type === 'tool_result' && b.content !== undefined) { const r = checkBlocks(b.content, depth + 1); if (r) return r }
+    if ((type === 'tool_result' || type === 'search_result') && b.content !== undefined) { const r = checkBlocks(b.content, depth + 1); if (r) return r }
   }
   return null
 }
@@ -200,6 +200,10 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
 
       const headers = new Headers()
       for (const k of FORWARD_HEADERS) { const v = req.headers.get(k); if (v) headers.set(k, v) }
+      // the body that goes out is the one checked above, written again: a raw body could say more than JSON.parse
+      // saw (a duplicate key: JSON.parse keeps the last, another parser the first, e.g. a refused tool list)
+      headers.set('content-type', 'application/json')
+      const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
       if (o.upstream.kind === 'api-key') headers.set('x-api-key', real)
       else {
@@ -215,9 +219,15 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
       req.signal.addEventListener('abort', () => abort.abort(), { once: true })
       let up: Response
       try {
-        up = await fetch(o.upstream.baseUrl.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body, signal: abort.signal })
+        // never follow a redirect: it would carry the request (and an x-api-key, which fetch keeps across origins) to
+        // another host, or the real credential to a path the rules above do not allow
+        up = await fetch(o.upstream.baseUrl.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
       } catch {
         return apiError(502, 'api_error', 'the model service could not be reached')
+      }
+      if (up.status >= 300 && up.status < 400) {
+        await up.body?.cancel().catch(() => {})
+        return apiError(502, 'api_error', 'the model service answered with a redirect; it is not followed')
       }
       const outHeaders = new Headers()
       for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase())) outHeaders.set(k, v)

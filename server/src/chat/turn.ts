@@ -205,7 +205,9 @@ export class TurnExec {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
-        // the engine's credential for the model proxy: this turn and person only, revoked when the turn ends
+        // the engine's credential for the model proxy: this turn and person only, revoked when the turn ends; a retry
+        // gets a new one and the previous attempt's (its engine has exited) stops working at once
+        if (claude.modelProxy) revokeProxyTokens(rt.db, spec.turnId)
         const proxyToken = claude.modelProxy ? issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 }) : undefined
         const lr = buildClaudeLaunch({
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
