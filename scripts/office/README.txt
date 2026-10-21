@@ -2,18 +2,19 @@ Team AX 사무실 모드 (맥 한 대 + 같은 네트워크의 데스크 PC들)
 =================================================================
 
 자세한 안내: 이 폴더의 Team-AX-치과-설치가이드.pdf (설치 후에는 ~/TeamAX/app/docs/OFFICE.md)
+데스크 직원용: 이 폴더의 Team-AX-윈도우-데스크-가이드.pdf (Edge 앱, AI 브라우저 자리의 데스크톱 앱, 문제 해결)
 
 1. 이 맥에서 Claude Code에 로그인되어 있어야 합니다.
      터미널에서  claude  실행 → /login → 구독 계정으로 로그인
 
 2. 터미널을 열고 (이 폴더를 터미널 창에 끌어다 놓아도 됩니다):
      bash ~/Downloads/TeamAX-office-<버전>/office-install.sh \
-       --public-host app.example.com --tunnel-token-file ~/Downloads/app.example.com.tunnel-token
+       --public-host exampleteam.example.com --tunnel-token-file ~/Downloads/exampleteam.example.com.tunnel-token
 
    인터넷 주소(--public-host)와 연결 토큰 파일은 원장님 맥에서 미리 만든 것입니다(가이드 2-0). 없으면 두 옵션을 빼고
    설치하고 나중에  ~/TeamAX/teamax public-address set <주소> <토큰 파일>.
    설치가 끝나면 받은 토큰 파일은 지웁니다 (~/TeamAX/config 에 복사됨):
-     rm ~/Downloads/app.example.com.tunnel-token
+     rm ~/Downloads/exampleteam.example.com.tunnel-token
    --app-port 로 앱 포트를 바꿨다면 원장님 맥에서 public-address.ts set <주소> --port <그 포트> 를 한 번 더.
 
    관리자 암호(sudo)는 필요 없습니다. ~/TeamAX 에 설치됩니다.
@@ -22,7 +23,7 @@ Team AX 사무실 모드 (맥 한 대 + 같은 네트워크의 데스크 PC들)
 3. 데스크 카드를 인쇄합니다 (주소와 인증서 지문이 있는 한 장):
      ~/TeamAX/teamax card     → 열린 페이지를 인쇄(⌘P)
 
-4. 데스크(윈도우)마다:  Edge에서 인터넷 주소(https://app.example.com) → ⋯ → 앱 → 이 사이트를 앱으로 설치
+4. 데스크(윈도우)마다:  Edge에서 인터넷 주소(https://exampleteam.example.com) → ⋯ → 앱 → 이 사이트를 앱으로 설치
    (인증서 설치 필요 없음). 인터넷이 끊겨도 쓰려는 데스크만 사무실 안 경로를 한 번:
      Edge에서  http://<이 맥의 주소>:8442  → 인증서 받기 → 열기 → 자세히 → 지문이 카드와 같은지 확인
      → 일반 → 인증서 설치 → 현재 사용자 → 신뢰할 수 있는 루트 인증 기관

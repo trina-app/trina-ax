@@ -61,3 +61,9 @@ export function teamLabel(origin: string): string {
     return origin
   }
 }
+
+/** A gateway in front of the team server answered instead of it (a relay or a Cloudflare Tunnel with the server Mac
+ * off or asleep: 502-504, Cloudflare's 520-530). The address is right; the server is not reachable just now. */
+export function isGatewayDown(status: number): boolean {
+  return status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 530)
+}

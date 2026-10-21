@@ -10,7 +10,7 @@ import { BaseWindow, Notification, session, WebContentsView, type Session } from
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
+import { isGatewayDown, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
@@ -30,6 +30,8 @@ export interface WelcomeState {
   /** a team is open behind the welcome screen (the back button returns to it) */
   canGoBack: boolean
   offline: { address: string } | null
+  /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
+  suggested: string | null
 }
 
 export interface AppWindowOptions {
@@ -40,6 +42,8 @@ export interface AppWindowOptions {
   pageScript: string
   appVersion: string
   classifier: HostClassifier
+  /** a kit build's team address (common/kit.ts), or null */
+  suggestedTeam?: string | null
   /** the team list changed (the menu is rebuilt) */
   onTeamsChanged(): void
 }
@@ -122,6 +126,7 @@ export class AppWindow {
       teams: this.teamList().map((x) => ({ id: x.id, label: x.label, origin: x.origin, current: x.id === this.team?.id })),
       canGoBack: Boolean(this.team && this.app),
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
+      suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
     }
   }
 
@@ -140,6 +145,8 @@ export class AppWindow {
     } catch {
       return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
     }
+    // a tunnel / relay error page (e.g. Cloudflare 530 while the clinic's Mac is off) is "cannot reach", not "not a team server"
+    if (isGatewayDown(health.status)) return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
     let body: unknown = null
     try {
       body = await health.json()

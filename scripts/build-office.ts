@@ -4,7 +4,8 @@
 //   bun scripts/build-office.ts [--version 0.1.0] [--out dist/office] [--no-pandoc] [--keep-stage]
 //
 // Output: <out>/TeamAX-office-<version>-mac.zip, containing TeamAX-office-<version>/:
-//   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-치과-설치가이드.pdf (docs/office, when built)
+//   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-치과-설치가이드.pdf and the desks' guide
+//   Team-AX-윈도우-데스크-가이드.pdf (docs/office, when built)
 //   app/docs/OFFICE.md (the runbook; the person at the clinic has no copy of the repository)
 //   app/VERSION, app/teamax (control command), app/versions.json
 //   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
@@ -45,6 +46,8 @@ export const DOWNLOADS: Record<string, { url: string; sha256: string }> = {
 
 /** the printed clinic guide (docs/office/guide.html → PDF), copied next to office-install.sh */
 export const OFFICE_PDF = 'Team-AX-치과-설치가이드.pdf'
+/** the desks' guide (docs/office/windows-guide.html → PDF, `build-pdf.ts --windows`), copied next to it */
+export const DESK_PDF = 'Team-AX-윈도우-데스크-가이드.pdf'
 
 const ENTRIES: [string, string][] = [
   ['server/src/main.ts', 'main.js'],
@@ -172,6 +175,9 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
   const pdf = path.join(REPO, 'docs', 'office', OFFICE_PDF)
   if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, OFFICE_PDF))
   else console.warn(`warning: ${pdf} not built (bun docs/install/build-pdf.ts --office): the zip has only app/docs/OFFICE.md`)
+  const deskPdf = path.join(REPO, 'docs', 'office', DESK_PDF)
+  if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, DESK_PDF))
+  else console.warn(`warning: ${deskPdf} not built (bun docs/install/build-pdf.ts --windows)`)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
 
   const zip = path.join(o.out, `${name}-mac.zip`)
