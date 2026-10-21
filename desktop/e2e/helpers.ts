@@ -13,6 +13,8 @@ export const BAD = 'http://bad.localhost:19157'
 export const SHOP = 'http://shop.test:19153'
 /** an office-network name (mapped to 127.0.0.1 by the test build): asks the person */
 export const OFFICE_SITE = 'http://nas.lan:19153'
+/** a "public" server that logs every request URL (exfil.spec.ts) */
+export const ATTACKER = 'http://attacker.test:19158'
 
 /**
  * A throw-away user data folder. The app's own screens start in English (not the system language); these tests were
@@ -32,7 +34,7 @@ export async function launch(userData: string, env: Record<string, string> = {})
     env: {
       ...(process.env as Record<string, string>),
       MYCEL_DESKTOP_USER_DATA: userData,
-      MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test',
+      MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test,attacker.test',
       MYCEL_DESKTOP_TEST_PRIVATE_HOSTS: 'nas.lan',
       // a Korean system: the app's own language must not follow it (docs/DECISIONS.md "언어")
       LANG: 'ko_KR.UTF-8',

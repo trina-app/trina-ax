@@ -6,6 +6,8 @@
 //   bad   http://bad.localhost:19157    announces https://127.0.0.1:19155 with the WRONG fingerprint
 //   site  http://shop.test:19153 (= 127.0.0.1, "public" in tests) and http://nas.lan:19153 (= 127.0.0.1, an office
 //         address); http://127.0.0.1:19153 itself is "this computer", which the in-app browser never opens
+//   attacker  http://attacker.test:19158 (= 127.0.0.1, "public"): logs every full request URL (GET /__log), for the
+//         exfiltration tests (exfil.spec.ts)
 //
 // Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel.
 // Ports are in component E's range (19150–19159).
@@ -253,6 +255,8 @@ Bun.serve({
       )
     }
     if (p === '/data.json') return json({ items: [1, 2, 3] })
+    // an open redirect on an allowed site (exfil.spec.ts)
+    if (p === '/go') return new Response(null, { status: 302, headers: { location: url.searchParams.get('to') ?? '/' } })
     if (p === '/intranet.html') {
       return page(
         'Intranet probe',
@@ -289,3 +293,16 @@ Promise.all(['http://acme.localhost:19151/api/health', 'http://127.0.0.1:19151/a
 })
 
 console.log(`fake team servers ready: ${TEAMS.map((t) => t.port).join(', ')}, site 19153`)
+
+// attacker.test -> 127.0.0.1:19158: records the full URL of every request (exfil.spec.ts reads /__log)
+const attackerLog: string[] = []
+Bun.serve({
+  port: 19158,
+  hostname: '127.0.0.1',
+  fetch(req) {
+    const url = new URL(req.url)
+    if (url.pathname === '/__log') return json({ log: attackerLog })
+    attackerLog.push(req.url)
+    return new Response('<!doctype html><title>ok</title><p>ok</p>', { headers: { 'content-type': 'text/html', 'access-control-allow-origin': '*' } })
+  },
+})

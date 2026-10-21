@@ -12,6 +12,7 @@
 import type { OnBeforeRequestListenerDetails, WebContents } from 'electron'
 import { redactUrl } from '../../common/input'
 import { isLoopbackIp } from '../../common/netaddr'
+import { publicRequestVerdict } from '../../common/net-policy'
 import type { BrowserPane } from './pane'
 
 const FILTER = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }
@@ -52,14 +53,14 @@ export function installNetGuard(pane: BrowserPane) {
       noteBlocked(k.key, 'forbidden')
       return { cancel: true }
     }
-    if ((await pane.classifier.classify(k.hostname)) === 'public') return {}
     const ctx = pane.currentCall()
-    if (approved(k.key, ctx?.turnId)) return {}
     const owner = d.webContentsId !== undefined ? pane.tabForWebContents(d.webContentsId) : undefined
+    if ((await pane.classifier.classify(k.hostname)) === 'public') return decidePublic(d, k.key, owner, ctx)
+    if (approved(k.key, ctx?.turnId)) return {}
     if (!owner) return { cancel: true } // service workers and unknown requesters get no office access
     const topOk = await topIsApprovedOffice(owner.topUrl, ctx?.turnId)
     if (d.resourceType === 'mainFrame') {
-      if (topOk && !pane.isDriving) return {}
+      if (topOk && !pane.isDriving && !pane.anyScripted) return {}
       const decision = await pane.ask({ scope: 'private', host: k.key, url: redactUrl(d.url), tool: ctx?.tool ?? 'navigate' }, ctx)
       if (decision === 'deny') {
         noteBlocked(k.key)
@@ -71,6 +72,39 @@ export function installNetGuard(pane: BrowserPane) {
     if (topOk) return {}
     noteBlocked(k.key)
     return { cancel: true }
+  }
+
+  // a public address (common/net-policy.ts): page loads the AI caused go to sites the person allowed, and a document
+  // the AI ran script in reaches no other site the person did not allow (security r3: redirect hops, script
+  // navigation and beacons carried data to any server with no prompt)
+  async function decidePublic(
+    d: OnBeforeRequestListenerDetails,
+    key: string,
+    owner: ReturnType<BrowserPane['tabForWebContents']>,
+    ctx: ReturnType<BrowserPane['currentCall']>,
+  ): Promise<{ cancel?: boolean }> {
+    const mainFrame = d.resourceType === 'mainFrame'
+    const verdict = publicRequestVerdict({
+      mainFrame,
+      hasOwner: Boolean(owner),
+      driving: pane.isDriving,
+      anyScripted: pane.anyScripted,
+      scripted: owner ? pane.scriptedFor(owner.tab, owner.topUrl) : false,
+      sameSiteAsTop: owner ? keyOf(owner.topUrl)?.key === key : false,
+      siteAllowed: pane.perms.isAllowed('site', key, ctx?.turnId) || pane.userHosts.has(key),
+    })
+    if (verdict === 'allow') return {}
+    if (verdict === 'block') {
+      noteBlocked(key)
+      return { cancel: true }
+    }
+    const decision = await pane.ask({ scope: 'site', host: key, url: redactUrl(d.url), tool: ctx?.tool ?? 'navigate' }, ctx)
+    if (decision === 'deny') {
+      noteBlocked(key)
+      return { cancel: true }
+    }
+    pane.grant(['site'], key, decision, ctx?.turnId)
+    return {}
   }
 
   ses.webRequest.onBeforeRequest(FILTER, (details, callback) => {

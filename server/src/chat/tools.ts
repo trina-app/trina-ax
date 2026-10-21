@@ -8,12 +8,13 @@ import type { BrowserToolName, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
-import { PANE_TOOLS, urlsOf } from '../realtime/browser-tools'
+import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost } from '../realtime/private-net'
 import { MEMORY_ITEM_MAX } from './prompt'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
-import type { TurnPerson } from '../tools/url-gate'
+import { extractUrls, gateUrl, type TurnPerson } from '../tools/url-gate'
+import { ToolError } from '../policy/errors'
 
 interface Tool {
   name: string
@@ -178,22 +179,53 @@ function bTools(exec: TurnExec): Tool[] {
 }
 
 // ---------------- browser pane tools ----------------
+// Every address the AI opens in the pane goes through the same rules as web_fetch (design tab 7 "프롬프트 주입":
+// a GET can carry data out in its address, https://attacker/?d=<secret>): an address that never appeared in the
+// conversation, or one with a long query, needs the person to confirm the full URL first, on a card the server raises
+// (tools/url-gate.ts). Office-network addresses additionally need the site card below. Addresses written out in code
+// the AI runs in the page (javascript_tool) are checked the same way. Links on pages the pane showed are NOT added to
+// the "seen" addresses (unlike web_fetch): the AI can put anything on a page it drives (form_input, javascript_tool)
+// and read it back, which would launder an address of its own making.
 function browserTool(exec: TurnExec, name: BrowserToolName, description: string, inputSchema: Record<string, unknown>): Tool {
   const { rt, spec } = exec
   return {
     name, description, inputSchema,
     async call(rawArgs) {
       const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {}) as Record<string, unknown>
+      const person = turnPerson(exec)
+      /** null when the address may be opened; otherwise the refusal for the AI */
+      const gate = async (href: string): Promise<string | null> => {
+        try {
+          await gateUrl(rt.db, spec.chatId, href, person)
+          return null
+        } catch (e) {
+          if (e instanceof ToolError) return e.message
+          throw e
+        }
+      }
       for (const url of urlsOf(name, args)) {
         const u = browserUrl(url)
         if (!u.ok) return { ...text(`Cannot open ${url.slice(0, 200)}: ${u.reason}.`, true), summary: `${name} -> refused url (${u.reason})` }
         const host = u.host
-        if (!host || !(await isPrivateHost(host))) continue
-        if (exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host)) continue
-        const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
-        if (decision === 'always') rt.grantSite(spec.userId, host)
-        else if (decision === 'once') exec.allowedHosts.add(host)
-        else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
+        if (!host || !u.href) continue
+        // the office-network card shows the full address (up to 2000 characters): no second card for it
+        let shownInFull = false
+        if (await isPrivateHost(host) && !(exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host))) {
+          const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+          if (decision === 'always') rt.grantSite(spec.userId, host)
+          else if (decision === 'once') exec.allowedHosts.add(host)
+          else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
+          shownInFull = url.length <= 2000
+        }
+        if (shownInFull) continue
+        const refusal = await gate(u.href)
+        if (refusal) return { ...text(`Cannot open ${u.href.slice(0, 200)}: ${refusal}.`, true), summary: `${name} -> ${u.href.slice(0, 300)} not allowed (address check)` }
+      }
+      for (const code of scriptsOf(name, args)) {
+        for (const href of new Set(extractUrls(code))) {
+          const refusal = await gate(href)
+          if (refusal) return { ...text(`The script was not run: it contains the address ${href.slice(0, 200)}, and ${refusal}.`, true), summary: `${name} -> script address ${href.slice(0, 300)} not allowed (address check)` }
+        }
       }
       const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool: name, args, signal: exec.abort.signal })
       const content: McpContent[] = []
