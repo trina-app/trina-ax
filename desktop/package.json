@@ -82,13 +82,23 @@
           ]
         }
       ],
-      "signAndEditExecutable": false,
+      "signAndEditExecutable": true,
       "artifactName": "Team-AX-${version}-win-${arch}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "multiLanguageInstaller": true,
+      "installerLanguages": [
+        "en_US",
+        "ko_KR",
+        "id_ID"
+      ],
+      "shortcutName": "Team AX",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
       "artifactName": "Team-AX-Setup-${version}-win-${arch}.${ext}"
     }
   }
