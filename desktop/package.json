@@ -105,7 +105,8 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://localhost.invalid/downloads/"
+        "url": "https://localhost.invalid/downloads/",
+        "channel": "latest"
       }
     ]
   }
