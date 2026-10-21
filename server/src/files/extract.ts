@@ -1,12 +1,13 @@
-// Text for read/grep. Office formats: pandoc (docx/pptx/odt), SheetJS (xlsx/xls/ods), pdftotext (pdf).
+// Text for read/grep. Office formats: pandoc (docx/pptx/odt), SheetJS (xlsx/xls/ods), pdftotext (pdf), hwp.ts (hwp/hwpx).
 // Input bytes always come from an fd opened with O_NOFOLLOW and checked (nlink==1), and are fed to the
 // converters on stdin, so a converter never opens a path itself. Converters run isolated (tools/isolate.ts:
 // sandbox-exec on macOS, bwrap on Linux): no network, no reading of the team folder or server data.
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
+import { hwpText, hwpxText } from './hwp'
 import { runIsolated } from '../tools/isolate'
 
-export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf'] as const
+export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
 export const ext = (name: string) => (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
 
@@ -30,6 +31,10 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools)
       const wb = XLSX.read(bytes, { type: 'array', cellFormula: false, cellHTML: false })
       return wb.SheetNames.map((s) => `# sheet: ${s} (tab-separated)\n` + XLSX.utils.sheet_to_csv(wb.Sheets[s], { FS: '\t', blankrows: false })).join('\n\n')
     }
+    case 'hwp':
+      return hwpText(bytes)
+    case 'hwpx':
+      return hwpxText(bytes)
     case 'pdf':
       if (!tools.pdftotext) throw new ToolError('pdftotext is not installed on the server')
       return pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes)
