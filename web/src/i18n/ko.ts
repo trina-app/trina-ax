@@ -664,6 +664,7 @@ export const ko = {
   'audit.all': '전체',
   'audit.actor': '누가',
   'audit.system': '시스템',
+  'audit.viaInternet': '인터넷',
   'audit.everyone': '모두',
   'audit.path': '경로',
   'audit.none': '조건에 맞는 기록이 없어요.',

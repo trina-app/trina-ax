@@ -7,21 +7,30 @@
 //   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-치과-설치가이드.pdf (docs/office, when built)
 //   app/docs/OFFICE.md (the runbook; the person at the clinic has no copy of the repository)
 //   app/VERSION, app/teamax (control command), app/versions.json
-//   app/bin/darwin-arm64/{bun,rg,pandoc}  app/bin/darwin-amd64/{bun,rg,pandoc}   (the installer keeps this Mac's one)
+//   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
 //   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
 //   app/scripts/macos/engine.sb, app/web/dist/
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
-// bun, ripgrep and pandoc come from their GitHub releases, pinned by version and SHA-256 below, cached in
-// dist/cache/ so a rebuild works offline.
+// bun, ripgrep, pandoc and cloudflared (the connector of the office internet address, docs/OFFICE.md "인터넷 주소") come
+// from their GitHub releases, pinned by version and SHA-256 below, cached in dist/cache/ so a rebuild works offline.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
 const REPO = path.resolve(import.meta.dir, '..')
-const ARCHS = [{ dir: 'darwin-arm64', bun: 'aarch64', rg: 'aarch64', pandoc: 'arm64' }, { dir: 'darwin-amd64', bun: 'x64', rg: 'x86_64', pandoc: 'x86_64' }] as const
+const ARCHS = [{ dir: 'darwin-arm64', bun: 'aarch64', rg: 'aarch64', pandoc: 'arm64', cf: 'arm64' }, { dir: 'darwin-amd64', bun: 'x64', rg: 'x86_64', pandoc: 'x86_64', cf: 'amd64' }] as const
 
-/** Pinned downloads (versions.json: bun 1.3.12, ripgrep 15.2.0, pandoc 3.9.0.2). bun's and ripgrep's hashes match
+/** cloudflared release in the bundle (Cloudflare's own build, signed by Cloudflare; --no-autoupdate keeps it there) */
+export const CLOUDFLARED_VERSION = '2026.10.0'
+/** SHA-256 of the cloudflared program inside each archive (the release notes' list; the archives' own hashes are in
+ * DOWNLOADS and match GitHub's asset digests) */
+export const CLOUDFLARED_BIN_SHA256: Record<string, string> = {
+  arm64: '72edfd3eea463aef4d5cb89e2e209cecb048cc756c2b01915de2e0ad7cb39830',
+  amd64: '0560c9ab7281ac3f746055323623ed23bc0405b6dab9400474020cba33a978da',
+}
+
+/** Pinned downloads (versions.json: bun 1.3.12, ripgrep 15.2.0, pandoc 3.9.0.2, cloudflared 2026.10.0). bun's and ripgrep's hashes match
  * their published SHASUMS; pandoc publishes none, these are the hashes of the files checked on 2026-10-21. */
 export const DOWNLOADS: Record<string, { url: string; sha256: string }> = {
   'bun-darwin-aarch64.zip': { url: 'https://github.com/oven-sh/bun/releases/download/bun-v1.3.12/bun-darwin-aarch64.zip', sha256: '6c4bb87dd013ed1a8d6a16e357a3d094959fd5530b4d7061f7f3680c3c7cea1c' },
@@ -29,6 +38,8 @@ export const DOWNLOADS: Record<string, { url: string; sha256: string }> = {
   'ripgrep-15.2.0-aarch64-apple-darwin.tar.gz': { url: 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz', sha256: '3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4' },
   'ripgrep-15.2.0-x86_64-apple-darwin.tar.gz': { url: 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-apple-darwin.tar.gz', sha256: 'af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1' },
   'pandoc-3.9.0.2-arm64-macOS.zip': { url: 'https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-arm64-macOS.zip', sha256: '6e9eca844076bcbb599bbeebbba78a70f93b5307782b85c2c272872812c88875' },
+  'cloudflared-2026.10.0-darwin-arm64.tgz': { url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-darwin-arm64.tgz', sha256: 'a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70' },
+  'cloudflared-2026.10.0-darwin-amd64.tgz': { url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-darwin-amd64.tgz', sha256: '903845b81828c8cb3c5d13d816a2de71c06a3da5785469df8eb0e1b736d92f9f' },
   'pandoc-3.9.0.2-x86_64-macOS.zip': { url: 'https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-x86_64-macOS.zip', sha256: 'b9fbceabccbc8f34ac021a50483fc32f8160568d0b4b2c22d81bb29e3054fd82' },
 }
 
@@ -135,6 +146,9 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
     extractOne(await cached(`bun-darwin-${a.bun}.zip`), 'bun', path.join(bin, 'bun'), scratch)
     extractOne(await cached(`ripgrep-15.2.0-${a.rg}-apple-darwin.tar.gz`), 'rg', path.join(bin, 'rg'), scratch)
     if (o.pandoc) extractOne(await cached(`pandoc-3.9.0.2-${a.pandoc}-macOS.zip`), 'bin/pandoc', path.join(bin, 'pandoc'), scratch)
+    const cf = path.join(bin, 'cloudflared')
+    extractOne(await cached(`cloudflared-${CLOUDFLARED_VERSION}-darwin-${a.cf}.tgz`), 'cloudflared', cf, scratch)
+    if (sha256(cf) !== CLOUDFLARED_BIN_SHA256[a.cf]) throw new Error(`cloudflared ${a.cf}: SHA-256 ${sha256(cf)}, expected ${CLOUDFLARED_BIN_SHA256[a.cf]}`)
     const nat = path.join(app, 'native', 'bin', a.dir)
     fs.mkdirSync(nat, { recursive: true })
     for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher']) {

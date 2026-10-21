@@ -38,12 +38,13 @@ export function anonymousLocale(ctx: AppContext, header: string | undefined): Lo
 }
 
 /** request id, transport info, logger, default locale. Client-sent X-Forwarded-For / CF-Connecting-IP / X-Real-IP
- * are never read: the real IP comes only from whoever called app.fetch (socket peer or relay OPEN metadata). */
+ * are never read here: the real IP comes only from whoever called app.fetch (socket peer, relay OPEN metadata, or
+ * CF-Connecting-IP of a request that came through the office public address: http/tunnel.ts decides that). */
 export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const requestId = uuidv7()
     c.set('requestId', requestId)
-    const info = { ip: c.env?.ip ?? null, via: c.env?.via ?? 'direct', port: c.env?.port ?? null } as const
+    const info = { ip: c.env?.ip ?? null, via: c.env?.via ?? 'direct', port: c.env?.port ?? null, ...(c.env?.tunnel ? { tunnel: true } : {}) } as const
     c.set('info', info)
     c.set('log', ctx.log.child({ rid: requestId }))
     c.set('auth', null)
@@ -60,6 +61,8 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     await next()
     setHeader(c, 'X-Content-Type-Options', 'nosniff')
+    // the office public address is https only (Cloudflare's certificate): browsers stay on https for this name
+    if (c.get('info')?.tunnel) setHeader(c, 'Strict-Transport-Security', 'max-age=31536000')
     setHeader(c, 'Referrer-Policy', 'same-origin')
     if (c.req.path.startsWith('/api/')) {
       if (!c.res.headers.has('Cache-Control')) setHeader(c, 'Cache-Control', 'no-store')
@@ -96,7 +99,9 @@ export function hostAllowed(host: string | null | undefined, allowed: readonly s
 
 /** The public origins a direct request may name (CSRF Origin, WebSocket Origin): with a Host allow-list (office
  * mode) only those of the listener's own port, so the office port never accepts http://localhost:<app port>. */
-export function originsFor(config: AppContext['config'], info: { via: string; port?: number | null }): string[] {
+export function originsFor(config: AppContext['config'], info: { via: string; port?: number | null; tunnel?: boolean }): string[] {
+  // through the office public address only that address (never the LAN or localhost origins)
+  if (info.via === 'direct' && info.tunnel && config.tunnel) return [`https://${config.tunnel.host}`]
   if (info.via !== 'direct' || info.port == null || !config.allowedHosts?.length) return config.publicOrigins
   return config.publicOrigins.filter((o) => { try { return portOf(new URL(o).host) === info.port } catch { return false } })
 }
@@ -111,6 +116,13 @@ export function peerAllowed(ip: string | null | undefined, cidrs: readonly strin
   const a = v4n(ip)
   if (a === null) return false // office mode is IPv4 only
   if (a >>> 24 === 127) return true
+  return inCidrs(ip, cidrs)
+}
+
+/** Is this IPv4 address in one of the IPv4 CIDRs? IPv6 and anything else: no. */
+export function inCidrs(ip: string | null | undefined, cidrs: readonly string[]): boolean {
+  const a = ip ? v4n(ip) : null
+  if (a === null) return false
   return cidrs.some((c) => {
     const [base, bits] = c.split('/')
     const b = v4n(base ?? ''), n = Number(bits)
@@ -131,6 +143,17 @@ export function peerAllowed(ip: string | null | undefined, cidrs: readonly strin
 export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const info = c.get('info')
+    if (info.via === 'direct' && info.tunnel) {
+      // the office public address (http/tunnel.ts already matched the Host): https only, then the optional allow-list
+      const blocked = publicAddressRefusal(ctx.config.tunnel, info.ip, visitorScheme(c.req.header('cf-visitor'), c.req.header('x-forwarded-proto')), c.req.header('cf-ipcountry'))
+      if (blocked === 'http') {
+        if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return c.text('Use https\n', 403)
+        return c.redirect(c.req.url, 308) // c.req.url is already https://<host>/...
+      }
+      if (blocked) return c.text('Forbidden: this address is not open to your network\n', 403)
+      await next()
+      return
+    }
     if (info.via === 'direct') {
       if (!peerAllowed(info.ip, ctx.config.allowedPeers)) return c.text('Forbidden: this server answers only the office network\n', 403)
       // the header as the browser sent it (never parsed from the request URL: no Host means no answer)
@@ -140,6 +163,26 @@ export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
     }
     await next()
   }
+}
+
+/** The scheme the visitor used to reach Cloudflare: CF-Visitor {"scheme":"http"}, else X-Forwarded-Proto. */
+export function visitorScheme(cfVisitor: string | undefined, xfp: string | undefined): string | null {
+  if (cfVisitor) { try { const v = JSON.parse(cfVisitor) as { scheme?: unknown }; if (typeof v.scheme === 'string') return v.scheme.toLowerCase() } catch {} }
+  return xfp ? xfp.split(',')[0]!.trim().toLowerCase() : null
+}
+
+/**
+ * Why a request through the office public address is refused, or null: 'http' when the visitor used plain http
+ * (Cloudflare forwards that too unless the zone forces https; these headers are Cloudflare's: only cloudflared
+ * reaches this branch), 'ip' / 'country' when an allow-list is set (config.tunnel.allowFrom: IPv4 CIDRs, so an IPv6
+ * visitor is refused; countries: CF-IPCountry).
+ */
+export function publicAddressRefusal(t: AppContext['config']['tunnel'], ip: string | null, scheme: string | null, country: string | undefined): 'http' | 'ip' | 'country' | null {
+  if (scheme === 'http') return 'http'
+  if (!t) return null
+  if (t.allowFrom.length && !inCidrs(ip, t.allowFrom)) return 'ip'
+  if (t.countries.length && !t.countries.includes((country ?? '').toUpperCase())) return 'country'
+  return null
 }
 
 /** Resolve the session (cookie or bearer) through the session service of component A. The desktop app's in-app
@@ -162,12 +205,13 @@ export function session(ctx: AppContext): MiddlewareHandler<AppEnv> {
   }
 }
 
-/** Is this Origin the server's own host or one of the configured public origins? */
+/** Is this Origin the server's own origin (scheme and host) or one of the configured public origins? */
 export function originAllowed(origin: string, requestUrl: string, allowed: string[]): boolean {
   let o: URL
   try { o = new URL(origin) } catch { return false }
   const self = new URL(requestUrl)
-  if (o.host === self.host) return true
+  // same scheme too: http://<public host> is not the https office internet address
+  if (o.host === self.host && o.protocol === self.protocol) return true
   return allowed.some((a) => { try { return new URL(a).origin === o.origin } catch { return false } })
 }
 

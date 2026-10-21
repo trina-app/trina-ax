@@ -4,6 +4,7 @@
   "go": "1.27.3",
   "ripgrep": "15.2.0",
   "pandoc": "3.9.0.2",
+  "cloudflared": "2026.10.0 (office mode internet address; GitHub release, SHA-256 pinned in scripts/build-office.ts)",
   "poppler-pdftotext": "26.x (Homebrew poppler / Debian poppler-utils)",
   "claude-code": "2.1.305",
   "zod": "4.6.7",

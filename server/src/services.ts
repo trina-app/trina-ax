@@ -14,11 +14,14 @@ export interface AuthInfo {
 
 /** Facts about the request transport that handlers may need (never trust client headers for these). */
 export interface RequestInfo {
-  /** real client IP: TLS socket peer (office), relay OPEN-frame metadata (remote); null when unknown */
+  /** real client IP: TLS socket peer (office), relay OPEN-frame metadata (remote), CF-Connecting-IP of a request
+   * through the office Cloudflare Tunnel (http/tunnel.ts); null when unknown */
   ip: string | null
   via: 'direct' | 'relay' | 'local' | 'test'
   /** direct: the port of the listener the request came in on (the loopback app port or the office TLS port) */
   port?: number | null
+  /** direct: came from the internet through the office public address (config.tunnel, http/tunnel.ts) */
+  tunnel?: boolean
 }
 
 /** Component A (server/src/auth/*). */

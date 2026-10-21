@@ -7,6 +7,7 @@ import { PRODUCT } from '@mycel/shared'
 import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, type AppConfig } from './app-config'
 import { buildApp } from './app'
+import { directFetch } from './http/tunnel'
 import { createContext, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
@@ -76,12 +77,16 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   const app = await buildApp(ctx)
 
   const servers: ReturnType<typeof Bun.serve>[] = []
+  // the largest body (a 50 MB small upload; bigger files go in 8 MB chunks) stays far below Cloudflare's 100 MB request
+  // limit on the office public address (and the relay)
   const base = { websocket, maxRequestBodySize: SMALL_UPLOAD_MAX + 1024 * 1024, idleTimeout: 120 }
+  // socket peer + listener port; requests through the office public address become https://<host> (http/tunnel.ts)
+  const serveDirect = directFetch(cfg, (req, env) => app.fetch(req, env), peerIp)
   const http = Bun.serve({
     ...base,
     hostname: cfg.listen.host,
     port: cfg.listen.port,
-    fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', port: server.port, server }),
+    fetch: serveDirect,
   })
   servers.push(http)
   if (cfg.tls) {
@@ -104,7 +109,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
       port: t.port,
       // read now (Bun.file is lazy): a renewed certificate is a new listener with the new files
       tls: { cert: fs.readFileSync(t.certFile, 'utf8'), key: fs.readFileSync(t.keyFile, 'utf8') },
-      fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', port: server.port, server }),
+      fetch: serveDirect,
     })
     let tls = serveTls()
     let tlsUp = true
@@ -129,7 +134,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     }
   }
   const url = `http://${cfg.listen.host === '0.0.0.0' ? 'localhost' : cfg.listen.host}:${http.port}`
-  log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
+  log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, publicHost: cfg.tunnel?.host ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
   // production: bring the engine core up now (tools gate, launcher connection, model proxy) so the engine account's
   // network path exists before the first turn (the codex-login CLI tunnels through the proxy). A failure is logged
   // and retried on first use.
