@@ -12,6 +12,7 @@ import { codexBetaAllowed, codexIsBeta, safeModel } from '../chat/engines'
 import { tr } from '../chat/i18n'
 import { enginesEnabled, getSetting, getTeamSettings, setSetting } from './settings'
 import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv } from './engines'
+import { readApiEngine } from '../engine/api-agent'
 
 export const MEMBER_CHOICE_KEY = 'engines.memberChoice'
 export const LIMIT_FALLBACK_KEY = 'engines.limitFallback'
@@ -32,9 +33,11 @@ export function setMemberChoice(ctx: Pick<AppContext, 'db'>, v: MemberEngineChoi
 /** The installation turned Codex off (office mode writes codexBin ''): not offered anywhere, whatever the switch says. */
 export const codexOffHere = (ctx: Pick<AppContext, 'config'>) => ctx.config.engine.codexBin === ''
 
-/** The admin's switch and the installation agree the engine is on. */
+/** The admin's switch and the installation agree the engine is on (the API engine also needs its settings). */
 export function engineOn(ctx: Ctx, id: EngineId): boolean {
-  return enginesEnabled(ctx.db)[id] && !(id === 'codex' && codexOffHere(ctx))
+  if (!enginesEnabled(ctx.db)[id]) return false
+  if (id === 'api') return readApiEngine(ctx.config.dataDir) !== null
+  return !(id === 'codex' && codexOffHere(ctx))
 }
 
 /** "Claude 한도에 닿으면 Codex로 넘기기" can only be on while Codex is on. */
@@ -57,7 +60,7 @@ export function canChooseEngine(ctx: Pick<AppContext, 'db'>, p: Person): boolean
 
 /** engines this person may pick: on, and (production Codex beta) the owner or someone the owner picked */
 export function choosableEngines(ctx: Ctx, p: Person): EngineId[] {
-  return (['claude-code', 'codex'] as EngineId[]).filter((id) => engineOn(ctx, id) && !(id === 'codex' && codexIsBeta(ctx) && !codexBetaAllowed(ctx.db, p)))
+  return (['claude-code', 'codex', 'api'] as EngineId[]).filter((id) => engineOn(ctx, id) && !(id === 'codex' && codexIsBeta(ctx) && !codexBetaAllowed(ctx.db, p)))
 }
 
 export function teamDefault(ctx: Pick<AppContext, 'db'>): EngineModel {
@@ -97,7 +100,7 @@ export interface TurnEngine extends EngineModel {
  */
 export function turnEngine(ctx: Ctx, p: Person, chat: { engine: string; model: string | null }, body: { engine?: EngineId; model?: string | null }, locale: Locale, defaultModelFor: (e: EngineId) => string | null): TurnEngine {
   checkModel(body.model)
-  const chatEngine: EngineId = chat.engine === 'codex' ? 'codex' : 'claude-code'
+  const chatEngine: EngineId = chat.engine === 'codex' || chat.engine === 'api' ? chat.engine : 'claude-code'
   const def = teamDefault(ctx)
   const base: TurnEngine = engineOn(ctx, chatEngine)
     ? { engine: chatEngine, model: chat.model ?? defaultModelFor(chatEngine) }
@@ -147,9 +150,13 @@ export function chatEnginesFor(ctx: AppContext, p: Person) {
   const canChoose = canChooseEngine(ctx, p)
   if (!canChoose) return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: [] }
   const env = engineEnv(ctx)
+  // the API engine has one model, the one the owner set (its display name is the label)
+  const api = readApiEngine(ctx.config.dataDir)
+  const of = (id: EngineId) => id === 'api' && api ? { label: api.label, models: [{ id: api.model, label: api.label }] }
+    : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? CLAUDE_MODELS : codexModels(env) }
   return {
     canChoose, defaultEngine: def.engine, defaultModel: def.model,
-    engines: choosableEngines(ctx, p).map((id) => ({ id, label: ENGINE_LABELS[id], models: id === 'claude-code' ? CLAUDE_MODELS : codexModels(env) })),
+    engines: choosableEngines(ctx, p).map((id) => ({ id, ...of(id) })),
   }
 }
 
