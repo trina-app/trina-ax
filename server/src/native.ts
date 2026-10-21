@@ -35,14 +35,15 @@ export async function startGate(bin: string, listen: string, upstream: string, s
 export interface LauncherSandbox { profile: string; localLogin: boolean; proxyPort?: number }
 
 /** Stage 1 convenience: start the launcher as the current user. Production: LaunchDaemon as _axagent (stage 3). */
-export async function startLauncher(bin: string, o: { listen: string; agentRoot: string; toolsSock: string; allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox }) {
+export async function startLauncher(bin: string, o: { listen: string; agentRoot: string; toolsSock: string; allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox; codexAuthDir?: string; proxyPort?: number }) {
   const args = [path.join(bin, 'mycel-launcher'), '--listen', o.listen, '--agent-root', o.agentRoot, '--bridge', path.join(bin, 'mycel-bridge'), '--tools-sock', o.toolsSock, '--exit-with-parent']
   for (const c of o.allowCmds) args.push('--allow-cmd', c)
   for (const s of o.sessionRoots ?? []) args.push('--session-root', s)
   if (o.sandbox) {
-    args.push('--sandbox-profile', o.sandbox.profile, '--proxy-port', String(o.sandbox.proxyPort ?? 0))
+    args.push('--sandbox-profile', o.sandbox.profile, '--proxy-port', String(o.sandbox.proxyPort ?? o.proxyPort ?? 0))
     if (o.sandbox.localLogin) args.push('--local-login')
-  }
+  } else if (o.proxyPort) args.push('--proxy-port', String(o.proxyPort))
+  if (o.codexAuthDir) args.push('--codex-auth-dir', o.codexAuthDir)
   fs.mkdirSync(o.agentRoot, { recursive: true, mode: 0o700 })
   // stdin is a pipe we keep open (see startGate): the launcher stops its turns and exits when it closes. Engines get
   // only the environment of their launch request, never the launcher's.
@@ -104,6 +105,72 @@ export class SocketLauncher implements Launcher {
       },
     }
   }
+}
+
+// ---------------- the engine account's Codex login (launcher codex-status / codex-logout / codex-login) ----------------
+export interface CodexLoginState { loggedIn: boolean; accountId?: string; lastRefresh?: string; problem?: string }
+
+/** One request, the reply lines until the connection closes (or `until` says stop). */
+function exchange(sock: string, req: unknown, onEvent: (e: any) => boolean | void, timeoutMs = 15_000): Promise<{ events: any[] }> {
+  return new Promise((res) => {
+    const c = net.createConnection(sock)
+    const events: any[] = []
+    let b = ''
+    const t = setTimeout(() => c.destroy(), timeoutMs)
+    c.setEncoding('utf8')
+    c.on('connect', () => c.write(JSON.stringify(req) + '\n'))
+    c.on('data', (d: string) => {
+      b += d
+      let i
+      while ((i = b.indexOf('\n')) >= 0) {
+        const l = b.slice(0, i); b = b.slice(i + 1)
+        try { const e = JSON.parse(l); events.push(e); if (onEvent(e) === true) c.end() } catch {}
+      }
+    })
+    c.on('close', () => { clearTimeout(t); res({ events }) })
+    c.on('error', () => {})
+  })
+}
+
+/** Ask the launcher about the engine account's Codex login (never returns a token). null = launcher unreachable
+ * or no Codex login folder configured. */
+export async function codexLoginState(sock: string): Promise<CodexLoginState | null> {
+  const { events } = await exchange(sock, { op: 'codex-status' }, (e) => e.ev === 'codex_state' || e.ev === 'error')
+  const e = events.find((x) => x.ev === 'codex_state')
+  return e ? { loggedIn: !!e.loggedIn, ...(e.accountId ? { accountId: String(e.accountId) } : {}), ...(e.lastRefresh ? { lastRefresh: String(e.lastRefresh) } : {}), ...(e.problem ? { problem: String(e.problem) } : {}) } : null
+}
+
+export async function codexLogout(sock: string): Promise<{ ok: boolean; message?: string }> {
+  const { events } = await exchange(sock, { op: 'codex-logout' }, (e) => e.ev === 'logout_done' || e.ev === 'error')
+  const e = events.find((x) => x.ev === 'logout_done' || x.ev === 'error')
+  return e?.ev === 'logout_done' ? { ok: !!e.ok, ...(e.message ? { message: e.message } : {}) } : { ok: false, message: e?.message ?? 'launcher unreachable' }
+}
+
+/** `codex login --device-auth` as the engine account. Events: started{pid} (bind the proxy token to it now),
+ * stdout/stderr text, then exit{code} or error{message}. */
+export function codexDeviceLogin(sock: string, o: { cmd: string; proxy: string; timeoutMs?: number }, on: { started?(pid: number): void; output?(text: string): void }): Promise<{ code: number | null; message?: string }> {
+  return new Promise((res) => {
+    const c = net.createConnection(sock)
+    let b = ''
+    let result: { code: number | null; message?: string } | null = null
+    c.setEncoding('utf8')
+    c.on('connect', () => c.write(JSON.stringify({ op: 'codex-login', cmd: o.cmd, proxy: o.proxy, timeoutMs: o.timeoutMs ?? 0 }) + '\n'))
+    c.on('data', (d: string) => {
+      b += d
+      let i
+      while ((i = b.indexOf('\n')) >= 0) {
+        const l = b.slice(0, i); b = b.slice(i + 1)
+        let e: any
+        try { e = JSON.parse(l) } catch { continue }
+        if (e.ev === 'started') on.started?.(e.pid)
+        else if (e.ev === 'stdout' || e.ev === 'stderr') on.output?.(Buffer.from(e.b64, 'base64').toString('utf8'))
+        else if (e.ev === 'exit') { result = { code: e.code, ...(e.signal ? { message: e.signal } : {}) }; c.end() }
+        else if (e.ev === 'error') { result = { code: null, message: e.message }; c.end() }
+      }
+    })
+    c.on('close', () => res(result ?? { code: null, message: 'launcher closed the connection' }))
+    c.on('error', (e) => { result ??= { code: null, message: 'launcher: ' + e.message } })
+  })
 }
 
 export const randomSecret = () => crypto.randomBytes(32).toString('hex')

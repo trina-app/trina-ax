@@ -154,6 +154,7 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
         <div className="min-w-0 flex-1">
           <h2 id={`eng-${e.id}`} className="font-semibold">
             {e.label}
+            {e.beta && <span className="ml-2 align-middle"><Badge tone="warn">{t('engines.beta')}</Badge></span>}
           </h2>
           <p className="text-xs text-muted">
             <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge> {e.version && <span className="ml-1">v{e.version}</span>} · {t(`engines.mode.${e.authMode}`)}
@@ -163,6 +164,7 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
           <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
         </IconButton>
       </div>
+      {e.beta && <p className="mt-2 text-xs text-muted" data-testid="engine-beta">{t('engines.betaHint')}</p>}
       {e.detail && (
         <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm" data-testid="engine-detail">
           {e.detail}

@@ -21,9 +21,9 @@ const upstream = Bun.serve({
 })
 const turnId = 'tp1'
 env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?, 'c', 'alice', 'claude-code')").run(turnId)
-const key = startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'sk-real-company-key' } })
-const oauth = startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: 'sk-ant-oat-real-subscription' } })
-afterAll(() => { key.stop(); oauth.stop(); upstream.stop(true) })
+const key = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'sk-real-company-key' } })
+const oauth = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: 'sk-ant-oat-real-subscription' } })
+afterAll(async () => { await key.stop(); await oauth.stop(); upstream.stop(true) })
 const call = (base: string, h: Record<string, string>, body: unknown = { model: 'claude-opus-x', max_tokens: 5, messages: [] }) =>
   fetch(base + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...h }, body: JSON.stringify(body) })
 
@@ -71,10 +71,10 @@ describe('model proxy', () => {
     expect((await call(key.url, { 'x-api-key': tok })).status).toBe(401)
   })
   test('peer check can refuse callers outside the turn', async () => {
-    const p = startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'k' }, peerCheck: async () => false })
+    const p = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'k' }, peerCheck: async () => false })
     env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES ('tp2', 'c', 'alice', 'x')").run()
     expect((await call(p.url, { 'x-api-key': issueProxyToken(env.db, 'tp2', 'alice') })).status).toBe(403)
-    p.stop()
+    await p.stop()
   })
   test('forwarding rules: only what Claude Code needs reaches the upstream with the real credential (design tab 7)', async () => {
     const tok2 = issueProxyToken(env.db, turnId, 'alice')

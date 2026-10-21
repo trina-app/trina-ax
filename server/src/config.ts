@@ -52,7 +52,11 @@ export function engineSandboxProfile(): string {
 export function nativeBinDir(): string {
   const plat = process.platform === 'darwin' ? 'darwin' : 'linux'
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
-  return process.env.MYCEL_NATIVE_BIN ?? path.resolve(import.meta.dir, '..', '..', 'native', 'bin', `${plat}-${arch}`)
+  if (process.env.MYCEL_NATIVE_BIN) return process.env.MYCEL_NATIVE_BIN
+  // release bundle (scripts/build-bundle.ts): app/<version>/native/{mycel-gate,mycel-bridge} next to server/src/main.js
+  const bundled = path.resolve(import.meta.dir, '..', '..', 'native')
+  if (fs.existsSync(path.join(bundled, 'mycel-gate'))) return bundled
+  return path.resolve(import.meta.dir, '..', '..', 'native', 'bin', `${plat}-${arch}`)
 }
 
 export function defaultConfig(over: Partial<ServerConfig> & { teamRoot: string; dataDir: string }): ServerConfig {

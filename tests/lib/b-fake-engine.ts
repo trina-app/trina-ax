@@ -13,6 +13,10 @@
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
+//   @fake {"echo": "codexEnv"}               (Codex) say what the turn got: login copy in CODEX_HOME, proxy, certificates
+//   @fake {"refreshAuth": "acc-1"}           (Codex) rewrite CODEX_HOME/auth.json like a token refresh, for that account
+//   @fake {"linkAuth": "/path"}              (Codex) replace CODEX_HOME/auth.json by a symbolic link to the path
+//   @fake {"connect": "host:443"}            (Codex) CONNECT through HTTPS_PROXY, say the proxy's status line
 // Without directives it answers "echo: <first line of the message>".
 import fs from 'node:fs'
 import path from 'node:path'
@@ -186,7 +190,36 @@ for (const d of directives) {
   else if (d.echo === 'model') await say(`model=${model}`)
   else if (d.echo === 'resume') await say(`resumed=${resumed}`)
   else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
-  else if (d.echo === 'tools') {
+  else if (d.echo === 'codexEnv') {
+    const home = process.env.CODEX_HOME ?? ''
+    let account: string | null = null
+    try { account = JSON.parse(fs.readFileSync(path.join(home, 'auth.json'), 'utf8')).tokens?.account_id ?? null } catch {}
+    const px = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : null
+    await say(JSON.stringify({ codexHome: path.relative(process.cwd(), home), account, homeEmpty: fs.readdirSync(process.env.HOME!).length === 0,
+      proxyUser: px?.username ?? null, proxyHost: px ? `${px.hostname}:${px.port}` : null, sslCertFile: process.env.SSL_CERT_FILE ?? null,
+      credStore: argv.includes('cli_auth_credentials_store="file"') }))
+  } else if (d.refreshAuth) {
+    const f = path.join(process.env.CODEX_HOME!, 'auth.json')
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+    j.tokens.account_id = String(d.refreshAuth); j.tokens.refresh_token = 'rt-' + Date.now(); j.last_refresh = new Date().toISOString()
+    fs.writeFileSync(f + '.new', JSON.stringify(j)); fs.renameSync(f + '.new', f)
+    await say('refreshed')
+  } else if (d.linkAuth) {
+    const f = path.join(process.env.CODEX_HOME!, 'auth.json')
+    fs.rmSync(f); fs.symlinkSync(String(d.linkAuth), f)
+    await say('linked')
+  } else if (d.connect) {
+    const px = new URL(process.env.HTTPS_PROXY ?? 'http://none:0@127.0.0.1:1')
+    const status = await new Promise<string>((res) => {
+      const c = require('node:net').connect(Number(px.port), px.hostname)
+      let b = ''
+      c.on('connect', () => c.write(`CONNECT ${d.connect} HTTP/1.1\r\nHost: ${d.connect}\r\nProxy-Authorization: Basic ${Buffer.from(`${decodeURIComponent(px.username)}:${decodeURIComponent(px.password)}`).toString('base64')}\r\n\r\n`))
+      c.on('data', (x: Buffer) => { b += x.toString(); if (b.includes('\r\n')) { c.destroy(); res(b.split('\r\n')[0]!) } })
+      c.on('error', (e: Error) => res('error ' + e.message))
+      c.on('close', () => res(b.split('\r\n')[0] || 'closed'))
+    })
+    await say(status)
+  } else if (d.echo === 'tools') {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
     await say((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))

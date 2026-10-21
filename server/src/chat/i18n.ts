@@ -36,6 +36,7 @@ export const TEXT = {
   errInterrupted: t('서버가 다시 시작되어 답변이 중단되었습니다.', 'The answer was interrupted because the server restarted.', 'Jawaban terputus karena server dimulai ulang.'),
   errEngineMissing: t('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).'),
   errProxyMode: t('회사 API 키 모드는 이 버전에서 아직 켤 수 없습니다. 구독 로그인 모드를 써 주세요.', 'Company API key mode cannot be turned on in this version yet. Use the subscription login mode.', 'Mode kunci API perusahaan belum bisa diaktifkan di versi ini. Gunakan mode login langganan.'),
+  errCodexBeta: t('Codex는 이 서버에서 아직 시험 중(베타)이라 owner와 owner가 고른 사람만 쓸 수 있습니다. Claude Code로 바꿔 보내 주세요.', 'Codex is still in beta on this server: only the owner and the people the owner picked can use it. Switch to Claude Code and send again.', 'Codex masih beta di server ini: hanya owner dan orang yang dipilih owner yang bisa memakainya. Ganti ke Claude Code lalu kirim lagi.'),
   errUserDisabled: t('계정을 사용할 수 없습니다.', 'This account is not active.', 'Akun ini tidak aktif.'),
 
   // steps
@@ -67,7 +68,7 @@ export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, 
 }
 
 /** Engine error -> message.error (stable code + localized text). */
-export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_mode' | 'user_disabled', locale: Locale, retryAfter?: number): ApiErrorBody {
+export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_mode' | 'user_disabled' | 'codex_beta', locale: Locale, retryAfter?: number): ApiErrorBody {
   const map: Record<string, [ErrorCode, keyof typeof TEXT]> = {
     auth: ['engine_unavailable', 'errAuth'],
     rate_limit: ['rate_limited', 'errRateLimit'],
@@ -79,6 +80,7 @@ export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_miss
     engine_missing: ['engine_unavailable', 'errEngineMissing'],
     proxy_mode: ['engine_unavailable', 'errProxyMode'],
     user_disabled: ['forbidden', 'errUserDisabled'],
+    codex_beta: ['forbidden', 'errCodexBeta'],
   }
   const [c, k] = map[code] ?? ['internal', 'errCrash']
   return { code: c, message: tr(k, locale), ...(retryAfter !== undefined ? { retryAfter } : {}) }

@@ -18,16 +18,45 @@ export const CODEX_DISABLED_FEATURES = ['shell_tool', 'unified_exec', 'unified_e
 
 export interface CodexConf {
   bin: string
-  /** engine's CODEX_HOME (no config.toml, no AGENTS.md, no skills). dev-owner-symlink: <chat>/.codex instead. */
+  /** engine's CODEX_HOME (no config.toml, no AGENTS.md, no skills). Both modes use the chat folder per turn
+   * (codexTurnPaths); this field is only the fallback of tests that pass their own folder. */
   codexHome: string
-  /** agent-own: the engine account logged in itself (`codex login --device-auth`, stage 3) and auth.json lives in
-   * codexHome. dev-owner-symlink: dev / stage 1 — auth.json is a symlink to the owner's login. */
+  /** agent-own: production, the engine account (_axagent) signed in itself (`codex login --device-auth`, run by the
+   * server CLI through the launcher); its auth.json lives in ONE place, <agent root>/codex-auth (codexAuthDir), which
+   * the launcher copies into the turn's <chat>/.codex and writes back after a refresh. The server never touches it.
+   * dev-owner-symlink: dev / stage 1 — <chat>/.codex/auth.json is a symlink to the owner's login. */
   auth: 'agent-own' | 'dev-owner-symlink'
-  /** engine's HOME (empty) so ~/.agents/skills etc. are not found. dev-owner-symlink: <chat>/.home instead. */
+  /** engine's HOME (empty) so ~/.agents/skills etc. are not found: <chat>/.home per turn */
   agentHome: string
-  /** locked model catalog written by writeLockedCatalog(). dev-owner-symlink: copied to <chat>/.codex/ every turn. */
+  /** locked model catalog (writeLockedCatalog). agent-own: <engine folder>/model_catalog.json, written by the
+   * installer, read-only for the engine account. dev-owner-symlink: copied to <chat>/.codex/ every turn. */
   catalog: string
   model: string
+}
+
+/** The engine account's Codex login folder, relative to the agent root. One place for the installer, the launcher
+ * (--codex-auth-dir), the server CLI (codex-login / -status / -logout) and the diagnostics. Never a chat folder: the
+ * launcher refuses it as one (chat ids are uuids). */
+export const CODEX_AUTH_DIR = 'codex-auth'
+export const codexAuthDir = (agentRoot: string) => path.join(agentRoot, CODEX_AUTH_DIR)
+/** The locked catalog of a production engine, next to the engine binary (installer: scripts/install-macos.sh). */
+export const CODEX_CATALOG_FILE = 'model_catalog.json'
+/** Real path of the catalog next to `bin` (the engine sandbox matches resolved paths; app/engines/codex/current is a
+ * link to the version folder). */
+export function codexCatalogFor(bin: string): string {
+  let real = bin
+  try { real = fs.realpathSync(bin) } catch {}
+  return path.join(path.dirname(real), CODEX_CATALOG_FILE)
+}
+/** Model slugs of a locked catalog (first = default); throws when the file is missing or not a catalog. */
+export function catalogModels(file: string): string[] {
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'))
+  if (!Array.isArray(j.models)) throw new Error(`${file}: no models list`)
+  for (const m of j.models) {
+    // a catalog that would give the model a shell is never used (design tab 2: every entry shell disabled)
+    if (m?.shell_type !== 'disabled' || m?.tool_mode !== 'direct' || (m?.apply_patch_tool_type ?? null) !== null) throw new Error(`${file}: model ${String(m?.slug)} is not locked`)
+  }
+  return j.models.map((m: any) => String(m.slug))
 }
 
 /** Build the local catalog from a fetched models_cache.json: no shell, no code mode, no node REPL, no extra tools. */
@@ -60,7 +89,9 @@ export function prepareCodexHome(codexHome: string, auth: CodexConf['auth'], rea
  * #2). The shared <data>/codex-home would need the server's data folder opened to every turn, and it mixed the
  * state (logs, sqlite) of every chat. */
 export function codexTurnPaths(conf: CodexConf, chatDir: string): { codexHome: string; agentHome: string; catalog: string } {
-  if (conf.auth !== 'dev-owner-symlink') return { codexHome: conf.codexHome, agentHome: conf.agentHome, catalog: conf.catalog }
+  // agent-own: the launcher (running as the engine account) makes <chat>/.codex with the login copy and <chat>/.home;
+  // the server cannot even read the chat folder. The catalog stays in the engine folder.
+  if (conf.auth === 'agent-own') return { codexHome: '{CHAT_DIR}/.codex', agentHome: '{CHAT_DIR}/.home', catalog: conf.catalog }
   const codexHome = path.join(chatDir, '.codex')
   return { codexHome, agentHome: path.join(chatDir, '.home'), catalog: path.join(codexHome, 'catalog.json') }
 }
@@ -77,6 +108,7 @@ function realDir(p: string) {
 /** Before (and after) every Codex turn: prepare its CODEX_HOME (see prepareCodexHome); dev-owner-symlink also gets an
  * empty HOME and a fresh copy of the locked catalog in the chat folder. */
 export function prepareCodexTurn(conf: CodexConf, chatDir: string, realAuth?: string) {
+  if (conf.auth === 'agent-own') return // the launcher prepares and cleans the turn's Codex folders
   const p = codexTurnPaths(conf, chatDir)
   if (conf.auth === 'dev-owner-symlink') {
     realDir(chatDir)
@@ -100,6 +132,11 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
     '-s', 'read-only',
     '-c', 'approval_policy="never"',
     '-c', 'project_doc_max_bytes=0',
+    // no update check, no usage analytics (codex 0.163 sends them to chatgpt.com through the same tunnel)
+    '-c', 'check_for_update_on_startup=false',
+    '-c', 'analytics.enabled=false',
+    // the engine account's login is a file the launcher copies in (never the keychain, which it cannot reach)
+    ...(conf.auth === 'agent-own' ? ['-c', 'cli_auth_credentials_store="file"'] : []),
     '-c', 'web_search="live"',
     '-c', `model_catalog_json=${JSON.stringify(conf.catalog)}`,
     '-c', `model=${JSON.stringify(o.model ?? conf.model)}`,
@@ -114,16 +151,26 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
   ]
 }
 
-export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string }, conf: CodexConf): LaunchRequest {
+/** Production Codex network (design tab 2 "Codex 네트워크"): the engine account reaches only the model proxy (pf +
+ * sandbox), which tunnels this turn's HTTPS (CONNECT) to the allowed hosts when the turn's proxy token comes with it. */
+export const codexProxyUrl = (port: number, token: string) => `http://turn:${token}@127.0.0.1:${port}`
+
+export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string; proxy?: { port: number; token: string } }, conf: CodexConf): LaunchRequest {
   const p = codexTurnPaths(conf, i.chatDir)
-  if (p.agentHome === conf.agentHome) fs.mkdirSync(conf.agentHome, { recursive: true, mode: 0o700 }) // per-chat: prepareCodexTurn
+  if (conf.auth === 'agent-own' && !i.proxy) throw new Error('a Codex turn of the engine account needs the model proxy')
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   // codex has no system-prompt file option that keeps its tool instructions; the instructions travel on stdin
   // (never argv/env) ahead of the user's message.
   const stdin = `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`
   return {
     op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args: codexArgs({ ...conf, catalog: p.catalog }, { extraTools: i.extraTools, model: i.model }),
-    env: { PATH: '/usr/bin:/bin', HOME: p.agentHome, CODEX_HOME: p.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8' },
+    env: {
+      PATH: '/usr/bin:/bin', HOME: p.agentHome, CODEX_HOME: p.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8',
+      // agent-own: HTTPS only through the model proxy; certificates from the system bundle (the engine sandbox has no
+      // keychain / trustd in this mode, and Codex then verifies with the file: tested under engine.sb)
+      ...(i.proxy ? { HTTPS_PROXY: codexProxyUrl(i.proxy.port, i.proxy.token), SSL_CERT_FILE: '/etc/ssl/cert.pem' } : {}),
+    },
     token: i.token, systemPrompt: '', stdin, timeoutMs: i.timeoutMs,
+    ...(conf.auth === 'agent-own' ? { codexAuth: true } : {}),
   }
 }

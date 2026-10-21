@@ -43,6 +43,9 @@ export const LaunchRequest = z.object({
   stdin: z.string(),
   /** extra files written under chatDir before the run (e.g. a per-turn engine config) */
   files: z.array(z.object({ rel: z.string(), content: z.string() })).optional(),
+  /** Codex as the engine account: the launcher copies the account's Codex login (--codex-auth-dir) into
+   * <chatDir>/.codex for this turn and writes a refreshed one back after it (one Codex turn at a time) */
+  codexAuth: z.boolean().optional(),
 })
 export type LaunchRequest = z.infer<typeof LaunchRequest>
 export const LaunchEvent = z.discriminatedUnion('ev', [
@@ -51,5 +54,7 @@ export const LaunchEvent = z.discriminatedUnion('ev', [
   z.object({ ev: z.literal('stderr'), b64: z.string() }),
   z.object({ ev: z.literal('exit'), code: z.number(), signal: z.string().optional(), session: z.object({ b64: z.string() }).optional() }),
   z.object({ ev: z.literal('error'), message: z.string() }),
+  /** something the server should audit (e.g. a refreshed Codex login that was not written back) */
+  z.object({ ev: z.literal('note'), message: z.string() }),
 ])
 export type LaunchEvent = z.infer<typeof LaunchEvent>

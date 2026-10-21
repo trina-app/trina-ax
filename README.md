@@ -173,8 +173,10 @@ sudo scripts/uninstall-macos.sh [--delete-data]
 The installer (what the signed setup package will run) creates the hidden role accounts `_axserver` (server) and
 `_axagent` (engine), the LaunchDaemons, the sandbox profile and pf rules, `config/server.json` and a one-time setup
 code; flags and the full list are in its header. The engine running as `_axagent` needs its own subscription login
-(`claude setup-token`, `codex login --device-auth`), which only the owner can do — see
-[docs/OWNER-TODO.md](docs/OWNER-TODO.md). Until then use `bun run dev`.
+(`claude setup-token`; for Codex the owner runs `admin.js codex-login` once, which signs `_axagent` in by device auth
+through the launcher and the model proxy, docs/INSTALL.md 2.5), which only the owner can do — see
+[docs/OWNER-TODO.md](docs/OWNER-TODO.md). Codex on the engine account is beta (owner only) until it is verified
+with a real login and pf on. Until then use `bun run dev`.
 
 ## Status (2026-10-21)
 

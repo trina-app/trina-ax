@@ -17,6 +17,8 @@ export const DEV_DIR = path.join(REPO_ROOT, '.dev')
 export const PROD_BASE = `/Library/Application Support/${PRODUCT.id}`
 /** Foundation dev server port (component port ranges: docs/WORKPLAN.md). */
 export const DEV_PORT = 19100
+/** Production model proxy port (installer --proxy-port; pf and the engine sandbox allow the engine account only this). */
+export const PROD_PROXY_PORT = 47821
 
 export const AppConfigFile = z.object({
   mode: z.enum(['dev', 'prod']).optional(),
@@ -44,6 +46,8 @@ export const AppConfigFile = z.object({
     agentRoot: z.string().optional(),
     launcherSock: z.string().optional(),
     agentUid: z.number().int().nonnegative().optional(),
+    /** prod: port of the local model proxy, the engine account's only network path (pf + sandbox allow just this) */
+    proxyPort: z.number().int().min(1).max(65535).optional(),
   }).default({ authMode: 'local-login' }),
   relay: z.object({
     /** wss://relay.example/connect; null = no relay */
@@ -69,7 +73,7 @@ export interface AppConfig {
   dataDir: string
   logDir: string | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  engine: { authMode: 'local-login' | 'proxy'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number }
+  engine: { authMode: 'local-login' | 'proxy'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number }
   relay: { url: string | null; teamName: string | null }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null }
   validateResponses: boolean
@@ -133,6 +137,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       ...(f.engine.agentRoot ? { agentRoot: abs(f.engine.agentRoot) } : {}),
       ...(f.engine.launcherSock ? { launcherSock: abs(f.engine.launcherSock) } : {}),
       ...(f.engine.agentUid !== undefined ? { agentUid: f.engine.agentUid } : {}),
+      ...(f.engine.proxyPort !== undefined ? { proxyPort: f.engine.proxyPort } : {}),
     },
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,

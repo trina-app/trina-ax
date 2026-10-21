@@ -20,6 +20,7 @@ import { enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, upd
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
+import { codexIsBeta } from '../chat/engines'
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
@@ -118,6 +119,7 @@ export const adminRoutes: RouteModule = {
       const s = getTeamSettings(ctx.db)
       const def = body.defaultEngine ?? s.defaultEngine
       if (!enabled[def]) fail('conflict', msg('engineDisabled', locale))
+      if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', locale))
       updateTeamSettings(ctx.db, {
         ...(body.defaultEngine !== undefined ? { defaultEngine: body.defaultEngine } : {}),
         ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : body.defaultEngine !== undefined && body.defaultEngine !== s.defaultEngine ? { defaultModel: null } : {}),
@@ -166,6 +168,7 @@ export const adminRoutes: RouteModule = {
       const cur = getTeamSettings(ctx.db)
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
       if (body.defaultEngine !== undefined && !enginesEnabled(ctx.db)[body.defaultEngine]) fail('conflict', msg('engineDisabled', c.get('locale')))
+      if (body.defaultEngine === 'codex' && codexIsBeta(ctx)) fail('conflict', msg('codexBetaDefault', c.get('locale')))
       const next = updateTeamSettings(ctx.db, body)
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })

@@ -10,6 +10,7 @@ import { FileService } from './files/service'
 import { TurnRegistry } from './turns'
 import { startMcpSocket } from './mcp/socket'
 import { SocketLauncher, startGate, startLauncher, type Launcher, type LauncherSandbox } from './native'
+import { startModelProxy, type ProxyOpts } from './proxy/model-proxy'
 
 export interface Running {
   cfg: ServerConfig
@@ -19,6 +20,8 @@ export interface Running {
   toolsSock: string
   launcherSock: string
   launcher: Launcher | null
+  /** the local model proxy engines of the engine account talk through (production; startEngineProxy) */
+  proxy?: { port: number } | null
   rejected: () => { reason: string }[]
   close(): Promise<void>
 }
@@ -34,8 +37,27 @@ export function proxyPeerCheck(srv: Running) {
   }
 }
 
+/** Start the model proxy for this core: the Claude path (upstream credential) and Codex tunnels (CONNECT), both
+ * checked against the turn's engine session through the launcher. Sets srv.proxy and stops with srv.close(). */
+export async function startEngineProxy(srv: Running, o: { port?: number; upstream: ProxyOpts['upstream']; connectHosts?: string[]; dial?: (host: string, port: number) => import('node:net').Socket }) {
+  const l = () => srv.launcher as SocketLauncher | null
+  const proxy = await startModelProxy({
+    db: srv.db, port: o.port, upstream: o.upstream, peerCheck: proxyPeerCheck(srv),
+    connect: {
+      hosts: o.connectHosts,
+      ...(o.dial ? { dial: o.dial } : {}),
+      turnSession: (turnId) => srv.turns.get(turnId)?.pgid ?? null,
+      peerSession: async (clientPort, serverPort) => (await l()?.tcpPeer?.(clientPort, serverPort))?.sid ?? null,
+    },
+  })
+  srv.proxy = { port: proxy.port }
+  const close = srv.close.bind(srv)
+  srv.close = async () => { await proxy.stop(); await close() }
+  return proxy
+}
+
 export interface StartOptions {
-  launcher?: { allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox }
+  launcher?: { allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox; codexAuthDir?: string; proxyPort?: number }
   externalLauncher?: string
   toolsSockMode?: string
   /** reuse an open DB / file service (the HTTP server owns them); otherwise opened here and closed by close() */
@@ -57,7 +79,7 @@ export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Prom
   const launcherSock = path.join(cfg.runDir, 'private', 'launcher.sock')
   let launcher: Launcher | null = o.externalLauncher ? new SocketLauncher(o.externalLauncher) : null
   if (o.launcher) {
-    procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots, sandbox: o.launcher.sandbox }))
+    procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots, sandbox: o.launcher.sandbox, codexAuthDir: o.launcher.codexAuthDir, proxyPort: o.launcher.proxyPort }))
     launcher = new SocketLauncher(launcherSock)
   }
   return {

@@ -5,12 +5,14 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
-import type { AppConfig } from './app-config'
+import { PROD_PROXY_PORT, type AppConfig } from './app-config'
 import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
+import { CLAUDE_OAUTH_TOKEN_FILE } from './system/engines'
+import { resolveLayout } from './system/layout'
 import { FileService } from './files/service'
 import type { Logger } from './log'
 import type { AppBindings } from './http/env'
-import { startServer, type Running } from './server'
+import { startEngineProxy, startServer, type Running } from './server'
 import type { LauncherSandbox } from './native'
 import { noSessions, nullRealtime, type Services } from './services'
 import pkg from '../package.json'
@@ -72,12 +74,29 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   if (!fs.existsSync(gate)) throw new CoreUnavailableError(`native helpers not built (${gate} missing): run \`bun run build:native\``)
   if (ctx.config.mode === 'prod') {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect
-    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660' })
+    const srv = await startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660' })
+    // the model proxy: the engine account's only network path (pf + engine sandbox allow just this port). Codex
+    // turns tunnel HTTPS through it (CONNECT); Claude requests get the owner's subscription token swapped in.
+    try {
+      await startEngineProxy(srv, { port: ctx.config.engine.proxyPort ?? PROD_PROXY_PORT, upstream: prodClaudeUpstream(ctx) })
+    } catch (e) {
+      srv.proxy = null
+      ctx.log.error('model proxy did not start: engine turns of the engine account cannot reach the model', { err: e })
+    }
+    return srv
   }
   const codex = findCodexBin(ctx.config.engine.codexBin)
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
   const sandbox = devEngineSandbox()
   return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox } : {}) } })
+}
+
+/** The owner's long-lived Claude subscription token (`claude setup-token`) in secrets/, if it is there. */
+function prodClaudeUpstream(ctx: AppContext): { baseUrl: string; kind: 'oauth'; secret: string } | null {
+  try {
+    const secret = fs.readFileSync(path.join(resolveLayout(ctx.config).secretsDir, CLAUDE_OAUTH_TOKEN_FILE), 'utf8').trim()
+    return secret ? { baseUrl: 'https://api.anthropic.com', kind: 'oauth', secret } : null
+  } catch { return null }
 }
 
 export function createContext(o: ContextOptions): AppContext {
