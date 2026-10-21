@@ -13,6 +13,7 @@ settings, and the sign-in, invite, reset and setup screens have a language switc
 [docs/OFFICE.md](docs/OFFICE.md). **What only the owner can
 unblock:** [docs/OWNER-TODO.md](docs/OWNER-TODO.md). Decisions and deviations from the design:
 [docs/DECISIONS.md](docs/DECISIONS.md); who owns which part: [docs/WORKPLAN.md](docs/WORKPLAN.md).
+Test environments (a clean macOS VM for fresh-install tests, the staging install): [docs/TEST-ENV.md](docs/TEST-ENV.md).
 
 ## Architecture
 
@@ -153,6 +154,9 @@ bun run e2e:ui                # whole product in a real browser + the Electron a
                               # (real engines: about 9 Claude and 1 Codex calls; needs ports 19100/19161 free,
                               # so stop the dev service first: bun run dev:service stop)
 sudo bun tests/install/g-macos-install.ts   # role-account installer on a throwaway copy with a fake engine
+scripts/vm/macos-vm.sh fresh && scripts/vm/macos-vm.sh up && \
+  scripts/vm/macos-vm.sh office-install dist/office/TeamAX-office-<version>-mac.zip
+                              # office zip on a brand-new macOS VM (tart, no sudo), docs/TEST-ENV.md
 ```
 
 Engines are never called for real by `bun run test`. CI (`.github/workflows/ci.yml`) runs typecheck, the native build
