@@ -409,7 +409,9 @@ function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
   return (
     <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
-      <td className="px-2 py-1.5">
+      {/* w-full + max-w-0: the name column takes the room that is left and a long name ends in "…" instead of
+          pushing the table wider than the screen (phones) or the space beside an open file panel */}
+      <td className="w-full max-w-0 px-2 py-1.5">
         <button
           type="button"
           onClick={onOpen}
@@ -425,7 +427,9 @@ function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename
           }}
         >
           <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
-          <span className="min-w-0 truncate">{e.name}</span>
+          <span className="min-w-0 truncate" title={e.name}>
+            {e.name}
+          </span>
           {dim && <span className="sr-only">({t('files.navigationOnly')})</span>}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}

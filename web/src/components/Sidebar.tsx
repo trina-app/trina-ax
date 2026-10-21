@@ -96,7 +96,7 @@ export default function Sidebar() {
         <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
           <BookMarked size={17} aria-hidden /> {t('sidebar.skills')}
           {pendingSkills > 0 && (
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-white" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
               {pendingSkills}
             </span>
           )}
