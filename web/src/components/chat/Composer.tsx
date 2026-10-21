@@ -4,6 +4,7 @@
 // The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
+// "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
 import { ArrowUp, Camera, Check, FileAudio, FileText, FolderOpen, Loader2, Mic, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -22,6 +23,7 @@ import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
 import { ENGINE_LABEL } from './Messages'
 import { IconButton } from '../ui'
+import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 
 interface Pending {
@@ -73,6 +75,7 @@ export default function Composer({
   const locale = useLocale()
   const userId = useMe()?.user.id ?? '-'
   const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
+  const skillMenu = useSkillMenu(text, setText)
   // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
   // files one at a time from the file screen, keeps what was attached for this draft until it is sent or removed
   const [files, setFilesState] = useState<Pending[]>(() => restoreChips(userId, draftId))
@@ -418,6 +421,7 @@ export default function Composer({
           </div>
         ) : (
           <>
+            {skillMenu.menu}
             <textarea
               ref={taRef}
               rows={1}
@@ -432,6 +436,7 @@ export default function Composer({
                 }
               }}
               onKeyDown={(e) => {
+                if (skillMenu.onKeyDown(e)) return
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                   // phones: Enter makes a new line (send with the button)
                   if (window.matchMedia?.('(pointer: coarse)').matches) return
