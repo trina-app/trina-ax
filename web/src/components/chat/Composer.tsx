@@ -21,7 +21,7 @@ import { cancelUpload, uploadFile } from '../../lib/upload'
 import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
-import { ENGINE_LABEL } from './Messages'
+import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton } from '../ui'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
@@ -53,6 +53,7 @@ export default function Composer({
   onStop,
   engine,
   onEngine,
+  engines,
   models,
   initialText,
   autoFocus,
@@ -65,8 +66,11 @@ export default function Composer({
   onSend: (text: string, attachments: Attachment[]) => Promise<void>
   onStop: () => Promise<void>
   engine: EngineChoice
+  /** only for people who may pick the engine (store/session canChooseEngine): without it there is no picker */
   onEngine?: (e: EngineChoice) => void
-  /** models per engine (admins see them; others choose the engine only) */
+  /** the engines this person may pick (switched on) */
+  engines?: EngineId[]
+  /** models per engine */
   models?: Partial<Record<EngineId, { id: string; label: string }[]>>
   initialText?: string
   autoFocus?: boolean
@@ -566,37 +570,15 @@ export default function Composer({
                     </button>
                     {engineMenu && (
                       <ul role="listbox" aria-label={t('composer.engine')} className="absolute bottom-full left-0 z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
-                        {(['claude-code', 'codex'] as EngineId[]).map((id) => (
-                          <li key={id}>
-                            <button
-                              type="button"
-                              role="option"
-                              aria-selected={engine.engine === id && !engine.model}
-                              className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm hover:bg-hover"
-                              onClick={() => {
-                                setEngineMenu(false)
-                                onEngine({ engine: id, model: null })
-                              }}
-                            >
-                              {ENGINE_LABEL[id]} <span className="text-xs text-faint">{t('composer.defaultModel')}</span>
-                            </button>
-                            {models?.[id]?.map((m) => (
-                              <button
-                                key={m.id}
-                                type="button"
-                                role="option"
-                                aria-selected={engine.engine === id && engine.model === m.id}
-                                className="flex w-full items-center rounded-lg py-1.5 pr-2.5 pl-6 text-left text-sm text-muted hover:bg-hover"
-                                onClick={() => {
-                                  setEngineMenu(false)
-                                  onEngine({ engine: id, model: m.id })
-                                }}
-                              >
-                                {m.label}
-                              </button>
-                            ))}
-                          </li>
-                        ))}
+                        <EngineOptions
+                          engines={engines ?? ['claude-code', 'codex']}
+                          models={models}
+                          current={engine}
+                          onPick={(p) => {
+                            setEngineMenu(false)
+                            onEngine(p)
+                          }}
+                        />
                       </ul>
                     )}
                   </div>

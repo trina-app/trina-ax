@@ -25,6 +25,8 @@ export const TEXT = {
   projectFolderTaken: t('그 이름의 폴더 권한 기록이 남아 있어 쓸 수 없습니다. 다른 이름을 고르세요.', 'Access rules are still kept for a folder of that name. Pick another name.', 'Aturan akses masih tersimpan untuk folder bernama itu. Pilih nama lain.'),
   projectShareNotPersonal: t('팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있습니다.', 'Only a personal project can be shared by copying it to a team folder.', 'Hanya proyek pribadi yang bisa dibagikan dengan menyalinnya ke folder tim.'),
   projectFolderNoWrite: t('이 폴더에 쓰기 권한이 없습니다.', 'You cannot write to this folder.', 'Anda tidak bisa menulis ke folder ini.'),
+  engineChoiceNotAllowed: t('AI 엔진과 모델은 관리자가 정합니다. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답합니다.', 'Your admin chooses the AI engine and model. Send without picking one and the team default answers.', 'Mesin dan model AI ditentukan admin. Kirim tanpa memilih dan mesin bawaan tim yang menjawab.'),
+  engineOff: t('관리자가 이 AI 엔진을 꺼 두었습니다. 다른 엔진을 고르세요.', 'Your admin switched this AI engine off. Pick another one.', 'Admin mematikan mesin AI ini. Pilih yang lain.'),
   browserUnavailable: t('데스크톱 앱 창이 연결되어 있지 않습니다.', 'The desktop app window is not connected.', 'Jendela aplikasi desktop tidak terhubung.'),
 
   // answer errors (message.error)
@@ -45,6 +47,8 @@ export const TEXT = {
 
   // steps
   refusedRetry: STEP_TEXT.refusedRetry,
+  engineOffDefault: STEP_TEXT.engineOffDefault,
+  limitFallback: STEP_TEXT.limitFallback,
   attachChanged: STEP_TEXT.attachChanged,
   attachMoved: STEP_TEXT.attachMoved,
   attachUnavailable: STEP_TEXT.attachUnavailable,
