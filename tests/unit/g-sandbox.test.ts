@@ -99,10 +99,12 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
       expect(probeCode(ll, 'stat', path.join(CHAT, 'mine.txt'))).toBe(0)
       expect(probeCode(ll, 'stat', path.join(CHAT, 'missing.txt'))).toBe(3)
       expect(probeCode(ll, 'stat', CHAT)).toBe(0)
-      expect(probeCode(ll, 'stat', AGENT)).toBe(0)
       expect(probeCode(ll, 'stat', '/')).toBe(0)
       expect(probeCode(ll, 'stat', '/usr/lib')).toBe(0)
       expect(probeCode(ll, 'stat', PROBE)).toBe(0)
+      // not the agent root above it either (security audit r3): its size / link count / mtime counted and timed every
+      // chat of the team (tests/security/r3-sandbox-metadata.test.ts)
+      expect(probeCode(ll, 'stat', AGENT)).toBe(1)
       // another chat: neither its folder, its files, nor whether a chat id exists
       expect(probeCode(ll, 'stat', OTHER)).toBe(1)
       expect(probeCode(ll, 'stat', path.join(OTHER, 'theirs.txt'))).toBe(1)
@@ -237,6 +239,8 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
     expect(await turn('chat1', ['stat', '{CHAT_DIR}/mine.txt'])).toBe(0)
     expect(await turn('chat2', ['stat', path.join(CHAT, 'mine.txt')])).toBe(1)
     expect(await turn('chat2', ['stat', path.join(DATA, 'app.db')])).toBe(1)
+    expect(await turn('chat2', ['stat', AGENT])).toBe(1)
+    expect(await turn('chat1', ['realpath', '{CHAT_DIR}/mine.txt'])).toBe(0)
   })
 
   // security audit r2 (os-layer #1, re-attack): any process of the engine account may read another process's argv

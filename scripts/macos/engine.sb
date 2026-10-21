@@ -10,8 +10,9 @@
 ;; executables, system libraries, our tools socket, the local model proxy port.
 ;; Denied: everything else, in particular /tmp, /private/var/tmp, /Users, /Volumes, other chat folders. That includes
 ;; METADATA (stat/lstat/readlink: existence, size, mtime, mode): only the turn's own paths and the folders above them can
-;; be stat()ed (security audit r1, os-layer #1). The kernel resolves a path before the sandbox sees it, so a name that
-;; does not exist still answers ENOENT rather than EPERM: only an exactly guessed name can be tested for existence.
+;; be stat()ed (security audit r1, os-layer #1), and not the agent root that holds every chat folder (r3). The kernel
+;; resolves a path before the sandbox sees it, so a name that does not exist still answers ENOENT rather than EPERM:
+;; only an exactly guessed name can be tested for existence.
 ;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the few login files
 ;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the login keychain
 ;; (Security framework) and direct HTTPS to the vendor (there is no model proxy in this mode).
@@ -63,6 +64,13 @@
 ;; them. Never a bare (allow file-read-metadata): that let a turn stat() any path on the Mac (other chats' files, the
 ;; server's data folder, the owner's home). SBPL cannot split a parameter into its parent folders, so the profile
 ;; computes them: (ancestors "/a/b/c") = ("/a/b" "/a" "/"). After the explicit denies, so it wins over them.
+;; The chat folder's own parent, AGENT_ROOT, is NOT one of them (security audit r3, os-layer #1): every chat folder
+;; is an entry of it, so its stat() told a turn how many chats the team has (APFS: st_size and st_nlink grow with
+;; every entry) and, from st_mtime, the moment someone else's chat was created or deleted. Opening paths through it,
+;; getcwd() and realpath() of RELATIVE paths still work; realpath() of an ABSOLUTE path in the chat folder now fails
+;; (it stats every folder on the way). Engines get relative chat paths from the launcher (security audit r2), and
+;; real Claude Code turns (with --resume) and Codex turns pass; Codex only logs that it cannot walk its (unwanted)
+;; skills folder. See docs/DECISIONS.md.
 (define (ancestors p)
   (let loop ((i 1) (acc (list "/")))
     (cond ((>= i (string-length p)) acc)
@@ -70,10 +78,15 @@
           (else (loop (+ i 1) acc)))))
 (define (path-and-ancestors p) (cons p (ancestors p)))
 (apply allow file-read-metadata
-  (map literal (append (ancestors (param "CHAT_DIR")) (path-and-ancestors (param "ENGINE_DIR"))
+  (map literal (append (ancestors (param "AGENT_ROOT")) (path-and-ancestors (param "ENGINE_DIR"))
                        (path-and-ancestors (param "BRIDGE")) (path-and-ancestors (param "TOOLS_SOCK")))))
-;; the entries of / itself (/etc, /var, /tmp are links into /private; listing / is allowed above anyway)
-(allow file-read-metadata (regex #"^/[^/]+$"))
+;; the system entries of / (/etc, /var, /tmp are links into /private). Named one by one: a pattern for every entry
+;; of / also answered stat() of /Users (when someone's home folder was added), /Volumes (which disks are mounted),
+;; /Applications and /opt (security audit r3, os-layer #1). When the turn's own paths lie under /Users (dev), the
+;; ancestor rule above opens /Users itself, nothing next to it.
+(allow file-read-metadata
+  (literal "/etc") (literal "/var") (literal "/tmp") (literal "/usr") (literal "/bin") (literal "/sbin")
+  (literal "/dev") (literal "/System") (literal "/Library") (literal "/private"))
 
 ;; the engine and the MCP bridge (after the denies: in dev the engine lives under /Users)
 (allow file-read* (subpath (param "ENGINE_DIR")) (literal (param "BRIDGE")))
@@ -133,3 +146,9 @@
     (allow ipc-posix-shm (ipc-posix-name-prefix "apple.shm."))
     (allow network-outbound (remote tcp "*:443") (remote udp "*:53") (literal "/private/var/run/mDNSResponder"))
     (allow system-socket)))
+
+;; --- last: the agent root ---------------------------------------------------------------------------------------
+;; Its metadata stays closed whatever an ancestor rule above opened (an engine, bridge or tools socket placed under
+;; it; with LOCAL_LOGIN=1 a session folder that is the chat folder itself). Only the folder itself: the turn's own
+;; chat folder inside it is a different path and stays allowed.
+(deny file-read-metadata (literal (param "AGENT_ROOT")))
