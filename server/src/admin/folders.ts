@@ -201,10 +201,17 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   const paths = decidingPaths(before, after)
   const created = new Set(by.created ?? [])
   const onDisk = (p: string) => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ...segsOf(p))).isDirectory() } catch { return false } }
+  // Replay buffers: events in a person's buffer were filtered by the access they had when each was published. Whoever's
+  // access changed (or who appeared / disappeared: enabled, disabled, deleted) loses that history BEFORE the notice
+  // below, so a window resuming from before this point is told to reload over REST and never gets the names of files
+  // in a folder they were just removed from (security round 2, realtime #1).
+  const beforeIds = new Set(before.principals.map((p) => p.id))
+  for (const pa of after.principals) if (!beforeIds.has(pa.id)) ctx.services.realtime.forgetReplay(pa.id)
   for (const pb of before.principals) {
     const pa = after.principals.find((p) => p.id === pb.id)
-    if (!pa) continue
+    if (!pa) { ctx.services.realtime.forgetReplay(pb.id); continue }
     const changed = paths.filter((p) => before.rules.access(pb, segsOf(p)) !== after.rules.access(pa, segsOf(p)))
+    if (changed.length) ctx.services.realtime.forgetReplay(pb.id)
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }

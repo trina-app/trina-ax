@@ -57,6 +57,12 @@ export interface RealtimeHub {
    * a password change). Optional: without it the session's sockets stay open until they reconnect. Added by A. */
   disconnectSession?(sessionId: string, reason: 'logout' | 'password_changed' | 'disabled' | 'expired' | 'revoked'): void
   /**
+   * Drop the person's replay buffer, keeping their seq: a later resume from before this point gets `resync` and the
+   * window reloads over REST. Called whenever the person's access changes (rules, groups, role, disabled, deleted),
+   * so events filtered under the old access are never replayed under the new one.
+   */
+  forgetReplay(userId: string): void
+  /**
    * Attach a WebSocket-like connection that did not come through Bun's upgrade (the relay client's virtual
    * sockets, tab 4 "중계로 들어온 요청"). `req` carries the original path (/api/ws?windowId=..), headers (cookie,
    * Origin, Sec-WebSocket-Protocol); the hub authenticates it exactly like a direct upgrade. On failure the
@@ -163,6 +169,6 @@ export const noSessions: SessionService = {
   async verifyPassword() { return false },
 }
 export const nullRealtime: RealtimeHub = {
-  publish() {}, publishEach() {}, disconnectUser() {}, disconnectSession() {},
+  publish() {}, publishEach() {}, disconnectUser() {}, disconnectSession() {}, forgetReplay() {},
   async attach(conn) { conn.close(1012, 'realtime not available') },
 }

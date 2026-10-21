@@ -108,6 +108,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   })()
   // the person's open windows ask for their language again (GET /api/me) and switch without a reload
   if (changed.locale !== undefined) ctx.services.realtime.publish(id, LOCALE_CHANGED)
+  // disabled or enabled again: nothing buffered under the earlier state is replayed (group / rule changes made while
+  // the account was disabled never reached afterAccessChange for them)
+  if (changed.status !== undefined) ctx.services.realtime.forgetReplay(id)
   if (changed.status === 'disabled') {
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
