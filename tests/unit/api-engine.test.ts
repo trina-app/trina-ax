@@ -81,7 +81,7 @@ describe('a chat turn with the api engine', () => {
   const script: string[] = []
   const seen: any[] = []
   beforeAll(async () => {
-    mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { seen.push(await req.json()); return new Response(script.shift() ?? sse({ text: ['(no script)'] })) } })
+    mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { if (req.method === 'GET') return Response.json({ data: [] }) /* the status check's /models */; seen.push(await req.json()); return new Response(script.shift() ?? sse({ text: ['(no script)'] })) } })
     h = await startHarness({ name: 'api-engine' })
     // set up like the owner does in Admin > AI engines; members may pick the engine
     writeApiEngine(h.ctx.config.dataDir, { baseUrl: `http://127.0.0.1:${mock.port}/v1`, model: 'm-1', label: 'M1' })

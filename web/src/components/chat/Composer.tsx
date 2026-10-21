@@ -571,7 +571,7 @@ export default function Composer({
                     {engineMenu && (
                       <ul role="listbox" aria-label={t('composer.engine')} className="absolute bottom-full left-0 z-30 mb-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg" onMouseLeave={() => setEngineMenu(false)}>
                         <EngineOptions
-                          engines={engines ?? ['claude-code', 'codex']}
+                          engines={engines ?? []}
                           models={models}
                           current={engine}
                           onPick={(p) => {
