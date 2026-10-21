@@ -36,12 +36,18 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
   else if (op === 'read' && !atLeast(acc, 'read')) throw new Denied(hidden(input))
   else if (op === 'write' && !atLeast(acc, 'write')) {
     if (atLeast(acc, 'read') && w.missing.length === 0) throw new Denied(`read-only: you cannot change '${full.join('/')}'`)
-    throw new Denied(atLeast(acc, 'read') ? `read-only folder: you cannot create files in '${full.slice(0, -1).join('/')}'` : hidden(input))
+    if (atLeast(acc, 'read')) throw new Denied(`read-only folder: you cannot create files in '${full.slice(0, -1).join('/')}'`)
+    throw new Denied(hiddenWrite(rules, user, full, segs, input))
   }
   if (w.problem) throw new Denied(w.problem)
 
   const exists = w.missing.length === 0
   if (!exists) {
+    // A path that is not there answers a read or a listing exactly like one the caller may not see. "not found: 'x'"
+    // (a ToolError) for a missing name next to "Access denied: not found or no access: 'x'" for a 'none' rule folder
+    // told the AI tools (read, list, glob, grep, make_file sources, share_file) which hidden folders exist under a
+    // folder the caller can read (security r3). The HTTP routes already answered both with the same 404.
+    if (mustExist && op !== 'write') throw new Denied(hidden(input))
     if (mustExist) throw new ToolError(`not found: '${full.join('/')}'`, 'not_found')
     if (w.missing.length > 1 && !opts.createDirs) throw new ToolError(`folder does not exist: '${full.slice(0, -1).join('/')}'`, 'not_found')
     if (!w.st.isDirectory()) throw new Denied(`not a folder: '${w.actual.join('/')}'`)
@@ -63,6 +69,26 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
   }
   realpathCheck(fx.root, w.actual)
   return { segs: full, rel: full.join('/'), abs: path.join(fx.root, ...full), exists, existing: w.actual.length, st: exists ? w.st : undefined }
+}
+
+/**
+ * The refusal of a write to a path the caller may not see. It must be the answer the same path would get if it were
+ * not there: a missing name below a folder the caller may only read is refused as "read-only folder" (403), so a
+ * hidden one there is too. Answering "no access" (404) instead told a reader of skills/ that the 'none' folder
+ * skills/performance-reviews exists, through mkdir, save, upload, move or the write tool (security r3). Below a
+ * folder the caller may write, a missing name would be created, so no refusal can look like that and the hidden one
+ * keeps the plain "no access" (docs/DECISIONS.md). The names after the nearest readable folder are the caller's own
+ * input, never the hidden entry's spelling on disk.
+ */
+function hiddenWrite(rules: RuleSet, user: Principal, full: readonly string[], typed: readonly string[], input: unknown): string {
+  for (let k = full.length - 1; k >= 0; k--) {
+    const a = rules.access(user, full.slice(0, k))
+    if (!atLeast(a, 'read')) continue
+    // users/ itself is readable, but every name in it except the caller's own is 'none', present or not: no access
+    if (atLeast(a, 'write') || (k === 1 && full[0] === 'users')) break
+    return `read-only folder: you cannot create files in '${[...full.slice(0, k), ...typed.slice(k)].slice(0, -1).join('/')}'`
+  }
+  return hidden(input)
 }
 
 /**
