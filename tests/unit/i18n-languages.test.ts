@@ -109,6 +109,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en and id)', also: /복원됨\|/ },
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en and id)' },
+  'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en and id)' },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or
