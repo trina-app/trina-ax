@@ -77,7 +77,7 @@ export function syncFollowingLocales(db: Database): void {
 /** Which engines the admin turned on (default: both). */
 export function enginesEnabled(db: Database): Record<EngineId, boolean> {
   const v = getSetting<Partial<Record<EngineId, boolean>>>(db, 'engines.enabled') ?? {}
-  return { 'claude-code': v['claude-code'] ?? true, codex: v.codex ?? true }
+  return { 'claude-code': v['claude-code'] ?? true, codex: v.codex ?? true, api: v.api ?? true }
 }
 export function setEnginesEnabled(db: Database, patch: Partial<Record<EngineId, boolean>>) {
   setSetting(db, 'engines.enabled', { ...enginesEnabled(db), ...patch })

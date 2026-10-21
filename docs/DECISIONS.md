@@ -1090,3 +1090,10 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
   복사하지 않는다. 빌드 스크립트는 zip에 토큰 파일·토큰 모양의 글·그 고객의 연결 토큰이 없는지 확인한다.
 - **남는 것**: git 기록에는 예전 커밋의 고객 주소·이름·PDF가 그대로 있다. 공개 전에 기록을 새로 시작하거나
   (`git filter-repo` 등으로) 지워야 한다.
+
+## API 엔진: OpenAI 호환 모델 (feat/api-engine, 2026-10-21)
+
+- **세 번째 엔진 `api`는 서버 안의 작은 에이전트 루프다**(`server/src/engine/api-agent.ts`). OpenAI 호환 Chat Completions(스트리밍, tool_calls)를 쓰는 모델이면 된다: OpenAI, Gemini의 OpenAI 주소, OpenRouter, 이 맥의 Ollama·LM Studio. Claude Code·Codex처럼 잠가야 할 프로그램이 아니다: 셸도 파일 접근도 없고, 턴의 MCP 도구만 다른 엔진과 같은 처리기(`mcp/protocol.ts makeHandler`: 사람 다시 읽기, 감사, 턴별 한도, 더 넓은 공개 확인)로 부른다. 그래서 샌드박스가 필요 없다.
+- **팀에 키 하나**: owner가 관리자 › AI 엔진 › API 엔진에서 주소·모델·표시 이름·키를 넣는다(`GET/PUT /api/admin/engines/api-config`, 감사 `engines.api`). 설정은 `<data>/engine-api.json`, 키는 `<data>/secrets/api-engine.key`(0600). 키는 서버 밖으로 나가지 않고 화면에는 "있음"만 보인다. 사용 비용은 그 키의 계정. 사람별 로그인은 다음 단계.
+- **누가 쓰나**: 다른 엔진과 같은 규칙(위 "AI 엔진·모델은 관리자가 정한다")을 따른다. 켜져 있고 설정됐을 때만 "켜진 엔진"이다(`engineOn`): `GET /api/engines`에 표시 이름·모델로 나오고, 팀 기본 엔진으로도 고를 수 있다. 설정을 지우면 그 엔진의 채팅은 팀 기본값으로 이어진다. 상태 확인은 `GET <주소>/models`(401/403이면 "키 확인").
+- **한계**: 한 턴 30번까지 도구 왕복, 도구 결과는 30,000자에서 자름. 엔진 세션 이어 가기는 없어 매 턴 팀 프롬프트 + 메시지로 시작한다(채팅 문맥은 프롬프트에 들어간 만큼). 작은 로컬 모델은 도구를 잘못 부를 수 있다. 이 맥의 Ollama `qwen3:4b`로 shared 목록 보기를 실제로 확인했다.
