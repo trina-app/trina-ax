@@ -710,6 +710,7 @@ export const ko = {
   'audit.act.auth.reauth_failed': '비밀번호 재확인 실패',
   'audit.act.proxy.refused': 'AI 엔진의 외부 요청 막음',
   'audit.act.engine.subscription_rejected': 'Claude 구독 토큰 거절됨',
+  'audit.act.engine.claude_json_mcp_removed': '맥의 Claude 설정에서 MCP 서버 지움',
   'audit.act.proxy.connect_refused': 'Codex 네트워크 터널 막음',
   'audit.act.engine.codex_auth': 'Codex 로그인 되쓰기 거부(확인 필요)',
   'audit.act.engine.codex_login': '엔진 계정 Codex 로그인',

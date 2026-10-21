@@ -711,6 +711,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.auth.reauth_failed': 'Wrong password on a confirmation',
   'audit.act.proxy.refused': 'AI engine request blocked',
   'audit.act.engine.subscription_rejected': 'Claude subscription token refused',
+  'audit.act.engine.claude_json_mcp_removed': "MCP servers removed from the Mac's Claude config",
   'audit.act.proxy.connect_refused': 'Codex network tunnel blocked',
   'audit.act.engine.codex_auth': 'Codex sign-in not written back (check)',
   'audit.act.engine.codex_login': 'Signed the engine account in to Codex',
