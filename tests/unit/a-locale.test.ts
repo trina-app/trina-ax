@@ -42,7 +42,8 @@ describe('a fresh install speaks English', () => {
     const r = await c.call('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', owner })
     expect(r.me.team.defaultLocale).toBe('en')
     expect(r.me.user).toMatchObject({ locale: 'en', localeChoice: null })
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: 'Acme', defaultLocale: 'en' })
+    // the team's name is never in the public setup status (security round 4: it told the internet the team was set up)
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en' })
     // a wrong password before sign-in: English, the team default
     const fail = await h.client().try('POST', '/api/auth/login', { username: 'olga', password: 'wrong wrong wrong' }, { 'accept-language': 'ko' })
     expect(fail.status).toBe(401)

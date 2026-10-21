@@ -43,11 +43,11 @@ function probe(localLogin: boolean, ...args: string[]): boolean {
 function probeCode(localLogin: boolean, ...args: string[]): number | null {
   return probeWith({ localLogin }, ...args)
 }
-function probeWith(o: { localLogin: boolean; home?: string; sessionDir?: string; proxyPort?: number }, ...args: string[]): number | null {
+function probeWith(o: { localLogin: boolean; localCodex?: boolean; home?: string; sessionDir?: string; proxyPort?: number }, ...args: string[]): number | null {
   const p = Bun.spawnSync(['/usr/bin/sandbox-exec', '-f', PROFILE,
     '-D', `CHAT_DIR=${CHAT}`, '-D', `AGENT_ROOT=${AGENT}`, '-D', `ENGINE_DIR=${ENG}`, '-D', 'BRIDGE=/nonexistent/bridge',
     '-D', `TOOLS_SOCK=${path.join(W, 'tools.sock')}`, '-D', `PROXY_PORT=${o.proxyPort ?? PROXY}`, '-D', `LOCAL_LOGIN=${o.localLogin ? 1 : 0}`,
-    '-D', `USER_HOME=${o.home ?? fs.realpathSync(os.homedir())}`, '-D', `SESSION_DIR=${o.sessionDir ?? CHAT}`,
+    '-D', `LOCAL_CODEX=${o.localLogin && (o.localCodex ?? true) ? 1 : 0}`, '-D', `USER_HOME=${o.home ?? fs.realpathSync(os.homedir())}`, '-D', `SESSION_DIR=${o.sessionDir ?? CHAT}`,
     PROBE, ...args], { stdout: 'ignore', stderr: 'ignore' })
   return p.exitCode
 }

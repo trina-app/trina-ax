@@ -21,7 +21,27 @@ export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, p
 export type LimitKind = 'account' | 'ip' | 'reauth' | 'token-ip'
 export interface LimitKey { kind: LimitKind; id: string }
 
-export const accountKey = (username: string): LimitKey => ({ kind: 'account', id: username.toLowerCase() })
+/**
+ * Where a sign-in attempt counts for its account's limit (security review round 4: before, one counter per account
+ * meant ten wrong passwords from anywhere on the internet locked the owner and every desk out, even at the Mac):
+ *   internet  through the office public address or the relay, from a network the person never signed in from:
+ *             one counter per account (the key it always had), so a botnet still gets ten guesses per 15 minutes
+ *   office    straight to this server (office LAN / dev), not a known network: its own counter, which internet
+ *             failures never touch
+ *   net       the Mac itself (loopback), or a network the person signed in from before (the clinic's public IP for
+ *             the desks on the internet address): a counter of its own for that network
+ */
+export type AccountScope = { kind: 'internet' } | { kind: 'office' } | { kind: 'net'; net: string }
+
+export const accountKey = (username: string, scope: AccountScope = { kind: 'internet' }): LimitKey => {
+  const u = username.toLowerCase()
+  return { kind: 'account', id: scope.kind === 'internet' ? u : scope.kind === 'office' ? `${u}|office` : `${u}|net:${scope.net}` }
+}
+
+/** a known sign-in network is remembered this long */
+export const KNOWN_NET_MS = 90 * 86400_000
+/** at most this many known networks per person (the newest) */
+export const KNOWN_NETS_MAX = 20
 /**
  * The id an IP's limit counts under: an IPv4 address as is, an IPv6 address by its /64 network. One machine on a LAN
  * can give itself any number of IPv6 addresses in its /64 (link-local fe80::/64 needs no router), so counting each
@@ -103,6 +123,27 @@ export class RateLimiter {
 
   clear(k: LimitKey): void {
     this.db.query('DELETE FROM login_attempts WHERE key = ?').run(keyStr(k))
+  }
+
+  /** Clear every counter of an account, in every scope (password reset by an admin or a reset link). */
+  clearAccount(username: string): void {
+    const k = keyStr(accountKey(username))
+    this.db.query('DELETE FROM login_attempts WHERE key = ? OR substr(key, 1, ?) = ?').run(k, k.length + 1, `${k}|`)
+  }
+
+  /** Did this person sign in from this network (limitIp) within KNOWN_NET_MS? */
+  knownNet(userId: string, net: string): boolean {
+    return !!this.db.query('SELECT 1 FROM login_nets WHERE user_id = ? AND net = ? AND last_at > ?').get(userId, net, this.now() - KNOWN_NET_MS)
+  }
+
+  /** Remember a network this person just signed in from (after a correct password, invite or reset link). */
+  rememberNet(userId: string, net: string): void {
+    const now = this.now()
+    this.db.transaction(() => {
+      this.db.query('INSERT INTO login_nets (user_id, net, last_at) VALUES (?, ?, ?) ON CONFLICT (user_id, net) DO UPDATE SET last_at = excluded.last_at').run(userId, net, now)
+      this.db.query('DELETE FROM login_nets WHERE user_id = ? AND (last_at <= ? OR net NOT IN (SELECT net FROM login_nets WHERE user_id = ? ORDER BY last_at DESC LIMIT ?))')
+        .run(userId, now - KNOWN_NET_MS, userId, KNOWN_NETS_MAX)
+    })()
   }
 
   sweep(): number {
