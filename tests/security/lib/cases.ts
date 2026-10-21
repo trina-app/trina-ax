@@ -133,6 +133,10 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} registered a skill suggestion`) } },
   rejectSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/reject`, { note: 'no' }), scope: 'skills-manager',
     check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} turned down a skill suggestion`) } },
+  // the team API engine (feat/api-engine): owner only; the key is never returned
+  getApiEngine: { build: (c) => c.get('/api/admin/engines/api-config'), scope: 'byLevel' },
+  putApiEngine: { build: (c) => c.put('/api/admin/engines/api-config', { baseUrl: 'https://api.example.com/v1', model: 'matrix-model', label: 'matrix' }), scope: 'byLevel',
+    check: (r, w, who) => { if (who !== 'owner' && r.status < 300) throw new Error(`${who} changed the team API engine`) } },
   listSkillChanges: { build: (c) => c.get('/api/admin/skill-changes'), scope: 'byLevel' },
   listSkillManagers: { build: (c) => c.get('/api/admin/skill-managers'), scope: 'byLevel' },
   // turning it OFF for someone who does not have it: allowed for admins, changes nothing (keeps the world pristine)
