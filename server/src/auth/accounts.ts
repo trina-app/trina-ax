@@ -58,10 +58,12 @@ function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
 // ---------------- first-run setup ----------------
 export const userCount = (db: Database) => (db.query('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
 
-export function setupStatus(ctx: AppContext): { needed: boolean; teamName: string | null; defaultLocale: Locale } {
+/** GET /api/setup, public. teamName is always null: no client reads it, and it told anonymous visitors (also through
+ * the office internet address) the team's name and so that it is set up (security review round 4). The default
+ * language stays: it is what the sign-in page shows. */
+export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null; defaultLocale: Locale } {
   const needed = userCount(ctx.db) === 0
-  const s = getTeamSettings(ctx.db)
-  return { needed, teamName: needed ? null : s.teamName, defaultLocale: s.defaultLocale }
+  return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale }
 }
 
 export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale }
@@ -92,10 +94,11 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
 
 export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetupBody>): Promise<LoginResponse> {
   const locale = c.get('locale')
-  if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
-  // from the internet, whatever token is sent (http/tunnel.ts)
+  // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
+  // and after setup: a 409 "already set up" told the internet whether the team exists yet.
   if (c.get('info').tunnel) fail('forbidden', msg('setupNotRemote', locale))
+  if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   const guard = tokenGuard(ctx, c.get('info').ip)
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }

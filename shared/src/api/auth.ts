@@ -70,6 +70,7 @@ export const AcceptInviteBody = z.object({
 
 export const SetupStatus = z.object({
   needed: z.boolean(),
+  /** always null since security review round 4 (it told anonymous visitors the team's name); kept for older clients */
   teamName: z.string().nullable(),
   /** the team's default language: what the sign-in, invite and reset pages show until the visitor picks one */
   defaultLocale: Locale.optional(),
