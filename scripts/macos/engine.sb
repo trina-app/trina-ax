@@ -1,5 +1,6 @@
 ;; Team AX engine sandbox (design tab 2 "기본 ② 샌드박스", tab 6 root/engine.sb).
-;; The launcher starts every engine turn as:
+;; The parameters below are param references. mycel-launcher writes their values into a copy of this profile with a
+;; random name (no -D: sandbox-exec's argv is readable by every process of the account); by hand / in tests:
 ;;   sandbox-exec -f engine.sb -D CHAT_DIR=<agent>/<chatId> -D AGENT_ROOT=<agent> -D ENGINE_DIR=<dir of engine>
 ;;                -D BRIDGE=<mycel-bridge> -D TOOLS_SOCK=<run/tools/tools.sock> -D PROXY_PORT=<port>
 ;;                -D LOCAL_LOGIN=0|1 -D USER_HOME=<home of the account running the engine>
@@ -28,8 +29,12 @@
 (allow process-info* (target same-sandbox))
 (allow process-info-pidinfo process-info-setcontrol (target self))
 ;; system information (CPU count, OS version, memory ...) yes; the list of every process on the Mac no: it showed
-;; other turns' engines (and with their pids, KERN_PROCARGS2 their argv, which the sandbox cannot filter: the kernel
-;; only checks the uid). Single pids (kern.proc.pid) stay: runtimes ask about themselves.
+;; other turns' engines. What the sandbox cannot stop (security audit r2, os-layer #1; even a bare (deny sysctl-read)
+;; does not): one pid at a time (kern.proc.pid: name, uid) and another process's argv AND environment
+;; (KERN_PROCARGS2; the kernel only checks the uid). So no argv or environment of a turn names its chat: the launcher
+;; passes chat paths relative to the engine's working folder (the chat folder) and gives sandbox-exec these
+;; parameters in a profile copy with a random name, not as -D arguments. Signals, cwd and open-file paths of other
+;; processes stay closed (process-info*/signal: same sandbox or self only).
 (allow sysctl-read)
 (deny sysctl-read
   (sysctl-name "kern.proc.all") (sysctl-name "kern.proc.pgrp") (sysctl-name "kern.proc.session")

@@ -1,6 +1,8 @@
 // mycel-bridge: the engine's MCP "server" (stdio). It forwards JSON-RPC to the tool gate's Unix socket.
 // The turn token is read from <turn-dir>/.turn/token, which is deleted right after reading. The token is
 // never taken from argv or the environment (other processes of the same account could read those).
+// The launcher passes "--turn-dir ." (security audit r2): engines start their MCP servers in their own working folder,
+// which is the chat folder, so no argv names the chat.
 package main
 
 import (
@@ -16,7 +18,7 @@ import (
 )
 
 func main() {
-	turnDir := flag.String("turn-dir", "", "chat folder that contains .turn/token")
+	turnDir := flag.String("turn-dir", "", "chat folder that contains .turn/token (\".\" = the working folder)")
 	sock := flag.String("sock", "", "tools.sock path")
 	flag.Parse()
 	if *turnDir == "" || *sock == "" {
