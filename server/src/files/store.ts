@@ -101,6 +101,25 @@ export function conflictCopyName(original: string, person: string, d = new Date(
   return `${m[1]} (${CONFLICT_COPY[locale] ?? CONFLICT_COPY.en} - ${safePerson} ${stamp})${m[2] ?? ''}`
 }
 
+/**
+ * Record a conflict copy (design tab 2 "동시 수정", tab 4 PUT content "두 사람에게 알린다"): a file_versions row
+ * kind 'conflict_copy' on the original pointing at the copy (so the copy is found from the original's history),
+ * file_events 'conflict' on the original, and the 'conflict' event for the saver and the person who changed the file
+ * last (component C sends files.conflict to each of them only after checking they can read both the file and the copy).
+ * Every path that leaves a conflict copy calls this: the file screen save, the AI write / edit, make_file and
+ * POST /api/files/copy. Call it before the copy's own 'create' event: the last changer is read from the original's.
+ */
+export function recordConflictCopy(db: Database, events: { emit(name: string, e: unknown): unknown }, o: { original: string; copy: string; userId: string; turnId: string | null; size: number; sha256: string; tool: string }): { changedBy: { id: string; name: string | null } | null } {
+  const last = db.query(`SELECT e.user_id, u.name FROM file_events e LEFT JOIN users u ON u.id = e.user_id
+    WHERE e.path = ? AND e.action IN ('update','create','upload','restore') ORDER BY e.id DESC LIMIT 1`).get(o.original) as { user_id: string; name: string | null } | null
+  const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(o.original) as { v: number }).v
+  db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(newId(), o.original, v, o.sha256, o.size, o.userId, o.turnId, 'conflict_copy', o.copy, null)
+  fileEvent(db, { turnId: o.turnId, userId: o.userId, path: o.original, action: 'conflict', size: o.size, sha256: o.sha256, detail: { copy: o.copy, changedBy: last?.user_id ?? null, tool: o.tool } })
+  events.emit('conflict', { path: o.original, copy: o.copy, by: o.userId, users: [o.userId, last?.user_id].filter(Boolean) })
+  return { changedBy: last ? { id: last.user_id, name: last.name } : null }
+}
+
 /** Move a file to .system/trash (30 days) and record it. */
 export function moveToTrash(db: Database, root: string, segs: string[], by: { userId: string; turnId: string | null }) {
   const abs = path.join(root, ...segs)

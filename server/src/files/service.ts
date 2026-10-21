@@ -13,7 +13,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
-import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, saveVersion, sha256 } from './store'
+import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 
 void ENGINE_BUILTIN_ALLOWED
@@ -228,14 +228,9 @@ export class FileService {
     const copy = [...dir, name]
     atomicWrite(this.fx.root, copy, data)
     const copyRel = copy.join('/')
-    const v = (this.db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(rel) as any).v
-    this.db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(newId(), rel, v, sha256(data), data.length, ctx.user.id, ctx.turnId, 'conflict_copy', copyRel, null)
-    const last = this.db.query("SELECT e.user_id, u.name FROM file_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.path = ? AND e.action IN ('update','create') ORDER BY e.id DESC LIMIT 1").get(rel) as any
-    fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null } })
+    const last = recordConflictCopy(this.db, this.events, { original: rel, copy: copyRel, userId: ctx.user.id, turnId: ctx.turnId, size: data.length, sha256: sha256(data), tool: what.split(' ')[0]! }).changedBy
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: rel } })
     this.changed(ctx, copyRel, 'create')
-    this.events.emit('conflict', { path: rel, copy: copyRel, by: ctx.user.id, users: [ctx.user.id, last?.user_id].filter(Boolean) })
     const who = last?.name ? ` by ${last.name}` : ''
     return { text: `Conflict: '${rel}' was changed${who} after you read it. The original was left unchanged; your version was saved as '${copyRel}'. Tell the user about both files.`,
       summary: `${what} -> conflict copy ${copyRel}` }

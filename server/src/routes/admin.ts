@@ -12,7 +12,7 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, addAccount, deleteAccount, engineEnv, listAccounts } from '../admin/engines'
 import {
-  afterAccessChange, captureState, ensureFolderRow, getFolder, getFolderByPath, listFolders, previewRules, replaceRules,
+  afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, listFolders, previewRules, replaceRules,
   resolveFolderPath, rulesOf, toFolder, validateRules,
 } from '../admin/folders'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
@@ -99,8 +99,7 @@ export const adminRoutes: RouteModule = {
       const before = captureState(ctx.db)
       const old = rulesOf(ctx.db, f!.id)
       ctx.db.transaction(() => {
-        ctx.db.query('UPDATE groups SET folder_id = NULL WHERE folder_id = ?').run(f!.id)
-        ctx.db.query('DELETE FROM folders WHERE id = ?').run(f!.id)
+        dropFolderRow(ctx.db, f!.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f!.path, detail: { before: old } })
       })()
       afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })

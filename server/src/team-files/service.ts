@@ -8,7 +8,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
-import { atomicWrite, conflictCopyName, fileEvent, readRegular, saveVersion, sha256 } from '../files/store'
+import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
@@ -181,14 +181,8 @@ export class TeamFiles {
     const copy = [...dir, name]
     atomicWrite(this.root, copy, data)
     const copyRel = copy.join('/')
-    const db = this.ctx.db
-    const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(r.rel) as { v: number }).v
-    db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(newId(), r.rel, v, sha256(data), data.length, user.id, null, 'conflict_copy', copyRel, null)
-    const last = db.query("SELECT e.user_id FROM file_events e WHERE e.path = ? AND e.action IN ('update','create','upload','restore') ORDER BY e.id DESC LIMIT 1").get(r.rel) as { user_id: string } | null
-    fileEvent(db, { turnId: null, userId: user.id, path: r.rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null, tool: 'file-screen' } })
-    fileEvent(db, { turnId: null, userId: user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: r.rel } })
-    this.ctx.files.events.emit('conflict', { path: r.rel, copy: copyRel, by: user.id, users: [user.id, last?.user_id].filter(Boolean) })
+    recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: r.rel, copy: copyRel, userId: user.id, turnId: null, size: data.length, sha256: sha256(data), tool: 'file-screen' })
+    fileEvent(this.ctx.db, { turnId: null, userId: user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: r.rel } })
     this.publish([{ path: copyRel, action: 'create', by: this.by(user.id), turnId: null }])
     return { path: copyRel, conflict: true, entry: this.entry(user, rules, copy) }
   }
@@ -220,13 +214,32 @@ export class TeamFiles {
   }
 
   /**
-   * true when `base` or something below it is a managed folder: a folders row (group / project folder, a rule folder,
-   * shared/, skills/; also rows without rules) or a rule folder. Design tab 4 move/delete: those move, are renamed and
-   * go to the trash only by an admin or the owner, and never move under users/ (rules there are not read, tab 2 rule 3).
+   * true when `base` or something below it is a managed folder: a rule folder, a group's folder, shared/, skills/, or a
+   * folder a project uses. Design tab 4 move/delete: those move, are renamed and go to the trash only by an admin or the
+   * owner, and never move under users/ (rules there are not read, tab 2 rule 3). A rule-less folders row no project
+   * uses any more (the project was deleted or moved elsewhere) does not count: it would lock an ordinary folder, its
+   * author's included, for good (security review r2).
    */
   private managedInside(rules: RuleSet, base: string): boolean {
     if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
-    return !!this.ctx.db.query("SELECT 1 FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(base, base, base)
+    return this.managedRows(base, base)
+  }
+  /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
+   * (differs for rows parked with a trashed folder, whose projects still name the path it had). */
+  private managedRows(rowPrefix: string, livePrefix: string): boolean {
+    const db = this.ctx.db
+    const rows = db.query("SELECT id, path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(rowPrefix, rowPrefix, rowPrefix) as { id: string; path: string }[]
+    for (const f of rows) {
+      const live = livePrefix + f.path.slice(rowPrefix.length)
+      if (live === 'shared' || live === 'skills') return true
+      if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(f.id)) return true
+      if (db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) return true
+    }
+    // a project's folder (with or without a marker row: a project repointed by an admin has none); personal projects
+    // live under users/<me>/, where nothing is managed
+    if (livePrefix === 'users' || livePrefix.startsWith('users/')) return false
+    return !!db.query(`SELECT 1 FROM projects WHERE substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
+      .get(...(livePrefix === '' ? [] : [livePrefix]))
   }
   private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
     const managed = this.managedInside(rules, base)
@@ -356,6 +369,7 @@ export class TeamFiles {
     if (o.dryRun) return { viewersAdded: added }
     const onExists = o.onExists ?? 'rename'
     let replaced = false
+    let conflictOf: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
@@ -364,8 +378,9 @@ export class TeamFiles {
         const cur = await this.sha(r.abs, checkRegular(r.abs))
         if (o.baseSha256 && o.baseSha256 !== cur) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
-          let cn = conflictCopyName(name, user.name)
+          let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db))
           if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
+          conflictOf = r.rel
           r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
         } else {
           snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
@@ -375,7 +390,9 @@ export class TeamFiles {
     }
     const out = copyTeamFile(this.root, fr.abs, r.segs)
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
-    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool: 'file-screen' } })
+    // a conflict copy is told to both people and listed in the original's history, like a conflicting save
+    if (conflictOf) recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: conflictOf, copy: r.rel, userId, turnId: null, size: out.size, sha256: sha, tool: 'file-screen' })
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool: 'file-screen', ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action: replaced ? 'update' : 'create', by: this.by(userId), turnId: null }])
     return { path: r.rel, sha256: sha }
@@ -593,13 +610,36 @@ export class TeamFiles {
     const t = this.ctx.db.query('SELECT original_path FROM trash_items WHERE storage_path = ?').get(storage) as { original_path: string } | null
     return t ? t.original_path + f.path.slice(storage.length) : f.path
   }
+  /**
+   * Where a trash item goes back to now: its original path (move() keeps it up to date), held against the folder it
+   * was trashed from (folder_id: the nearest folders row when it was trashed, migration 301). null when that folder is
+   * itself in the trash (the item comes back with it: restoreTrash moves it along), was purged, or no longer holds that
+   * path. The path alone would let whoever owns a folder that took the old name since (another group, a new rule
+   * folder) see the item and restore it into their folder (security review r2).
+   */
+  private trashHome(t: TrashRow): string | null {
+    if (!t.folder_id) return t.original_path
+    const f = this.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(t.folder_id) as { path: string } | null
+    if (!f) return null
+    if (t.kind === 'folder' && f.path === t.storage_path) return t.original_path // its own rules, parked with it
+    if (segsOf(f.path)[0] === PRODUCT.systemDir) return null
+    return f.path === '' || f.path === t.original_path || isUnder(f.path, t.original_path) ? t.original_path : null
+  }
   private trashVisible(user: Principal, rules: RuleSet, t: TrashRow): boolean {
-    // a trashed folder's own (parked) rules count as if it were still in place
+    const home = this.trashHome(t)
+    if (home === null) return false
+    // a trashed group / project / rule folder went there by an admin or the owner (assertMayChangeManaged) and comes
+    // back only the same way: listing it to members, whose restore then failed (they cannot write groups/ or
+    // projects/), offered what could not be done (design tab 4 move/delete; security review r2)
+    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home)) return false
+    // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
+    // since belong to that other folder and do not
     const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
         THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
-      FROM folder_rules r JOIN folders f ON f.id = r.folder_id`).all(t.storage_path, t.original_path) as any) : rules
+      FROM folder_rules r JOIN folders f ON f.id = r.folder_id
+      WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, home) as any) : rules
     const access = (p: string) => r.access(user, segsOf(p))
-    if (access(t.original_path) !== 'write') return false
+    if (access(home) !== 'write') return false
     if (t.folder_id) {
       const f = this.folderLivePath(t.folder_id)
       if (f !== null && !atLeast(access(f), 'read')) return false
@@ -644,7 +684,7 @@ export class TeamFiles {
     const t = this.trashRow(id)
     if (!t || !this.trashVisible(user, rules, t)) throw new HttpError('not_found')
     const isDir = t.kind === 'folder'
-    const want = segsOf(t.original_path)
+    const want = segsOf(this.trashHome(t)!)
     // the original parent may be gone: it is created again (names were valid when the item was deleted).
     // A taken name (exactly or nearly) gets " (restored)" in the team's default language.
     const parentRel = want.slice(0, -1).join('/')
@@ -668,6 +708,12 @@ export class TeamFiles {
       verifyChain(this.root, r.segs, true)
       this.ctx.db.transaction(() => {
         rebaseFolders(this.ctx.db, t.storage_path, r.rel)
+        // items trashed from inside this folder before it went to the trash (hidden meanwhile, trashHome) come back
+        // into the trash of the folder where it now is, " (restored)" name included
+        this.ctx.db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1)
+          WHERE restored_at IS NULL AND id <> ? AND (original_path = ? OR substr(original_path, 1, length(?) + 1) = ? || '/')
+            AND folder_id IN (SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/')`)
+          .run(r.rel, t.original_path, t.id, t.original_path, t.original_path, t.original_path, r.rel, r.rel, r.rel)
         fs.renameSync(src, r.abs)
       })()
     } else {
@@ -696,6 +742,9 @@ export class TeamFiles {
       // the folder's parked rules and the history kept under them go for good as well
       const ids = (db.query("SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(t.storage_path, t.storage_path, t.storage_path) as { id: string }[]).map((x) => x.id)
       for (const fid of ids) {
+        // what was trashed from inside it earlier goes for good with it (its place is gone; restoring it by its path
+        // alone would put it into whatever folder takes the old name)
+        for (const inner of db.query('SELECT id, storage_path, kind FROM trash_items WHERE folder_id = ? AND restored_at IS NULL AND id <> ?').all(fid, t.id) as Pick<TrashRow, 'id' | 'storage_path' | 'kind'>[]) this.purgeRow(inner)
         for (const v of db.query('SELECT id, storage_path FROM file_versions WHERE folder_id = ?').all(fid) as { id: string; storage_path: string | null }[]) {
           if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })
           db.query('DELETE FROM file_versions WHERE id = ?').run(v.id)
