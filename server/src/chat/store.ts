@@ -98,7 +98,7 @@ export class ChatStore {
   }
   toChat(r: ChatRow, runState: ChatRunState): Chat {
     return {
-      id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' ? 'codex' : 'claude-code') as EngineId, model: r.model,
+      id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
     }
   }
@@ -149,7 +149,7 @@ export class ChatStore {
     return {
       id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: r.role === 'user' ? this.userRef(r.author_id) : null,
       content: live?.content ?? r.content, attachments: this.attachmentsOf(r), steps: this.viewSteps(r, live?.steps ?? json<Step[]>(r.steps, []).filter(isStep)),
-      status: r.status, error: parseError(r.error), turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' ? r.engine : null) as EngineId | null,
+      status: r.status, error: parseError(r.error), turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' || r.engine === 'api' ? r.engine : null) as EngineId | null,
       model: r.model, files: json<FileChangeSummary | null>(r.files, null), usage, createdAt: iso(r.created_at),
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
     }

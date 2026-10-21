@@ -88,6 +88,15 @@ export const PreviewResponse = z.object({
 export type PreviewResponse = z.infer<typeof PreviewResponse>
 
 // ---------------- engines ----------------
+/** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
+export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean() })
+export const ApiEngineBody = z.object({
+  baseUrl: z.string().url().max(300).refine((u) => /^https?:\/\//.test(u), 'http(s) only'),
+  model: z.string().min(1).max(200),
+  label: z.string().max(40).optional(),
+  key: z.string().max(500).nullable().optional(),
+})
+
 export const EngineStatus = z.object({
   id: EngineId,
   label: z.string(),
@@ -193,6 +202,8 @@ export const ADMIN = {
   previewRules: endpoint({ method: 'POST', path: '/api/admin/folder-rules/preview', auth: 'admin', owner: 'A', body: PreviewBody, response: PreviewResponse, summary: '"Who sees what" for proposed rules, before saving.' }),
 
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),
+  getApiEngine: endpoint({ method: 'GET', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', response: ApiEngineConfig, summary: 'The team API engine settings (the key is never returned, only whether one is set).' }),
+  putApiEngine: endpoint({ method: 'PUT', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', body: ApiEngineBody, response: ApiEngineConfig, summary: 'Set the team API engine: OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep.' }),
   updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex.' }),
   checkEngine: endpoint({ method: 'POST', path: '/api/admin/engines/:id/check', auth: 'admin', owner: 'A', response: EngineStatus, summary: 'Re-check one engine now (bounded, no model call unless needed).' }),
   addEngineAccount: endpoint({ method: 'POST', path: '/api/admin/engines/accounts', auth: 'owner', owner: 'A', status: 201, body: AddEngineAccountBody, response: EngineAccount, summary: 'Company API key for proxy mode (code-only for now).' }),

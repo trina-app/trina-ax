@@ -12,6 +12,7 @@ import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
+import { useEngines } from '../../store/engines'
 
 export default function Engines() {
   const t = useT()
@@ -53,6 +54,14 @@ export default function Engines() {
               <EngineCard key={e.id} e={e} checking={checking === e.id} onCheck={() => check(e.id)} onToggle={(v) => toggle(e.id, v)} />
             ))}
           </div>
+          {isOwner(me) && (
+            <ApiEngineForm
+              onSaved={() => {
+                void check('api')
+                void useEngines.getState().load(true) // the composer's list
+              }}
+            />
+          )}
           {defaults && (
             <Card title={t('engines.defaults')} desc={t('engines.defaultsDesc')}>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -463,6 +472,65 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
           {t('common.save')}
         </Button>
       </div>
+    </Card>
+  )
+}
+
+/** Presets of the API engine's address (any OpenAI-compatible Chat Completions API works with "custom"). */
+const API_PRESETS = [
+  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+  { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash' },
+  { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1' },
+  { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' },
+] as const
+
+/** The team's API engine settings (owner): address, model, display name, key (never shown again once saved). */
+function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
+  const t = useT()
+  const act = useAction()
+  const state = useLoad(() => api.call(API.getApiEngine))
+  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string } | null>(null)
+  useEffect(() => {
+    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.data])
+  const preset = API_PRESETS.find((p) => p.baseUrl === form?.baseUrl)?.id ?? 'custom'
+  const save = async (key?: string | null) => {
+    if (!form) return
+    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}) } }), t('common.saved'))
+    if (r) { state.setData(r); setForm({ ...form, key: '' }); onSaved() }
+  }
+  return (
+    <Card title={t('engines.api.title')} desc={t('engines.api.desc')}>
+      {form && (
+        <div className="grid gap-3 sm:grid-cols-2" data-testid="api-engine-form">
+          <Field label={t('engines.api.preset')}>
+            <select className={inputCls} value={preset} onChange={(e) => {
+              const p = API_PRESETS.find((x) => x.id === e.target.value)
+              if (p) setForm({ ...form, baseUrl: p.baseUrl, model: form.model || p.model })
+            }}>
+              {API_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              <option value="custom">{t('engines.api.custom')}</option>
+            </select>
+          </Field>
+          <Field label={t('engines.api.baseUrl')}>
+            <input className={inputCls} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://…/v1" />
+          </Field>
+          <Field label={t('engines.api.model')}>
+            <input className={inputCls} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+          </Field>
+          <Field label={t('engines.api.label')}>
+            <input className={inputCls} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder={form.model} maxLength={40} />
+          </Field>
+          <Field label={t('engines.api.key')}>
+            <input type="password" autoComplete="off" className={inputCls} value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder={state.data?.hasKey ? t('engines.api.keyKeep') : 'sk-…'} />
+          </Field>
+          <div className="flex items-end gap-2">
+            <Button disabled={!form.baseUrl.trim() || !form.model.trim()} onClick={() => void save(form.key.trim() ? form.key.trim() : undefined)}>{t('engines.api.save')}</Button>
+            {state.data?.hasKey && <Button variant="ghost" onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
+          </div>
+        </div>
+      )}
     </Card>
   )
 }

@@ -73,7 +73,7 @@ export type ClientKind = z.infer<typeof ClientKind>
 export const Access = z.enum(['none', 'read', 'write'])
 export type Access = z.infer<typeof Access>
 /** Engine ids as stored in chats.engine / turns.engine. */
-export const EngineId = z.enum(['claude-code', 'codex'])
+export const EngineId = z.enum(['claude-code', 'codex', 'api'])
 export type EngineId = z.infer<typeof EngineId>
 export const Theme = z.enum(['system', 'light', 'dark'])
 export type Theme = z.infer<typeof Theme>
