@@ -6,8 +6,8 @@ import { endpoint, empty } from './endpoint'
 import { Session, UserPrefs, UserRef } from './entities'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
-/** Password policy: at least 10 characters; the server also rejects very common passwords. */
-export const Password = z.string().min(10).max(256)
+/** Password rule: 8-128 characters; the server also refuses the username itself and very common passwords. */
+export const Password = z.string().min(8).max(128)
 export const PersonName = z.string().trim().min(1).max(100)
 
 /** GET /api/me */
@@ -27,7 +27,12 @@ export const Me = z.object({
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({ name: z.string(), defaultLocale: Locale }),
-  session: z.object({ id: Uuid7, client: ClientKind, expiresAt: IsoTime }),
+  session: z.object({
+    id: Uuid7, client: ClientKind, expiresAt: IsoTime,
+    /** made by signing in with a temporary password: the forced change asks only for the new password (true only
+     * while mustChangePassword) */
+    tempLogin: z.boolean().optional(),
+  }),
   server: z.object({ version: z.string(), dev: z.boolean() }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),
@@ -48,7 +53,11 @@ export const LoginResponse = z.object({
 })
 export type LoginResponse = z.infer<typeof LoginResponse>
 
-export const ChangePasswordBody = z.object({ currentPassword: z.string().min(1).max(256), newPassword: Password })
+/**
+ * currentPassword may be left out only by a session made by signing in with a temporary password while the account
+ * must still change it (Me.session.tempLogin): that sign-in just proved it. Every other change needs it.
+ */
+export const ChangePasswordBody = z.object({ currentPassword: z.string().min(1).max(256).optional(), newPassword: Password })
 
 export const InviteInfo = z.object({
   teamName: z.string(),

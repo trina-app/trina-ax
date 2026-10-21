@@ -7,7 +7,7 @@ import type { Attachment, ClientKind, ConnectionStatus, JobKind, Locale, Role, S
 export interface AuthInfo {
   user: { id: string; username: string; name: string; role: Role; locale: Locale; mustChangePassword: boolean }
   /** expiresAt (ISO): when the session ends; the realtime hub closes the session's sockets then (no expiry: never) */
-  session: { id: string; client: ClientKind; expiresAt?: string }
+  session: { id: string; client: ClientKind; expiresAt?: string; tempLogin?: boolean }
   /** cookie: CSRF header required on state-changing requests; bearer: not */
   via: 'cookie' | 'bearer'
 }
