@@ -358,7 +358,7 @@ export class TeamFiles {
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
-      if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name)].join('/'), 'write', { mustExist: false })
+      if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name, false, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))].join('/'), 'write', { mustExist: false })
       else {
         const cur = await this.sha(r.abs, checkRegular(r.abs))
         if (o.baseSha256 && o.baseSha256 !== cur) {
@@ -393,7 +393,9 @@ export class TeamFiles {
     const pr = authorize(this.fx, rules, user, toParent, 'write', { mustExist: true })
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     if (pr.rel === fr.rel || isUnder(fr.rel, pr.rel)) fileError('validation', 'intoItself', { toParent })
-    const name = freeName(pr.abs, fr.segs[fr.segs.length - 1]!, true)
+    // the name comes from the caller's own folder: step around only siblings they can see (a hidden one is refused
+    // by authorize() like a missing name, so the " (2)" never tells them it exists)
+    const name = freeName(pr.abs, fr.segs[fr.segs.length - 1]!, true, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))
     const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
     const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
     if (o.dryRun) return { viewersAdded: added }
