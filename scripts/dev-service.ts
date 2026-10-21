@@ -36,16 +36,18 @@ export function jobPath(env: Record<string, string | undefined> = process.env): 
   return [...new Set(dirs)].join(':')
 }
 
-export function plist(o: { bun: string; root: string; path: string; home: string; devDir?: string; log: string }): string {
-  const env: Record<string, string> = { PATH: o.path, HOME: o.home, LANG: 'ko_KR.UTF-8', NO_COLOR: '1' }
+/** The job's property list. `label` / `args` / `env` default to the dev service (`bun run dev`); office mode
+ * (server/src/office/cli.ts) writes its agent with the same function. */
+export function plist(o: { bun: string; root: string; path: string; home: string; devDir?: string; log: string; label?: string; args?: string[]; env?: Record<string, string> }): string {
+  const env: Record<string, string> = { PATH: o.path, HOME: o.home, LANG: 'ko_KR.UTF-8', NO_COLOR: '1', ...o.env }
   if (o.devDir) env.TEAM_AX_DEV_DIR = o.devDir
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${LABEL}</string>
+  <key>Label</key><string>${xml(o.label ?? LABEL)}</string>
   <key>ProgramArguments</key>
-  <array><string>${xml(o.bun)}</string><string>run</string><string>dev</string></array>
+  <array>${[o.bun, ...(o.args ?? ['run', 'dev'])].map((a) => `<string>${xml(a)}</string>`).join('')}</array>
   <key>WorkingDirectory</key><string>${xml(o.root)}</string>
   <key>EnvironmentVariables</key>
   <dict>
@@ -62,11 +64,34 @@ ${Object.entries(env).map(([k, v]) => `    <key>${k}</key><string>${xml(v)}</str
 `
 }
 
-function launchctl(...a: string[]) {
+export function launchctl(...a: string[]) {
   const p = Bun.spawnSync(['launchctl', ...a], { stdout: 'pipe', stderr: 'pipe' })
   return { code: p.exitCode, out: (p.stdout.toString() + p.stderr.toString()).trim() }
 }
-const loaded = () => launchctl('print', `${DOMAIN}/${LABEL}`).code === 0
+
+/** launchctl for one per-user agent: the dev service here, office mode's agent in server/src/office/cli.ts. */
+export function launchAgent(label: string, plistFile: string) {
+  const target = `${DOMAIN}/${label}`
+  const loaded = () => launchctl('print', target).code === 0
+  return {
+    loaded,
+    pid(): number | null { const m = /\bpid = (\d+)/.exec(launchctl('print', target).out); return m ? Number(m[1]) : null },
+    start(): string {
+      if (loaded()) return 'already running'
+      const r = launchctl('bootstrap', DOMAIN, plistFile)
+      if (r.code !== 0) throw new Error(`launchctl bootstrap failed: ${r.out}`)
+      return 'started'
+    },
+    stop(): string {
+      if (!loaded()) return 'not running'
+      const r = launchctl('bootout', target)
+      if (r.code !== 0) throw new Error(`launchctl bootout failed: ${r.out}`)
+      return 'stopped'
+    },
+  }
+}
+const dev = launchAgent(LABEL, PLIST)
+const loaded = dev.loaded
 
 async function answers(url: string): Promise<boolean> {
   try { return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok } catch { return false }
@@ -77,8 +102,7 @@ async function status(): Promise<string> {
   if (!fs.existsSync(PLIST)) return `not installed (run: bun run dev:service install)`
   if (!loaded()) lines.push('installed, stopped (run: bun run dev:service start)')
   else {
-    const p = launchctl('print', `${DOMAIN}/${LABEL}`).out
-    const pid = /\bpid = (\d+)/.exec(p)?.[1]
+    const pid = dev.pid()
     lines.push(`running${pid ? ` (pid ${pid})` : ' (starting)'}`)
   }
   lines.push(`  http://localhost:19100        ${(await answers('http://localhost:19100/api/health')) ? 'answers' : 'no answer'}`)
@@ -87,18 +111,8 @@ async function status(): Promise<string> {
   return lines.join('\n')
 }
 
-function start() {
-  if (loaded()) return 'already running'
-  const r = launchctl('bootstrap', DOMAIN, PLIST)
-  if (r.code !== 0) throw new Error(`launchctl bootstrap failed: ${r.out}`)
-  return 'started'
-}
-function stop() {
-  if (!loaded()) return 'not running'
-  const r = launchctl('bootout', `${DOMAIN}/${LABEL}`)
-  if (r.code !== 0) throw new Error(`launchctl bootout failed: ${r.out}`)
-  return 'stopped'
-}
+const start = dev.start
+const stop = dev.stop
 
 if (import.meta.main) {
   if (process.platform !== 'darwin') { console.error('dev:service is for macOS (launchd); elsewhere run `bun run dev` under your own service manager'); process.exit(1) }

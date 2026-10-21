@@ -30,6 +30,7 @@
     "dev:server:relay": "MYCEL_RELAY_URL=ws://127.0.0.1:19161/connect bun --watch server/src/main.ts",
     "test:relay": "bun test tests/relay",
     "build:bundle": "bun run build && bun scripts/build-bundle.ts",
+    "build:office": "ARCHS='arm64 amd64' bash native/build.sh && bun run --cwd web build && bun scripts/build-office.ts",
     "build:menubar": "bash menubar/build.sh",
     "dev:web": "bun run --cwd web dev",
     "build:web": "bun run --cwd web build",

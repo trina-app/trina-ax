@@ -6,6 +6,9 @@
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay).
+// Office mode (one Mac in a clinic or office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
+// lockdown) with `office: true`: no DEV banner, and server/src/office/supervisor.ts writes the file (TLS listener on
+// the office network, allowedHosts, publicOrigins).
 // Relative paths in the file are resolved against the file's folder.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -25,8 +28,13 @@ export const AppConfigFile = z.object({
     host: z.string().default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(DEV_PORT),
   }).default({ host: '127.0.0.1', port: DEV_PORT }),
-  /** office-network direct connection (TLS, tab 4: 8443); null = off */
-  tls: z.object({ port: z.number().int().default(8443), certFile: z.string(), keyFile: z.string() }).nullable().default(null),
+  /** office-network direct connection (TLS, tab 4: 8443); null = off. host: '0.0.0.0' (IPv4) or '::' (IPv4 + IPv6) */
+  tls: z.object({ host: z.string().default('0.0.0.0'), port: z.number().int().default(8443), certFile: z.string(), keyFile: z.string() }).nullable().default(null),
+  /** Host headers (host:port, lower case) the direct listeners answer; anything else gets 421. Empty = any (dev, the
+   * relay sets its own). Office mode lists the certificate's names and addresses: a DNS-rebinding page never gets in. */
+  allowedHosts: z.array(z.string()).default([]),
+  /** office mode (single Mac in a clinic or office, docs/OFFICE.md): mode stays 'dev' for the engine (local-login) */
+  office: z.boolean().default(false),
   /** extra allowed Origins for CSRF / WebSocket checks, e.g. https://acme.treesoop.com. Same host is always allowed. */
   publicOrigins: z.array(z.string()).default([]),
   teamRoot: z.string().optional(),
@@ -63,7 +71,11 @@ export interface AppConfig {
   mode: 'dev' | 'prod'
   configFile: string | null
   listen: { host: string; port: number }
-  tls: { port: number; certFile: string; keyFile: string } | null
+  tls: { host: string; port: number; certFile: string; keyFile: string } | null
+  /** see AppConfigFile.allowedHosts; absent or empty = any Host */
+  allowedHosts?: string[]
+  /** office mode (docs/OFFICE.md) */
+  office?: boolean
   publicOrigins: string[]
   teamRoot: string
   dataDir: string
@@ -121,7 +133,9 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     mode,
     configFile: file,
     listen: { host: env[P + 'HOST'] ?? f.listen.host, port },
-    tls: f.tls ? { port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile) } : null,
+    tls: f.tls ? { host: f.tls.host, port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile) } : null,
+    allowedHosts: f.allowedHosts.map((h) => h.toLowerCase()),
+    office: f.office,
     publicOrigins: origins,
     teamRoot: env[P + 'TEAM_ROOT'] ? path.resolve(cwd, env[P + 'TEAM_ROOT']!) : f.teamRoot ? abs(f.teamRoot) : def.teamRoot,
     dataDir: env[P + 'DATA_DIR'] ? path.resolve(cwd, env[P + 'DATA_DIR']!) : f.dataDir ? abs(f.dataDir) : def.dataDir,

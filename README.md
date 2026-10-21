@@ -9,7 +9,8 @@ their language in Settings > Language (or follows the team default), an admin se
 settings, and the sign-in, invite, reset and setup screens have a language switcher; see docs/DECISIONS.md "언어".
 
 **Try it now:** [docs/TRY-IT.md](docs/TRY-IT.md) (demo team, accounts, checklist). **Install:**
-[docs/INSTALL.md](docs/INSTALL.md). **What only the owner can
+[docs/INSTALL.md](docs/INSTALL.md); one Mac serving the desks of a clinic or small office (no sudo, no relay):
+[docs/OFFICE.md](docs/OFFICE.md). **What only the owner can
 unblock:** [docs/OWNER-TODO.md](docs/OWNER-TODO.md). Decisions and deviations from the design:
 [docs/DECISIONS.md](docs/DECISIONS.md); who owns which part: [docs/WORKPLAN.md](docs/WORKPLAN.md).
 
@@ -158,6 +159,16 @@ Engines are never called for real by `bun run test`. CI (`.github/workflows/ci.y
 job. As of 2026-10-21 the GitHub Actions jobs of this repository do not start at all ("recent account payments have
 failed or your spending limit needs to be increased"), so every red run on `main` is that, not a test failure; run
 `bun run typecheck && bun run test` locally until the billing is fixed.
+
+## Office mode: one Mac for a clinic or small office
+
+[docs/OFFICE.md](docs/OFFICE.md) (Korean, with an English summary). `bun run build:office` makes one zip
+(`dist/office/TeamAX-office-<version>-mac.zip`: bun, ripgrep, pandoc and the native helpers for arm64 and x64, the
+built server and web app); `bash office-install.sh` installs it into `~/TeamAX` without sudo, as the signed-in user
+with that Mac's own Claude Code login (dev mode's engine setup: permission function, lockdown, `engine.sb`; no DEV
+banner), as the LaunchAgent `app.team-ax.office`. Desks use `https://<LAN IP>:8443` with a certificate from a
+name-constrained office CA made on that Mac (helper page with the CA on `http://<LAN IP>:8442`); plain HTTP stays on
+127.0.0.1. Code: `server/src/office/`, `scripts/office/`, `scripts/build-office.ts`.
 
 ## Install on a Mac (role-account mode)
 

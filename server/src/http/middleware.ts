@@ -78,6 +78,28 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
   }
 }
 
+/** Is this Host header one of the configured names (host:port, compared in lower case)? No list = any Host. */
+export function hostAllowed(host: string | null | undefined, allowed: readonly string[] | undefined): boolean {
+  if (!allowed || allowed.length === 0) return true
+  return !!host && allowed.includes(host.toLowerCase())
+}
+
+/**
+ * Office mode (docs/OFFICE.md) lists the server's own names and addresses in config.allowedHosts: a direct request
+ * (socket peer: the loopback port or the office-network TLS port) with any other Host gets 421. A web page whose
+ * name an attacker re-points at the office Mac (DNS rebinding) still sends its own name as Host, so it never reaches
+ * the API or the cookies' origin. Relayed requests are routed by the relay's own host check.
+ */
+export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    // Bun.serve builds the request URL from the Host header; the header itself when present (what the browser sent)
+    if (c.get('info').via === 'direct' && !hostAllowed(c.req.header('host') ?? new URL(c.req.url).host, ctx.config.allowedHosts)) {
+      return c.text('Misdirected request: this server answers only on its own addresses', 421)
+    }
+    await next()
+  }
+}
+
 /** Resolve the session (cookie or bearer) through the session service of component A. The desktop app's in-app
  * browser (the pane the AI drives) marks its User-Agent; it never gets the team server, signed in or not (tab 5
  * "앱 안 브라우저 분리": the desktop blocks team addresses, this is the second fence). */

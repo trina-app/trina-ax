@@ -28,6 +28,14 @@ export function ensureSetupToken(cfg: AppConfig, db: AppContext['db']): string |
   return t
 }
 
+/** The socket peer as rate limits and the audit log see it: an IPv4 client of a dual-stack ('::') listener arrives
+ * as ::ffff:a.b.c.d and is written a.b.c.d, the same address an IPv4-only listener reports. */
+export function peerIp(addr: string | null | undefined): string | null {
+  if (!addr) return null
+  const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(addr)
+  return m ? m[1]! : addr
+}
+
 export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve>[]; url: string; stop(): Promise<void> }
 
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
@@ -46,23 +54,24 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     ...base,
     hostname: cfg.listen.host,
     port: cfg.listen.port,
-    fetch: (req, server) => app.fetch(req, { ip: server.requestIP(req)?.address ?? null, via: 'direct', server }),
+    fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', server }),
   })
   servers.push(http)
   if (cfg.tls) {
     const tls = Bun.serve({
       ...base,
-      hostname: '0.0.0.0',
+      hostname: cfg.tls.host,
       port: cfg.tls.port,
       tls: { cert: Bun.file(cfg.tls.certFile), key: Bun.file(cfg.tls.keyFile) },
-      fetch: (req, server) => app.fetch(req, { ip: server.requestIP(req)?.address ?? null, via: 'direct', server }),
+      fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', server }),
     })
     servers.push(tls)
   }
   const url = `http://${cfg.listen.host === '0.0.0.0' ? 'localhost' : cfg.listen.host}:${http.port}`
   log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
   if (cfg.setupToken) {
-    if (cfg.mode === 'dev') log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)
+    // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
+    if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)
     else log.info('first-run setup pending', { tokenFile: path.join(cfg.dataDir, 'setup-token') })
   }
   return {

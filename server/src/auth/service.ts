@@ -207,7 +207,8 @@ export class AuthService implements SessionService {
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at },
-      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' },
+      // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the clinic's desks get no DEV banner
+      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }
   }

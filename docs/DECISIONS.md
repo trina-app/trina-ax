@@ -489,3 +489,51 @@ r1 OS 층 수정의 재공격(엔진의 도구 잠금 1·2겹이 뚫렸다고 �
 - **규칙 없는 folders 행은 프로젝트가 그 폴더를 쓰는 동안만 '관리되는 폴더'다.** 전에는 행이 있기만 하면 그 폴더와 그 위 폴더들의 이동·이름 바꾸기·휴지통이 영영 admin 전용이 되어, 프로젝트를 지운 뒤에도 만든 사람 자신조차 자기 폴더를 정리할 수 없었고, 팀원이 동료의 폴더에 프로젝트를 만들었다 지우는 것만으로 그 폴더를 잠글 수 있었다. 이제 `managedInside()`는 규칙 폴더, 그룹 폴더(`groups.folder_id`), shared/·skills/, 그리고 users/ 밖에서 프로젝트가 쓰는 폴더(행이 있든 없든: 관리자가 폴더를 바꾼 프로젝트에는 행이 없다)만 센다. 프로젝트를 지우거나 다른 폴더로 옮기거나(PATCH folderPath, 공유 복사) 그 폴더를 쓰는 마지막 프로젝트가 떠나면 규칙 없는 표시 행을 같은 트랜잭션에서 지운다(`dropProjectMarker()`: 규칙·그룹·다른 프로젝트가 있거나 shared/·skills/면 남김). 그룹을 지워 규칙이 다 빠진 옛 그룹 폴더도 이제 관리되는 폴더가 아니다(쓰기 권한이 있는 사람만 옮길 수 있는 것은 그대로). **owner 결정으로 남긴 것**: ② 기존 폴더에 프로젝트를 만들 때 그 폴더의 부모 쓰기 권한까지 요구할지(그러면 옮길 수 없는 폴더를 잠그지 못한다)는 정하지 않았다. 지금은 설계대로 그 폴더 쓰기 권한만 본다. 회귀 시험: `tests/security/r2-project-folder-unlock.test.ts`.
 - **휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·owner에게만 보이고 그들만 되돌린다.** 그런 폴더를 휴지통에 넣는 것이 admin·owner만이므로(위 '관리되는 폴더') 되돌리기도 같게 했다(설계 4번 탭 move/delete, 보안 r2의 두 안 중 A). 전에는 옮겨 둔 규칙 덕에 팀원 휴지통 목록에 보였지만, 되돌리기는 groups/·projects/ 쓰기 권한을 요구해 404였다(되지 않을 일을 보여 줌). 판단은 `managedRows()`로 그 폴더와 함께 옮겨 둔 folders 행이 관리되는 행인지(규칙·그룹·shared/·skills/·프로젝트) 본다. 팀원이 지운 일반 폴더는 전처럼 원래 경로 쓰기 권한으로 보이고 되돌린다. 팀 프로젝트 폴더가 휴지통에 있는 동안 참여자에게 그 프로젝트는 404다(관리자에게 되돌려 달라고 해야 한다). 회귀 시험: `tests/security/r2-trash-home.test.ts`의 #5.
 - **충돌 사본은 어느 길로 생기든 같은 기록·알림을 남긴다**(`recordConflictCopy()`, `files/store.ts`): 원본에 `file_versions` kind `conflict_copy`(사본 경로), `file_events` `conflict`(`changedBy`), 그리고 저장한 사람과 마지막으로 바꾼 사람에게 `files.conflict`(보내기 직전 둘 다 원본·사본을 읽을 수 있는지 확인, 위 '충돌 알림'). 파일 화면 저장, AI write·edit, make_file, `POST /api/files/copy`(onExists replace + 바뀐 baseSha256)가 모두 이 함수를 부른다. 보안 r2: 전에는 복사와 make_file의 충돌 사본은 아무에게도 알리지 않았고 make_file의 사본은 원본 기록에 없었으며, AI write는 마지막 변경이 업로드·버전 되돌리기면 엉뚱한 사람을 '바꾼 사람'으로 말하고 알렸다(이제 update·create·upload·restore 중 마지막). 복사의 충돌 사본 이름도 팀 기본 언어. 회귀 시험: `tests/security/r2-conflict-copy-paths.test.ts`.
+
+## 사무실 모드 (feat/office-mode, 2026-10-21)
+
+치과 한 곳 시범: 맥 미니 한 대(소유자의 Claude Code 로그인)와 같은 네트워크의 윈도우 데스크 약 10대. 운영 설치는 아직 채팅이
+안 되고(fix/prod-* 진행 중) 중계 서버도 없어서, 지금 되는 개발 모드의 엔진 구성을 그대로 쓰는 별도 설치 형태를 만들었다.
+사용법은 [OFFICE.md](OFFICE.md).
+
+- **새 mode를 만들지 않고 `mode: 'dev'` + `office: true`.** 엔진 경로(local-login, `engine.sb` + LOCAL_LOGIN, 권한 함수,
+  잠금)는 개발 모드와 한 줄도 다르지 않아야 시범 당일 "되던 것"이 그대로 된다. `office`가 바꾸는 것은 셋뿐: `/api/me`의
+  `server.dev`가 false(데스크에 DEV 배너 없음; 배너 문구 "OS 격리 없음"은 샌드박스가 있는 지금 사실과도 다르다), 첫 설정
+  토큰을 로그에 쓰지 않음(설치기가 출력), 서버 맥 자신(http://localhost)에서 만든 초대·재설정 링크는 데스크 주소로.
+- **Host 허용 목록(`allowedHosts`)을 서버에 일반 기능으로 넣었다**(`http/middleware.ts hostCheck`, direct 요청만, 다른 Host는
+  421). 사무실 모드는 인증서의 이름·주소 + `localhost/127.0.0.1:<앱 포트>`를 넣는다. DNS 리바인딩(공격 페이지가 자기 이름을
+  사무실 맥 IP로 돌림)이 API에도, 쿠키 origin에도 닿지 않는다. 비어 있으면(개발·운영 기본) 지금과 같다.
+- **TLS 리스너는 `'::'`(IPv4+IPv6)**, 설정 `tls.host`(기본은 기존 그대로 `0.0.0.0`). 듀얼 스택에서 IPv4 손님은
+  `::ffff:a.b.c.d`로 오므로 `peerIp()`가 `a.b.c.d`로 적는다(로그인 제한·감사 기록이 IPv4 리스너와 같은 값).
+- **인증서: 자체 서명 한 장 대신 사무실 CA + 서버 인증서**(`server/src/office/tls.ts`). 운영 설치기의 방식(설치 때 자체 서명,
+  `en0` IP 하나, 데스크마다 경고 클릭 + 데스크톱 앱은 지문 고정)으로는 Edge가 PWA 설치·서비스 워커를 거부하고, IP가 바뀌면
+  모든 데스크가 다시 경고를 받는다. CA는 한 번만 만들고(10년, `ca.key` 600, 폴더 700, 서빙 안 함) 서버 인증서(397일, Apple의
+  825일 제한 안)는 주소가 생기거나 30일 남으면 감시 프로세스가 30초 안에 다시 서명하고 서버를 다시 띄운다. CA가 그대로라 데스크는
+  할 일이 없다. 사라진 주소만으로는 다시 만들지 않는다(불필요한 재시작 방지). IPv6 임시(privacy) 주소는 `ifconfig`의
+  temporary 표시로 뺀다(매일 바뀌어 매일 재시작이 됨). 키는 운영 설치기와 같은 named-curve P-256(`ecparam -noout`).
+- **CA에 이름 제한(critical nameConstraints)**: `local`, 그 맥의 이름, 10/8·172.16/12·192.168/16·100.64/10·fc00::/7.
+  데스크 10대가 신뢰하는 루트이므로, 키가 새도 공개 사이트를 사칭할 수 없게 했다. macOS 신뢰 평가·OpenSSL·Node가 제한을
+  지키는 것(위반 인증서 거부)을 시험했다. Bun의 fetch(BoringSSL)는 IP 제한이 있는 CA를 아예 거부하므로 LAN 시험은 Node로
+  한다(`tests/install/office-lan.mjs`). 그래서 공인 IP는 인증서에 넣지 않는다. 탈출구 `TEAMAX_CA_CONSTRAINTS=0`.
+- **평문 도우미 포트(기본 lanPort-1)는 `/`, `/ca.cer`, `/ca.crt`만**(`office/helper.ts`). CA를 아직 믿지 않는 데스크가 https를
+  못 여니 CA를 받을 곳이 필요하다. API·리다이렉트·프록시 없음, 요청(Host·쿼리)의 어떤 값도 페이지에 넣지 않음, 스크립트 없음
+  (CSP `default-src 'none'`). 평문으로 CA를 받는 것의 위험(같은 망의 공격자가 바꿔치기)은 지문 확인 단계로 줄인다: 윈도우
+  설치 경고 창이 보여 주는 것이 SHA-1 지문이라 SHA-256과 함께 SHA-1도 보여 준다. 끌 수 있다(`TEAMAX_HELPER_PORT=0`).
+- **감시 프로세스(`office/cli.ts run`) 하나가 LaunchAgent**(`app.team-ax.office`, 개발 서비스 `app.team-ax.dev`와 다른 이름):
+  인증서·`config/server.json`(시작마다 다시 씀)·도우미 페이지·서버 자식 프로세스(죽으면 2→30초 간격으로 다시)를 맡는다.
+  plist와 launchctl은 `scripts/dev-service.ts`의 함수를 일반화해 같이 쓴다(`plist({label,args,env})`, `launchAgent()`).
+- **설치는 sudo 없이 `~/TeamAX`**: `app/`(업데이트 때 통째로 바뀜, 이전 것은 `app.previous`)과 `data/ team/ tls/ config/`
+  (그대로)를 나눴다. zip에는 두 프로세서용이 다 있고 설치기가 그 맥 것만 복사한다. 브라우저로 받은 zip은 격리 표시가 붙어
+  서명 없는 도구(우리 Go 도우미 등)가 막히므로 설치기가 복사한 `app/`에서 지운다. 엔진 소켓 경로가 macOS 한도(104바이트)를
+  넘는 설치 폴더는 설치 전에 거부한다(개발 모드에서 "bind: invalid argument"로만 보이던 문제).
+- **번들에 ripgrep·pandoc을 넣었다**(GitHub 릴리스, 버전·SHA-256 고정, `dist/cache`). 맥 미니에 Homebrew가 없으면 AI의
+  grep/glob이 안 된다. pdftotext(poppler)는 단독 배포판이 없어 넣지 않았다(PDF 글자 추출은 Homebrew가 있을 때만).
+- **보관·복원은 기존 관리 CLI를 감싼다**(`teamax archive` = `admin.js archive --password-stdin`, `restore-archive` =
+  `admin.js restore-archive` + `data/app.db`·`team/` 바꿔 넣기, 이전 것은 `*.before-restore-*`로 남김). 이미 팀이 있는
+  설치에는 `--replace`가 있어야 한다. 사무실 모드 A의 보관본을 새로 설치한 사무실 모드 B에 복원해 팀원이 로그인하고 파일이
+  보이는 것을 확인했다.
+- **운영 설치로 옮기기**: 자료 구조가 같다(`data/app.db` + `team/`). 길은 보관본 → 운영 설치의 `admin.js restore-archive`.
+  운영 설치에서 채팅이 되기 전이라 그쪽 복원은 시험하지 않았다(OWNER-TODO 10).
+- **시험**: `tests/unit/office.test.ts`(주소·이름, CA 제한과 위반 거부, 재생성, 설정, server.json, Host 421, LAN origin의
+  CSRF·`__Host-` Secure 쿠키·실제 IP 감사, 초대 링크 주소, 도우미 허용 목록, plist, 복원 바꿔 넣기, 설치기 확인 경로),
+  `tests/install/office-lan.mjs`(실제 설치본에 LAN 주소로: 첫 설정 → 초대 → 팀원 로그인 → 업로드 → wss → 실제 Claude 1턴).

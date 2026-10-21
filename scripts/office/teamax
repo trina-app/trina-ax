@@ -1,0 +1,31 @@
+#!/bin/bash
+# Team AX office mode control command (docs/OFFICE.md). Installed as <home>/app/teamax, linked from <home>/teamax.
+#
+#   ~/TeamAX/teamax status | start | stop | restart | logs [n] | info | setup-link
+#   ~/TeamAX/teamax reset-link [--username U]     one-time password reset link
+#   ~/TeamAX/teamax backup                        a backup now (on this Mac's disk, like the nightly one)
+#   ~/TeamAX/teamax archive <file>                encrypted copy for an external disk (asks for a password)
+#   ~/TeamAX/teamax restore-archive <file> [--replace]
+set -euo pipefail
+d=$(cd "$(dirname "$0")" && pwd)
+if [ -d "$d/app/server" ]; then H=$d; else H=$(dirname "$d"); fi
+BUN="$H/app/bin/bun"
+JS="$H/app/server/src/office.js"
+[ -x "$BUN" ] && [ -f "$JS" ] || { echo "teamax: $H/app is incomplete; run office-install.sh again" >&2; exit 1; }
+cmd=${1:-status}; [ $# -gt 0 ] && shift
+
+case "$cmd" in
+  archive)
+    out=${1:-}; [ -n "$out" ] || { echo "usage: teamax archive <file on the external disk>" >&2; exit 2; }
+    read -r -s -p "암호 (8자 이상) / password (8+ characters): " pw; echo
+    read -r -s -p "한 번 더 / again: " pw2; echo
+    [ "$pw" = "$pw2" ] || { echo "teamax: the two passwords differ" >&2; exit 2; }
+    printf '%s' "$pw" | exec "$BUN" "$JS" archive --home "$H" --out "$out" ;;
+  restore-archive)
+    in=${1:-}; [ -n "$in" ] || { echo "usage: teamax restore-archive <file> [--replace]" >&2; exit 2; }
+    shift
+    read -r -s -p "보관본 암호 / archive password: " pw; echo
+    printf '%s' "$pw" | exec "$BUN" "$JS" restore-archive --home "$H" --in "$in" "$@" ;;
+  *)
+    exec "$BUN" "$JS" "$cmd" --home "$H" "$@" ;;
+esac
