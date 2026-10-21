@@ -56,7 +56,7 @@ describe('first-run setup', () => {
   test('cannot run twice; status now shows the team', async () => {
     const r = await h.client().try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Evil', owner: { username: 'mallory', name: 'M', password: OWNER_PW } })
     expect(r.status).toBe(409)
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: 'Acme', defaultLocale: 'en' })
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en' }) // round 4: no team name to anonymous visitors
   })
 })
 

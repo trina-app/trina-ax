@@ -800,3 +800,8 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   중에 막힐 수 있고, 같은 공인 IP를 쓰는 다른 사람(통신사 CGNAT)은 그 사람의 ① 횟수를 함께 쓴다. 시험:
   `tests/security/r4-login-lockout-from-internet.test.ts`(인터넷에서 10번 틀린 뒤 맥·LAN·치과 IP는 200, 낯선 IP는 맞는 비밀번호도
   429, LAN·치과 IP도 각자 10번에 잠김).
+- **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 6).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
+  `teamName`(설정 전 null, 뒤 팀 이름)이 그대로 나갔고, `POST /api/setup`은 "이미 설정됨"(409)을 터널 거부(403)보다 먼저 봐서
+  설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
+  클라이언트가 없음, 필드는 옛 클라이언트를 위해 남김). 기본 언어(`defaultLocale`)는 설정 때 고른 언어로 바뀌므로 약한 신호가
+  남지만, 로그인 화면의 언어라서 받아들였다(영어를 고르면 신호 없음). 시험: `tests/security/r4-setup-state-oracle.test.ts`.
