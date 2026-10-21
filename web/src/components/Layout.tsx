@@ -6,6 +6,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { isBusy } from '../lib/busy'
+import { setNavigator } from '../lib/nav'
 import { closeSidePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -29,6 +30,12 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
+
+  // banners raised by the server (e.g. a changed team skill) open app addresses through the router
+  useEffect(() => {
+    setNavigator((to) => navigate(to))
+    return () => setNavigator(null)
+  }, [navigate])
 
   // keyboard: ⌘/Ctrl+K search, ⌘/Ctrl+Shift+O new chat, Esc closes the side panel
   useEffect(() => {
