@@ -109,6 +109,8 @@ export const SPECS: Record<string, Spec> = {
   deleteMemory: { build: (c, w) => c.del(`/api/memories/${w.ids.memory}`), scope: 'own-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's memory`) } },
   clearMemories: { build: (c) => c.del('/api/memories'), scope: 'self' },
+  // team skills (skills/**/*.md readable by the caller): the canary check covers every name in the list
+  listSkills: { build: (c) => c.get('/api/skills'), scope: 'self' },
 
   // ---- files (path-scoped) ----
   tree: { build: (c) => c.get('/api/files/tree?path=users%2Falice'), scope: 'users-alice',

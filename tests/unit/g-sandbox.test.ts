@@ -46,18 +46,23 @@ function probeCode(localLogin: boolean, ...args: string[]): number | null {
 function probeWith(o: { localLogin: boolean; home?: string; sessionDir?: string; proxyPort?: number }, ...args: string[]): number | null {
   const p = Bun.spawnSync(['/usr/bin/sandbox-exec', '-f', PROFILE,
     '-D', `CHAT_DIR=${CHAT}`, '-D', `AGENT_ROOT=${AGENT}`, '-D', `ENGINE_DIR=${ENG}`, '-D', 'BRIDGE=/nonexistent/bridge',
-    '-D', `TOOLS_SOCK=${path.join(W, 'tools.sock')}`, '-D', `PROXY_PORT=${o.proxyPort ?? 19173}`, '-D', `LOCAL_LOGIN=${o.localLogin ? 1 : 0}`,
+    '-D', `TOOLS_SOCK=${path.join(W, 'tools.sock')}`, '-D', `PROXY_PORT=${o.proxyPort ?? PROXY}`, '-D', `LOCAL_LOGIN=${o.localLogin ? 1 : 0}`,
     '-D', `USER_HOME=${o.home ?? fs.realpathSync(os.homedir())}`, '-D', `SESSION_DIR=${o.sessionDir ?? CHAT}`,
     PROBE, ...args], { stdout: 'ignore', stderr: 'ignore' })
   return p.exitCode
 }
 
-// stand-ins for the model proxy port and the tools socket
+// stand-ins for the model proxy port and the tools socket. The proxy takes a free port: a fixed one (19173) failed
+// with "Failed to listen at 127.0.0.1" whenever another checkout ran this test at the same time.
 let proxy: net.Server | null = null
 let tools: net.Server | null = null
+let PROXY = 0
 beforeAll(async () => {
   if (!mac) return
-  proxy = net.createServer((c) => c.end()).listen(19173, '127.0.0.1')
+  const srv = net.createServer((c) => c.end())
+  await new Promise<void>((ok, fail) => { srv.once('error', fail); srv.listen(0, '127.0.0.1', ok) })
+  proxy = srv
+  PROXY = (srv.address() as net.AddressInfo).port
   tools = net.createServer((c) => c.end()).listen(path.join(W, 'tools.sock'))
   await Bun.sleep(50)
 })
@@ -82,7 +87,7 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
       expect(probe(ll, 'read', '/etc/hosts')).toBe(true) // system files for name resolution / TLS stay readable
       // network: our tools socket and the model proxy port only
       expect(probe(ll, 'unix', path.join(W, 'tools.sock'))).toBe(true)
-      expect(probe(ll, 'tcp', '127.0.0.1', '19173')).toBe(true)
+      expect(probe(ll, 'tcp', '127.0.0.1', String(PROXY))).toBe(true)
     })
   }
 
@@ -159,7 +164,7 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
 
   test('PROXY_PORT=0 (dev, no model proxy): the profile loads and opens no localhost port', () => {
     expect(probeWith({ localLogin: true, proxyPort: 0 }, 'read', path.join(CHAT, 'mine.txt'))).toBe(0)
-    expect(probeWith({ localLogin: false, proxyPort: 0 }, 'tcp', '127.0.0.1', '19173')).not.toBe(0)
+    expect(probeWith({ localLogin: false, proxyPort: 0 }, 'tcp', '127.0.0.1', String(PROXY))).not.toBe(0)
   })
 
   // security audit r1 (os-layer #2): LOCAL_LOGIN=1 (dev: the engine runs as the owner) opened the owner's whole
@@ -217,7 +222,7 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
   const sock = path.join(W, 'launcher.sock')
   beforeAll(async () => {
     proc = Bun.spawn([path.join(nativeBinDir(), 'mycel-launcher'), '--listen', sock, '--agent-root', AGENT, '--bridge', '/nonexistent/bridge',
-      '--tools-sock', path.join(W, 'tools.sock'), '--allow-cmd', PROBE, '--sandbox-profile', PROFILE, '--proxy-port', '19173'], { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' })
+      '--tools-sock', path.join(W, 'tools.sock'), '--allow-cmd', PROBE, '--sandbox-profile', PROFILE, '--proxy-port', String(PROXY)], { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' })
     const r = proc.stdout.getReader()
     const { value } = await r.read()
     expect(new TextDecoder().decode(value)).toContain('ready')
@@ -241,7 +246,7 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
     expect(await turn('chat2', ['read', path.join(CHAT, 'mine.txt')])).not.toBe(0)
     expect(await turn('chat1', ['read', TMP_SECRET])).not.toBe(0)
     expect(await turn('chat1', ['tcp', '1.1.1.1', '443'])).not.toBe(0)
-    expect(await turn('chat1', ['tcp', '127.0.0.1', '19173'])).toBe(0)
+    expect(await turn('chat1', ['tcp', '127.0.0.1', String(PROXY)])).toBe(0)
     // the per-turn files the launcher writes (.turn/) are inside the chat folder and readable by the engine
     expect(await turn('chat1', ['list', '{TURN_DIR}'])).toBe(0)
     // no metadata of another chat (os-layer #1)
