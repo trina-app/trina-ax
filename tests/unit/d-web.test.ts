@@ -114,30 +114,31 @@ describe('web app serving', () => {
     expect(r.status).toBe(404)
     expect(((await r.json()) as { error: { code: string } }).error.code).toBe('not_found')
   })
-  test('desktop downloads from <data>/downloads', async () => {
+  test('desktop downloads from <data>/downloads: signed-in people only (tests/unit/office-desktop.test.ts has the rest)', async () => {
     const idx = await get('/downloads/index.json')
-    expect(((await idx.json()) as { items: unknown[] }).items).toHaveLength(1)
-    const dmg = await get('/downloads/TeamAX.dmg')
-    expect(dmg.headers.get('content-disposition')).toBe('attachment; filename="TeamAX.dmg"')
+    expect(idx.status).toBe(401)
+    expect(await idx.text()).not.toContain('TeamAX.dmg')
+    expect((await get('/downloads/TeamAX.dmg')).status).toBe(401)
     // the URL parser folds ".." away: this is just the app shell, never the database
     expect(await (await get('/downloads/../app.db')).text()).toContain('<div id="root">')
     expect(await (await get('/downloads/%2e%2e/app.db')).text()).not.toContain('SQLite')
-    expect((await get('/downloads/..%2fapp.db')).status).toBe(404)
-    expect((await get('/downloads/missing.exe')).status).toBe(404)
+    expect((await get('/downloads/..%2fapp.db')).status).toBe(401)
+    // serveWeb alone (the web client's mock server) never serves the folder
+    expect(serveWeb(new Request('http://x/downloads/TeamAX.dmg'), { dist: DIST, dev: false, devPort: 0 })!.status).toBe(404)
   })
   test('without a build: dev explains how to start the web app, prod says what is missing', () => {
     const empty = path.join(BASE, 'empty')
     fs.mkdirSync(empty, { recursive: true })
-    const dev = serveWeb(new Request('http://x/'), { dist: empty, downloads: null, dev: true, devPort: 19100 })!
+    const dev = serveWeb(new Request('http://x/'), { dist: empty, dev: true, devPort: 19100 })!
     expect(dev.status).toBe(200)
-    const prod = serveWeb(new Request('http://x/'), { dist: empty, downloads: null, dev: false, devPort: 0 })!
+    const prod = serveWeb(new Request('http://x/'), { dist: empty, dev: false, devPort: 0 })!
     expect(prod.status).toBe(500)
-    expect(serveWeb(new Request('http://x/api/me'), { dist: DIST, downloads: null, dev: false, devPort: 0 })).toBeNull()
+    expect(serveWeb(new Request('http://x/api/me'), { dist: DIST, dev: false, devPort: 0 })).toBeNull()
   })
   test('the CSP never puts a hostile Host header into the policy', async () => {
     expect(appCsp('evil.example; script-src *')).not.toContain('evil')
     expect(appCsp(null)).toContain("connect-src 'self' blob:;")
-    const opts = { dist: DIST, downloads: null, dev: false, devPort: 0 }
+    const opts = { dist: DIST, dev: false, devPort: 0 }
     expect(serveWeb(new Request('http://x/sandbox/frame'), opts)!.status).toBe(200)
     // a host the policy could not name safely gets no receiver at all
     expect(serveWeb(new Request('http://a_b/sandbox/frame'), opts)!.status).toBe(400)
