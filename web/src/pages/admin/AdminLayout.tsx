@@ -1,10 +1,12 @@
 // Admin screens (admin and owner). Admins never see other people's chats or memories (tab 1); the system screen
-// (diagnostics, update, backup / restore, export, connection) is owner-only.
+// (diagnostics, update, backup / restore, export, connection) is owner-only; in office mode admins see it too, with only
+// the automatic update card (docs/OFFICE.md "자동 업데이트").
 import clsx from 'clsx'
 import { Activity, Cpu, FolderLock, Gauge, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
+import { api, API } from '../../lib/api'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { PageHeader, Spinner } from '../../components/ui'
 
@@ -32,10 +34,16 @@ export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
   const { section } = useParams()
+  // office mode: admins update the clinic's server from Admin > System too (only the automatic update card there)
+  const [office, setOffice] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!isAdmin(me) || isOwner(me)) return
+    api.call(API.officeUpdateStatus).then((s) => setOffice(!!s), () => setOffice(false))
+  }, [me])
   if (!isAdmin(me)) return <Navigate to="/" replace />
   if (!section) return <Navigate to="/admin/members" replace />
-  const visible = SECTIONS.filter((s) => !s.ownerOnly || isOwner(me))
-  if (!visible.some((s) => s.id === section)) return <Navigate to="/admin/members" replace />
+  const visible = SECTIONS.filter((s) => !s.ownerOnly || isOwner(me) || (s.id === 'system' && office))
+  if (!visible.some((s) => s.id === section)) return office === null && section === 'system' ? <Spinner /> : <Navigate to="/admin/members" replace />
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('admin.title')} desc={t('admin.desc')} />

@@ -26,6 +26,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
+import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 
 const REPO = path.resolve(import.meta.dir, '..')
 const ARCHS = [{ dir: 'darwin-arm64', bun: 'aarch64', rg: 'aarch64', pandoc: 'arm64', cf: 'arm64' }, { dir: 'darwin-amd64', bun: 'x64', rg: 'x86_64', pandoc: 'x86_64', cf: 'amd64' }] as const
@@ -136,12 +137,15 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
   for (const [entry, out] of ENTRIES) {
     const res = await Bun.build({
       entrypoints: [path.join(REPO, entry)], target: 'bun', outdir: path.join(stage, '.build'), naming: '[name].js', minify: false,
+      external: SEMANTIC_EXTERNAL,
       define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(o.version) },
     })
     if (!res.success) throw new Error(res.logs.map(String).join('\n'))
     fs.renameSync(res.outputs[0]!.path, path.join(app, 'server', 'src', out))
   }
   fs.rmSync(path.join(stage, '.build'), { recursive: true, force: true })
+  // search by meaning: its runtime next to the server files (scripts/vendor-semantic.ts; arm64 Macs)
+  vendorSemantic(path.join(app, 'server'))
   fs.mkdirSync(path.join(app, 'server', 'migrations'))
   for (const f of fs.readdirSync(path.join(REPO, 'server', 'migrations'))) if (f.endsWith('.sql')) fs.copyFileSync(path.join(REPO, 'server', 'migrations', f), path.join(app, 'server', 'migrations', f))
   fs.mkdirSync(path.join(app, 'scripts', 'macos'), { recursive: true })

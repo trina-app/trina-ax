@@ -38,6 +38,9 @@
 //                                  found in the folders (office-install.sh runs it; a --fallback folder only after a
 //                                  yes on the terminal; with the bundle's desktop.sha256 only the files it lists).
 //                                  No restart needed.
+//   update [status|check|now|pause|resume|channel stable|beta|time HH:MM|run]
+//                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
+//                                  LaunchAgent (<label>.update) checks https://updates.treesoop.com every night
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'
@@ -56,6 +59,8 @@ import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './he
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
 import { TOKEN_RE } from '../proxy/subscription'
+import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
+import { updateView } from './update'
 
 const CHECK_MS = 30_000
 const TLS_RECHECK_MS = 6 * 3600_000
@@ -227,6 +232,7 @@ export async function run(home: string): Promise<never> {
   const check = async () => {
     if (stopping || restarting) return
     startHelper()
+    try { const r = reloadMarkedUpdateAgent(s); if (r) say(r) } catch (e) { say(`update agent reload failed: ${(e as Error).message}`) }
     const host = localHostName()
     const lan = lanInfo({ includeVpn: s.includeVpn })
     const key = JSON.stringify([host, lan])
@@ -799,6 +805,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!(await waitHealthy(s, 90))) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)
+      try { const ul = syncUpdateAgent(s, agentPath(s)); if (ul) lines(ul) } catch (e) { lines(`update agent not installed: ${(e as Error).message}`) }
       if (s.publicHost && fs.existsSync(p.plist(tunnelLabel(s)))) {
         const r = await waitPublic(s.publicHost, 40)
         lines(r === 'ok' ? `https://${s.publicHost} 답함 / answers (앱 포트 / app port ${s.appPort})` : publicProblem(s, r, p.tunnelLog))
@@ -835,12 +842,15 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'public-address': return await publicAddress(home, args)
     case 'desktop': return desktopCommand(home, args)
+    case 'update': return await updateCommand(home, args, agentPath(s))
     case 'uninstall-agent': {
       lines(fs.existsSync(p.plist(s.label)) || agent.loaded() ? agent.stop() : 'not installed')
       fs.rmSync(p.plist(s.label), { force: true })
       const ta = tunnelAgentOf(s)
       if (ta.loaded()) lines(`cloudflared: ${ta.stop()}`)
       fs.rmSync(p.plist(tunnelLabel(s)), { force: true })
+      const ul = removeUpdateAgent(s)
+      if (ul) lines(ul)
       return 0
     }
     case 'status': {
@@ -857,6 +867,8 @@ export async function main(argv: string[]): Promise<number> {
       try { const cfg = JSON.parse(fs.readFileSync(p.serverJson, 'utf8')); origins = (cfg.publicOrigins as string[]).filter((o) => SHOWN.test(o)) } catch {}
       for (const o of origins) lines(`  desks     ${o}  ${(await answers(`${o}/api/health`)) ? 'answers' : 'no answer'}`)
       for (const o of helperOrigins(s, origins).slice(0, 1)) lines(`  CA page   ${o}  ${(await answers(o)) ? 'answers' : 'no answer'}`)
+      const uv = updateView(home)
+      lines(`  updates   ${uv.current} · ${uv.channel} · ${!uv.agentInstalled ? 'no update agent (office-install.sh from a 0.2.0+ zip)' : uv.paused ? 'paused (teamax update resume)' : `every night ${uv.time}`}${uv.last ? ` · last: ${uv.last.kind}` : ''}`)
       lines(`  log       ${p.officeLog}`)
       return 0
     }
@@ -869,6 +881,8 @@ export async function main(argv: string[]): Promise<number> {
       const srv = newestServerLog(p.serverLogs)
       if (srv) { lines(`\n== ${srv}`); lines(tail(srv)) }
       if (fs.existsSync(p.tunnelLog)) { lines(`\n== ${p.tunnelLog}`); lines(tail(p.tunnelLog)) }
+      const ulog = path.join(p.logs, 'update.log')
+      if (fs.existsSync(ulog)) { lines(`\n== ${ulog}`); lines(tail(ulog)) }
       return 0
     }
     case 'card': {
@@ -919,7 +933,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|check-ports|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|uninstall-agent')
       return 2
   }
 }

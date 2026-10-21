@@ -9,6 +9,8 @@
  *   MYCEL_DESKTOP_TEST_PRIVATE_HOSTS comma-separated office-style names (nas.lan) the browser maps to 127.0.0.1
  *   MYCEL_DESKTOP_TEST_DNS_HOSTS     comma-separated names the browser's resolver maps to 127.0.0.1 with no exemption:
  *                                    the checks see them as DNS names answering with this computer's address
+ *   MYCEL_DESKTOP_UPDATE_TEST  auto-install | notice | off: the updater's mode in an unpacked app (./updater.ts);
+ *                              MYCEL_DESKTOP_UPDATE_FIRST_MS the first check's delay
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, sep } from 'node:path'
@@ -25,6 +27,7 @@ import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
+import { DesktopUpdater } from './updater'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -85,6 +88,16 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 if (!app.requestSingleInstanceLock()) app.quit()
 
 let win: AppWindow | undefined
+const updater = new DesktopUpdater({
+  team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
+  window: () => win?.win ?? null,
+  locale: () => locale(),
+  openApps: () => {
+    const origin = win?.team?.origin
+    if (origin && win?.app) void win.app.webContents.loadURL(`${origin}/settings/apps`)
+  },
+  changed: () => buildMenu(),
+})
 // Language of the app's own screens, menus and prompts: what the team page last reported (its person's choice, else
 // the team default) or what was picked on the team list; before either, a kit build's language, else English. Not the
 // system language.
@@ -236,6 +249,8 @@ function buildMenu() {
       ],
     },
     { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.addTeam'), click: () => win?.showWelcome() }, { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
+    // a downloaded update (Windows): installs on quit, or now from here
+    ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => updater.restartNow() }] : []),
     {
       label: tr('menu.window'),
       role: 'windowMenu',
@@ -286,6 +301,7 @@ app.whenReady().then(async () => {
   })
   registerIpc()
   await createWindow()
+  updater.start()
 })
 
 app.on('second-instance', () => {

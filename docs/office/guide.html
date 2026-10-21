@@ -197,7 +197,7 @@ figure.shot.w75{ width:75%; }
     <li><span class="no">03</span><span class="tt">첫 설정</span><span class="ds">소유자 계정 · 팀 이름 · 한국어</span><span class="pg" data-toc="c3"></span></li>
     <li><span class="no">04</span><span class="tt">데스크 PC 연결</span><span class="ds">인터넷 주소 · 앱 설치 · 가입 · 사무실 안 대체 경로</span><span class="pg" data-toc="c4"></span></li>
     <li><span class="no">05</span><span class="tt">매일 운영</span><span class="ds">꺼지지 않게 · 백업</span><span class="pg" data-toc="c5"></span></li>
-    <li><span class="no">06</span><span class="tt">업데이트 · 주소 바꾸기</span><span class="ds">새 zip으로 · 명령 두 개로 주소 바꾸기 · 데스크 할 일</span><span class="pg" data-toc="c6"></span></li>
+    <li><span class="no">06</span><span class="tt">업데이트 · 주소 바꾸기</span><span class="ds">자동 업데이트(처음 한 번은 새 zip) · 명령 두 개로 주소 바꾸기 · 데스크 할 일</span><span class="pg" data-toc="c6"></span></li>
     <li><span class="no">07</span><span class="tt">문제가 생기면</span><span class="ds">증상별 할 일 · 명령 모음</span><span class="pg" data-toc="c7"></span></li>
     <li><span class="no">08</span><span class="tt">보안 메모</span><span class="ds">인터넷에 열 때 · 지키는 것 · 환자 자료</span><span class="pg" data-toc="c8"></span></li>
   </ol>
@@ -215,7 +215,7 @@ figure.shot.w75{ width:75%; }
         <li><b>인터넷 주소</b>로 데스크·집·휴대폰에서 접속(인증서 설치 없음), 채팅·파일·폴더 권한</li>
         <li>인터넷이 끊겨도 사무실 안 주소로(인증서 한 번 설치)</li>
         <li>매일 자동 백업, 외장 디스크 보관본, 다른 맥으로 복원</li>
-        <li>새 zip으로 업데이트(데이터·로그인 유지)</li>
+        <li>매일 밤 <b>자동 업데이트</b>(0.2.0부터, 처음 한 번은 새 zip), 안 되면 이전 버전으로 저절로</li>
       </ul></div>
     <div class="bad"><div class="h"><span class="wip">확인 전</span></div>
       <ul>
@@ -390,10 +390,19 @@ rm ~/Downloads/exampleteam.example.com.tunnel-token</pre>
 
 <!-- ============================================================ 6 -->
 <section class="chap flow" id="c6">
-  <div class="chap-head"><span class="no">06</span><h2>업데이트 · 주소 바꾸기</h2><span class="for">새 zip · 새 주소</span></div>
-<pre class="cmd">cd ~/Downloads &amp;&amp; ditto -x -k TeamAX-office-&lt;새 버전&gt;-mac.zip .
-bash ~/Downloads/TeamAX-office-&lt;새 버전&gt;/office-install.sh</pre>
-  <div class="check"><span class="k">확인</span><span><code>팀이 이미 설정되어 있습니다</code>, <code>=== 설치 끝 / installed: &lt;새 버전&gt; ===</code>. 프로그램만 바뀌고 데이터·팀 폴더·인증서·설정·인터넷 주소·데스크 로그인은 그대로예요. 데스크는 할 일이 없어요.</span></div>
+  <div class="chap-head"><span class="no">06</span><h2>업데이트 · 주소 바꾸기</h2><span class="for">자동 업데이트 · 새 주소</span></div>
+  <h3 class="first">자동 업데이트</h3>
+  <p>0.2.0부터 맥 미니가 <b>스스로 업데이트</b>해요. 매일 밤 <b>03:00</b>에 <code>updates.treesoop.com</code>에서 새 버전을 확인하고, 있으면 받아서 설치한 뒤 서버를 다시 시작해요(1–3분). 서명과 파일 확인을 통과한 새 버전만 설치하고, 새 버전이 제대로 뜨지 않으면 <b>이전 버전으로 저절로 돌아가요</b>. 데이터·팀 폴더·인증서·설정·데스크 로그인은 그대로예요.</p>
+  <p><b>처음 한 번은 손으로</b> 해요. 0.1.0에는 자동 업데이트가 없어서, 0.2.0 zip을 맥 미니에 받아 아래 명령으로 한 번 설치하면 그다음부터는 자동이에요.</p>
+<pre class="cmd">cd ~/Downloads &amp;&amp; ditto -x -k TeamAX-office-0.2.0-mac.zip .
+bash ~/Downloads/TeamAX-office-0.2.0/office-install.sh
+~/TeamAX/teamax update status</pre>
+  <div class="check"><span class="k">확인</span><span><code>팀이 이미 설정되어 있습니다</code>, <code>자동 업데이트 … 매일 / every night 03:00</code>, <code>=== 설치 끝 / installed: 0.2.0 ===</code>. 웹에서는 <span class="ui">관리자</span> → <span class="ui">시스템</span> → <span class="ui">자동 업데이트</span>에 버전·다음 확인 시각이 보여요. 0.2.0은 사무실 인증서를 한 번 새로 만들어요: 사무실 안 대체 경로(<code>:8443</code>)를 쓰는 데스크만 새 카드를 보고 인증서를 다시 설치해요.</span></div>
+  <div class="two">
+    <div class="note"><b>어느 데스크에서나: 관리자 → 시스템 → 자동 업데이트</b><p>원장님·관리자는 맥 미니 터미널 없이 데스크 앱이나 Edge에서 업데이트해요. <span class="ui">지금 업데이트</span>(비밀번호 한 번 더): 밤까지 기다리지 않고 바로, 진행 단계가 보이고 1–3분 뒤 화면이 저절로 새 버전으로 바뀌어요. <span class="ui">자동 업데이트 끄기</span>: 진료 중 바뀌면 안 될 때. 새 버전이 나오면 화면 위에 <span class="ui">새 버전 x.y.z이 있어요 — 지금 업데이트</span> 띠가 원장님·관리자에게만 보여요.</p></div>
+    <div class="note"><b>데스크 PC의 Team AX 앱</b><p>맥 미니가 새 윈도우 앱도 받아 두면, 데스크 앱(0.2.0부터)이 알아서 받아 <span class="ui">업데이트 준비됨 — 다시 시작</span>을 띄워요. 나중에를 눌러도 앱을 닫을 때 설치돼요. 0.1.0 앱은 한 번만 <span class="ui">설정</span> → <span class="ui">앱</span>에서 새로 받아 설치해요. Edge 앱은 할 일이 없어요.</p></div>
+  </div>
+  <p>인터넷이 막혀 자동 업데이트를 못 쓰면 예전처럼 새 zip을 풀고 <code>office-install.sh</code>를 실행하면 돼요.</p>
 
   <h3>인터넷 주소 바꾸기 (명령 두 개)</h3>
   <p>예: <code>exampleteam.example.com</code> → <code>teamax.새도메인.com</code>. ① 원장님 맥, <code>~/team-ax</code>에서(새 도메인이면 2-0처럼 그 도메인의 cert부터, 앱 포트를 바꿨다면 <code>--port</code>):</p>

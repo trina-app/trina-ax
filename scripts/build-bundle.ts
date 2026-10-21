@@ -24,6 +24,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { packBundle, signManifest, writeManifest } from '../server/src/system/bundle'
+import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -59,11 +60,14 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
       target: 'bun',
       outdir: path.join(dir, 'server', 'src'),
       naming: out,
+      external: SEMANTIC_EXTERNAL,
       define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(o.version) },
       minify: false,
     })
     if (!res.success) throw new Error(res.logs.map(String).join('\n'))
   }
+  // search by meaning: its runtime next to the server files (scripts/vendor-semantic.ts; arm64 / universal)
+  if (arch !== 'amd64') vendorSemantic(path.join(dir, 'server'))
   fs.mkdirSync(path.join(dir, 'server', 'migrations'), { recursive: true })
   for (const f of fs.readdirSync(path.join(REPO, 'server', 'migrations'))) {
     if (f.endsWith('.sql')) fs.copyFileSync(path.join(REPO, 'server', 'migrations', f), path.join(dir, 'server', 'migrations', f))

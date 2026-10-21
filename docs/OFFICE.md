@@ -21,7 +21,11 @@
 > `office-install.sh --public-host <name> --tunnel-token-file <file>` or later `teamax public-address set|off|status`.
 > In-office fallback: `https://<mac IP>:8443` after installing the office CA once (thumbprint from the desk card
 > printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
-> `bun run build:office`; control: `~/TeamAX/teamax`.
+> `bun run build:office`; control: `~/TeamAX/teamax`. Automatic updates (section 6, from 0.2.0; the first 0.2.0
+> install is by hand): a third LaunchAgent checks `https://updates.treesoop.com/office/<channel>.json` (Ed25519-signed,
+> no downgrades) every night at 03:00, installs with the new zip's own installer, rolls back when the new version does
+> not answer `/api/health`, and puts the Windows desk app + `latest.yml` into `data/downloads` for electron-updater.
+> Releases: `bun scripts/release/publish.ts --channel beta|stable`.
 
 ## 1. 준비물
 
@@ -185,15 +189,73 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
   되돌리면 **모든 로그인이 끝납니다**: 원장님과 데스크 모두 다시 로그인합니다. 보관본을 만든 뒤 로그아웃했거나 비밀번호를
   바꾼 로그인이 되살아나지 않게 하려는 것입니다. 아직 안 쓴 초대·재설정 링크도 없어지므로 관리자 → 멤버에서 새로 만드세요.
 
-## 6. 업데이트
+## 6. 업데이트 (자동 업데이트)
 
-새 zip을 맥 미니에 풀고 같은 명령을 다시 실행합니다:
+0.2.0부터 맥 미니가 **스스로 업데이트**합니다. 매일 밤 03:00(맥 미니 시간)에 `https://updates.treesoop.com`에서 새
+버전을 확인하고, 있으면 받아서 설치하고 서버를 다시 시작합니다(1–3분). 업데이트 때문에 연결하는 곳은 이 주소 하나입니다.
+
+**처음 한 번은 손으로.** 0.1.0에는 자동 업데이트가 없습니다. 0.2.0 zip으로 한 번 설치하면 그다음부터 자동입니다:
 ```sh
-cd ~/Downloads && ditto -x -k TeamAX-office-<새 버전>-mac.zip .
-bash ~/Downloads/TeamAX-office-<새 버전>/office-install.sh
+cd ~/Downloads && ditto -x -k TeamAX-office-0.2.0-mac.zip .
+bash ~/Downloads/TeamAX-office-0.2.0/office-install.sh
+~/TeamAX/teamax update status
 ```
-`app/`만 바뀌고(이전 것은 `app.previous`) 데이터·팀 폴더·인증서·설정은 그대로입니다. 데스크는 할 일이 없습니다
-(로그인도 유지). 확인: `팀이 이미 설정되어 있습니다`, `=== 설치 끝 / installed: <새 버전> ===`.
+`app/`만 바뀌고(이전 것은 `app.previous`) 데이터·팀 폴더·인증서·설정은 그대로입니다. 확인: `팀이 이미 설정되어
+있습니다`, `자동 업데이트 / automatic updates (app.team-ax.office.update): 매일 / every night 03:00, stable`,
+`=== 설치 끝 / installed: 0.2.0 ===`. 0.2.0은 사무실 인증 기관(CA)을 한 번 새로 만듭니다(보안 점검 r4, 옛 것은
+`tls/ca.crt.old-<날짜>`): **사무실 안 대체 경로**(`https://<맥 IP>:8443`)를 쓰는 데스크만 새 데스크 카드(`teamax card`)를 보고
+4장 ①처럼 인증서를 한 번 다시 설치합니다. 인터넷 주소로 쓰는 데스크는 할 일이 없습니다. 인터넷이 막힌 곳에서는 지금처럼 새 zip + `office-install.sh`로 손으로 업데이트할
+수 있습니다(언제나 됨).
+
+자동 업데이트가 하는 일 (`server/src/office/update.ts`, 기록 `~/TeamAX/logs/update.log`, 상태 `~/TeamAX/update/state.json`):
+1. 채널(stable 기본, beta)의 릴리스 정보를 받아 **서명**(Ed25519, 서명 키는 TreeSoop만 가짐, 공개 키는 프로그램 안)과
+   채널을 확인합니다. **더 오래된 버전으로는 절대 내려가지 않고**, 릴리스가 정한 최소 버전보다 오래된 설치는 "손으로 한
+   번 설치하세요"라고만 알립니다.
+2. zip을 받아 크기·SHA-256을 확인하고 풉니다. 새 zip의 설치 프로그램이 먼저 점검만 합니다(`--check-only`).
+3. 진행 중인 답변이 끝나기를 기다리고(최대 10분), 데이터베이스를 백업합니다(백업 목록에 `업데이트 전`).
+4. 새 zip의 설치 프로그램으로 설치합니다(`office-install.sh --update`: 서버와 cloudflared를 멈추고, 이전 프로그램은
+   `app.previous`, 새 프로그램을 `app`으로, 다시 시작).
+5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
+   답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
+   되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).
+6. 릴리스에 든 **데스크용 윈도우 앱**(설치 파일 + `latest.yml`)을 `data/downloads`에 넣습니다(설정 > 앱에 보이는 곳,
+   이전 윈도우 설치 파일은 지움). 데스크의 Team AX 앱(0.2.0부터)은 시작할 때와 4시간마다 팀 주소의 `/downloads/`를
+   확인해 뒤에서 받고, "업데이트 준비됨 — 다시 시작"을 띄웁니다. 나중에를 누르면 앱을 닫을 때 설치됩니다. 0.1.0
+   데스크 앱은 자동 업데이트가 없으니 한 번만 설정 > 앱에서 새 앱을 받아 설치합니다. 맥용 데스크톱 앱은 스스로 바뀌지
+   않고(애플 서명이 필요) "새 버전이 있어요"와 내려받기 버튼만 보여 줍니다.
+
+업데이트는 `data/`, `team/`, `tls/`, `config/`를 건드리지 않습니다. 데스크 로그인도 그대로입니다.
+
+**첫 설치 뒤에는 맥 미니 터미널이 필요 없습니다.** 소유자·관리자는 어느 데스크에서나(윈도우 앱·Edge·집) 웹의
+**관리자 > 시스템 > 자동 업데이트**에서 현재 버전, 채널, 다음 확인 시각, 마지막 결과를 보고 **지금 업데이트**(비밀번호를 한
+번 더 입력)와 **자동 업데이트 끄기/켜기**를 누릅니다. 진행 단계(내려받는 중 → 설치하고 서버를 다시 시작하는 중 → 새 버전
+확인)가 보이고, 서버가 다시 뜨면 화면이 스스로 다시 연결되어 새 버전으로 바뀝니다. 새 버전이 나오면 소유자·관리자에게만
+화면 위에 "새 버전 x.y.z이 있어요 — 지금 업데이트 · 오늘 밤 03:00에 자동으로 설치돼요" 띠가 보입니다(닫으면 그 버전은 다시
+안 보임, 팀원에게는 안 보임). 웹 서버는 설치를 직접 하지 않습니다: 요청 파일(`update/request.json`)을 쓰고 업데이트
+에이전트를 깨울 뿐이고, 설치는 에이전트가 합니다(서버는 `app/`을 건드리지 않음). 같은 일을 맥 미니 터미널에서:
+```sh
+~/TeamAX/teamax update status            # 버전·채널·다음 확인·마지막 결과
+~/TeamAX/teamax update check             # 지금 확인만 (설치하지 않음)
+~/TeamAX/teamax update now               # 지금 설치 (터미널 창을 닫아도 계속됨)
+~/TeamAX/teamax update pause             # 자동 업데이트 끄기 (resume: 다시 켜기)
+~/TeamAX/teamax update channel beta      # 시험판 받기 (stable: 정식판으로)
+~/TeamAX/teamax update time 02:30        # 밤 확인 시각 바꾸기
+```
+세 번째 LaunchAgent `app.team-ax.office.update`가 이 일을 합니다(맥이 그 시각에 잠들어 있었다면 깨어날 때). 제거
+(`office-uninstall.sh`)하면 함께 지워집니다.
+
+### 릴리스 내보내기 (TreeSoop, 개발 맥에서)
+서명 키는 한 번 만들어 `~/.config/teamax-release/release-key.pem`(600)에만 둡니다(`bun scripts/release/keygen.ts`,
+저장소·zip·로그에 넣지 않음). 피드는 Cloudflare R2 버킷 `teamax-updates` 앞의 Worker(`scripts/release/worker.js`,
+`bun scripts/release/hosting.ts setup|status`)입니다. 새 버전은 먼저 beta로, 확인한 뒤 stable로:
+```sh
+bun scripts/release/publish.ts --channel beta --build --version 0.2.1-beta.1
+bun scripts/release/publish.ts --channel stable --build --version 0.2.1
+```
+`--build`는 office zip(`bun run build:office`)과 윈도우 앱(`desktop dist:win`, 키트 아님)을 그 버전으로 만들고, 서명한
+릴리스 정보를 파일을 다 올린 뒤 마지막에 올립니다. 이미 만든 파일을 쓰려면 `--office <zip> --windows <exe>`(옆에
+`latest.yml`). 채널은 뒤로 가지 않고(더 오래된 버전은 거부), 한 번 올린 파일은 다른 파일로 바꾸지 않습니다.
+`--min-from <버전>`: 그보다 오래된 설치는 자동으로 올리지 않음(기본 0.2.0-0).
 
 ## 7. 문제 해결
 
@@ -212,10 +274,13 @@ bash ~/Downloads/TeamAX-office-<새 버전>/office-install.sh
 | 비밀번호 잊음 | 팀원: 관리자 → 멤버 → 재설정 링크. 원장님: 맥 미니에서 `~/TeamAX/teamax reset-link` |
 | 공유기를 바꿔 주소 대역이 달라짐 (예: 192.168.0.x → 192.168.1.x) | 인증서가 새 대역을 이름에 넣지 못합니다. `teamax stop` → `mv ~/TeamAX/tls ~/TeamAX/tls.old` → `teamax start` → 새 카드 인쇄 → 데스크마다 인증서 다시 설치 |
 | 포트가 이미 쓰이는 중 | 설치기의 안내대로 `--lan-port 9443` 등 다른 번호 |
+| 관리자 > 시스템 "이전 버전으로 되돌렸어요" | 새 버전이 제대로 뜨지 않아 자동으로 되돌림(데이터 그대로). `~/TeamAX/logs/update.log` 끝과 `teamax update status`를 TreeSoop에 보내 주세요. 고친 버전이 나오면 밤에 저절로 설치되고, 같은 버전을 다시 해 보려면 `teamax update now` |
+| 자동 업데이트가 안 됨 | `teamax update status`: "설치 안 됨"이면 0.2.0 zip으로 `office-install.sh`를 한 번(6장), "꺼짐"이면 `teamax update resume`, 마지막 결과가 `failed`면 이유(인터넷·`updates.treesoop.com` 차단 등)가 함께 나옵니다 |
 
 명령 모음(`~/TeamAX/teamax …`): `status`, `info`(주소·지문, `~/TeamAX/ADDRESSES.txt`와 같음), `card`, `logs [n]`,
 `start` / `stop` / `restart`, `setup-link`, `reset-link [--username U]`, `backup`, `archive <파일>`,
-`restore-archive <파일> [--replace]`, `public-address set <이름> <토큰 파일>` / `off` / `status`. 설정은 `~/TeamAX/config/office.env`를 고친 뒤 `teamax restart`
+`restore-archive <파일> [--replace]`, `public-address set <이름> <토큰 파일>` / `off` / `status`,
+`update [status|check|now|pause|resume|channel stable|beta|time HH:MM]`(6장). 설정은 `~/TeamAX/config/office.env`를 고친 뒤 `teamax restart`
 (`config/server.json`은 시작마다 다시 쓰이므로 고치지 마세요). 제거: `bash office-uninstall.sh`(데이터는 남김,
 `--delete-data`는 전부 지움).
 
@@ -457,7 +522,11 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
   `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`).
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
 - PDF는 번들의 `mycel-ocr`(애플 Vision)로도 읽습니다: 글자 층이 없는 스캔 쪽은 글자 인식(쪽당 약 1초, 최대 100쪽), `pdftotext`(Homebrew `poppler`)가 있으면 글자 층은 그것으로 더 깔끔하게. 사진(png·jpg·heic 등)도 AI가 읽을 때 글자를 인식합니다. docx·pptx는 번들의 pandoc으로, 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
-- 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
+- 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared, 자동 업데이트도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
+- 자동 업데이트(6장): 데이터베이스는 되돌리지 않습니다(마이그레이션은 더하기만 하므로 이전 버전이 그대로 읽음; 필요하면
+  `업데이트 전` 백업으로 복원). 키트로 만든 데스크 앱(부록 C)은 자동 업데이트 뒤 일반 빌드가 되고, 새로 설치하는 데스크는
+  첫 화면에서 팀 주소를 직접 입력합니다(이미 쓰던 데스크는 저장된 주소 그대로). 윈도우 앱 자동 업데이트는 실제 윈도우
+  PC에서 아직 확인하지 않았습니다(맥에서 피드·인증·latest.yml까지 확인).
 - 인터넷 주소: 2FA 없음(8장). 허용 목록은 IPv4 CIDR과 나라(`CF-IPCountry`)만, 사람별 허용(Cloudflare Access 등)은 나중.
   같은 맥의 다른 프로그램은 앱 포트에 그 이름으로 요청해 IP를 꾸밀 수 있습니다(계정별 로그인 제한은 그대로). 그래서 인터넷
   주소로 온 기록의 IP는 그 맥의 다른 프로그램만큼만 믿을 수 있습니다: 맥 미니에 다른 사용자 계정·프로그램을 두지 마세요.

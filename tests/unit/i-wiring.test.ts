@@ -23,7 +23,7 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'edit', 'forget', 'glob', 'grep', 'list', 'make_file', 'read', 'remember', 'share_file', 'web_fetch', 'write'])
+    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'edit', 'forget', 'glob', 'grep', 'list', 'make_file', 'read', 'remember', 'search', 'share_file', 'web_fetch', 'write'])
   })
 
   test('artifact from a turn: saved for the answer, artifact.updated, listed over REST, audited with C\'s summary', async () => {
