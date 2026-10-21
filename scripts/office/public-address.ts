@@ -3,9 +3,12 @@
 // connector token that the clinic's Mac then gets (`~/TeamAX/teamax public-address set <name> <token file>`).
 //
 //   bun scripts/office/public-address.ts set    <name> (--cert FILE | --api-token-file FILE) [--port 47830]
-//                                                [--tunnel NAME] [--token-out FILE] [--allow-apex] [--dry-run]
+//                                                [--tunnel NAME [--share-tunnel]] [--token-out FILE] [--allow-apex]
+//                                                [--dry-run]
 //   bun scripts/office/public-address.ts remove <name> (--cert FILE | --api-token-file FILE) [--keep-tunnel]
-//                                                [--allow-apex] [--dry-run]
+//                                                [--no-rotate] [--allow-apex] [--dry-run]
+//   bun scripts/office/public-address.ts rotate <name> (--cert FILE | --api-token-file FILE) [--tunnel NAME]
+//                                                [--token-out FILE] [--dry-run]
 //   bun scripts/office/public-address.ts status <name> (--cert FILE | --api-token-file FILE)
 //
 // set: finds the zone of <name>; refuses the zone apex (usually the main website) unless --allow-apex, and refuses a
@@ -18,15 +21,25 @@
 // apex or another name is touched.
 // Also drops <name>'s rule from every other remotely managed tunnel of the account (a name that moved to another tunnel,
 // or one an older remove left behind), so a name is served by one tunnel only; those tunnels are never deleted.
+// A tunnel's connector token (account, tunnel id, secret) is the same for every name the tunnel serves, and Cloudflare
+// spreads every name's visitors over all of the tunnel's connectors. So set refuses a tunnel that already serves
+// another name (one clinic's Mac would get the other clinic's token and traffic) unless --share-tunnel says one Mac
+// serves all of those names.
 // remove: deletes <name>'s CNAME (only a tunnel CNAME), drops <name> from the ingress of every remotely managed tunnel of
-// the account and deletes the tunnel the CNAME pointed to (or the default-named one) when no other name uses it
-// (--keep-tunnel keeps that tunnel, still without <name>'s rule), and the local token file.
+// the account and deletes the tunnel the CNAME pointed to (or the default-named one, only when it has <name>'s rule)
+// when no other name uses it, and the local token file. A locally managed tunnel (config_src not "cloudflare") is never
+// touched. When the tunnel stays (--keep-tunnel, or other names on it) its secret is rotated, so the token handed out
+// for <name> stops connecting: the remaining names' Mac needs the new token (written and named in the output);
+// --no-rotate skips that when the same Mac serves every name.
+// rotate: a new secret for the tunnel <name> points to (or --tunnel), its live connections closed, the new token
+// written; every copy of the old token stops connecting.
 // Changing the address later: `set <new name>`, then on the clinic's Mac `teamax public-address set <new name>
 // <token file>`, then `remove <old name>`.
 //
 // Credentials: --cert is a cloudflared origin certificate (`cloudflared tunnel login`; it carries an API token for one
 // zone); --api-token-file is a Cloudflare API token with Zone:DNS:Edit and Account:Cloudflare Tunnel:Edit (one line).
 // Tokens are read in code and never printed or logged. Unit tests: tests/unit/office-tunnel.test.ts (mocked API).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -134,6 +147,11 @@ async function getTunnel(api: Api, accountId: string, id: string): Promise<Tunne
   } catch { return null }
 }
 
+/** a tunnel whose rules live in a local config.yml (config_src not "cloudflare"): this script never changes it */
+const isLocal = (t: Pick<Tunnel, 'config_src'>) => !!t.config_src && t.config_src !== 'cloudflare'
+/** live connectors of a tunnel (Cloudflare lists them as an array) */
+const connectorCount = (t: Tunnel) => Array.isArray(t.connections) ? t.connections.length : typeof t.connections === 'number' ? t.connections : 0
+
 async function tunnelByName(api: Api, accountId: string, name: string): Promise<Tunnel | null> {
   const ts = await api('GET', `/accounts/${accountId}/cfd_tunnel?name=${encodeURIComponent(name)}&is_deleted=false`) as Tunnel[]
   return (ts ?? []).find((t) => t.name === name && !t.deleted_at) ?? null
@@ -196,8 +214,24 @@ export function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(canon(a)) === JSON.stringify(canon(b))
 }
 
-export interface SetOptions { host: string; port?: number; tunnel?: string; tokenOut?: string; allowApex?: boolean; dryRun?: boolean }
-export interface SetResult { host: string; zone: string; tunnelId: string; tunnelName: string; created: boolean; dns: 'created' | 'updated' | 'unchanged'; service: string; tokenFile: string | null; actions: string[] }
+export interface SetOptions { host: string; port?: number; tunnel?: string; shareTunnel?: boolean; tokenOut?: string; allowApex?: boolean; dryRun?: boolean }
+export interface SetResult { host: string; zone: string; tunnelId: string; tunnelName: string; created: boolean; dns: 'created' | 'updated' | 'unchanged'; service: string; tokenFile: string | null; actions: string[]; sharedWith: string[]; connectors: number }
+
+/** the names a tunnel's rules serve, other than <host> */
+const otherNames = (host: string, ingress: IngressRule[]) => [...new Set(ingress.filter((r) => r.hostname && r.hostname.toLowerCase() !== host).map((r) => r.hostname!.toLowerCase()))]
+
+/**
+ * A new random secret for a remotely managed tunnel, its live connections closed, and the new connector token. Every
+ * copy of the old token stops connecting (the token is account + tunnel id + secret), including the connectors that
+ * were running: the Mac that should serve the tunnel's names needs the new token.
+ */
+export async function rotateSecret(api: Api, accountId: string, tunnel: Pick<Tunnel, 'id'>): Promise<string> {
+  await api('PATCH', `/accounts/${accountId}/cfd_tunnel/${tunnel.id}`, { tunnel_secret: crypto.randomBytes(32).toString('base64') })
+  try { await api('DELETE', `/accounts/${accountId}/cfd_tunnel/${tunnel.id}/connections`) } catch {}
+  const token = await api('GET', `/accounts/${accountId}/cfd_tunnel/${tunnel.id}/token`)
+  if (typeof token !== 'string' || token.length < 40) throw new Error('Cloudflare returned no connector token')
+  return token
+}
 
 export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'accountId'>, o: SetOptions): Promise<SetResult> {
   const host = normHost(o.host)
@@ -215,7 +249,7 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
     if (tunnel && o.tunnel && tunnel.name !== o.tunnel) throw new Refused(`${host} already points to the tunnel ${tunnel.name} (${tunnel.id}), not ${o.tunnel}: refused (remove ${host} first to move it)`)
   }
   if (!tunnel) {
-    const name = o.tunnel ?? defaultTunnelName(host)
+    const name = o.tunnel || defaultTunnelName(host)
     tunnel = await tunnelByName(api, zone.accountId, name)
     if (!tunnel) {
       actions.push(`create tunnel ${name}`)
@@ -224,10 +258,13 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
       created = true
     }
   }
-  if (tunnel.config_src && tunnel.config_src !== 'cloudflare') throw new Refused(`the tunnel ${tunnel.name} is managed by a local config file, not by Cloudflare: refused (use another --tunnel name)`)
+  if (isLocal(tunnel)) throw new Refused(`the tunnel ${tunnel.name} is managed by a local config file, not by Cloudflare: refused (use another --tunnel name)`)
 
   const service = `http://127.0.0.1:${port}`
   const cur = created ? { config: {}, ingress: [] } : await ingressOf(api, zone.accountId, tunnel.id)
+  // one tunnel = one connector token for all its names: another clinic's Mac must never get this one's token
+  const sharedWith = otherNames(host, cur.ingress)
+  if (sharedWith.length && !o.shareTunnel) throw new Refused(`the tunnel ${tunnel.name} already serves ${sharedWith.join(', ')}; its connector token is the same for every name it serves, so the Mac given the token for ${host} could serve those names (and get their visitors) too: refused, nothing changed. Leave out --tunnel so ${host} gets a tunnel of its own (if ${host} already points to ${tunnel.name}, remove ${host} first), or add --share-tunnel when one Mac serves all of these names`)
   const ingress = ingressFor(host, port, cur.ingress)
   if (!sameJson(ingress, cur.ingress)) {
     actions.push(`tunnel ${tunnel.name}: ${host} → ${service}`)
@@ -256,26 +293,44 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
     tokenFile = path.resolve(o.tokenOut ?? defaultTokenFile(host))
     writeSecret(tokenFile, token)
   }
-  return { host, zone: zone.name, tunnelId: tunnel.id, tunnelName: tunnel.name, created, dns, service, tokenFile, actions }
+  // a reused tunnel may already have connectors: the token written is the one they run with (same Mac, or a copy)
+  const connectors = created ? 0 : connectorCount(tunnel)
+  return { host, zone: zone.name, tunnelId: tunnel.id, tunnelName: tunnel.name, created, dns, service, tokenFile, actions, sharedWith, connectors }
 }
 
-export interface RemoveOptions { host: string; tunnel?: string; keepTunnel?: boolean; allowApex?: boolean; dryRun?: boolean; tokenOut?: string }
+export interface RemoveOptions { host: string; tunnel?: string; keepTunnel?: boolean; rotate?: boolean; allowApex?: boolean; dryRun?: boolean; tokenOut?: string; newTokenOut?: string }
+/** a kept tunnel whose secret was rotated: the Mac serving `names` needs the token in `tokenFile` */
+export interface Rotated { tunnelName: string; names: string[]; tokenFile: string | null }
 
-export async function removeAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'accountId'>, o: RemoveOptions): Promise<{ actions: string[] }> {
+export async function removeAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'accountId'>, o: RemoveOptions): Promise<{ actions: string[]; rotated: Rotated | null }> {
   const host = normHost(o.host)
   const zone = await findZone(api, host, cred)
   const { record, tunnelId } = checkRecords(host, zone, await records(api, zone, host), o)
   const actions: string[] = []
+  // the tunnel is looked up before anything changes: a locally managed tunnel keeps its rules in someone's config.yml,
+  // the API shows no names for it, so it would look unused. Never touched (the same rule as set). A CNAME pointing at
+  // one was not made by this script (set refuses those tunnels): the whole remove is refused, nothing changed.
+  const pointed = tunnelId ? await getTunnel(api, zone.accountId, tunnelId) : null
+  if (pointed && isLocal(pointed)) throw new Refused(`${host} points to the tunnel ${pointed.name}, which is managed by a local config file: refused, nothing changed (that tunnel and its CNAME are not Team AX's)`)
+  let tunnel = pointed ?? await tunnelByName(api, zone.accountId, o.tunnel || defaultTunnelName(host))
   if (record) {
     actions.push(`DNS: delete CNAME ${host} → ${record.content}`)
     if (!o.dryRun) await api('DELETE', `/zones/${zone.id}/dns_records/${record.id}`)
   } else actions.push(`DNS: ${host} has no record`)
-  let tunnel = tunnelId ? await getTunnel(api, zone.accountId, tunnelId) : null
-  if (!tunnel) tunnel = await tunnelByName(api, zone.accountId, o.tunnel ?? defaultTunnelName(host))
+  if (tunnel && isLocal(tunnel)) {
+    actions.push(`tunnel ${tunnel.name} is managed by a local config file: not touched`)
+    tunnel = null
+  }
+  let rotated: Rotated | null = null
   if (tunnel) {
     const cur = await ingressOf(api, zone.accountId, tunnel.id)
-    const others = cur.ingress.filter((r) => r.hostname && r.hostname.toLowerCase() !== host)
-    if (!others.length && !o.keepTunnel) {
+    const others = otherNames(host, cur.ingress)
+    // only a tunnel tied to this name is deleted or rotated: the one its CNAME pointed to, or one found by name that
+    // has its rule. An empty tunnel reached only through --tunnel or the default name belongs to something else.
+    const tied = !!pointed || hasRule(host, cur.ingress)
+    const kept = o.keepTunnel ? ' (--keep-tunnel)' : ''
+    if (!tied) actions.push(`tunnel ${tunnel.name} kept, it has no rule for ${host} and ${host} does not point to it`)
+    else if (!others.length && !o.keepTunnel) {
       actions.push(`delete tunnel ${tunnel.name} (${tunnel.id})`)
       if (!o.dryRun) {
         // a connector still running (the clinic's Mac) would keep the tunnel: its connections are closed first
@@ -284,18 +339,48 @@ export async function removeAddress(api: Api, cred: Pick<Credential, 'zoneId' | 
       }
     } else {
       // --keep-tunnel or other names on it: the tunnel stays, without this name's rule
-      const kept = o.keepTunnel ? ' (--keep-tunnel)' : ''
       if (hasRule(host, cur.ingress)) {
-        actions.push(`tunnel ${tunnel.name}: drop ${host}, kept${kept}${others.length ? ` for ${others.map((r) => r.hostname).join(', ')}` : ''}`)
+        actions.push(`tunnel ${tunnel.name}: drop ${host}, kept${kept}${others.length ? ` for ${others.join(', ')}` : ''}`)
         if (!o.dryRun) await api('PUT', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/configurations`, { config: { ...cur.config, ingress: ingressWithout(host, cur.ingress) } })
       } else actions.push(`tunnel ${tunnel.name} kept${kept}, it has no rule for ${host}`)
+      // the token handed out for this name is the tunnel's token: it would keep connecting (and serving the other
+      // names) until the secret changes
+      if (o.rotate === false) actions.push(`tunnel ${tunnel.name}: secret NOT rotated (--no-rotate): the token given out for ${host} still connects`)
+      else {
+        const file = others.length ? path.resolve(o.newTokenOut ?? defaultTokenFile(others[0]!)) : null
+        actions.push(`tunnel ${tunnel.name}: new secret (the token given out for ${host} stops connecting; live connections closed)${file ? `; new token for ${others.join(', ')}: ${file}` : ''}`)
+        if (!o.dryRun) {
+          const token = await rotateSecret(api, zone.accountId, tunnel)
+          if (file) writeSecret(file, token)
+        }
+        rotated = { tunnelName: tunnel.name, names: others, tokenFile: file }
+      }
     }
   }
   // a rule for this name in any other tunnel (moved earlier, or left by an older --keep-tunnel remove)
   await dropStaleRules(api, zone.accountId, host, tunnel?.id ?? null, 'removed', actions, o.dryRun)
   const tf = path.resolve(o.tokenOut ?? defaultTokenFile(host))
-  if (fs.existsSync(tf)) { actions.push(`delete ${tf}`); if (!o.dryRun) fs.rmSync(tf, { force: true }) }
-  return { actions }
+  if (fs.existsSync(tf) && tf !== rotated?.tokenFile) { actions.push(`delete ${tf}`); if (!o.dryRun) fs.rmSync(tf, { force: true }) }
+  return { actions, rotated }
+}
+
+export interface RotateOptions { host: string; tunnel?: string; tokenOut?: string; dryRun?: boolean }
+
+/** `rotate <name>`: a new secret for the tunnel serving <name>; the new token goes to --token-out or the default file. */
+export async function rotateAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'accountId'>, o: RotateOptions): Promise<{ actions: string[]; rotated: Rotated }> {
+  const host = normHost(o.host)
+  const zone = await findZone(api, host, cred)
+  if (!zone.accountId) throw new Refused('the account of the zone is unknown: pass --account-id')
+  const { tunnelId } = checkRecords(host, zone, await records(api, zone, host), { allowApex: true })
+  const tunnel = (tunnelId ? await getTunnel(api, zone.accountId, tunnelId) : null) ?? await tunnelByName(api, zone.accountId, o.tunnel || defaultTunnelName(host))
+  if (!tunnel) throw new Refused(`no tunnel serves ${host} (no tunnel CNAME, no tunnel called ${o.tunnel || defaultTunnelName(host)})`)
+  if (isLocal(tunnel)) throw new Refused(`the tunnel ${tunnel.name} is managed by a local config file: refused`)
+  if (o.tunnel && tunnel.name !== o.tunnel) throw new Refused(`${host} points to the tunnel ${tunnel.name}, not ${o.tunnel}: refused`)
+  const names = [...new Set((await ingressOf(api, zone.accountId, tunnel.id)).ingress.filter((r) => r.hostname).map((r) => r.hostname!.toLowerCase()))]
+  const file = path.resolve(o.tokenOut ?? defaultTokenFile(host))
+  const actions = [`tunnel ${tunnel.name} (${tunnel.id}): new secret, live connections closed, new token: ${file}`]
+  if (!o.dryRun) writeSecret(file, await rotateSecret(api, zone.accountId, tunnel))
+  return { actions, rotated: { tunnelName: tunnel.name, names, tokenFile: file } }
 }
 
 export async function statusOf(api: Api, cred: Pick<Credential, 'zoneId' | 'accountId'>, host0: string): Promise<string[]> {
@@ -329,33 +414,49 @@ function arg(args: string[], name: string): string | undefined {
 }
 
 const USAGE = `usage:
-  bun scripts/office/public-address.ts set <name> (--cert FILE | --api-token-file FILE) [--port 47830] [--tunnel NAME] [--token-out FILE] [--allow-apex] [--dry-run]
-  bun scripts/office/public-address.ts remove <name> (--cert FILE | --api-token-file FILE) [--keep-tunnel] [--allow-apex] [--dry-run]
+  bun scripts/office/public-address.ts set <name> (--cert FILE | --api-token-file FILE) [--port 47830] [--tunnel NAME [--share-tunnel]] [--token-out FILE] [--allow-apex] [--dry-run]
+  bun scripts/office/public-address.ts remove <name> (--cert FILE | --api-token-file FILE) [--keep-tunnel] [--no-rotate] [--new-token-out FILE] [--allow-apex] [--dry-run]
+  bun scripts/office/public-address.ts rotate <name> (--cert FILE | --api-token-file FILE) [--tunnel NAME] [--token-out FILE] [--dry-run]
   bun scripts/office/public-address.ts status <name> (--cert FILE | --api-token-file FILE)`
+
+function printRotated(r: Rotated | null) {
+  if (!r?.names.length || !r.tokenFile) return
+  console.log(`\nthe Mac that serves ${r.names.join(', ')} (tunnel ${r.tunnelName}) is disconnected until it gets the new token: ${r.tokenFile} (600; not shown)`)
+  console.log(`  copy it there (AirDrop/USB), then: ~/TeamAX/teamax public-address set ${r.names[0]} <the copied token file>`)
+}
 
 export async function main(argv: string[], apiFor: (c: Credential) => Api = (c) => cloudflareApi(c.apiToken)): Promise<number> {
   const [cmd, host] = argv
-  if (!cmd || !host || host.startsWith('--') || !['set', 'remove', 'status'].includes(cmd)) { console.error(USAGE); return 2 }
+  if (!cmd || !host || host.startsWith('--') || !['set', 'remove', 'rotate', 'status'].includes(cmd)) { console.error(USAGE); return 2 }
   const certFile = arg(argv, '--cert'), tokenFile = arg(argv, '--api-token-file')
   if (!certFile === !tokenFile) { console.error('pass exactly one of --cert <cloudflared cert.pem> or --api-token-file <file>'); return 2 }
   const cred = certFile ? readCert(certFile) : readApiTokenFile(tokenFile!)
   if (arg(argv, '--account-id')) cred.accountId = arg(argv, '--account-id')
   const api = apiFor(cred)
-  const flags = { allowApex: argv.includes('--allow-apex'), dryRun: argv.includes('--dry-run'), tunnel: arg(argv, '--tunnel'), tokenOut: arg(argv, '--token-out') }
+  const flags = { allowApex: argv.includes('--allow-apex'), dryRun: argv.includes('--dry-run'), tunnel: arg(argv, '--tunnel') || undefined, tokenOut: arg(argv, '--token-out') }
   try {
     if (cmd === 'status') { for (const l of await statusOf(api, cred, host)) console.log(l); return 0 }
     if (cmd === 'remove') {
-      const r = await removeAddress(api, cred, { host, ...flags, keepTunnel: argv.includes('--keep-tunnel') })
+      const r = await removeAddress(api, cred, { host, ...flags, keepTunnel: argv.includes('--keep-tunnel'), rotate: !argv.includes('--no-rotate'), newTokenOut: arg(argv, '--new-token-out') })
       for (const a of r.actions) console.log(`${flags.dryRun ? 'would ' : ''}${a}`)
+      if (!flags.dryRun) printRotated(r.rotated)
+      return 0
+    }
+    if (cmd === 'rotate') {
+      const r = await rotateAddress(api, cred, { host, tunnel: flags.tunnel, tokenOut: flags.tokenOut, dryRun: flags.dryRun })
+      for (const a of r.actions) console.log(`${flags.dryRun ? 'would ' : ''}${a}`)
+      if (!flags.dryRun) printRotated(r.rotated)
       return 0
     }
     const port = arg(argv, '--port') ? Number(arg(argv, '--port')) : undefined
-    const r = await setAddress(api, cred, { host, port, ...flags })
+    const r = await setAddress(api, cred, { host, port, ...flags, shareTunnel: argv.includes('--share-tunnel') })
     for (const a of r.actions) console.log(`${flags.dryRun ? 'would ' : ''}${a}`)
     if (!r.actions.length) console.log('Cloudflare already set up (nothing changed)')
     console.log(`\nhttps://${r.host} → tunnel ${r.tunnelName} (${r.tunnelId}) → ${r.service} on the clinic's Mac`)
     if (r.tokenFile) {
       console.log(`connector token: ${r.tokenFile} (600; not shown). Copy it to the clinic's Mac (AirDrop/USB), then there:`)
+      if (r.connectors) console.log(`  NOTE: this token is the one already running on ${r.connectors} connector(s) of ${r.tunnelName}; give it only to the Mac that already serves ${r.host}`)
+      if (r.sharedWith.length) console.log(`  NOTE (--share-tunnel): this token also serves ${r.sharedWith.join(', ')}; give it only to the one Mac that serves all of them`)
       console.log(`  ~/TeamAX/teamax public-address set ${r.host} <the copied token file>`)
       console.log('  (or at install: bash office-install.sh --public-host ' + r.host + ' --tunnel-token-file <file>)')
     }

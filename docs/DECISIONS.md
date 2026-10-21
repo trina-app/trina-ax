@@ -118,7 +118,7 @@
 
 - **다른 사람의 `users/<id>/`는 owner에게도 none이다(2번 탭 해석 규칙 2·3).** Stage 1의 권한 함수는 owner에게 모든 폴더 쓰기를 주고, `users/` 아래 규칙도 읽었다. 설계서 v3(2번 탭)대로 바꿨다: 본인 폴더는 항상 쓰기, 남의 개인 폴더는 역할과 규칙에 상관없이 none, `users/` 아래 규칙은 해석할 때도 무시한다(폴더 이동·백업 복원으로 들어온 규칙 포함). owner·admin은 그 밖의 모든 폴더 쓰기. `users/` 폴더 자체는 모두에게 읽기(목록)만: 거기에 파일을 두거나, 아직 없는 사람의 개인 폴더를 미리 만들거나, `users/` 전체를 옮기거나 지우는 일은 owner도 못 한다. 시험 기대표(`tests/lib/fixtures.ts`)의 owner 줄도 고쳤다.
 - **세션**: 무작위 32바이트 토큰, DB에는 SHA-256만, 30일 고정(사용해도 늘지 않음). 쿠키 이름은 요청 주소로 정한다: https면 `__Host-sid`(Secure·HttpOnly·SameSite=Lax·Path=/·Domain 없음), http(개발·`*.localhost`)면 `mycel-dev-sid`. 읽을 때도 그 방식의 이름만 받는다: https에서 `mycel-dev-sid`를 받으면 다른 `*.treesoop.com` 주소가 심은 쿠키로 세션 고정이 되므로(7번 탭) 무시한다. 중계 클라이언트는 요청 주소를 `https://<팀 주소>`로 만들어야 한다. 앱·스크립트는 `Authorization: Bearer`, 모바일 껍데기 WebSocket은 subprotocol `mycel.bearer.<token>`도 받는다(둘 다 bearer라 CSRF 헤더 면제). `last_seen_at`은 1분에 한 번만 쓴다.
-- **로그인 횟수 제한**(DB `login_attempts`, 재시작해도 유지): 15분 창에서 계정당 실패 10회, 실제 IP당 30회(여러 계정 합산), 로그인한 사람의 비밀번호 재확인·현재 비밀번호 확인 5회, 초대·재설정·첫 설정 토큰 추측은 IP당 30회. 넘으면 429 + `Retry-After`. 막힌 동안에는 비밀번호를 확인하지 않는다(맞는 비밀번호도 429). 시도는 비밀번호를 확인하기 *전에* 센다(성공하면 그 기록을 지운다): 확인이 느려서, 먼저 확인하고 나중에 세면 동시에 보낸 40개가 모두 한도 검사를 통과했다. argon2id는 동시에 4개까지만 돌리고 200개까지 기다리게 하며 그 이상은 429(메모리 64MiB씩). 막힌 시도의 `auth.rate_limited` 감사 기록은 IP(모르면 계정)당 1분에 한 번만 남긴다(디스크 채우기 방지). 초대·재설정 링크의 토큰은 로그의 요청 경로에서 `***`로 바꾼다. 로그인에 성공하면 그 계정의 실패만 지운다. IP는 `info.ip`(소켓 상대 또는 중계 OPEN 메타데이터)만 쓰고, 모르면 계정 제한만 건다. 감사 기록에는 IP와 경로(direct/relay)만, 시도한 비밀번호는 절대 남기지 않는다.
+- **로그인 횟수 제한**(DB `login_attempts`, 재시작해도 유지): 15분 창에서 계정당 실패 10회, 실제 IP당 30회(여러 계정 합산), 로그인한 사람의 비밀번호 재확인·현재 비밀번호 확인 5회, 초대·재설정·첫 설정 토큰 추측은 IP당 30회. 넘으면 429 + `Retry-After`. 막힌 동안에는 비밀번호를 확인하지 않는다(맞는 비밀번호도 429). 계정 횟수는 4차에서 길별로 나뉘었다(아래 "보안 4차"). 시도는 비밀번호를 확인하기 *전에* 센다(성공하면 그 기록을 지운다): 확인이 느려서, 먼저 확인하고 나중에 세면 동시에 보낸 40개가 모두 한도 검사를 통과했다. argon2id는 동시에 4개까지만 돌리고 200개까지 기다리게 하며 그 이상은 429(메모리 64MiB씩). 막힌 시도의 `auth.rate_limited` 감사 기록은 IP(모르면 계정)당 1분에 한 번만 남긴다(디스크 채우기 방지). 초대·재설정 링크의 토큰은 로그의 요청 경로에서 `***`로 바꾼다. 로그인에 성공하면 그 계정의 실패만 지운다. IP는 `info.ip`(소켓 상대 또는 중계 OPEN 메타데이터)만 쓰고, 모르면 계정 제한만 건다. 감사 기록에는 IP와 경로(direct/relay)만, 시도한 비밀번호는 절대 남기지 않는다.
 - **없는 아이디와 틀린 비밀번호는 같은 문구·같은 시간**(없는 계정도 더미 argon2id 해시로 확인). 비활성 계정도 비밀번호가 맞든 틀리든 같은 401 "아이디 또는 비밀번호가 맞지 않습니다"이고 실패 횟수에 들어간다(보안 점검 1회차에서 바꿈: 전에는 맞는 비밀번호에만 403 "사용할 수 없는 계정"이라 로그인하지 않은 사람에게 계정이 있고 비활성이며 그 비밀번호가 맞다는 것을 알려 줬다). 대가로 비활성이 된 사람은 로그인 화면에서 "관리자에게 문의" 안내를 보지 못한다. 비활성화될 때 열려 있던 세션에는 계속 그 이유가 간다. 서버 감사 기록의 `auth.login_failed`에는 `disabled: true`가 붙는다.
 - **비밀번호 규칙**: ~~10~256자, 서로 다른 문자 4개 이상, 짧은 반복 금지, 아이디 포함 금지, 임시 비밀번호 `xxxx-xxxx-xxxx-xxxx`~~ → 2026-10-21 소유자 결정으로 8~128자·아이디와 같으면 안 됨·흔한 비밀번호 금지만 남기고, 임시 비밀번호는 외우기 쉬운 단어+숫자로 바꿨다(아래 "쉬운 비밀번호").
 - **비밀번호 재설정은 두 가지를 다 둔다.** 설계(1·4·5번 탭)는 1회용 재설정 링크(24시간, 메일 없이 관리자가 전달)이고, 기반 계약에는 임시 비밀번호(첫 로그인 때 변경 강제)가 있었다. 둘 다 구현했다: `POST /api/admin/users/:id/reset-link`, 공개 `GET/POST /api/password-resets/:token`. 새 링크를 만들면 이전 링크는 무효. 링크를 쓰면 그 사람의 다른 세션이 모두 끝나고 바로 로그인된다. owner 본인 복구는 서버 맥에서 `bun run admin reset-link`(메뉴바 앱이 이 CLI를 부르면 된다). "마지막 초기화: 누가·언제"는 `/api/me`의 `passwordReset`(누가 = null이면 서버 맥 복구). 화면 알림 테이블(notifications)은 아직 주인이 없어 만들지 않았다.
@@ -427,7 +427,7 @@ polish/0(보안)·1(정확성)·2(화면·UX)·3(계약·데드 코드)을 이 �
 - **LOCAL_LOGIN을 실제로 쓰는 것만으로 좁혔다**(보고 모드 `(with report)`로 `claude -p`가 건드리는 경로를 기록해서 정함): `~/.claude.json`과 그 `.lock`·`.tmp.*`, `~/.claude/backups/`, 이 턴의 세션 폴더(`SESSION_DIR` = 실행기가 확인한 sessionCollect 폴더, 아니면 채팅 폴더), 읽기 전용 `~/.claude/settings.json`·`~/.claude/cache/`, `~/.codex/auth.json`, 설치 폴더(`~/.local/share/claude`, `~/.codex/packages`) 읽기, 로그인 키체인. 이제 막히는 것: owner의 다른 프로젝트 대화 기록(`~/.claude/projects/*`), 실행 중인 세션 목록과 메시지 키(`~/.claude/sessions/`), history·file-history·todos, owner가 설치한 플러그인(스캔도 못 함), settings·hooks·skills·CLAUDE.md 쓰기(owner의 샌드박스 밖 CLI가 읽는 것), `~/.codex`의 sessions·history·config.toml. Claude는 `sessions/`·`plugins/`·`telemetry/`가 막혀도 정상 동작한다.
 - **실행기의 USER_HOME**: 서버가 실행기를 빈 환경으로 띄워 `$HOME`이 없었고, LOCAL_LOGIN 규칙이 모두 `/.claude`를 가리켰다(위 "동작했다"는 sandbox-exec를 직접 실행한 확인이었다). 실행기가 계정 DB에서 홈을 찾고, `--local-login`인데 홈이 없으면 시작하지 않는다. 서버도 실행기에 HOME을 넘긴다(엔진 환경은 여전히 요청의 env만).
 - **개발 Codex의 상태는 채팅 폴더 안**: `CODEX_HOME=<chat>/.codex`(auth.json은 owner 로그인으로 가는 링크), `HOME=<chat>/.home`(매 턴 비움), 잠긴 카탈로그 사본 `<chat>/.codex/catalog.json`(매 턴 새로). 공유 `<data>/codex-home`은 샌드박스가 데이터 폴더를 열어야 했고 모든 채팅의 Codex 상태(로그·sqlite)가 섞였다. 서버는 샌드박스 밖에서 이 폴더들을 준비하므로 엔진이 남긴 링크는 따라가지 않고 지운다(`prepareCodexTurn`). 역할 계정 모드(`agent-own`)는 설정된 폴더 그대로.
-- **남는 것(기록)**: 개발 모드에서 엔진은 CLI 로그인에 필요한 `~/.claude.json`(owner가 연 프로젝트 경로 목록 포함)과 `~/.codex/auth.json`, 로그인 키체인 파일을 읽고 쓸 수 있고, owner uid라 pf가 없어 직접 HTTPS(`*:443`)가 열려 있다. 그래서 도구 잠금이 뚫린 개발 턴이 owner의 CLI 로그인 토큰을 밖으로 보낼 수 있는 길은 남는다. 이것은 역할 계정 모드(`_axagent` + 모델 프록시 + pf)가 닫는다. 실제 데이터를 쓰는 팀원에게는 개발 서버가 아니라 설치본을 쓴다.
+- **남는 것(기록)**: 개발 모드와 **사무실 모드**(같은 엔진 구성, 실제 환자 자료)에서 엔진은 CLI 로그인에 필요한 `~/.claude.json`(owner가 연 프로젝트 경로 목록 포함)과 로그인 키체인 파일을 읽고 쓸 수 있고(`/usr/bin/security`로 Claude 로그인 항목을 프롬프트 없이 읽음), 맥 사용자 uid라 pf가 없어 직접 HTTPS(`*:443`, `udp *:53`: 인터넷과 사무실 LAN의 443 기기)가 열려 있다. 그래서 도구 잠금이 뚫린 턴이 그 맥의 Claude 로그인 토큰과 턴이 읽은 자료를 밖으로 보낼 수 있는 길은 남는다. SBPL은 호스트 이름을 쓸 수 없어(`*` 또는 `localhost`만) 프로필로는 Anthropic만으로 좁힐 수 없다. 이것은 모델 프록시(구독 setup-token, `LOCAL_LOGIN=0`)가 닫는다(4차에서 사무실을 그쪽으로 바꾸지 않은 이유는 아래 "보안 4차"). 4차에서 좁힌 것: `~/.claude.json` 규칙을 그 파일과 실제 형제(`.lock`·`.tmp.*`·`.backup*`)로 고정, 키체인 폴더 쓰기를 `login.keychain-db`와 원자적 쓰기 짝으로, `~/.codex`는 Codex가 켜졌을 때만(`LOCAL_CODEX`), 사무실 모드는 `~/.claude.json`의 MCP 서버를 지움.
 - 검증: 실제 Claude 1턴(haiku)·Codex 1턴을 이 프로필로 실행기를 거쳐 돌렸고 둘 다 MCP `read`로 팀 파일을 읽어 답했다. 전에는 막히지 않던 것 중 엔진이 시도한 것: `/bin/sh`·`ps`·`git` 실행, 작업 폴더 위의 `.git` 탐색, `~/Library/Caches/claude-cli-nodejs` 쓰기(모두 거부되어도 턴은 정상).
 
 ## 보안 검토 r1 — 공유 흐름 (sec/r1-sharing-works, 2026-10-21)
@@ -800,3 +800,110 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **첫 로그인 뒤 변경은 새 비밀번호만**: 임시 비밀번호로 로그인해 만든 세션(`sessions.temp_login = 1`)이고 계정이 아직 변경 대기일 때만 `POST /api/auth/password`에서 `currentPassword`를 뺄 수 있다(`Me.session.tempLogin`). 그 세션은 **1시간**만 살고(그 안에 바꾸면 그 자리에서 보통 30일 세션이 된다), 바꾸는 쓰기는 `must_change_password = 1`일 때만 된다(같은 세션의 두 번째 변경은 현재 비밀번호 필요). 설정 화면의 변경, 예전에 만든 변경 대기 세션은 여전히 현재(임시) 비밀번호를 묻는다. 쿠키 요청은 다른 쓰기처럼 CSRF 검사(전용 헤더, cross-site 거절)를 거친다. 쿠키 수명은 30일 그대로(세션이 언제 끝나는지는 서버가 정한다). 그 세션이 살아 있는 동안 임시 비밀번호가 기한이 지나거나 무효가 되면 현재 비밀번호 없이는 바꿀 수 없다(보안 리뷰 5). 강제 변경 화면에는 아이디, 비밀번호 보기 단추, Caps Lock 알림, **다른 계정으로 로그인**(공용 데스크에서 잘못 들어온 경우)이 있다. 비밀번호 칸의 `minLength`는 뺐다: 브라우저 말풍선 대신 앱의 "8자 이상" 문구가 나온다(첫 설정·초대·재설정 링크·변경 화면).
 - **변경 대기 세션은 비밀번호 바꾸기 말고는 아무것도 못 한다**: HTTP는 예전처럼 `/api/me`·비밀번호 변경·로그아웃만(`enforceAuth`), 이번에 **실시간 WebSocket도 4401로 닫는다**(전에는 연결되어 팀 이벤트를 받을 수 있었다; 웹은 변경 전에 연결하지 않으므로 화면 변화 없음).
 - 가이드(`docs/office/guide.html`, `windows-guide.html`, `docs/guide/guide.html`)와 PDF를 새 흐름으로 고쳐 다시 구웠다. 서버 CLI에는 임시 비밀번호를 만드는 명령이 없다(재설정 링크만, 그대로). 웹 e2e의 첫 설정 두 테스트는 영어 브라우저로 돌린다(89e32d5부터 첫 설정은 브라우저 언어로 시작), 파일 충돌 사본 테스트는 이번 저장의 사본(`- Olga`)만 찾는다(목 서버에 Bob의 예전 사본이 있다).
+
+## 보안 4차 (sec/r4, 2026-10-21)
+
+첫 치과 exampleteam 전에 사무실 모드(LAN·인터넷 주소·터널 스크립트·엔진)를 다시 공격한 결과를 고쳤다. 표와 남은 위험은
+[SECURITY-AUDIT.md](SECURITY-AUDIT.md) "4차".
+
+- **복원은 어느 길이든 로그인을 모두 끝낸다(4차 1).** `teamax restore-archive --replace`가 보관본의 세션을 그대로 살려, 보관본을
+  만든 뒤 로그아웃했거나 비밀번호를 바꿔 끝난 토큰이 다시 통했다(인터넷 주소로는 어디서나). 관리자 복원에만 있던
+  `endSessions`를 내보내 세 곳에서 쓴다: `admin.js restore-archive`가 풀 때(풀린 폴더를 쓰는 모든 길: 사무실 바꿔 넣기, 운영
+  설치에 손으로 넣기), 사무실 `swapInRestore`가 넣기 전에(실패하면 지금 설치는 그대로), 관리자 복원. 같은 이유로 **안 쓴
+  비밀번호 재설정 링크와 초대**도 지운다(보관본 뒤에 쓰였거나 거둔 링크가 되살아나지 않게; 쓴 기록은 남김). 사무실 바꿔 넣기도
+  `data/sessions`(엔진 세션 사본)를 `sessions.before-restore-<시각>`으로 옮긴다(관리자 복원과 같음). 복원 화면·`teamax`
+  도움말·OFFICE.md에 "모두 다시 로그인, 안 쓴 링크는 새로"를 적었다. 시험: `tests/security/r4-restore-archive-sessions.test.ts`
+  (실제 `admin.js archive`/`restore-archive` + 바꿔 넣기 + 같은 폴더로 서버 다시 열기: 로그아웃한 토큰 401),
+  `tests/unit/office.test.ts`(세션 0, 안 쓴 링크만 지움, `data/sessions` 옮김, 읽을 수 없는 DB면 그대로).
+- **사무실 CA의 이름 제한은 `<맥 이름>.local` 하나(4차 3).** 전에는 맥의 맨 이름(`<맥 이름>`)도 허용 범위였다. RFC 5280의
+  dNSName 제한은 그 아래 모든 이름을 허용하므로, 맥 이름이 실제 최상위 도메인(dental, clinic, dentist, office …)이면 CA 키가
+  샐 때 그 TLD 아래 모든 공개 사이트를 데스크에 사칭할 수 있었다. 서버 인증서도 맨 이름을 넣지 않는다(데스크는 IP와
+  `.local`만 쓴다). 맨 이름이 든 예전 CA(`ca.json`에 점 없는 이름이 `local` 말고 있으면)는 다음 시작 때 **새로 만든다**: 옛 CA는
+  `ca.*.old-<날짜>`로 남고, 사무실 기록에 "new office CA … desks on the in-office path install the new CA once"가 나온다.
+  사무실 안 경로를 쓰는 데스크는 CA를 다시 설치해야 하지만, 지금 이 CA를 쓰는 데스크는 없다(exampleteam은 인터넷 주소가 기본이고
+  아직 설정 전). `TEAMAX_CA_CONSTRAINTS=0`으로 만든 CA(제한 없음)는 그대로 둔다. 시험: `tests/security/r4-office-ca-tld.test.ts`
+  (맥 이름 "dental": `www.smile.dental` 등 서명해도 OpenSSL이 거부, 예전 CA는 다시 만듦), `tests/unit/office.test.ts`.
+- **계정 로그인 제한을 길별로 나눴다(4차 2).** 계정당 실패 횟수가 모든 길에서 하나였으므로, 인터넷 주소로 아는 아이디에
+  15분마다 틀린 비밀번호 10번이면 owner와 데스크 전체가 맥 미니·사무실 안에서도 15분 동안 못 들어왔다(막힌 동안에는 맞는
+  비밀번호도 429). 이제 시도마다 계정 횟수의 범위(`AccountScope`, `auth/rate-limit.ts`)를 고른다: ① 맥 미니 자신(루프백,
+  터널 아님) 또는 그 사람이 **전에 로그인한 네트워크**(IPv4 주소·IPv6 /64, 90일, 사람당 20개; 비밀번호·초대·재설정 링크로
+  로그인할 때 `signIn`이 기억, 새 표 `login_nets`) → 그 네트워크만의 횟수, ② 인터넷(터널·중계)의 처음 보는 네트워크 → 예전처럼
+  계정 하나의 횟수(봇넷도 15분에 10번), ③ 서버에 바로 온 사무실 안(LAN·개발) → 사무실 횟수. 인터넷 실패는 ①·③을 건드리지
+  않는다. 치과 데스크는 인터넷 주소로 들어오므로 치과의 공인 IP가 ①이 된다(처음 한 번 로그인한 뒤). 맞는 비밀번호는 **그 범위의
+  실패만** 지운다(치과에서 로그인해도 인터넷의 추측꾼에게 10번을 새로 주지 않음). 관리자 임시 비밀번호·재설정 링크는 모든
+  범위를 지운다(`clearAccount`). IP당 30번 제한은 그대로다. 남는 것: 처음 보는 네트워크(새 집 IP, 치과 IP가 바뀐 직후)에서는 공격
+  중에 막힐 수 있고, 같은 공인 IP를 쓰는 다른 사람(통신사 CGNAT)은 그 사람의 ① 횟수를 함께 쓴다. 시험:
+  `tests/security/r4-login-lockout-from-internet.test.ts`(인터넷에서 10번 틀린 뒤 맥·LAN·치과 IP는 200, 낯선 IP는 맞는 비밀번호도
+  429, LAN·치과 IP도 각자 10번에 잠김).
+- **터널 하나 = 사무실 맥 하나(4차 4).** 터널의 연결 토큰(계정·터널 id·비밀)은 그 터널이 맡는 모든 이름에 같고, Cloudflare는
+  모든 이름의 손님을 그 터널의 모든 커넥터에 나눠 보낸다. 그런데 `set <치과2> --tunnel <치과1의 터널>`(또는 치과2의 CNAME이
+  이미 그 터널을 가리킬 때)이 아무 말 없이 치과1과 똑같은 토큰을 치과2의 토큰 파일로 썼다. 두 맥이 같은 터널에 붙으면 한
+  치과의 쿠키·로그인 본문이 다른 치과 맥에 갈 수 있었다. 이제 `set`은 터널이 이미 **다른 이름**을 맡고 있으면 아무것도 바꾸지
+  않고 거부한다(종료 3, 토큰 파일 없음). 한 맥이 이름 여럿을 맡을 때만 `--share-tunnel`로 허락하고, 출력에 함께 쓰는 이름을
+  보인다. 이미 커넥터가 붙은 터널을 다시 쓰면 "this token is the one already running on N connector(s)"를 보인다. 빈
+  `--tunnel ''`은 없는 것과 같다(기본 이름). 그 이름을 `remove`해도 손에 나간 토큰은 계속 붙었으므로, 남는 터널(`--keep-tunnel`
+  또는 다른 이름이 남음)은 **비밀을 새로 바꾸고**(`PATCH cfd_tunnel {tunnel_secret}` + 연결 끊기) 남은 이름의 새 토큰을 쓴다
+  (`--new-token-out`, 기본 그 이름의 토큰 파일; 그 맥에서 `teamax public-address set`으로 다시 넣어야 함). `--no-rotate`는
+  같은 맥이 모든 이름을 맡을 때만. 새 명령 `rotate <이름>`은 그 이름의 터널 비밀을 바꾸고 새 토큰을 쓴다(토큰이 샌 의심이
+  들 때). 시험: `tests/security/r4-tunnel-token-sharing.test.ts`(비밀에서 토큰을 만드는 가짜 API: 거부, CNAME 경로 거부, 공유한
+  뒤 remove하면 옛 토큰이 붙지 못함, rotate), `tests/unit/office-tunnel.test.ts`.
+- **remove는 로컬 설정 터널을 지우지 않는다(4차 5).** `remove`가 기본 이름(`teamax-<이름>`)·`--tunnel`·CNAME으로 찾은 터널의
+  `config_src`를 보지 않아, 규칙이 누군가의 `config.yml`에 있어 API에는 비어 보이는 **로컬 설정 터널**을 "쓰는 이름 없음"으로
+  보고 연결을 끊고 지웠다(`set`과 남은 규칙 정리는 이미 건너뜀). 이제 터널을 **아무것도 바꾸기 전에** 찾고, CNAME이 로컬 설정
+  터널을 가리키면 remove 전체를 거부한다(그 CNAME은 이 스크립트가 만든 것이 아님, `set`이 그런 터널을 거부하므로). 이름·
+  `--tunnel`로 찾은 로컬 터널은 "not touched"로 두고 나머지(CNAME, 다른 터널의 남은 규칙)만 정리한다. 원격 관리 터널도 그
+  이름의 CNAME이 가리키거나 그 이름 규칙이 있을 때만 지우거나 비밀을 바꾼다(`--tunnel`로만 닿은 빈 터널은 남의 것일 수
+  있음). 시험: `tests/security/r4-remove-local-tunnel.test.ts`.
+- **파일이 그 사람의 손을 떠나면 AI 세션에서도 떠난다(4차 6).** 첨부했거나 AI가 읽은 팀 파일을 누군가 그 사람이 못 읽는
+  폴더로 옮기면(예: `shared/`에 잘못 둔 급여 명단을 `groups/hr`로), 앱은 첨부를 "더 이상 열 수 없음"으로 보였지만 다음 턴이
+  저장된 엔진 세션을 이어(`--resume`) AI가 그 내용으로 답했다. 규칙 변경은 H7(`afterAccessChange`)로 세션을 지웠지만 옮기기·
+  지우기는 아니었다. 이제 `FileService.move`·`remove`가 전에 읽을 수 있던 활성 사용자를 먼저 구하고, 뒤에 그 자리(옮긴 곳,
+  지운 경우는 휴지통 항목: 거기서 볼 수 있으면 되돌릴 수 있으므로 잃은 것이 아님)를 못 읽는 사람의 엔진 세션을 지운다
+  (`resetEngineSessions`, H7과 같은 함수: 그 사람의 모든 채팅이 다음 턴에 DB 기록으로 새로 시작). 다른 사람이 이름을 바꾼 경우도
+  move다. 추가 방어: 턴이 세션을 이을 때 그 가지의 앞선 메시지 중 팀 첨부가 지금 열 수 없는 것이 있으면 잇지 않고 옛 세션
+  파일을 지운다(그 채팅은 그 뒤로도 매번 DB 기록으로 새로 시작: 드문 경우라 받아들임). 남는 것: 휴지통에서 **영구 삭제**·자동
+  비우기는 세션을 지우지 않는다(그 사람은 지울 때까지 읽을 수 있었고, 자동 비우기마다 모두의 세션을 지우면 비용이 큼).
+  `session_read_scope`에서 옛 폴더를 지우는 것(선택안 3)은 하지 않았다: 세션이 지워지면 다음 턴의 내용에는 그 파일이 없다.
+  시험: `tests/security/r4-attach-session-after-move.test.ts`(옮긴 뒤 세션·`data/sessions/<채팅>` 없음, 다음 턴 resumed=false;
+  shared 안 옮기기는 유지; 휴지통을 못 보는 삭제; 세션을 되살려도 턴이 잇지 않음).
+- **휴지통에 있는 폴더의 파일 버전은 되돌리지 않는다(4차 7, 치명).** 제한 폴더(`shared/Layoffs`: everyone none, hr write)를
+  휴지통에 넣으면 그 규칙은 `.system/trash` 아래로 옮겨지는데, 버전 되돌리기는 **지금의** 규칙으로 쓰기 권한을 봐서 위
+  폴더(`shared/`, 모두 쓰기)로 통과하고 그 자리에 폴더와 파일을 규칙 없이 다시 만들었다. hr 사람(휴지통 속 버전은 여전히 보임)
+  이나 관리자가 평범하게 "이 버전으로 되돌리기"를 누르면 팀 전체가 그 내용을 읽고 고치고 지울 수 있었다. 이제
+  `restoreVersion`은 버전의 폴더(`folder_id`)가 휴지통에 있으면(`parkedView`가 null이 아님, 휴지통 항목이 사라진 경우 포함)
+  409 `folderInTrash`("폴더를 먼저 되돌리세요")로 거부하고, 버전이 모두 그런 경우 `history`가 `canRestore:false`를 준다. 폴더를
+  휴지통에서 되돌리면 규칙과 함께 돌아오고 그때 버전 되돌리기가 된다. 버전의 폴더가 지금 그 경로를 맡는지까지 요구하는 것은
+  하지 않았다: 파일을 다른 폴더로 옮겨도 `folder_id`는 저장 때 폴더라 정상 되돌리기가 막힌다. 시험:
+  `tests/security/r4-restore-version-trashed-folder.test.ts`(hr·관리자 모두 409, mallory는 내용·트리 404, 폴더를 되돌린 뒤 성공).
+- **사무실 엔진의 맥 로그인 노출을 좁혔다(4차 8~13).** 사무실 모드는 개발과 같은 엔진(`engine.sb` `LOCAL_LOGIN=1`, 맥 사용자의
+  Claude 로그인)으로 실제 환자 자료를 다루는데, 도구 잠금이 뚫린 턴에 열려 있던 것: 로그인 키체인의 Claude 항목(`/usr/bin/security`,
+  프롬프트 없음)·`~/.claude.json`, 아무 호스트의 `:443`·`udp :53`(8, 10), `~/.claude.json`에 사용자 범위 MCP 서버를 심어 맥
+  사용자가 다음에 띄우는 `claude`가 샌드박스 밖에서 실행(9), 키체인 폴더 전체 쓰기(11), Codex를 끈 사무실에서도
+  `~/.codex/auth.json` 읽기·쓰기(12), 끝이 열린 `~/.claude.json` 정규식으로 채팅 사이 공유 저장소(13). 고친 것:
+  ① `~/.claude.json` 규칙을 `\.claude\.json(\.lock|\.tmp\.[^/]+|\.backup[^/]*)?$`로 고정(13). ② 키체인 쓰기를
+  `login.keychain-db`(+`-shm`/`-wal`/`-journal`/`.sb-*` 임시)와 `.fl*` 잠금 파일로만(11; 감사의 N2안. 가짜 키체인에서
+  `security add-generic-password -U` 갱신은 그대로 되고 새 파일·폴더·이름 바꾸기는 거부. 지우기(unlink)는 원자적 다시 쓰기에 필요해
+  남음). ③ 새 프로필 인자 `LOCAL_CODEX`: Codex 경로(`~/.codex` 메타데이터, `auth.json`, `packages`)는 `1`일 때만, 실행기는
+  `--local-login --local-codex`일 때만 `1`, 서버는 Codex 바이너리가 있을 때만 `--local-codex`(사무실은 `codexBin ''` → 0)(12).
+  ④ 사무실 모드(`office` + local-login)는 서버 시작과 Claude 턴이 끝날 때마다 `~/.claude.json`의 MCP 설정(맨 위·프로젝트별
+  `mcpServers`, `enabledMcpjsonServers`, `enableAllProjectMcpServers`)이 비어 있지 않으면 비우고(나머지 키는 그대로, 같은 폴더
+  임시 파일 + rename, 링크는 따라가지 않음) 기록·감사(`engine.claude_json_mcp_removed`)에 남긴다(9의 단기책;
+  `server/src/engine/claude-json-guard.ts`). 실제 `claude -p` 1턴이 바뀐 프로필(LOCAL_LOGIN=1, LOCAL_CODEX=0)에서 로그인해 답했다.
+  **사무실을 구독 setup-token + 모델 프록시로 바꾸지 않은 이유**: 그 한 가지가 8·9·10·11·12를 함께 닫지만, 프록시를 거친
+  실제 Anthropic 응답은 아직 한 번도 확인되지 않았고(INSTALL.md "Not verified"), 설치기·치과 가이드의 로그인 절차도 바뀐다.
+  첫 시범 전날 확인 안 된 길로 바꾸는 것은 안전하지 않다고 봤다. 그래서 남는 위험(8·10·11 일부)은 SECURITY-AUDIT.md 4차와
+  OFFICE.md 8장에 적었고, 치과 맥 미니는 Team AX 전용·개인 키체인 항목 없음·`claude`를 `/login` 말고 쓰지 않음으로 운영한다.
+  시험: `tests/security/r4-engine-local-login.test.ts`(가짜 홈: 공유 저장소·키체인 새 파일·Codex 로그인 거부, MCP 지우기·감사).
+- **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 14, 검토 중 추가).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
+  `teamName`(설정 전 null, 뒤 팀 이름)이 그대로 나갔고, `POST /api/setup`은 "이미 설정됨"(409)을 터널 거부(403)보다 먼저 봐서
+  설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
+  클라이언트가 없음, 필드는 옛 클라이언트를 위해 남김). 기본 언어(`defaultLocale`)는 설정 때 고른 언어로 바뀌므로 약한 신호가
+  남지만, 로그인 화면의 언어라서 받아들였다(영어를 고르면 신호 없음). 시험: `tests/security/r4-setup-state-oracle.test.ts`.
+## 뜻으로 찾기: 로컬 임베딩 (feat/semantic-search, 2026-10-21)
+
+- **AI 도구 `search`**(`server/src/tools/search.ts`): 정확한 낱말·파일 이름을 모를 때 뜻으로 찾는다. 결과는 그 사람이 읽을 수 있는 파일의 구절과 경로(grep과 같은 `visiblePath`), 읽은 범위(readPaths)에 더해진다. 정확한 낱말은 계속 grep.
+- **모델**: `Xenova/multilingual-e5-small`(q8, 약 120 MB, 한국어·영어), 서버 안에서 transformers.js + onnxruntime으로 돈다. 문서 내용은 서버 밖으로 나가지 않는다. 처음 쓸 때 `<data>/models`에 **고정 리비전**(`761b726d…`)의 파일 4개를 내려받고 SHA-256을 확인한 뒤에만 불러온다(라이브러리의 자체 다운로드는 끔). 못 받으면 10분 뒤 다시.
+- **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
+- **끄기·없는 곳**: `MYCEL_SEMANTIC=off`. onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
+- **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
+

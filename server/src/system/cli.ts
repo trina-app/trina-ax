@@ -32,7 +32,7 @@ import { loadAppConfig } from '../app-config'
 import { SERVER_VERSION } from '../context'
 import { openDb } from '../db'
 import { createLogger } from '../log'
-import { BackupManager, inspectDbCopy, vacuumInto } from './backup'
+import { BackupManager, endSessions, inspectDbCopy, vacuumInto } from './backup'
 import { planInstallState } from './install-plan'
 import { ensureLanCert } from './lan-cert'
 import { resolveLayout } from './layout'
@@ -139,6 +139,8 @@ export async function main(argv: string[]): Promise<number> {
         const raw = readFileChunks(src)
         const n = await extractTar(zstdDecompress(encrypted ? ageDecrypt(raw, pw!) : raw), tmp)
         inspectDbCopy(path.join(tmp, 'db', 'app.sqlite'))
+        // every consumer of the restored folder gets a database without sign-ins (endSessions says why)
+        endSessions(path.join(tmp, 'db', 'app.sqlite'))
         if (!fs.existsSync(path.join(tmp, 'team'))) throw new Error('archive has no team folder')
         await fsp.rename(tmp, target)
         out({ restoredTo: target, entries: n })

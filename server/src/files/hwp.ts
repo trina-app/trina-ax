@@ -121,7 +121,7 @@ export function hwpText(bytes: Uint8Array): string {
   }
   if (locked) {
     const p = preview()
-    return tidy(`[Only the preview text of this document can be read: it is a distribution or password-protected HWP file.]\n\n${p}`)
+    return tidy(`[Only the preview text of this document can be read: it is a distribution-only or password-protected HWP file.]\n\n${p}`)
   }
   const sections = all.filter((e) => /^BodyText\/Section\d+$/.test(e.path)).sort((a, b) => sectionNo(a.path) - sectionNo(b.path))
   if (!sections.length) return tidy(preview())

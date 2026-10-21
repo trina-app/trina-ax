@@ -7,6 +7,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { Database } from 'bun:sqlite'
+import { openDb } from '../../server/src/db'
 import { loadAppConfig } from '../../server/src/app-config'
 import { sessionCookie } from '../../server/src/auth/service'
 import { ipKeys, limitIp, RateLimiter, tokenIpKeys } from '../../server/src/auth/rate-limit'
@@ -15,7 +17,7 @@ import { peerIp } from '../../server/src/main'
 import { agentPlist, archiveSummary, backupSummary, configure, helperOrigins, portProblems, prepare, swapInRestore } from '../../server/src/office/cli'
 import { deskCard, HELPER_PATHS, helperFetch, windowsThumbprint, type HelperState } from '../../server/src/office/helper'
 import { allowedHosts, allowedPeers, cidr, deskOrigins, officePaths, parseAllowFrom, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
-import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tlsPaths, wantedNames } from '../../server/src/office/tls'
+import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tldWideConstraint, tlsPaths, wantedNames } from '../../server/src/office/tls'
 import { parseTeamAddress } from '../../desktop/src/common/address'
 import { connectionStatus } from '../../server/src/system/connection'
 import { harness, type Harness } from './a-lib'
@@ -49,15 +51,18 @@ describe('office addresses and names', () => {
   })
 
   test('the certificate names only what the CA may vouch for (this Mac\'s names, its office subnet)', () => {
-    expect(C).toEqual({ dns: ['mini.local', 'mini'], v4: NET, v6: [] })
+    // security review 4 (office-lan 2): never the bare name: an RFC 5280 subtree "dental" is every site under .dental
+    expect(C).toEqual({ dns: ['mini.local'], v4: NET, v6: [] })
     for (const ip of ['192.168.1.1', '192.168.1.254']) expect(ipPermitted(ip, C)).toBe(true)
     // security review 5: not every private address (the EMR server, NAS or router of another subnet), no IPv6
     for (const ip of ['192.168.0.1', '10.200.1.1', '172.31.255.1', '100.64.0.1', 'fd7a:115c::1', 'fc00::1', '8.8.8.8', '2001:db8::1']) expect(ipPermitted(ip, C)).toBe(false)
     expect(dnsPermitted('mini.local', C)).toBe(true)
-    expect(dnsPermitted('mini', C)).toBe(true)
-    for (const d of ['evil.com', 'notmini', 'nas.local', 'printer.local', 'local']) expect(dnsPermitted(d, C)).toBe(false)
+    for (const d of ['evil.com', 'notmini', 'nas.local', 'printer.local', 'local', 'mini', 'www.x.mini']) expect(dnsPermitted(d, C)).toBe(false)
     const w = wantedNames('mini', ['192.168.1.18', '8.8.8.8', '192.168.2.5'], C)
-    expect(w).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18'], left: ['8.8.8.8', '192.168.2.5'] })
+    expect(w).toEqual({ dns: ['mini.local'], ips: ['192.168.1.18'], left: ['8.8.8.8', '192.168.2.5'] })
+    expect(caConstraintsFor('dental', NET).dns).toEqual(['dental.local'])
+    expect(tldWideConstraint({ dns: ['dental.local', 'dental'], v4: NET, v6: [] })).toBe('dental')
+    for (const dns of [['dental.local'], ['local'], []]) expect(tldWideConstraint({ dns, v4: NET, v6: [] })).toBeNull()
     // never an empty side (that would mean "any name" / "any address"): no host name or no subnet known yet
     expect(caConstraintsFor(null, [])).toEqual({ dns: ['local'], v4: PRIVATE_V4, v6: [] })
     // a CA without constraints (TEAMAX_CA_CONSTRAINTS=0) names every address
@@ -78,7 +83,7 @@ describe('office CA and server certificate', () => {
     expect(mode(dir)).toBe(0o700)
     expect(mode(p.caKey)).toBe(0o600)
     expect(mode(p.key)).toBe(0o600)
-    expect(certNames(first.cert)).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18'] })
+    expect(certNames(first.cert)).toEqual({ dns: ['mini.local'], ips: ['192.168.1.18'] })
     expect(first.left).toEqual(['8.8.8.8'])
     expect(first.cert.verify(first.ca.publicKey)).toBe(true)
     expect(first.ca.ca).toBe(true)
@@ -148,7 +153,7 @@ describe('office CA and server certificate', () => {
 
   test('renewed 30 days before it ends, and replaced when it is not signed by the current CA', () => {
     ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.42'], subnets: NET })
-    const want = { dns: ['mini.local', 'mini'], ips: ['192.168.1.42'] }
+    const want = { dns: ['mini.local'], ips: ['192.168.1.42'] }
     expect(serverCertProblem(dir, want)).toBeNull()
     expect(serverCertProblem(dir, want, new Date(Date.now() + 380 * 86400_000))).toBe('expires soon')
     const other = path.join(BASE, 'tls-other')
@@ -189,7 +194,7 @@ describe('office settings and server.json', () => {
 
   test('server.json: dev engine setup with office on, plain HTTP on loopback only, TLS on IPv4 for the office subnet, no Codex', () => {
     const s = settingsFrom('/Users/x/TeamAX', { TEAMAX_CLAUDE_BIN: '/Users/x/.local/bin/claude' })
-    const names = { dns: ['mini.local', 'mini'], ips: ['192.168.1.18', '10.0.0.9'] }
+    const names = { dns: ['mini.local'], ips: ['192.168.1.18', '10.0.0.9'] }
     const cfg = serverConfig(s, names, NET)
     expect(cfg).toMatchObject({ mode: 'dev', office: true, listen: { host: '127.0.0.1', port: 47830 }, tls: { host: '0.0.0.0', port: 8443 }, validateResponses: false, relay: { url: null } })
     expect(cfg.engine).toMatchObject({ authMode: 'local-login', claudeBin: '/Users/x/.local/bin/claude', runDir: '/Users/x/TeamAX/data/run' })
@@ -201,7 +206,7 @@ describe('office settings and server.json', () => {
     expect(allowedPeers({ allowFrom: 'subnet' }, [])).toEqual(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])
     expect(cfg.publicOrigins[0]).toBe('https://192.168.1.18:8443')
     expect(cfg.dataDir.startsWith('/Users/x/TeamAX/app')).toBe(false)
-    expect(allowedHosts(names, s).sort()).toEqual(['10.0.0.9:8443', '127.0.0.1:47830', '192.168.1.18:8443', 'localhost:47830', 'mini.local:8443', 'mini:8443'].sort())
+    expect(allowedHosts(names, s).sort()).toEqual(['10.0.0.9:8443', '127.0.0.1:47830', '192.168.1.18:8443', 'localhost:47830', 'mini.local:8443'].sort())
     // do-it review 7: the desks see the main address (and the .local name), not every address
     expect(deskOrigins(names, 8443, { shown: true })).toEqual(['https://192.168.1.18:8443', 'https://mini.local:8443'])
     expect(helperOrigins(s, ['https://192.168.1.18:8443'])).toEqual(['http://192.168.1.18:8442'])
@@ -514,26 +519,55 @@ describe('LaunchAgent and restore', () => {
     }
   })
 
-  test('restore swap: archive database and team folder in place, the previous ones kept beside them, setup token gone', () => {
+  test('restore swap: archive database and team folder in place, the previous ones kept beside them, setup token gone, every sign-in ended', () => {
     const home = path.join(BASE, 'restore-home')
     const p = officePaths(home)
     fs.mkdirSync(p.data, { recursive: true })
     fs.mkdirSync(path.join(p.team, 'old'), { recursive: true })
     fs.writeFileSync(path.join(p.data, 'app.db'), 'old-db')
     fs.writeFileSync(path.join(p.data, 'app.db-wal'), 'wal')
+    fs.mkdirSync(path.join(p.data, 'sessions', 'chat-1'), { recursive: true })
+    fs.writeFileSync(path.join(p.data, 'sessions', 'chat-1', 's.jsonl'), 'stash')
     fs.writeFileSync(p.setupToken, 'token')
     const r = path.join(home, 'restore-1')
     fs.mkdirSync(path.join(r, 'db'), { recursive: true })
     fs.mkdirSync(path.join(r, 'team', 'users', 'desk1'), { recursive: true })
-    fs.writeFileSync(path.join(r, 'db', 'app.sqlite'), 'new-db')
+    // a real database as an archive holds it: sign-ins, a used and an unused reset link, a used and an unused invite
+    const ndb = openDb(path.join(r, 'db', 'app.sqlite'))
+    ndb.run("INSERT INTO users (id, username, name, role) VALUES ('u1', 'desk1', 'Desk', 'member')")
+    for (const id of ['s1', 's2']) ndb.run("INSERT INTO sessions (id, user_id, token_hash, client, created_at, last_seen_at, expires_at) VALUES (?, 'u1', ?, 'web', 'x', 'x', '2999-01-01')", [id, `h-${id}`])
+    ndb.run("INSERT INTO password_resets (id, user_id, token_hash, created_at, expires_at, used_at) VALUES ('r1', 'u1', 'hr1', 'x', '2999-01-01', NULL), ('r2', 'u1', 'hr2', 'x', '2999-01-01', 'x')")
+    ndb.run("INSERT INTO invites (id, role, token_hash, expires_at, used_at) VALUES ('i1', 'member', 'hi1', '2999-01-01', NULL), ('i2', 'member', 'hi2', '2999-01-01', 'x')")
+    ndb.close()
     const kept = swapInRestore(home, r, 'T')
-    expect(fs.readFileSync(path.join(p.data, 'app.db'), 'utf8')).toBe('new-db')
-    expect(fs.existsSync(path.join(p.data, 'app.db-wal'))).toBe(false)
+    expect(fs.existsSync(path.join(p.data, 'app.db-wal'))).toBe(false) // the old WAL is gone, the new copy has none
+    const db = new Database(path.join(p.data, 'app.db'))
+    const ids = (t: string) => (db.query(`SELECT id FROM ${t} ORDER BY id`).all() as { id: string }[]).map((x) => x.id)
+    expect(ids('users')).toEqual(['u1'])
+    expect(ids('sessions')).toEqual([])
+    expect(ids('password_resets')).toEqual(['r2'])
+    expect(ids('invites')).toEqual(['i2'])
+    db.close()
+    expect(fs.existsSync(path.join(p.data, 'sessions'))).toBe(false)
+    expect(fs.readFileSync(path.join(kept.sessions!, 'chat-1', 's.jsonl'), 'utf8')).toBe('stash')
     expect(fs.existsSync(path.join(p.team, 'users', 'desk1'))).toBe(true)
     expect(fs.readFileSync(kept.db, 'utf8')).toBe('old-db')
     expect(fs.existsSync(path.join(kept.team, 'old'))).toBe(true)
     expect(fs.existsSync(p.setupToken)).toBe(false)
     expect(fs.existsSync(r)).toBe(false)
+  })
+
+  test('restore swap: an unreadable archive database leaves the installation untouched', () => {
+    const home = path.join(BASE, 'restore-home-bad')
+    const p = officePaths(home)
+    fs.mkdirSync(p.data, { recursive: true })
+    fs.writeFileSync(path.join(p.data, 'app.db'), 'old-db')
+    const r = path.join(home, 'restore-1')
+    fs.mkdirSync(path.join(r, 'db'), { recursive: true })
+    fs.mkdirSync(path.join(r, 'team'), { recursive: true })
+    fs.writeFileSync(path.join(r, 'db', 'app.sqlite'), 'not a database')
+    expect(() => swapInRestore(home, r, 'T')).toThrow()
+    expect(fs.readFileSync(path.join(p.data, 'app.db'), 'utf8')).toBe('old-db')
   })
 })
 
