@@ -16,6 +16,7 @@ import { openDb } from '../db'
 import { silentLogger } from '../log'
 import path from 'node:path'
 import { bootstrapOwner, createResetLink, setupStatus, userCount } from './accounts'
+import { getTeamSettings } from '../admin/settings'
 import { passwordProblem } from './passwords'
 import { installAuth } from './service'
 import { getUserByUsername } from './users'
@@ -44,7 +45,8 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
     switch (cmd) {
       case 'status': {
         const s = setupStatus(ctx)
-        return s.needed ? 'setup needed: no account yet (run create-owner, or open the setup page)' : `team "${s.teamName}" is set up (${userCount(ctx.db)} accounts)`
+        // the Mac's own CLI may name the team (the public setup status no longer does)
+        return s.needed ? 'setup needed: no account yet (run create-owner, or open the setup page)' : `team "${getTeamSettings(ctx.db).teamName}" is set up (${userCount(ctx.db)} accounts)`
       }
       case 'create-owner': {
         const username = Username.safeParse(arg(argv, 'username'))
