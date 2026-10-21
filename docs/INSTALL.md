@@ -227,8 +227,9 @@ What it creates:
   `localhost`, `127.0.0.1`, `::1` and every LAN IPv4/IPv6 address of the Mac (not IPv6 link-local or temporary
   privacy addresses). The server checks it every minute and makes a new one when an address is not covered (new
   Wi-Fi, new DHCP lease, another network port), the Mac was renamed, or it expires within 30 days; it then rewrites
-  `setup/lan-cert.sha256` and restarts the TLS listener. A new certificate means a new fingerprint: browsers show the
-  warning once more.
+  `setup/lan-cert.sha256` and restarts the TLS listener. A renewal for a new address keeps the addresses the old
+  certificate named (up to 24), so moving back to an earlier network needs no new certificate. A new certificate
+  means a new fingerprint: browsers show the warning once more.
 - **LaunchDaemons** `app.treesoop.mycel.{server,launcher,pf}`.
 - **Logs** in `/Library/Logs/mycel/`.
 - `_axagent` is added to `cron.deny` and `at.deny`.
@@ -238,7 +239,12 @@ Running the installer again with the **same** bundle repairs the install. With a
 `app/current` to it, like an in-app update: the running version stays in `app/versions` as the roll-back version
 (Admin → System → Update → Roll back), and if the new version does not answer within 120 s or crashes 3 times the
 bootstrap goes back to the old one by itself; the installer then exits 1 and says so. An **older** bundle is only
-staged (warning); the running version stays. Data kept by an earlier `uninstall-macos.sh` (without
+staged (warning); the running version stays. The root programs (bootstrap, launcher, `engine.sb`, `pf-load`, account
+tool) only move forward: `root/VERSION` names the bundle they came from, and an older bundle leaves newer ones in place
+(warning), so an old setup package run again cannot take back launcher or sandbox fixes; to really go back, uninstall
+(the data is kept) and install the older package. The installer needs no developer tools (it reads CPU types with
+`file`, not `lipo`), and it runs the bundle's bun from its root-only staging folder with no `BUN_*`/`NODE_*`
+settings, so a `bunfig.toml` or `.env` in the folder it was started from is never read as root. Data kept by an earlier `uninstall-macos.sh` (without
 `--delete-data`) is given back to the server account, so the team is there again after a reinstall.
 
 ### 2.4 Claude long-lived token (owner, once; not used yet)

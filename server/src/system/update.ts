@@ -28,17 +28,35 @@ export const RELEASE_PUBLIC_KEYS: readonly string[] = []
 
 export class UpdateError extends Error { name = 'UpdateError' }
 
+/**
+ * Semver order: numbers compare as numbers, a release is newer than its pre-releases, pre-release identifiers
+ * compare one by one (numeric ones as numbers, so rc.10 is newer than rc.9; numeric before text; more identifiers
+ * newer when the rest is equal), build metadata (+...) is ignored. -1 / 0 / 1.
+ */
 export function compareVersions(a: string, b: string): number {
-  const split = (v: string) => { const [main, pre] = v.split('-', 2) as [string, string | undefined]; return { nums: main.split('.').map((x) => parseInt(x, 10) || 0), pre } }
+  const split = (v: string) => {
+    const core = v.split('+', 1)[0]!
+    const dash = core.indexOf('-')
+    const main = dash < 0 ? core : core.slice(0, dash)
+    return { nums: main.split('.').map((x) => parseInt(x, 10) || 0), pre: dash < 0 ? undefined : core.slice(dash + 1).split('.') }
+  }
   const x = split(a), y = split(b)
   for (let i = 0; i < Math.max(x.nums.length, y.nums.length); i++) {
     const d = (x.nums[i] ?? 0) - (y.nums[i] ?? 0)
     if (d) return d < 0 ? -1 : 1
   }
-  if (x.pre === y.pre) return 0
-  if (x.pre === undefined) return 1
-  if (y.pre === undefined) return -1
-  return x.pre < y.pre ? -1 : 1
+  if (!x.pre || !y.pre) return x.pre === y.pre ? 0 : x.pre ? -1 : 1
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i], q = y.pre[i]
+    if (p === q) continue
+    if (p === undefined) return -1
+    if (q === undefined) return 1
+    const pn = /^\d+$/.test(p), qn = /^\d+$/.test(q)
+    if (pn && qn) { const d = Number(p) - Number(q); if (d) return d < 0 ? -1 : 1; continue }
+    if (pn !== qn) return pn ? -1 : 1
+    return p < q ? -1 : 1
+  }
+  return 0
 }
 
 export const keyId = (pubRaw: Uint8Array) => crypto.createHash('sha256').update(pubRaw).digest('hex').slice(0, 16)

@@ -39,9 +39,9 @@ function blocked(name: string, detail: string) {
   results.push({ name, ok: true, blocked: true, detail })
   console.log(`BLOCKED ${name} — ${detail}`)
 }
-function sh(cmd: string[], o: { input?: string; env?: Record<string, string>; user?: string } = {}) {
+function sh(cmd: string[], o: { input?: string; env?: Record<string, string>; user?: string; cwd?: string } = {}) {
   const full = o.user ? ['/usr/bin/sudo', '-n', '-u', o.user, ...(o.env ? ['/usr/bin/env', ...Object.entries(o.env).map(([k, v]) => `${k}=${v}`)] : []), ...cmd] : cmd
-  const p = Bun.spawnSync(full, { stdin: o.input !== undefined ? Buffer.from(o.input) : 'ignore', stdout: 'pipe', stderr: 'pipe', env: o.user ? { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } : { ...process.env, ...(o.env ?? {}) }, cwd: '/' })
+  const p = Bun.spawnSync(full, { stdin: o.input !== undefined ? Buffer.from(o.input) : 'ignore', stdout: 'pipe', stderr: 'pipe', env: o.user ? { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } : { ...process.env, ...(o.env ?? {}) }, cwd: o.cwd ?? '/' })
   return { code: p.exitCode ?? -1, out: p.stdout.toString(), err: p.stderr.toString() }
 }
 const statOf = (p: string) => { const r = sh(['/usr/bin/stat', '-f', '%Su:%Sg %OLp', p]); return r.code === 0 ? r.out.trim() : 'missing' }
@@ -56,8 +56,9 @@ const admin = (args: string[], input?: string) => sh([BUN, `${BASE}/app/current/
 const readJson = (f: string) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null } }
 /** the account tool as the Mac administrator (root): it drops to the server account itself */
 const account = (args: string[], input?: string) => sh([`${BASE}/root/mycel-account`, ...args], { input })
-const installer = (rel: string, ...extra: string[]) => sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, rel), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-  '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--allow-unsigned', '--no-power', '--skip-tmutil', ...extra])
+const installerIn = (o: { cwd?: string; env?: Record<string, string> }, rel: string, ...extra: string[]) => sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, rel), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
+  '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--allow-unsigned', '--no-power', '--skip-tmutil', ...extra], o)
+const installer = (rel: string, ...extra: string[]) => installerIn({}, rel, ...extra)
 const OWNER_PW = 'install test owner pw 1'
 
 async function main() {
@@ -96,6 +97,7 @@ async function main() {
     '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `claude=${probe}`, '--engine', `codex=${probe2}`, '--allow-unsigned', '--no-power'])
   check('install script', inst.code === 0, (inst.out + inst.err).trim().split('\n').slice(-3).join(' | '))
   if (inst.code !== 0) return
+  check('root/VERSION names the bundle the root programs came from', fs.readFileSync(`${BASE}/root/VERSION`, 'utf8').trim() === '0.9.0-test.1' && statOf(`${BASE}/root/VERSION`) === 'root:wheel 644', statOf(`${BASE}/root/VERSION`))
 
   // ---- accounts ----
   for (const u of [SRV, AGT]) {
@@ -294,8 +296,18 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   const down = installer('rel5')
   check('installer with a newer bundle that crashes: the bootstrap goes back, the installer exits 1 and says so', down.code !== 0 && /0\.9\.0-test\.5 did not become healthy, so the server went back to 0\.9\.0-test\.4/.test(down.err), down.err.trim().split('\n').at(-1))
   check('after the failed switch test.4 answers and app/current points to it', (await until(health, (h) => h?.version === '0.9.0-test.4', 30_000))?.version === '0.9.0-test.4' && fs.readlinkSync(`${BASE}/app/current`) === 'versions/0.9.0-test.4')
-  const same = installer('rel4')
+  // run from a folder another account could write: bun must not read its bunfig.toml (preload) / .env, nor BUN_OPTIONS
+  const hostile = path.join(W, 'hostile-cwd'), marker = '/private/tmp/mycel-test-preload-ran'
+  fs.mkdirSync(hostile, { recursive: true, mode: 0o777 })
+  fs.writeFileSync(path.join(hostile, 'bunfig.toml'), 'preload = ["./evil.js"]\n')
+  fs.writeFileSync(path.join(hostile, 'evil.js'), `require("fs").writeFileSync(${JSON.stringify(marker)}, String(process.getuid()))\n`)
+  fs.rmSync(marker, { force: true })
+  const same = installerIn({ cwd: hostile, env: { BUN_OPTIONS: `--preload ${path.join(hostile, 'evil.js')}` } }, 'rel4')
   check('installer with the same bundle again: repair, no switch', same.code === 0 && !/switching/.test(same.out), (same.out + same.err).trim().split('\n').slice(-1).join(''))
+  check('installer run from a folder with a bunfig.toml preload and BUN_OPTIONS: root never runs it', !fs.existsSync(marker), fs.existsSync(marker) ? `preload ran as uid ${fs.readFileSync(marker, 'utf8')}` : '')
+  fs.rmSync(marker, { force: true })
+  // root programs only move forward: test.5 (the failed switch) installed them, so test.4 leaves them
+  check('an older bundle leaves newer root programs (root/VERSION) in place and says so', fs.readFileSync(`${BASE}/root/VERSION`, 'utf8').trim() === '0.9.0-test.5' && /root programs .* stay at 0\.9\.0-test\.5/.test(same.err), fs.readFileSync(`${BASE}/root/VERSION`, 'utf8').trim() + ' | ' + same.err.trim().split('\n').at(-1))
   await until(health, (h) => h?.version === '0.9.0-test.4', 30_000)
 
   // ---- backups and restore ----

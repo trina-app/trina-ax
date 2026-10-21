@@ -3,7 +3,9 @@
 // has to name every one of them: <LocalHostName>.local, localhost, 127.0.0.1, ::1 and every LAN IPv4 / IPv6 address
 // of this Mac. Addresses change (another Wi-Fi, a new DHCP lease, a second network port), so the installer creates it
 // and the server checks it again at start and every minute, and makes a new one when an address is not covered, the
-// host name changed, or it expires within 30 days. A new certificate has a new fingerprint: setup/lan-cert.sha256 is
+// host name changed, or it expires within 30 days. A renewal for a new address also keeps the addresses the old
+// certificate named (up to LAN_CERT_KEEP_IPS), so going back to an earlier network needs no new certificate. A new
+// certificate has a new fingerprint: setup/lan-cert.sha256 is
 // rewritten, and the desktop app picks the new one up from the server (it pins what the server says over the relay).
 //
 // Not named: IPv6 link-local addresses (fe80::/10 need a %zone, no browser takes them), IPv6 temporary (privacy)
@@ -19,6 +21,8 @@ import path from 'node:path'
 
 export const LAN_CERT_DAYS = 825
 export const LAN_CERT_RENEW_MS = 30 * 86400_000
+/** addresses a renewed certificate keeps from the one it replaces, at most (beyond the ones wanted now) */
+export const LAN_CERT_KEEP_IPS = 24
 
 export interface LanNames { dns: string[]; ips: string[] }
 
@@ -119,6 +123,10 @@ export function ensureLanCert(f: LanCertFiles, o: { want?: LanNames; now?: numbe
   const now = o.now ?? Date.now()
   let reason: string | null = null
   let pem: Buffer | null = null
+  // addresses the current certificate already names: a renewal for a NEW address keeps them, so a Mac that moves
+  // between two networks (Wi-Fi and Ethernet, a VPN that comes and goes, two DHCP leases) gets one new certificate,
+  // not a new fingerprint every time it goes back (desktop apps pin it)
+  let keepIps: string[] = []
   try {
     pem = fs.readFileSync(f.certFile)
     const key = fs.readFileSync(f.keyFile, 'utf8')
@@ -128,7 +136,10 @@ export function ensureLanCert(f: LanCertFiles, o: { want?: LanNames; now?: numbe
     if (!reason && info.notAfter - now < LAN_CERT_RENEW_MS) reason = 'expires within 30 days'
     if (!reason) {
       const miss = missingNames(pem, want)
-      if (miss.length) reason = `does not name ${miss.join(', ')}`
+      if (miss.length) {
+        reason = `does not name ${miss.join(', ')}`
+        keepIps = info.ips.filter((i) => !want.ips.includes(i)).slice(0, LAN_CERT_KEEP_IPS)
+      }
     }
   } catch (e) {
     reason = pem ? `unreadable (${(e as Error).message})` : 'missing'
@@ -138,9 +149,10 @@ export function ensureLanCert(f: LanCertFiles, o: { want?: LanNames; now?: numbe
     if (f.fingerprintFile && readText(f.fingerprintFile)?.trim() !== fp) writeAtomic(f.fingerprintFile, fp + '\n', 0o640)
     return { changed: false, reason: null, fingerprint: fp, names: want }
   }
-  const fp = generate(f, want, o.openssl ?? '/usr/bin/openssl')
+  const names = { dns: want.dns, ips: [...want.ips, ...keepIps] }
+  const fp = generate(f, names, o.openssl ?? '/usr/bin/openssl')
   if (f.fingerprintFile) writeAtomic(f.fingerprintFile, fp + '\n', 0o640)
-  return { changed: true, reason, fingerprint: fp, names: want }
+  return { changed: true, reason, fingerprint: fp, names }
 }
 
 function keyMatches(keyPem: string, certPem: Buffer): boolean {

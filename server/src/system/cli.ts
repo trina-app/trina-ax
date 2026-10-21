@@ -22,6 +22,7 @@
 //   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
 //   install-state --current V|'' --version V --state F --out F
 //                                                plan app/current + state.json for this install (system/install-plan.ts)
+//   compare-versions A B                         -1 / 0 / 1 (A older / same / newer than B)
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -36,7 +37,7 @@ import { resolveLayout } from './layout'
 import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
-import { UpdateManager } from './update'
+import { compareVersions, UpdateManager } from './update'
 
 function arg(args: string[], name: string): string | null {
   const i = args.indexOf(name)
@@ -58,6 +59,13 @@ export async function main(argv: string[]): Promise<number> {
     if (!cert || !key) throw new Error('lan-cert needs --cert <file> --key <file>')
     const r = ensureLanCert({ certFile: path.resolve(cert), keyFile: path.resolve(key), fingerprintFile: arg(args, '--fingerprint') })
     console.log(JSON.stringify(r))
+    return 0
+  }
+  if (cmd === 'compare-versions') {
+    // -1 / 0 / 1 as `a` is older than / the same as / newer than `b` (the installer's root/VERSION check)
+    const [a, b] = args
+    if (!a || !b) throw new Error('compare-versions needs two versions')
+    console.log(String(compareVersions(a, b)))
     return 0
   }
   if (cmd === 'install-state') {
@@ -167,7 +175,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|lan-cert|install-state (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|lan-cert|install-state|compare-versions (see server/src/system/cli.ts)')
       return 2
   }
 }

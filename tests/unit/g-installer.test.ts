@@ -88,6 +88,11 @@ utun3: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1280
     expect(r2.fingerprint).not.toBe(r1.fingerprint)
     expect(fs.readFileSync(f.fingerprintFile, 'utf8').trim()).toBe(r2.fingerprint)
     expect(missingNames(fs.readFileSync(f.certFile), wantedNames({ host: 'Office-Mac', addresses: ['10.0.0.5'] }))).toEqual([])
+    // the renewal kept the addresses of the old certificate: going back to the first network needs no new one
+    // (each new certificate is a new fingerprint for the desktop apps that pinned it)
+    expect(r2.names.ips).toEqual(expect.arrayContaining(['192.168.1.20', canonIp('2001:db8:1::10'), '10.0.0.5']))
+    expect(ensureLanCert(f, { want: want1 })).toMatchObject({ changed: false, fingerprint: r2.fingerprint })
+    expect(ensureLanCert(f, { want: wantedNames({ host: 'Office-Mac', addresses: ['10.0.0.5', '192.168.1.20'] }) }).changed).toBe(false)
     // the Mac was renamed
     expect(ensureLanCert(f, { want: wantedNames({ host: 'Studio', addresses: ['10.0.0.5'] }) }).reason).toContain('studio.local')
     // 30 days before it expires
@@ -256,6 +261,18 @@ describe.skipIf(!mac)('installer checks (install-macos.sh --check, no root)', ()
     expect(notRoot.err).toContain('run as root (sudo), or with --check')
   })
 
+  test('CPU types are read without the developer tools (a server Mac has none: /usr/bin/lipo is only an xcrun stub)', () => {
+    // DEVELOPER_DIR pointing nowhere makes every xcrun stub (lipo, cc, git) fail, like a Mac without the tools
+    const noTools = (...a: string[]) => run([path.join(REPO, 'scripts', 'install-macos.sh'), '--check', '--from', from, '--allow-unsigned', ...a], { env: { DEVELOPER_DIR: '/nonexistent' } })
+    expect(run(['/usr/bin/lipo', '-archs', process.execPath], { env: { DEVELOPER_DIR: '/nonexistent' } }).code).not.toBe(0)
+    const ok = noTools('--engine', `claude=${claude}`)
+    expect(ok.err).toBe('')
+    expect(ok.code).toBe(0)
+    expect(ok.out).toContain('check passed')
+    const s = fs.readFileSync(path.join(REPO, 'scripts/install-macos.sh'), 'utf8')
+    expect(s).not.toMatch(/^[^#\n]*\blipo\b/m)
+  })
+
   test('a bundle for another CPU type is refused (the message says how to build a universal one)', () => {
     const other = hostArch() === 'arm64' ? 'x86_64' : 'arm64'
     const thin = path.join(W, 'bin', 'thin-bun')
@@ -297,6 +314,40 @@ describe('help texts and the other root scripts', () => {
     expect(s.match(/"\$BUN"/g)?.length).toBe(1)
     expect(s).toMatch(/exec \/usr\/bin\/sudo -u "\$SRV" -- \/usr\/bin\/env -i [^\n]*\\\n[^\n]*"\$BUN" "\$CLI" "\$@"/)
     expect(s).not.toMatch(/PW1[^\n]*(argv|export)/)
+  })
+
+  test('root runs bun only from its own staging folder, without BUN_* / NODE_* settings (bunfig preload, .env)', () => {
+    const s = fs.readFileSync(path.join(REPO, 'scripts/install-macos.sh'), 'utf8')
+    const def = s.split('\n').find((l) => l.startsWith('rootbun() {'))!
+    expect(def).toBeTruthy()
+    // every bun the installer starts goes through rootbun
+    const direct = s.split('\n').filter((l) => !l.trimStart().startsWith('#') && l.includes('"$BUN"') && l !== def && !l.startsWith('[ -x "$BUN" ]'))
+    expect(direct).toEqual([])
+    expect(s.match(/rootbun (-e|"\$ADMIN_JS")/g)?.length).toBeGreaterThanOrEqual(4)
+    // a folder another account could write (an installer started from /tmp): its bunfig.toml preload and .env
+    const hostile = path.join(W, 'hostile-cwd')
+    fs.mkdirSync(hostile, { recursive: true })
+    fs.writeFileSync(path.join(hostile, 'bunfig.toml'), 'preload = ["./evil.js"]\n')
+    fs.writeFileSync(path.join(hostile, 'evil.js'), 'console.log("PRELOADED")\n')
+    fs.writeFileSync(path.join(hostile, '.env'), 'MYCEL_EVIL=from-dotenv\n')
+    const itmp = fs.mkdtempSync(path.join(W, 'itmp-'))
+    const probe = 'console.log("ran", process.env.MYCEL_EVIL ?? "-", process.env.MYCEL_I_X ?? "-")'
+    const sh = (body: string) => Bun.spawnSync(['/bin/bash', '-c', `set -uo pipefail; ITMP='${itmp}'; BUN='${process.execPath}'; ${def}\n${body}`],
+      { cwd: hostile, env: { PATH: '/usr/bin:/bin', BUN_OPTIONS: '--preload ./evil.js', NODE_OPTIONS: '--require ./evil.js' }, stdout: 'pipe', stderr: 'pipe' })
+    // (the hazard is real: plain bun in that folder runs the preload)
+    expect(Bun.spawnSync([process.execPath, '-e', '1'], { cwd: hostile, env: { PATH: '/usr/bin:/bin' }, stdout: 'pipe' }).stdout.toString()).toContain('PRELOADED')
+    const r = sh(`MYCEL_I_X='a b' rootbun -e '${probe}'`)
+    expect(r.stderr.toString()).toBe('')
+    expect(r.stdout.toString().trim()).toBe('ran - a b')
+  })
+
+  test('root programs only move forward: an older bundle leaves newer ones (root/VERSION) in place', () => {
+    const s = fs.readFileSync(path.join(REPO, 'scripts/install-macos.sh'), 'utf8')
+    expect(s).toMatch(/ROOT_V=\$\(tr -d '\[:space:\]' < "\$BASE\/root\/VERSION"/)
+    expect(s).toMatch(/rootbun "\$ADMIN_JS" compare-versions "\$ROOT_V" "\$VERSION"\)" = 1 \]; then\n  ROOT_KEEP=1/)
+    for (const f of ['755 mycel-bootstrap', '755 mycel-launcher', '644 engine.sb', '755 pf-load', '755 mycel-account']) expect(s.split('\n')).toContain(`rootfile ${f}`)
+    expect(s).not.toMatch(/^install -o root -g wheel -m [0-9]+ "\$FROM\/root\//m)
+    expect(s).toContain('install -o root -g wheel -m 644 "$ITMP/root-version" "$BASE/root/VERSION"')
   })
 
   test('the installer gives kept data back, keeps engines by name, and plans versions with the bundle it installs', () => {
@@ -343,6 +394,9 @@ describe.skipIf(!mac || !fs.existsSync(NATIVE))('release bundle (scripts/build-b
     fs.writeFileSync(path.join(W, 'state.json'), 'null')
     const plan = run([bun, path.join(b.dir, 'server/src/admin.js'), 'install-state', '--current', '0.8.0', '--version', '0.9.0-unit.1', '--state', path.join(W, 'state.json'), '--out', path.join(W, 'state.out.json')])
     expect(plan.out.trim()).toBe('switch')
+    const admin = path.join(b.dir, 'server/src/admin.js')
+    const cmp = (x: string, y: string) => run([bun, admin, 'compare-versions', x, y]).out.trim()
+    expect([cmp('0.9.0-test.5', '0.9.0-test.4'), cmp('1.0.0', '1.0.0'), cmp('1.0.0-rc.9', '1.0.0-rc.10')]).toEqual(['1', '0', '-1'])
     expect(JSON.parse(fs.readFileSync(path.join(W, 'state.out.json'), 'utf8'))).toMatchObject({ previous: '0.8.0', pending: '0.9.0-unit.1' })
   }, 120_000)
 })
