@@ -7,7 +7,7 @@ import type { InviteInfo, Locale, PasswordResetInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { ERROR_MESSAGES } from '@mycel/shared/api'
 import { formatDateTime } from '../lib/format'
-import { LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
+import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { Button, Field, inputCls } from '../components/ui'
@@ -137,6 +137,12 @@ export function Setup() {
   const [params] = useSearchParams()
   const [form, setForm] = useState({ setupToken: params.get('token') ?? '', teamName: '', name: '', username: '', password: '', password2: '' })
   const { busy, error, run, setError } = useSubmit()
+  // no language picked in this browser yet: start in the browser's own (the team language field follows it)
+  useEffect(() => {
+    if (storedLocale()) return
+    const l = browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
+    if (l && l !== locale) setLocale(l)
+  }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const submit = (e: FormEvent) => {
     e.preventDefault()

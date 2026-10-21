@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LOCALE } from '@mycel/shared/api'
 import { localizeStep } from '@mycel/shared'
-import { DICTS, format, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
+import { browserLocale, DICTS, format, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
 import { ko } from '../../src/i18n/ko'
 
 const placeholders = (s: string) => placeholdersOf(s)
@@ -130,3 +130,12 @@ function stripComments(text: string): string {
   }
   return out
 }
+
+describe('browserLocale (first-run setup starts in the browser language)', () => {
+  test('the first of the browser languages we have', () => {
+    expect(browserLocale(['ko-KR', 'en-US'])).toBe('ko')
+    expect(browserLocale(['fr-FR', 'id-ID', 'en'])).toBe('id')
+    expect(browserLocale(['fr-FR'])).toBeNull()
+    expect(browserLocale(undefined)).toBeNull()
+  })
+})

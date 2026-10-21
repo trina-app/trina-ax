@@ -8,6 +8,8 @@ export interface AppBindings {
   /** set by whoever calls app.fetch: Bun.serve (socket peer), the relay client (OPEN-frame ip), tests */
   ip?: string | null
   via?: RequestInfo['via']
+  /** direct: the listening port the request came in on (Bun.serve's server.port) */
+  port?: number
   /** Bun server, for WebSocket upgrades (hono/bun) */
   server?: unknown
 }

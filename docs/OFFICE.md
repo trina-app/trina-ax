@@ -1,0 +1,235 @@
+# 사무실 모드: 치과 설치 가이드 (맥 미니 한 대 + 데스크 PC 10대)
+
+치과·병원·작은 사무실에서 **맥 미니 한 대**가 Team AX를 돌리고, 같은 사무실 네트워크의 **윈도우 데스크 PC 10대 정도**가
+Edge로 접속하는 구성입니다. 중계 서버(`<팀>.treesoop.com`)도, 운영 설치(역할 계정)도 필요 없습니다.
+
+- AI는 **그 맥에 로그인된 Claude Code**(원장님/소유자의 Claude 구독)로 돕니다. 엔진은 개발 모드와 같은 구성입니다:
+  권한 함수, 엔진 잠금(lockdown), macOS 샌드박스(`engine.sb`). DEV 배너는 나오지 않고, Codex는 쓰지 않습니다.
+- 데스크는 `https://<맥 IP>:8443`으로 들어옵니다. 인증서는 맥이 처음 한 번 만드는 **사무실 전용 인증 기관(CA)**이
+  서명하고, 데스크마다 이 CA를 **한 번만** 설치합니다.
+- 관리자 암호(sudo) 없이 설치됩니다. 모든 것이 `~/TeamAX`에 들어갑니다.
+- 같은 내용의 인쇄용 PDF: `Team-AX-치과-설치가이드.pdf`(zip 안, `docs/office/`).
+
+> English summary: one Mac runs Team AX as the signed-in user with that Mac's Claude Code login (dev mode's engine
+> setup, no DEV banner, no Codex). Desks on the office subnet use `https://<mac IP>:8443` after installing the office
+> CA once; they compare its thumbprint with the desk card printed on the Mac (`teamax card`), never with the plain-http
+> certificate page (`http://<mac IP>:8442`). No sudo, no relay. Bundle: `bun run build:office`; install:
+> `bash office-install.sh`; control: `~/TeamAX/teamax`.
+
+## 1. 준비물
+
+| | |
+|---|---|
+| 맥 미니 | macOS 13 이상(Apple Silicon 또는 Intel). **Team AX 전용**으로 두고 개인 자료·다른 프로그램을 두지 마세요 |
+| FileVault | 켜 두세요(시스템 설정 → 개인정보 보호 및 보안 → FileVault). 환자 자료가 디스크에 암호화되어 저장됩니다 |
+| Claude Code | 맥 미니의 그 사용자 계정에서 설치·로그인되어 있어야 합니다(원장님 구독 계정) |
+| 네트워크 | 데스크와 **같은 사무실 네트워크**(유선 권장). 공유기에서 맥 미니 주소를 **고정(DHCP 예약)** — 필수 |
+| zip 파일 | `TeamAX-office-0.1.0-mac.zip` (USB·AirDrop로 맥 미니의 `다운로드` 폴더에) |
+| 데스크 | 윈도우 10/11 + Edge. 데스크마다 직원 윈도우 계정으로 하면 됩니다(관리자 암호 필요 없음) |
+| 그 밖에 | 프린터(데스크 카드 1장), 외장 디스크(주 1회 보관용), 가능하면 UPS |
+
+맥 미니에는 git·Go·Node·Homebrew·GitHub 접근이 **필요 없습니다**. zip 하나에 프로그램이 모두 들어 있습니다.
+
+## 2. 맥 미니 설치 (15분)
+
+맥 미니에서 **AI가 쓸 Claude 로그인이 있는 그 사용자**로 로그인한 뒤, 터미널을 열고 한 줄씩 붙여 넣습니다.
+
+```sh
+claude auth status
+```
+확인: `"loggedIn": true`. 아니면 `claude` 실행 → `/login` → 구독 계정으로 로그인. (Claude Code가 없으면
+`curl -fsSL https://claude.ai/install.sh | bash` 후 터미널을 다시 열기.)
+
+```sh
+cd ~/Downloads && ditto -x -k TeamAX-office-0.1.0-mac.zip .
+bash ~/Downloads/TeamAX-office-0.1.0/office-install.sh
+```
+확인: 마지막에 `=== 설치 끝 / installed: 0.1.0 ===`, 그 위에 **데스크 주소**(`https://192.168.x.x:8443`),
+**인증서 받는 곳**(`http://192.168.x.x:8442`), **인증서 지문**(8자씩 5묶음), **첫 설정 링크**가 나오고, 첫 설정 페이지가
+맥 미니의 브라우저에 열립니다.
+
+설치기가 하는 일: macOS·프로세서·Claude 로그인·포트 확인 → `~/TeamAX/app`에 프로그램 복사 → 설정
+`~/TeamAX/config/office.env` → LaunchAgent `app.team-ax.office` 시작 → 서버가 답할 때까지 기다림 → 주소·지문·링크 출력.
+`--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
+`--lan-port`·`--app-port`·`--helper-port`로 다른 번호를 고르라고 알려 줍니다.
+
+### 이 맥이 꺼지지 않게 (한 번, 관리자 암호 필요)
+
+```sh
+sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
+```
+확인: `pmset -g | grep -E ' sleep|autorestart'` → `sleep 0`, `autorestart 1`. (화면 꺼짐은 괜찮습니다.)
+
+- **방화벽**: macOS 방화벽이 켜져 있으면 "bun이 들어오는 연결을 허용하겠습니까?" → **허용**. 설치기가 방화벽이 켜져 있으면
+  미리 허용하는 명령도 보여 줍니다.
+- **공유기 DHCP 예약**: 맥 미니의 IP(설치기가 보여 준 주소)를 공유기 관리 화면에서 고정합니다. 데스크의 Edge 앱과 로그인은
+  주소에 묶여 있어서, IP가 바뀌면 10대 모두 다시 로그인하고 앱을 다시 설치해야 합니다.
+
+### 데스크 카드 인쇄
+
+```sh
+~/TeamAX/teamax card
+```
+열린 페이지를 인쇄(⌘P)합니다. 카드에는 인증서 받는 곳, **인증서 지문**, 데스크 주소가 있습니다. 이 카드는 맥 미니에서 만든
+것이라 네트워크로 바뀔 수 없습니다. 데스크 직원은 인증서를 설치하기 전에 **이 카드의 지문과** 비교합니다.
+
+## 3. 첫 설정 (소유자 계정)
+
+맥 미니에 열린 페이지(`http://localhost:47830/setup?token=…`; 다시 보려면 `~/TeamAX/teamax setup-link`)에서:
+
+1. **팀 이름**: 예) `OO사무실`.
+2. **팀 언어**: **한국어** (브라우저가 한국어면 처음부터 한국어로 열립니다). 팀원 화면과 AI 답변의 기본 언어입니다.
+3. **소유자 계정**: 원장님 이름, 아이디, 비밀번호(10자 이상, 아이디가 들어가면 안 됨). 이 계정이 팀원·폴더 권한을 관리합니다.
+
+확인: 홈 화면이 열리고 오른쪽 위에 원장님 이름이 보입니다.
+
+그다음 **관리자 → 멤버**에서 데스크마다 **초대 링크**를 만듭니다(메일 발송 없음, 링크 복사). 맥 미니에서 만들어도 링크는
+데스크 주소(`https://192.168.x.x:8443/invite/…`)로 나옵니다. 메신저 등으로 각 데스크에 전달합니다.
+초대 대신 **직접 추가**(임시 비밀번호, 첫 로그인 때 바꾸기)도 됩니다.
+
+## 4. 데스크 PC 10대 연결 (PC마다 5분)
+
+### ① 인증서 설치 (처음 한 번)
+
+1. Edge 주소창에 카드의 **인증서 받는 곳**을 `http://`까지 그대로 입력: `http://192.168.x.x:8442`
+   (Edge가 https로 바꿔 열려다 실패하면 `http://`를 다시 확인하세요.)
+2. **윈도우용 인증서 받기(.cer)**. Edge가 "안전하게 다운로드할 수 없습니다"라고 하면 **⋯ → 유지**(이 페이지가 http라서
+   나오는 안내입니다).
+3. 받은 파일을 엽니다 → 인증서 창 **자세히** 탭 → **지문**. 값이 **카드의 지문과 같은지** 확인합니다(대소문자·띄어쓰기 무시,
+   적어도 앞 8자리와 끝 8자리). **다르면 설치하지 말고** 원장님께 알립니다.
+4. **일반** 탭 → **인증서 설치…** → **현재 사용자** → 다음 → **모든 인증서를 다음 저장소에 저장** → 찾아보기 →
+   **신뢰할 수 있는 루트 인증 기관** → 확인 → 다음 → 마침.
+5. "보안 경고" 창의 지문이 카드와 같으면 **예**.
+
+더 안전한 방법: 맥 미니의 `~/TeamAX/tls/ca.cer`를 **USB**로 복사해 데스크에서 바로 열면 1~2단계가 필요 없습니다(네트워크를
+거치지 않음). 3~5단계는 같습니다. 한 PC를 여러 윈도우 계정이 쓰면 계정마다 4~5단계를 하거나, PC 관리자가 4단계에서
+**로컬 컴퓨터**를 고릅니다(이때는 보안 경고 창이 나오지 않으므로 3단계 확인이 꼭 필요합니다).
+
+### ② Edge 주소
+
+Edge를 **모두 닫았다가** 다시 열고 카드의 데스크 주소 `https://192.168.x.x:8443`. 확인: 주소창에 경고 없이 자물쇠가
+보이고 로그인 화면이 나옵니다.
+
+### ③ 앱으로 설치
+
+Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설치. 바탕화면·작업 표시줄에 Team AX 아이콘이 생기고 별도 창으로
+열립니다. (Chrome: ⋮ → 전송, 저장, 공유 → 페이지를 앱으로 설치)
+
+### ④ 초대 링크로 가입
+
+받은 초대 링크를 Edge에서 엽니다 → 이름·아이디·비밀번호 → 가입. 다음부터는 바탕화면 아이콘으로 열고 로그인합니다.
+확인: 채팅에서 "안녕하세요"를 보내면 답이 옵니다.
+
+데스크톱 앱(Team AX.exe)은 이번 시범에 필요 없습니다. Edge 앱을 쓰세요.
+
+## 5. 매일 운영
+
+**꺼지지 않게**
+- Team AX는 맥 미니 사용자가 **로그인해 있는 동안** 돌고, 멈추면 스스로 다시 켜집니다. 화면이 잠겨 있어도 됩니다.
+  **로그아웃하지 마세요.**
+- 정전·재시동 뒤: FileVault가 켜져 있으면 맥 미니 앞에서 **암호를 한 번** 입력해야 합니다(그러면 Team AX가 스스로 켜집니다).
+  FileVault와 자동 로그인은 함께 쓸 수 없습니다. 환자 자료가 있으므로 FileVault + 암호 한 번을 권장합니다.
+- 상태 보기: `~/TeamAX/teamax status` (확인: `running`, 주소마다 `answers`).
+
+**백업**
+- **매일 밤 자동 백업**(14일 보관)이 맥 미니 디스크에 생깁니다: `~/TeamAX/data/backups/`(DB)와
+  `~/TeamAX/team/.system/backups/`(팀 폴더). 관리자 → 시스템 → 백업에서 보고 "지금 백업"을 누를 수 있습니다.
+  터미널: `~/TeamAX/teamax backup`.
+- **맥 미니가 고장·도난되면 같은 디스크의 백업도 사라집니다.** 그래서 외장 디스크에 하나 더 둡니다:
+  1. **Time Machine (권장, 자동)**: 외장 디스크를 꽂고 시스템 설정 → 일반 → Time Machine → 백업 디스크 추가 →
+     **백업 암호화** 켜기. `~/TeamAX` 전체(인증서 포함)가 매시간 백업됩니다.
+  2. **암호화 보관본 (주 1회, 다른 맥으로 옮길 때도 이것)**:
+     ```sh
+     ~/TeamAX/teamax archive /Volumes/<디스크 이름>/teamax-$(date +%F).age
+     ```
+     암호(8자 이상)를 두 번 묻습니다. 확인: `보관본을 만들었습니다 … 암호화됨`. 암호를 잊으면 열 수 없습니다.
+
+## 6. 업데이트
+
+새 zip을 맥 미니에 풀고 같은 명령을 다시 실행합니다:
+```sh
+cd ~/Downloads && ditto -x -k TeamAX-office-<새 버전>-mac.zip .
+bash ~/Downloads/TeamAX-office-<새 버전>/office-install.sh
+```
+`app/`만 바뀌고(이전 것은 `app.previous`) 데이터·팀 폴더·인증서·설정은 그대로입니다. 데스크는 할 일이 없습니다
+(로그인도 유지). 확인: `팀이 이미 설정되어 있습니다`, `=== 설치 끝 / installed: <새 버전> ===`.
+
+## 7. 문제 해결
+
+| 증상 | 할 일 |
+|---|---|
+| 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
+| 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
+| 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
+| 421 "Misdirected request" | 카드에 없는 주소·이름으로 접속함. `teamax info`의 주소를 쓰세요 |
+| 지문이 카드와 다름 | 설치하지 말고 USB로 `ca.cer`를 옮겨 설치. 누군가 네트워크에서 바꿔치기했을 수 있습니다 |
+| 채팅이 "엔진을 쓸 수 없음" | 맥 미니에서 `claude auth status`(만료 시 `claude` → `/login`), `teamax logs`(서버 로그 포함) |
+| 비밀번호 잊음 | 팀원: 관리자 → 멤버 → 재설정 링크. 원장님: 맥 미니에서 `~/TeamAX/teamax reset-link` |
+| 공유기를 바꿔 주소 대역이 달라짐 (예: 192.168.0.x → 192.168.1.x) | 인증서가 새 대역을 이름에 넣지 못합니다. `teamax stop` → `mv ~/TeamAX/tls ~/TeamAX/tls.old` → `teamax start` → 새 카드 인쇄 → 데스크마다 인증서 다시 설치 |
+| 포트가 이미 쓰이는 중 | 설치기의 안내대로 `--lan-port 9443` 등 다른 번호 |
+
+명령 모음(`~/TeamAX/teamax …`): `status`, `info`(주소·지문, `~/TeamAX/ADDRESSES.txt`와 같음), `card`, `logs [n]`,
+`start` / `stop` / `restart`, `setup-link`, `reset-link [--username U]`, `backup`, `archive <파일>`,
+`restore-archive <파일> [--replace]`. 설정은 `~/TeamAX/config/office.env`를 고친 뒤 `teamax restart`
+(`config/server.json`은 시작마다 다시 쓰이므로 고치지 마세요). 제거: `bash office-uninstall.sh`(데이터는 남김,
+`--delete-data`는 전부 지움).
+
+## 8. 보안 메모
+
+**사무실 모드가 지키는 것**
+- 폴더 권한과 채팅 비공개는 운영 모드와 **같은 권한 함수**가 모든 파일 접근(AI 도구 포함)에서 판단합니다. AI는 질문한
+  사람이 볼 수 있는 파일만 봅니다([PERMISSIONS.md](PERMISSIONS.md)).
+- **엔진 잠금**: Claude Code 자체 도구(셸·파일·웹)는 꺼져 있고 Team AX 도구만 씁니다. **macOS 샌드박스**(`engine.sb`)가
+  엔진이 그 채팅 폴더 밖(`/Users`, 다른 채팅, 서버 데이터, 인증서 키)을 못 읽게 막습니다.
+- 데이터(DB, 팀 폴더, 백업)는 **치과의 그 맥 미니에만** 있습니다. 중계 서버를 거치지 않습니다.
+- **환자 자료는 AI에게 묻는 요청의 일부로만 Anthropic(Claude)에 전송됩니다**: 질문 내용과 AI가 그 질문에 답하려고 읽은
+  파일 내용. 다른 AI 회사(Codex 등)는 사무실 모드에서 쓰지 않습니다.
+- 사무실 네트워크에는 **https만** 열리고, **맥 미니와 같은 사무실 대역**(예: 192.168.1.0/24)에서 온 연결만 받습니다(VPN·다른
+  대역은 403). 평문 앱 포트는 맥 미니 안(`127.0.0.1`)에서만. 인증서 페이지(8442)는 인증서와 안내만 주고 API가 없습니다.
+  서버는 자기 주소로 온 요청만 받습니다(다른 Host는 421). 로그인 쿠키는 `__Host-`·Secure·HttpOnly, 로그인 시도 제한은
+  데스크의 실제 IP 기준.
+- 사무실 CA는 **이름 제한**이 걸려 있어 **이 맥 미니의 이름과 사무실 대역의 주소만** 보증할 수 있습니다. CA 키가 새더라도
+  은행·포털, 다른 `.local` 기기, 다른 대역의 차트 서버·NAS·공유기를 데스크에 사칭할 수 없습니다. CA 키(`tls/ca.key`, 600)는
+  맥 밖으로 나가지 않습니다.
+- 인증서 페이지는 평문 http라서 **지문을 보여 주지 않습니다**. 데스크는 맥 미니에서 인쇄한 카드와 비교합니다(또는 USB).
+
+**운영 설치가 나중에 더하는 것**
+- 엔진이 **별도 계정**(`_axagent`)으로 돌아 OS 계정 경계가 하나 더 생기고, **pf 방화벽**이 엔진의 네트워크를 모델 프록시 하나로
+  막습니다. 사무실 모드의 엔진은 맥 미니 사용자 계정으로 돌고(샌드박스 안), 외부 https에 직접 나갈 수 있습니다.
+- 그래서 지금은 **Team AX 전용 맥 미니, 개인 자료 없음, FileVault 켜기, 맥 미니 사용자 암호는 원장님만**을 권장합니다.
+- 서명·공증된 앱이 아닙니다(설치기가 다운로드 격리 표시를 지웁니다).
+
+## 부록 A. 번들 만들기 (개발 맥에서)
+
+```sh
+bun install
+bun run build:office        # = ARCHS="arm64 amd64" bash native/build.sh && web 빌드 && bun scripts/build-office.ts
+# → dist/office/TeamAX-office-<버전>-mac.zip  (약 130 MB)
+bun docs/install/build-pdf.ts --office   # docs/office/Team-AX-치과-설치가이드.pdf (zip에 함께 들어감)
+```
+bun·ripgrep·pandoc은 GitHub 릴리스에서 버전과 SHA-256을 고정해 받습니다(`scripts/build-office.ts`의 `DOWNLOADS`,
+`dist/cache/`에 보관). zip에는 이 문서(`app/docs/OFFICE.md`)와 PDF가 들어갑니다.
+
+## 부록 B. 운영 설치(역할 계정)로 옮기기
+
+운영 설치(`scripts/install-macos.sh`)도 같은 자료 구조를 씁니다: `data/app.db` + `team/`. 옮기는 길은 암호화 보관본입니다:
+
+1. 사무실 모드에서 `teamax archive <파일>`.
+2. 운영 설치에서 `_axserver`로 `admin.js restore-archive --in <파일> --to <새 폴더> --password-stdin`
+   → 그 안의 `db/app.sqlite`를 `data/app.db`로, `team/`을 `team/`으로(서버를 멈춘 상태에서, 소유자 `_axserver`).
+
+사무실 모드 보관본 → 새로 설치한 사무실 모드 복원은 시험했습니다(팀원 로그인·파일 확인). 운영 설치로의 복원은 아직 시험하지
+않았습니다(OWNER-TODO). 운영 설치는 자기 LAN 인증서를 쓰므로 데스크는 그때 다시 연결해야 합니다. 새 맥으로 옮길 때도
+보관본에는 CA가 없으므로 데스크는 새 인증서를 설치합니다(같은 CA를 쓰려면 `~/TeamAX/tls/`를 따로 옮기세요).
+
+## 알려진 한계
+
+- **윈도우 실제 PC에서의 인증서 설치·Edge 앱 설치는 시험하지 못했습니다.** 같은 인증서 체인을 macOS 신뢰 평가, OpenSSL,
+  Node, Linux Chromium(CA를 신뢰 목록에 넣고, 인증서 고정 없이: 보안 연결·서비스 워커·PWA 설치 가능)으로 확인했습니다.
+  첫 데스크에서 위 4장을 따라 해 보고 나머지 9대를 진행하세요. 어떤 데스크가 인증서를 거부하면 `~/TeamAX/tls`를 옮겨 두고
+  `office.env`에 `TEAMAX_CA_CONSTRAINTS=0`, `teamax restart`(새 CA, 이름 제한 없음, 데스크 재설치).
+- IPv4만 씁니다(IPv6 주소는 인증서·접속 대상에 넣지 않음). VPN(Tailscale 등) 주소도 빼며, 필요하면 `TEAMAX_INCLUDE_VPN=1`과
+  `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`).
+- 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
+- PDF 글자 추출은 `pdftotext`(Homebrew `poppler`)가 있을 때만 됩니다. docx·pptx는 번들의 pandoc으로 됩니다.
+- 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.

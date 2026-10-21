@@ -34,6 +34,14 @@ export function ensureSetupToken(cfg: AppConfig, db: AppContext['db']): string |
   return t
 }
 
+/** The socket peer as rate limits and the audit log see it: an IPv4 client of a dual-stack ('::') listener arrives
+ * as ::ffff:a.b.c.d and is written a.b.c.d, the same address an IPv4-only listener reports. */
+export function peerIp(addr: string | null | undefined): string | null {
+  if (!addr) return null
+  const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(addr)
+  return m ? m[1]! : addr
+}
+
 /**
  * Say at start, in plain words, when the engine cannot work because of where the data lives: a socket path that does
  * not fit in a Unix socket address (long data folder), or (macOS dev) a data folder under /tmp, which the engine
@@ -73,7 +81,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     ...base,
     hostname: cfg.listen.host,
     port: cfg.listen.port,
-    fetch: (req, server) => app.fetch(req, { ip: server.requestIP(req)?.address ?? null, via: 'direct', server }),
+    fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', port: server.port, server }),
   })
   servers.push(http)
   if (cfg.tls) {
@@ -92,11 +100,11 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     if (t.managed) certCheck()
     const serveTls = () => Bun.serve({
       ...base,
-      hostname: '0.0.0.0',
+      hostname: t.host ?? '0.0.0.0',
       port: t.port,
       // read now (Bun.file is lazy): a renewed certificate is a new listener with the new files
       tls: { cert: fs.readFileSync(t.certFile, 'utf8'), key: fs.readFileSync(t.keyFile, 'utf8') },
-      fetch: (req, server) => app.fetch(req, { ip: server.requestIP(req)?.address ?? null, via: 'direct', server }),
+      fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', port: server.port, server }),
     })
     let tls = serveTls()
     let tlsUp = true
@@ -127,7 +135,8 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   // and retried on first use.
   if (cfg.mode === 'prod') void ctx.core().catch(() => {})
   if (cfg.setupToken) {
-    if (cfg.mode === 'dev') log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)
+    // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
+    if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)
     else log.info('first-run setup pending', { tokenFile: path.join(cfg.dataDir, 'setup-token') })
   }
   return {

@@ -29,6 +29,9 @@ type In<T extends z.ZodType> = z.output<T>
 /** Base URL for links the admin copies (invite / reset): the caller's own origin when it is one of ours. */
 export function linkBase(c: Context<AppEnv>, ctx: AppContext): string {
   const origin = c.req.header('origin')
+  // office mode (docs/OFFICE.md): the owner works on the server Mac itself (http://localhost:<port>), but the link is
+  // for a desk, which can only use the office address (the first public origin)
+  if (ctx.config.office && ctx.config.publicOrigins[0] && origin && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) return ctx.config.publicOrigins[0]
   if (origin && origin !== 'null' && originAllowed(origin, c.req.url, ctx.config.publicOrigins)) return origin
   return ctx.config.publicOrigins[0] ?? new URL(c.req.url).origin
 }

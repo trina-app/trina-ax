@@ -32,6 +32,7 @@
     "build:bundle": "bun run build && bun scripts/build-bundle.ts",
     "build:bundle:universal": "ARCHS='arm64 amd64' bun run build && bun scripts/build-bundle.ts --arch universal",
     "dist:mac": "bun run --cwd desktop dist:mac",
+    "build:office": "ARCHS='arm64 amd64' bash native/build.sh && bun run --cwd web build && bun scripts/build-office.ts",
     "build:menubar": "bash menubar/build.sh",
     "dev:web": "bun run --cwd web dev",
     "build:web": "bun run --cwd web build",

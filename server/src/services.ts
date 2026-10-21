@@ -17,6 +17,8 @@ export interface RequestInfo {
   /** real client IP: TLS socket peer (office), relay OPEN-frame metadata (remote); null when unknown */
   ip: string | null
   via: 'direct' | 'relay' | 'local' | 'test'
+  /** direct: the port of the listener the request came in on (the loopback app port or the office TLS port) */
+  port?: number | null
 }
 
 /** Component A (server/src/auth/*). */
