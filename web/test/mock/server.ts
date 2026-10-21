@@ -981,6 +981,9 @@ export class MockServer {
       this.publish({ type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } })
       return this.enginesResponse()
     },
+    // the team's API engine (Admin > AI engines, owner): not set up in the mock
+    getApiEngine: () => ({ baseUrl: null, model: null, label: null, hasKey: false }),
+    putApiEngine: (c) => ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
     checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
     listBudgets: () => ({ items: this.budgets }),
     createBudget: (c) => {

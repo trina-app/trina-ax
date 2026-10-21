@@ -351,14 +351,19 @@ function ConnectedFolders() {
                 ))}
               </ul>
             )}
-            <div className="mt-4 grid gap-2 sm:grid-cols-[10rem_1fr_auto] sm:items-end">
+            {/* top-aligned, so the hint under the path does not push the name field down; the button gets a label-high
+                spacer to line up with the inputs */}
+            <div className="mt-4 grid gap-3 sm:grid-cols-[10rem_1fr_auto] sm:items-start">
               <Field label={t('connected.name')}>
                 <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="connected-name" />
               </Field>
               <Field label={t('connected.source')} hint={t('connected.sourceHint')}>
                 <input className={inputCls} value={source} onChange={(e) => setSource(e.target.value)} placeholder="/Volumes/…" data-testid="connected-source" />
               </Field>
-              <Button disabled={!name.trim() || !source.trim()} onClick={() => setAsking(true)}>{t('connected.add')}</Button>
+              <div>
+                <span className="mb-1.5 hidden text-[13px] sm:block" aria-hidden>&nbsp;</span>
+                <Button disabled={!name.trim() || !source.trim()} onClick={() => setAsking(true)}>{t('connected.add')}</Button>
+              </div>
             </div>
           </>
         )}

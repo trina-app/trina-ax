@@ -115,9 +115,10 @@ export default function Members() {
                           <span className="text-xs text-faint">—</span>
                         )}
                       </td>
-                      <td className="py-2 text-right whitespace-nowrap">
+                      <td className="py-2">
                         {u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me)) && (
-                          <>
+                          // one line when there is room; on a phone the buttons wrap here instead of scrolling the table sideways
+                          <div className="flex flex-wrap items-center justify-end">
                             <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
                               {t('common.edit')}
                             </Button>
@@ -135,7 +136,7 @@ export default function Members() {
                                 <Trash2 size={15} />
                               </IconButton>
                             )}
-                          </>
+                          </div>
                         )}
                       </td>
                     </tr>

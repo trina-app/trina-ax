@@ -219,3 +219,12 @@ describe('only engines that can answer are offered', () => {
     expect(await readyEngines(['claude-code'], {}, async () => 'error')).toEqual(['claude-code'])
   })
 })
+
+test('a check slower than the wait keeps the engine now and reports when it turns out signed out', async () => {
+  let late = 0
+  const slow = (s: 'ok' | 'not_logged_in') => () => Bun.sleep(3_300).then(() => s)
+  expect(await readyEngines(['codex'], {}, slow('not_logged_in'), () => late++)).toEqual(['codex'])
+  expect(await readyEngines(['codex'], {}, slow('ok'), () => late++)).toEqual(['codex'])
+  await Bun.sleep(600)
+  expect(late).toBe(1)
+})

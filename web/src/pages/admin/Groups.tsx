@@ -41,7 +41,7 @@ export default function Groups() {
             ) : (
               <ul className="divide-y divide-line" data-testid="group-list">
                 {list.map((g) => (
-                  <li key={g.id} className="flex items-start gap-3 py-2.5 text-sm">
+                  <li key={g.id} className="flex items-center gap-3 py-2.5 text-sm">
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium">{g.name}</span>
                       {g.description && <span className="block text-xs text-muted">{g.description}</span>}
