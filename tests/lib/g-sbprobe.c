@@ -1,5 +1,9 @@
 // Sandbox / firewall probe for the installer-ops tests (component G). One operation per run, exit 0 = allowed.
 //   probe read <file> | write <file> | list <dir> | tcp <ip> <port> | talk <ip> <port> | unix <socket path> | exec <program>
+//         | stat <path> | procs | procargs <pid>
+// stat exits 0 (found), 1 (EPERM: the sandbox said no), 3 (ENOENT) or 4 (other error), so a test can tell "denied"
+// from "does not exist" (a denied stat must not reveal whether the path exists). procs = list every process
+// (KERN_PROC_ALL), procargs = read another process's argv (KERN_PROCARGS2).
 // talk = connect, send "ping\n", wait up to 3 s for any reply (an echo server answers): data really flows. On macOS pf
 // matches the engine account on IPv6 only once the connection exists, so a bare connect() can succeed while every
 // data packet is dropped; talk tells the two apart.
@@ -12,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -19,6 +25,11 @@
 static int fail(const char *what) { fprintf(stderr, "%s: %s\n", what, strerror(errno)); return 1; }
 
 int main(int argc, char **argv) {
+  if (argc == 2 && !strcmp(argv[1], "procs")) {
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 }; size_t len = 0;
+    if (sysctl(mib, 3, NULL, &len, NULL, 0) < 0 || len == 0) return fail("sysctl kern.proc.all");
+    return 0;
+  }
   if (argc < 3) { fprintf(stderr, "usage: probe read|write|list|tcp|unix|exec <arg> [port]\n"); return 2; }
   const char *op = argv[1], *a = argv[2];
   if (!strcmp(op, "read")) {
@@ -28,6 +39,14 @@ int main(int argc, char **argv) {
   if (!strcmp(op, "write")) {
     int fd = open(a, O_WRONLY | O_CREAT | O_TRUNC, 0600); if (fd < 0) return fail("open");
     if (write(fd, "x", 1) != 1) return fail("write"); close(fd); unlink(a); return 0;
+  }
+  if (!strcmp(op, "stat")) {
+    struct stat st; if (stat(a, &st) == 0) return 0;
+    int e = errno; fail("stat"); return e == EPERM ? 1 : e == ENOENT ? 3 : 4;
+  }
+  if (!strcmp(op, "procargs")) {
+    int mib[3] = { CTL_KERN, KERN_PROCARGS2, atoi(a) }; static char buf[1 << 16]; size_t len = sizeof buf;
+    if (sysctl(mib, 3, buf, &len, NULL, 0) < 0) return fail("sysctl kern.procargs2"); return 0;
   }
   if (!strcmp(op, "list")) { DIR *d = opendir(a); if (!d) return fail("opendir"); return readdir(d) ? 0 : 1; }
   if (!strcmp(op, "tcp") || !strcmp(op, "talk")) {

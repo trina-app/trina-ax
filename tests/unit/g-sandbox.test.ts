@@ -20,11 +20,14 @@ const AGENT = path.join(W, 'agent')
 const CHAT = path.join(AGENT, 'chat1')
 const OTHER = path.join(AGENT, 'chat2')
 const TMP_SECRET = path.join('/private/tmp', `mycel-g-sandbox-${process.pid}`)
+// stands in for the server's data folder (app.db) next to the agent root
+const DATA = path.join(W, 'data')
 
 beforeAll(() => {
   if (!mac) return
   fs.rmSync(W, { recursive: true, force: true })
-  for (const d of [ENG, CHAT, OTHER]) fs.mkdirSync(d, { recursive: true })
+  for (const d of [ENG, CHAT, OTHER, DATA]) fs.mkdirSync(d, { recursive: true })
+  fs.writeFileSync(path.join(DATA, 'app.db'), 'SQLITE')
   const cc = Bun.spawnSync(['cc', '-O2', '-o', PROBE, path.resolve(import.meta.dir, '..', 'lib', 'g-sbprobe.c')])
   if (cc.exitCode !== 0) throw new Error(cc.stderr.toString())
   fs.writeFileSync(path.join(CHAT, 'mine.txt'), 'mine')
@@ -34,11 +37,19 @@ beforeAll(() => {
 afterAll(() => { fs.rmSync(TMP_SECRET, { force: true }) })
 
 function probe(localLogin: boolean, ...args: string[]): boolean {
+  return probeCode(localLogin, ...args) === 0
+}
+/** exit code of the probe; for `stat`: 0 found, 1 EPERM (sandbox), 3 ENOENT, 4 other */
+function probeCode(localLogin: boolean, ...args: string[]): number | null {
+  return probeWith({ localLogin }, ...args)
+}
+function probeWith(o: { localLogin: boolean; home?: string; sessionDir?: string; proxyPort?: number }, ...args: string[]): number | null {
   const p = Bun.spawnSync(['/usr/bin/sandbox-exec', '-f', PROFILE,
     '-D', `CHAT_DIR=${CHAT}`, '-D', `AGENT_ROOT=${AGENT}`, '-D', `ENGINE_DIR=${ENG}`, '-D', 'BRIDGE=/nonexistent/bridge',
-    '-D', `TOOLS_SOCK=${path.join(W, 'tools.sock')}`, '-D', 'PROXY_PORT=19173', '-D', `LOCAL_LOGIN=${localLogin ? 1 : 0}`, '-D', `USER_HOME=${fs.realpathSync(os.homedir())}`,
+    '-D', `TOOLS_SOCK=${path.join(W, 'tools.sock')}`, '-D', `PROXY_PORT=${o.proxyPort ?? 19173}`, '-D', `LOCAL_LOGIN=${o.localLogin ? 1 : 0}`,
+    '-D', `USER_HOME=${o.home ?? fs.realpathSync(os.homedir())}`, '-D', `SESSION_DIR=${o.sessionDir ?? CHAT}`,
     PROBE, ...args], { stdout: 'ignore', stderr: 'ignore' })
-  return p.exitCode === 0
+  return p.exitCode
 }
 
 // stand-ins for the model proxy port and the tools socket
@@ -74,6 +85,46 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
       expect(probe(ll, 'tcp', '127.0.0.1', '19173')).toBe(true)
     })
   }
+
+  // security audit r1 (os-layer #1): `(allow file-read-metadata)` without a path let a turn stat() ANY path: whether
+  // another chat's files exist, their size and mtime, the server's data folder (app.db), the owner's home. Only
+  // the folders above the turn's own paths may be stat()ed now. (A name that does not exist still answers ENOENT
+  // instead of EPERM: the kernel resolves the path before the sandbox looks at it, so only an exactly guessed name
+  // can be tested. In role-account mode the data/team folders and homes are closed to the engine account by
+  // permissions, which answers EACCES either way; see docs/DECISIONS.md.)
+  for (const ll of [false, true]) {
+    test(`LOCAL_LOGIN=${ll ? 1 : 0}: stat() only on the turn's own paths and the folders above them`, () => {
+      const home = fs.realpathSync(os.homedir())
+      // own chat folder and the path down to it (realpath walks it)
+      expect(probeCode(ll, 'stat', path.join(CHAT, 'mine.txt'))).toBe(0)
+      expect(probeCode(ll, 'stat', path.join(CHAT, 'missing.txt'))).toBe(3)
+      expect(probeCode(ll, 'stat', CHAT)).toBe(0)
+      expect(probeCode(ll, 'stat', AGENT)).toBe(0)
+      expect(probeCode(ll, 'stat', '/')).toBe(0)
+      expect(probeCode(ll, 'stat', '/usr/lib')).toBe(0)
+      expect(probeCode(ll, 'stat', PROBE)).toBe(0)
+      // another chat: neither its folder, its files, nor whether a chat id exists
+      expect(probeCode(ll, 'stat', OTHER)).toBe(1)
+      expect(probeCode(ll, 'stat', path.join(OTHER, 'theirs.txt'))).toBe(1)
+      expect(probeCode(ll, 'stat', path.join(OTHER, 'not-there.txt'))).not.toBe(0)
+      expect(probeCode(ll, 'stat', path.join(AGENT, 'no-such-chat'))).not.toBe(0)
+      // the server's data folder next to the agent root, /tmp, the home folder's contents
+      expect(probeCode(ll, 'stat', DATA)).toBe(1)
+      expect(probeCode(ll, 'stat', path.join(DATA, 'app.db'))).toBe(1)
+      expect(probeCode(ll, 'stat', TMP_SECRET)).toBe(1)
+      if (fs.existsSync(path.join(home, '.ssh'))) expect(probeCode(ll, 'stat', path.join(home, '.ssh'))).toBe(1)
+      if (fs.existsSync(path.join(home, 'Documents'))) expect(probeCode(ll, 'stat', path.join(home, 'Documents'))).toBe(1)
+      expect(probeCode(ll, 'stat', path.join(home, 'no-such-folder-' + process.pid))).not.toBe(0)
+      expect(probeCode(ll, 'stat', '/Volumes/no-such-volume')).not.toBe(0)
+    })
+  }
+
+  // security audit r1 (os-layer #1): `(allow sysctl-read)` let a turn list every process on the Mac (KERN_PROC_ALL),
+  // other turns' engines included. (Reading one pid's argv, KERN_PROCARGS2, is not a sandbox operation at all: the
+  // kernel only checks the uid, see docs/DECISIONS.md; argv carries no secrets.)
+  test('no process list', () => {
+    for (const ll of [false, true]) expect(probe(ll, 'procs')).toBe(false)
+  })
 
   test('without local login: no direct internet, no other localhost ports', () => {
     expect(probe(false, 'tcp', '1.1.1.1', '443')).toBe(false)
@@ -120,5 +171,9 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
     expect(await turn('chat1', ['tcp', '127.0.0.1', '19173'])).toBe(0)
     // the per-turn files the launcher writes (.turn/) are inside the chat folder and readable by the engine
     expect(await turn('chat1', ['list', '{TURN_DIR}'])).toBe(0)
+    // no metadata of another chat (os-layer #1)
+    expect(await turn('chat1', ['stat', '{CHAT_DIR}/mine.txt'])).toBe(0)
+    expect(await turn('chat2', ['stat', path.join(CHAT, 'mine.txt')])).toBe(1)
+    expect(await turn('chat2', ['stat', path.join(DATA, 'app.db')])).toBe(1)
   })
 })
