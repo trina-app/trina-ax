@@ -780,7 +780,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   도움말·OFFICE.md에 "모두 다시 로그인, 안 쓴 링크는 새로"를 적었다. 시험: `tests/security/r4-restore-archive-sessions.test.ts`
   (실제 `admin.js archive`/`restore-archive` + 바꿔 넣기 + 같은 폴더로 서버 다시 열기: 로그아웃한 토큰 401),
   `tests/unit/office.test.ts`(세션 0, 안 쓴 링크만 지움, `data/sessions` 옮김, 읽을 수 없는 DB면 그대로).
-- **사무실 CA의 이름 제한은 `<맥 이름>.local` 하나(4차 2).** 전에는 맥의 맨 이름(`<맥 이름>`)도 허용 범위였다. RFC 5280의
+- **사무실 CA의 이름 제한은 `<맥 이름>.local` 하나(4차 3).** 전에는 맥의 맨 이름(`<맥 이름>`)도 허용 범위였다. RFC 5280의
   dNSName 제한은 그 아래 모든 이름을 허용하므로, 맥 이름이 실제 최상위 도메인(dental, clinic, dentist, office …)이면 CA 키가
   샐 때 그 TLD 아래 모든 공개 사이트를 데스크에 사칭할 수 있었다. 서버 인증서도 맨 이름을 넣지 않는다(데스크는 IP와
   `.local`만 쓴다). 맨 이름이 든 예전 CA(`ca.json`에 점 없는 이름이 `local` 말고 있으면)는 다음 시작 때 **새로 만든다**: 옛 CA는
@@ -788,7 +788,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   사무실 안 경로를 쓰는 데스크는 CA를 다시 설치해야 하지만, 지금 이 CA를 쓰는 데스크는 없다(exampleteam은 인터넷 주소가 기본이고
   아직 설정 전). `TEAMAX_CA_CONSTRAINTS=0`으로 만든 CA(제한 없음)는 그대로 둔다. 시험: `tests/security/r4-office-ca-tld.test.ts`
   (맥 이름 "dental": `www.smile.dental` 등 서명해도 OpenSSL이 거부, 예전 CA는 다시 만듦), `tests/unit/office.test.ts`.
-- **계정 로그인 제한을 길별로 나눴다(4차 3).** 계정당 실패 횟수가 모든 길에서 하나였으므로, 인터넷 주소로 아는 아이디에
+- **계정 로그인 제한을 길별로 나눴다(4차 2).** 계정당 실패 횟수가 모든 길에서 하나였으므로, 인터넷 주소로 아는 아이디에
   15분마다 틀린 비밀번호 10번이면 owner와 데스크 전체가 맥 미니·사무실 안에서도 15분 동안 못 들어왔다(막힌 동안에는 맞는
   비밀번호도 429). 이제 시도마다 계정 횟수의 범위(`AccountScope`, `auth/rate-limit.ts`)를 고른다: ① 맥 미니 자신(루프백,
   터널 아님) 또는 그 사람이 **전에 로그인한 네트워크**(IPv4 주소·IPv6 /64, 90일, 사람당 20개; 비밀번호·초대·재설정 링크로
@@ -800,7 +800,26 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   중에 막힐 수 있고, 같은 공인 IP를 쓰는 다른 사람(통신사 CGNAT)은 그 사람의 ① 횟수를 함께 쓴다. 시험:
   `tests/security/r4-login-lockout-from-internet.test.ts`(인터넷에서 10번 틀린 뒤 맥·LAN·치과 IP는 200, 낯선 IP는 맞는 비밀번호도
   429, LAN·치과 IP도 각자 10번에 잠김).
-- **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 6).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
+- **터널 하나 = 사무실 맥 하나(4차 4).** 터널의 연결 토큰(계정·터널 id·비밀)은 그 터널이 맡는 모든 이름에 같고, Cloudflare는
+  모든 이름의 손님을 그 터널의 모든 커넥터에 나눠 보낸다. 그런데 `set <치과2> --tunnel <치과1의 터널>`(또는 치과2의 CNAME이
+  이미 그 터널을 가리킬 때)이 아무 말 없이 치과1과 똑같은 토큰을 치과2의 토큰 파일로 썼다. 두 맥이 같은 터널에 붙으면 한
+  치과의 쿠키·로그인 본문이 다른 치과 맥에 갈 수 있었다. 이제 `set`은 터널이 이미 **다른 이름**을 맡고 있으면 아무것도 바꾸지
+  않고 거부한다(종료 3, 토큰 파일 없음). 한 맥이 이름 여럿을 맡을 때만 `--share-tunnel`로 허락하고, 출력에 함께 쓰는 이름을
+  보인다. 이미 커넥터가 붙은 터널을 다시 쓰면 "this token is the one already running on N connector(s)"를 보인다. 빈
+  `--tunnel ''`은 없는 것과 같다(기본 이름). 그 이름을 `remove`해도 손에 나간 토큰은 계속 붙었으므로, 남는 터널(`--keep-tunnel`
+  또는 다른 이름이 남음)은 **비밀을 새로 바꾸고**(`PATCH cfd_tunnel {tunnel_secret}` + 연결 끊기) 남은 이름의 새 토큰을 쓴다
+  (`--new-token-out`, 기본 그 이름의 토큰 파일; 그 맥에서 `teamax public-address set`으로 다시 넣어야 함). `--no-rotate`는
+  같은 맥이 모든 이름을 맡을 때만. 새 명령 `rotate <이름>`은 그 이름의 터널 비밀을 바꾸고 새 토큰을 쓴다(토큰이 샌 의심이
+  들 때). 시험: `tests/security/r4-tunnel-token-sharing.test.ts`(비밀에서 토큰을 만드는 가짜 API: 거부, CNAME 경로 거부, 공유한
+  뒤 remove하면 옛 토큰이 붙지 못함, rotate), `tests/unit/office-tunnel.test.ts`.
+- **remove는 로컬 설정 터널을 지우지 않는다(4차 5).** `remove`가 기본 이름(`teamax-<이름>`)·`--tunnel`·CNAME으로 찾은 터널의
+  `config_src`를 보지 않아, 규칙이 누군가의 `config.yml`에 있어 API에는 비어 보이는 **로컬 설정 터널**을 "쓰는 이름 없음"으로
+  보고 연결을 끊고 지웠다(`set`과 남은 규칙 정리는 이미 건너뜀). 이제 터널을 **아무것도 바꾸기 전에** 찾고, CNAME이 로컬 설정
+  터널을 가리키면 remove 전체를 거부한다(그 CNAME은 이 스크립트가 만든 것이 아님, `set`이 그런 터널을 거부하므로). 이름·
+  `--tunnel`로 찾은 로컬 터널은 "not touched"로 두고 나머지(CNAME, 다른 터널의 남은 규칙)만 정리한다. 원격 관리 터널도 그
+  이름의 CNAME이 가리키거나 그 이름 규칙이 있을 때만 지우거나 비밀을 바꾼다(`--tunnel`로만 닿은 빈 터널은 남의 것일 수
+  있음). 시험: `tests/security/r4-remove-local-tunnel.test.ts`.
+- **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 14, 검토 중 추가).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
   `teamName`(설정 전 null, 뒤 팀 이름)이 그대로 나갔고, `POST /api/setup`은 "이미 설정됨"(409)을 터널 거부(403)보다 먼저 봐서
   설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
   클라이언트가 없음, 필드는 옛 클라이언트를 위해 남김). 기본 언어(`defaultLocale`)는 설정 때 고른 언어로 바뀌므로 약한 신호가
