@@ -84,7 +84,8 @@ meant to hold on its own:
    (`scripts/macos/engine.sb`) with a pf anchor (only the local model proxy is reachable), in per-chat folders the
    launcher creates; the server account never runs anything from those folders, and root never trusts files the
    role accounts can change. The profile also hides metadata: a turn can stat() only its own paths and the folders
-   above them. Because any process of the account can read another one's argv and environment (macOS does not let
+   above them, except the agent folder that holds every chat folder (its size and time would count and time other
+   people's chats), and of `/` only the system folders. Because any process of the account can read another one's argv and environment (macOS does not let
    a sandbox stop that), no engine's argv or environment names its chat: the launcher passes chat paths relative to
    the engine's working folder and the sandbox parameters in a randomly named profile copy. In DEV mode (`bun run dev`) this layer is only partly there: on macOS every turn still runs under
    `engine.sb` (its chat folder plus the few login files Claude Code / Codex need, not the rest of your home, the
