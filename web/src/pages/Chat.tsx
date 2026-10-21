@@ -6,6 +6,7 @@ import { Link, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
+import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -26,6 +27,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
+  // "Add to current chat" on the file screen goes here
+  useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   const announce = useAnnounce()
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)

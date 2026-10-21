@@ -1,6 +1,7 @@
 // Chats, messages (a tree), projects, memories: rows <-> API shapes (shared/src/api/entities.ts).
 import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Memory, Message, MessageStatus, Project, Step, Usage, UserRef } from '@mycel/shared/api'
+import { STEP_TEXT } from '@mycel/shared'
 import { newId } from '../db'
 
 export interface ChatRow {
@@ -39,9 +40,37 @@ export function parseError(s: string | null): ApiErrorBody | null {
   return { code: 'internal', message: s }
 }
 
+/** A team-file reference with everything about the file blanked (deleted, or not readable for the viewer). */
+export const blankTeamAttachment = (a: Pick<Attachment, 'id'>): Attachment => ({ id: a.id, name: '', path: '', size: 0, mime: 'application/octet-stream', kind: 'other', source: 'team', unavailable: true })
+
 export class ChatStore {
   private names = new Map<string, string>()
+  /** Team-file references as `userId` may see them now (component C, set by the runtime). Without it every reference
+   * is blanked: a message never shows a referenced file's name to someone the server could not check. */
+  viewAttachments: ((userId: string, atts: Attachment[]) => Attachment[]) | null = null
   constructor(readonly db: Database) {}
+
+  /** A message's attachments for the chat's owner (the only person who sees its messages), team references re-checked. */
+  attachmentsOf(r: Pick<MessageRow, 'chat_id' | 'attachments'>): Attachment[] {
+    const atts = json<Attachment[]>(r.attachments, [])
+    if (!atts.some((a) => a.source === 'team')) return atts
+    const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
+    if (!owner || !this.viewAttachments) return atts.map((a) => (a.source === 'team' ? blankTeamAttachment(a) : a))
+    try { return this.viewAttachments(owner, atts) } catch { return atts.map((a) => (a.source === 'team' ? blankTeamAttachment(a) : a)) }
+  }
+
+  /** The steps of an answer for the chat's owner: a step about an attached team file (id "attach-<reference id>",
+   * TurnExec.attachmentsForTurn) loses its path once the owner can no longer open that file, like the attachment. */
+  viewSteps(r: Pick<MessageRow, 'chat_id'>, steps: Step[]): Step[] {
+    if (!steps.some((s) => s.tool === 'attachment')) return steps
+    const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
+    const gone = (s: Step): boolean => {
+      if (!s.id.startsWith('attach-')) return !!s.label && s.label !== STEP_TEXT.attachUnavailable.en // an unknown attachment step: no path shown
+      if (!owner || !this.viewAttachments) return true
+      try { return !!this.viewAttachments(owner, [{ id: s.id.slice('attach-'.length), source: 'team' } as Attachment])[0]?.unavailable } catch { return true }
+    }
+    return steps.map((s) => (s.tool === 'attachment' && gone(s) ? { ...s, label: STEP_TEXT.attachUnavailable.en, status: s.status === 'running' ? s.status : 'ok' } : s))
+  }
 
   userRef(id: string | null): UserRef | null {
     if (!id) return null
@@ -119,7 +148,7 @@ export class ChatStore {
     const usage = r.role === 'assistant' && r.turn_id ? this.turnUsage(r.turn_id) : null
     return {
       id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: r.role === 'user' ? this.userRef(r.author_id) : null,
-      content: live?.content ?? r.content, attachments: json<Attachment[]>(r.attachments, []), steps: live?.steps ?? json<Step[]>(r.steps, []).filter(isStep),
+      content: live?.content ?? r.content, attachments: this.attachmentsOf(r), steps: this.viewSteps(r, live?.steps ?? json<Step[]>(r.steps, []).filter(isStep)),
       status: r.status, error: parseError(r.error), turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' ? r.engine : null) as EngineId | null,
       model: r.model, files: json<FileChangeSummary | null>(r.files, null), usage, createdAt: iso(r.created_at),
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },

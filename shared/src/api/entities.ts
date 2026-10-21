@@ -134,11 +134,16 @@ export const Chat = z.object({
 })
 export type Chat = z.infer<typeof Chat>
 
-/** messages.attachments[]: files the person attached, stored in users/<id>/.attachments/<chatId>/. */
+/**
+ * messages.attachments[]: files the person attached. Uploads are stored in users/<id>/.attachments/<chatId>/;
+ * team files (source 'team', POST /api/attachments/team-file) are references to a file in the team folder, not copies:
+ * the server follows the file (moves, edits) and checks the person's read access again whenever it is shown or sent.
+ */
 export const Attachment = z.object({
   id: Uuid7,
   name: z.string(),
-  /** team-relative path of the stored file (users/<me>/.attachments/<chatId>/<name>) */
+  /** team-relative path: of the stored upload (users/<me>/.attachments/<chatId>/<name>), or where the referenced team
+   * file is now ('' when it is unavailable) */
   path: RelPath,
   size: z.number().int().nonnegative(),
   mime: z.string(),
@@ -146,8 +151,20 @@ export const Attachment = z.object({
   /** images: width/height for layout before the thumbnail loads */
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
+  /** 'team': a reference to a team-folder file (absent: an upload) */
+  source: z.enum(['upload', 'team']).optional(),
+  /** team references: sha256 of the content when it was attached */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  /** team references: the content changed since it was attached (the AI gets the current version) */
+  changed: z.boolean().optional(),
+  /** team references: moved or renamed since it was attached (`path` is where it is now) */
+  moved: z.boolean().optional(),
+  /** team references: deleted, or the viewer can no longer read it; name, path and size are then blanked */
+  unavailable: z.boolean().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
+/** At most this many attachments (uploads and team files together) per message. */
+export const MESSAGE_ATTACHMENTS_MAX = 20
 
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])

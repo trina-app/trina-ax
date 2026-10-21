@@ -1,27 +1,38 @@
 // The message box: auto-growing text, Enter sends (Shift+Enter new line, IME-safe), attachments (button, drag and
 // drop, paste, camera on phones) uploaded right away (chunked when large), voice input → transcription job → text,
 // engine / model choice, stop while an answer runs. The draft text is kept per chat across reloads.
+// The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
+// which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
+// files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, FileAudio, FileText, Loader2, Mic, Paperclip, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Check, FileAudio, FileText, FolderOpen, Loader2, Mic, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type TranscribeResult } from '@mycel/shared/api'
-import { api, errorText } from '../../lib/api'
+import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
+import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
-import { openFilePreview } from '../../lib/sidePanel'
+import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
+import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile } from '../../lib/upload'
 import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
 import { ENGINE_LABEL } from './Messages'
 import { IconButton } from '../ui'
+import TeamFilePicker from './TeamFilePicker'
 
 interface Pending {
   id: string
-  file: File
+  /** upload: a file from this computer; team: a team-folder file attached by reference */
+  source: 'upload' | 'team'
+  name: string
+  file?: File
+  /** team files: the path picked */
+  path?: string
+  size: number | null
   status: 'uploading' | 'done' | 'failed'
   progress: number
   attachment?: Attachment
@@ -62,13 +73,36 @@ export default function Composer({
   const locale = useLocale()
   const userId = useMe()?.user.id ?? '-'
   const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
-  const [files, setFiles] = useState<Pending[]>([])
+  // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
+  // files one at a time from the file screen, keeps what was attached for this draft until it is sent or removed
+  const [files, setFilesState] = useState<Pending[]>(() => restoreChips(userId, draftId))
+  const filesRef = useRef(files)
+  const setFiles = (fn: (cur: Pending[]) => Pending[]) => {
+    const next = fn(filesRef.current)
+    filesRef.current = next
+    writeStash(userId, draftId, next)
+    setFilesState(next)
+  }
+  // finished chips also survive a reload of this tab
+  useEffect(() => saveChips(userId, draftId, files.filter((f) => f.status === 'done' && f.attachment).map((f) => ({ id: f.id, source: f.source, name: f.name, size: f.size, path: f.path, attachment: f.attachment! }))), [userId, draftId, files])
+  useEffect(() => {
+    const cur = restoreChips(userId, draftId)
+    filesRef.current = cur
+    setFilesState(cur)
+    return subscribeStash<Pending>(userId, draftId, (items) => {
+      filesRef.current = items
+      setFilesState(items)
+    })
+  }, [userId, draftId])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [drag, setDrag] = useState(false)
   const [engineMenu, setEngineMenu] = useState(false)
+  const [attachMenu, setAttachMenu] = useState(false)
+  const [picker, setPicker] = useState(false)
+  const attachMenuRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const camRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -100,12 +134,20 @@ export default function Composer({
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
   }, [autoFocus])
 
-  const update = (id: string, patch: Partial<Pending>) => setFiles((p) => p.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  // an upload / attach finishing goes to whichever composer shows this draft by then (or stays in the stash)
+  const update = (id: string, patch: Partial<Pending>) => patchStash<Pending>(userId, draftId, id, patch)
+  // how many more attachments this message can take (uploads and team files together; the server's limit; failed
+  // chips are not sent and do not count)
+  const live = (list: Pending[]) => list.filter((f) => f.status !== 'failed')
+  const room = () => MESSAGE_ATTACHMENTS_MAX - live(filesRef.current).length
 
-  const addFiles = async (list: File[]) => {
-    if (!list.length) return
+  const addFiles = async (all: File[]) => {
+    if (!all.length) return
     setError(null)
-    const items: Pending[] = list.map((file) => ({ id: uuidv7(), file, status: 'uploading', progress: 0, abort: new AbortController() }))
+    const list = all.slice(0, Math.max(0, room()))
+    if (list.length < all.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
+    if (!list.length) return
+    const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: 0, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])
     let chatId: string
     try {
@@ -117,22 +159,91 @@ export default function Composer({
     }
     await Promise.all(
       items.map(async (it) => {
-        const target = { kind: 'attachment', chatId, name: it.file.name } as const
+        const target = { kind: 'attachment', chatId, name: it.file!.name } as const
         try {
-          const r = await uploadFile(it.file, target, { client: api, signal: it.abort.signal, onProgress: (p) => update(it.id, { progress: p.total ? p.loaded / p.total : 0 }) })
+          const r = await uploadFile(it.file!, target, { client: api, signal: it.abort.signal, onProgress: (p) => update(it.id, { progress: p.total ? p.loaded / p.total : 0 }) })
           if (r.kind !== 'attachment') throw new Error('unexpected upload result')
           update(it.id, { status: 'done', progress: 1, attachment: r.attachment })
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
-          if (it.abort.signal.aborted) return void cancelUpload(it.file, target, api)
+          if (it.abort.signal.aborted) return void cancelUpload(it.file!, target, api)
           update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
         }
       }),
     )
   }
 
+  /** Team-folder files (picked, or handed over from the file screen): attached by reference, re-checked by the server. */
+  const addTeamFiles = async (picked: { path: string; name?: string; size?: number | null }[]): Promise<AttachResult> => {
+    setError(null)
+    const have = new Set(live(filesRef.current).filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path))
+    const fresh = picked.filter((p, i) => !have.has(p.path) && picked.findIndex((x) => x.path === p.path) === i)
+    const list = fresh.slice(0, Math.max(0, room()))
+    const already = picked.length - fresh.length
+    if (list.length < fresh.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
+    if (!list.length) return { added: already, failed: fresh.length, ...(fresh.length ? { error: t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) } : {}) }
+    const items: Pending[] = list.map((p) => ({ id: uuidv7(), source: 'team', path: p.path, name: p.name ?? p.path.slice(p.path.lastIndexOf('/') + 1), size: p.size ?? null, status: 'uploading', progress: 0, abort: new AbortController() }))
+    setFiles((p) => [...p, ...items])
+    let chatId: string
+    try {
+      chatId = await ensureChat()
+    } catch (e) {
+      const msg = errorText(e, locale, t('error.network'))
+      for (const it of items) update(it.id, { status: 'failed', error: msg })
+      return { added: 0, failed: picked.length, error: msg }
+    }
+    const results = await Promise.all(
+      items.map(async (it): Promise<string | null> => {
+        try {
+          const a = await api.call(API.attachTeamFile, { body: { chatId, path: it.path! }, signal: it.abort.signal })
+          if (it.abort.signal.aborted) return null
+          update(it.id, { status: 'done', progress: 1, attachment: a, size: a.size, name: a.name })
+          return null
+        } catch (e) {
+          if (it.abort.signal.aborted) return null
+          const msg = errorText(e, locale, t('error.network'))
+          update(it.id, { status: 'failed', error: msg })
+          return msg
+        }
+      }),
+    )
+    const errors = results.filter((r): r is string => r !== null)
+    return { added: already + items.length - errors.length, failed: errors.length + (fresh.length - list.length), ...(errors[0] ? { error: errors[0] } : {}) }
+  }
+  const addTeamRef = useRef(addTeamFiles)
+  addTeamRef.current = addTeamFiles
+  useEffect(() => registerComposer(draftId, (paths) => addTeamRef.current(paths.map((path) => ({ path })))), [draftId])
+
+  useEffect(() => {
+    if (!attachMenu) return
+    const close = (e: MouseEvent) => {
+      if (!attachMenuRef.current?.contains(e.target as Node)) setAttachMenu(false)
+    }
+    // Escape anywhere closes the menu (focus back on the button)
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setAttachMenu(false)
+      attachButton()?.focus()
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', key)
+    }
+  }, [attachMenu])
+  const attachButton = () => attachMenuRef.current?.querySelector<HTMLElement>('[data-testid="attach-button"]') ?? null
+  const menuItems = () => [...(attachMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].filter((x) => x.offsetParent !== null)
+  const openMenu = (focusFirst: boolean) => {
+    setAttachMenu(true)
+    if (focusFirst) requestAnimationFrame(() => menuItems()[0]?.focus())
+  }
+  // phones and tablets: "from this device", else "from this computer"
+  const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
   const removeFile = (f: Pending) => {
-    f.abort.abort()
+    f.abort?.abort()
     setFiles((p) => p.filter((x) => x.id !== f.id))
   }
 
@@ -210,12 +321,20 @@ export default function Composer({
       <div
         className={clsx('rounded-3xl border bg-surface shadow-[var(--c-shadow)] transition focus-within:border-line-strong focus-within:ring-2 focus-within:ring-accent/20', drag ? 'border-accent ring-2 ring-accent/30' : 'border-line')}
         onDragOver={(e) => {
-          if (![...e.dataTransfer.types].includes('Files')) return
+          const types = [...e.dataTransfer.types]
+          if (!types.includes('Files') && !types.includes(TEAM_FILE_DRAG_TYPE)) return
           e.preventDefault()
           setDrag(true)
         }}
         onDragLeave={() => setDrag(false)}
         onDrop={(e) => {
+          const teamPath = e.dataTransfer.getData(TEAM_FILE_DRAG_TYPE)
+          if (teamPath) {
+            e.preventDefault()
+            setDrag(false)
+            void addTeamFiles([{ path: teamPath }])
+            return
+          }
           if (!e.dataTransfer.files.length) return
           e.preventDefault()
           setDrag(false)
@@ -226,28 +345,50 @@ export default function Composer({
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2 px-4 pt-3" aria-label={t('composer.attachments')}>
             {files.map((f) => (
-              <li key={f.id} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="attachment-chip">
-                {f.file.type.startsWith('image/') ? <LocalThumb file={f.file} /> : f.file.type.startsWith('audio/') ? <FileAudio size={15} className="text-accent-text" aria-hidden /> : <FileText size={15} className="text-muted" aria-hidden />}
-                {previewKind(f.file.name) ? (
-                  <button type="button" className="max-w-[180px] truncate font-medium hover:underline" onClick={() => openFilePreview({ source: 'local', name: f.file.name, blob: f.file })}>
-                    {f.file.name}
-                  </button>
+              <li
+                key={f.id}
+                className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : f.source === 'team' ? 'border-accent/30 bg-accent-soft' : 'border-line bg-subtle')}
+                title={f.source === 'team' ? t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' }) : undefined}
+                data-testid="attachment-chip"
+                data-source={f.source}
+              >
+                {f.source === 'team' ? (
+                  <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
+                ) : f.file?.type.startsWith('image/') ? (
+                  <LocalThumb file={f.file} />
+                ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
+                  <FileAudio size={15} className="text-accent-text" aria-hidden />
                 ) : (
-                  <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
+                  <FileText size={15} className="text-muted" aria-hidden />
                 )}
+                <span className="flex min-w-0 flex-col">
+                  {previewKind(f.name) && (f.source === 'upload' || f.status === 'done') ? (
+                    <button
+                      type="button"
+                      className="max-w-[180px] truncate text-left font-medium hover:underline"
+                      onClick={() => (f.source === 'team' || !f.file ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))}
+                    >
+                      {f.name}
+                    </button>
+                  ) : (
+                    <span className="max-w-[180px] truncate font-medium">{f.name}</span>
+                  )}
+                  {/* the team folder it is in, visible without hovering (phones) */}
+                  {f.source === 'team' && <span className="max-w-[180px] truncate text-[10px] leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
+                </span>
                 {f.status === 'uploading' ? (
                   <span className="flex items-center gap-1 text-faint" role="status">
-                    <Loader2 size={12} className="animate-spin" aria-hidden /> {Math.round(f.progress * 100)}%
+                    <Loader2 size={12} className="animate-spin" aria-hidden /> {f.source === 'upload' && `${Math.round(f.progress * 100)}%`}
                   </span>
                 ) : f.status === 'failed' ? (
                   <span className="max-w-[160px] truncate text-danger" title={f.error}>
                     {f.error}
                   </span>
                 ) : (
-                  <span className="text-faint">{formatSize(f.file.size, locale)}</span>
+                  f.size !== null && <span className="text-faint">{formatSize(f.size, locale)}</span>
                 )}
-                <button type="button" aria-label={t('composer.removeAttachment', { name: f.file.name })} onClick={() => removeFile(f)} className="text-faint hover:text-ink">
-                  <X size={13} />
+                <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
+                  <X size={14} />
                 </button>
               </li>
             ))}
@@ -305,12 +446,92 @@ export default function Composer({
             />
             <div className="flex items-center justify-between gap-2 px-3 pb-3">
               <div className="flex items-center gap-0.5">
-                <IconButton label={t('composer.attach')} onClick={() => fileRef.current?.click()}>
-                  <Paperclip size={18} />
-                </IconButton>
-                <IconButton label={t('composer.camera')} className="sm:hidden" onClick={() => camRef.current?.click()}>
-                  <Camera size={18} />
-                </IconButton>
+                <div
+                  className="relative"
+                  ref={attachMenuRef}
+                  onBlur={(e) => {
+                    // focus moving out of the button and its menu (Tab, Shift+Tab) closes the menu; no new target (Safari
+                    // does not focus a clicked button) is left to the click-outside handler
+                    if (attachMenu && e.relatedTarget && !attachMenuRef.current?.contains(e.relatedTarget as Node)) setAttachMenu(false)
+                  }}
+                >
+                  <IconButton
+                    label={t('composer.attach')}
+                    aria-haspopup="menu"
+                    aria-expanded={attachMenu}
+                    // a click opens the menu; Enter / Space (detail 0) and the arrow keys also put focus on its first item
+                    onClick={(e) => (attachMenu ? setAttachMenu(false) : openMenu(e.detail === 0))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        openMenu(true)
+                      }
+                    }}
+                    data-testid="attach-button"
+                  >
+                    <Paperclip size={18} />
+                  </IconButton>
+                  {attachMenu && (
+                    <div
+                      role="menu"
+                      aria-label={t('composer.attach')}
+                      className="absolute bottom-full left-0 z-30 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-1 shadow-lg"
+                      onKeyDown={(e) => {
+                        const items = menuItems()
+                        const i = items.indexOf(document.activeElement as HTMLElement)
+                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus()
+                        } else if (e.key === 'Home' || e.key === 'End') {
+                          e.preventDefault()
+                          items[e.key === 'Home' ? 0 : items.length - 1]?.focus()
+                        } else if (e.key === 'Tab') setAttachMenu(false)
+                      }}
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
+                        onClick={() => {
+                          setAttachMenu(false)
+                          fileRef.current?.click()
+                        }}
+                        data-testid="attach-computer"
+                      >
+                        {coarse ? <Smartphone size={16} className="text-muted" aria-hidden /> : <Monitor size={16} className="text-muted" aria-hidden />} {t(coarse ? 'composer.fromDevice' : 'composer.fromComputer')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:hidden"
+                        onClick={() => {
+                          setAttachMenu(false)
+                          camRef.current?.click()
+                        }}
+                        data-testid="attach-camera"
+                      >
+                        <Camera size={16} className="text-muted" aria-hidden /> {t('composer.camera')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
+                        onClick={() => {
+                          // focus on the attach button first: closing the picker without picking brings it back there
+                          attachButton()?.focus()
+                          setAttachMenu(false)
+                          setPicker(true)
+                        }}
+                        data-testid="attach-team"
+                      >
+                        <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <input
                   ref={fileRef}
                   type="file"
@@ -407,9 +628,34 @@ export default function Composer({
           {error}
         </p>
       )}
+      <TeamFilePicker
+        open={picker}
+        onClose={() => setPicker(false)}
+        room={Math.max(0, MESSAGE_ATTACHMENTS_MAX - live(files).length)}
+        max={MESSAGE_ATTACHMENTS_MAX}
+        attached={new Set(live(files).filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path!))}
+        onPick={(picked: FileEntry[]) => {
+          setPicker(false)
+          void addTeamFiles(picked.map((f) => ({ path: f.path, name: f.name, size: f.size })))
+          // after the dialog has handed focus back (to the attach button): on to the message
+          setTimeout(() => taRef.current?.focus(), 0)
+        }}
+      />
     </div>
   )
 }
+
+/** The chips of a draft: those kept in memory, else the finished ones kept for this tab (after a reload). */
+function restoreChips(userId: string, draftId: string): Pending[] {
+  const mem = readStash<Pending>(userId, draftId)
+  if (mem.length) return mem
+  const saved: Pending[] = loadChips(userId, draftId).map((c) => ({ ...c, status: 'done', progress: 1, abort: new AbortController() }))
+  if (saved.length) writeStash(userId, draftId, saved)
+  return saved
+}
+
+/** "groups/marketing/brief.md" -> "groups/marketing" */
+const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 
 /** A picked image before sending: a small thumbnail in its chip. */
 function LocalThumb({ file }: { file: File }) {

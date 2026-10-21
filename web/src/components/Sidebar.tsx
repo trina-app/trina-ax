@@ -17,6 +17,9 @@ import { confirmDialog, promptDialog } from './ui'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
+/** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
+const isUnused = (c: Chat) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
+
 export default function Sidebar() {
   const t = useT()
   const me = useMeStrict()
@@ -36,6 +39,8 @@ export default function Sidebar() {
   const groups = useMemo(() => {
     const g = new Map<DateBucket, Chat[]>()
     for (const c of chats) {
+      // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
+      if (isUnused(c)) continue
       const b = dateBucket(c.updatedAt)
       g.set(b, [...(g.get(b) ?? []), c])
     }
@@ -86,7 +91,7 @@ export default function Sidebar() {
       <div className="scroll-thin mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <h2 className="px-2.5 pb-1 text-xs font-medium text-faint">{t('sidebar.recents')}</h2>
         {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
-        {loaded && !chats.length && <p className="px-2.5 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
+        {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-2.5 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
         {groups.map(([bucket, list]) => (
           <div key={bucket} className="mb-2">
             <h3 className="px-2.5 pt-2 pb-1 text-[11px] font-medium text-faint">{t(BUCKET_LABEL[bucket])}</h3>

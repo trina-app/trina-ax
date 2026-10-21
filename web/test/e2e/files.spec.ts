@@ -89,8 +89,9 @@ test('version history with restore; start a chat with a file', async ({ page }) 
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByText('v1으로 되돌렸어요.')).toBeVisible()
 
-  await rowMenu(page, 'notes.txt', '이 파일로 채팅 시작')
-  await expect(page.getByTestId('composer-input')).toHaveValue('`marketing/notes.txt` 파일을 읽고 ')
+  // a file goes into a new chat as an attached team file (a folder is still named in the prompt)
+  await rowMenu(page, 'notes.txt', 'AI에게 이 파일 물어보기')
+  await expect(page.locator('[data-testid="attachment-chip"][data-source="team"]')).toContainText('notes.txt')
 })
 
 test('files.changed from an answer refreshes the folder on screen', async ({ page, browser }) => {
