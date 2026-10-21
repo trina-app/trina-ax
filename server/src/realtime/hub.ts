@@ -36,6 +36,8 @@ interface Socket {
   userId: string
   windowId: string
   sessionId: string
+  /** epoch ms when the session expires (Infinity: no expiry known); the socket is closed then */
+  expiresAt: number
   /** set while replaying; live events are queued behind the replay */
   ready: boolean
   closed: boolean
@@ -122,6 +124,7 @@ export class Hub implements RealtimeHub {
     const ev = { ...input, seq, at: now } as ServerEvent
     const json = JSON.stringify(ev)
     this.remember(u, ev, window, json.length, now)
+    this.expire(u, now)
     for (const s of u.sockets.values()) {
       if (!s.ready || s.closed) continue
       if (window && s.windowId !== window) continue
@@ -196,7 +199,8 @@ export class Hub implements RealtimeHub {
     u.lastActive = this.o.now()
     const prev = u.sockets.get(windowId)
     if (prev) { prev.closed = true; u.sockets.delete(windowId); try { prev.conn.close(WsClose.replaced, 'replaced by a newer connection') } catch {} }
-    const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, ready: false, closed: false }
+    const exp = auth.session.expiresAt ? Date.parse(auth.session.expiresAt) : NaN
+    const s: Socket = { conn, userId, windowId, sessionId: auth.session.id, expiresAt: Number.isFinite(exp) ? exp : Infinity, ready: false, closed: false }
     u.sockets.set(windowId, s)
     while (u.sockets.size > MAX_SOCKETS_PER_USER) {
       const [, oldest] = u.sockets.entries().next().value as [string, Socket]
@@ -316,7 +320,17 @@ export class Hub implements RealtimeHub {
   onWindow(l: WindowListener) { this.windowListeners.push(l) }
 
   // ---------------- housekeeping ----------------
+  /**
+   * A socket is authenticated once, at connect: when its session expires it is ended (session.ended 'expired', close
+   * 4401) before anything else is sent to it, and by the keep-alive / sweep timers when nothing is sent.
+   */
+  private expire(u: UserState, now: number) {
+    for (const [w, s] of [...u.sockets]) if (s.expiresAt <= now) { u.sockets.delete(w); this.endSocket(u, s, 'expired') }
+  }
+
   private pingAll() {
+    const now = this.o.now()
+    for (const u of this.users.values()) this.expire(u, now)
     for (const u of this.users.values()) for (const s of u.sockets.values()) {
       if (s.closed || !s.conn.ping) continue
       try { s.conn.ping() } catch { this.drop(s, null) }
@@ -327,6 +341,7 @@ export class Hub implements RealtimeHub {
   sweep() {
     const now = this.o.now()
     for (const u of this.users.values()) {
+      this.expire(u, now)
       if (u.sockets.size) continue
       if (now - u.lastActive > Math.max(this.o.replayMinMs, 10 * 60_000) && (!u.buffer.length || now - u.buffer[u.buffer.length - 1]!.at > this.o.replayMinMs)) {
         // keep the seq counter so a later resume in this epoch is answered with resync, not with a wrong replay
