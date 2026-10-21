@@ -12,6 +12,7 @@ import type { EngineAccount, EngineId, EngineStatus, Locale } from '@mycel/share
 import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { which } from '../config'
+import { CLAUDE_OAUTH_TOKEN_FILE } from '../system/engines'
 
 export const ENGINE_LABELS: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
 export const CLAUDE_MODELS = [
@@ -48,7 +49,7 @@ const T: Record<string, Record<Locale, string>> = {
   notInstalled: { ko: '서버 맥에 설치되어 있지 않습니다.', en: 'Not installed on the server Mac.', id: 'Belum terpasang di Mac server.' },
   claudeLogin: { ko: '서버 맥에서 owner가 `claude`를 실행해 로그인해야 합니다.', en: 'The owner must sign in by running `claude` on the server Mac.', id: 'Owner harus masuk dengan menjalankan `claude` di Mac server.' },
   codexLogin: { ko: '서버 맥에서 owner가 `codex login`으로 로그인해야 합니다.', en: 'The owner must sign in with `codex login` on the server Mac.', id: 'Owner harus masuk dengan `codex login` di Mac server.' },
-  setupToken: { ko: '전용 엔진 계정 모드에는 owner의 구독 장기 토큰이 필요합니다: 서버 맥에서 `claude setup-token`을 실행하고 만든 토큰을 이 화면에 붙여 넣어 주세요.', en: 'The dedicated engine account needs the owner\'s long-lived subscription token: run `claude setup-token` on the server Mac and paste the token here.', id: 'Akun mesin khusus memerlukan token langganan owner: jalankan `claude setup-token` di Mac server lalu tempel tokennya di sini.' },
+  setupToken: { ko: '전용 엔진 계정 모드에는 owner의 구독 장기 토큰이 필요합니다: 서버 맥에서 `claude setup-token`을 실행해 만든 토큰을 데이터 폴더의 secrets/claude-oauth-token(권한 600)에 저장해야 합니다(docs/OWNER-TODO.md).', en: 'The dedicated engine account needs the owner\'s long-lived subscription token: run `claude setup-token` on the server Mac and store the token in secrets/claude-oauth-token of the data folder (mode 600; docs/OWNER-TODO.md).', id: 'Akun mesin khusus memerlukan token langganan owner: jalankan `claude setup-token` di Mac server lalu simpan tokennya di secrets/claude-oauth-token di folder data (mode 600; docs/OWNER-TODO.md).' },
   codexDevice: { ko: '전용 엔진 계정의 Codex 로그인(`codex login --device-auth`)이 아직 없습니다.', en: 'The engine account has no Codex sign-in yet (`codex login --device-auth`).', id: 'Akun mesin belum masuk ke Codex (`codex login --device-auth`).' },
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없습니다.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.' },
   version: { ko: '고정 버전과 다릅니다(잠금 시험을 통과한 버전: {pinned}).', en: 'Differs from the pinned version (lockdown-tested: {pinned}).', id: 'Berbeda dari versi yang dikunci (lulus uji penguncian: {pinned}).' },
@@ -141,7 +142,7 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
     if (!env.hasCompanyKey(id === 'claude-code' ? 'anthropic' : 'openai')) return out('not_logged_in', t('companyKey', locale))
   } else if (id === 'claude-code') {
     if (mode === 'agent-own') {
-      if (!fs.existsSync(path.join(env.dataDir, 'secrets', 'claude-setup-token'))) return out('not_logged_in', t('setupToken', locale))
+      if (!fs.existsSync(path.join(env.dataDir, 'secrets', CLAUDE_OAUTH_TOKEN_FILE))) return out('not_logged_in', t('setupToken', locale))
     } else {
       const s = await runCli(bin, ['auth', 'status', '--json'], { timeoutMs: 15_000 })
       let logged: boolean | null = null

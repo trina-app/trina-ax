@@ -7,6 +7,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+/** File in <data>/secrets that holds the owner's long-lived Claude subscription token (`claude setup-token`) for the
+ * role-account mode. The admin engine screen and the diagnostics both look for this one name. */
+export const CLAUDE_OAUTH_TOKEN_FILE = 'claude-oauth-token'
+
 export interface EngineLogin {
   engine: 'claude-code' | 'codex'
   installed: boolean
@@ -52,7 +56,7 @@ export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]
   // Claude Code
   if (!exists(o.claudeBin)) out.push({ engine: 'claude-code', installed: false, loggedIn: null, method: null, reason: 'not_installed' })
   else if (o.roleAccount) {
-    const has = fs.existsSync(path.join(o.secretsDir, 'claude-oauth-token'))
+    const has = fs.existsSync(path.join(o.secretsDir, CLAUDE_OAUTH_TOKEN_FILE))
     out.push({ engine: 'claude-code', installed: true, loggedIn: has, method: has ? 'setup-token' : null, reason: has ? null : 'setup_token_missing' })
   } else {
     try {

@@ -69,8 +69,9 @@ describe('engines', () => {
       const r = await check('claude-code')
       expect(r).toMatchObject({ authMode: 'agent-own', status: 'not_logged_in' })
       expect(r.detail).toContain('claude setup-token')
+      expect(r.detail).toContain('secrets/claude-oauth-token')
       fs.mkdirSync(path.join(h.ctx.config.dataDir, 'secrets'), { recursive: true })
-      fs.writeFileSync(path.join(h.ctx.config.dataDir, 'secrets', 'claude-setup-token'), 'sk-ant-oat-fake', { mode: 0o600 })
+      fs.writeFileSync(path.join(h.ctx.config.dataDir, 'secrets', 'claude-oauth-token'), 'sk-ant-oat-fake', { mode: 0o600 })
       expect((await check('claude-code')).status).toBe('ok')
     } finally { h.ctx.config.mode = 'dev' }
   })
