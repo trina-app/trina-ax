@@ -89,21 +89,23 @@ function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { ti
 }
 
 export default function System() {
+  // a finished backup changes the diagnostics card's "last backup" line
+  const [rev, setRev] = useState(0)
   return (
     <>
-      <Diagnostics />
+      <Diagnostics rev={rev} />
       <Connection />
       <Update />
-      <Backups />
+      <Backups onChanged={() => setRev((r) => r + 1)} />
       <Export />
     </>
   )
 }
 
-function Diagnostics() {
+function Diagnostics({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  const state = useLoad(() => api.call(API.diagnostics))
+  const state = useLoad(() => api.call(API.diagnostics), [rev])
   const [busy, setBusy] = useState(false)
   return (
     <Card
@@ -348,7 +350,7 @@ function Update() {
   )
 }
 
-function Backups() {
+function Backups({ onChanged }: { onChanged: () => void }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
@@ -369,6 +371,7 @@ function Backups() {
               () => {
                 toast({ level: 'success', text: t('system.backupDone') })
                 void state.reload()
+                onChanged()
               },
             )
           }

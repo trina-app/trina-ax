@@ -9,6 +9,7 @@ import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
+import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob, startDownload } from '../lib/api'
@@ -263,7 +264,9 @@ const COMPONENTS: Components = {
   },
 }
 
-const REMARK = [remarkGfm, mathRemark as never]
+// cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
+// particles follow the closing ** directly)
+const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
 const REHYPE = [mathRehype as never]
 
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
