@@ -186,7 +186,7 @@ export class TeamFiles {
     const last = db.query("SELECT e.user_id FROM file_events e WHERE e.path = ? AND e.action IN ('update','create','upload','restore') ORDER BY e.id DESC LIMIT 1").get(r.rel) as { user_id: string } | null
     fileEvent(db, { turnId: null, userId: user.id, path: r.rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null, tool: 'file-screen' } })
     fileEvent(db, { turnId: null, userId: user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: r.rel } })
-    this.ctx.files.events.emit('conflict', { path: r.rel, copy: copyRel, users: [user.id, last?.user_id].filter(Boolean) })
+    this.ctx.files.events.emit('conflict', { path: r.rel, copy: copyRel, by: user.id, users: [user.id, last?.user_id].filter(Boolean) })
     this.publish([{ path: copyRel, action: 'create', by: this.by(user.id), turnId: null }])
     return { path: copyRel, conflict: true, entry: this.entry(user, rules, copy) }
   }

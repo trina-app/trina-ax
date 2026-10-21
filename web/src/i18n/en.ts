@@ -315,6 +315,8 @@ export const en: Record<MessageKey, string> = {
   'files.byAi': 'AI',
   'files.byAiTurn': 'saved during an AI answer',
   'files.conflictSaved': 'Conflict copy: {path}',
+  'files.conflictNotice': '{path} changed at the same time, so the version by {by} was saved as a conflict copy ({copy}).',
+  'files.openCopy': 'Open the copy',
   'files.restoredVersion': 'Restored an earlier version',
   'files.restoreTitle': 'Restore v{version}?',
   'files.restoreBody': 'The current content is kept as a new version, so you can always come back to it.',

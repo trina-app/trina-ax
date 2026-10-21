@@ -313,6 +313,8 @@ export const ko = {
   'files.byAi': 'AI',
   'files.byAiTurn': 'AI 답변 중 저장',
   'files.conflictSaved': '충돌 사본: {path}',
+  'files.conflictNotice': '{path}이(가) 동시에 바뀌어 {by} 님의 내용이 충돌 사본({copy})으로 저장됐어요.',
+  'files.openCopy': '사본 열기',
   'files.restoredVersion': '이전 버전으로 되돌림',
   'files.restoreTitle': 'v{version}으로 되돌릴까요?',
   'files.restoreBody': '지금 내용은 새 버전으로 남아서 언제든 다시 돌아올 수 있어요.',

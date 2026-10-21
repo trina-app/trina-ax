@@ -315,6 +315,8 @@ export const id: Record<MessageKey, string> = {
   'files.byAi': 'AI',
   'files.byAiTurn': 'disimpan saat AI menjawab',
   'files.conflictSaved': 'Salinan konflik: {path}',
+  'files.conflictNotice': '{path} berubah bersamaan, jadi versi dari {by} disimpan sebagai salinan konflik ({copy}).',
+  'files.openCopy': 'Buka salinan',
   'files.restoredVersion': 'Dipulihkan dari versi lama',
   'files.restoreTitle': 'Pulihkan v{version}?',
   'files.restoreBody': 'Isi sekarang disimpan sebagai versi baru, jadi kamu selalu bisa kembali.',

@@ -225,7 +225,7 @@ export class FileService {
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null } })
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: rel } })
     this.changed(ctx, copyRel, 'create')
-    this.events.emit('conflict', { path: rel, copy: copyRel, users: [ctx.user.id, last?.user_id].filter(Boolean) })
+    this.events.emit('conflict', { path: rel, copy: copyRel, by: ctx.user.id, users: [ctx.user.id, last?.user_id].filter(Boolean) })
     const who = last?.name ? ` by ${last.name}` : ''
     return { text: `Conflict: '${rel}' was changed${who} after you read it. The original was left unchanged; your version was saved as '${copyRel}'. Tell the user about both files.`,
       summary: `${what} -> conflict copy ${copyRel}` }
