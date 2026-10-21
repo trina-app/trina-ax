@@ -44,6 +44,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { PUBLIC_HOST_RE } from '../../server/src/app-config'
+import { PRODUCT } from '../../shared/src/product'
 
 export const API_BASE = 'https://api.cloudflare.com/client/v4'
 export const DEFAULT_APP_PORT = 47830
@@ -133,7 +134,7 @@ async function records(api: Api, zone: Zone, host: string): Promise<DnsRecord[]>
 
 /** The refusal rules for a name, before anything is changed. Returns the tunnel id an existing CNAME points to. */
 export function checkRecords(host: string, zone: Pick<Zone, 'name'>, recs: DnsRecord[], o: { allowApex?: boolean }): { record: DnsRecord | null; tunnelId: string | null } {
-  if (host === zone.name && !o.allowApex) throw new Refused(`${host} is the zone apex (usually the main website): refused. Use a name under it, e.g. app.${zone.name} (--allow-apex only if the apex is meant for Team AX)`)
+  if (host === zone.name && !o.allowApex) throw new Refused(`${host} is the zone apex (usually the main website): refused. Use a name under it, e.g. app.${zone.name} (--allow-apex only if the apex is meant for ${PRODUCT.displayName})`)
   const other = recs.filter((r) => !(r.type === 'CNAME' && TUNNEL_CNAME.test(r.content)))
   if (other.length) throw new Refused(`${host} already has ${other.map((r) => `${r.type} ${r.content}`).join(', ')}: refused, nothing changed. Pick a name that is free (or remove that record yourself if it is really unused)`)
   const rec = recs[0] ?? null
@@ -279,7 +280,7 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
   if (!record) {
     dns = 'created'
     actions.push(`DNS: create CNAME ${host} → ${target} (proxied)`)
-    if (!o.dryRun) await api('POST', `/zones/${zone.id}/dns_records`, { type: 'CNAME', name: host, content: target, proxied: true, ttl: 1, comment: 'Team AX office internet address (scripts/office/public-address.ts)' })
+    if (!o.dryRun) await api('POST', `/zones/${zone.id}/dns_records`, { type: 'CNAME', name: host, content: target, proxied: true, ttl: 1, comment: `${PRODUCT.displayName} office internet address (scripts/office/public-address.ts)` })
   } else if (record.content.toLowerCase().replace(/\.$/, '') !== target || record.proxied !== true) {
     dns = 'updated'
     actions.push(`DNS: CNAME ${host} → ${target} (proxied; was ${record.content}${record.proxied ? '' : ', not proxied'})`)
@@ -311,7 +312,7 @@ export async function removeAddress(api: Api, cred: Pick<Credential, 'zoneId' | 
   // the API shows no names for it, so it would look unused. Never touched (the same rule as set). A CNAME pointing at
   // one was not made by this script (set refuses those tunnels): the whole remove is refused, nothing changed.
   const pointed = tunnelId ? await getTunnel(api, zone.accountId, tunnelId) : null
-  if (pointed && isLocal(pointed)) throw new Refused(`${host} points to the tunnel ${pointed.name}, which is managed by a local config file: refused, nothing changed (that tunnel and its CNAME are not Team AX's)`)
+  if (pointed && isLocal(pointed)) throw new Refused(`${host} points to the tunnel ${pointed.name}, which is managed by a local config file: refused, nothing changed (that tunnel and its CNAME are not this server's)`)
   let tunnel = pointed ?? await tunnelByName(api, zone.accountId, o.tunnel || defaultTunnelName(host))
   if (record) {
     actions.push(`DNS: delete CNAME ${host} → ${record.content}`)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Team AX account tool for the server Mac's administrator (design tab 4 "비밀번호 재설정": no email; whoever can
+# Account tool for the server Mac's administrator (design tab 4 "비밀번호 재설정": no email; whoever can
 # administer the server Mac may recover the owner, and the local admin password sudo asks for is that proof).
 # Installed by scripts/install-macos.sh as <base>/root/mycel-account (root:wheel 755).
 #

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Remove Team AX office mode (docs/OFFICE.md). No sudo.
+# Remove office mode (docs/OFFICE.md). No sudo.
 #
 #   bash office-uninstall.sh [--prefix DIR] [--delete-data [--yes]]
 #
@@ -21,7 +21,12 @@ while [ $# -gt 0 ]; do
 done
 [ "$(id -u)" != 0 ] || die "do not use sudo"
 case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
-[ -f "$PREFIX/config/office.env" ] || [ -d "$PREFIX/app" ] || die "$PREFIX is not a Team AX office installation"
+# the product's name (app/product.env from shared/src/product.ts, in the installation or this bundle): read, never sourced
+PRODUCT_NAME=""
+for f in "$PREFIX/app/product.env" "$(cd "$(dirname "$0")" && pwd)/app/product.env"; do
+  [ -z "$PRODUCT_NAME" ] && [ -f "$f" ] && PRODUCT_NAME=$(sed -n 's/^PRODUCT_NAME=//p' "$f" | head -n 1)
+done
+[ -f "$PREFIX/config/office.env" ] || [ -d "$PREFIX/app" ] || die "$PREFIX is not an office installation of ${PRODUCT_NAME:-the team server}"
 [ "$PREFIX" != "$HOME" ] && [ "$PREFIX" != / ] || die "refusing to remove $PREFIX"
 
 LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env" 2>/dev/null || true)

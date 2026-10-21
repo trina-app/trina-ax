@@ -2,9 +2,10 @@
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
 import { DEFAULT_LOCALE, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
 
 export const DEFAULT_SETTINGS: TeamSettingsT = {
-  teamName: 'Team AX',
+  teamName: PRODUCT.displayName,
   defaultLocale: DEFAULT_LOCALE,
   defaultEngine: 'claude-code',
   defaultModel: null,

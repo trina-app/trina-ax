@@ -4,11 +4,11 @@
 // call once, answers a repeated call with its ack or its kept result, and checks the desktop's answer against the
 // contract. A window without the pane (plain browser, PWA) answers at once with an error the AI can act on, instead
 // of letting the turn wait for the deadline.
-import { createBrowserRelay, type BrowserRelay as SharedRelay, type DesktopBridge } from '@mycel/shared'
+import { createBrowserRelay, PRODUCT, type BrowserRelay as SharedRelay, type DesktopBridge } from '@mycel/shared'
 import type { BrowserCall, BrowserResult, ClientFrame } from '@mycel/shared/api'
 import { desktop } from './desktop'
 
-export const NO_PANE_ERROR = 'This window has no in-app browser. The person is using the web or mobile app; the browser tools work only in the Team AX desktop app.'
+export const NO_PANE_ERROR = `This window has no in-app browser. The person is using the web or mobile app; the browser tools work only in the ${PRODUCT.displayName} desktop app.`
 const NO_PANE_KEEP = 200
 
 export class BrowserRelay {
