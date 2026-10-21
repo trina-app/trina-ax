@@ -30,8 +30,12 @@ Team AX 사무실 모드 (맥 한 대 + 같은 네트워크의 데스크 PC들)
      (USB로 ~/TeamAX/tls/ca.cer 를 나눠 주면 더 안전합니다)
      그다음  https://<이 맥의 주소>:8443  → ⋯ → 앱 → 이 사이트를 앱으로 설치
 
+5. 데스크톱 앱(선택): Team-AX-Setup-<버전>-x64.exe / Team-AX-<버전>-mac-universal.dmg 를 이 zip과 같은 폴더에 두고
+   설치하면 자동으로 올라갑니다 (팀원은 설정 → 앱에서 내려받음). 나중에 올리려면:
+     ~/TeamAX/teamax desktop add ~/Downloads/Team-AX-Setup-<버전>-x64.exe
+
 명령:  ~/TeamAX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | archive <파일>
-       | public-address status | set <주소> <토큰 파일> | off
+       | public-address status | set <주소> <토큰 파일> | off | desktop list | add <설치 파일> | remove <파일>
 업데이트: 새 zip을 풀고 office-install.sh 를 다시 실행 (데이터는 그대로)
 제거:     bash office-uninstall.sh            (데이터는 남김)
           bash office-uninstall.sh --delete-data
@@ -46,3 +50,5 @@ Team AX office mode (one Mac + the desk PCs on its network). Details: Team-AX-�
      open http://<this Mac>:8442 in Edge, open the certificate, compare Details → Thumbprint with the
      card, install it for the Current User into Trusted Root Certification Authorities (or hand out
      ~/TeamAX/tls/ca.cer on a USB stick), then https://<this Mac>:8443 and Edge ⋯ → Apps → Install this site as an app.
+  5. Desktop app (optional): put Team-AX-Setup-<version>-x64.exe / Team-AX-<version>-mac-universal.dmg in the same folder
+     as this zip before installing and they are offered under Settings → Apps; later: ~/TeamAX/teamax desktop add <file>.

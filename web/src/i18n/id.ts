@@ -479,7 +479,12 @@ export const id: Record<MessageKey, string> = {
   'apps.noDownloads': 'Belum ada aplikasi desktop di server tim. Minta ke owner.',
   'apps.mac': 'Unduh untuk macOS',
   'apps.windows': 'Unduh untuk Windows',
-  'apps.unsigned': 'Build ini belum ditandatangani. Kalau Windows memberi peringatan saat instalasi, pilih "Info selengkapnya → Tetap jalankan".',
+  'apps.noDownloadsOwner': 'Di Mac server tim, jalankan ~/TeamAX/teamax desktop add <file installer> di Terminal, lalu aplikasinya muncul di sini. Bisa juga taruh file installer di folder yang sama dengan zip office lalu jalankan installer lagi.',
+  'apps.thisComputer': 'Untuk komputer ini',
+  'apps.winHow': 'Buka file yang diunduh (Team-AX-Setup-….exe). Langsung terpasang tanpa kata sandi administrator dan Team AX terbuka.',
+  'apps.winSmartScreen': 'Kalau muncul jendela biru "Windows protected your PC", klik Info selengkapnya → Tetap jalankan. Build ini belum ditandatangani, jadi Windows memperingatkan sekali.',
+  'apps.macHow': 'Buka file .dmg yang diunduh, seret Team AX ke folder Applications, lalu buka Team AX dari Applications.',
+  'apps.macGatekeeper': 'Kalau macOS bilang aplikasi tidak bisa dibuka, klik Selesai, buka Pengaturan Sistem → Privasi & Keamanan, klik Tetap Buka di bagian bawah, lalu Tetap Buka sekali lagi.',
 
   'admin.title': 'Admin',
   'admin.desc': 'Anggota, izin, mesin AI, dan server. Admin pun tidak bisa melihat chat atau memori orang lain.',
