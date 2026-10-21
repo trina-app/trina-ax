@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
     --agent-user) AGT_USER=$2; shift 2 ;;
     --delete-data) DELETE_DATA=1; shift ;;
     --keep-accounts) KEEP_ACCOUNTS=1; shift ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
 done

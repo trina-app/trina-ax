@@ -753,6 +753,7 @@ export const ko = {
   'system.oneWay': '이 업데이트 뒤에는 백업 복원으로만 이전 버전으로 돌아갈 수 있어요.',
   'system.installUpdate': '업데이트 설치',
   'system.upToDate': '최신 버전이에요.',
+  'system.noFeed': '이 서버는 새 버전을 온라인에서 찾지 않아요. 업데이트하려면 서버 맥에서 새 릴리스로 설치 프로그램을 다시 실행하세요. 새 버전으로 바뀌고 지금 버전은 되돌리기용으로 남아요.',
   'system.rollback': '이전 버전({version})으로 되돌리기',
   'system.updateNote': '설치 전에 데이터베이스를 백업하고, 서버가 다시 시작돼요. 진행 중인 답변이 있으면 끝난 뒤에 설치해요.',
   'system.updateDone': '업데이트를 마쳤어요.',

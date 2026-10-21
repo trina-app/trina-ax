@@ -85,7 +85,7 @@ export const systemRoutes: RouteModule = {
     kit.handle(API.updateStatus, () => {
       const u = ops().updates
       const last = u.status().lastCheckedAt
-      if (u.installed && ctx.config.update.feedUrl && (!last || Date.now() - Date.parse(last) > 24 * 3600_000)) void u.checkFeed()
+      if (u.installed && u.feedUsable && (!last || Date.now() - Date.parse(last) > 24 * 3600_000)) void u.checkFeed()
       return u.status()
     })
 

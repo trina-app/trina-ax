@@ -754,6 +754,7 @@ export const id: Record<MessageKey, string> = {
   'system.oneWay': 'Setelah update ini, kembali ke versi lama hanya bisa lewat pemulihan backup.',
   'system.installUpdate': 'Pasang update',
   'system.upToDate': 'Sudah versi terbaru.',
+  'system.noFeed': 'Server ini tidak mencari versi baru secara online. Untuk memperbarui, jalankan lagi penginstal dengan rilis baru di Mac server; server pindah ke versi baru dan versi ini disimpan untuk dikembalikan.',
   'system.rollback': 'Kembali ke versi sebelumnya ({version})',
   'system.updateNote': 'Database di-backup dulu lalu server dimulai ulang. Kalau ada jawaban yang berjalan, update dipasang setelah selesai.',
   'system.updateDone': 'Update selesai.',

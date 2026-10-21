@@ -270,6 +270,8 @@ function Update() {
                   <Upload size={14} aria-hidden /> {t('system.installUpdate')}
                 </Button>
               </div>
+            ) : u.feed === false ? (
+              <p className="text-muted">{t('system.noFeed')}</p>
             ) : (
               <p className="text-muted">{t('system.upToDate')}</p>
             )}

@@ -77,8 +77,9 @@ bun install          # "1579 packages installed"
 bun run build        # native/bin/<platform> and web/dist, ~10 s
 ```
 
-On an Intel Mac, also run `ARCHS=amd64 bun run build:native`. `native/build.sh` builds arm64 only by default, and
-without this step every chat ends with "engine unavailable".
+On an Intel Mac, also run `ARCHS=amd64 bun run build:native` (`ARCHS="arm64 amd64"` builds both plus a universal
+copy). `native/build.sh` builds arm64 only by default, and without this step every chat ends with "engine
+unavailable".
 
 ### 1.3 Run
 
@@ -172,11 +173,15 @@ Time Machine exclusions only produce warnings.
 ### 2.2 Build the bundle
 
 ```sh
-bun run build:bundle      # = bun run build && bun scripts/build-bundle.ts [--version X] [--out DIR] [--arch amd64]
+bun run build:bundle             # this Mac's CPU: bun run build && bun scripts/build-bundle.ts [--version X] [--out DIR]
+bun run build:bundle:universal   # Apple silicon + Intel in one bundle (--arch universal; ~2x the size)
 ```
 
 This writes `dist/release/` with `VERSION`, `0.1.0.tar.zst` (~22 MB), `app/0.1.0/` and `root/`. It takes about 40
 seconds. There is no `manifest.sig` because no release key exists yet, so the installer needs `--allow-unsigned`.
+`--arch amd64` / `universal` needs the Intel helpers (`ARCHS="arm64 amd64" bun run build:native`, which the
+universal script runs) and downloads the same Bun version for Intel once (checked against Bun's SHASUMS256.txt,
+cached in `dist/.cache/`). The installer refuses a bundle built for another CPU type.
 
 ### 2.3 Run the installer (from the repo root)
 
@@ -190,9 +195,12 @@ Expected output: `install: installed mycel 0.1.0 (server _axserver, engine _axag
 60 s for `/api/health`. Check it with `curl -s http://127.0.0.1:47820/api/health`. If the server never answers,
 read `/Library/Logs/mycel/crash/server.log`.
 
-- **Put `--engine claude=` first.** The first engine becomes the server's `claudeBin`, and the names are not
-  checked.
-- `--from dist/release` is relative, so run the command from the repo root.
+- `--engine` takes `claude=FILE` (Claude Code) and/or `codex=FILE` (Codex CLI), each once; any other name is
+  refused. FILE must be the real Mac executable (hence `readlink -f`; the npm `codex.js` wrapper is refused). It is
+  installed as `app/engines/<name>/<sha12>/<name>` and set as `engine.claudeBin` / `engine.codexBin`. A later
+  repair run without `--engine` keeps the engines already installed.
+- Check everything first without sudo (arguments, bundle, CPU type, engines; changes nothing):
+  `scripts/install-macos.sh --check --from dist/release --allow-unsigned --engine claude=…`
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -201,8 +209,9 @@ read `/Library/Logs/mycel/crash/server.log`.
 | `--port` | 47820 | HTTP on 127.0.0.1 |
 | `--tls-port` | 8443 | office network (self-signed); 0 = off |
 | `--proxy-port` | 47821 | local model proxy, the only address the engine account may reach |
-| `--engine NAME=FILE` | | repeatable; `codex=FILE` is the Codex CLI (`engine.codexBin`, file must be named `codex`) |
+| `--engine NAME=FILE` | | `claude=` and/or `codex=`, each once (`codex=FILE` is the Codex CLI, `engine.codexBin`) |
 | `--codex-models FILE` | `~$SUDO_USER/.codex/models_cache.json` | Codex model list, locked into `app/engines/codex/<sha>/model_catalog.json` |
+| `--check` | | check only, no root needed, changes nothing |
 | `--allow-unsigned` | | accept an unsigned bundle |
 | `--no-power` | | skip `pmset` (laptops) |
 | `--skip-tmutil` | | skip Time Machine exclusions |
@@ -217,17 +226,31 @@ What it creates:
   - `setup/code`;
   - `status/`, `agent/` (`_axagent` 700), `agent/home` (root 555), `agent/codex-auth` (`_axagent` 700, the engine
     account's Codex login);
-  - `root/` (bootstrap, launcher, `engine.sb`, `pf-load`).
+  - `root/` (bootstrap, launcher, `engine.sb`, `pf-load`, the account tool `mycel-account`, `set-claude-token`).
 - **pf anchor** `com.apple/250.mycel`.
-- **Self-signed TLS certificate** (ECDSA P-256, 10 years). It covers `<LocalHostName>.local`, `127.0.0.1` and the
-  `en0` IP only.
+- **Self-signed TLS certificate** (ECDSA P-256, 825 days, serverAuth). It names `<LocalHostName>.local`,
+  `localhost`, `127.0.0.1`, `::1` and every LAN IPv4/IPv6 address of the Mac (not IPv6 link-local or temporary
+  privacy addresses). The server checks it every minute and makes a new one when an address is not covered (new
+  Wi-Fi, new DHCP lease, another network port), the Mac was renamed, or it expires within 30 days; it then rewrites
+  `setup/lan-cert.sha256` and restarts the TLS listener. A renewal for a new address keeps the addresses the old
+  certificate named (up to 24), so moving back to an earlier network needs no new certificate. A new certificate
+  means a new fingerprint: browsers show the warning once more.
 - **LaunchDaemons** `app.treesoop.mycel.{server,launcher,pf}`.
 - **Logs** in `/Library/Logs/mycel/`.
 - `_axagent` is added to `cron.deny` and `at.deny`.
 - **Power:** `pmset -a sleep 0 autorestart 1 womp 1`.
 
-Running the installer again repairs the install. It keeps a valid existing certificate, so after the LAN IP changes,
-delete `secrets/lan-tls.*` before re-running it.
+Running the installer again with the **same** bundle repairs the install. With a **newer** bundle it switches
+`app/current` to it, like an in-app update: the running version stays in `app/versions` as the roll-back version
+(Admin → System → Update → Roll back), and if the new version does not answer within 120 s or crashes 3 times the
+bootstrap goes back to the old one by itself; the installer then exits 1 and says so. An **older** bundle is only
+staged (warning); the running version stays. The root programs (bootstrap, launcher, `engine.sb`, `pf-load`, account
+tool) only move forward: `root/VERSION` names the bundle they came from, and an older bundle leaves newer ones in place
+(warning), so an old setup package run again cannot take back launcher or sandbox fixes; to really go back, uninstall
+(the data is kept) and install the older package. The installer needs no developer tools (it reads CPU types with
+`file`, not `lipo`), and it runs the bundle's bun from its root-only staging folder with no `BUN_*`/`NODE_*`
+settings, so a `bunfig.toml` or `.env` in the folder it was started from is never read as root. Data kept by an earlier `uninstall-macos.sh` (without
+`--delete-data`) is given back to the server account, so the team is there again after a reinstall.
 
 ### 2.4 Claude long-lived token (owner, once a year)
 
@@ -280,6 +303,26 @@ Open `http://127.0.0.1:47820/setup?token=<code>` on the server Mac. The setup fl
 port, `https://<host>.local:8443/setup?token=…`. The screen is the same as in 1.4. After setup the server deletes
 `data/setup-token`; `setup/code` stays, which is harmless.
 
+Or create the owner from the terminal (asks for the password twice):
+
+```sh
+sudo "/Library/Application Support/mycel/root/mycel-account" create-owner --username kim --name "Kim" --team "Acme" [--locale en|ko|id]
+```
+
+### 2.6a Owner password recovery (production, no email)
+
+Whoever can administer the server Mac can recover the owner; the Mac admin password `sudo` asks for is the proof.
+
+```sh
+A="/Library/Application Support/mycel/root/mycel-account"
+sudo "$A" list-owners                  # who the owner is
+sudo "$A" reset-link [--username U]    # one-time link, 24 h; a new link cancels the previous one
+sudo "$A" status
+```
+
+Open the printed `http://localhost:47820/reset-password/…` link on the server Mac and set a new password; the
+owner's other sessions are signed out. The tool runs the bundled account CLI as `_axserver` (never as root).
+
 ### 2.7 What you see right after install
 
 | Where | What it shows |
@@ -306,7 +349,7 @@ menubar/build.sh            # menubar/build/Team AX.app, ad-hoc signed; --test r
    - **Open Login Items settings**, only when the server's background item is switched off.
 
 It does not have the setup assistant, the subscription connection or uninstall yet, and it does not read
-`setup/code`.
+`setup/code` (use `sudo cat` as in 2.6).
 
 With FileVault on, the Mac waits at the unlock screen after a power cut (not tested).
 
@@ -346,9 +389,10 @@ Alternatives:
 **Mac app.**
 1. Build it:
    ```sh
-   cd desktop && bun run dist:mac
+   bun run dist:mac            # = cd desktop && bun run dist:mac
    ```
-   This writes `desktop/release/Team-AX-0.1.0-mac-arm64.dmg` (~128 MB, unsigned, arm64 only).
+   This writes `desktop/release/Team-AX-0.1.0-mac-universal.dmg` (~230 MB, unsigned, Apple silicon and Intel).
+   `bun run --cwd desktop dist:mac:arm64` / `dist:mac:x64` build a smaller single-CPU DMG.
 2. Drag the app to Applications, then right-click → Open. On macOS 15+, use System Settings → Privacy & Security →
    **Open Anyway**.
 3. If the file was copied from another Mac, run:
@@ -417,13 +461,18 @@ The full setup:
 git pull && bun install && bun run build && bun run dev:service restart
 ```
 
-**Update (production).** The in-app update needs a release feed (`update.feedUrl` is null). Use one of these
-instead:
+**Update (production).** There is no release feed yet (`update.feedUrl` is null), so Admin → System → Update says
+"This server does not look for new versions online" and offers only Roll back. To update:
+- **New version (normal way):** build it with a higher version and run the same installer command:
+  ```sh
+  bun scripts/build-bundle.ts --version 0.1.1
+  sudo scripts/install-macos.sh --from dist/release --allow-unsigned
+  ```
+  It switches to 0.1.1, keeps 0.1.0 for Roll back, and goes back by itself if 0.1.1 does not start (2.3).
 - **Same version string:** run `bun run build:bundle`, then the same installer command. It replaces
   `app/versions/0.1.0`.
-- **New version:** re-running the installer does **not** switch `app/current`. Stage the update and switch to it as
-  `_axserver`. The bundle must be readable by `_axserver`, and your home folder is not, so copy it to `/Users/Shared`
-  first:
+- **By hand as `_axserver`** (what the in-app update does). The bundle must be readable by `_axserver`, and your
+  home folder is not, so copy it to `/Users/Shared` first:
 
   ```sh
   bun scripts/build-bundle.ts --version 0.1.1
@@ -452,7 +501,7 @@ These backups are on the same disk. For an off-machine copy:
   `restore-team --backup ID --to NEWDIR` and `stage-restore --backup ID`.
 - **Dev:** stop the service and copy `~/.team-ax-dev`.
 
-Production has no account CLI (`reset-link`, `create-owner`), so a locked-out owner cannot be recovered there yet.
+A locked-out owner is recovered with the account tool (2.6a).
 
 **Uninstall (production):**
 
@@ -497,7 +546,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | Port in use | `lsof -nP -iTCP:<port> -sTCP:LISTEN`. Dev: 19100, 19161, 19140. Production: 47820, 8443, 47821 |
 | Production server stops when Diagnostics opens | Known crash when the launcher socket is missing (2.7) |
 | Relay "Not registered" | `relay.teamName` missing in `server.json`, or the name is taken or reserved |
-| Owner password forgotten | Dev: `bun run dev admin reset-link`. Production: no tool yet |
+| Owner password forgotten | Dev: `bun run dev admin reset-link`. Production: `sudo "/Library/Application Support/mycel/root/mycel-account" reset-link` (2.6a) |
 | Claude token expiry (1 year) | Repeat 2.4; diagnostics warn 14 days before (counted from when the token was stored) |
 | "The team's Claude subscription is not connected yet" | Production: store the token (2.4) |
 | "The AI connection has a problem" + admin notice "token was refused" | Production: the token was revoked or expired; make a new one and store it (2.4) |
@@ -512,23 +561,17 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 2. **Codex in production is beta.** It works through the model proxy: `engine.codexBin`, the locked catalog,
    `agent/codex-auth` and `admin.js codex-login` (2.5). Only the owner (plus `codexUsers`) can use it, and it cannot
    be the default. The open checks with a real ChatGPT login and pf on are WebSockets, token refresh and web search.
-3. **Engine names are not checked.** `--engine` is not validated, and the first engine becomes `claudeBin`.
-4. **Diagnostics can crash the production server** when `launcher.sock` is missing (`system/ops.ts`).
-5. **No team-name field for your own relay.** Admin → System has none, so the server stays `team_name_missing`
+3. **Diagnostics can crash the production server** when `launcher.sock` is missing (`system/ops.ts`).
+4. **No team-name field for your own relay.** Admin → System has none, so the server stays `team_name_missing`
    until `server.json` is edited. "Team AX relay" can be selected although that relay does not exist.
-6. **The desktop app cannot use the office address.** It cannot connect to a self-signed office-only server, and
-   `GET /api/connect-info` is not implemented.
-7. **Re-installing a new version does not switch `app/current`.** The in-app update has no feed.
-8. **No account CLI in production.** `auth/cli.ts` is not in the bundle.
-9. **Dev data-folder paths are fragile.** A path that is too long or under /tmp only gives a generic engine error,
+5. **The desktop app cannot use the office address.** It cannot connect to a self-signed office-only server, and
+   `GET /api/connect-info` is not implemented (so it would not pick up a renewed office certificate either).
+6. **No release feed.** The in-app update only offers Roll back; new versions come from re-running the installer.
+7. **Dev data-folder paths are fragile.** A path that is too long or under /tmp only gives a generic engine error,
    and Diagnostics does not check socket path length.
-10. **Small doc and code mismatches:**
-    - The comment at `install-macos.sh:308` says the menubar app reads `setup/code`; it doesn't.
-    - `uninstall-macos.sh --help` prints `set -uo pipefail`.
-    - The dev Diagnostics sandbox text is out of date.
-11. **The TLS certificate covers the `en0` IP only.**
-12. **Intel Macs and the DMG are arm64-first.** `native/build.sh` builds arm64 by default, and the DMG is
-    arm64 only.
-13. **Dev ports are fixed (19100/19161)**, with no check for ports already in use.
-14. **Owner-blocked items.** Apple and Windows signing, the production relay and CI billing are waiting on the
+8. **Small doc and code mismatch:** the dev Diagnostics sandbox text is out of date.
+9. **Intel Macs:** `bun run build` and dev mode build arm64 helpers by default (`ARCHS=amd64`); the universal
+   bundle and DMG cover both CPU types but have only been run under Rosetta, not on an Intel Mac.
+10. **Dev ports are fixed (19100/19161)**, with no check for ports already in use.
+11. **Owner-blocked items.** Apple and Windows signing, the production relay and CI billing are waiting on the
     owner; see [OWNER-TODO.md](OWNER-TODO.md). Run `bun run typecheck && bun run test` locally.
