@@ -30,6 +30,7 @@ export const MSG = {
   ruleFolder: { ko: '그룹·프로젝트 폴더나 권한 규칙이 걸린 폴더(또는 그런 폴더가 든 폴더)는 관리자만 옮기거나 이름을 바꾸거나 지울 수 있습니다.', en: 'Group, project and rule folders (and folders that contain one) can only be moved, renamed or deleted by an admin.', id: 'Folder grup, proyek, dan folder berizin (atau yang berisi folder tersebut) hanya dapat dipindah, diganti nama, atau dihapus oleh admin.' },
   ruleFolderToUsers: { ko: '그룹·프로젝트 폴더나 권한 규칙이 걸린 폴더는 개인 폴더(users/) 안으로 옮길 수 없습니다.', en: 'Group, project and rule folders cannot be moved into a personal folder (users/).', id: 'Folder grup, proyek, dan folder berizin tidak dapat dipindah ke folder pribadi (users/).' },
   audienceNarrowed: { ko: '개인 폴더로 옮기면 지금 이 항목을 보는 다른 사람들이 더 이상 볼 수 없습니다. 확인한 뒤 다시 시도하세요.', en: 'Moving this into your personal folder means the other people who can see it now will lose it. Confirm to continue.', id: 'Memindahkan ini ke folder pribadi membuat orang lain yang kini bisa melihatnya kehilangan akses. Konfirmasi untuk melanjutkan.' },
+  folderInTrash: { ko: '이 버전의 폴더가 휴지통에 있습니다. 휴지통에서 폴더를 먼저 되돌린 뒤 버전을 되돌리세요.', en: 'The folder of this version is in the trash. Restore the folder from the trash first, then the version.', id: 'Folder versi ini ada di tempat sampah. Pulihkan foldernya dulu, lalu versinya.' },
   restoreTaken: { ko: '같은 이름이 있어 되돌릴 수 없습니다.', en: 'Cannot restore: the name is taken.', id: 'Tidak dapat dipulihkan: nama sudah dipakai.' },
 } satisfies Record<string, Msg>
 export type MsgKey = keyof typeof MSG

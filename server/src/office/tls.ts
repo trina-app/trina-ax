@@ -9,10 +9,13 @@
 //   ca.json      the CA's name constraints (what the server certificate may name)
 //   server.key   server private key (600), server.crt server certificate (397 days, renewed 30 days before the end)
 //
-// The CA is name-constrained (critical nameConstraints): it can only vouch for this Mac's own names (<host>.local,
-// <host>) and the office subnet(s) the Mac is on when the CA is made (e.g. 192.168.1.0/24; private ranges only).
+// The CA is name-constrained (critical nameConstraints): it can only vouch for this Mac's own name (<host>.local)
+// and the office subnet(s) the Mac is on when the CA is made (e.g. 192.168.1.0/24; private ranges only).
 // Ten desks trust it; if its key ever leaked, it still could not impersonate a bank, any public site, another
-// *.local device or another subnet's EMR server / NAS / router to them. Chrome / Edge (Windows, Mac), Electron,
+// *.local device or another subnet's EMR server / NAS / router to them. The bare name <host> is NOT a permitted
+// subtree: an RFC 5280 dNSName constraint permits every name below it, so a Mac called "dental" or "clinic" (real
+// top-level domains) would have let the CA vouch for every site under .dental / .clinic. A CA made before that
+// (ca.json with a dot-less name other than "local") is made again (ensureCa). Chrome / Edge (Windows, Mac), Electron,
 // Safari, Firefox, curl and Node enforce these constraints; Bun's own fetch (BoringSSL) refuses IP constraints
 // altogether, which only matters for tests. TEAMAX_CA_CONSTRAINTS=0 when the CA is first made leaves them out.
 // A move to another subnet (new router) needs a new CA (docs/OFFICE.md 문제 해결); the .local name keeps working.
@@ -133,10 +136,11 @@ export function localHostName(): string | null {
   return LABEL.test(n) ? n : null
 }
 
-/** Names the server certificate should carry: <host>.local and <host>, then the addresses (only what the CA may
- * name). `left` = addresses left out because the CA may not vouch for them (e.g. a public IPv6). */
+/** Names the server certificate should carry: <host>.local, then the addresses (only what the CA may name). The
+ * bare <host> is not one: the CA may not vouch for it (caConstraintsFor). `left` = addresses left out because the CA
+ * may not vouch for them (e.g. a public IPv6). */
 export function wantedNames(host: string | null, addrs: string[], c: CaConstraints): OfficeNames & { left: string[] } {
-  const dns = host ? [`${host}.local`, host].filter((d) => dnsPermitted(d, c)) : []
+  const dns = host ? [`${host}.local`].filter((d) => dnsPermitted(d, c)) : []
   const ips = addrs.filter((a) => ipPermitted(a, c))
   return { dns, ips, left: addrs.filter((a) => !ipPermitted(a, c)) }
 }
@@ -208,28 +212,42 @@ function mkdirPrivate(dir: string) {
   fs.chmodSync(dir, 0o700)
 }
 
-/** The name constraints of a new CA: this Mac's names and its office subnets. Never empty on either side: a CA
- * without a DNS (or IP) subtree may vouch for any name (or address) of that kind. */
+/** The name constraints of a new CA: this Mac's .local name and its office subnets. Never empty on either side: a CA
+ * without a DNS (or IP) subtree may vouch for any name (or address) of that kind. Never a bare (dot-less) name other
+ * than "local": that subtree is every name under a top-level domain if the Mac's name is one (dental, clinic). */
 export function caConstraintsFor(host: string | null, subnets: [string, string][]): CaConstraints {
-  return { dns: host ? [`${host}.local`, host] : ['local'], v4: subnets.length ? subnets : PRIVATE_V4, v6: [] }
+  return { dns: host ? [`${host}.local`] : ['local'], v4: subnets.length ? subnets : PRIVATE_V4, v6: [] }
+}
+
+/** A stored DNS constraint that permits a whole top-level domain: a dot-less name other than "local" (CAs made before
+ * round 4 of the security review carried the Mac's bare name). */
+export function tldWideConstraint(c: CaConstraints): string | null {
+  return c.dns.find((d) => !d.includes('.') && d !== 'local') ?? null
 }
 
 /**
  * The CA: kept when ca.key + ca.crt exist, belong together and the CA is valid for another 30 days; made otherwise.
  * `host` and `subnets` become its name constraints (caConstraintsFor) and `host` its common name.
  */
-export function ensureCa(dir: string, o: { host: string | null; subnets?: [string, string][]; constraints?: boolean; now?: Date } = { host: null }): { made: boolean; cert: crypto.X509Certificate; constraints: CaConstraints } {
+export function ensureCa(dir: string, o: { host: string | null; subnets?: [string, string][]; constraints?: boolean; now?: Date } = { host: null }): { made: boolean; cert: crypto.X509Certificate; constraints: CaConstraints; replaced?: string } {
   const p = tlsPaths(dir)
   mkdirPrivate(dir)
   const now = o.now ?? new Date()
   const existing = readCert(p.caCrt)
+  let replaced: string | undefined
   if (existing && fs.existsSync(p.caKey) && existing.ca && existing.validToDate.getTime() - now.getTime() > RENEW_BEFORE_DAYS * 86400_000) {
     try {
       const key = crypto.createPrivateKey(fs.readFileSync(p.caKey))
       if (existing.checkPrivateKey(key)) {
-        fs.chmodSync(p.caKey, 0o600)
-        if (!fs.existsSync(p.caCer)) writeAtomic(p.caCer, existing.raw, 0o644)
-        return { made: false, cert: existing, constraints: readConstraints(p.caJson) }
+        const stored = readConstraints(p.caJson)
+        // a CA that may vouch for a whole top-level domain is made again (the old one is kept as *.old-<date>);
+        // with TEAMAX_CA_CONSTRAINTS=0 the owner chose no constraints at all, so there is nothing to narrow
+        if (!(o.constraints !== false && tldWideConstraint(stored))) {
+          fs.chmodSync(p.caKey, 0o600)
+          if (!fs.existsSync(p.caCer)) writeAtomic(p.caCer, existing.raw, 0o644)
+          return { made: false, cert: existing, constraints: stored }
+        }
+        replaced = `the office CA could vouch for every name under .${tldWideConstraint(stored)}`
       }
     } catch {}
   }
@@ -258,7 +276,7 @@ export function ensureCa(dir: string, o: { host: string | null; subnets?: [strin
     writeAtomic(p.caCer, cert.raw, 0o644)
     writeAtomic(p.caJson, JSON.stringify({ format: 1, constraints }, null, 1) + '\n', 0o644)
     for (const f of [p.key, p.crt]) fs.rmSync(f, { force: true }) // signed by the old CA
-    return { made: true, cert, constraints }
+    return { made: true, cert, constraints, replaced }
   } finally {
     for (const f of [tmpKey, tmpCrt]) fs.rmSync(path.join(dir, f), { force: true })
   }
@@ -326,5 +344,5 @@ export function ensureOfficeTls(dir: string, o: { host: string | null; addrs: st
   let cert: crypto.X509Certificate
   if (problem) cert = issueServerCert(dir, want)
   else cert = new crypto.X509Certificate(fs.readFileSync(tlsPaths(dir).crt))
-  return { caMade: ca.made, changed: problem !== null, reason: problem, ca: ca.cert, cert, names: certNames(cert), left: want.left, constraints: ca.constraints }
+  return { caMade: ca.made, caReplaced: ca.replaced ?? null, changed: problem !== null, reason: ca.replaced ? `new office CA (${ca.replaced}): desks on the in-office path install the new CA once (teamax card)` : problem, ca: ca.cert, cert, names: certNames(cert), left: want.left, constraints: ca.constraints }
 }
