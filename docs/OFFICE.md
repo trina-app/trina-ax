@@ -396,7 +396,7 @@ TEAMAX_KIT_TEAM=exampleteam.example.com TEAMAX_KIT_LOCALE=ko bun run dist:win
 - IPv4만 씁니다(IPv6 주소는 인증서·접속 대상에 넣지 않음). VPN(Tailscale 등) 주소도 빼며, 필요하면 `TEAMAX_INCLUDE_VPN=1`과
   `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`).
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
-- PDF 글자 추출은 `pdftotext`(Homebrew `poppler`)가 있을 때만 됩니다. docx·pptx는 번들의 pandoc으로 됩니다.
+- PDF 글자 추출은 `pdftotext`(Homebrew `poppler`)가 있을 때만 됩니다. docx·pptx는 번들의 pandoc으로 됩니다 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
 - 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
 - 인터넷 주소: 2FA 없음(8장). 허용 목록은 IPv4 CIDR과 나라(`CF-IPCountry`)만, 사람별 허용(Cloudflare Access 등)은 나중.
   같은 맥의 다른 프로그램은 앱 포트에 그 이름으로 요청해 IP를 꾸밀 수 있습니다(계정별 로그인 제한은 그대로). 그래서 인터넷
