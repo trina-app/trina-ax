@@ -17,6 +17,10 @@ export const TEXT = {
   projectFolderAdminOnly: t('프로젝트 폴더를 바꾸는 것은 관리자만 할 수 있습니다.', 'Only admins can change the folder of a project.', 'Hanya admin yang bisa mengganti folder proyek.'),
   projectFolderPersonal: t('팀 프로젝트를 개인 폴더(users/)로 옮길 수 없습니다.', 'A team project cannot move into a personal folder (users/).', 'Proyek tim tidak dapat dipindah ke folder pribadi (users/).'),
   projectInstructionsChanged: t("'{name}' 프로젝트 지침을 {by} 님이 바꿨습니다.", "{by} changed the instructions of the project '{name}'.", "{by} mengubah instruksi proyek '{name}'."),
+  projectNewTeamAdminOnly: t('새 팀 프로젝트 폴더(projects/)는 관리자만 만들 수 있습니다. 쓰기 권한이 있는 기존 폴더를 고르거나 내 프로젝트로 만드세요.', 'Only admins can create a new team project folder (projects/). Pick an existing folder you can write to, or make it a personal project.', 'Hanya admin yang bisa membuat folder proyek tim baru (projects/). Pilih folder yang bisa Anda tulis, atau buat proyek pribadi.'),
+  projectParticipantsNewOnly: t('참여 대상은 새 팀 프로젝트 폴더를 만들 때만 고를 수 있습니다(기존 폴더의 권한은 관리자 화면에서 바꿉니다).', 'Participants can only be chosen for a new team project folder (change an existing folder\'s access in the admin screen).', 'Peserta hanya bisa dipilih untuk folder proyek tim baru.'),
+  projectPersonalFolder: t('내 프로젝트는 내 개인 폴더 안에만 만들 수 있습니다.', 'A personal project lives inside your personal folder.', 'Proyek pribadi hanya bisa di dalam folder pribadi Anda.'),
+  projectFolderTaken: t('그 이름의 폴더 권한 기록이 남아 있어 쓸 수 없습니다. 다른 이름을 고르세요.', 'Access rules are still kept for a folder of that name. Pick another name.', 'Aturan akses masih tersimpan untuk folder bernama itu. Pilih nama lain.'),
   projectFolderNoWrite: t('이 폴더에 쓰기 권한이 없습니다.', 'You cannot write to this folder.', 'Anda tidak bisa menulis ke folder ini.'),
   browserUnavailable: t('데스크톱 앱 창이 연결되어 있지 않습니다.', 'The desktop app window is not connected.', 'Jendela aplikasi desktop tidak terhubung.'),
 

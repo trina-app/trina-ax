@@ -98,9 +98,23 @@ export const OpenTurnRequest = z.object({ turnId: Uuid7, chatId: Uuid7, messageI
 export type OpenTurnRequest = z.infer<typeof OpenTurnRequest>
 
 // ---------------- projects ----------------
+/** Who works in a new team project folder (each gets write; nobody else but admins). */
+export const ProjectParticipant = z.object({ subjectType: z.enum(['group', 'user']), subjectId: z.string().min(1).max(64) })
+export type ProjectParticipant = z.infer<typeof ProjectParticipant>
+/**
+ * Three ways (design tab 5 "프로젝트"):
+ * - scope 'personal' (folderPath omitted): users/<me>/projects/<slug>/, only the caller sees it;
+ * - scope 'team' without folderPath, or with a projects/<slug> folder that does not exist yet: admins and the owner
+ *   only; the folder, its folders row and rules (each participant and the creator write, nobody else) are made in one go;
+ * - an existing folder the caller can write (anyone): its rules stay as they are (a rule-less folders row is added).
+ */
 export const CreateProjectBody = z.object({
   name: z.string().trim().min(1).max(100),
-  folderPath: RelPath,
+  scope: z.enum(['team', 'personal']).default('team'),
+  folderPath: RelPath.optional(),
+  /** folder name for a new folder (default: from the name, like group folders) */
+  slug: z.string().trim().min(1).max(100).optional(),
+  participants: z.array(ProjectParticipant).max(200).default([]),
   instructions: z.string().max(50_000).default(''),
 })
 /** Creator or admin+ only. folderPath: admin or owner only, never under users/ (a personal project is shared by copy). */
@@ -127,7 +141,7 @@ export const CHATS = {
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),
-  createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project on a folder the caller can write.' }),
+  createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: personal (users/<me>/projects/<slug>), on an existing folder the caller can write, or a new projects/<slug> with participants (admin or owner).' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/.' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (the creator or an admin; chats stay, without project; the folder stays).' }),

@@ -464,7 +464,7 @@ export class MockServer {
     },
     listProjects: () => ({ items: this.projects }),
     createProject: (c) => {
-      const p: Project = { id: uuidv7(), name: c.body.name, folderPath: c.body.folderPath, instructions: c.body.instructions ?? '', createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), canEdit: true }
+      const p: Project = { id: uuidv7(), name: c.body.name, folderPath: c.body.folderPath ?? (c.body.scope === 'personal' ? `users/${c.user.id}/projects/${c.body.name}` : `projects/${c.body.name}`), instructions: c.body.instructions ?? '', createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), canEdit: true }
       this.projects.push(p)
       return { status: 201, body: p }
     },
