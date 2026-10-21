@@ -58,6 +58,9 @@ export const SPECS: Record<string, Spec> = {
   changePassword: { skipPositive: true, build: (c) => c.post('/api/auth/password', { currentPassword: 'wrong', newPassword: 'Totally-new-pass-99-zz' }), scope: 'byLevel' },
   me: { build: (c) => c.get('/api/me'), scope: 'byLevel' },
   updateMe: { build: (c) => c.patch('/api/me', { name: 'Renamed Self' }), scope: 'byLevel' },
+  // fix/prod-ops: the desktop app's office address + certificate pin, and its "could not use the office address" report
+  connectInfo: { build: (c) => c.get('/api/connect-info'), scope: 'byLevel' },
+  lanFailure: { build: (c) => c.post('/api/connect-info/lan-failure', { code: 'unreachable' }), scope: 'byLevel' },
   mySessions: { build: (c) => c.get('/api/me/sessions'), scope: 'byLevel' },
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.

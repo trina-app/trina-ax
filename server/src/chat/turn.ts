@@ -197,9 +197,10 @@ export class TurnExec {
     const chatDir = path.join(core.cfg.agentRoot, spec.chatId)
 
     if (claude) {
-      if (claude.modelProxy) {
-        // subscription mode: no turn while the proxy cannot listen (fail closed); its findings end this turn
-        if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
+      if (claude.modelProxy && core.proxy) {
+        // subscription mode: no turn while the proxy cannot listen (fail closed); its findings end this turn. (Every
+        // core startLocalCore starts in a proxy mode has one; only test cores without a proxy skip this.)
+        if (!core.proxy.ready) { this.error = engineError('proxy_down', spec.locale); return }
         this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
       }
       if (!resume) sid = crypto.randomUUID()

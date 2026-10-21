@@ -547,7 +547,7 @@ export class TeamFiles {
    * still shows, and a hidden entry cannot be told from a missing one (security r2: 404 for a hidden entry or a
    * hidden look-alike vs 200 {items:[]} for a missing name was an existence oracle).
    * Also: the current file's hash (to tell which versions differ) and whether the caller may restore (write access to
-   * the path, the rule restoreVersion checks; false for a path the caller cannot see).
+   * the path, the rule restoreVersion checks; false for a path hidden from the caller).
    */
   async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean }> {
     const user = this.principal(userId)
@@ -562,6 +562,7 @@ export class TeamFiles {
       exists = r.exists
       // every listed version can be restored by whoever may write the file (restoreVersion checks the same);
       // the newest version is the content before the last change, not the current file
+      // (a deleted file's versions too; a path hidden from the caller never gets here and stays false)
       canRestore = atLeast(rules.access(user, r.segs), 'write')
       if (r.exists && r.st!.isFile()) { try { currentSha256 = await this.sha(r.abs, checkRegular(r.abs)) } catch {} }
     } catch (e) {

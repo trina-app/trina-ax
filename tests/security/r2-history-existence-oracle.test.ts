@@ -100,7 +100,8 @@ describe('history still works for the people it is meant for', () => {
   })
 
   test('an existing file alice may read without versions: 200 with no items', async () => {
-    expect((await hist('skills/team-rules.md')).body).toEqual({ path: 'skills/team-rules.md', items: [] })
+    // (fix/prod-ops added the current file's hash and canRestore for an entry that exists)
+    expect((await hist('skills/team-rules.md')).body).toMatchObject({ path: 'skills/team-rules.md', items: [], canRestore: false })
   })
 
   test('carol (may read salaries/) gets its versions; for alice the same path is a missing one', async () => {
