@@ -4,7 +4,8 @@
 //   sudo -u _axserver <base>/app/current/bin/bun <base>/app/current/server/src/admin.js <command> ...
 //
 // Commands (MYCEL_CONFIG / MYCEL_MODE=prod select the installation, like the server itself):
-//   backup [--scope db|full]                     back up now (same as the nightly backup)
+//   backup [--scope db|full] [--kind pre-update] back up now (same as the nightly backup; the office updater marks
+//                                                its own as pre-update)
 //   list-backups                                 JSON list
 //   archive --out <file> [--password-stdin]      DB + team folder in one .tar.zst(.age) stream, for an external disk
 //   restore-archive --in <file> --to <dir> [--password-stdin]
@@ -95,7 +96,7 @@ export async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case 'backup': {
       const { db, mgr } = backups()
-      try { out(await mgr.run({ kind: 'manual', scope: arg(args, '--scope') === 'db' ? 'db' : 'full' })) } finally { db.close() }
+      try { out(await mgr.run({ kind: arg(args, '--kind') === 'pre-update' ? 'pre-update' : 'manual', scope: arg(args, '--scope') === 'db' ? 'db' : 'full' })) } finally { db.close() }
       return 0
     }
     case 'list-backups': {

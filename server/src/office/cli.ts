@@ -26,6 +26,9 @@
 //                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
 //                                  (<label>.tunnel), the server answers https://HOST. The tunnel itself (DNS, ingress)
 //                                  is made on the owner's Mac with scripts/office/public-address.ts
+//   update [status|check|now|pause|resume|channel stable|beta|time HH:MM|run]
+//                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
+//                                  LaunchAgent (<label>.update) checks https://updates.treesoop.com every night
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'
@@ -38,6 +41,7 @@ import { peerAllowed } from '../http/middleware'
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
+import { removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 
 const CHECK_MS = 30_000
 const TLS_RECHECK_MS = 6 * 3600_000
@@ -616,6 +620,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!(await waitHealthy(s, 90))) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)
+      try { const ul = syncUpdateAgent(s, agentPath(s)); if (ul) lines(ul) } catch (e) { lines(`update agent not installed: ${(e as Error).message}`) }
       if (s.publicHost && fs.existsSync(p.plist(tunnelLabel(s)))) {
         const r = await waitPublic(s.publicHost, 40)
         lines(r === 'ok' ? `https://${s.publicHost} 답함 / answers (앱 포트 / app port ${s.appPort})` : publicProblem(s, r, p.tunnelLog))
@@ -651,12 +656,15 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'public-address': return await publicAddress(home, args)
+    case 'update': return await updateCommand(home, args, agentPath(s))
     case 'uninstall-agent': {
       lines(fs.existsSync(p.plist(s.label)) || agent.loaded() ? agent.stop() : 'not installed')
       fs.rmSync(p.plist(s.label), { force: true })
       const ta = tunnelAgentOf(s)
       if (ta.loaded()) lines(`cloudflared: ${ta.stop()}`)
       fs.rmSync(p.plist(tunnelLabel(s)), { force: true })
+      const ul = removeUpdateAgent(s)
+      if (ul) lines(ul)
       return 0
     }
     case 'status': {
@@ -735,7 +743,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|check-ports|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|uninstall-agent')
       return 2
   }
 }
