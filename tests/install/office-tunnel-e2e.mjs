@@ -27,7 +27,7 @@ const HOST = new URL(BASE).host
 
 const checks = []
 const check = (name, ok, detail = '') => { checks.push({ name, ok, detail: String(detail).slice(0, 400) }); console.error(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : ` — ${String(detail).slice(0, 400)}`}`) }
-const PW_OWNER = 'Clinic-owner-pw-2026!'
+const PW_OWNER = 'Office-owner-pw-2026!'
 const PW_DESK = 'Desk-member-pw-2026!'
 
 function jar(base) {

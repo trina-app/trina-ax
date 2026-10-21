@@ -6,7 +6,7 @@ import type { Api } from '../../../scripts/office/public-address'
 export interface FakeTunnel { id: string; name: string; config_src: string; deleted_at: string | null; config: any; secret: string; connections: number }
 export interface FakeCf { api: Api; calls: string[]; dns: { id: string; type: string; name: string; content: string; proxied: boolean }[]; tunnels: FakeTunnel[] }
 
-export const ZONE = 'clinic-test.example'
+export const ZONE = 'office-test.example'
 export const cred = { zoneId: 'z1', accountId: 'acc1' }
 export const tokenOf = (t: Pick<FakeTunnel, 'id' | 'secret'>) => Buffer.from(JSON.stringify({ a: 'acc1', t: t.id, s: t.secret })).toString('base64')
 /** a connector token still lets its holder connect: the tunnel exists and has this secret */

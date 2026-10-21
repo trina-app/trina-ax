@@ -225,7 +225,7 @@ export function runDirFor(s: OfficeSettings): string {
   return s.runDir ?? path.join(officePaths(s.home).data, 'run')
 }
 
-/** Every https origin of the certificate, best first: IPv4 addresses (the clinic sets a DHCP reservation), then
+/** Every https origin of the certificate, best first: IPv4 addresses (the office sets a DHCP reservation), then
  * <host>.local (the certificate carries no bare host name, tls.ts). `shown` keeps what the desks are told: the main
  * IPv4 address and <host>.local. */
 export function deskOrigins(names: OfficeNames, lanPort: number, o: { shown?: boolean } = {}): string[] {
@@ -258,7 +258,7 @@ export function allowedPeers(s: Pick<OfficeSettings, 'allowFrom'>, subnets: [str
  * owner's setup-token behind the model proxy with TEAMAX_CLAUDE_AUTH=subscription) with
  * office: true, plain HTTP on 127.0.0.1 only, TLS on 0.0.0.0 (IPv4) for the desks of the office subnet, and the
  * internet address (tunnel) when one is set: cloudflared delivers it to the loopback app port. Codex is
- * off (codexBin ''): the clinic's data goes to one AI provider, Anthropic, as the guide says. */
+ * off (codexBin ''): the office's data goes to one AI provider, Anthropic, as the guide says. */
 export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [string, string][] = []) {
   const p = officePaths(s.home)
   const origins = deskOrigins(names, s.lanPort)

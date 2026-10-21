@@ -2,7 +2,7 @@
 // tests/unit/e-desktop-update.test.ts).
 //
 // Windows: electron-updater with the generic provider pointed at the open team's own address + /downloads/ (the
-// clinic's Mac puts the installer and its latest.yml there, server/src/office/update.ts), with the team session as a
+// office's Mac puts the installer and its latest.yml there, server/src/office/update.ts), with the team session as a
 // Bearer token because /downloads/ is for signed-in people only. Checked 20 s after start and every 4 hours, downloaded
 // in the background, installed when the app quits or when the person clicks "다시 시작". The installer is unsigned
 // NSIS: no publisherName, so electron-updater does not ask for a signature; the sha512 in latest.yml is checked.

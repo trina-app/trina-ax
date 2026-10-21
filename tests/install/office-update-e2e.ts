@@ -1,5 +1,5 @@
 // Office mode automatic updates against a REAL office install (docs/OFFICE.md "자동 업데이트"), run on this Mac by
-// hand. The install uses test labels and ports so it never meets the clinic's or the owner's demo service:
+// hand. The install uses test labels and ports so it never meets the office's or the owner's demo service:
 //
 //   bash TeamAX-office-<old>/office-install.sh --prefix <P> --label app.team-ax.autoupd --app-port 49430 \
 //        --lan-port 49443 --helper-port 49442 --run-dir <short dir> --no-open
@@ -10,7 +10,7 @@
 //    then verify --version <new> again: the old one is back)
 //   bash <P>/../office-uninstall.sh --prefix <P> --delete-data --yes
 //
-// seed writes <P>/../e2e-seed.json (no secrets of the real clinic: a test team); verify checks the version on
+// seed writes <P>/../e2e-seed.json (no secrets of the real office: a test team); verify checks the version on
 // /api/health, that the owner and the member still sign in, the team file, the setup state, the update state and,
 // with --windows, data/downloads (installer, latest.yml, index.json) and that /downloads/latest.yml needs a session.
 import crypto from 'node:crypto'

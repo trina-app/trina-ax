@@ -2,7 +2,7 @@
 // `teamax desktop add`, server/src/office/desktop.ts). Shown under Settings → Apps.
 // - Signed-in people only, like every other page of the team's data: a session (cookie or bearer) is required and a
 //   temporary password must be replaced first. Before this the folder was public, so anyone who knew the internet
-//   address could fetch the clinic's kit build (it carries the team's address) and index.json.
+//   address could fetch the office's kit build (it carries the team's address) and index.json.
 // - Installers are 110–200 MB and often come through the Cloudflare tunnel: whole files go out as Bun.file (sendfile,
 //   constant memory), a resumed download (Range: bytes=N- or N-<last byte>) as Bun.file().slice(N) to the end of the
 //   file (measured: Bun 1.3.12 ends that body correctly, direct and when the body is read; only slices that stop

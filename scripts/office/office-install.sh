@@ -31,7 +31,7 @@
 #
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
 # (`claude auth status`; not needed with --claude-token-file), the ports are free (after stopping this installation's own agent). Codex is not used in
-# office mode (the clinic's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
+# office mode (the office's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
 # for the desks and the first-run setup link. Desktop app installers (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg) in
@@ -97,7 +97,7 @@ if [ -n "$TOKEN_FILE" ]; then SUBSCRIPTION=1
 elif [ -f "$PREFIX/config/office.env" ] && grep -q '^TEAMAX_CLAUDE_AUTH=subscription$' "$PREFIX/config/office.env"; then SUBSCRIPTION=1; fi
 if [ "$UPDATE" = 1 ]; then
   # an automatic update keeps the installation's Claude Code; a login that lapsed is the owner's to fix, not a reason
-  # to leave the clinic on the old version (the server reports it in Admin > System)
+  # to leave the office on the old version (the server reports it in Admin > System)
   if [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ]; then CONF_ARGS+=(--claude-bin "$CLAUDE"); fi
 else
 [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || die "Claude Code is not installed for this user. Install it (curl -fsSL https://claude.ai/install.sh | bash), run 'claude', log in with the subscription account, then run this again."
@@ -190,7 +190,7 @@ cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
 명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | desktop
-설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-치과-설치가이드.pdf)
+설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-…-설치가이드.pdf)
 EOF
 if [ -n "$PUBLIC" ]; then
   cat <<EOF

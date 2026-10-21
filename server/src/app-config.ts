@@ -7,7 +7,7 @@
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
 // (1 = the Team AX relay may be offered).
-// Office mode (one Mac in a clinic or office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
+// Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
 // Relative paths in the file are resolved against the file's folder.
@@ -47,7 +47,7 @@ export const AppConfigFile = z.object({
   /** IPv4 CIDRs whose socket peers the direct listeners answer (loopback always); anything else gets 403. Empty = any.
    * Office mode lists the Mac's office subnets so a VPN peer (Tailscale) cannot reach the office port. */
   allowedPeers: z.array(z.string()).default([]),
-  /** office mode (single Mac in a clinic or office, docs/OFFICE.md): mode stays 'dev' for the engine (local-login) */
+  /** office mode (single Mac in a small office, docs/OFFICE.md): mode stays 'dev' for the engine (local-login) */
   office: z.boolean().default(false),
   /** public address through a Cloudflare Tunnel (office mode, docs/OFFICE.md "인터넷 주소"): cloudflared on this Mac
    * delivers https://<host> to the loopback app port (listen). Such requests (app port, loopback peer, Host = host)

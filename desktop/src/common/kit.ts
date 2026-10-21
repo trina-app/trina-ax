@@ -1,4 +1,4 @@
-// A "kit" build for one team (docs/office/windows-guide.html): `TEAMAX_KIT_TEAM=exampleteam.example.com TEAMAX_KIT_LOCALE=ko
+// A "kit" build for one team (docs/office/windows-guide.html): `TEAMAX_KIT_TEAM=team.example.com TEAMAX_KIT_LOCALE=ko
 // bun run dist:win` writes dist/kit.json, and the app then fills in that team address on the first-run screen and
 // shows its own screens in that language until the team page says otherwise. Only a suggestion: the person still
 // presses Connect, the address goes through the same checks (parseTeamAddress, /api/health), and nothing is added on
@@ -7,7 +7,7 @@ import { parseTeamAddress } from './address'
 import { asUiLocale, type UiLocale } from './locales'
 
 export interface Kit {
-  /** what the first-run screen fills in (the host: "exampleteam.example.com"), or null */
+  /** what the first-run screen fills in (the host: "team.example.com"), or null */
   team: string | null
   /** language of the app's own screens before the team page reports one, or null (the default) */
   locale: UiLocale | null

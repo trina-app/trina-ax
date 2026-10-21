@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test'
 import { defaultTunnelName, removeAddress } from '../../scripts/office/public-address'
 import { cred, fakeCloudflare, writes, type FakeCf } from './lib/fake-cloudflare'
 
-const HOST = 'teamax-r4-4d3d462b.clinic-test.example'
+const HOST = 'teamax-r4-4d3d462b.office-test.example'
 const local = (f: FakeCf, name: string, id = 'bbbbbbbb-1111-4222-8333-000000000001') => {
   f.tunnels.push({ id, name, config_src: 'local', deleted_at: null, config: null, secret: 's', connections: 2 })
   return f.tunnels.at(-1)!

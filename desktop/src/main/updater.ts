@@ -84,7 +84,7 @@ export class DesktopUpdater {
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.allowDowngrade = false
-    // the clinic's Mac keeps only the newest installer, so a blockmap of the old one is not there to diff against
+    // the office's Mac keeps only the newest installer, so a blockmap of the old one is not there to diff against
     autoUpdater.disableDifferentialDownload = true
     autoUpdater.logger = { info: (m: unknown) => debug('updater', String(m)), warn: (m: unknown) => debug('updater warn', String(m)), error: (m: unknown) => debug('updater error', String(m)), debug: () => {} }
     if (process.env.MYCEL_DESKTOP_UPDATE_TEST) autoUpdater.forceDevUpdateConfig = true

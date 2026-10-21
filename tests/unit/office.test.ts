@@ -321,7 +321,7 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
 
   test('setup and sign-in over https://<LAN IP>: CSRF accepts the office origin, the cookie is __Host- and Secure', async () => {
     const c = h.client({ base: LAN, via: 'direct', ip: '192.168.1.50' })
-    const res = await c.raw('POST', '/api/setup', { setupToken: 'setup-token-for-tests-0123456789', teamName: 'Clinic', locale: 'ko', owner: { username: 'director', name: 'Dr', password: 'owner horse battery 42' } }, { origin: LAN })
+    const res = await c.raw('POST', '/api/setup', { setupToken: 'setup-token-for-tests-0123456789', teamName: 'Office', locale: 'ko', owner: { username: 'director', name: 'Dr', password: 'owner horse battery 42' } }, { origin: LAN })
     expect(res.status).toBe(201)
     const sc = res.headers.getSetCookie().find((x) => x.startsWith('__Host-sid='))!
     expect(sc).toMatch(/; Secure/)
@@ -364,7 +364,7 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     expect(d.checks.some((x: { id: string }) => x.id === 'engine.codex')).toBe(false)
     const conn = await local.call('GET', '/api/admin/connection')
     expect(conn.availableModes).toEqual(['direct-only'])
-    const put = await local.raw('PUT', '/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example/connect', teamName: 'clinic', password: 'owner horse battery 42' }, { origin: 'http://localhost:47830' })
+    const put = await local.raw('PUT', '/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example/connect', teamName: 'office', password: 'owner horse battery 42' }, { origin: 'http://localhost:47830' })
     expect(put.status).toBe(409)
   })
 
