@@ -65,7 +65,7 @@ tests/    unit + integration (tests/unit), relay conformance (tests/relay), fuzz
 
 ## Security model: defense in depth
 
-Design tabs 2 and 7 are the source; `docs/DECISIONS.md` records where the code differs and why. Three layers, each
+A short Korean summary with a diagram: [docs/PERMISSIONS.md](docs/PERMISSIONS.md). Design tabs 2 and 7 are the source; `docs/DECISIONS.md` records where the code differs and why. Three layers, each
 meant to hold on its own:
 
 1. **One permission function** (`server/src/policy`) decides every read and write, for people (REST, file screen)
