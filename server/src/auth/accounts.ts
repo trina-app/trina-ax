@@ -110,12 +110,13 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const u = getUserByUsername(ctx.db, b.username)
   let ok = false
   try { ok = await verifyPassword(b.password, u?.password_hash) } catch (e) { hold.release(); throw e }
-  if (!u || !ok) {
-    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: c.get('info').via } })
+  // a disabled account fails exactly like a wrong password (same 401, same words, still counted toward the limit):
+  // a different answer would tell anyone that the account exists, is disabled and that this password is right
+  if (!u || !ok || u.status !== 'active') {
+    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: c.get('info').via, ...(u && ok ? { disabled: true } : {}) } })
     fail('unauthorized', msg('badLogin', locale))
   }
   hold.release()
-  if (u!.status !== 'active') fail('forbidden', msg('accountDisabled', locale))
   a.limiter.clear(accountKey(b.username))
   audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: c.get('info').via, client: b.client } })
   return a.signIn(c, u!.id, b.client, b.tokenMode)

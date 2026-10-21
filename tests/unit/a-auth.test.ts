@@ -189,15 +189,15 @@ describe('password change and forced change', () => {
     expect((await h.client().try('POST', '/api/auth/login', { username: 'paul', password: m.password })).status).toBe(401)
     await h.client().login('paul', 'purple new garden 99')
   })
-  test('disabling an account ends its sessions now; sign-in says the account is disabled', async () => {
+  test('disabling an account ends its sessions now; sign-in then fails like a wrong password', async () => {
     const m = await addMember(h, owner, { username: 'dora' })
     h.hub.events = []
     await owner.call('PATCH', `/api/admin/users/${m.id}`, { status: 'disabled' })
     expect(h.hub.events).toContainEqual({ kind: 'disconnectUser', target: m.id, data: 'disabled' })
     expect((await m.client.try('GET', '/api/me')).status).toBe(401)
     const r = await h.client().try('POST', '/api/auth/login', { username: 'dora', password: m.password })
-    expect(r.status).toBe(403)
-    expect(r.body.error.message).toContain('사용할 수 없는 계정')
+    expect(r.status).toBe(401)
+    expect(r.body.error.message).toContain('아이디 또는 비밀번호')
   })
   test('password policy', () => {
     expect(passwordProblem('short')).toContain('10')
