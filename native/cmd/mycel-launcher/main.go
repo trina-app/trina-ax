@@ -9,6 +9,13 @@
 //
 // Per-turn files (all 0600 in <chatDir>/.turn, 0700): token (the bridge reads and deletes it), system.md
 // (deleted after the engine's first output), mcp.json (bridge path + turn dir only, no secrets).
+//
+// No argv or environment of a process this launcher starts names the chat folder (security audit r2, os-layer #1):
+// every process of the engine account can read every other one's argv and environment (KERN_PROCARGS2, only the uid
+// is checked; the sandbox cannot filter it), so a turn whose tool lockdown failed could otherwise learn which chats
+// exist and are answering. The engine runs with the chat folder as its working folder and every mention of it in
+// argv and env is rewritten to a relative path ("./.turn/mcp.json", "."); the bridge gets "--turn-dir ."; the
+// sandbox parameters go into a profile file with a random name instead of sandbox-exec -D arguments.
 package main
 
 import (
@@ -23,6 +30,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -206,40 +214,116 @@ func lookupHome() string {
 // sessDir is the folder the engine keeps this turn's session transcript in: the chat folder itself, or (local login)
 // the already validated --session-root folder of this chat; with --local-login the profile opens it and nothing
 // else of the CLI's projects folder.
-func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, error) {
+// The profile's parameters are written into a copy of the profile (renderProfile) with a random name in the
+// launcher's temp folder (/tmp or /private/var/folders, closed to every engine by the profile), never passed as
+// `-D CHAT_DIR=…`: sandbox-exec's argv is readable by every process of the account until it exec()s the engine. The
+// returned cleanup removes that copy; call it when the engine has exited.
+func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, func(), error) {
 	if *sandboxProfile == "" {
-		return exec.Command(cmdPath, args...), nil
+		return exec.Command(cmdPath, args...), func() {}, nil
 	}
 	real, err := filepath.EvalSymlinks(cmdPath)
 	if err != nil {
-		return nil, fmt.Errorf("engine: %v", err)
-	}
-	// the kernel matches sandbox paths after resolving symlinks (/tmp -> /private/tmp, /var -> /private/var)
-	resolve := func(p string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
-		}
-		if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
-			return filepath.Join(r, filepath.Base(p))
-		}
-		return p
+		return nil, nil, fmt.Errorf("engine: %v", err)
 	}
 	ll := "0"
 	if *localLogin {
 		ll = "1"
 	}
-	sargs := []string{"-f", *sandboxProfile,
-		"-D", "CHAT_DIR=" + resolve(chat),
-		"-D", "AGENT_ROOT=" + resolve(filepath.Clean(*agentRoot)),
-		"-D", "ENGINE_DIR=" + filepath.Dir(real),
-		"-D", "BRIDGE=" + resolve(*bridgePath),
-		"-D", "TOOLS_SOCK=" + resolve(*toolsSock),
-		"-D", fmt.Sprintf("PROXY_PORT=%d", *proxyPort),
-		"-D", "LOCAL_LOGIN=" + ll,
-		"-D", "USER_HOME=" + resolve(accountHome),
-		"-D", "SESSION_DIR=" + resolve(filepath.Clean(sessDir)),
-		real}
-	return exec.Command(sandboxExec, append(sargs, args...)...), nil
+	params := map[string]string{
+		"CHAT_DIR":    resolvePath(chat),
+		"AGENT_ROOT":  resolvePath(filepath.Clean(*agentRoot)),
+		"ENGINE_DIR":  filepath.Dir(real),
+		"BRIDGE":      resolvePath(*bridgePath),
+		"TOOLS_SOCK":  resolvePath(*toolsSock),
+		"PROXY_PORT":  strconv.Itoa(*proxyPort),
+		"LOCAL_LOGIN": ll,
+		"USER_HOME":   resolvePath(accountHome),
+		"SESSION_DIR": resolvePath(filepath.Clean(sessDir)),
+	}
+	text, err := os.ReadFile(*sandboxProfile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sandbox profile: %v", err)
+	}
+	prof, err := renderProfile(string(text), params)
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpDir := resolvePath(os.TempDir())
+	if tmpDir == params["AGENT_ROOT"] || inside(params["AGENT_ROOT"], tmpDir) {
+		return nil, nil, fmt.Errorf("sandbox profile: the launcher's temp folder is inside the agent root")
+	}
+	f, err := os.CreateTemp(tmpDir, "mycel-sb-*.sb") // 0600, O_EXCL, random name
+	if err != nil {
+		return nil, nil, fmt.Errorf("sandbox profile: %v", err)
+	}
+	cleanup := func() { _ = os.Remove(f.Name()) }
+	if _, err := f.WriteString(prof); err != nil {
+		f.Close()
+		cleanup()
+		return nil, nil, fmt.Errorf("sandbox profile: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("sandbox profile: %v", err)
+	}
+	return exec.Command(sandboxExec, append([]string{"-f", f.Name(), real}, args...)...), cleanup, nil
+}
+
+// resolvePath: the kernel matches sandbox paths after resolving symlinks (/tmp -> /private/tmp, /var -> /private/var).
+func resolvePath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		return filepath.Join(r, filepath.Base(p))
+	}
+	return p
+}
+
+var profileParam = regexp.MustCompile(`\(param "([A-Za-z_][A-Za-z0-9_]*)"\)`)
+
+// renderProfile replaces every (param "NAME") of the SBPL profile with the value as an SBPL string literal. A
+// parameter the launcher does not know, or a value with a control character, refuses the turn (fail closed).
+func renderProfile(text string, params map[string]string) (string, error) {
+	for k, v := range params {
+		for _, c := range v {
+			if c < 0x20 || c == 0x7f {
+				return "", fmt.Errorf("sandbox profile: parameter %s has a control character", k)
+			}
+		}
+	}
+	quote := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	var missing []string
+	out := profileParam.ReplaceAllStringFunc(text, func(m string) string {
+		k := profileParam.FindStringSubmatch(m)[1]
+		v, ok := params[k]
+		if !ok {
+			missing = append(missing, k)
+			return m
+		}
+		return `"` + quote.Replace(v) + `"`
+	})
+	if len(missing) > 0 {
+		return "", fmt.Errorf("sandbox profile: unknown parameter %s", strings.Join(missing, ", "))
+	}
+	return out, nil
+}
+
+// chatRelative rewrites every mention of the chat folder (as given and as resolved) in s to a path relative to the
+// engine's working folder, which is the chat folder: "<chat>/.turn/mcp.json" -> "./.turn/mcp.json", "<chat>" -> ".".
+// A longer name that only starts with the chat folder's ("<agent>/c1x" for "<agent>/c1") is left alone.
+func chatRelative(chatForms []string) func(string) string {
+	res := make([]*regexp.Regexp, 0, len(chatForms))
+	for _, c := range chatForms {
+		res = append(res, regexp.MustCompile(regexp.QuoteMeta(c)+`([^A-Za-z0-9._-]|$)`))
+	}
+	return func(s string) string {
+		for _, re := range res {
+			s = re.ReplaceAllString(s, ".$1")
+		}
+		return s
+	}
 }
 
 func main() {
@@ -415,7 +499,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	}
 	mcpFile := filepath.Join(turn, "mcp.json")
 	mcp, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"team": map[string]any{
-		"type": "stdio", "command": *bridgePath, "args": []string{"--turn-dir", chat, "--sock", *toolsSock}}}})
+		"type": "stdio", "command": *bridgePath, "args": []string{"--turn-dir", ".", "--sock", *toolsSock}}}})
 	if err := write(mcpFile, string(mcp)); err != nil {
 		return err
 	}
@@ -451,13 +535,34 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		return fmt.Errorf("bad session collect path")
 	}
 
+	// nothing of the chat folder in argv or env (see the top of this file): relative to the working folder
+	chatForms := []string{chat}
+	if r := resolvePath(chat); r != chat {
+		chatForms = append(chatForms, r)
+	}
+	rel := chatRelative(chatForms)
+	names := func(s string) bool {
+		for _, c := range chatForms {
+			if strings.Contains(s, c) {
+				return true
+			}
+		}
+		return false
+	}
 	args := make([]string, len(req.Args))
 	for i, a := range req.Args {
-		args[i] = subst.Replace(a)
+		args[i] = rel(subst.Replace(a))
+		if names(args[i]) {
+			return fmt.Errorf("an engine argument names the chat folder")
+		}
 	}
 	env := make([]string, 0, len(req.Env))
 	for k, v := range req.Env {
-		env = append(env, k+"="+subst.Replace(v))
+		v = rel(subst.Replace(v))
+		if names(k) || names(v) {
+			return fmt.Errorf("an engine environment variable names the chat folder")
+		}
+		env = append(env, k+"="+v)
 	}
 	sessDir := chat
 	if s := req.SessionCollect; s != nil { // validated above (allowedSessionDir)
@@ -465,10 +570,11 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	} else if s := req.SessionRestore; s != nil {
 		sessDir = s.Dir
 	}
-	cmd, err := engineCommand(req.Cmd, args, chat, sessDir)
+	cmd, cleanup, err := engineCommand(req.Cmd, args, chat, sessDir)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	cmd.Dir = chat
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

@@ -1,9 +1,12 @@
 // Sandbox / firewall probe for the installer-ops tests (component G). One operation per run, exit 0 = allowed.
 //   probe read <file> | write <file> | list <dir> | tcp <ip> <port> | talk <ip> <port> | unix <socket path> | exec <program>
-//         | stat <path> | procs | procargs <pid>
+//         | stat <path> | procs | procargs <pid> | hold <ms> [ignored ...] | watchargv <needle> <marker> <ms>
 // stat exits 0 (found), 1 (EPERM: the sandbox said no), 3 (ENOENT) or 4 (other error), so a test can tell "denied"
 // from "does not exist" (a denied stat must not reveal whether the path exists). procs = list every process
 // (KERN_PROC_ALL), procargs = read another process's argv (KERN_PROCARGS2).
+// hold = stand-in for an engine turn: sleep <ms>, ignoring the rest of argv (the real engine arguments ride along).
+// watchargv = for <ms>, read KERN_PROCARGS2 of every pid near our own (pids are handed out in order) and print
+// "SEEN <pid> <argv>" for each process whose argv contains <marker> and "LEAK <pid> <argv>" when it contains <needle>.
 // talk = connect, send "ping\n", wait up to 3 s for any reply (an echo server answers): data really flows. On macOS pf
 // matches the engine account on IPv6 only once the connection exists, so a bare connect() can succeed while every
 // data packet is dropped; talk tells the two apart.
@@ -18,6 +21,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -47,6 +51,27 @@ int main(int argc, char **argv) {
   if (!strcmp(op, "procargs")) {
     int mib[3] = { CTL_KERN, KERN_PROCARGS2, atoi(a) }; static char buf[1 << 16]; size_t len = sizeof buf;
     if (sysctl(mib, 3, buf, &len, NULL, 0) < 0) return fail("sysctl kern.procargs2"); return 0;
+  }
+  if (!strcmp(op, "hold")) { usleep((useconds_t)atoi(a) * 1000); return 0; }
+  if (!strcmp(op, "watchargv")) {
+    if (argc < 5) return 2;
+    const char *needle = a, *marker = argv[3]; long ms = atol(argv[4]);
+    static char buf[1 << 18]; static int seen[1 << 17]; static int leaked[1 << 17];
+    int self = getpid(); struct timeval t0, t; gettimeofday(&t0, NULL);
+    for (;;) {
+      for (int pid = self > 300 ? self - 300 : 1; pid < self + 3000 && pid < (1 << 17); pid++) {
+        if (pid == self) continue;
+        int mib[3] = { CTL_KERN, KERN_PROCARGS2, pid }; size_t len = sizeof buf;
+        if (sysctl(mib, 3, buf, &len, NULL, 0) < 0 || len <= sizeof(int)) continue;
+        for (size_t i = sizeof(int); i < len; i++) if (!buf[i]) buf[i] = ' ';
+        buf[len < sizeof buf ? len : sizeof buf - 1] = 0;
+        const char *args = buf + sizeof(int);
+        if (!seen[pid] && strstr(args, marker)) { seen[pid] = 1; printf("SEEN %d %s\n", pid, args); fflush(stdout); }
+        if (!leaked[pid] && strstr(args, needle)) { leaked[pid] = 1; printf("LEAK %d %s\n", pid, args); fflush(stdout); }
+      }
+      gettimeofday(&t, NULL);
+      if ((t.tv_sec - t0.tv_sec) * 1000 + (t.tv_usec - t0.tv_usec) / 1000 >= ms) return 0;
+    }
   }
   if (!strcmp(op, "list")) { DIR *d = opendir(a); if (!d) return fail("opendir"); return readdir(d) ? 0 : 1; }
   if (!strcmp(op, "tcp") || !strcmp(op, "talk")) {

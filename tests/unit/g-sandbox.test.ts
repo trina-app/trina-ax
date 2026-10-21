@@ -108,6 +108,12 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
       expect(probeCode(ll, 'stat', path.join(OTHER, 'theirs.txt'))).toBe(1)
       expect(probeCode(ll, 'stat', path.join(OTHER, 'not-there.txt'))).not.toBe(0)
       expect(probeCode(ll, 'stat', path.join(AGENT, 'no-such-chat'))).not.toBe(0)
+      // security audit r2 (re-attack): neither through "..", nor through a link the turn makes in its own folder
+      expect(probeCode(ll, 'stat', path.join(CHAT, '..', path.basename(OTHER), 'theirs.txt'))).toBe(1)
+      const link = path.join(CHAT, 'to-theirs-' + (ll ? 1 : 0))
+      fs.rmSync(link, { force: true }); fs.symlinkSync(path.join(OTHER, 'theirs.txt'), link)
+      expect(probeCode(ll, 'stat', link)).toBe(1)
+      fs.rmSync(link, { force: true })
       // the server's data folder next to the agent root, /tmp, the home folder's contents
       expect(probeCode(ll, 'stat', DATA)).toBe(1)
       expect(probeCode(ll, 'stat', path.join(DATA, 'app.db'))).toBe(1)
@@ -122,8 +128,9 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
   }
 
   // security audit r1 (os-layer #1): `(allow sysctl-read)` let a turn list every process on the Mac (KERN_PROC_ALL),
-  // other turns' engines included. (Reading one pid's argv, KERN_PROCARGS2, is not a sandbox operation at all: the
-  // kernel only checks the uid, see docs/DECISIONS.md; argv carries no secrets.)
+  // other turns' engines included. (Reading one pid's argv and environment, KERN_PROCARGS2, is not a sandbox
+  // operation at all: the kernel only checks the uid. So no argv or environment names a chat: see the launcher test
+  // "another turn cannot learn a chat folder from any argv" below and docs/DECISIONS.md.)
   test('no process list', () => {
     for (const ll of [false, true]) expect(probe(ll, 'procs')).toBe(false)
   })
@@ -230,6 +237,74 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
     expect(await turn('chat1', ['stat', '{CHAT_DIR}/mine.txt'])).toBe(0)
     expect(await turn('chat2', ['stat', path.join(CHAT, 'mine.txt')])).toBe(1)
     expect(await turn('chat2', ['stat', path.join(DATA, 'app.db')])).toBe(1)
+  })
+
+  // security audit r2 (os-layer #1, re-attack): any process of the engine account may read another process's argv
+  // (KERN_PROCARGS2) and walk every pid one by one (KERN_PROC_PID); the sandbox cannot stop either (not even a bare
+  // `(deny sysctl-read)` does: the kernel only checks the uid). The argv of other turns carried their chat folder:
+  // the engine's `--mcp-config <agent>/<chat>/.turn/mcp.json`, Codex's bridge `--turn-dir <agent>/<chat>` and dev
+  // catalog path, the bridge's own argv, and for the first milliseconds sandbox-exec's `-D CHAT_DIR=…`. A turn whose
+  // tool lockdown failed could so learn which chats exist and are answering right now. Now nothing per chat is in any
+  // argv: paths are relative to the engine's working folder (the chat folder) and the sandbox parameters travel in a
+  // profile file with a random name that engines cannot read.
+  test('another turn cannot learn a chat folder from any argv (KERN_PROCARGS2)', async () => {
+    const { buildClaudeLaunch } = await import('../../server/src/engine/claude')
+    const { buildCodexLaunch } = await import('../../server/src/engine/codex')
+    const victim = 'c_victim' + Math.random().toString(36).slice(2, 8)
+    const vdir = path.join(AGENT, victim)
+    const sid = crypto.randomUUID()
+    const claude = buildClaudeLaunch({ turnId: 'tv', chatDir: vdir, token: 'x', systemPrompt: 's', message: 'm', sessionId: sid, resume: false, stash: null, maxTurns: 1, timeoutMs: 10_000 },
+      { bin: PROBE, authMode: 'local-login', agentHome: '/nonexistent' })
+    const codex = buildCodexLaunch({ turnId: 'tv', chatDir: vdir, token: 'x', systemPrompt: 's', message: 'm', timeoutMs: 10_000 },
+      { bin: PROBE, codexHome: path.join(W, 'codex-home'), agentHome: path.join(W, 'codex-agent-home'), catalog: path.join(W, 'catalog.json'), model: 'm', auth: 'dev-owner-symlink' })
+    // the attacker: a turn in another chat watching every new process's argv
+    const out: string[] = []
+    const attacker = (async () => {
+      const h = new SocketLauncher(sock).launch({ op: 'run', turnId: 'ta', chatDir: OTHER, cmd: PROBE, args: ['watchargv', victim, sid, '5000'], env: {}, token: 'x', systemPrompt: '', stdin: '', timeoutMs: 15_000 })
+      for await (const ev of h.events) {
+        if (ev.ev === 'stdout') out.push(Buffer.from(ev.b64, 'base64').toString())
+        if (ev.ev === 'exit') return
+        if (ev.ev === 'error') throw new Error(ev.message)
+      }
+    })()
+    await Bun.sleep(300)
+    let mcpJson = ''
+    // victim turns with the real Claude and Codex arguments (the probe holds, ignoring them)
+    for (const lr of [claude, codex, claude]) {
+      const h = new SocketLauncher(sock).launch({ ...lr, sessionCollect: undefined, sessionRestore: undefined, cmd: PROBE, args: ['hold', '1200', ...lr.args, sid], token: 'x', timeoutMs: 10_000 })
+      for await (const ev of h.events) {
+        if (ev.ev === 'started') { await Bun.sleep(300); mcpJson ||= fs.readFileSync(path.join(vdir, '.turn', 'mcp.json'), 'utf8') }
+        if (ev.ev === 'exit') break
+        if (ev.ev === 'error') throw new Error(ev.message)
+      }
+    }
+    await attacker
+    const text = out.join('')
+    // the attack itself works (the victims' argv were read) ...
+    expect(text).toContain('SEEN')
+    // ... but none of them named the victim's chat
+    expect(text.split('\n').filter((l) => l.startsWith('LEAK'))).toEqual([])
+    // the bridge's argv (from mcp.json) names no chat folder either
+    expect(mcpJson).not.toContain(victim)
+    expect(JSON.parse(mcpJson).mcpServers.team.args).toEqual(['--turn-dir', '.', '--sock', path.join(W, 'tools.sock')])
+  }, 30_000)
+
+  test('a profile parameter the launcher does not know refuses the turn (fail closed)', async () => {
+    const bogus = path.join(W, 'bogus.sb')
+    fs.writeFileSync(bogus, fs.readFileSync(PROFILE, 'utf8') + '\n(allow file-read* (subpath (param "NOT_SET")))\n')
+    const sock3 = path.join(W, 'launcher3.sock')
+    const p3 = Bun.spawn([path.join(nativeBinDir(), 'mycel-launcher'), '--listen', sock3, '--agent-root', AGENT, '--bridge', '/nonexistent/bridge',
+      '--tools-sock', path.join(W, 'tools.sock'), '--allow-cmd', PROBE, '--sandbox-profile', bogus], { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' })
+    try {
+      const r = p3.stdout.getReader()
+      expect(new TextDecoder().decode((await r.read()).value)).toContain('ready')
+      r.releaseLock()
+      const h3 = new SocketLauncher(sock3).launch({ op: 'run', turnId: 'tb', chatDir: CHAT, cmd: PROBE, args: ['read', '{CHAT_DIR}/mine.txt'], env: {}, token: 'x', systemPrompt: '', stdin: '', timeoutMs: 10_000 })
+      let err = '', started = false
+      for await (const ev of h3.events) { if (ev.ev === 'error') err = ev.message; if (ev.ev === 'started') started = true }
+      expect(started).toBe(false)
+      expect(err).toContain('NOT_SET')
+    } finally { p3.kill() }
   })
 
   // security audit r1: the server starts the launcher with an empty environment; USER_HOME came from $HOME, so it was
