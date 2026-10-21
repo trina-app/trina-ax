@@ -51,7 +51,9 @@ export function toHttp(e: unknown, locale: Locale, field = 'path'): unknown {
     const m = e.message
     if (m.startsWith('not found or no access')) return new HttpError('not_found')
     if (m.startsWith('read-only')) return httpError('forbidden', 'readOnly', locale)
-    if (m.includes('already exists with almost the same name')) return httpError('conflict', 'nearDuplicate', locale, { [field]: m })
+    // the policy text names the existing sibling: it never goes into `fields` (only a fixed reason does), so even a
+    // future change to the clash check cannot put a hidden name into an HTTP answer
+    if (m.includes('already exists with almost the same name')) return httpError('conflict', 'nearDuplicate', locale, { [field]: 'an item with almost the same name already exists' })
     if (m.startsWith('not a folder')) return httpError('validation', 'notFolder', locale, { [field]: m })
     if (/symbolic link|hard-linked|not a regular file|path changed|resolves outside|ambiguous|cannot open folder/.test(m)) return httpError('conflict', 'unsafe', locale, { [field]: m })
     return httpError('validation', 'badName', locale, { [field]: m })

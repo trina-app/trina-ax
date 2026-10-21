@@ -10,7 +10,7 @@ import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, saveVersion, sha256 } from '../files/store'
 import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
-import { authorize, type Authorized } from '../policy/authorize'
+import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { verifyChain } from '../policy/resolve'
@@ -241,7 +241,8 @@ export class TeamFiles {
       if (tr.exists) {
         if (onExists === 'fail') fileError('conflict', 'exists', { to: tr.rel })
         const parent = tr.segs.slice(0, -1)
-        tr = authorize(this.fx, rules, user, [...parent, freeName(path.join(this.root, ...parent), tr.segs[tr.segs.length - 1]!, isDir)].join('/'), 'write', { mustExist: false })
+        const free = freeName(path.join(this.root, ...parent), tr.segs[tr.segs.length - 1]!, isDir, (n) => siblingVisible(this.fx, rules, user, parent, n))
+        tr = authorize(this.fx, rules, user, [...parent, free].join('/'), 'write', { mustExist: false })
       }
       target = tr.segs
     }
@@ -464,7 +465,7 @@ export class TeamFiles {
     // A taken name (exactly or nearly) gets " (복원됨)".
     const parentRel = want.slice(0, -1).join('/')
     const pw = authorize(this.fx, rules, user, parentRel, 'write', { mustExist: false, createDirs: true })
-    const name = pw.exists && pw.st!.isDirectory() ? restoredName(pw.abs, want[want.length - 1]!, isDir) : want[want.length - 1]!
+    const name = pw.exists && pw.st!.isDirectory() ? restoredName(pw.abs, want[want.length - 1]!, isDir, (n) => siblingVisible(this.fx, rules, user, pw.segs, n)) : want[want.length - 1]!
     // a folder's rules were parked with it (remove) and come back with it, also under a " (복원됨)" name
     const r = authorize(this.fx, rules, user, [...pw.segs, name].join('/'), 'write', { mustExist: false, createDirs: true })
     if (r.exists) fileError('conflict', 'restoreTaken')
@@ -534,7 +535,7 @@ export class TeamFiles {
     const fr = authorize(this.fx, rules, user, folder, 'write', { mustExist: true })
     if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let finalName = name.normalize('NFC')
-    if (onExists === 'rename') finalName = freeName(fr.abs, finalName)
+    if (onExists === 'rename') finalName = freeName(fr.abs, finalName, false, (n) => siblingVisible(this.fx, rules, user, fr.segs, n))
     const r = authorize(this.fx, rules, user, [...fr.segs, finalName].join('/'), 'write', { mustExist: false })
     let action: FileChange['action'] = 'create'
     if (r.exists) {

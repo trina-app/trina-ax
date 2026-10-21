@@ -153,8 +153,18 @@ export const splitExt = (name: string, folder = false): [string, string] => {
   const m = /^(.+?)(\.[^.]+)?$/.exec(name)
   return m ? [m[1]!, m[2] ?? ''] : [name, '']
 }
-export function freeName(dirAbs: string, name: string, folder = false): string {
-  const existing = new Set(fs.readdirSync(dirAbs).map(foldKey))
+/** Fold keys of the entries in `dirAbs`; with `visible`, only those the caller can see (see siblingVisible). */
+const takenKeys = (dirAbs: string, visible?: (name: string) => boolean) =>
+  new Set(fs.readdirSync(dirAbs).filter((n) => !visible || visible(n)).map(foldKey))
+
+/**
+ * `visible`: for a name the caller typed (upload, move, restore), count only siblings they can see. A name held by a
+ * hidden entry is then not stepped around (that "(2)" / "(3)" would tell them it exists): authorize() refuses it with
+ * the same not-found answer as the exact hidden name. Server-made names (conflict copies, attachments) leave it out
+ * so a save never fails because of something the saver cannot see.
+ */
+export function freeName(dirAbs: string, name: string, folder = false, visible?: (name: string) => boolean): string {
+  const existing = takenKeys(dirAbs, visible)
   if (!existing.has(foldKey(name))) return name
   const [base, ext] = splitExt(name, folder)
   for (let i = 2; i < 10_000; i++) {
@@ -165,8 +175,8 @@ export function freeName(dirAbs: string, name: string, folder = false): string {
 }
 
 /** "보고서 (복원됨).md", then "보고서 (복원됨 2).md" ... */
-export function restoredName(dirAbs: string, name: string, folder = false): string {
-  const existing = new Set(fs.readdirSync(dirAbs).map(foldKey))
+export function restoredName(dirAbs: string, name: string, folder = false, visible?: (name: string) => boolean): string {
+  const existing = takenKeys(dirAbs, visible)
   if (!existing.has(foldKey(name))) return name
   const [base, ext] = splitExt(name, folder)
   for (let i = 1; i < 10_000; i++) {
