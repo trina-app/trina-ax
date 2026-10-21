@@ -45,14 +45,36 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
     if (mustExist) throw new ToolError(`not found: '${full.join('/')}'`, 'not_found')
     if (w.missing.length > 1 && !opts.createDirs) throw new ToolError(`folder does not exist: '${full.slice(0, -1).join('/')}'`, 'not_found')
     if (!w.st.isDirectory()) throw new Denied(`not a folder: '${w.actual.join('/')}'`)
-    // refuse creating a sibling that differs from an existing entry only by case / Unicode form / width
-    const parent = path.join(fx.root, ...w.actual)
+    // refuse creating a sibling that differs from an existing entry only by case / Unicode form / width.
+    // Only a sibling the caller can see is named: a hidden one (a 'none' rule folder, .system, temp files) makes the
+    // create fail exactly like a path the caller may not access, so a look-alike probe ('ⓢalaries', 'SALARIES' on
+    // Linux) learns neither the hidden spelling nor anything the exact name would not tell. This message also reaches
+    // the AI verbatim in tool results.
     const k = foldKey(w.missing[0])
-    const clash = fs.readdirSync(parent).find((n) => n !== w.missing[0] && foldKey(n) === k)
-    if (clash) throw new Denied(`'${clash}' already exists with almost the same name; use that name or pick a clearly different one`)
+    const clashes = fs.readdirSync(path.join(fx.root, ...w.actual)).filter((n) => n !== w.missing[0] && foldKey(n) === k)
+    if (clashes.length) {
+      const seen = clashes.find((n) => siblingVisible(fx, rules, user, w.actual, n))
+      if (seen === undefined) throw new Denied(hidden(input))
+      throw new Denied(`'${seen}' already exists with almost the same name; use that name or pick a clearly different one`)
+    }
   }
   realpathCheck(fx.root, w.actual)
   return { segs: full, rel: full.join('/'), abs: path.join(fx.root, ...full), exists, existing: w.actual.length, st: exists ? w.st : undefined }
+}
+
+/**
+ * Whether the entry `name` in the existing folder `parent` (actual names) shows up for `user` in a listing: the same
+ * test as the file screen's tree and the list tool (not a server-internal name, an allowed name, not a link, a folder
+ * the caller can list or a single-link file they can read). Name-collision checks and automatic free names use it so
+ * that what the caller cannot see is never named or stepped around.
+ */
+export function siblingVisible(fx: FsCtx, rules: RuleSet, user: Principal, parent: readonly string[], name: string): boolean {
+  if (hiddenEntry(name, parent.length) || badSegment(name) !== null) return false
+  let st: fs.Stats
+  try { st = fs.lstatSync(path.join(fx.root, ...parent, name)) } catch { return false }
+  const segs = [...parent, name]
+  if (st.isDirectory()) return rules.canList(user, segs)
+  return st.isFile() && st.nlink === 1 && atLeast(rules.access(user, segs), 'read')
 }
 
 /** Check a path produced by the server itself (e.g. a ripgrep result, already actual names) without the walk. */
