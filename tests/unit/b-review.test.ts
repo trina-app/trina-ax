@@ -20,7 +20,7 @@ import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { Hub, MAX_SOCKETS_PER_USER } from '../../server/src/realtime/hub'
 import { MAX_POLLERS_PER_USER } from '../../server/src/realtime/browser-relay'
 import { bunConn, type ConnHooks } from '../../server/src/routes/ws'
-import { historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
+import { ENVIRONMENT, historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
 import { LocalEngines, MODEL_RE } from '../../server/src/chat/engines'
 import { stepId } from '../../server/src/chat/turn'
 import type { AppContext } from '../../server/src/context'
@@ -86,6 +86,11 @@ describe('prompt blocks', () => {
     expect(l).toContain('8:09 AM')
     expect(l).toContain('Times in tool results are UTC')
     expect(l).toContain('give it in Asia/Seoul')
+  })
+
+  test('the instructions say the AI runs on the team server, not on the user\'s computer', () => {
+    expect(ENVIRONMENT).toContain('NOT on the user\'s computer')
+    expect(ENVIRONMENT).toContain('Never say you saved or opened something on their computer')
   })
 
   test('a symlinked skills/ folder is not read', () => {

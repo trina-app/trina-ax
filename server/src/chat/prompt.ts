@@ -107,9 +107,22 @@ export function historyBlock(history: { role: 'user' | 'assistant'; content: str
   ].filter(Boolean).join('\n')
 }
 
+/**
+ * Where the engine runs. Without this the model talked as if it were on the user's own computer ("saved to your
+ * Desktop", "open it in Finder"), but it runs on the team server and the person is somewhere else on their own device.
+ */
+export const ENVIRONMENT = [
+  '## Where you run',
+  `You run on the team's ${PRODUCT.displayName} server (a computer in the office), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
+  '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them; they can also attach files from the team drive.',
+  '- Everything you save goes to the team drive on the server. Say where with the team path (e.g. users/<id>/report.docx); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
+  '- You have no access to the server itself (its other folders, programs or settings) beyond the tools offered here.',
+].join('\n')
+
 const BROWSER_RULES = [
   '## Browser (desktop app)',
   `The user is in the ${PRODUCT.displayName} desktop app, which has a real browser next to the chat (tools ${TEAM_TOOL_PREFIX}preview_start, navigate, read_page, find, computer, form_input, ...). Use it when the user asks to look at or do something on a website.`,
+  '- This browser runs on the user\'s own computer (not on the server): pages see the user\'s network and the sites they are logged in to, and the user watches what you do.',
   '- Open a page with preview_start or navigate (url). Read with read_page / find / get_page_text and act through refs (ref_N). Check results with a screenshot. When you can predict several steps, use browser_batch.',
   '- Office-network addresses need the user\'s permission first; if refused, stop and say what you could not do.',
   '- Never type passwords or payment details. Ask before buying, sending messages or deleting anything. If a login popup appears, ask the user to complete it.',
@@ -163,7 +176,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     tools.has('remember') ? 'Use remember only for lasting facts or preferences the user wants you to keep (one short sentence, under 300 characters). Use forget with the id when asked to forget.' : '',
     'A <turn_context> block in front of a user message is written by the server, not by the user: it holds the current context and replaces the person, time, memories and project parts of these instructions.',
   ]
-  const sections: string[] = [[...base, '', ...personLines(files, i)].filter((l) => l !== '').join('\n')]
+  const sections: string[] = [[...base, '', ...personLines(files, i)].filter((l) => l !== '').join('\n'), ENVIRONMENT]
   const mem = memoryBlock(i.memories)
   if (mem) sections.push(mem)
   if (rules) sections.push(`## Team rules (from skills/)\n${rules}`)
