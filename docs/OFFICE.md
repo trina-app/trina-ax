@@ -3,8 +3,16 @@
 치과·병원·작은 사무실에서 **맥 미니 한 대**가 Team AX를 돌리고, **윈도우 데스크 PC 10대 정도**가 Edge로 접속하는
 구성입니다. 중계 서버(`<팀>.treesoop.com`)도, 운영 설치(역할 계정)도 필요 없습니다.
 
-- AI는 **그 맥에 로그인된 Claude Code**(원장님/소유자의 Claude 구독)로 돕니다. 엔진은 개발 모드와 같은 구성입니다:
-  권한 함수, 엔진 잠금(lockdown), macOS 샌드박스(`engine.sb`). DEV 배너는 나오지 않고, Codex는 쓰지 않습니다.
+- AI는 원장님/소유자의 **Claude 구독**으로 돕니다. 두 가지 방식이 있습니다(8장):
+  - **권장: 구독 토큰**(`claude setup-token`으로 만든 1년짜리 토큰, 설치 때 `--claude-token-file`). 토큰은 서버만 갖고
+    (`~/TeamAX/config/claude-oauth-token`, 600), AI 엔진은 턴마다 바뀌는 가짜 토큰으로 맥 안의 모델 프록시하고만 말합니다.
+    엔진은 **이 맥의 Claude 로그인을 볼 수 없습니다.**
+  - **이 맥의 Claude 로그인**(토큰 파일 없이 설치했을 때). 엔진의 네트워크는 맥 안의 프록시 하나뿐이고 프록시는
+    `api.anthropic.com`·`platform.claude.com`으로만 연결해 주지만, 엔진 잠금과 샌드박스가 둘 다 뚫리면 그 턴은 이 맥의
+    Claude 로그인을 읽을 수 있습니다.
+
+  엔진은 개발 모드와 같은 구성입니다: 권한 함수, 엔진 잠금(lockdown), macOS 샌드박스(`engine.sb`). DEV 배너는 나오지
+  않고, Codex는 쓰지 않습니다.
 - **기본 경로: 인터넷 주소** (예: `https://exampleteam.example.com`). 데스크는 Edge로 이 주소를 열기만 하면 됩니다
   (**인증서 설치 없음**, 사무실 밖·휴대폰에서도). 맥 미니의 `cloudflared`(Cloudflare Tunnel)가 바깥으로 연결을 열어
   두므로 공유기 포트 열기·고정 IP가 필요 없습니다. 자세히: [9장 인터넷 주소](#9-인터넷-주소-cloudflare-tunnel).
@@ -33,7 +41,7 @@
 |---|---|
 | 맥 미니 | macOS 13 이상(Apple Silicon 또는 Intel). **Team AX 전용**으로 두고 개인 자료·다른 프로그램을 두지 마세요 |
 | FileVault | 켜 두세요(시스템 설정 → 개인정보 보호 및 보안 → FileVault). 환자 자료가 디스크에 암호화되어 저장됩니다 |
-| Claude Code | 맥 미니의 그 사용자 계정에서 설치·로그인되어 있어야 합니다(원장님 구독 계정) |
+| Claude Code | 맥 미니의 그 사용자 계정에 설치. **권장**: 원장님 맥에서 `claude setup-token`으로 만든 토큰을 한 줄짜리 파일(`claude-token.txt`)로 가져오기(2장). 토큰 없이 설치하면 이 맥에서 구독 계정으로 로그인되어 있어야 합니다 |
 | 네트워크 | 인터넷 연결(유선 권장). 사무실 안 대체 경로도 쓰려면 공유기에서 맥 미니 주소를 **고정(DHCP 예약)** |
 | 인터넷 주소 | 원장님(주인) 맥에서 미리 만든 **연결 토큰 파일**(`exampleteam.example.com.tunnel-token`, [9장 ①·②](#9-인터넷-주소-cloudflare-tunnel)). 공유기 설정은 필요 없음 |
 | zip 파일 | `TeamAX-office-0.1.0-mac.zip` (USB·AirDrop로 맥 미니의 `다운로드` 폴더에) |
@@ -46,27 +54,38 @@
 
 맥 미니에서 **AI가 쓸 Claude 로그인이 있는 그 사용자**로 로그인한 뒤, 터미널을 열고 한 줄씩 붙여 넣습니다.
 
+Claude Code가 없으면 `curl -fsSL https://claude.ai/install.sh | bash` 후 터미널을 다시 엽니다.
+
+**권장: 구독 토큰.** 원장님이 아무 맥에서나 `claude setup-token`을 실행하고(브라우저에서 구독 계정으로 승인) 나온
+`sk-ant-oat01-…` 한 줄을 파일 `claude-token.txt`에 넣어 AirDrop·USB로 맥 미니의 `다운로드`에 둡니다. 아래 설치 명령에
+`--claude-token-file ~/Downloads/claude-token.txt`를 붙이면 이 맥에서 Claude에 로그인할 필요가 없고, AI 엔진이 이 맥의
+Claude 로그인을 볼 수 없습니다(8장). 설치 뒤 파일은 지웁니다(`~/TeamAX/config/claude-oauth-token`에 600으로 복사됨).
+
+토큰 없이 설치하려면 먼저 이 맥에서 로그인합니다:
+
 ```sh
 claude auth status
 ```
-확인: `"loggedIn": true`. 아니면 `claude` 실행 → `/login` → 구독 계정으로 로그인. (Claude Code가 없으면
-`curl -fsSL https://claude.ai/install.sh | bash` 후 터미널을 다시 열기.)
+확인: `"loggedIn": true`. 아니면 `claude` 실행 → `/login` → 구독 계정으로 로그인.
 
 연결 토큰 파일(9장)을 AirDrop·USB로 맥 미니의 `다운로드` 폴더에 받아 둔 뒤:
 
 ```sh
 cd ~/Downloads && ditto -x -k TeamAX-office-0.1.0-mac.zip .
 bash ~/Downloads/TeamAX-office-0.1.0/office-install.sh \
-  --public-host exampleteam.example.com --tunnel-token-file ~/Downloads/exampleteam.example.com.tunnel-token
-rm ~/Downloads/exampleteam.example.com.tunnel-token
+  --public-host exampleteam.example.com --tunnel-token-file ~/Downloads/exampleteam.example.com.tunnel-token \
+  --claude-token-file ~/Downloads/claude-token.txt
+rm ~/Downloads/exampleteam.example.com.tunnel-token ~/Downloads/claude-token.txt
 ```
+(토큰 없이: 마지막 옵션과 `claude-token.txt`를 뺍니다. 이미 설치한 맥을 나중에 바꾸기:
+`~/TeamAX/teamax configure --claude-token-file <파일> && ~/TeamAX/teamax restart`. 되돌리기: `--claude-auth local-login`.)
 확인: 마지막에 `=== 설치 끝 / installed: 0.1.0 ===`, 그 위에 `https://exampleteam.example.com 답함 / answers`,
 **인터넷 주소**, 사무실 안 대체 경로(**데스크 주소** `https://192.168.x.x:8443`, **인증서 받는 곳**
 `http://192.168.x.x:8442`, **인증서 지문**), **첫 설정 링크**가 나오고, 첫 설정 페이지가 맥 미니의 브라우저에 열립니다.
 토큰은 `~/TeamAX/config/tunnel-token`(600)에 복사되므로 받은 파일은 지웁니다. 인터넷 주소 없이 설치하려면 두 옵션을
 빼면 됩니다(나중에 `teamax public-address set`).
 
-설치기가 하는 일: macOS·프로세서·Claude 로그인·포트·토큰 확인 → `~/TeamAX/app`에 프로그램 복사 → 설정
+설치기가 하는 일: macOS·프로세서·Claude 로그인(구독 토큰이면 토큰 형식)·포트·토큰 확인 → `~/TeamAX/app`에 프로그램 복사 → 설정
 `~/TeamAX/config/office.env` → LaunchAgent `app.team-ax.office` 시작 → 서버가 답할 때까지 기다림 → 인터넷 주소가 있으면
 두 번째 LaunchAgent `app.team-ax.office.tunnel`(번들의 `cloudflared`) 시작 → 주소·지문·링크 출력.
 `--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
@@ -319,13 +338,22 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 - **환자 자료는 AI에게 묻는 요청의 일부로만 Anthropic(Claude)에 전송됩니다**: 질문 내용과 AI가 그 질문에 답하려고 읽은
   파일 내용(엔진 잠금이 지켜지는 한; 뚫린 경우는 아래). 다른 AI 회사(Codex 등)는 사무실 모드에서 쓰지 않고, 엔진은 이 맥의
   Codex 로그인(`~/.codex`)을 읽을 수 없습니다.
-- 엔진은 이 맥 사용자의 **Claude 로그인**을 씁니다. 엔진 잠금과 샌드박스가 **둘 다 뚫리면** 그 턴은 이 맥의 Claude 로그인
-  토큰(키체인)과 그 턴이 읽은 자료를 **443 포트의 아무 주소**(인터넷, 사무실 LAN의 차트 서버·NAS·공유기 관리 화면)로 보낼 수
-  있습니다. 샌드박스는 호스트 이름으로 좁힐 수 없어 운영 설치의 모델 프록시가 이것을 닫습니다(아래). 그래서 이 맥은
-  **Team AX 전용**으로 두고 다른 서비스의 암호를 키체인에 저장하지 마세요.
-- 엔진이 `~/.claude.json`을 쓸 수 있으므로 서버가 시작할 때와 매 턴 뒤에 그 파일에 **MCP 서버가 생기면 지웁니다**(관리자 →
-  기록에 `engine.claude_json_mcp_removed`). 이 맥 계정에서 터미널 `claude`는 **로그인(`/login`) 말고 쓰지 마세요**. 로그인이
-  만료돼 다시 로그인하기 전에 `claude mcp list`가 "No MCP servers configured"인지 보세요.
+- **엔진의 네트워크는 맥 안의 프록시 하나뿐입니다**(보안 4차 보완). 샌드박스가 443 포트·DNS를 모두 막고, 프록시는 그 턴의
+  엔진 프로세스에게만, `api.anthropic.com`(AI 답)과 `platform.claude.com`(로그인 갱신)으로만 연결해 줍니다. 엔진이 뚫려도
+  인터넷의 다른 곳이나 **사무실 LAN의 차트 서버·NAS·공유기**에는 닿지 않습니다. 웹 검색은 Anthropic 쪽에서 하므로 됩니다.
+- **구독 토큰 방식(권장, `--claude-token-file`)**: 엔진은 HOME이 채팅 폴더 안이고 키체인·`~/.claude.json`·`~/.claude`를 열 수
+  없으며, 턴마다 바뀌는 가짜 토큰만 받습니다(진짜 토큰은 프록시가 Anthropic에 보낼 때만 붙임). 엔진 잠금과 샌드박스가 둘 다
+  뚫려도 **이 맥의 Claude 로그인과 구독 토큰은 엔진이 읽을 수 없습니다.** 남는 것은 그 턴이 읽은 자료를 Anthropic API로
+  보내는 길뿐이고(프록시가 요청 내용을 검사함), 이것은 운영 설치와 같습니다.
+- **이 맥의 Claude 로그인 방식**(토큰 없이 설치): 엔진 잠금과 샌드박스가 **둘 다 뚫리면** 그 턴은 이 맥의 Claude 로그인
+  토큰(키체인, `~/.claude.json`)을 읽고 `api.anthropic.com`·`platform.claude.com`으로 보낼 수 있습니다(다른 곳은 프록시가
+  막음; 그래도 그 토큰으로 원장님 구독을 쓸 수 있음). **이것을 닫는 것은 구독 토큰 방식뿐입니다.** 이 방식으로 둘 때는 이
+  맥을 **Team AX 전용**으로 두고 다른 서비스의 암호를 키체인에 저장하지 마세요.
+- 이 방식에서는 엔진이 `~/.claude.json`을 쓸 수 있으므로 서버가 시작할 때와 매 턴 뒤에 그 파일과 백업
+  (`~/.claude.json.backup`, `~/.claude/backups/`)에서 **MCP 서버를 지우고**, 그 자리에 링크가 있으면 보통 파일로 바꿉니다
+  (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 이 맥 계정에서
+  터미널 `claude`는 **로그인(`/login`) 말고 쓰지 마세요**. 로그인이 만료돼 다시 로그인하기 전에 `claude mcp list`가
+  "No MCP servers configured"인지 보세요.
 - 사무실 네트워크에는 **https만** 열리고, **맥 미니와 같은 사무실 대역**(예: 192.168.1.0/24)에서 온 연결만 받습니다(VPN·다른
   대역은 403). 평문 앱 포트는 맥 미니 안(`127.0.0.1`)에서만. 인증서 페이지(8442)는 인증서와 안내만 주고 API가 없습니다.
   서버는 자기 주소로 온 요청만 받습니다(다른 Host는 421). 로그인 쿠키는 `__Host-`·Secure·HttpOnly, 로그인 시도 제한은
@@ -337,9 +365,9 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 - 인증서 페이지는 평문 http라서 **지문을 보여 주지 않습니다**. 데스크는 맥 미니에서 인쇄한 카드와 비교합니다(또는 USB).
 
 **운영 설치가 나중에 더하는 것**
-- 엔진이 **별도 계정**(`_axagent`)으로 돌아 OS 계정 경계가 하나 더 생기고, **pf 방화벽**이 엔진의 네트워크를 모델 프록시 하나로
-  막습니다. 사무실 모드의 엔진은 맥 미니 사용자 계정으로 돌고(샌드박스 안), 외부 https(443)에 직접 나갈 수 있으며 그 계정의
-  Claude 로그인(키체인, `~/.claude.json`)을 읽을 수 있습니다.
+- 엔진이 **별도 계정**(`_axagent`)으로 돌아 OS 계정 경계가 하나 더 생기고, **pf 방화벽**이 샌드박스와 별도로 엔진의
+  네트워크를 모델 프록시 하나로 막습니다. 사무실 모드의 엔진은 맥 미니 사용자 계정으로 돌고(샌드박스 안, 네트워크는 프록시
+  포트만), 이 맥의 Claude 로그인 방식이면 그 계정의 Claude 로그인(키체인, `~/.claude.json`)을 읽을 수 있습니다.
 - 그래서 지금은 **Team AX 전용 맥 미니, 개인 자료 없음, FileVault 켜기, 맥 미니 사용자 암호는 원장님만**을 권장합니다.
 - 서명·공증된 앱이 아닙니다(설치기가 다운로드 격리 표시를 지웁니다).
 
@@ -513,6 +541,12 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 우회(Bypass cache)하는 Cache Rule을 먼저 두세요.
 
 ## 알려진 한계
+
+- **구독 토큰 방식(`--claude-token-file`)은 실제 Anthropic으로 아직 확인하지 않았습니다.** 같은 경로(모델 프록시 + 턴별
+  가짜 토큰)를 가짜 Anthropic 서버로 시험했고(`tests/security/r4b-office-subscription.test.ts`), 실제 토큰은 원장님이
+  `claude setup-token`을 실행한 뒤 한 턴으로 확인합니다. 그 전까지 exampleteam은 이 맥의 Claude 로그인 방식입니다.
+- 엔진의 네트워크는 맥 안의 프록시 포트(기본 47831, `TEAMAX_PROXY_PORT`, 다른 프로그램이 쓰면 `--proxy-port`)뿐입니다.
+  그 포트를 못 열면 AI 답이 "프록시를 쓸 수 없음"으로 끝나고 서버가 10초마다 다시 시도합니다.
 
 - **윈도우 실제 PC에서의 인증서 설치·Edge 앱 설치는 시험하지 못했습니다.** 같은 인증서 체인을 macOS 신뢰 평가, OpenSSL,
   Node, Linux Chromium(CA를 신뢰 목록에 넣고, 인증서 고정 없이: 보안 연결·서비스 워커·PWA 설치 가능)으로 확인했습니다.
