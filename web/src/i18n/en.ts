@@ -158,6 +158,8 @@ export const en: Record<MessageKey, string> = {
 
   'composer.label': 'Message',
   'composer.placeholder': 'Ask anything',
+  'skills.menu': 'Team skills',
+  'skills.hint': 'Enter to choose · Esc to close',
   'composer.attach': 'Attach files',
   'composer.camera': 'Take a photo',
   'composer.attachments': 'Attachments',

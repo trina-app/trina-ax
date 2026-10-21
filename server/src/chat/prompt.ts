@@ -1,6 +1,7 @@
 // The instructions the server writes for every chat turn (design tab 3 "서버가 만드는 지침"):
 //  1 product basics  2 the person and the folders they can write  3 date / time zone / answer language
-//  4 memories (facts, not instructions)  5 team rules from skills/  6 project instructions  7 desktop browser
+//  4 memories (facts, not instructions)  5 team rules from skills/ (+ the list of team skills, skills.ts)
+//  6 project instructions  7 desktop browser
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
+import { listSkills, parseSkill, type Skill } from './skills'
 
 export const MEMORY_ITEM_MAX = 300
 export const MEMORY_BLOCK_MAX = 4096
@@ -40,24 +42,29 @@ export function writableFolders(files: FileService, user: Principal): { writable
   return { writable, readable }
 }
 
-/** skills/*.md the person can read (team rules), capped. */
+/** skills/*.md the person can read (team rules), capped. Files with a skill header are skills, not rules. */
 export function teamRules(files: FileService, user: Principal): string {
   const rules = files.rules()
   let out = ''
   try {
     const dir = path.join(files.fx.root, 'skills')
     if (!fs.lstatSync(dir).isDirectory()) return '' // a symlinked skills/ could point outside the team folder
-    for (const n of fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort().slice(0, SKILL_FILES_MAX)) {
+    let count = 0
+    for (const n of fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort()) {
+      if (count >= SKILL_FILES_MAX) break
       if (rules.access(user, ['skills', n]) === 'none') continue
       const st = fs.lstatSync(path.join(dir, n))
       if (!st.isFile() || st.nlink > 1) continue
-      out += `\n### skills/${n}\n` + fs.readFileSync(path.join(dir, n), 'utf8').slice(0, SKILL_FILE_MAX)
+      const text = fs.readFileSync(path.join(dir, n), 'utf8')
+      if (parseSkill(text.slice(0, 4000))) continue
+      out += `\n### skills/${n}\n` + text.slice(0, SKILL_FILE_MAX)
+      count++
     }
   } catch {}
   return out
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions']
+const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill']
 const BLOCK_TAG_RE = new RegExp(`<(/?)\\s*(${BLOCK_TAGS.join('|')})\\b`, 'gi')
 /** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
 export function neutralizeTags(s: string): string {
@@ -161,9 +168,38 @@ function projectSection(p: NonNullable<PromptInput['project']>): string {
   ].filter(Boolean).join('\n')
 }
 
+const SKILL_LIST_MAX = 50
+
+/** Item 5b: the team skills the person may use (name, what it does, file), and how to make one. */
+export function skillsSection(files: FileService, user: Principal): string {
+  const skills = listSkills(files, user).slice(0, SKILL_LIST_MAX)
+  const canWrite = files.rules().access(user, ['skills']) === 'write'
+  if (!skills.length && !canWrite) return ''
+  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/. Each is a Markdown file of steps.']
+  if (skills.length) {
+    lines.push(
+      'When the user starts a message with "/<skill name>", the server puts that skill in a <team_skill> block in front of the message: follow its steps for this request. When a request clearly matches a skill below, read its file and follow it, and say which skill you used.',
+      ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${s.description ? ': ' + neutralizeTags(s.description) : ''}`),
+    )
+  }
+  if (canWrite) lines.push('To save a workflow as a skill when the user asks, write skills/<short-name>.md starting with a header: a line "---", "name: <name>", "description: <one sentence>", "---", then the steps.')
+  return lines.join('\n')
+}
+
+/** The skill the person invoked with "/<name>", put in front of their message for this turn. */
+export function skillBlock(skill: Skill, input: string): string {
+  return [
+    `<team_skill name="${neutralizeTags(skill.name).replace(/"/g, "'")}" path="${skill.path}">`,
+    `The user invoked this team skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
+    neutralizeTags(skill.body.trim()),
+    '</team_skill>',
+  ].join('\n')
+}
+
 export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   const tools = new Set(i.tools)
   const rules = teamRules(files, i.user)
+  const skills = skillsSection(files, i.user)
   const base = [
     `You are the team assistant of ${PRODUCT.displayName}, working in the team's shared drive.`,
     `Team files are available ONLY through the ${TEAM_TOOL_PREFIX}* tools (list, glob, grep, read, write, edit). Paths are relative to the team root, e.g. "shared/notes.md".`,
@@ -180,6 +216,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   const mem = memoryBlock(i.memories)
   if (mem) sections.push(mem)
   if (rules) sections.push(`## Team rules (from skills/)\n${rules}`)
+  if (skills) sections.push(skills)
   if (i.project) sections.push(projectSection(i.project))
   if (i.browser) sections.push(BROWSER_RULES)
   if (i.history?.length) sections.push(historyBlock(i.history))
