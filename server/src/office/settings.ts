@@ -8,13 +8,16 @@
 //     tls/                     the office CA and the server certificate (server/src/office/tls.ts)
 //     config/office.env        settings written by the installer (below)
 //     config/server.json       written by the supervisor at every start (do not edit: change office.env)
-//     logs/                    office.log (supervisor + launchd), server/ (the server's JSON logs, 14 days)
+//     config/tunnel-token      the Cloudflare Tunnel connector token of the public address (600; `teamax public-address`)
+//     logs/                    office.log (supervisor + launchd), tunnel.log (cloudflared), server/ (the server's JSON
+//                              logs, 14 days)
 //     status/                  status.json of the running server
 //     teamax                   the control command (link to app/teamax)
 //     ADDRESSES.txt            desk address, certificate page, CA fingerprints (`teamax info`)
 //     DESK-CARD.html           the printable desk card with the fingerprint to compare (`teamax card`)
 import fs from 'node:fs'
 import path from 'node:path'
+import { PUBLIC_HOST_RE } from '../app-config'
 import { hostPort, type OfficeNames } from './tls'
 
 export const DEFAULT_LABEL = 'app.team-ax.office'
@@ -41,11 +44,19 @@ export interface OfficeSettings {
   includeVpn: boolean
   /** who may connect to the office port: 'subnet' (the Mac's own office subnets, the default), 'any', or CIDRs */
   allowFrom: 'subnet' | 'any' | string[]
+  /** the internet address through a Cloudflare Tunnel (app.example.com), null = none (docs/OFFICE.md "인터넷 주소") */
+  publicHost: string | null
+  /** optional allow-list for the public address: IPv4 CIDRs of the visitors (empty = anyone) */
+  publicAllowFrom: string[]
+  /** optional allow-list for the public address: countries (CF-IPCountry, e.g. KR; empty = anywhere) */
+  publicCountries: string[]
 }
 
 export interface OfficePaths {
   home: string; app: string; data: string; team: string; tls: string; config: string; env: string; serverJson: string
   logs: string; serverLogs: string; officeLog: string; info: string; card: string; setupToken: string; agentsDir: string; plist: (label: string) => string
+  /** the connector token of the public address (600) and cloudflared's log */
+  tunnelToken: string; tunnelLog: string
 }
 
 export function officePaths(home: string, env: Record<string, string | undefined> = process.env): OfficePaths {
@@ -57,6 +68,7 @@ export function officePaths(home: string, env: Record<string, string | undefined
     logs: path.join(h, 'logs'), serverLogs: path.join(h, 'logs', 'server'), officeLog: path.join(h, 'logs', 'office.log'),
     info: path.join(h, 'ADDRESSES.txt'), card: path.join(h, 'DESK-CARD.html'), setupToken: path.join(h, 'data', 'setup-token'),
     agentsDir, plist: (label) => path.join(agentsDir, `${label}.plist`),
+    tunnelToken: path.join(h, 'config', 'tunnel-token'), tunnelLog: path.join(h, 'logs', 'tunnel.log'),
   }
 }
 
@@ -97,6 +109,9 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     caConstraints: e.TEAMAX_CA_CONSTRAINTS !== '0',
     includeVpn: e.TEAMAX_INCLUDE_VPN === '1',
     allowFrom: parseAllowFrom(e.TEAMAX_ALLOW_FROM),
+    publicHost: parsePublicHost(e.TEAMAX_PUBLIC_HOST),
+    publicAllowFrom: (() => { const a = parseAllowFrom(e.TEAMAX_PUBLIC_ALLOW_FROM); return Array.isArray(a) ? a : [] })(),
+    publicCountries: parseCountries(e.TEAMAX_PUBLIC_COUNTRIES),
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9.-]{2,100}$/.test(s.label)) throw new Error(`TEAMAX_LABEL ${s.label} is not a launchd label`)
   const ports = [s.appPort, s.lanPort, ...(s.helperPort ? [s.helperPort] : [])]
@@ -105,6 +120,22 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
 }
 
 const CIDR = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/
+
+/** TEAMAX_PUBLIC_HOST: '' = none, else a DNS name (lower-cased; a pasted https://…/ is reduced to the name). */
+export function parsePublicHost(v: string | undefined): string | null {
+  let t = (v ?? '').trim().toLowerCase()
+  if (!t) return null
+  t = t.replace(/^https:\/\//, '').replace(/\/+$/, '').replace(/\.$/, '')
+  if (!PUBLIC_HOST_RE.test(t)) throw new Error(`TEAMAX_PUBLIC_HOST: ${v} is not an internet name such as app.example.com`)
+  return t
+}
+
+/** TEAMAX_PUBLIC_COUNTRIES: '' = anywhere, else comma-separated two-letter codes (KR,JP). */
+export function parseCountries(v: string | undefined): string[] {
+  const list = (v ?? '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean)
+  for (const c of list) if (!/^[A-Z]{2}$/.test(c)) throw new Error(`TEAMAX_PUBLIC_COUNTRIES: ${c} is not a two-letter country code (KR)`)
+  return list
+}
 
 /** TEAMAX_ALLOW_FROM: '' / 'subnet', 'any', or comma-separated IPv4 CIDRs (192.168.1.0/24,10.20.0.0/16). */
 export function parseAllowFrom(v: string | undefined): OfficeSettings['allowFrom'] {
@@ -146,9 +177,20 @@ export function settingsText(s: OfficeSettings): string {
     line('TEAMAX_CA_CONSTRAINTS', s.caConstraints ? 1 : 0),
     line('TEAMAX_INCLUDE_VPN', s.includeVpn ? 1 : 0),
     line('TEAMAX_ALLOW_FROM', Array.isArray(s.allowFrom) ? s.allowFrom.join(',') : s.allowFrom),
+    '# internet address through a Cloudflare Tunnel (teamax public-address set|off); empty = none',
+    line('TEAMAX_PUBLIC_HOST', s.publicHost),
+    '# optional: who may use the internet address (IPv4 CIDRs, two-letter countries); empty = anyone',
+    line('TEAMAX_PUBLIC_ALLOW_FROM', s.publicAllowFrom.join(',')),
+    line('TEAMAX_PUBLIC_COUNTRIES', s.publicCountries.join(',')),
     '',
   ].join('\n')
 }
+
+/** the second LaunchAgent (cloudflared) of an installation */
+export const tunnelLabel = (s: Pick<OfficeSettings, 'label'>) => `${s.label}.tunnel`
+
+/** https://<public host>, or null */
+export const publicOrigin = (s: Pick<OfficeSettings, 'publicHost'>) => s.publicHost ? `https://${s.publicHost}` : null
 
 /** The engine socket folder: <home>/data/run unless that is too long for a unix socket path. */
 export function runDirFor(s: OfficeSettings): string {
@@ -185,7 +227,8 @@ export function allowedPeers(s: Pick<OfficeSettings, 'allowFrom'>, subnets: [str
 }
 
 /** config/server.json for this installation: dev mode's engine setup (local-login, engine.sb, lockdown) with
- * office: true, plain HTTP on 127.0.0.1 only, TLS on 0.0.0.0 (IPv4) for the desks of the office subnet. Codex is
+ * office: true, plain HTTP on 127.0.0.1 only, TLS on 0.0.0.0 (IPv4) for the desks of the office subnet, and the
+ * internet address (tunnel) when one is set: cloudflared delivers it to the loopback app port. Codex is
  * off (codexBin ''): the clinic's data goes to one AI provider, Anthropic, as the guide says. */
 export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [string, string][] = []) {
   const p = officePaths(s.home)
@@ -195,7 +238,9 @@ export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [st
     office: true,
     listen: { host: '127.0.0.1', port: s.appPort },
     tls: { host: '0.0.0.0', port: s.lanPort, certFile: path.join(p.tls, 'server.crt'), keyFile: path.join(p.tls, 'server.key') },
-    publicOrigins: [...origins, `http://localhost:${s.appPort}`, `http://127.0.0.1:${s.appPort}`],
+    // the internet address first: invite and reset links made on the Mac point there (no certificate to install)
+    publicOrigins: [...(s.publicHost ? [`https://${s.publicHost}`] : []), ...origins, `http://localhost:${s.appPort}`, `http://127.0.0.1:${s.appPort}`],
+    tunnel: s.publicHost ? { host: s.publicHost, allowFrom: s.publicAllowFrom, countries: s.publicCountries } : null,
     allowedHosts: allowedHosts(names, s),
     allowedPeers: allowedPeers(s, subnets),
     teamRoot: p.team,

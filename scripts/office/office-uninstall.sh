@@ -3,7 +3,7 @@
 #
 #   bash office-uninstall.sh [--prefix DIR] [--delete-data [--yes]]
 #
-# Stops and removes the LaunchAgent and deletes the program (app/, app.previous/, the teamax link, ADDRESSES.txt,
+# Stops and removes the LaunchAgents (the server and, with an internet address, cloudflared) and deletes the program (app/, app.previous/, the teamax link, ADDRESSES.txt,
 # config/server.json). Keeps data/ (database, backups), team/ (the team folder), tls/ (the office CA the desks
 # trust), config/office.env and logs/ unless --delete-data, which deletes the whole install folder after you type
 # "delete" (or with --yes).
@@ -31,7 +31,8 @@ if [ -x "$PREFIX/app/bin/bun" ] && [ -f "$PREFIX/app/server/src/office.js" ]; th
   "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" uninstall-agent --home "$PREFIX" || true
 fi
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
-rm -f "$AGENTS/$LABEL.plist"
+launchctl bootout "gui/$(id -u)/$LABEL.tunnel" >/dev/null 2>&1 || true
+rm -f "$AGENTS/$LABEL.plist" "$AGENTS/$LABEL.tunnel.plist"
 
 if [ "$DELETE" = 1 ]; then
   if [ "$YES" != 1 ]; then

@@ -7,8 +7,10 @@
 //                       helper page; re-checks the Mac's addresses every 30 s and restarts the server with a new
 //                       certificate when one appeared
 //   configure [--label L] [--app-port N] [--lan-port N] [--helper-port N|0] [--run-dir D] [--claude-bin P]
-//             [--codex-bin P] [--ca-constraints 0|1]
-//                       write config/office.env (merged with what is there)
+//             [--codex-bin P] [--ca-constraints 0|1] [--public-host H|''] [--tunnel-token-file F]
+//             [--public-allow-from CIDR,…] [--public-countries KR,…]
+//                       write config/office.env (merged with what is there); --tunnel-token-file checks the
+//                       Cloudflare Tunnel connector token and copies it to config/tunnel-token (600)
 //   install [--no-open] write the LaunchAgent, (re)start it, wait until it answers, print the addresses and the
 //                       first-run setup link (and open it on this Mac)
 //   start | stop | restart | status | logs [n] | info | card | setup-link
@@ -19,7 +21,12 @@
 //   restore-archive --in FILE [--replace]
 //                                  put an archive's database and team folder in place (password on stdin); without
 //                                  --replace only into an installation where nobody has set up the team yet
-//   uninstall-agent                stop and remove the LaunchAgent (office-uninstall.sh)
+//   public-address set HOST TOKEN-FILE | off | status
+//                                  the internet address through a Cloudflare Tunnel (docs/OFFICE.md "인터넷 주소"):
+//                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
+//                                  (<label>.tunnel), the server answers https://HOST. The tunnel itself (DNS, ingress)
+//                                  is made on the owner's Mac with scripts/office/public-address.ts
+//   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -29,7 +36,7 @@ import { launchAgent, plist } from '../../../scripts/dev-service'
 import { REPO_ROOT } from '../app-config'
 import { peerAllowed } from '../http/middleware'
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
-import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, runDirFor, serverConfig, settingsFrom, settingsText, type OfficeSettings } from './settings'
+import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
 
 const CHECK_MS = 30_000
@@ -91,7 +98,7 @@ export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, 
     origins, caName: /CN=([^\n]+)/.exec(t.ca.subject)?.[1] ?? 'Team AX office CA',
   }
   fs.writeFileSync(p.info, infoText(s, helper, t.left), { mode: 0o644 })
-  fs.writeFileSync(p.card, deskCard(helper, { helper: helperOrigins(s, origins)[0] ?? null, caCer: path.join(p.tls, 'ca.cer'), made: new Date().toISOString().slice(0, 16).replace('T', ' ') }), { mode: 0o644 })
+  fs.writeFileSync(p.card, deskCard(helper, { helper: helperOrigins(s, origins)[0] ?? null, caCer: path.join(p.tls, 'ca.cer'), made: new Date().toISOString().slice(0, 16).replace('T', ' '), public: publicOrigin(s) }), { mode: 0o644 })
   const configChanged = !!before && before !== json
   return {
     settings: s, origins, helper, peers: cfg.allowedPeers, left: t.left, key: JSON.stringify([host, lan]),
@@ -107,10 +114,16 @@ export function helperOrigins(s: OfficeSettings, origins: string[]): string[] {
 export function infoText(s: OfficeSettings, h: HelperState, left: string[] = []): string {
   const helpers = helperOrigins(s, h.origins)
   const p = officePaths(s.home)
+  const pub = publicOrigin(s)
   return [
     `Team AX 사무실 모드 / office mode — ${new Date().toISOString()}`,
     '',
-    '데스크(윈도우 Edge·Chrome)에서 여는 주소 / address for the desks:',
+    ...(pub ? [
+      '인터넷 주소 (인증서 설치 필요 없음, 어디서나) / internet address (no certificate to install, from anywhere):',
+      `  ${pub}`,
+      '',
+      '사무실 안 대체 경로 (사무실 인증서를 설치한 데스크) / in-office fallback (desks with the office certificate):',
+    ] : ['데스크(윈도우 Edge·Chrome)에서 여는 주소 / address for the desks:']),
     ...h.origins.slice(0, 1).map((o) => `  ${o}`),
     ...(h.origins.length > 1 ? [`  (이름으로 / by name: ${h.origins.slice(1).join(', ')})`] : []),
     '',
@@ -240,6 +253,7 @@ export function configure(home: string, args: string[], env: Record<string, stri
   const flags: [string, string][] = [
     ['--label', 'TEAMAX_LABEL'], ['--app-port', 'TEAMAX_APP_PORT'], ['--lan-port', 'TEAMAX_LAN_PORT'], ['--helper-port', 'TEAMAX_HELPER_PORT'],
     ['--run-dir', 'TEAMAX_RUN_DIR'], ['--claude-bin', 'TEAMAX_CLAUDE_BIN'], ['--codex-bin', 'TEAMAX_CODEX_BIN'], ['--ca-constraints', 'TEAMAX_CA_CONSTRAINTS'],
+    ['--public-host', 'TEAMAX_PUBLIC_HOST'], ['--public-allow-from', 'TEAMAX_PUBLIC_ALLOW_FROM'], ['--public-countries', 'TEAMAX_PUBLIC_COUNTRIES'],
   ]
   for (const [f, k] of flags) { const v = arg(args, f); if (v !== undefined) cur[k] = v }
   // a new LAN port moves the helper page along with it unless it was chosen explicitly
@@ -248,9 +262,47 @@ export function configure(home: string, args: string[], env: Record<string, stri
   // --as-home: the folder the settings are meant for (office-install.sh --check-only writes them into a scratch one)
   const sock = path.join(runDirFor({ ...s, home: path.resolve(arg(args, '--as-home') ?? home) }), 'private', 'server.sock')
   if (Buffer.byteLength(sock) > 103) throw new Error(`the engine socket path ${sock} is longer than macOS allows (103 bytes): install into a shorter folder or pass --run-dir <short folder>`)
+  const tokenFile = arg(args, '--tunnel-token-file')
+  const token = tokenFile ? readTunnelToken(tokenFile) : null
+  if (tokenFile && !s.publicHost) throw new Error('--tunnel-token-file needs --public-host <name> (the internet address this tunnel serves)')
   fs.mkdirSync(p.config, { recursive: true, mode: 0o700 })
   fs.writeFileSync(p.env, settingsText(s), { mode: 0o600 })
+  if (token) writeSecret(p.tunnelToken, token)
   return s
+}
+
+/**
+ * A Cloudflare Tunnel connector token from a file (what `public-address.ts` writes, or the dashboard's "token"): one
+ * base64 line of {"a": account, "t": tunnel id, "s": secret}. Checked so a wrong file (the origin cert, a token with
+ * a line break inside) fails here and not as a connector that never connects. The token is never printed.
+ */
+export function readTunnelToken(file: string): string {
+  let raw: string
+  try { raw = fs.readFileSync(file, 'utf8') } catch (e) { throw new Error(`tunnel token file ${file}: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`) }
+  const t = raw.trim()
+  let ok = false
+  if (/^[A-Za-z0-9+/_=-]{40,4096}$/.test(t)) {
+    try {
+      const j = JSON.parse(Buffer.from(t, 'base64').toString('utf8')) as Record<string, unknown>
+      ok = typeof j.a === 'string' && typeof j.t === 'string' && /^[0-9a-f-]{36}$/i.test(j.t) && typeof j.s === 'string' && j.s.length >= 16
+    } catch {}
+  }
+  if (!ok) throw new Error(`${file} is not a Cloudflare Tunnel connector token (one line, made by scripts/office/public-address.ts)`)
+  return t
+}
+
+/** tunnel id inside a connector token (for status lines; the secret is never shown) */
+export function tunnelIdOf(token: string): string | null {
+  try { const j = JSON.parse(Buffer.from(token, 'base64').toString('utf8')) as { t?: unknown }; return typeof j.t === 'string' ? j.t : null } catch { return null }
+}
+
+/** write a secret file with mode 600 from the start (temporary file + rename) */
+function writeSecret(file: string, text: string) {
+  const tmp = `${file}.tmp-${process.pid}`
+  fs.rmSync(tmp, { force: true })
+  fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' })
+  fs.renameSync(tmp, file)
+  fs.chmodSync(file, 0o600)
 }
 
 async function answers(url: string, timeoutMs = 2000): Promise<boolean> {
@@ -270,6 +322,17 @@ export function agentPlist(s: OfficeSettings, bun: string): string {
     bun, root: s.home, path: agentPath(s), home: os.homedir(), log: p.officeLog, label: s.label,
     args: [path.join(s.home, 'app', 'server', 'src', 'office.js'), 'run', '--home', s.home],
     env: { TEAMAX_HOME: s.home },
+  })
+}
+
+/** the cloudflared LaunchAgent: app/bin/cloudflared, the connector token read from config/tunnel-token (never on the
+ * command line or in the plist), no self-update (the zip pins its version), metrics only on loopback, no remote
+ * diagnostics, kept alive by launchd. */
+export function tunnelPlist(s: OfficeSettings, cloudflared = path.join(s.home, 'app', 'bin', 'cloudflared')): string {
+  const p = officePaths(s.home)
+  return plist({
+    bun: cloudflared, root: s.home, path: '/usr/bin:/bin:/usr/sbin:/sbin', home: os.homedir(), log: p.tunnelLog, label: tunnelLabel(s),
+    args: ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:0', '--management-diagnostics=false', 'run', '--token-file', p.tunnelToken],
   })
 }
 
@@ -347,7 +410,7 @@ export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort'
     if (!busy) {
       try { Bun.listen({ hostname, port, socket: { data() {} } }).stop(true) } catch { busy = true }
     }
-    if (busy) out.push(`port ${port} is in use by another program: choose another with ${flag} <port>`)
+    if (busy) out.push(`port ${port} is in use by another program: choose another with ${flag} <port>${flag === '--app-port' ? ' (with an internet address, the owner then runs public-address.ts set <name> --port <that port> so the tunnel points at it)' : ''}`)
   }
   return out
 }
@@ -380,6 +443,146 @@ export function swapInRestore(home: string, restored: string, stamp = new Date()
   return { db: oldDb, team: oldTeam }
 }
 
+// ---- the internet address (cloudflared LaunchAgent) ---------------------------------------------------------
+
+const tunnelAgentOf = (s: OfficeSettings) => launchAgent(tunnelLabel(s), officePaths(s.home).plist(tunnelLabel(s)))
+
+/** Bring the cloudflared agent in line with the settings: (re)started with a public address and a token, stopped and
+ * removed without one. Returns a line for the owner ('' when there is nothing to say). */
+export async function syncTunnelAgent(s: OfficeSettings): Promise<string> {
+  const p = officePaths(s.home)
+  const ta = tunnelAgentOf(s)
+  const file = p.plist(tunnelLabel(s))
+  if (!s.publicHost) {
+    const was = fs.existsSync(file) || ta.loaded()
+    if (ta.loaded()) { ta.stop(); await Bun.sleep(500) }
+    fs.rmSync(file, { force: true })
+    return was ? '인터넷 주소 꺼짐 / internet address off (cloudflared stopped)' : ''
+  }
+  if (!fs.existsSync(p.tunnelToken)) return `인터넷 주소 ${s.publicHost}: 연결 토큰이 없습니다 / no connector token: ${path.join(s.home, 'teamax')} public-address set ${s.publicHost} <token file>`
+  const cf = path.join(s.home, 'app', 'bin', 'cloudflared')
+  if (!fs.existsSync(cf)) return `cloudflared is missing from ${path.dirname(cf)}: run office-install.sh from a newer zip`
+  if (ta.loaded()) { ta.stop(); await Bun.sleep(1000) }
+  fs.mkdirSync(p.logs, { recursive: true, mode: 0o750 })
+  // a long outage can fill the log with "origin unreachable" lines: keep one older file
+  try { if (fs.statSync(p.tunnelLog).size > 10 * 1024 * 1024) fs.renameSync(p.tunnelLog, `${p.tunnelLog}.1`) } catch {}
+  fs.mkdirSync(p.agentsDir, { recursive: true })
+  fs.writeFileSync(file, tunnelPlist(s, cf), { mode: 0o644 })
+  return `cloudflared (${tunnelLabel(s)}): ${ta.start()}`
+}
+
+/** What https://<public host>/api/health says through Cloudflare: 'ok', 'origin' (502/504: the tunnel is connected but
+ * its ingress does not reach this Mac's app port, e.g. the app port was changed at install and the owner's Mac still
+ * points the tunnel at 47830), 'tunnel' (530: no connector of that tunnel is running, or the token belongs to
+ * another tunnel), 'none' (no answer: DNS, no internet). */
+export type PublicProbe = 'ok' | 'origin' | 'tunnel' | 'none'
+export function classifyPublic(status: number | null): PublicProbe {
+  if (status === null) return 'none'
+  if (status >= 200 && status < 400) return 'ok'
+  if (status === 502 || status === 504) return 'origin'
+  if (status === 530) return 'tunnel'
+  return 'none'
+}
+async function probePublic(host: string, timeoutMs = 4000): Promise<PublicProbe> {
+  try { return classifyPublic((await fetch(`https://${host}/api/health`, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' })).status) } catch { return 'none' }
+}
+const probeWord = (r: PublicProbe) => r === 'ok' ? 'answers' : r === 'origin' ? '502 (the tunnel points elsewhere)' : r === 'tunnel' ? '530 (no connector)' : 'no answer'
+
+/** wait until https://<public host>/api/health answers through Cloudflare (the connector needs a few seconds) */
+async function waitPublic(host: string, seconds: number): Promise<PublicProbe> {
+  let last: PublicProbe = 'none'
+  for (let i = 0; i < seconds; i += 2) {
+    last = await probePublic(host)
+    if (last === 'ok') return last
+    await Bun.sleep(2000)
+  }
+  return last
+}
+
+/** the owner-facing explanation of a probe that did not answer (Korean, then the command) */
+export function publicProblem(s: Pick<OfficeSettings, 'publicHost' | 'appPort'>, r: PublicProbe, tunnelLog: string): string {
+  const h = s.publicHost
+  if (r === 'origin') return [
+    `https://${h} → 502: Cloudflare 터널은 연결됐지만 이 맥의 앱 포트(127.0.0.1:${s.appPort})가 아닌 곳을 가리킵니다 / the tunnel does not point at this Mac's app port.`,
+    `  원장님 맥에서 / on the owner's Mac: bun scripts/office/public-address.ts set ${h} --port ${s.appPort} --cert <cert 파일>`,
+    '  (이 맥에서는 다시 할 일이 없습니다 / nothing to redo on this Mac)',
+  ].join('\n')
+  if (r === 'tunnel') return [
+    `https://${h} → 530: 이 이름의 터널에 연결된 cloudflared가 없습니다 (토큰이 다른 터널 것이거나 cloudflared가 멈춤) / no connector for this name's tunnel.`,
+    `  확인 / check: ${tunnelLog} , teamax public-address status , 원장님 맥에서 public-address.ts status ${h}`,
+  ].join('\n')
+  return `https://${h}: 아직 답이 없습니다 / no answer yet: 이름(DNS)과 인터넷 연결을 확인하세요 (원장님 맥에서 public-address.ts status ${h}), ${tunnelLog}`
+}
+
+async function publicAddress(home: string, args: string[]): Promise<number> {
+  const [sub = 'status', ...rest] = args.filter((a, i) => !(a === '--home' || args[i - 1] === '--home'))
+  const say2 = (t: string) => { if (t) console.log(t) }
+  if (sub === 'set') {
+    const [host, tokenFile] = rest
+    if (!host || !tokenFile) { console.error('usage: teamax public-address set <app.example.com> <connector token file>'); return 2 }
+    const before = loadSettings(home)
+    const s = configure(home, ['--public-host', host, '--tunnel-token-file', tokenFile])
+    console.log(`인터넷 주소 / internet address: https://${s.publicHost}  (토큰 / token: ${officePaths(home).tunnelToken}, 600)`)
+    console.log(`이 맥의 앱 포트 / this Mac's app port: ${s.appPort} (Cloudflare 터널이 http://127.0.0.1:${s.appPort}을 가리켜야 합니다 / the tunnel must point there)`)
+    return (await applyPublicChange(s, before.publicHost !== s.publicHost)) ? 0 : 1
+  }
+  if (sub === 'off') {
+    const before = loadSettings(home)
+    const s = configure(home, ['--public-host', ''])
+    fs.rmSync(officePaths(home).tunnelToken, { force: true })
+    say2(await syncTunnelAgent(s))
+    if (before.publicHost) await restartServer(s)
+    console.log('인터넷 주소를 껐습니다 / internet address off. 사무실 안 주소는 그대로입니다 / the office addresses are unchanged.')
+    const name = before.publicHost ?? '<name>'
+    console.log(`Cloudflare 쪽 이름·터널 지우기 (원장님 맥에서) / remove the name and tunnel at Cloudflare (on the owner's Mac): bun scripts/office/public-address.ts remove ${name} --cert <cert 파일>`)
+    return 0
+  }
+  if (sub === 'status') {
+    const s = loadSettings(home)
+    const p = officePaths(home)
+    if (!s.publicHost) { console.log('인터넷 주소 없음 / no internet address (teamax public-address set <name> <token file>)'); return 0 }
+    const ta = tunnelAgentOf(s)
+    let id: string | null = null
+    try { id = tunnelIdOf(readTunnelToken(p.tunnelToken)) } catch {}
+    const probe = await probePublic(s.publicHost, 6000)
+    console.log(`internet address  https://${s.publicHost}  ${probeWord(probe)}`)
+    console.log(`  app port        127.0.0.1:${s.appPort} (the tunnel's ingress must be http://127.0.0.1:${s.appPort})`)
+    console.log(`  token           ${id ? `tunnel ${id} (${p.tunnelToken})` : 'missing or not a connector token'}`)
+    console.log(`  cloudflared     ${!fs.existsSync(p.plist(tunnelLabel(s))) ? 'not installed' : ta.loaded() ? `running${ta.pid() ? ` (pid ${ta.pid()})` : ''}` : 'stopped'}`)
+    if (s.publicAllowFrom.length || s.publicCountries.length) console.log(`  allow-list      ${[...s.publicAllowFrom, ...s.publicCountries].join(', ')}`)
+    console.log(`  log             ${p.tunnelLog}`)
+    if (probe !== 'ok') console.log(publicProblem(s, probe, p.tunnelLog))
+    return 0
+  }
+  console.error('usage: teamax public-address set <app.example.com> <token file> | off | status')
+  return 2
+}
+
+/** the server reads the public address from server.json, which the supervisor writes at its start */
+async function restartServer(s: OfficeSettings) {
+  const agent = launchAgent(s.label, officePaths(s.home).plist(s.label))
+  if (!fs.existsSync(officePaths(s.home).plist(s.label))) return
+  if (agent.loaded()) { agent.stop(); await Bun.sleep(1000) }
+  console.log(`Team AX: ${agent.start()}`)
+  if (!(await waitHealthy(s, 90))) console.log(`the server did not answer within 90 s; see ${officePaths(s.home).officeLog}`)
+}
+
+/** true when the internet address answers afterwards (else the reason is printed and `set` exits 1) */
+async function applyPublicChange(s: OfficeSettings, serverToo: boolean): Promise<boolean> {
+  if (serverToo || !launchAgent(s.label, officePaths(s.home).plist(s.label)).loaded()) await restartServer(s)
+  console.log(await syncTunnelAgent(s))
+  if (!fs.existsSync(officePaths(s.home).plist(tunnelLabel(s)))) return false
+  console.log(`https://${s.publicHost} 확인 중 / checking ...`)
+  const r = await waitPublic(s.publicHost!, 60)
+  if (r === 'ok') {
+    console.log(`인터넷 주소가 답합니다 / the internet address answers: https://${s.publicHost}`)
+    console.log(`데스크 카드를 다시 인쇄하세요 / print the desk card again: ${path.join(s.home, 'teamax')} card`)
+    return true
+  }
+  console.log(publicProblem(s, r, officePaths(s.home).tunnelLog))
+  return false
+}
+
 function teamIsSetUp(home: string): boolean {
   const db = path.join(officePaths(home).data, 'app.db')
   if (!fs.existsSync(db)) return false
@@ -401,6 +604,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'install': {
       if (process.platform !== 'darwin') throw new Error('office mode runs on macOS')
       if (agent.loaded()) { agent.stop(); await Bun.sleep(1000) }
+      if (tunnelAgentOf(s).loaded()) tunnelAgentOf(s).stop()
       const st = prepare(home)
       fs.mkdirSync(p.agentsDir, { recursive: true })
       fs.mkdirSync(p.logs, { recursive: true, mode: 0o750 })
@@ -410,6 +614,12 @@ export async function main(argv: string[]): Promise<number> {
       lines(`LaunchAgent ${p.plist(s.label)}: ${agent.start()}`)
       lines('waiting for the server ...')
       if (!(await waitHealthy(s, 90))) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
+      const tl = await syncTunnelAgent(s)
+      if (tl) lines(tl)
+      if (s.publicHost && fs.existsSync(p.plist(tunnelLabel(s)))) {
+        const r = await waitPublic(s.publicHost, 40)
+        lines(r === 'ok' ? `https://${s.publicHost} 답함 / answers (앱 포트 / app port ${s.appPort})` : publicProblem(s, r, p.tunnelLog))
+      }
       lines('')
       lines(fs.readFileSync(p.info, 'utf8'))
       lines('데스크마다 인쇄해 둘 카드 (지문 포함) / print the desk card (with the thumbprint) for every desk:')
@@ -424,12 +634,29 @@ export async function main(argv: string[]): Promise<number> {
       } else lines('팀이 이미 설정되어 있습니다 / the team is already set up.')
       return 0
     }
-    case 'start': lines(agent.start()); return 0
-    case 'stop': lines(agent.stop()); return 0
-    case 'restart': agent.stop(); await Bun.sleep(1000); lines(agent.start()); return 0
+    case 'start': {
+      lines(agent.start())
+      if (s.publicHost && fs.existsSync(p.plist(tunnelLabel(s)))) lines(`cloudflared: ${tunnelAgentOf(s).start()}`)
+      return 0
+    }
+    case 'stop': {
+      lines(agent.stop())
+      if (tunnelAgentOf(s).loaded()) lines(`cloudflared: ${tunnelAgentOf(s).stop()}`)
+      return 0
+    }
+    case 'restart': {
+      agent.stop(); await Bun.sleep(1000); lines(agent.start())
+      const tl = await syncTunnelAgent(s)
+      if (tl) lines(tl)
+      return 0
+    }
+    case 'public-address': return await publicAddress(home, args)
     case 'uninstall-agent': {
       lines(fs.existsSync(p.plist(s.label)) || agent.loaded() ? agent.stop() : 'not installed')
       fs.rmSync(p.plist(s.label), { force: true })
+      const ta = tunnelAgentOf(s)
+      if (ta.loaded()) lines(`cloudflared: ${ta.stop()}`)
+      fs.rmSync(p.plist(tunnelLabel(s)), { force: true })
       return 0
     }
     case 'status': {
@@ -437,6 +664,11 @@ export async function main(argv: string[]): Promise<number> {
       const pid = agent.loaded() ? agent.pid() : null
       lines(!installed ? 'not installed' : !agent.loaded() ? 'installed, stopped (teamax start)' : `running${pid ? ` (pid ${pid})` : ' (starting)'}`)
       lines(`  this Mac  http://127.0.0.1:${s.appPort}  ${(await answers(`http://127.0.0.1:${s.appPort}/api/health`)) ? 'answers' : 'no answer'}`)
+      if (s.publicHost) {
+        const r = await probePublic(s.publicHost, 6000)
+        lines(`  internet  https://${s.publicHost}  ${probeWord(r)}  (cloudflared ${tunnelAgentOf(s).loaded() ? 'running' : 'stopped'}, app port ${s.appPort})`)
+        if (r !== 'ok') lines(publicProblem(s, r, p.tunnelLog))
+      }
       let origins: string[] = []
       try { const cfg = JSON.parse(fs.readFileSync(p.serverJson, 'utf8')); origins = (cfg.publicOrigins as string[]).filter((o) => SHOWN.test(o)) } catch {}
       for (const o of origins) lines(`  desks     ${o}  ${(await answers(`${o}/api/health`)) ? 'answers' : 'no answer'}`)
@@ -452,6 +684,7 @@ export async function main(argv: string[]): Promise<number> {
       // the server's own log (requests, engine turns, errors) is where a failed chat shows up
       const srv = newestServerLog(p.serverLogs)
       if (srv) { lines(`\n== ${srv}`); lines(tail(srv)) }
+      if (fs.existsSync(p.tunnelLog)) { lines(`\n== ${p.tunnelLog}`); lines(tail(p.tunnelLog)) }
       return 0
     }
     case 'card': {
@@ -502,7 +735,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|check-ports|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|check-ports|uninstall-agent')
       return 2
   }
 }

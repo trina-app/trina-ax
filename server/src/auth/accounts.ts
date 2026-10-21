@@ -41,6 +41,10 @@ function checkNewPassword(pw: string, username: string | null, locale: Locale, f
   if (p) fail('validation', weakPasswordMessage(p, locale), { fields: { [field]: p } })
 }
 
+/** how a sign-in reached the server, for the audit log: 'internet' through the office public address (http/tunnel.ts),
+ * else the transport ('direct' = this Mac or the office LAN, 'relay') */
+export const viaOf = (info: { via: string; tunnel?: boolean }): string => info.tunnel ? 'internet' : info.via
+
 /** Count an unknown/invalid token against the caller's IP and refuse while over the limit. */
 function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
   const a = authOf(ctx)
@@ -88,6 +92,9 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
 export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetupBody>): Promise<LoginResponse> {
   const locale = c.get('locale')
   if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
+  // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
+  // from the internet, whatever token is sent (http/tunnel.ts)
+  if (c.get('info').tunnel) fail('forbidden', msg('setupNotRemote', locale))
   const guard = tokenGuard(ctx, c.get('info').ip)
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
@@ -108,7 +115,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
     // one audit row per client IP (or account, when the IP is unknown) and minute: a flood of refused attempts,
     // even with made-up usernames, cannot fill the disk
     if (a.firstInMinute(ip ? `rl-ip:${ip}` : `rl-user:${b.username.toLowerCase()}`)) {
-      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: getUserByUsername(ctx.db, b.username)?.id ?? null, detail: { ip, via: c.get('info').via } })
+      audit(ctx.db, { actor: null, action: 'auth.rate_limited', target: getUserByUsername(ctx.db, b.username)?.id ?? null, detail: { ip, via: viaOf(c.get('info')) } })
     }
     fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   }
@@ -118,12 +125,12 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   // a disabled account fails exactly like a wrong password (same 401, same words, still counted toward the limit):
   // a different answer would tell anyone that the account exists, is disabled and that this password is right
   if (!u || !ok || u.status !== 'active') {
-    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: c.get('info').via, ...(u && ok ? { disabled: true } : {}) } })
+    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: viaOf(c.get('info')), ...(u && ok ? { disabled: true } : {}) } })
     fail('unauthorized', msg('badLogin', locale))
   }
   hold.release()
   a.limiter.clear(accountKey(b.username))
-  audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: c.get('info').via, client: b.client } })
+  audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client } })
   return a.signIn(c, u!.id, b.client, b.tokenMode)
 }
 
