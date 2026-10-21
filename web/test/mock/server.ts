@@ -10,7 +10,7 @@
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
 import { z } from 'zod'
 import {
-  ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
 } from '@mycel/shared/api'
@@ -91,6 +91,10 @@ export class MockServer {
   settings: TeamSettings = defaultSettings()
   /** every request the client made (method + path), for assertions */
   log: string[] = []
+  /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
+  skillManagers: SkillManagerGrant[] = []
+  suggestions: SkillSuggestion[] = []
+  skillChanges: SkillChange[] = []
   /** engine / model named in chat requests (tests check people who may not pick never send one) */
   engineRequests: { name: string; user: string; engine?: unknown; model?: unknown }[] = []
   /** Admin > AI engines: "팀원이 엔진 고르기 허용" and the Claude-limit fallback (like the server: off by default) */
@@ -137,6 +141,9 @@ export class MockServer {
     this.files.clear()
     this.log = []
     this.engineRequests = []
+    this.skillManagers = []
+    this.suggestions = []
+    this.skillChanges = []
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
     this.limitFallback = false
     this.codexEnabled = true
@@ -166,6 +173,8 @@ export class MockServer {
     this.putFile('marketing/page.html', '<h1>Hi</h1><script>document.body.append("ran")</script>')
     this.putFile('marketing/plan (충돌 사본 - Bob 2026-10-21 10.00).md', '# Plan conflicting\n')
     for (const [p, data] of officeFixtures()) this.putFile(p, data)
+    for (const p of ['skills', 'skills/재무']) this.files.set(p, { type: 'folder', mtime: now() })
+    this.putFile('skills/team-rules.md', '# 팀 규칙\n- 금액은 원 단위로 쓴다\n')
     this.folders = [
       { id: uuidv7(), path: 'finance', exists: true, createdAt: now(), rules: [] },
     ]
@@ -213,6 +222,27 @@ export class MockServer {
 
   entry(path: string, n: FileNode, user: User): FileEntry {
     return { name: path.slice(path.lastIndexOf('/') + 1), path, type: n.type, size: n.type === 'file' ? n.data!.byteLength : null, mtime: n.mtime, mime: n.type === 'file' ? mimeOf(path) : null, access: this.access(path, user) }
+  }
+
+  // ---------------- team skills (like server/src/skills/*) ----------------
+  skillChange(c: SkillChange) {
+    this.skillChanges.unshift(c)
+    const dir = c.path.slice(0, c.path.lastIndexOf('/'))
+    this.publish({ type: 'notice', data: { level: 'info', code: 'skill_changed', message: `팀 스킬이 바뀌었어요: ${c.path} (${c.actor?.name ?? ''}${c.byAi ? ', AI가 저장' : ''})`, link: `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}` } })
+  }
+  /** skills folders this person may change: owner / admin everything, others their own or their group's write rules */
+  managed(u: User): string[] {
+    if (u.role === 'owner' || u.role === 'admin') return ['skills']
+    return this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path)
+  }
+  manages(u: User, folder: string) {
+    return this.managed(u).some((m) => folder === m || folder.startsWith(m + '/'))
+  }
+  suggestionFor(s: SkillSuggestion, u: User): SkillSuggestion {
+    return { ...s, canReview: this.manages(u, s.targetFolder) }
+  }
+  skillManagersResponse() {
+    return { folders: ['skills', 'skills/재무'], items: this.skillManagers }
   }
 
   // ---------------- realtime ----------------
@@ -337,6 +367,38 @@ export class MockServer {
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
+    }
+    if (/skillsave/i.test(prompt)) {
+      // like server/src/chat/turn.ts confirmSkillWrite: the server's card before anything is saved under skills/
+      const requestId = 'k1'
+      const after = '---\nname: 주간 보고서\ndescription: 이번 주 회의록으로 보고서를 만든다\n---\n1. 회의록을 읽는다\n2. 표로 정리한다\n'
+      const request: TurnRequest = {
+        kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
+        question: '팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따릅니다.\n\nskills/weekly.md (새 팀 스킬 "주간 보고서")',
+        options: [{ label: '저장', value: 'save' }, { label: '저장하지 않기', value: 'skip' }],
+        preview: { kind: 'skill_write', path: 'skills/weekly.md', isNew: true, skillName: '주간 보고서', diff: '@@ -0,0 +1,6 @@\n' + after.trimEnd().split('\n').map((l) => '+' + l).join('\n'), added: 6, removed: 0, truncated: false },
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
+      this.openAsks.delete(turnId)
+      pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      const saved = answer === 'save' || (Array.isArray(answer) && answer[0] === 'save')
+      if (saved) {
+        this.putFile('skills/weekly.md', after)
+        this.skillChange({ id: uuidv7(), at: now(), actor: { id: user.id, name: user.name }, path: 'skills/weekly.md', change: 'create', from: null, byAi: true, kind: 'skill' })
+      }
+      const text = saved ? 'Saved skills/weekly.md.' : 'Not saved: you did not allow saving under skills/.'
+      assistant.content = text
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text } })
+      assistant.status = 'done'
+      if (saved) assistant.files = { saved: [{ path: 'skills/weekly.md', action: 'create' }], conflicts: [], rejected: [] }
+      const chat = this.chats.find((c) => c.id === chatId)!
+      chat.runState = 'idle'
+      if (!chat.title) chat.title = 'skill'
+      pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: 'done', message: this.view(assistant) } })
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+      return
     }
     if (/artifact|react/i.test(prompt)) {
       const react = /react/i.test(prompt)
@@ -814,6 +876,80 @@ export class MockServer {
       return undefined
     },
     listFolders: () => ({ items: this.folders }),
+    // ---- team skills ----
+    listSkillManagers: () => this.skillManagersResponse(),
+    setSkillManager: (c) => {
+      const { subjectType, subjectId, enabled } = c.body as { subjectType: 'user' | 'group'; subjectId: string; enabled: boolean }
+      const p = (c.body.path as string) ?? 'skills'
+      const u = this.users.find((x) => x.id === subjectId)
+      if (subjectType === 'user' && (!u || u.role !== 'member')) fail('validation', 400, '팀장·관리자는 항상 팀 스킬을 관리합니다.')
+      if (!(p === 'skills' || p.startsWith('skills/'))) fail('validation', 400, 'skills/ 안의 볼 수 있는 폴더를 골라 주세요.')
+      this.skillManagers = this.skillManagers.filter((g) => !(g.subjectType === subjectType && g.subjectId === subjectId && g.path === p))
+      if (enabled) this.skillManagers.push({ subjectType, subjectId, path: p })
+      if (enabled && !this.files.has(p)) this.files.set(p, { type: 'folder', mtime: now() })
+      // the same rule Admin > 폴더 권한 shows
+      let f = this.folders.find((x) => x.path === p)
+      if (!f && enabled) {
+        f = { id: uuidv7(), path: p, exists: true, createdAt: now(), rules: [{ id: uuidv7(), folderId: '', subjectType: 'everyone', subjectId: null, access: 'read', updatedBy: null, updatedAt: now() }] }
+        f.rules[0]!.folderId = f.id
+        this.folders.push(f)
+      }
+      if (f) {
+        f.rules = f.rules.filter((r) => !(r.subjectType === subjectType && r.subjectId === subjectId))
+        if (enabled) f.rules.push({ id: uuidv7(), folderId: f.id, subjectType, subjectId, access: 'write', updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() })
+      }
+      return this.skillManagersResponse()
+    },
+    listSkillChanges: () => ({ items: this.skillChanges, nextCursor: null }),
+    skillsOverview: (c) => ({
+      managedFolders: this.managed(c.user),
+      suggestFolders: ['skills', 'skills/재무'],
+      pendingReview: this.suggestions.filter((s) => s.status === 'pending' && this.manages(c.user, s.targetFolder)).length,
+      myPending: this.suggestions.filter((s) => s.status === 'pending' && s.suggester.id === c.user.id).length,
+    }),
+    listSkillSuggestions: (c) => ({
+      items: this.suggestions.filter((s) => (c.query.scope === 'review' ? this.manages(c.user, s.targetFolder) : s.suggester.id === c.user.id)).map((s) => this.suggestionFor(s, c.user)),
+      nextCursor: null,
+    }),
+    getSkillSuggestion: (c) => {
+      const s = this.suggestions.find((x) => x.id === c.params.id)
+      if (!s || !(s.suggester.id === c.user.id || this.manages(c.user, s.targetFolder))) fail('not_found', 404)
+      return this.suggestionFor(s!, c.user)
+    },
+    createSkillSuggestion: (c) => {
+      const src = c.body.source as { kind: 'message'; chatId: string; messageId: string } | { kind: 'file'; path: string }
+      if (src.kind === 'message' && !this.messages.some((m) => m.id === src.messageId && m.chatId === src.chatId && this.chats.some((ch) => ch.id === src.chatId))) fail('not_found', 404)
+      if (src.kind === 'file' && !src.path.startsWith(`users/${c.user.id}/`)) fail('not_found', 404)
+      const s: SkillSuggestion = {
+        id: uuidv7(), status: 'pending', targetFolder: c.body.targetFolder ?? 'skills', name: c.body.name, description: c.body.description ?? '', content: c.body.content,
+        source: { kind: src.kind, path: src.kind === 'file' ? src.path : null }, suggester: { id: c.user.id, name: c.user.name }, reviewer: null, reviewNote: null, resultPath: null,
+        createdAt: now(), reviewedAt: null, canReview: false,
+      }
+      this.suggestions.unshift(s)
+      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggested', message: `${c.user.name} 님이 스킬을 제안했어요: ${s.name} → ${s.targetFolder}/`, link: `/skills?review=${s.id}` } })
+      return { status: 201, body: this.suggestionFor(s, c.user) }
+    },
+    approveSkillSuggestion: (c) => {
+      const s = this.suggestions.find((x) => x.id === c.params.id)
+      if (!s || !(s.suggester.id === c.user.id || this.manages(c.user, s.targetFolder))) fail('not_found', 404)
+      if (!this.manages(c.user, s!.targetFolder) || !this.manages(c.user, c.body.targetFolder)) fail('forbidden', 403, '이 폴더의 팀 스킬을 관리할 권한이 없습니다.')
+      if (s!.status !== 'pending') fail('conflict', 409, '이미 처리된 제안입니다.')
+      const file = `${c.body.targetFolder}/${(c.body.fileName ?? c.body.name).trim().replace(/\s+/g, '-')}.md`
+      this.putFile(file, `---\nname: ${c.body.name}\ndescription: ${c.body.description}\n---\n${c.body.content}`)
+      Object.assign(s!, { status: 'approved', reviewer: { id: c.user.id, name: c.user.name }, reviewedAt: now(), resultPath: file, targetFolder: c.body.targetFolder, name: c.body.name, description: c.body.description, content: c.body.content })
+      this.skillChange({ id: uuidv7(), at: now(), actor: { id: c.user.id, name: c.user.name }, path: file, change: 'create', from: null, byAi: false, kind: 'skill' })
+      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggestion_reviewed', message: `제안한 스킬이 등록됐어요: ${s!.name} (${file})`, link: `/skills?mine=${s!.id}` } })
+      return this.suggestionFor(s!, c.user)
+    },
+    rejectSkillSuggestion: (c) => {
+      const s = this.suggestions.find((x) => x.id === c.params.id)
+      if (!s || !(s.suggester.id === c.user.id || this.manages(c.user, s.targetFolder))) fail('not_found', 404)
+      if (!this.manages(c.user, s!.targetFolder)) fail('forbidden', 403)
+      if (s!.status !== 'pending') fail('conflict', 409)
+      Object.assign(s!, { status: 'rejected', reviewer: { id: c.user.id, name: c.user.name }, reviewedAt: now(), reviewNote: c.body.note || null })
+      this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggestion_reviewed', message: `제안한 스킬이 거절됐어요: ${s!.name}`, link: `/skills?mine=${s!.id}` } })
+      return this.suggestionFor(s!, c.user)
+    },
     createFolder: (c) => {
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: true, createdAt: now(), rules: [] }
       f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))

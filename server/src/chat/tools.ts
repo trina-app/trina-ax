@@ -51,6 +51,11 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
     async call(name, args) {
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      if (name === 'make_file') {
+        // under skills/: the person confirms first (the file layer refuses the save otherwise)
+        const no = await exec.confirmSkillWrite(name, args)
+        if (no) return { content: [{ type: 'text', text: no.refusal }], isError: true, summary: no.summary }
+      }
       if (name === 'make_file' && args && typeof args === 'object') {
         // the new file carries what the chat read, and the `source` file it is made from: asked before converting.
         // The images it embeds and its template are only known after parsing; make_file asks again for those
@@ -66,6 +71,9 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
     afterFileTool: (name, _isError, args) => { exec.noteTaint(name, args); exec.noteReads(); exec.afterTool() },
     beforeFileTool: async (name, args) => {
       if (name !== 'write' && name !== 'edit') return null
+      // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
+      const no = await exec.confirmSkillWrite(name, args)
+      if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
       return typeof p === 'string' ? exec.confirmWidening(p) : null
     },

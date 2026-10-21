@@ -3,6 +3,7 @@ import type { FileChange, Memory, ServerEvent } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { openTeamFile } from '../lib/sidePanel'
+import { navigateTo } from '../lib/nav'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
@@ -17,6 +18,8 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
+/** a team skill changed, was suggested or reviewed: the team skills screen and the sidebar count reload */
+export const skillsChanged = new Emitter<void>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
 
@@ -74,6 +77,15 @@ export function dispatch(ev: ServerEvent) {
         // the server sends the folders whose access changed as data ("groups/finance, shared"), not a sentence
         toast({ level: 'info', text: t('notice.accessChanged', { paths: ev.data.message }) })
         accessChanged.emit()
+        return
+      }
+      if (ev.data.link) {
+        // team skills: a change (owner and admins: open its version history), a suggestion to review, a review result
+        const link = ev.data.link
+        const label = ev.data.code === 'skill_changed' ? (link.startsWith('/trash') ? t('notice.open') : t('notice.openHistory')) : ev.data.code.startsWith('skill_') ? t('notice.openSkills') : t('notice.open')
+        if (ev.data.code.startsWith('skill_')) skillsChanged.emit()
+        // not sticky: it would sit over the composer; the same changes and suggestions stay on the 팀 스킬 screen
+        toast({ level: ev.data.level, text: ev.data.message, action: { label, run: () => navigateTo(link) } })
         return
       }
       toast({ level: ev.data.level, text: ev.data.message, sticky: ev.data.level === 'error' })

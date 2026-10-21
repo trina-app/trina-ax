@@ -21,6 +21,7 @@ const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default
 const Settings = lazy(() => import('./pages/Settings'))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
+const Skills = lazy(() => import('./pages/Skills'))
 
 function Splash() {
   const t = useT()
@@ -104,6 +105,7 @@ function Gate() {
           <Route path="admin" element={<AdminLayout />} />
           <Route path="admin/:section" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
+          <Route path="skills" element={<Skills />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
         <Route path="/setup" element={<Navigate to="/" replace />} />

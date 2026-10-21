@@ -23,6 +23,8 @@ import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
 import { codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
+import { listSkillManagers, setSkillManager } from '../skills/managers'
+import { listSkillChanges } from '../skills/changes'
 import { readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 
@@ -150,6 +152,11 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
+
+    // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
+    kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))
+    kit.handle(API.setSkillManager, ({ c, body, auth }) => setSkillManager(ctx, auth.user.id, body, c.get('locale')))
+    kit.handle(API.listSkillChanges, ({ query, auth }) => listSkillChanges(ctx.db, auth.user.id, query))
 
     // ---------------- engines ----------------
     kit.handle(API.engines, ({ c }) => enginesResponse(ctx, engineCache, c.get('locale')))

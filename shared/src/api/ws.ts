@@ -70,6 +70,20 @@ export type ControlFrame = z.infer<typeof ControlFrame>
 const ev = <T extends string, D extends z.ZodType>(type: T, data: D) =>
   z.object({ type: z.literal(type), seq: z.number().int().positive(), at: z.number().int(), data })
 
+export const SkillWritePreview = z.object({
+  kind: z.literal('skill_write'),
+  path: RelPath,
+  isNew: z.boolean(),
+  /** the skill's name from its header; null = a team rule (a .md without a header) or not Markdown */
+  skillName: z.string().nullable(),
+  /** "@@ … @@" unified diff of the text (a new file: every line added), or a one-line summary for other files */
+  diff: z.string(),
+  added: z.number().int().nonnegative(),
+  removed: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+})
+export type SkillWritePreview = z.infer<typeof SkillWritePreview>
+
 export const AskUserRequest = z.object({
   kind: z.literal('ask_user'),
   requestId: z.string(),
@@ -83,6 +97,9 @@ export const AskUserRequest = z.object({
    * see it, remember after outside content), shown with its own header. The AI's ask_user never sets it, so a
    * question the AI writes cannot pass for one (design tab 7 "화면 보안"). */
   origin: z.literal('server').optional(),
+  /** a server check that shows what is about to be saved (the AI saving under skills/: team skills and team rules
+   * every teammate's AI follows): the file, new or changed, and the change as a unified diff (cut when long) */
+  preview: SkillWritePreview.optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
@@ -131,7 +148,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
   ev('memory.changed', z.object({ change: z.enum(['created', 'deleted', 'cleared']), memory: Memory.nullable() })),
   /** budget warnings, scheduled update, engine trouble (shown as a banner/toast) */
-  ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional() })),
+  ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional(),
+    /** an app address to open from the banner (e.g. the version history of a changed team skill) */
+    link: z.string().max(2000).regex(/^\/[^/]/).optional() })),
   /** the session ended (logout elsewhere, password changed, account disabled); the socket closes with 4401 */
   ev('session.ended', z.object({ reason: z.enum(['logout', 'password_changed', 'disabled', 'expired', 'revoked']) })),
 ])

@@ -18,6 +18,8 @@ type Scope =
   | 'finance-write'   // finance folder write: bob + owner + admin
   | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read) + owner + admin
   | 'shared'          // shared/: every signed-in person
+  | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
+  | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
 
 interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void; todo?: Partial<Record<Who, string>>;
@@ -35,6 +37,8 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'own-alice': case 'own-alice-chat': case 'users-alice': return who === 'memberIn'
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
+    case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
+    case 'skills-manager': return who === 'owner' || who === 'admin'
   }
 }
 // users/alice/: owner and admin have NO access (design tab 2 rule 2/3)
@@ -118,6 +122,26 @@ export const SPECS: Record<string, Spec> = {
   clearMemories: { build: (c) => c.del('/api/memories'), scope: 'self' },
   // team skills (skills/**/*.md readable by the caller): the canary check covers every name in the list
   listSkills: { build: (c) => c.get('/api/skills'), scope: 'self' },
+  // team skills: suggestions are seen by their suggester and the managers of the target folder only (skills/suggestions.ts)
+  skillsOverview: { build: (c) => c.get('/api/skills/overview'), scope: 'self' },
+  listSkillSuggestions: { build: (c) => c.get('/api/skills/suggestions?scope=review'), scope: 'self',
+    check: (r, w, who) => { if (!['memberIn', 'owner', 'admin'].includes(who) && r.text.includes(C.aliceSuggestion)) throw new Error(`${who} sees alice's skill suggestion`) } },
+  getSkillSuggestion: { build: (c, w) => c.get(`/api/skills/suggestions/${w.ids.suggestion}`), scope: 'suggestion-alice' },
+  // from alice's own file: nobody else may turn it into a suggestion (it would copy her file to the managers)
+  createSkillSuggestion: { build: (c) => c.post('/api/skills/suggestions', { source: { kind: 'file', path: 'users/alice/todo.md' }, targetFolder: 'skills', name: 'from alice file', content: 'x' }), scope: 'users-alice' },
+  approveSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/approve`, { targetFolder: 'skills', name: 'approved by matrix', description: '', content: 'steps' }), scope: 'skills-manager',
+    check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} registered a skill suggestion`) } },
+  rejectSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/reject`, { note: 'no' }), scope: 'skills-manager',
+    check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} turned down a skill suggestion`) } },
+  // the team API engine (feat/api-engine): owner only; the key is never returned
+  getApiEngine: { build: (c) => c.get('/api/admin/engines/api-config'), scope: 'byLevel' },
+  putApiEngine: { build: (c) => c.put('/api/admin/engines/api-config', { baseUrl: 'https://api.example.com/v1', model: 'matrix-model', label: 'matrix' }), scope: 'byLevel',
+    check: (r, w, who) => { if (who !== 'owner' && r.status < 300) throw new Error(`${who} changed the team API engine`) } },
+  listSkillChanges: { build: (c) => c.get('/api/admin/skill-changes'), scope: 'byLevel' },
+  listSkillManagers: { build: (c) => c.get('/api/admin/skill-managers'), scope: 'byLevel' },
+  // turning it OFF for someone who does not have it: allowed for admins, changes nothing (keeps the world pristine)
+  setSkillManager: { build: (c) => c.put('/api/admin/skill-managers', { subjectType: 'user', subjectId: 'alice', path: 'skills', enabled: false }), scope: 'byLevel',
+    check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} changed who manages team skills`) } },
 
   // ---- files (path-scoped) ----
   tree: { build: (c) => c.get('/api/files/tree?path=users%2Falice'), scope: 'users-alice',

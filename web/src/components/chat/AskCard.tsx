@@ -8,6 +8,7 @@ import { useId, useState } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
+import type { SkillWritePreview } from '@mycel/shared/api'
 import { Button, inputCls } from '../ui'
 
 export default function AskCard({ req }: { req: OpenRequest }) {
@@ -88,6 +89,7 @@ export default function AskCard({ req }: { req: OpenRequest }) {
       )}
       <fieldset className="space-y-2 px-4 py-3">
         <legend className="mb-2 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
+        {fromServer && r.preview && <SkillPreview p={r.preview} />}
         {options.length > 0 && (
           <div className="flex flex-col gap-1.5">
             {options.map((o) => (
@@ -128,5 +130,42 @@ export default function AskCard({ req }: { req: OpenRequest }) {
         </Button>
       </div>
     </form>
+  )
+}
+
+/** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. */
+function SkillPreview({ p }: { p: SkillWritePreview }) {
+  const t = useT()
+  const lines = p.diff.split('\n')
+  const isDiff = lines[0]?.startsWith('@@')
+  return (
+    <div className="mb-2 overflow-hidden rounded-lg border border-line" data-testid="skill-preview">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
+        <span className="min-w-0 flex-1 truncate font-mono" title={p.path}>
+          {p.path}
+        </span>
+        <span className="text-faint">{p.isNew ? t('ask.skillNew') : t('ask.skillChange')}</span>
+        {isDiff && (
+          <span className="font-mono text-faint" data-testid="skill-preview-count">
+            {t('ask.skillLines', { added: p.added, removed: p.removed })}
+          </span>
+        )}
+      </div>
+      {isDiff ? (
+        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-[12px] leading-5" data-testid="skill-preview-diff">
+          {lines.map((l, i) => (
+            <div
+              key={i}
+              className={clsx('px-3 whitespace-pre-wrap [overflow-wrap:anywhere]', l.startsWith('+') ? 'bg-ok-soft text-ok' : l.startsWith('-') ? 'bg-danger-soft text-danger' : l.startsWith('@@') ? 'text-faint' : '')}
+            >
+              {l || ' '}
+            </div>
+          ))}
+        </pre>
+      ) : (
+        <p className="px-3 py-2 text-xs text-muted">{p.diff}</p>
+      )}
+      {p.truncated && <p className="border-t border-line px-3 py-1 text-[11px] text-faint">{t('ask.skillTruncated')}</p>}
+    </div>
   )
 }

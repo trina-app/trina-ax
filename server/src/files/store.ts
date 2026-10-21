@@ -83,9 +83,20 @@ export function saveVersion(db: Database, root: string, rel: string, bytes: Uint
     .run(newId(), rel, v, sha256(bytes), bytes.length, by.userId, by.turnId, kind, storage)
 }
 
-export function fileEvent(db: Database, e: { turnId: string | null; userId: string; path: string; action: string; size?: number; sha256?: string; detail?: unknown }) {
+export interface FileEventInput { turnId: string | null; userId: string; path: string; action: string; size?: number; sha256?: string; detail?: unknown }
+type FileEventHook = (e: FileEventInput) => void
+const hooks = new WeakMap<Database, FileEventHook[]>()
+
+/** Run `fn` after every file event recorded in `db` (team skills change tracking, skills/changes.ts). */
+export function onFileEvent(db: Database, fn: FileEventHook): void {
+  hooks.set(db, [...(hooks.get(db) ?? []), fn])
+}
+
+export function fileEvent(db: Database, e: FileEventInput) {
   db.query('INSERT INTO file_events (turn_id, user_id, path, action, size, sha256, detail) VALUES (?,?,?,?,?,?,?)')
     .run(e.turnId, e.userId, e.path, e.action, e.size ?? null, e.sha256 ?? null, e.detail === undefined ? null : JSON.stringify(e.detail))
+  // every place that changes a team file records it here: the one point that sees all of them
+  for (const fn of hooks.get(db) ?? []) fn(e)
 }
 
 /** Words of the conflict copy name per language (the web's file list recognises all three: web/src/lib/paths.ts). */
