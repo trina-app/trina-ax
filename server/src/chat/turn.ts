@@ -26,7 +26,7 @@ import type { ChatRuntime } from './runtime'
 import type { MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet } from './tools'
-import { addSources, clearScope, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
+import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
@@ -69,8 +69,9 @@ export class TurnExec {
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
-  /** folders the person allowed to receive content from a narrower read scope, this turn */
-  readonly widenAllowed = new Set<string>()
+  /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
+   * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
+  readonly widenAllowed = new Map<string, Set<string>>()
   readonly done: Promise<void>
   /** the person's sessions were reset while this turn ran (access shrank): the session is not kept at the end */
   sessionRevoked = false
@@ -435,7 +436,8 @@ export class TurnExec {
     const w = widening(this.rt.db, this.spec.chatId, segs, extra)
     if (!w) return null
     const dir = segs.slice(0, -1).join('/')
-    if (this.widenAllowed.has(dir)) return null
+    const allowed = this.widenAllowed.get(dir)
+    if (allowed && w.narrower.every((s) => allowed.has(sourceKey(s)))) return null
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L) }
     const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
@@ -445,7 +447,9 @@ export class TurnExec {
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
-      this.widenAllowed.add(dir)
+      const set = this.widenAllowed.get(dir) ?? new Set<string>()
+      for (const s of w.narrower) set.add(sourceKey(s))
+      this.widenAllowed.set(dir, set)
       return null
     }
     return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${from}). Do not save it anywhere else that more people can see; ask the user where to put it.`
