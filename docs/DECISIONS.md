@@ -958,4 +958,13 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   가짜 번들로 전체 실행: 설치·데이터 그대로·새 버전이 안 뜰 때 되돌림·밤에는 다시 안 함·설치기가 바로 실패할 때, 윈도우
   설치 파일과 index.json·latest.yml, plist·다음 시각, 웹 API 권한과 감사 기록, 데스크 업데이트 설정),
   `desktop/e2e/update.spec.ts`(맥 알림: 세션으로 index.json, 버전마다 한 번, 설정 > 앱), `tests/install/office-update-e2e.ts`
-  (실제 설치본에서 seed/verify).
+  (실제 설치본에서 seed/verify), `web/test/unit/officeUpdate.test.ts`(띠: 소유자·관리자만, 버전마다 닫기, 진행 끝 알림).
+- **실제로 해 본 것**(이 맥, 시험 이름 `app.team-ax.autoupd`, 포트 49430/49443/49442): 0.2.0-beta.1 zip으로 설치 → 팀·팀원·팀
+  파일 → 실제 피드 beta 채널에 0.2.0-beta.2(office zip + 윈도우 설치 파일 + latest.yml) 게시 → `teamax update now` 약 4분
+  (중단 약 45초) → 새 버전·로그인·팀 파일·설정 그대로, `data/downloads`에 윈도우 앱과 latest.yml, `/downloads/latest.yml`은
+  세션 없이 401·Bearer로 200. 되돌림: 서버가 바로 죽는 0.2.0-beta.3을 이 맥의 피드(진짜 키로 서명)에 두고 `update now` →
+  설치기가 실패 → beta.2로 되돌아감, 데이터 그대로. 웹 버튼과 같은 길(소유자 세션 + 비밀번호 + CSRF)로 0.2.0-beta.4 설치:
+  단계가 HTTP로 보이고 다시 시작 뒤 새 버전. beta.4에서 틀린 비밀번호 403, CSRF 없는 POST 403. 시험 설치는 지웠다.
+  보안 r4가 든 버전으로 처음 올라갈 때 서버가 사무실 CA를 한 번 새로 만든다(r4의 의도, 옛 CA는 `ca.crt.old-<날짜>`): 사무실 안
+  대체 경로를 쓰는 데스크는 그때 CA를 한 번 다시 설치한다. 피드 이름을 처음 만든 직후 이 맥의 DNS가 "없는 이름"을 30분
+  기억해서(SOA 최소 1800초) 그동안 받을 수 없었다: 새 이름은 쓰기 30분 전에 만든다.
