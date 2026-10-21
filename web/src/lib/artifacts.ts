@@ -25,6 +25,10 @@ export const VENDOR_MODULES = {
 } as const
 export const VENDOR_TAILWIND = 'tailwind.js'
 export const VENDOR_MERMAID = 'mermaid.js'
+/** Mermaid draws a gantt as wide as the parent of its scratch element, which this frame's flex body shrinks to the
+ * content: the chart came out ~250px wide with every date label on top of the next. A fixed width, scaled down by
+ * max-width:100%. */
+const GANTT_WIDTH = 720
 
 export function vendorBase(origin: string) {
   return `${origin}/vendor/`
@@ -125,10 +129,10 @@ export function buildArtifactDocument(type: ArtifactType, content: string, origi
     case 'mermaid':
       return {
         ok: true,
-        html: `<!doctype html><html>${head(origin, '<style>body{padding:24px;display:flex;justify-content:center}#out svg{max-width:100%;height:auto}</style>')}<body><div id="out"></div>
+        html: `<!doctype html><html>${head(origin, '<style>body{padding:24px;display:flex;justify-content:center}#out{width:100%;text-align:center}#out svg{max-width:100%;height:auto}</style>')}<body><div id="out"></div>
 <script type="module">
   import mermaid from ${scriptJson(v + VENDOR_MERMAID)};
-  mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+  mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral", gantt: { useWidth: ${GANTT_WIDTH} } });
   const src = ${scriptJson(content)};
   const visible = () => document.visibilityState === "visible" ? Promise.resolve() : new Promise((r) => document.addEventListener("visibilitychange", r, { once: true }));
   const draw = async () => { await visible(); await document.fonts.ready; const { svg } = await mermaid.render("d" + Math.random().toString(36).slice(2), src); document.getElementById("out").innerHTML = svg; };
