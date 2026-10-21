@@ -65,14 +65,15 @@ describe('files.changed for a restricted folder', () => {
     // she cannot see it
     expect((await mallory.client.try('GET', '/api/files/tree?path=' + encodeURIComponent('shared/Layoffs-2027-plan'))).status).toBe(404)
     mal.clear()
-    await hr.client.call('POST', '/api/files/move', { from: 'shared/Layoffs-2027-plan', to: 'shared/Layoffs-2027-final' })
-    await hr.client.call('DELETE', '/api/files?path=' + encodeURIComponent('shared/Layoffs-2027-final'))
+    // a rule folder is renamed and trashed by an admin or the owner only (sec/r1-sharing-works)
+    await owner.call('POST', '/api/files/move', { from: 'shared/Layoffs-2027-plan', to: 'shared/Layoffs-2027-final' })
+    await owner.call('DELETE', '/api/files?path=' + encodeURIComponent('shared/Layoffs-2027-final'))
     expect(mal.text()).not.toContain('Layoffs')
     expect(mal.of('files.changed')).toEqual([])
     // restoring it from the trash: its rules come back with it, still nothing for her
-    const trash = await hr.client.call('GET', '/api/files/trash')
+    const trash = await owner.call('GET', '/api/files/trash')
     const item = trash.items.find((t: any) => t.originalPath === 'shared/Layoffs-2027-final')
-    await hr.client.call('POST', `/api/files/trash/${item.id}/restore`)
+    await owner.call('POST', `/api/files/trash/${item.id}/restore`)
     expect(mal.text()).not.toContain('Layoffs')
   })
 
