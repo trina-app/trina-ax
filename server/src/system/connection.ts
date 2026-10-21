@@ -30,7 +30,7 @@ export function certFingerprint(certFile: string): string | null {
 }
 
 /**
- * The connection modes Admin > System offers. The Team AX relay only while it runs (relay.officialAvailable;
+ * The connection modes Admin > System offers. The official relay only while it runs (relay.officialAvailable;
  * before that it could be picked and never connected). Cloudflare tunnel and Tailscale are not in v1 (tab 6).
  */
 export function availableModes(cfg: AppContext['config']): ConnectionMode[] {
@@ -69,7 +69,7 @@ export interface SaveConnectionOptions {
   relayUrl?: string
   /** team name at the relay (relay.teamName); kept when not given */
   teamName?: string
-  /** the Team AX relay may be chosen (config relay.officialAvailable) */
+  /** the official relay may be chosen (config relay.officialAvailable) */
   officialAvailable?: boolean
 }
 
@@ -77,7 +77,7 @@ export interface SaveConnectionOptions {
 export function saveConnectionMode(configFile: string | null, mode: ConnectionMode, o: SaveConnectionOptions = {}): string | null {
   const relayUrl = o.relayUrl
   if (mode === 'cloudflare' || mode === 'tailscale') throw new ConnectionChangeError('unsupported', `${mode} is not available in this version`)
-  if (mode === 'relay' && !o.officialAvailable) throw new ConnectionChangeError('unsupported', 'the Team AX relay is not available yet')
+  if (mode === 'relay' && !o.officialAvailable) throw new ConnectionChangeError('unsupported', 'the official relay is not available yet')
   if (!configFile) throw new ConnectionChangeError('no_config', 'this server runs without a config file (development); set relay.url in .dev/server.json')
   let url: string | null
   if (mode === 'direct-only') url = null

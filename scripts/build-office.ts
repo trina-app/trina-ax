@@ -5,12 +5,13 @@
 //                               [--with-desktop | --desktop-prebuilt]
 //                               [--guide <pdf>] [--desk-guide <pdf>] [--team-host <host>]
 //
-// Output: <out>/TeamAX-office-<version>-mac.zip, containing TeamAX-office-<version>/:
+// Output: <out>/<officeBundle>-<version>-mac.zip, containing <officeBundle>-<version>/ (PRODUCT, shared/src/product.ts):
 //   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-사무실모드-설치가이드.pdf and the desks' guide
-//   Team-AX-윈도우-데스크-가이드.pdf (docs/office, when built; --guide / --desk-guide put one team's copies in instead,
-//   built by docs/install/build-pdf.ts --team-host … --out …, under their own file names)
+//   Team-AX-윈도우-데스크-가이드.pdf (<artifactBase>-…; docs/office, when built; --guide / --desk-guide put one team's
+//   copies in instead, built by docs/install/build-pdf.ts --team-host … --out …, under their own file names)
 //   app/docs/OFFICE.md (the runbook; the person at the office has no copy of the repository)
-//   app/VERSION, app/teamax (control command), app/versions.json
+//   app/VERSION, app/teamax (control command), app/versions.json, app/product.env (the product's names for the
+//   shell scripts: scripts/product-env.ts)
 //   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
 //   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-ocr}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
@@ -18,7 +19,7 @@
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
 // The desktop app installers are NOT in the zip (110–200 MB each). --with-desktop builds them (desktop: dist:win and
 // dist:mac, the universal dmg; TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE make one team's kit build) and copies them next to
-// the zip as Team-AX-Setup-<v>-x64.exe and Team-AX-<v>-mac-universal.dmg; --desktop-prebuilt copies what
+// the zip as <artifactBase>-Setup-<v>-x64.exe and <artifactBase>-<v>-mac-universal.dmg; --desktop-prebuilt copies what
 // desktop/release already has. Either way the installers are made first and the zip carries desktop.sha256 (their
 // names and SHA-256), so office-install.sh offers exactly those under Settings → Apps and nothing else it finds;
 // the office gets the zip and the installers in the same folder. --team-host (default TEAMAX_KIT_TEAM) puts that team's
@@ -29,7 +30,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
-import { PRODUCT } from '../shared/src/product'
+import { PRODUCT, productEnv } from '../shared/src/product'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -57,8 +58,8 @@ export const DOWNLOADS: Record<string, { url: string; sha256: string }> = {
   'pandoc-3.9.0.2-x86_64-macOS.zip': { url: 'https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-x86_64-macOS.zip', sha256: 'b9fbceabccbc8f34ac021a50483fc32f8160568d0b4b2c22d81bb29e3054fd82' },
 }
 
-/** "Team AX" → "Team-AX" in the guides' file names */
-export const FILE_NAME = PRODUCT.displayName.trim().replace(/\s+/g, '-')
+/** the guides' file names start like the installers' (PRODUCT.artifactBase) */
+export const FILE_NAME = PRODUCT.artifactBase
 /** the printed office-mode guide (docs/office/guide.html → PDF, `build-pdf.ts --office`), copied next to office-install.sh */
 export const OFFICE_PDF = `${FILE_NAME}-사무실모드-설치가이드.pdf`
 /** the desks' guide (docs/office/windows-guide.html → PDF, `build-pdf.ts --windows`), copied next to it */
@@ -139,7 +140,7 @@ export async function buildOffice(o: {
   }
   if (!fs.existsSync(path.join(REPO, 'web', 'dist', 'index.html'))) throw new Error('web/dist missing: run bun run --cwd web build')
 
-  const name = `TeamAX-office-${o.version}`
+  const name = `${PRODUCT.officeBundle}-${o.version}`
   const stage = path.join(o.out, name)
   const app = path.join(stage, 'app')
   fs.rmSync(stage, { recursive: true, force: true })
@@ -210,6 +211,8 @@ export async function buildOffice(o: {
     .split('team.example.com').join(o.teamHost ?? 'team.example.com')
   fs.writeFileSync(path.join(stage, '설치-먼저-읽기.txt'), readme)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
+  // the product's names for office-install.sh / office-uninstall.sh (they print them; nothing is run from it)
+  fs.writeFileSync(path.join(app, 'product.env'), productEnv({ PRODUCT_OFFICE_PDF: fs.existsSync(pdf) ? path.basename(pdf) : '' }))
   // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
@@ -227,8 +230,8 @@ export function desktopInstallers(o: { out: string; build: boolean; release?: st
   const version = o.version ?? (JSON.parse(fs.readFileSync(path.join(desktop, 'package.json'), 'utf8')) as { version: string }).version
   const release = o.release ?? path.join(desktop, 'release')
   const want: [string, string, string][] = [
-    ['dist:win', `Team-AX-Setup-${version}-win-x64.exe`, `Team-AX-Setup-${version}-x64.exe`],
-    ['dist:mac', `Team-AX-${version}-mac-universal.dmg`, `Team-AX-${version}-mac-universal.dmg`],
+    ['dist:win', `${PRODUCT.artifactBase}-Setup-${version}-win-x64.exe`, `${PRODUCT.artifactBase}-Setup-${version}-x64.exe`],
+    ['dist:mac', `${PRODUCT.artifactBase}-${version}-mac-universal.dmg`, `${PRODUCT.artifactBase}-${version}-mac-universal.dmg`],
   ]
   fs.mkdirSync(o.out, { recursive: true })
   const out: { file: string; size: number; sha256: string }[] = []

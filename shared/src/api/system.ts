@@ -87,7 +87,7 @@ export const ConnectionStatus = z.object({
   direct: z.object({ enabled: z.boolean(), port: z.number().int(), fingerprintSha256: z.string().nullable() }),
   /** the team name registered at the relay (relay.teamName in config/server.json; self-relay needs one) */
   teamName: z.string().nullable().optional(),
-  /** the modes this server offers in Admin > System > Change connection; "relay" (Team AX relay) only while it runs */
+  /** the modes this server offers in Admin > System > Change connection; "relay" (the official relay) only while it runs */
   availableModes: z.array(ConnectionMode).optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>

@@ -1,4 +1,4 @@
-;; Team AX engine sandbox (design tab 2 "기본 ② 샌드박스", tab 6 root/engine.sb).
+;; Engine sandbox (design tab 2 "기본 ② 샌드박스", tab 6 root/engine.sb).
 ;; The parameters below are param references. mycel-launcher writes their values into a copy of this profile with a
 ;; random name (no -D: sandbox-exec's argv is readable by every process of the account); by hand / in tests:
 ;;   sandbox-exec -f engine.sb -D CHAT_DIR=<agent>/<chatId> -D AGENT_ROOT=<agent> -D ENGINE_DIR=<dir of engine>

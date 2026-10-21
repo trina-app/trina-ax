@@ -4,7 +4,7 @@
 // what the visitor picked on the sign-in screen (kept in this browser), else the team default (GET /api/setup), else
 // English. The browser's language does not decide.
 import { create } from 'zustand'
-import { getDesktopBridge } from '@mycel/shared'
+import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
 import { en } from './en'
 import { id } from './id'
@@ -42,8 +42,11 @@ export function placeholdersOf(template: string): string[] {
   return [...names].sort()
 }
 
-export function format(template: string, params?: Params, locale: string = DEFAULT_LOCALE): string {
-  if (!params) return template
+/** Filled in every text without the caller passing them: the product's name lives in shared/src/product.ts only. */
+export const PRODUCT_PARAMS: Params = { product: PRODUCT.displayName, productFile: PRODUCT.artifactBase }
+
+export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
+  const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
   const withPlurals = template.replace(PLURAL, (all, k: string, forms: string) => {
     const v = params[k]
     const n = typeof v === 'number' ? v : Number(v)

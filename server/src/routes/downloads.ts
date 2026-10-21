@@ -22,6 +22,7 @@ import type { AppContext } from '../context'
 import { contentDisposition, parseRange, rangeStream, RANGE_MAX } from '../team-files/download'
 import { openChecked } from '../team-files/place'
 import { readIndex, SAFE_NAME } from '../office/desktop'
+import { PRODUCT } from '@mycel/shared'
 
 export const INSTALLER_TYPES: Record<string, string> = {
   '.exe': 'application/vnd.microsoft.portable-executable',
@@ -39,7 +40,7 @@ const text = (status: number, body: string, extra: Record<string, string> = {}) 
 export async function downloadRoute(c: Context<AppEnv>, ctx: AppContext, dir: string | null): Promise<Response> {
   let auth = null
   try { auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info')) } catch (e) { c.get('log').error('session lookup failed', { err: e }) }
-  if (!auth) return text(401, 'Sign in to Team AX first, then download the app from Settings → Apps.\n')
+  if (!auth) return text(401, `Sign in to ${PRODUCT.displayName} first, then download the app from Settings → Apps.\n`)
   if (auth.user.mustChangePassword) return text(403, 'Change your temporary password first.\n')
   return serveDownload(c.req.raw, c.req.path.slice('/downloads'.length), dir)
 }

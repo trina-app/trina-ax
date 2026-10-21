@@ -1,4 +1,4 @@
-// Office mode (docs/OFFICE.md): one Mac in a small office runs Team AX for the desks on its network, as
+// Office mode (docs/OFFICE.md): one Mac in a small office runs the team server for the desks on its network, as
 // the signed-in macOS user, with that Mac's own Claude Code login (dev mode's engine setup: local-login, engine.sb
 // sandbox, the permission function, the engine lockdown). Bundled as app/server/src/office.js by
 // scripts/build-office.ts and run by app/bin/bun; `~/TeamAX/teamax <command>` is the short way to call it.
@@ -34,7 +34,7 @@
 //   desktop list | add FILE [--version V] [--keep] | remove FILE
 //           | add-from DIR... [--fallback DIR] [--manifest FILE] [--dry-run]
 //                                  the desktop app installers members download under Settings → Apps (data/downloads,
-//                                  ./desktop.ts); add-from offers the newest Team-AX-Setup-*-x64.exe / Team-AX-*-mac*.dmg
+//                                  ./desktop.ts); add-from offers the newest <artifactBase>-Setup-*-x64.exe / <artifactBase>-*-mac*.dmg
 //                                  found in the folders (office-install.sh runs it; a --fallback folder only after a
 //                                  yes on the terminal; with the bundle's desktop.sha256 only the files it lists).
 //                                  No restart needed.
@@ -61,6 +61,7 @@ import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } f
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 import { updateView } from './update'
+import { PRODUCT } from '@mycel/shared'
 
 const CHECK_MS = 30_000
 const TLS_RECHECK_MS = 6 * 3600_000
@@ -118,7 +119,7 @@ export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, 
   const origins = deskOrigins(t.names, s.lanPort, { shown: true })
   const helper: HelperState = {
     caPem: fs.readFileSync(path.join(p.tls, 'ca.crt'), 'utf8'), caDer: new Uint8Array(t.ca.raw), sha256: fp.sha256, sha1: fp.sha1,
-    origins, caName: /CN=([^\n]+)/.exec(t.ca.subject)?.[1] ?? 'Team AX office CA',
+    origins, caName: /CN=([^\n]+)/.exec(t.ca.subject)?.[1] ?? `${PRODUCT.displayName} office CA`,
   }
   fs.writeFileSync(p.info, infoText(s, helper, t.left), { mode: 0o644 })
   fs.writeFileSync(p.card, deskCard(helper, { helper: helperOrigins(s, origins)[0] ?? null, caCer: path.join(p.tls, 'ca.cer'), made: new Date().toISOString().slice(0, 16).replace('T', ' '), public: publicOrigin(s) }), { mode: 0o644 })
@@ -139,7 +140,7 @@ export function infoText(s: OfficeSettings, h: HelperState, left: string[] = [])
   const p = officePaths(s.home)
   const pub = publicOrigin(s)
   return [
-    `Team AX 사무실 모드 / office mode — ${new Date().toISOString()}`,
+    `${PRODUCT.displayName} 사무실 모드 / office mode — ${new Date().toISOString()}`,
     '',
     ...(pub ? [
       '인터넷 주소 (인증서 설치 필요 없음, 어디서나) / internet address (no certificate to install, from anywhere):',
@@ -621,7 +622,7 @@ async function restartServer(s: OfficeSettings) {
   const agent = launchAgent(s.label, officePaths(s.home).plist(s.label))
   if (!fs.existsSync(officePaths(s.home).plist(s.label))) return
   if (agent.loaded()) { agent.stop(); await Bun.sleep(1000) }
-  console.log(`Team AX: ${agent.start()}`)
+  console.log(`${PRODUCT.displayName}: ${agent.start()}`)
   if (!(await waitHealthy(s, 90))) console.log(`the server did not answer within 90 s; see ${officePaths(s.home).officeLog}`)
 }
 
@@ -688,7 +689,7 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
   if (sub === '--help' || sub === '-h' || sub === 'help') { out(DESKTOP_USAGE); return 0 }
   if (sub === 'list') {
     const { items, stray } = listInstallers(dir)
-    if (!items.length) out(`올라간 데스크톱 앱 없음 / no desktop app offered (${dir}). 올리기 / add: ${teamax} desktop add <Team-AX-Setup-…-x64.exe | Team-AX-…-mac-universal.dmg>`)
+    if (!items.length) out(`올라간 데스크톱 앱 없음 / no desktop app offered (${dir}). 올리기 / add: ${teamax} desktop add <${PRODUCT.artifactBase}-Setup-…-x64.exe | ${PRODUCT.artifactBase}-…-mac-universal.dmg>`)
     for (const i of items) out(`${platformWord(i.platform).padEnd(8)} ${i.version.padEnd(10)} ${sizeText(i.size).padStart(9)}  ${i.signed ? 'verified  ' : i.signature === 'unverified' ? 'unverified' : 'unsigned  '}  ${i.file}${i.arch && i.arch !== 'universal' ? ` (${i.arch} only)` : ''}${i.sha256 ? `  sha256 ${i.sha256.slice(0, 16)}…` : ''}`)
     if (stray.length) out(`목록에 없는 파일 (안 보임) / files not in the list (not shown): ${stray.join(', ')}`)
     return 0
@@ -746,7 +747,7 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
     }
     if (!picks.length) {
       for (const n of notes) out(n)
-      out('데스크톱 앱 설치 파일 없음 / no desktop installer found (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg)')
+      out(`데스크톱 앱 설치 파일 없음 / no desktop installer found (${PRODUCT.artifactBase}-Setup-*-x64.exe, ${PRODUCT.artifactBase}-*-mac*.dmg)`)
       return 0
     }
     let bad = 0, offered = 0
