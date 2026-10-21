@@ -84,6 +84,9 @@ export default function Audit() {
                   {actionLabel(t, e)}
                 </span>
                 {e.target && <code className="min-w-0 truncate rounded bg-subtle px-1 text-xs">{e.target}</code>}
+                {/* sign-ins: where from, without opening the row (via "internet" = the office internet address) */}
+                {typeof e.detail?.ip === 'string' && <span className="text-xs text-faint tabular-nums" data-testid="audit-ip">{e.detail.ip}</span>}
+                {e.detail?.via === 'internet' && <Badge>{t('audit.viaInternet')}</Badge>}
                 <ToolOutcome e={e} />
               </button>
               {open === e.id && e.detail && <pre className="mt-2 overflow-x-auto rounded bg-subtle p-2 text-xs">{JSON.stringify(e.detail, null, 2)}</pre>}

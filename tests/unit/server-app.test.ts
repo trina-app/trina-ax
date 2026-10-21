@@ -240,7 +240,7 @@ describe('system + web', () => {
     const api = new ApiClient({ baseUrl: 'http://team.localhost', fetch: ((u: string, i: RequestInit) => app.fetch(new Request(u, i), { ip: null, via: 'test' })) as unknown as typeof fetch })
     const h = await api.call(API.health)
     expect(h.ok).toBe(true)
-    expect(h.schema.applied).toBeGreaterThanOrEqual(2)
+    expect(h.schema!.applied).toBeGreaterThanOrEqual(2)
     const err = await api.call(T.adminOnly).catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(401)

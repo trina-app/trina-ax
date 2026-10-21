@@ -20,7 +20,12 @@ export const authRoutes: RouteModule = {
   register(kit, ctx) {
     const a = () => authOf(ctx)
 
-    kit.handle(API.setupStatus, () => setupStatus(ctx))
+    // the office internet address never offers the first-run setup (it is refused there anyway, accounts.ts setup): it
+    // shows the sign-in page and does not tell the internet whether the team is set up yet (attack review finding 2)
+    kit.handle(API.setupStatus, ({ c }) => {
+      const s = setupStatus(ctx)
+      return c.get('info').tunnel ? { ...s, needed: false } : s
+    })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
 

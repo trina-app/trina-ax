@@ -11,7 +11,7 @@ import { loadAppConfig } from '../../server/src/app-config'
 import { originsFor, publicAddressRefusal, visitorScheme } from '../../server/src/http/middleware'
 import { cfClientIp, directFetch, isLoopback, tunnelRequest } from '../../server/src/http/tunnel'
 import { peerIp } from '../../server/src/main'
-import { configure, readTunnelToken, tunnelIdOf, tunnelPlist } from '../../server/src/office/cli'
+import { classifyPublic, configure, portProblems, publicProblem, readTunnelToken, tunnelIdOf, tunnelPlist } from '../../server/src/office/cli'
 import { deskCard } from '../../server/src/office/helper'
 import { loadSettings, officePaths, parseCountries, parsePublicHost, serverConfig, settingsFrom, settingsText, tunnelLabel } from '../../server/src/office/settings'
 import { checkRecords, ingressFor, main as publicAddressMain, normHost, readCert, Refused, removeAddress, setAddress, type Api } from '../../scripts/office/public-address'
@@ -127,9 +127,13 @@ describe('the app through the tunnel path', () => {
     expect(JSON.stringify(await r.json())).toContain('internet address')
     expect(r.headers.get('set-cookie')).toBeNull()
     expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(0)
-    // the setup status itself says only that setup is pending (no token, no link)
+    // the internet address does not say that the team is not set up yet, and shows no setup form (attack review
+    // finding 2, do-it review 3): the web app shows its sign-in page there; the Mac still sees the setup
     const st = await (await send('/api/setup', { ip: '203.0.113.5' })).text()
     expect(st).not.toContain(SETUP_TOKEN)
+    expect(JSON.parse(st).needed).toBe(false)
+    expect((await (await send('/api/setup', { host: 'localhost:47830' })).json() as { needed: boolean }).needed).toBe(true)
+    expect((await (await send('/api/setup', { port: 8443, peer: '192.168.1.50', host: '192.168.1.18:8443' })).json() as { needed: boolean }).needed).toBe(true)
     const local = await send('/api/setup', { method: 'POST', host: 'localhost:47830', origin: 'http://localhost:47830', body })
     expect(local.status).toBe(201)
   })
@@ -185,6 +189,44 @@ describe('the app through the tunnel path', () => {
       // the Mac and the LAN are not affected by the internet allow-list
       expect((await send('/api/health', { host: 'localhost:47830' })).status).toBe(200)
     } finally { h.ctx.config.tunnel = { host: HOST, allowFrom: [], countries: [] } }
+  })
+
+  test('health on the internet address, signed out: liveness only, no version / schema / uptime (attack review finding 1)', async () => {
+    const pub = await (await send('/api/health', { ip: '203.0.113.5' })).json() as Record<string, unknown>
+    expect(pub.ok).toBe(true)
+    expect(typeof pub.time).toBe('string')
+    expect(Object.keys(pub).sort()).toEqual(['ok', 'time'])
+    // the Mac itself and the office LAN keep the full answer (menubar, update check)
+    const local = await (await send('/api/health', { host: 'localhost:47830' })).json() as Record<string, unknown>
+    expect(typeof local.version).toBe('string')
+    expect(local.schema).toBeTruthy()
+    const lan = await (await send('/api/health', { port: 8443, peer: '192.168.1.50', host: '192.168.1.18:8443' })).json() as Record<string, unknown>
+    expect(typeof lan.version).toBe('string')
+    // a signed-in person on the internet address sees it too
+    const ok = await send('/api/auth/login', { method: 'POST', ip: '198.51.100.40', origin: PUB, body: { username: 'director', password: OWNER_PW } })
+    const signed = await (await send('/api/health', { ip: '198.51.100.40', cookie: cookieOf(ok) })).json() as Record<string, unknown>
+    expect(typeof signed.version).toBe('string')
+  })
+
+  test('sign-ins through the internet address are marked via "internet" in the audit log; the Mac stays "direct" (do-it review 5)', async () => {
+    await send('/api/auth/login', { method: 'POST', ip: '198.51.100.41', origin: PUB, body: { username: 'director', password: 'wrong wrong wrong' } })
+    const pubRow = JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'auth.login_failed' ORDER BY rowid DESC LIMIT 1").get() as { detail: string }).detail)
+    expect(pubRow).toMatchObject({ ip: '198.51.100.41', via: 'internet' })
+    await send('/api/auth/login', { method: 'POST', host: 'localhost:47830', origin: 'http://localhost:47830', body: { username: 'director', password: 'wrong wrong wrong' } })
+    const macRow = JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'auth.login_failed' ORDER BY rowid DESC LIMIT 1").get() as { detail: string }).detail)
+    expect(macRow).toMatchObject({ ip: '127.0.0.1', via: 'direct' })
+  })
+
+  test('guessing invite / reset tokens through the internet address is limited per visitor IP (attack review finding 5)', async () => {
+    let limited = false
+    for (let i = 0; i < 60 && !limited; i++) {
+      const r = await send(`/api/invites/${'x'.repeat(30)}${i}`, { ip: '192.0.2.90' })
+      limited = r.status === 429
+    }
+    expect(limited).toBe(true)
+    expect((await send(`/api/password-resets/${'y'.repeat(32)}`, { ip: '192.0.2.90' })).status).toBe(429)
+    // another visitor still gets a plain "not found"
+    expect((await send(`/api/invites/${'x'.repeat(32)}`, { ip: '192.0.2.91' })).status).toBe(404)
   })
 
   test('every request body fits Cloudflare\'s 100 MB limit: bigger files go through 8 MB chunks', () => {
@@ -253,6 +295,25 @@ describe('office settings with an internet address', () => {
     // off: the name is cleared (the token file is removed by `teamax public-address off`)
     configure(home, ['--public-host', ''])
     expect(loadSettings(home).publicHost).toBeNull()
+  })
+
+  test('teamax public-address tells a tunnel pointing at the wrong port (502) from a missing connector (530) (do-it review 1)', async () => {
+    expect(classifyPublic(200)).toBe('ok')
+    expect(classifyPublic(502)).toBe('origin')
+    expect(classifyPublic(504)).toBe('origin')
+    expect(classifyPublic(530)).toBe('tunnel')
+    expect(classifyPublic(null)).toBe('none')
+    const s = { publicHost: HOST, appPort: 47931 }
+    const wrongPort = publicProblem(s, 'origin', '/x/tunnel.log')
+    expect(wrongPort).toContain('502')
+    expect(wrongPort).toContain(`public-address.ts set ${HOST} --port 47931`)
+    expect(publicProblem(s, 'tunnel', '/x/tunnel.log')).toContain('530')
+    // a busy app port: the hint says the tunnel must follow the new port
+    const busy = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+    try {
+      const p = await portProblems({ appPort: busy.port, lanPort: busy.port, helperPort: 0 })
+      expect(p.join('\n')).toContain('--port <that port>')
+    } finally { busy.stop(true) }
   })
 
   test('the desk card puts the internet address first and keeps the LAN steps as the fallback', () => {

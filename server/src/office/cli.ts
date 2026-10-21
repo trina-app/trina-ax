@@ -410,7 +410,7 @@ export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort'
     if (!busy) {
       try { Bun.listen({ hostname, port, socket: { data() {} } }).stop(true) } catch { busy = true }
     }
-    if (busy) out.push(`port ${port} is in use by another program: choose another with ${flag} <port>`)
+    if (busy) out.push(`port ${port} is in use by another program: choose another with ${flag} <port>${flag === '--app-port' ? ' (with an internet address, the owner then runs public-address.ts set <name> --port <that port> so the tunnel points at it)' : ''}`)
   }
   return out
 }
@@ -471,13 +471,47 @@ export async function syncTunnelAgent(s: OfficeSettings): Promise<string> {
   return `cloudflared (${tunnelLabel(s)}): ${ta.start()}`
 }
 
+/** What https://<public host>/api/health says through Cloudflare: 'ok', 'origin' (502/504: the tunnel is connected but
+ * its ingress does not reach this Mac's app port, e.g. the app port was changed at install and the owner's Mac still
+ * points the tunnel at 47830), 'tunnel' (530: no connector of that tunnel is running, or the token belongs to
+ * another tunnel), 'none' (no answer: DNS, no internet). */
+export type PublicProbe = 'ok' | 'origin' | 'tunnel' | 'none'
+export function classifyPublic(status: number | null): PublicProbe {
+  if (status === null) return 'none'
+  if (status >= 200 && status < 400) return 'ok'
+  if (status === 502 || status === 504) return 'origin'
+  if (status === 530) return 'tunnel'
+  return 'none'
+}
+async function probePublic(host: string, timeoutMs = 4000): Promise<PublicProbe> {
+  try { return classifyPublic((await fetch(`https://${host}/api/health`, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' })).status) } catch { return 'none' }
+}
+const probeWord = (r: PublicProbe) => r === 'ok' ? 'answers' : r === 'origin' ? '502 (the tunnel points elsewhere)' : r === 'tunnel' ? '530 (no connector)' : 'no answer'
+
 /** wait until https://<public host>/api/health answers through Cloudflare (the connector needs a few seconds) */
-async function waitPublic(host: string, seconds: number): Promise<boolean> {
+async function waitPublic(host: string, seconds: number): Promise<PublicProbe> {
+  let last: PublicProbe = 'none'
   for (let i = 0; i < seconds; i += 2) {
-    if (await answers(`https://${host}/api/health`, 4000)) return true
+    last = await probePublic(host)
+    if (last === 'ok') return last
     await Bun.sleep(2000)
   }
-  return false
+  return last
+}
+
+/** the owner-facing explanation of a probe that did not answer (Korean, then the command) */
+export function publicProblem(s: Pick<OfficeSettings, 'publicHost' | 'appPort'>, r: PublicProbe, tunnelLog: string): string {
+  const h = s.publicHost
+  if (r === 'origin') return [
+    `https://${h} → 502: Cloudflare 터널은 연결됐지만 이 맥의 앱 포트(127.0.0.1:${s.appPort})가 아닌 곳을 가리킵니다 / the tunnel does not point at this Mac's app port.`,
+    `  원장님 맥에서 / on the owner's Mac: bun scripts/office/public-address.ts set ${h} --port ${s.appPort} --cert <cert 파일>`,
+    '  (이 맥에서는 다시 할 일이 없습니다 / nothing to redo on this Mac)',
+  ].join('\n')
+  if (r === 'tunnel') return [
+    `https://${h} → 530: 이 이름의 터널에 연결된 cloudflared가 없습니다 (토큰이 다른 터널 것이거나 cloudflared가 멈춤) / no connector for this name's tunnel.`,
+    `  확인 / check: ${tunnelLog} , teamax public-address status , 원장님 맥에서 public-address.ts status ${h}`,
+  ].join('\n')
+  return `https://${h}: 아직 답이 없습니다 / no answer yet: 이름(DNS)과 인터넷 연결을 확인하세요 (원장님 맥에서 public-address.ts status ${h}), ${tunnelLog}`
 }
 
 async function publicAddress(home: string, args: string[]): Promise<number> {
@@ -489,8 +523,8 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     const before = loadSettings(home)
     const s = configure(home, ['--public-host', host, '--tunnel-token-file', tokenFile])
     console.log(`인터넷 주소 / internet address: https://${s.publicHost}  (토큰 / token: ${officePaths(home).tunnelToken}, 600)`)
-    await applyPublicChange(s, before.publicHost !== s.publicHost)
-    return 0
+    console.log(`이 맥의 앱 포트 / this Mac's app port: ${s.appPort} (Cloudflare 터널이 http://127.0.0.1:${s.appPort}을 가리켜야 합니다 / the tunnel must point there)`)
+    return (await applyPublicChange(s, before.publicHost !== s.publicHost)) ? 0 : 1
   }
   if (sub === 'off') {
     const before = loadSettings(home)
@@ -499,7 +533,8 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     say2(await syncTunnelAgent(s))
     if (before.publicHost) await restartServer(s)
     console.log('인터넷 주소를 껐습니다 / internet address off. 사무실 안 주소는 그대로입니다 / the office addresses are unchanged.')
-    console.log('Cloudflare 쪽 이름·터널 지우기 (주인 맥에서) / remove the name and tunnel at Cloudflare (on the owner\'s Mac): bun scripts/office/public-address.ts remove <name> --cert <file>')
+    const name = before.publicHost ?? '<name>'
+    console.log(`Cloudflare 쪽 이름·터널 지우기 (원장님 맥에서) / remove the name and tunnel at Cloudflare (on the owner's Mac): bun scripts/office/public-address.ts remove ${name} --cert <cert 파일>`)
     return 0
   }
   if (sub === 'status') {
@@ -509,11 +544,14 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     const ta = tunnelAgentOf(s)
     let id: string | null = null
     try { id = tunnelIdOf(readTunnelToken(p.tunnelToken)) } catch {}
-    console.log(`internet address  https://${s.publicHost}  ${(await answers(`https://${s.publicHost}/api/health`, 6000)) ? 'answers' : 'no answer'}`)
+    const probe = await probePublic(s.publicHost, 6000)
+    console.log(`internet address  https://${s.publicHost}  ${probeWord(probe)}`)
+    console.log(`  app port        127.0.0.1:${s.appPort} (the tunnel's ingress must be http://127.0.0.1:${s.appPort})`)
     console.log(`  token           ${id ? `tunnel ${id} (${p.tunnelToken})` : 'missing or not a connector token'}`)
     console.log(`  cloudflared     ${!fs.existsSync(p.plist(tunnelLabel(s))) ? 'not installed' : ta.loaded() ? `running${ta.pid() ? ` (pid ${ta.pid()})` : ''}` : 'stopped'}`)
     if (s.publicAllowFrom.length || s.publicCountries.length) console.log(`  allow-list      ${[...s.publicAllowFrom, ...s.publicCountries].join(', ')}`)
     console.log(`  log             ${p.tunnelLog}`)
+    if (probe !== 'ok') console.log(publicProblem(s, probe, p.tunnelLog))
     return 0
   }
   console.error('usage: teamax public-address set <app.example.com> <token file> | off | status')
@@ -529,13 +567,20 @@ async function restartServer(s: OfficeSettings) {
   if (!(await waitHealthy(s, 90))) console.log(`the server did not answer within 90 s; see ${officePaths(s.home).officeLog}`)
 }
 
-async function applyPublicChange(s: OfficeSettings, serverToo: boolean) {
+/** true when the internet address answers afterwards (else the reason is printed and `set` exits 1) */
+async function applyPublicChange(s: OfficeSettings, serverToo: boolean): Promise<boolean> {
   if (serverToo || !launchAgent(s.label, officePaths(s.home).plist(s.label)).loaded()) await restartServer(s)
   console.log(await syncTunnelAgent(s))
-  if (!fs.existsSync(officePaths(s.home).plist(tunnelLabel(s)))) return
+  if (!fs.existsSync(officePaths(s.home).plist(tunnelLabel(s)))) return false
   console.log(`https://${s.publicHost} 확인 중 / checking ...`)
-  if (await waitPublic(s.publicHost!, 60)) console.log(`인터넷 주소가 답합니다 / the internet address answers: https://${s.publicHost}`)
-  else console.log(`아직 답이 없습니다 / no answer yet: DNS나 터널 설정을 확인하세요 / check the name at Cloudflare (public-address.ts status) and ${officePaths(s.home).tunnelLog}`)
+  const r = await waitPublic(s.publicHost!, 60)
+  if (r === 'ok') {
+    console.log(`인터넷 주소가 답합니다 / the internet address answers: https://${s.publicHost}`)
+    console.log(`데스크 카드를 다시 인쇄하세요 / print the desk card again: ${path.join(s.home, 'teamax')} card`)
+    return true
+  }
+  console.log(publicProblem(s, r, officePaths(s.home).tunnelLog))
+  return false
 }
 
 function teamIsSetUp(home: string): boolean {
@@ -572,7 +617,8 @@ export async function main(argv: string[]): Promise<number> {
       const tl = await syncTunnelAgent(s)
       if (tl) lines(tl)
       if (s.publicHost && fs.existsSync(p.plist(tunnelLabel(s)))) {
-        lines(`https://${s.publicHost} ${(await waitPublic(s.publicHost, 40)) ? '답함 / answers' : '아직 답 없음 / no answer yet (teamax public-address status)'}`)
+        const r = await waitPublic(s.publicHost, 40)
+        lines(r === 'ok' ? `https://${s.publicHost} 답함 / answers (앱 포트 / app port ${s.appPort})` : publicProblem(s, r, p.tunnelLog))
       }
       lines('')
       lines(fs.readFileSync(p.info, 'utf8'))
@@ -618,7 +664,11 @@ export async function main(argv: string[]): Promise<number> {
       const pid = agent.loaded() ? agent.pid() : null
       lines(!installed ? 'not installed' : !agent.loaded() ? 'installed, stopped (teamax start)' : `running${pid ? ` (pid ${pid})` : ' (starting)'}`)
       lines(`  this Mac  http://127.0.0.1:${s.appPort}  ${(await answers(`http://127.0.0.1:${s.appPort}/api/health`)) ? 'answers' : 'no answer'}`)
-      if (s.publicHost) lines(`  internet  https://${s.publicHost}  ${(await answers(`https://${s.publicHost}/api/health`, 6000)) ? 'answers' : 'no answer'}  (cloudflared ${tunnelAgentOf(s).loaded() ? 'running' : 'stopped'})`)
+      if (s.publicHost) {
+        const r = await probePublic(s.publicHost, 6000)
+        lines(`  internet  https://${s.publicHost}  ${probeWord(r)}  (cloudflared ${tunnelAgentOf(s).loaded() ? 'running' : 'stopped'}, app port ${s.appPort})`)
+        if (r !== 'ok') lines(publicProblem(s, r, p.tunnelLog))
+      }
       let origins: string[] = []
       try { const cfg = JSON.parse(fs.readFileSync(p.serverJson, 'utf8')); origins = (cfg.publicOrigins as string[]).filter((o) => SHOWN.test(o)) } catch {}
       for (const o of origins) lines(`  desks     ${o}  ${(await answers(`${o}/api/health`)) ? 'answers' : 'no answer'}`)

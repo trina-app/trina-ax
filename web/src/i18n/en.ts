@@ -665,6 +665,7 @@ export const en: Record<MessageKey, string> = {
   'audit.all': 'All',
   'audit.actor': 'Who',
   'audit.system': 'System',
+  'audit.viaInternet': 'Internet',
   'audit.everyone': 'Everyone',
   'audit.path': 'Path',
   'audit.none': 'Nothing matches.',
