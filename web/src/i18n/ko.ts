@@ -506,7 +506,7 @@ export const ko = {
   'connected.partial': '나머지는 다음 번에',
   'connected.empty': '연결된 폴더가 없어요',
   'engines.api.title': 'API 엔진',
-  'engines.api.desc': 'OpenAI 호환 API로 쓰는 엔진이에요(OpenAI, Gemini, OpenRouter, 이 맥의 Ollama 등). 서버 안에서 돌고 팀 도구만 쓸 수 있어요. API 비용은 이 키의 계정에서 나가요.',
+  'engines.api.desc': 'OpenAI 호환 API로 쓰는 엔진이에요(Claude API, OpenAI, Gemini, OpenRouter, 이 맥의 Ollama 등). 서버 안에서 돌고 팀 도구만 쓸 수 있어요. API 비용은 이 키의 계정에서 나가요.',
   'engines.api.preset': '제공자',
   'engines.api.custom': '직접 입력',
   'engines.api.baseUrl': 'API 주소',
