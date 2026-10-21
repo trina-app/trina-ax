@@ -31,11 +31,14 @@ export class RecordingHub implements RealtimeHub {
     for (const u of this.online) { const ev = build(u); if (ev) this.events.push({ userId: u, ev }) }
   }
   disconnectUser() {}
+  /** people whose replay buffer was dropped (access changed) */
+  forgotten: string[] = []
+  forgetReplay(userId: string) { this.forgotten.push(userId) }
   async attach(conn: RealtimeConn) { conn.close(1012, 'not in tests') }
   of<T extends ServerEventInput['type']>(type: T, userId?: string) {
     return this.events.filter((e) => e.ev.type === type && (!userId || e.userId === userId)).map((e) => e.ev as Extract<ServerEventInput, { type: T }>)
   }
-  clear() { this.events = [] }
+  clear() { this.events = []; this.forgotten = [] }
 }
 
 export interface CApp {

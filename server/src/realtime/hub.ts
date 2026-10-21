@@ -9,6 +9,8 @@ import {
 import type { AuthInfo, RealtimeConn, RealtimeHub, RequestInfo } from '../services'
 import type { AppContext } from '../context'
 import { originAllowed } from '../http/middleware'
+import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
+import { visibleChanges } from '../team-files/changes'
 
 /** Hard caps on top of the contract's "at least 2000 events / 5 minutes" (memory stays bounded per person). */
 export const REPLAY_MAX_EVENTS = 20_000
@@ -223,21 +225,50 @@ export class Hub implements RealtimeHub {
     } else {
       const after = q.data.after ?? 0
       const oldest = u.buffer[0]?.firstSeq ?? u.seq + 1
-      if (after > u.seq || after < oldest - 1) {
+      const replay = after > u.seq || after < oldest - 1 ? null
+        : u.buffer.filter((e) => e.seq > after && (!e.window || e.window === windowId) && !e.acked)
+      if (!replay || !this.stillVisible(userId, replay)) {
         this.sendFrame(s, hello(false))
         this.sendFrame(s, { type: 'resync', epoch, seq: u.seq, reason: 'buffer_overflow' })
       } else {
         this.sendFrame(s, hello(true))
-        for (const e of u.buffer) {
-          if (e.seq <= after) continue
-          if (e.window && e.window !== windowId) continue
-          if (e.acked) continue
-          if (!this.send(s, JSON.stringify(e.ev))) break
-        }
+        for (const e of replay) if (!this.send(s, JSON.stringify(e.ev))) break
       }
     }
     s.ready = true
     for (const l of this.windowListeners) try { l(userId, windowId, 'open') } catch (e) { this.ctx.log.error('window listener failed', { err: e }) }
+  }
+
+  /**
+   * Second check before a replay (the first is forgetReplay on every access change): every file path a buffered
+   * files.changed / files.conflict names must still be readable by the person under the rules as they are NOW. The
+   * events were filtered when they were published; a person removed from a folder since then must not get its new
+   * file and folder names from the buffer when HTTP already answers 404. Anything that no longer passes unchanged
+   * turns the whole replay into a resync (the window reloads over REST, which checks again), so nothing is skipped
+   * silently either.
+   */
+  private stillVisible(userId: string, entries: readonly Entry[]): boolean {
+    const files = entries.filter((e) => e.ev.type === 'files.changed' || e.ev.type === 'files.conflict')
+    if (!files.length) return true
+    try {
+      const who = loadPrincipal(this.ctx.db, userId)
+      if (!who) return false
+      const rules = RuleSet.load(this.ctx.db)
+      const can = (p: string) => atLeast(rules.access(who, p === '' ? [] : p.split('/')), 'read')
+      for (const { ev } of files) {
+        if (ev.type === 'files.changed') {
+          // a move stays a move only when both ends are readable; anything dropped or rewritten fails
+          const now = visibleChanges(rules, who, ev.data.changes)
+          if (JSON.stringify(now) !== JSON.stringify(ev.data.changes)) return false
+        } else if (ev.type === 'files.conflict') {
+          if (!can(ev.data.path) || !can(ev.data.copyPath)) return false
+        }
+      }
+      return true
+    } catch (e) {
+      this.ctx.log.error('replay permission check failed', { err: e, user: userId })
+      return false
+    }
   }
 
   private onMessage(s: Socket, data: string) {
@@ -335,6 +366,18 @@ export class Hub implements RealtimeHub {
       if (s.closed || !s.conn.ping) continue
       try { s.conn.ping() } catch { this.drop(s, null) }
     }
+  }
+
+  /**
+   * Drop a person's replay history (their access changed, they were disabled or deleted). The seq counter stays, so
+   * any resume from before this point is answered with resync and the window reloads over REST, which applies the
+   * new access; nothing published under the old access is replayed. Open windows keep their sockets.
+   */
+  forgetReplay(userId: string): void {
+    const u = this.users.get(userId)
+    if (!u) return
+    u.buffer = []
+    u.bytes = 0
   }
 
   /** Forget people with no sockets whose buffer has aged out (the buffer must outlive WS_REPLAY_MIN_MS). */

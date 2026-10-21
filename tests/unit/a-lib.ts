@@ -36,6 +36,9 @@ export class RecordingHub implements RealtimeHub {
   publishEach(build: (userId: string) => unknown) { const ev = build('*'); if (ev) this.events.push({ kind: 'publish', target: '*', data: ev }) }
   disconnectUser(userId: string, reason: string) { this.events.push({ kind: 'disconnectUser', target: userId, data: reason }) }
   disconnectSession(sessionId: string, reason: string) { this.events.push({ kind: 'disconnectSession', target: sessionId, data: reason }) }
+  /** people whose replay buffer was dropped (access changed) */
+  forgotten: string[] = []
+  forgetReplay(userId: string) { this.forgotten.push(userId) }
   async attach(conn: RealtimeConn) { conn.close(1012, 'not in tests') }
 }
 

@@ -29,7 +29,7 @@ const testModule: RouteModule = {
   owner: 'F',
   init(c) {
     c.services.realtime = {
-      publish() {}, publishEach() {}, disconnectUser() {},
+      publish() {}, publishEach() {}, disconnectUser() {}, forgetReplay() {},
       async attach(conn: RealtimeConn, req: Request, info: RequestInfo) {
         attached.push({ info, url: req.url, protocol: req.headers.get('sec-websocket-protocol') ?? '' })
         conn.onMessage((d) => conn.send(`echo:${d}`))
