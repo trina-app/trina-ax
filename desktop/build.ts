@@ -1,7 +1,8 @@
 // Bundle the desktop app into dist/: main process, the two preloads, the desktop's own screens and the injected
 // page script. `bun run build` (desktop/). Shared code (@mycel/shared, zod) is bundled; only electron is external.
-import { cpSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseKit } from './src/common/kit'
 import { ensureElectron } from './scripts/ensure-electron'
 
 const root = import.meta.dir
@@ -29,5 +30,13 @@ await Promise.all([
 ])
 for (const f of ['welcome.html', 'pane.html', 'ui.css']) cpSync(join(root, 'src/ui', f), join(out, 'ui', f))
 cpSync(join(root, 'src/main/pane/page-script.js'), join(out, 'page-script.js'))
+// a kit build for one team (src/common/kit.ts): TEAMAX_KIT_TEAM=<team address> [TEAMAX_KIT_LOCALE=ko|en|id]
+const kitEnv = { team: process.env.TEAMAX_KIT_TEAM || undefined, locale: process.env.TEAMAX_KIT_LOCALE || undefined }
+if (kitEnv.team || kitEnv.locale) {
+  const kit = parseKit(kitEnv)
+  if ((kitEnv.team && !kit.team) || (kitEnv.locale && !kit.locale)) throw new Error(`TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE not usable: ${JSON.stringify(kitEnv)}`)
+  writeFileSync(join(out, 'kit.json'), JSON.stringify(kit) + '\n')
+  console.log(`kit: ${JSON.stringify(kit)}`)
+}
 await ensureElectron()
 console.log(`built ${out}`)

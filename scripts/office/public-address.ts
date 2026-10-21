@@ -16,8 +16,11 @@
 // http_status:404, keeping rules for other names. Creates or corrects ONLY <name>'s proxied CNAME. Writes the
 // connector token to --token-out (default ~/.config/teamax-office/<name>.tunnel-token, 600). No other record, the
 // apex or another name is touched.
-// remove: deletes <name>'s CNAME (only a tunnel CNAME), drops <name> from the tunnel's ingress and deletes the tunnel
-// when no other name uses it (--keep-tunnel keeps it), and the local token file.
+// Also drops <name>'s rule from every other remotely managed tunnel of the account (a name that moved to another tunnel,
+// or one an older remove left behind), so a name is served by one tunnel only; those tunnels are never deleted.
+// remove: deletes <name>'s CNAME (only a tunnel CNAME), drops <name> from the ingress of every remotely managed tunnel of
+// the account and deletes the tunnel the CNAME pointed to (or the default-named one) when no other name uses it
+// (--keep-tunnel keeps that tunnel, still without <name>'s rule), and the local token file.
 // Changing the address later: `set <new name>`, then on the clinic's Mac `teamax public-address set <new name>
 // <token file>`, then `remove <old name>`.
 //
@@ -152,6 +155,40 @@ export function ingressFor(host: string, port: number, current: IngressRule[]): 
   ]
 }
 
+/** the rules without <host>'s, one catch-all 404 last */
+export function ingressWithout(host: string, current: IngressRule[]): IngressRule[] {
+  return [...current.filter((r) => r.hostname && r.hostname.toLowerCase() !== host), { service: 'http_status:404' }]
+}
+
+const hasRule = (host: string, ingress: IngressRule[]) => ingress.some((r) => r.hostname?.toLowerCase() === host)
+
+/** the account's remotely managed tunnels whose ingress has a rule for <host> (one config read per tunnel) */
+async function tunnelsWithRule(api: Api, accountId: string, host: string): Promise<{ tunnel: Tunnel; config: Record<string, unknown>; ingress: IngressRule[] }[]> {
+  const all: Tunnel[] = []
+  for (let page = 1; page <= 20; page++) {
+    const ts = (await api('GET', `/accounts/${accountId}/cfd_tunnel?is_deleted=false&per_page=100&page=${page}`) ?? []) as Tunnel[]
+    all.push(...ts)
+    if (ts.length < 100) break
+  }
+  const out: { tunnel: Tunnel; config: Record<string, unknown>; ingress: IngressRule[] }[] = []
+  for (const t of all) {
+    if (t.deleted_at || (t.config_src && t.config_src !== 'cloudflare')) continue
+    let cur: Awaited<ReturnType<typeof ingressOf>>
+    try { cur = await ingressOf(api, accountId, t.id) } catch { continue }
+    if (hasRule(host, cur.ingress)) out.push({ tunnel: t, ...cur })
+  }
+  return out
+}
+
+/** drops <host>'s rule from those tunnels (never deletes them) */
+async function dropStaleRules(api: Api, accountId: string, host: string, except: string | null, why: string, actions: string[], dryRun?: boolean) {
+  for (const s of await tunnelsWithRule(api, accountId, host)) {
+    if (s.tunnel.id === except) continue
+    actions.push(`tunnel ${s.tunnel.name}: drop ${host} (${why})`)
+    if (!dryRun) await api('PUT', `/accounts/${accountId}/cfd_tunnel/${s.tunnel.id}/configurations`, { config: { ...s.config, ingress: ingressWithout(host, s.ingress) } })
+  }
+}
+
 /** equal as JSON regardless of key order (Cloudflare returns the ingress rules with their keys reordered) */
 export function sameJson(a: unknown, b: unknown): boolean {
   const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon)
@@ -197,6 +234,9 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
     if (!o.dryRun) await api('PUT', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/configurations`, { config: { ...cur.config, ingress } })
   }
 
+  // the name may still have a rule in another tunnel (it moved, or an older remove kept it): one tunnel per name
+  await dropStaleRules(api, zone.accountId, host, tunnel.id, `now served by ${tunnel.name}`, actions, o.dryRun)
+
   const target = `${tunnel.id}.cfargotunnel.com`
   let dns: SetResult['dns'] = 'unchanged'
   if (!record) {
@@ -232,21 +272,27 @@ export async function removeAddress(api: Api, cred: Pick<Credential, 'zoneId' | 
   } else actions.push(`DNS: ${host} has no record`)
   let tunnel = tunnelId ? await getTunnel(api, zone.accountId, tunnelId) : null
   if (!tunnel) tunnel = await tunnelByName(api, zone.accountId, o.tunnel ?? defaultTunnelName(host))
-  if (tunnel && !o.keepTunnel) {
+  if (tunnel) {
     const cur = await ingressOf(api, zone.accountId, tunnel.id)
     const others = cur.ingress.filter((r) => r.hostname && r.hostname.toLowerCase() !== host)
-    if (others.length) {
-      actions.push(`tunnel ${tunnel.name}: drop ${host}, kept for ${others.map((r) => r.hostname).join(', ')}`)
-      if (!o.dryRun) await api('PUT', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/configurations`, { config: { ...cur.config, ingress: [...others, { service: 'http_status:404' }] } })
-    } else {
+    if (!others.length && !o.keepTunnel) {
       actions.push(`delete tunnel ${tunnel.name} (${tunnel.id})`)
       if (!o.dryRun) {
         // a connector still running (the clinic's Mac) would keep the tunnel: its connections are closed first
         try { await api('DELETE', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/connections`) } catch {}
         await api('DELETE', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}`)
       }
+    } else {
+      // --keep-tunnel or other names on it: the tunnel stays, without this name's rule
+      const kept = o.keepTunnel ? ' (--keep-tunnel)' : ''
+      if (hasRule(host, cur.ingress)) {
+        actions.push(`tunnel ${tunnel.name}: drop ${host}, kept${kept}${others.length ? ` for ${others.map((r) => r.hostname).join(', ')}` : ''}`)
+        if (!o.dryRun) await api('PUT', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/configurations`, { config: { ...cur.config, ingress: ingressWithout(host, cur.ingress) } })
+      } else actions.push(`tunnel ${tunnel.name} kept${kept}, it has no rule for ${host}`)
     }
-  } else if (tunnel) actions.push(`tunnel ${tunnel.name} kept (--keep-tunnel)`)
+  }
+  // a rule for this name in any other tunnel (moved earlier, or left by an older --keep-tunnel remove)
+  await dropStaleRules(api, zone.accountId, host, tunnel?.id ?? null, 'removed', actions, o.dryRun)
   const tf = path.resolve(o.tokenOut ?? defaultTokenFile(host))
   if (fs.existsSync(tf)) { actions.push(`delete ${tf}`); if (!o.dryRun) fs.rmSync(tf, { force: true }) }
   return { actions }

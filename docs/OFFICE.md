@@ -5,7 +5,7 @@
 
 - AI는 **그 맥에 로그인된 Claude Code**(원장님/소유자의 Claude 구독)로 돕니다. 엔진은 개발 모드와 같은 구성입니다:
   권한 함수, 엔진 잠금(lockdown), macOS 샌드박스(`engine.sb`). DEV 배너는 나오지 않고, Codex는 쓰지 않습니다.
-- **기본 경로: 인터넷 주소** (예: `https://app.example.com`). 데스크는 Edge로 이 주소를 열기만 하면 됩니다
+- **기본 경로: 인터넷 주소** (예: `https://exampleteam.example.com`). 데스크는 Edge로 이 주소를 열기만 하면 됩니다
   (**인증서 설치 없음**, 사무실 밖·휴대폰에서도). 맥 미니의 `cloudflared`(Cloudflare Tunnel)가 바깥으로 연결을 열어
   두므로 공유기 포트 열기·고정 IP가 필요 없습니다. 자세히: [9장 인터넷 주소](#9-인터넷-주소-cloudflare-tunnel).
 - **사무실 안 대체 경로**: `https://<맥 IP>:8443`. 인터넷이 끊겨도 됩니다. 인증서는 맥이 처음 한 번 만드는 **사무실 전용
@@ -31,7 +31,7 @@
 | FileVault | 켜 두세요(시스템 설정 → 개인정보 보호 및 보안 → FileVault). 환자 자료가 디스크에 암호화되어 저장됩니다 |
 | Claude Code | 맥 미니의 그 사용자 계정에서 설치·로그인되어 있어야 합니다(원장님 구독 계정) |
 | 네트워크 | 인터넷 연결(유선 권장). 사무실 안 대체 경로도 쓰려면 공유기에서 맥 미니 주소를 **고정(DHCP 예약)** |
-| 인터넷 주소 | 원장님(주인) 맥에서 미리 만든 **연결 토큰 파일**(`app.example.com.tunnel-token`, [9장 ①·②](#9-인터넷-주소-cloudflare-tunnel)). 공유기 설정은 필요 없음 |
+| 인터넷 주소 | 원장님(주인) 맥에서 미리 만든 **연결 토큰 파일**(`exampleteam.example.com.tunnel-token`, [9장 ①·②](#9-인터넷-주소-cloudflare-tunnel)). 공유기 설정은 필요 없음 |
 | zip 파일 | `TeamAX-office-0.1.0-mac.zip` (USB·AirDrop로 맥 미니의 `다운로드` 폴더에) |
 | 데스크 | 윈도우 10/11 + Edge. 데스크마다 직원 윈도우 계정으로 하면 됩니다(관리자 암호 필요 없음) |
 | 그 밖에 | 프린터(데스크 카드 1장), 외장 디스크(주 1회 보관용), 가능하면 UPS |
@@ -53,10 +53,10 @@ claude auth status
 ```sh
 cd ~/Downloads && ditto -x -k TeamAX-office-0.1.0-mac.zip .
 bash ~/Downloads/TeamAX-office-0.1.0/office-install.sh \
-  --public-host app.example.com --tunnel-token-file ~/Downloads/app.example.com.tunnel-token
-rm ~/Downloads/app.example.com.tunnel-token
+  --public-host exampleteam.example.com --tunnel-token-file ~/Downloads/exampleteam.example.com.tunnel-token
+rm ~/Downloads/exampleteam.example.com.tunnel-token
 ```
-확인: 마지막에 `=== 설치 끝 / installed: 0.1.0 ===`, 그 위에 `https://app.example.com 답함 / answers`,
+확인: 마지막에 `=== 설치 끝 / installed: 0.1.0 ===`, 그 위에 `https://exampleteam.example.com 답함 / answers`,
 **인터넷 주소**, 사무실 안 대체 경로(**데스크 주소** `https://192.168.x.x:8443`, **인증서 받는 곳**
 `http://192.168.x.x:8442`, **인증서 지문**), **첫 설정 링크**가 나오고, 첫 설정 페이지가 맥 미니의 브라우저에 열립니다.
 토큰은 `~/TeamAX/config/tunnel-token`(600)에 복사되므로 받은 파일은 지웁니다. 인터넷 주소 없이 설치하려면 두 옵션을
@@ -69,7 +69,7 @@ rm ~/Downloads/app.example.com.tunnel-token
 `--lan-port`·`--app-port`·`--helper-port`로 다른 번호를 고르라고 알려 줍니다.
 
 > **앱 포트(`--app-port`)를 바꿨다면**: Cloudflare 터널도 그 포트를 가리켜야 합니다. 원장님 맥에서
-> `bun scripts/office/public-address.ts set app.example.com --port <새 포트> --cert <cert 파일>`을 한 번 더 실행하세요
+> `bun scripts/office/public-address.ts set exampleteam.example.com --port <새 포트> --cert <cert 파일>`을 한 번 더 실행하세요
 > (맥 미니는 다시 할 일이 없음). 안 하면 인터넷 주소가 **502**를 내고, 설치기·`teamax public-address status`가 이 명령을
 > 그대로 알려 줍니다. 지금 앱 포트: `teamax public-address status`의 `app port`.
 
@@ -107,7 +107,7 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 확인: 홈 화면이 열리고 오른쪽 위에 원장님 이름이 보입니다.
 
 그다음 **관리자 → 멤버**에서 데스크마다 **초대 링크**를 만듭니다(메일 발송 없음, 링크 복사). 맥 미니에서 만들면 링크는
-인터넷 주소(`https://app.example.com/invite/…`; 인터넷 주소가 없으면 데스크 주소 `https://192.168.x.x:8443/…`)로
+인터넷 주소(`https://exampleteam.example.com/invite/…`; 인터넷 주소가 없으면 데스크 주소 `https://192.168.x.x:8443/…`)로
 나옵니다. 메신저 등으로 각 데스크에 전달합니다.
 초대 대신 **직접 추가**(임시 비밀번호, 첫 로그인 때 바꾸기)도 됩니다.
 
@@ -115,7 +115,7 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 
 ### 기본: 인터넷 주소
 
-1. Edge에서 `https://app.example.com` (카드 맨 위의 인터넷 주소). 확인: 경고 없이 자물쇠, 로그인 화면.
+1. Edge에서 `https://exampleteam.example.com` (카드 맨 위의 인터넷 주소). 확인: 경고 없이 자물쇠, 로그인 화면.
 2. Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설치.
 3. 받은 초대 링크를 Edge에서 열어 가입. 확인: 채팅에서 "안녕하세요"를 보내면 답이 옵니다.
 
@@ -156,7 +156,9 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
 받은 초대 링크를 Edge에서 엽니다 → 이름·아이디·비밀번호 → 가입. 다음부터는 바탕화면 아이콘으로 열고 로그인합니다.
 확인: 채팅에서 "안녕하세요"를 보내면 답이 옵니다.
 
-데스크톱 앱(Team AX.exe)은 이번 시범에 필요 없습니다. Edge 앱을 쓰세요.
+데스크 직원용 안내(인쇄용): `Team-AX-윈도우-데스크-가이드.pdf`(zip 안, `docs/office/windows-guide.html`): Edge 앱 설치,
+데스크톱 앱, 문제 해결(530, 로그인, 비밀번호 재설정 링크, 캐시), 하지 말 것. 데스크는 **Edge 앱이 기본**이고, 데스크톱 앱
+(`Team-AX-Setup-<버전>-x64.exe`)은 AI가 웹사이트를 직접 열어야 하는 자리에만 설치합니다([부록 C](#부록-c-윈도우-데스크톱-앱-키트)).
 
 ## 5. 매일 운영
 
@@ -288,9 +290,9 @@ gh repo clone potenlab/team-ax ~/team-ax && cd ~/team-ax && bun install   # 이�
 
 ```sh
 cd ~/team-ax
-bun scripts/office/public-address.ts set app.example.com --cert ~/.cloudflared/cert-dentist-almanac.pem
+bun scripts/office/public-address.ts set exampleteam.example.com --cert ~/.cloudflared/cert-dentist-almanac.pem
 ```
-확인: 마지막에 `https://app.example.com → tunnel … → http://127.0.0.1:47830`, `connector token: …(600; not
+확인: 마지막에 `https://exampleteam.example.com → tunnel … → http://127.0.0.1:47830`, `connector token: …(600; not
 shown)`. 맥 미니를 `--app-port`로 다른 포트에 설치했다면 `--port <그 포트>`를 붙입니다.
 - 그 이름의 존을 찾고, **존 꼭대기(`example.com`)는 거부**(`--allow-apex`가 없으면), 그 이름에 터널 CNAME이 아닌
   기록(웹사이트·메일 등)이 하나라도 있으면 **아무것도 바꾸지 않고 거부**합니다. 다른 이름·기록은 건드리지 않습니다.
@@ -306,8 +308,8 @@ shown)`. 맥 미니를 `--app-port`로 다른 포트에 설치했다면 `--port 
 토큰 파일을 AirDrop·USB로 옮긴 뒤 설치기에 `--public-host <이름> --tunnel-token-file <파일>`(2장),
 또는 이미 설치된 맥 미니에서:
 ```sh
-~/TeamAX/teamax public-address set app.example.com ~/Downloads/app.example.com.tunnel-token
-rm ~/Downloads/app.example.com.tunnel-token
+~/TeamAX/teamax public-address set exampleteam.example.com ~/Downloads/exampleteam.example.com.tunnel-token
+rm ~/Downloads/exampleteam.example.com.tunnel-token
 ```
 확인: `인터넷 주소가 답합니다 / the internet address answers`. `teamax public-address status`: `answers`, 터널 id,
 `cloudflared running`, `app port`. 서버가 새 이름을 쓰도록 한 번 다시 켜집니다(몇 초). 답이 없으면 명령이 실패(종료 코드 1)로
@@ -315,7 +317,7 @@ rm ~/Downloads/app.example.com.tunnel-token
 
 ### ④ 주소 바꾸기 (명령 두 개)
 
-예: `app.example.com` → `teamax.새도메인.com` (새 도메인이면 ①처럼 그 도메인의 cert.pem부터)
+예: `exampleteam.example.com` → `teamax.새도메인.com` (새 도메인이면 ①처럼 그 도메인의 cert.pem부터)
 1. 원장님 맥: `bun scripts/office/public-address.ts set teamax.새도메인.com --cert <그 도메인의 cert.pem>`
    (앱 포트를 바꿨다면 `--port <포트>`)
 2. 맥 미니: 토큰 파일을 옮기고 `~/TeamAX/teamax public-address set teamax.새도메인.com <토큰 파일>` → 받은 파일 `rm`
@@ -328,8 +330,10 @@ rm ~/Downloads/app.example.com.tunnel-token
 - **아직 안 쓴 초대·재설정 링크**는 옛 주소로 만들어졌습니다. 관리자 → 멤버에서 새로 만들거나, 링크의 주소 부분만 새 주소로
   바꿔 보내도 됩니다(`/invite/…` 뒷부분은 그대로 유효).
 - 옛 이름 정리(원장님 맥):
-  `bun scripts/office/public-address.ts remove app.example.com --cert ~/.cloudflared/cert-dentist-almanac.pem`
-  (그 이름의 CNAME과, 다른 이름이 쓰지 않으면 그 터널과 토큰 파일을 지움. 터널 CNAME이 아닌 기록은 지우지 않음.)
+  `bun scripts/office/public-address.ts remove exampleteam.example.com --cert ~/.cloudflared/cert-dentist-almanac.pem`
+  (그 이름의 CNAME과, 다른 이름이 쓰지 않으면 그 터널과 토큰 파일을 지움. 터널 CNAME이 아닌 기록은 지우지 않음.
+  `--keep-tunnel`이면 터널은 남기고 그 이름의 규칙만 뺌. 어느 쪽이든 계정의 다른 원격 관리 터널에 그 이름의 규칙이 남아
+  있으면 함께 뺌. `set`도 이름을 다른 터널로 옮길 때 옛 터널의 그 이름 규칙을 뺌: 이름 하나는 터널 하나에만.)
 
 ### ⑤ 끄기
 
@@ -363,6 +367,26 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
 않았습니다(OWNER-TODO). 운영 설치는 자기 LAN 인증서를 쓰므로 데스크는 그때 다시 연결해야 합니다. 새 맥으로 옮길 때도
 보관본에는 CA가 없으므로 데스크는 새 인증서를 설치합니다(같은 CA를 쓰려면 `~/TeamAX/tls/`를 따로 옮기세요).
 
+## 부록 C. 윈도우 데스크톱 앱 (키트)
+
+데스크 대부분은 Edge 앱이면 됩니다. AI가 웹사이트를 직접 열어 읽고 클릭해야 하는 자리만 데스크톱 앱을 씁니다(앱 안
+브라우저 창, 사이트마다 묻기). 그 치과용 설치 파일은 개발 맥에서 만듭니다(맥에서 윈도우용으로 빌드됨, wine 필요 없음):
+
+```sh
+cd desktop
+TEAMAX_KIT_TEAM=exampleteam.example.com TEAMAX_KIT_LOCALE=ko bun run dist:win
+# → desktop/release/Team-AX-Setup-<버전>-win-x64.exe (약 110 MB)
+```
+
+- `TEAMAX_KIT_TEAM`: 첫 화면 "팀 주소를 입력하세요"에 그 주소가 **미리 채워집니다**(직원은 `연결`만). 제안일 뿐이라 같은
+  검사(https, `/api/health`)를 거치고, 저장된 팀이 있으면 나오지 않습니다. `TEAMAX_KIT_LOCALE=ko`: 팀 화면이 언어를
+  알려 주기 전(첫 화면·메뉴)부터 한국어. 둘 다 `dist/kit.json`으로 앱 안에 들어갑니다(`desktop/src/common/kit.ts`). 빼면
+  일반 설치 파일(빈 주소, 영어로 시작).
+- 설치 파일은 **사용자별 원클릭 NSIS**(`%LOCALAPPDATA%\Programs`, 관리자 암호·UAC 없음, 바탕 화면·시작 메뉴 바로 가기, 설치
+  뒤 바로 실행)입니다. **서명이 없어** SmartScreen "Windows의 PC 보호" → `추가 정보` → `실행`이 필요합니다.
+- 주소는 `exampleteam.example.com` 그대로 또는 `https://`를 붙여 입력해도 됩니다. 맥 미니가 꺼져 Cloudflare가 530을 내면
+  "팀 서버에 연결할 수 없어요"로 나옵니다(주소가 틀렸다는 뜻이 아님).
+
 ## 알려진 한계
 
 - **윈도우 실제 PC에서의 인증서 설치·Edge 앱 설치는 시험하지 못했습니다.** 같은 인증서 체인을 macOS 신뢰 평가, OpenSSL,
@@ -378,3 +402,5 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
   같은 맥의 다른 프로그램은 앱 포트에 그 이름으로 요청해 IP를 꾸밀 수 있습니다(계정별 로그인 제한은 그대로). 그래서 인터넷
   주소로 온 기록의 IP는 그 맥의 다른 프로그램만큼만 믿을 수 있습니다: 맥 미니에 다른 사용자 계정·프로그램을 두지 마세요.
 - 실제 윈도우 PC·Edge로 인터넷 주소 앱 설치는 아직 확인하지 않았습니다(공인 인증서라 일반 웹사이트와 같음).
+- 윈도우 데스크톱 앱(부록 C)은 맥에서 교차 빌드만 했고 실제 윈도우 PC에서 설치·실행해 보지 않았습니다. 서명이 없어
+  SmartScreen 경고가 나오고, 회사 정책이 서명 없는 프로그램을 막는 PC에서는 쓸 수 없습니다(그 자리는 Edge 앱).

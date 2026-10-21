@@ -9,11 +9,15 @@ import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { dateBucket, type DateBucket } from '../lib/format'
 import { clearLocalData } from '../lib/localData'
+import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { toast, useUi } from '../store/ui'
 import { confirmDialog, promptDialog } from './ui'
+
+/** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
+const onMac = () => platform() === 'mac' || platform() === 'ios'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
@@ -69,11 +73,11 @@ export default function Sidebar() {
           data-testid="new-chat"
         >
           <MessageSquarePlus size={17} className="text-accent-text" aria-hidden /> {t('sidebar.newChat')}
-          <kbd className="ml-auto hidden text-[11px] text-faint lg:inline">⇧⌘O</kbd>
+          <kbd className="ml-auto hidden text-[11px] text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
         </button>
         <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
           <Search size={17} aria-hidden /> {t('sidebar.search')}
-          <kbd className="ml-auto hidden text-[11px] text-faint lg:inline">⌘K</kbd>
+          <kbd className="ml-auto hidden text-[11px] text-faint lg:inline">{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
         </button>
         <NavLink to="/projects" className={active} onClick={close}>
           <FolderKanban size={17} aria-hidden /> {t('sidebar.projects')}

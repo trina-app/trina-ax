@@ -8,6 +8,15 @@ let busy = false
 let error = ''
 let confirming: string | null = null
 let draft = ''
+/** a kit build's address is filled in once; after that the field is the person's */
+let suggestedUsed = false
+function takeState(s: WelcomeState) {
+  state = s
+  if (s.suggested && !suggestedUsed && !draft) {
+    draft = s.suggested
+    suggestedUsed = true
+  }
+}
 
 function render() {
   const focusAddress = document.activeElement?.id === 'address'
@@ -184,11 +193,11 @@ function confirmBox(id: string) {
 
 onLocaleChange(render)
 ui.welcome.onState((s) => {
-  state = s
+  takeState(s)
   render()
 })
 void ui.welcome.state().then((s) => {
-  if (s) state = s
+  if (s) takeState(s)
   render()
   document.getElementById('address')?.focus()
 })
