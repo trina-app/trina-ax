@@ -18,6 +18,7 @@ import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
 import type { RouteKit } from '../../server/src/http/route'
 import type { AuthInfo, SessionService } from '../../server/src/services'
 import { WORK } from '../lib/env'
+import { PRODUCT } from '@mycel/shared'
 
 const BASE = path.join(WORK, 'server-app')
 fs.rmSync(BASE, { recursive: true, force: true })
@@ -252,7 +253,7 @@ describe('system + web', () => {
   test('non-API GET serves the web app (dev page without a build)', async () => {
     const r = await req('/chats/123')
     expect(r.status).toBe(200)
-    expect(await r.text()).toContain('Team AX')
+    expect(await r.text()).toContain(PRODUCT.displayName)
   })
 })
 

@@ -1,14 +1,14 @@
 // Publish an office release to https://updates.treesoop.com (docs/OFFICE.md "자동 업데이트"). On the owner's Mac.
 //
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
-//       [--office dist/office/TeamAX-office-X-mac.zip]
-//       [--windows desktop/release/Team-AX-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
+//       [--office dist/office/<officeBundle>-X-mac.zip]
+//       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
 //       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
 //
 // --build first builds both (bun run build:office with --version X; the Windows app with version X): otherwise the
-// files are taken as given (default: dist/office/TeamAX-office-<version>-mac.zip and, when it exists,
-// desktop/release/Team-AX-Setup-<version>-win-x64.exe). Then:
-//   1. checks the files: the zip holds TeamAX-office-<version>/app/VERSION = version; latest.yml names the installer
+// files are taken as given (default: dist/office/<officeBundle>-<version>-mac.zip and, when it exists,
+// desktop/release/<artifactBase>-Setup-<version>-win-x64.exe; names from shared/src/product.ts). Then:
+//   1. checks the files: the zip holds <officeBundle>-<version>/app/VERSION = version; latest.yml names the installer
 //      with its sha512 and size
 //   2. refuses to go back: the channel's current manifest (if any) must be older (the same version only re-uploads
 //      identical files), and a file already published under office/<version>/ is never replaced by a different one
@@ -25,6 +25,9 @@ import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
 import { readReleaseKey } from './keygen'
+import { PRODUCT } from '../../shared/src/product'
+
+const ZIP_VERSION = new RegExp(`^${PRODUCT.officeBundle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-([^/]+)/app/VERSION$`)
 
 const REPO = path.resolve(import.meta.dir, '..', '..')
 /** the first version with the updater: anything older installs the zip by hand once */
@@ -58,9 +61,9 @@ export function readLatestYml(text: string): { version: string | null; path: str
 export function officeZipVersion(zip: string): string {
   const p = Bun.spawnSync(['/usr/bin/unzip', '-Z1', zip], { stdout: 'pipe', stderr: 'pipe' })
   if (p.exitCode !== 0) throw new Error(`${zip} is not a zip`)
-  const v = p.stdout.toString().split('\n').map((l) => /^TeamAX-office-([^/]+)\/app\/VERSION$/.exec(l.trim())?.[1]).find(Boolean)
-  if (!v) throw new Error(`${zip} has no TeamAX-office-<version>/app/VERSION`)
-  const inside = Bun.spawnSync(['/usr/bin/unzip', '-p', zip, `TeamAX-office-${v}/app/VERSION`], { stdout: 'pipe' }).stdout.toString().trim()
+  const v = p.stdout.toString().split('\n').map((l) => ZIP_VERSION.exec(l.trim())?.[1]).find(Boolean)
+  if (!v) throw new Error(`${zip} has no ${PRODUCT.officeBundle}-<version>/app/VERSION`)
+  const inside = Bun.spawnSync(['/usr/bin/unzip', '-p', zip, `${PRODUCT.officeBundle}-${v}/app/VERSION`], { stdout: 'pipe' }).stdout.toString().trim()
   if (inside !== v) throw new Error(`${zip}: app/VERSION says ${inside}, the folder says ${v}`)
   return v
 }
@@ -89,14 +92,14 @@ async function main() {
     run(['bun', 'run', 'build:office', '--', '--version', version])
     run(['bun', 'run', '--cwd', 'desktop', 'dist:win', '--', `-c.extraMetadata.version=${version}`])
   }
-  const zip = path.resolve(arg('--office') ?? path.join(REPO, 'dist', 'office', `TeamAX-office-${version}-mac.zip`))
+  const zip = path.resolve(arg('--office') ?? path.join(REPO, 'dist', 'office', `${PRODUCT.officeBundle}-${version}-mac.zip`))
   if (!fs.existsSync(zip)) throw new Error(`${zip} not found (--build, or bun run build:office -- --version ${version})`)
   const zv = officeZipVersion(zip)
   if (zv !== version) throw new Error(`${zip} is version ${zv}, not ${version}`)
   const arts: Artifact[] = [describe(feed, version, zip, 'application/zip')]
 
   let windows: OfficeRelease['windows'] = null
-  const exeArg = arg('--windows') ?? (() => { const d = path.join(REPO, 'desktop', 'release', `Team-AX-Setup-${version}-win-x64.exe`); return fs.existsSync(d) ? d : undefined })()
+  const exeArg = arg('--windows') ?? (() => { const d = path.join(REPO, 'desktop', 'release', `${PRODUCT.artifactBase}-Setup-${version}-win-x64.exe`); return fs.existsSync(d) ? d : undefined })()
   if (exeArg && !process.argv.includes('--no-windows')) {
     const exe = path.resolve(exeArg)
     const yml = path.join(path.dirname(exe), 'latest.yml')

@@ -15,9 +15,11 @@ import {
 } from '../../server/src/office/update'
 import { settingsFrom } from '../../server/src/office/settings'
 import { officeUpdateHooks } from '../../server/src/routes/office-update'
+import builderConfig from '../../desktop/electron-builder.config'
 import { compareVersions as desktopCompare, feedUrlFor, genericFeed, macNotice, updateMode } from '../../desktop/src/common/update'
 import { harness, withOwner, addMember, OWNER_PW, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
+import { PRODUCT } from '@mycel/shared'
 
 const BASE = path.join(WORK, 'office-update')
 fs.rmSync(BASE, { recursive: true, force: true })
@@ -137,7 +139,7 @@ rm -rf "$PREFIX/app.previous"; mv "$PREFIX/app" "$PREFIX/app.previous"; cp -R "$
 
 function makeZip(version: string, o: { failInstall?: boolean } = {}): Uint8Array {
   const stage = path.join(BASE, `bundle-${version}-${crypto.randomBytes(3).toString('hex')}`)
-  const top = path.join(stage, `TeamAX-office-${version}`)
+  const top = path.join(stage, `${PRODUCT.officeBundle}-${version}`)
   fs.mkdirSync(path.join(top, 'app'), { recursive: true })
   fs.writeFileSync(path.join(top, 'app', 'VERSION'), version + '\n')
   fs.writeFileSync(path.join(top, 'office-install.sh'), FAKE_INSTALLER, { mode: 0o755 })
@@ -193,7 +195,7 @@ function fakeDeps(home: string, files: Map<string, Uint8Array | string>): Fake {
 }
 
 function publish(files: Map<string, Uint8Array | string>, version: string, zip: Uint8Array, over: Partial<OfficeRelease> = {}) {
-  const name = `TeamAX-office-${version}-mac.zip`
+  const name = `${PRODUCT.officeBundle}-${version}-mac.zip`
   files.set(fileUrl(FEED, version, name), zip)
   files.set(manifestUrl(FEED, 'beta'), signRelease(release({ version, ...over }, [{ name, bytes: zip }]), keyPem))
 }
@@ -320,7 +322,7 @@ describe('a whole update run (fake bundle, fake health)', () => {
     publish(files2, '0.3.0', makeZip('0.2.9'))
     const r = await runUpdate(home, { reason: 'now', deps: fakeDeps(home, files2).deps, ...short })
     expect(r.kind).toBe('failed')
-    expect(r.message).toMatch(/TeamAX-office-0\.3\.0/)
+    expect(r.message).toContain(`${PRODUCT.officeBundle}-0.3.0`)
     expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.2.0')
   })
 })
@@ -539,10 +541,12 @@ describe('desktop updater configuration', () => {
   })
   test('electron-builder: generic publish (latest.yml + app-update.yml), no publisherName, electron-updater bundled', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'desktop', 'package.json'), 'utf8'))
+    const build = builderConfig as unknown as { publish: unknown; win: Record<string, unknown>; nsis: Record<string, unknown> }
     // channel latest: a pre-release build (0.2.0-beta.2) also writes latest.yml, the file the app asks the team for
-    expect(pkg.build.publish).toEqual([{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }])
-    expect(pkg.build.win.publisherName).toBeUndefined()
-    expect(pkg.build.nsis.oneClick).toBe(true)
+    expect(build.publish).toEqual([{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }])
+    expect(build.win.publisherName).toBeUndefined()
+    expect(build.nsis.oneClick).toBe(true)
+    expect(pkg.build).toBeUndefined() // one config: desktop/electron-builder.config.ts
     expect(pkg.devDependencies['electron-updater']).toMatch(/^\d+\.\d+\.\d+$/)
     expect(pkg.dependencies?.['electron-updater']).toBeUndefined()
     const main = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'updater.ts'), 'utf8')
