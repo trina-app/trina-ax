@@ -14,6 +14,7 @@ import { authorize, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { verifyChain } from '../policy/resolve'
+import { getTeamSettings } from '../admin/settings'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { fileError } from './errors'
@@ -33,17 +34,6 @@ export const mimeOf = (name: string): string | null => {
 const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
-
-/** Team setting (A stores settings as key -> json; also accepts one 'team' object). */
-export function settingNumber(db: AppContext['db'], key: string, def: number): number {
-  try {
-    const r = db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null
-    if (r) { const v = JSON.parse(r.value); if (typeof v === 'number' && Number.isFinite(v)) return v }
-    const t = db.query("SELECT value FROM settings WHERE key = 'team'").get() as { value: string } | null
-    if (t) { const v = JSON.parse(t.value)?.[key]; if (typeof v === 'number' && Number.isFinite(v)) return v }
-  } catch { /* bad json: default */ }
-  return def
-}
 
 interface VersionRow { id: string; path: string; version: number; sha256: string; size: number; author_id: string | null; turn_id: string | null; kind: FileVersion['kind']; conflict_path: string | null; storage_path: string | null; created_at: string; folder_id: string | null; path_at_save: string | null }
 interface TrashRow { id: string; original_path: string; storage_path: string; size: number; deleted_by: string; turn_id: string | null; deleted_at: string; purge_at: string; kind: 'file' | 'folder'; folder_id: string | null }
@@ -312,7 +302,7 @@ export class TeamFiles {
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }
     else size = checkRegular(r.abs).size
     const id = newId()
-    const purgeAt = iso(Date.now() + settingNumber(this.ctx.db, 'trashRetentionDays', 30) * DAY)
+    const purgeAt = iso(Date.now() + getTeamSettings(this.ctx.db).trashRetentionDays * DAY)
     const db = this.ctx.db
     db.transaction(() => {
       const storage = moveIntoTrash(this.root, r.segs)
@@ -557,7 +547,8 @@ export class TeamFiles {
     const db = this.ctx.db
     let trash = 0, versions = 0
     for (const t of db.query('SELECT id, storage_path, kind FROM trash_items WHERE restored_at IS NULL AND purge_at <= ?').all(iso(now)) as TrashRow[]) { this.purgeRow(t); trash++ }
-    const keepDays = settingNumber(db, 'fileHistoryRetentionDays', 7)
+    // the value the admin screen shows (stored setting or DEFAULT_SETTINGS): one source, so the two cannot drift
+    const keepDays = getTeamSettings(db).fileHistoryRetentionDays
     const cutoff = iso(now - keepDays * DAY)
     for (const v of db.query('SELECT id, storage_path FROM file_versions WHERE created_at < ? LIMIT 5000').all(cutoff) as { id: string; storage_path: string | null }[]) {
       if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })

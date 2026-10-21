@@ -160,7 +160,7 @@
 - **작업(JobService)**: 무거운 종류(transcribe·backup·restore·update·export)는 종류별 한 번에 하나. 진행 이벤트는 0.5초에 한 번. 실패 문구는 그 사람의 언어(ko/en/id), 예상 못 한 오류는 일반 문구만. 재시작 시 queued/running → failed("서버가 다시 시작되어…").
 - **받아쓰기 모델 기본값은 `small`(다국어, 488MB, sha256 고정)**, 처음 쓸 때 `<data>/models/whisper/`로 내려받는다. `MYCEL_WHISPER_MODEL=tiny|base|small`, `MYCEL_WHISPER_MODEL_DIR`, `MYCEL_WHISPER_BIN`으로 바꿀 수 있다. 시험은 tiny를 `tests/.cache/whisper`(git 무시)에 한 번 받아 쓰고, `say`로 만든 음성을 실제로 받아쓴다(맥).
 - **share_file 링크**: preview = 웹 화면 경로 `/files/view?path=`(D가 구현), download = `/api/files/download?...`. 둘 다 여는 사람의 세션으로 다시 권한 확인.
-- **보관 기간 설정**: `settings`의 `trashRetentionDays`(기본 30), `fileHistoryRetentionDays`(기본 7, 1번 탭)를 키별 JSON 숫자 또는 `team` 객체의 같은 이름 필드로 읽는다(A가 저장 형식을 정하면 맞춘다). 정리는 1시간마다.
+- **보관 기간 설정**: `trashRetentionDays`(기본 30), `fileHistoryRetentionDays`(기본 7, 1번 탭)는 관리자 화면과 같은 `getTeamSettings()`(`admin/settings.ts`의 `DEFAULT_SETTINGS` + 저장값) 하나에서만 읽는다. 정리는 1시간마다. (보안 검토 r1: 전에는 정리 코드가 따로 기본값 7을 갖고 화면은 30을 보여, 관리자가 30일이라고 믿는 동안 7일 지난 버전이 지워졌다. 기본값은 1번 탭대로 7.)
 
 다른 컴포넌트가 알아야 할 것:
 - **B**: 비파일 도구는 `toolRegistry(ctx.files).register({...})`로 등록한다(`server/src/tools/registry.ts`, MCP 목록·호출·감사가 자동). **엔진 허용 목록(Claude `--allowedTools`, Codex `enabled_tools`)은 아직 파일 도구 6개뿐이라 make_file 등 새 도구를 엔진이 부르려면 `engine/claude.ts`·`codex.ts`에 이름을 더하고 잠금 회귀 시험을 돌려야 한다**(B 몫). 아티팩트 저장은 `componentC(ctx).artifacts.apply()`(도구가 이미 부름), "writing" 미리보기 이벤트는 B. web_fetch 뒤 remember 확인은 `ctx.files.events.on('external')`.
