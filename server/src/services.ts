@@ -81,8 +81,19 @@ export interface RealtimeConn {
 /** Component C: chat attachments uploaded via POST /api/uploads or an upload session (users/<id>/.attachments/<chatId>/).
  * B turns them into turn inputs. */
 export interface AttachmentStore {
-  /** The caller's own attachments of this chat, in the order of `ids`; unknown / other people's ids are left out. */
+  /** The caller's own attachments of this chat, in the order of `ids`; unknown / other people's ids are left out, and
+   * so are team-file references the caller cannot read now (deleted, moved out of reach, access taken away). */
   get(userId: string, chatId: string, ids: string[]): Attachment[]
+  /** Like get(), and which ids are the caller's own team-file references of this chat that are no longer available
+   * to them (so the sender can be told to send without them). Optional for test doubles. */
+  lookup?(userId: string, chatId: string, ids: string[]): { found: Attachment[]; unavailable: string[] }
+  /** A message's attachments as `userId` may see them now: team-file references follow their file and are blanked
+   * (unavailable: true, no name / path / size) when it is gone or no longer readable for them. Uploads unchanged.
+   * Read-only. Optional for test doubles; without it, callers blank every team reference (fail closed). */
+  view?(userId: string, atts: Attachment[]): Attachment[]
+  /** For a turn: like view(), but `changed` means a different content (compared by hash when size or time differ,
+   * computed once per version); `moved`: another path than when attached. */
+  check?(userId: string, atts: Attachment[]): Promise<Attachment[]>
 }
 
 /** What a turn tool gets for one call (B builds it per turn). */

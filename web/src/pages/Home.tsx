@@ -1,10 +1,11 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
 // their folder names, no engine call); the owner sees a setup checklist until it is done (tab 5 "상태별 화면").
 import { CheckCircle2, Circle, Folder, Lock, Pencil, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Attachment, FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { draftChat, draftChatIfAny, forgetDraftChat } from '../lib/teamAttach'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
@@ -27,7 +28,6 @@ export default function Home() {
   const loadEngines = useEngines((s) => s.load)
   const [engine, setEngine] = useState<EngineChoice>({ engine: me.user.prefs.engine, model: me.user.prefs.model ?? null })
   const [project, setProject] = useState<Project | null>(null)
-  const created = useRef<Promise<string> | null>(null)
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(prompt ? { text: prompt, n: 0 } : null)
 
   useEffect(() => {
@@ -42,26 +42,26 @@ export default function Home() {
     }
   }, [projectId])
 
+  const draftId = projectId ? `project:${projectId}` : 'new'
+  // the chat a draft's attachments go into: kept with the draft (lib/teamAttach), so chips kept while the person was
+  // on another page are still sent into the chat they were attached to
   const ensureChat = () =>
-    (created.current ??= api
-      .call(API.createChat, { body: { projectId: projectId ?? null, engine: engine.engine, model: engine.model ?? undefined } })
-      .then((c) => {
+    draftChat(me.user.id, draftId, () =>
+      api.call(API.createChat, { body: { projectId: projectId ?? null, engine: engine.engine, model: engine.model ?? undefined } }).then((c) => {
         upsertChat(c)
         return c.id
-      })
-      .catch((e) => {
-        created.current = null
-        throw e
-      }))
+      }),
+    )
 
   const onSend = async (text: string, attachments: Attachment[]) => {
-    const chatId = created.current ? await created.current : null
+    const pending = draftChatIfAny(me.user.id, draftId)
+    const chatId = pending ? await pending : null
     const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model })
+    forgetDraftChat(me.user.id, draftId)
     navigate(`/c/${r.chatId}`)
   }
 
   const firstTime = chatsLoaded && chats.length === 0
-  const draftId = projectId ? `project:${projectId}` : 'new'
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">

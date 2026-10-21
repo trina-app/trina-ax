@@ -137,6 +137,13 @@ export const SPECS: Record<string, Spec> = {
   uploadAttachment: { build: (c, w) => c.req('POST', '/api/uploads', undefined, { form: aform(w.ids.chatA, 'x.png') }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached into alice's chat`) } },
   attachmentThumbnail: { build: (c, w) => c.get(`/api/uploads/${w.ids.attachment}/thumbnail`), scope: 'own-alice' },
+  // team files attached by reference (the composer's "Add from team files") and the picker's listings: each persona
+  // makes an own chat and aims at a file NAME inside users/alice/ (only alice may read it; owner and admin included
+  // are refused with the plain 404). find / recent list only readable files: the canary check covers every name.
+  attachTeamFile: { build: async (c, w) => { const own = await c.post('/api/chats', { title: 'attach probe' }); return c.post('/api/attachments/team-file', { chatId: own.json?.id ?? w.ids.chatA, path: `users/alice/${C.aliceFileName}.md` }) }, scope: 'users-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached a file from users/alice`) } },
+  findFiles: { build: (c) => c.get('/api/files/find?q=SEC&limit=100'), scope: 'self' },
+  recentFiles: { build: (c) => c.get('/api/files/recent?limit=50'), scope: 'self' },
   createUploadSession: { build: (c) => c.post('/api/upload-sessions', { target: { kind: 'path', path: 'users/alice/sess.bin', onExists: 'rename' }, size: 4, sha256: 'ab'.repeat(32) }), scope: 'users-alice' },
   uploadChunk: { build: (c, w) => c.req('PUT', `/api/upload-sessions/${w.ids.uploadAlice}/chunks/0`, undefined, { raw: '0123456789', headers: { 'content-type': 'application/octet-stream', [CSRF_HEADER]: '1' } }), scope: 'own-alice' },
   getUploadSession: { build: (c, w) => c.get(`/api/upload-sessions/${w.ids.uploadAlice}`), scope: 'own-alice' },

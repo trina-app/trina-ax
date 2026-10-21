@@ -50,6 +50,28 @@ describe('sending', () => {
     expect(useChats.getState().chats[0]!.runState).toBe('queued')
   })
 
+  test('team files no longer available: the message says so, marks them, and "send again" sends without them', async () => {
+    const gone = uuidv7()
+    const kept = uuidv7()
+    const team = (id: string, name: string) => ({ id, name, path: `shared/${name}`, size: 3, mime: 'text/plain', kind: 'text' as const, source: 'team' as const })
+    const s = started(null, 'two files')
+    let n = 0
+    route = (_m, _p, body) => {
+      if (++n === 1) return json({ error: { code: 'validation', message: 'A team file you added is no longer available to you. Send again to send the message without it.', params: { reason: 'team_files_unavailable', ids: gone } } }, 400)
+      expect(body.attachmentIds).toEqual([kept])
+      return json(s, 202)
+    }
+    useChats.setState({ threads: { [CHAT]: { messages: [], nextCursor: null, stale: false } } })
+    await useChats.getState().send({ chatId: CHAT, content: 'two files', attachments: [team(gone, 'a.txt'), team(kept, 'b.txt')], author: me })
+    await tick()
+    const local = useChats.getState().threads[CHAT]!.messages[0]!
+    expect(local.local?.state).toBe('failed')
+    expect(local.attachments.find((a) => a.id === gone)).toMatchObject({ unavailable: true, name: '', path: '' })
+    expect(local.attachments.find((a) => a.id === kept)).toMatchObject({ name: 'b.txt' })
+    await useChats.getState().resend(CHAT, local.id)
+    expect(n).toBe(2)
+  })
+
   test('network failures are retried with the same clientMessageId', async () => {
     const s = started(null, 'hi')
     let n = 0

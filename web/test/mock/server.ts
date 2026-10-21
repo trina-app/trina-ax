@@ -592,6 +592,34 @@ export class MockServer {
       this.files.set(t.originalPath, t.node)
       return { entry: this.entry(t.originalPath, t.node, c.user) }
     },
+    attachTeamFile: (c) => {
+      const path: string = c.body.path
+      const n = this.files.get(path)
+      if (!n || n.type !== 'file' || this.access(path, c.user) === 'none') fail('not_found', 404)
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      const mime = mimeOf(path) ?? 'application/octet-stream'
+      const a: Attachment & { data: Uint8Array } = {
+        id: uuidv7(), name, path, size: n!.data!.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'text', source: 'team',
+        sha256: new Bun.CryptoHasher('sha256').update(n!.data!).digest('hex'), data: n!.data!,
+      }
+      this.attachments.set(a.id, a)
+      return { status: 201, body: (({ data: _d, ...rest }) => rest)(a) }
+    },
+    findFiles: (c) => {
+      const q = String(c.query.q ?? '').toLowerCase()
+      const base = String(c.query.path ?? '')
+      const items = [...this.files.entries()]
+        .filter(([p, n]) => n.type === 'file' && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        .map(([p, n]) => this.entry(p, n, c.user))
+      return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
+    },
+    recentFiles: (c) => {
+      const items = [...this.files.entries()]
+        .filter(([p, n]) => n.type === 'file' && this.access(p, c.user) !== 'none' && !p.startsWith('users/'))
+        .sort((a, b) => b[1].mtime.localeCompare(a[1].mtime))
+        .map(([p, n]) => this.entry(p, n, c.user))
+      return { items: items.slice(0, Number(c.query.limit ?? 20)), truncated: false }
+    },
     uploadAttachment: async (c) => {
       const data = new Uint8Array(await c.file!.arrayBuffer())
       return { status: 201, body: this.makeAttachment(c.body.chatId, c.body.name ?? c.file!.name, data, c.file!.type, c.user) }

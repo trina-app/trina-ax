@@ -2,7 +2,7 @@
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped), copy, regenerate, branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronLeft, ChevronRight, FileAudio, FileText, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
@@ -10,6 +10,7 @@ import { fileUrl, thumbnailUrl } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
+import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
 import { useChats, useQueuePosition } from '../../store/chats'
@@ -46,6 +47,14 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   const t = useT()
   const locale = useLocale()
   const [thumbFailed, setThumbFailed] = useState(false)
+  const team = a.source === 'team'
+  // a team file that was deleted or that the person can no longer open: the server sent nothing about it
+  if (team && a.unavailable)
+    return (
+      <span className={clsx('inline-flex max-w-[80%] items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-sm text-faint', align === 'end' && 'self-end')} data-testid="attachment-unavailable">
+        <FileX size={16} className="shrink-0" aria-hidden /> {t('attach.unavailable')}
+      </span>
+    )
   if (a.kind === 'image' && !thumbFailed)
     return (
       <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('overflow-hidden rounded-xl border border-line', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
@@ -59,21 +68,40 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
         />
       </button>
     )
-  const icon = a.kind === 'audio' ? <FileAudio size={16} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={16} className="shrink-0 text-muted" aria-hidden />
+  const icon = team ? (
+    <FolderOpen size={16} className="shrink-0 text-accent-text" aria-label={t('composer.teamFile', { path: a.path })} />
+  ) : a.kind === 'audio' ? (
+    <FileAudio size={16} className="shrink-0 text-accent-text" aria-hidden />
+  ) : (
+    <FileText size={16} className="shrink-0 text-muted" aria-hidden />
+  )
   const body = (
     <>
       {icon}
       <span className="truncate font-medium">{a.name}</span>
       <span className="shrink-0 text-xs text-faint">{formatSize(a.size, locale)}</span>
+      {team && a.changed && <span className="shrink-0 text-xs text-warn">{t('attach.changed')}</span>}
+      {team && a.moved && !a.changed && <span className="shrink-0 text-xs text-faint">{t('attach.moved')}</span>}
     </>
   )
-  const cls = 'inline-flex max-w-[80%] items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm'
+  const cls = clsx('inline-flex max-w-[80%] items-center gap-2 rounded-xl border px-3 py-2 text-sm', team ? 'border-accent/30 bg-accent-soft' : 'border-line bg-surface')
+  // a team file can be dragged from the message into the message box again
+  const drag = team
+    ? {
+        draggable: true,
+        onDragStart: (e: React.DragEvent) => {
+          e.dataTransfer.setData(TEAM_FILE_DRAG_TYPE, a.path)
+          e.dataTransfer.setData('text/plain', a.path)
+          e.dataTransfer.effectAllowed = 'copy'
+        },
+      }
+    : {}
   return previewKind(a.name) ? (
-    <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={() => openTeamFile(a.path)} title={t('common.preview')}>
+    <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={() => openTeamFile(a.path)} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag}>
       {body}
     </button>
   ) : (
-    <a className={clsx(cls, 'hover:bg-hover')} href={fileUrl(a.path)} download={a.name}>
+    <a className={clsx(cls, 'hover:bg-hover')} href={fileUrl(a.path)} download={a.name} title={team ? t('composer.teamFile', { path: a.path }) : undefined} data-source={a.source ?? 'upload'} {...drag}>
       {body}
     </a>
   )

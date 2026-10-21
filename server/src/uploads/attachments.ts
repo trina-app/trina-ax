@@ -16,6 +16,7 @@ import { fileError } from '../team-files/errors'
 import { checkRegular, freeName, installFile } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
 import { imageSize, makeThumbnail } from './image'
+import type { TeamFileRefs } from './team-refs'
 
 export const ATTACHMENTS_DIR = '.attachments'
 
@@ -39,7 +40,7 @@ const toApi = (r: Row): Attachment => ({
 const COLS = 'id, user_id, chat_id, path, name, size, mime, kind, width, height, thumb_path'
 
 export class Attachments {
-  constructor(private ctx: AppContext, private files: TeamFiles) {}
+  constructor(private ctx: AppContext, private files: TeamFiles, private refs?: TeamFileRefs) {}
 
   private thumbsDir() { return path.join(this.ctx.config.dataDir, 'thumbs') }
 
@@ -89,17 +90,30 @@ export class Attachments {
 
   private row(id: string): Row | null { return this.ctx.db.query(`SELECT ${COLS} FROM attachments WHERE id = ?`).get(id) as Row | null }
 
-  /** For component B (sending a message): the caller's attachments of that chat, in the order asked, unknown ids dropped. */
+  /** For component B (sending a message): the caller's attachments of that chat, in the order asked, unknown ids dropped.
+   * Team-file references are looked up again with the caller's access now (unreadable ones are dropped too). */
   byIds(userId: string, chatId: string, ids: string[]): Attachment[] {
-    if (!ids.length) return []
+    return this.lookup(userId, chatId, ids).found
+  }
+
+  /** Like byIds, and which of the ids are the caller's own team-file references of this chat that are no longer
+   * available to them (deleted, moved out of reach, access taken away): they attached those ids themselves, so
+   * naming them tells nothing new; nothing about the files is said. */
+  lookup(userId: string, chatId: string, ids: string[]): { found: Attachment[]; unavailable: string[] } {
+    if (!ids.length) return { found: [], unavailable: [] }
     const rows = this.ctx.db.query(`SELECT ${COLS} FROM attachments WHERE user_id = ? AND chat_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(userId, chatId, ...ids) as Row[]
-    const m = new Map(rows.map((r) => [r.id, r]))
-    return ids.map((i) => m.get(i)).filter((r): r is Row => !!r).map(toApi)
+    const m = new Map<string, Attachment>(rows.map((r) => [r.id, toApi(r)]))
+    const refs = this.refs?.byIds(userId, chatId, ids.filter((i) => !m.has(i)))
+    for (const [id, a] of refs?.found ?? []) m.set(id, a)
+    const seen = new Set<string>()
+    const found = ids.filter((i) => (seen.has(i) ? false : (seen.add(i), true))).map((i) => m.get(i)).filter((a): a is Attachment => !!a)
+    return { found, unavailable: refs?.unavailable ?? [] }
   }
 
   /** Thumbnail file of an own image attachment (generated, or the original when it is a small web image). */
-  thumbnail(userId: string, id: string): { abs: string; name: string } {
+  thumbnail(userId: string, id: string): { abs: string; name: string } | { bytes: Buffer; name: string; mime: string; etag: string } {
     const r = this.row(id)
+    if (!r && this.refs?.isRef(id)) return this.refs.thumbnail(userId, id)
     if (!r || r.user_id !== userId || r.kind !== 'image') throw new HttpError('not_found')
     // the file itself may have been moved / deleted on the file screen: the person must still be able to read it
     const user = this.files.principal(userId)

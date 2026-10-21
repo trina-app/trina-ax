@@ -8,6 +8,7 @@ const t = (ko: string, en: string, id: string): T => ({ ko, en, id })
 
 export const TEXT = {
   turnInProgress: t('이 채팅에서 답변이 아직 진행 중입니다. 끝나거나 중지한 뒤 보내 주세요.', 'An answer is still in progress in this chat. Wait for it or stop it first.', 'Jawaban di chat ini masih berjalan. Tunggu atau hentikan dulu.'),
+  attachmentsTeamUnavailable: t('추가한 팀 파일 중 더 이상 열 수 없는 파일이 있습니다. 그 파일을 빼고 보내려면 다시 보내기를 누르세요.', 'A team file you added is no longer available to you. Send again to send the message without it.', 'Ada berkas tim yang Anda tambahkan yang tidak lagi tersedia untuk Anda. Kirim ulang untuk mengirim pesan tanpa berkas itu.'),
   attachmentsUnavailable: t('첨부 파일을 찾을 수 없습니다. 다시 올려 주세요.', 'The attachments could not be found. Please upload them again.', 'Lampiran tidak ditemukan. Unggah ulang.'),
   requestClosed: t('이미 답했거나 시간이 지난 질문입니다.', 'This question was already answered or has expired.', 'Pertanyaan ini sudah dijawab atau kedaluwarsa.'),
   notUserMessage: t('사용자 메시지만 수정할 수 있습니다.', 'Only your own messages can be edited.', 'Hanya pesan Anda yang bisa diubah.'),
@@ -40,6 +41,9 @@ export const TEXT = {
 
   // steps
   refusedRetry: STEP_TEXT.refusedRetry,
+  attachChanged: STEP_TEXT.attachChanged,
+  attachMoved: STEP_TEXT.attachMoved,
+  attachUnavailable: STEP_TEXT.attachUnavailable,
   rememberConfirm: t('AI가 다음 내용을 기억하려고 합니다. 기억할까요?\n\n{text}', 'The AI wants to remember this about you. OK?\n\n{text}', 'AI ingin mengingat hal ini tentang Anda. Boleh?\n\n{text}'),
   yes: t('기억하기', 'Remember', 'Ingat'),
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat'),

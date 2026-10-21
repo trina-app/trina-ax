@@ -189,6 +189,16 @@ export const useChats = create<ChatsState>((set, get) => {
           await sleep(Math.min(8000, 1000 * 2 ** attempt))
           continue
         }
+        // team files the person attached but can no longer open: the message is marked "not sent" with the reason,
+        // those files show as unavailable, and "send again" sends it without them
+        const gone = e instanceof ApiError && e.body.params?.reason === 'team_files_unavailable' ? new Set(String(e.body.params.ids ?? '').split(',').filter(Boolean)) : null
+        if (gone?.size) {
+          job.attachmentIds = job.attachmentIds.filter((id) => !gone.has(id))
+          setThread(job.chatId, (t) => ({
+            ...t,
+            messages: t.messages.map((m) => (m.id === localId ? { ...m, attachments: m.attachments.map((a) => (gone.has(a.id) ? { id: a.id, name: '', path: '', size: 0, mime: 'application/octet-stream', kind: 'other' as const, source: 'team' as const, unavailable: true } : a)) } : m)),
+          }))
+        }
         // the server's reason is already in the person's words (budget used up, attachment gone, …); a network
         // failure has only the browser's English text, so the screen says "not sent" without it
         setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'failed', e instanceof ApiError ? e.message : undefined) }))
@@ -290,7 +300,8 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async edit(chatId, userMessageId, content, attachments) {
-      const started = await api.call(API.editMessage, { params: { id: chatId, messageId: userMessageId }, body: { content, attachmentIds: attachments.map((a) => a.id), clientMessageId: uuidv7() } })
+      // a team file that is no longer available stays out of the edited copy (the server would refuse it)
+      const started = await api.call(API.editMessage, { params: { id: chatId, messageId: userMessageId }, body: { content, attachmentIds: attachments.filter((a) => !a.unavailable).map((a) => a.id), clientMessageId: uuidv7() } })
       afterStarted(chatId, started, { cutAt: userMessageId })
     },
 

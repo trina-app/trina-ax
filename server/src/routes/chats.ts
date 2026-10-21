@@ -69,9 +69,13 @@ function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo
 function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: string[], locale: Locale): Attachment[] {
   if (!ids.length) return []
   const store = ctx.services.attachments
-  const found = store ? store.get(auth.user.id, chatId, ids) : []
-  if (found.length !== new Set(ids).size) fail('validation', tr('attachmentsUnavailable', locale), { fields: { 'body.attachmentIds': 'unknown attachment' } })
-  return found
+  const r = store?.lookup ? store.lookup(auth.user.id, chatId, ids) : { found: store ? store.get(auth.user.id, chatId, ids) : [], unavailable: [] }
+  if (r.found.length === new Set(ids).size) return r.found
+  // the caller's own team files that they can no longer open: say so and name those ids (they attached them), so the
+  // web can mark them and send without them; any other unknown id gets the general answer
+  if (r.unavailable.length && r.found.length + new Set(r.unavailable).size === new Set(ids).size)
+    fail('validation', tr('attachmentsTeamUnavailable', locale), { fields: { 'body.attachmentIds': 'team file unavailable' }, params: { reason: 'team_files_unavailable', ids: [...new Set(r.unavailable)].join(',') } })
+  return fail('validation', tr('attachmentsUnavailable', locale), { fields: { 'body.attachmentIds': 'unknown attachment' } })
 }
 
 /** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first. */

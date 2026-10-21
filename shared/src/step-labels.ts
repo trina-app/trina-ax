@@ -55,6 +55,9 @@ export const STEP_TEXT = {
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab'),
   webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}'),
   thinking: t('생각하는 중', 'Thinking', 'Berpikir'),
+  attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}'),
+  attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}'),
+  attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi'),
   refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})'),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
@@ -138,6 +141,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   if (step.kind === 'thinking') label = retemplate(['thinking'], step.label, locale)
   else if (step.kind === 'web_search') label = retemplate(['webSearch'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
+  else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered'], step.label, locale)
   else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)

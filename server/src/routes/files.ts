@@ -1,12 +1,13 @@
 // Route module "files" — owner: component C (docs/WORKPLAN.md).
 // Implements: FILES (tree, content, save, download, upload, mkdir, move, delete, history, restore, trash, attachments,
-// upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
+// team-file references and the picker's find / recent, upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
 import { mapErrors } from '../team-files/errors'
 import { componentC } from '../team-files/component'
-import { streamFile } from '../team-files/download'
+import { contentDisposition, streamFile } from '../team-files/download'
+import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
 import type { RouteModule } from './module'
@@ -71,8 +72,19 @@ export const filesRoutes: RouteModule = {
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)
-      return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline' })
+      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline' })
+      // a team-file reference: the bytes were read through the descriptor that was checked (no second open by path)
+      const etag = `"${t.etag}"`
+      const headers = new Headers({ 'Content-Type': t.mime, 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Length': String(t.bytes.length), 'Content-Disposition': contentDisposition('inline', t.name) })
+      if (c.req.header('if-none-match')?.split(',').map((s) => s.trim()).includes(etag)) return new Response(null, { status: 304, headers })
+      return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(t.bytes), { status: 200, headers })
     }))
+
+    // ---------------- team files in chats (picker + reference attachments) ----------------
+    kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit)))
+    kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
+    kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
 
     // ---------------- chunked uploads ----------------
     kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))

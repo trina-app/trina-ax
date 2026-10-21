@@ -102,6 +102,11 @@ export class ChatRuntime {
 
   constructor(readonly ctx: AppContext, private o: ChatRuntimeOptions) {
     this.store = new ChatStore(ctx.db)
+    this.store.viewAttachments = (userId, atts) => {
+      const view = ctx.services.attachments?.view
+      if (!view) throw new Error('no attachment view') // the store blanks team references
+      return view(userId, atts)
+    }
     this.hub = new Hub(ctx, o.hub)
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
     this.engines = o.engines ?? new LocalEngines(ctx)
@@ -314,7 +319,7 @@ export class ChatRuntime {
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
   history(leafId: string | null): { role: 'user' | 'assistant'; content: string }[] {
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m) : m.content }))
+    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
   }
 
   siteGranted(userId: string, host: string): boolean {
@@ -441,6 +446,7 @@ export class ChatRuntime {
 }
 
 function titleFrom(content: string, atts: Attachment[]): string {
-  const line = content.split('\n').map((l) => l.trim()).find(Boolean) ?? atts[0]?.name ?? ''
+  // a team file's name is not used: the title outlives the person's access to the file
+  const line = content.split('\n').map((l) => l.trim()).find(Boolean) ?? atts.find((a) => a.source !== 'team')?.name ?? ''
   return line.length > 60 ? line.slice(0, 59) + '…' : line
 }

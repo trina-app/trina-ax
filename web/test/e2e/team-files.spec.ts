@@ -1,0 +1,177 @@
+// "Add from team files": the composer's attach menu, the picker (recent files, folders, breadcrumbs, name search,
+// multi-select with the message limit), team-file chips, sending, and "Ask AI about this" from the file screen.
+import { expect, test, type Page } from '@playwright/test'
+import { realErrors, reset, signIn, watchConsole } from './helpers'
+
+async function openPicker(page: Page) {
+  await page.getByTestId('attach-button').click()
+  await page.getByTestId('attach-team').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+}
+
+test('attach team files from the picker: folders, search, multi-select, chips, send', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await openPicker(page)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByTestId('picker-recent')).toBeVisible()
+  // folders, then files of the folder
+  await dialog.getByTestId('picker-folder').filter({ hasText: 'marketing' }).click()
+  await expect(dialog.getByRole('navigation')).toContainText('marketing')
+  await dialog.getByTestId('picker-list').getByTestId('picker-file').filter({ hasText: 'plan.md' }).first().locator('input').check()
+  await dialog.getByTestId('picker-list').getByTestId('picker-file').filter({ hasText: 'notes.txt' }).locator('input').check()
+  // search by name
+  await dialog.getByTestId('picker-search').fill('data')
+  const hit = dialog.getByTestId('picker-file').filter({ hasText: 'data.csv' })
+  await expect(hit).toBeVisible()
+  await hit.locator('input').check()
+  await expect(dialog.getByTestId('picker-attach')).toContainText('3')
+  await dialog.getByTestId('picker-attach').click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  // after attaching, the message box has focus
+  await expect(page.getByTestId('composer-input')).toBeFocused()
+  const chips = page.locator('[data-testid="attachment-chip"][data-source="team"]')
+  await expect(chips).toHaveCount(3)
+  await expect(chips.filter({ hasText: 'plan.md' })).toHaveAttribute('title', /marketing\/plan\.md/)
+  await expect(chips.first()).not.toContainText('%')
+  // the folder is visible on the chip itself (phones have no hover)
+  await expect(chips.filter({ hasText: 'plan.md' }).getByTestId('chip-folder')).toHaveText('marketing')
+  // a file already in the message shows as attached in the picker and cannot be picked again (nor use up the count)
+  await openPicker(page)
+  await page.getByRole('dialog').getByTestId('picker-search').fill('notes')
+  const again = page.getByRole('dialog').getByTestId('picker-file').filter({ hasText: 'notes.txt' })
+  await expect(again.getByTestId('picker-attached')).toBeVisible()
+  await expect(again.locator('input')).toBeDisabled()
+  await expect(again.locator('input')).toBeChecked()
+  await page.getByRole('dialog').getByRole('button', { name: /Cancel|취소/ }).click()
+  await expect(chips).toHaveCount(3)
+  await page.getByTestId('composer-input').fill('summarize these')
+  await page.getByTestId('send').click()
+  const user = page.getByTestId('user-message').first()
+  await expect(user.locator('[data-source="team"]')).toHaveCount(3)
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('attach menu and picker work from the keyboard', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const button = page.getByTestId('attach-button')
+  await button.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('attach-computer')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('attach-team')).toBeFocused()
+  // Escape closes it, focus back on the button
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toBeHidden()
+  await expect(button).toBeFocused()
+  // Enter opens it with the first item focused; Escape on the button (menu open) closes it too
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('attach-computer')).toBeFocused()
+  await button.focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toBeHidden()
+  // the items are not separate Tab stops; Tab out of the menu closes it
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('attach-computer')).toHaveAttribute('tabindex', '-1')
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('menu')).toBeHidden()
+  // the picker: the search box has focus; arrow down goes into the list; Escape brings focus back to the button
+  await button.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('attach-computer')).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(page.getByTestId('attach-team')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByTestId('picker-search')).toBeFocused()
+  await expect(page.getByTestId('picker-list').locator('[data-picker-item]').first()).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('picker-list').locator('[data-picker-item]').first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(button).toBeFocused()
+})
+
+test('the picker keeps its height between recent files, a folder and a search; search stays inside the folder', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await openPicker(page)
+  const dialog = page.getByRole('dialog')
+  const list = dialog.getByTestId('picker-list')
+  await expect(dialog.getByTestId('picker-recent')).toBeVisible()
+  const h1 = (await list.boundingBox())!.height
+  await dialog.getByTestId('picker-folder').filter({ hasText: 'marketing' }).click()
+  await expect(dialog.getByRole('navigation')).toContainText('marketing')
+  expect((await list.boundingBox())!.height).toBe(h1)
+  await expect(dialog.getByTestId('picker-search')).toHaveAttribute('placeholder', /marketing/)
+  await dialog.getByTestId('picker-search').fill('zzz-nothing')
+  await expect(list).toContainText('zzz-nothing')
+  expect((await list.boundingBox())!.height).toBe(h1)
+})
+
+test('files added one at a time from the file screen stay together in the chat', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // a chat to add to
+  await page.getByTestId('composer-input').fill('hello')
+  await page.getByTestId('send').click()
+  await expect(page).toHaveURL(/\/c\//)
+  const chatUrl = page.url()
+  for (const name of ['notes.txt', 'plan.md']) {
+    await page.goto('/files?path=marketing')
+    const row = page.getByTestId('file-row').filter({ hasText: name }).first()
+    await row.hover()
+    await row.getByTestId('file-menu').click()
+    await page.getByTestId('add-to-chat').click()
+    await expect(page).toHaveURL(chatUrl)
+    await expect(page.locator('[data-testid="attachment-chip"][data-source="team"]').filter({ hasText: name })).toBeVisible()
+  }
+  const chips = page.locator('[data-testid="attachment-chip"][data-source="team"]')
+  await expect(chips).toHaveCount(2)
+  // and they survive going somewhere else and back
+  await page.goto('/files')
+  await page.goto(chatUrl)
+  await expect(chips).toHaveCount(2)
+})
+
+test('"Ask AI about this" on the file screen starts a new chat with the file attached', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  const chatLinks = page.locator('nav a[href^="/c/"]')
+  await expect(page.getByTestId('file-row').first()).toBeVisible()
+  const before = await chatLinks.count()
+  const row = page.getByTestId('file-row').filter({ hasText: 'notes.txt' })
+  await row.hover()
+  await row.getByTestId('file-menu').click()
+  await page.getByTestId('chat-with-file').click()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  const chip = page.locator('[data-testid="attachment-chip"][data-source="team"]')
+  await expect(chip).toContainText('notes.txt')
+  await expect(chip).toHaveAttribute('title', /marketing\/notes\.txt/)
+  // the chat made to hold the attachment is not in Recents until something is sent
+  await expect(chatLinks).toHaveCount(before)
+})
+
+test.describe('phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+test('phone: the picker is a usable sheet', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await openPicker(page)
+  const dialog = page.getByRole('dialog')
+  const box = await dialog.boundingBox()
+  expect(box!.width).toBeLessThanOrEqual(390)
+  await dialog.getByTestId('picker-search').fill('plan')
+  await dialog.getByTestId('picker-file').filter({ hasText: 'plan.md' }).first().locator('input').check()
+  await expect(dialog.getByTestId('picker-attach')).toBeInViewport()
+  await dialog.getByTestId('picker-attach').click()
+  await expect(page.locator('[data-testid="attachment-chip"][data-source="team"]')).toHaveCount(1)
+  // phone wording, and the camera inside the same menu
+  await page.getByTestId('attach-button').click()
+  await expect(page.getByTestId('attach-computer')).toContainText(/device|기기/)
+  await expect(page.getByTestId('attach-camera')).toBeVisible()
+})
+})
