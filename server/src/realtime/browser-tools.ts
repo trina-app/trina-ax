@@ -231,3 +231,18 @@ export function urlsOf(tool: string, args: Record<string, unknown>): string[] {
   }
   return out
 }
+
+/**
+ * Code the AI asks the page to run (javascript_tool, also inside browser_batch). The server scans it for written-out
+ * http(s) addresses: a script can send data out just like an address can (design tab 7 "a GET can carry data out").
+ */
+export function scriptsOf(tool: string, args: Record<string, unknown>): string[] {
+  const out: string[] = []
+  if (tool === 'javascript_tool' && typeof args.text === 'string') out.push(args.text)
+  if (tool === 'browser_batch' && Array.isArray(args.actions)) {
+    for (const a of args.actions as { name?: unknown; input?: Record<string, unknown> }[]) {
+      if (a && typeof a.name === 'string' && a.input && typeof a.input === 'object') out.push(...scriptsOf(a.name, a.input))
+    }
+  }
+  return out
+}
