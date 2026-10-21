@@ -4,7 +4,7 @@
 // pre-fills one to hand over, the server CLI). A temporary password is one-time: the person must change it at first
 // sign-in, it stops working TEMP_PASSWORD_TTL_DAYS days after it was set, and the server voids it after
 // TEMP_PASSWORD_MAX_FAILURES wrong tries (server/src/auth/accounts.ts). So it trades length for being easy to read out
-// and type at a clinic desk.
+// and type at an office desk.
 //
 // Format: a word of 4-7 lower-case letters from TEMP_WORDS, then 4 digits 0-9, so 8-11 characters (passes the
 // 8-character rule). The digits always come after the letters, so 0/O and 1/l cannot be mixed up.
@@ -16,7 +16,7 @@
 // through the Cloudflare tunnel), voided after TEMP_PASSWORD_MAX_FAILURES wrong tries (a guesser wins with at most
 // 50 / 10^7 = 0.0005%), valid 7 days, replaced by the person's own password at the first sign-in.
 //
-// TEMP_WORDS (owner decision 2026-10-21, reviewed for the exampleteam clinic pilot with Korean and Indonesian staff): basic,
+// TEMP_WORDS (owner decision 2026-10-21, reviewed for the first office pilot with Korean and Indonesian staff): basic,
 // concrete words that are easy to spell when read aloud (food, animals, places, things, colours, months, a few
 // cities) - no hard spellings (rhythm, yacht, khaki...), no silent letters (knee, climb, island...), nothing
 // unpleasant, violent, medical-worry, religious or slangy (knife, needle, ghost, snake, wine...), and no two words

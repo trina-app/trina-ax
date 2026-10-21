@@ -48,7 +48,7 @@ describe('restore-archive ends every sign-in made before the archive', () => {
     const token = desk.token!
     expect((await desk.try('GET', '/api/me')).status).toBe(200)
 
-    const archive = path.join(HOME, 'clinic.tar.zst')
+    const archive = path.join(HOME, 'office.tar.zst')
     const a = admin(['archive', '--out', archive])
     expect(a.code, a.out).toBe(0)
 
