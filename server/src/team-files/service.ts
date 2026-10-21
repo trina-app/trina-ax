@@ -320,9 +320,18 @@ export class TeamFiles {
       re('attachments', 'path')
       // items trashed from inside the moved folder: their place to go back to moves with it. Otherwise the trash checks
       // write access on the old path (no rule there any more: the group stops seeing its own trash), and a restore
-      // recreates the old name, or lands in whatever folder took that name since (another group's)
-      db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND ${under('original_path')}`)
-        .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
+      // recreates the old name, or lands in whatever folder took that name since (another group's).
+      // Only while the folder stays on the same side of a personal folder's edge (team folders, or one person's own
+      // users/<id>/): a file someone deleted in their personal folder stays theirs when they share the folder by
+      // moving it into a team folder, and what the team deleted stays the team's when someone moves the folder into
+      // their personal folder. Otherwise the whole team saw and restored a file the owner had deleted on purpose
+      // before sharing the folder (security review r3).
+      // Only what was inside the folder: a trashed file or folder that merely had the moved entry's own path was
+      // another one and stays where it was deleted.
+      if (isDir && personalSide(fr.segs) === personalSide(target)) {
+        db.query("UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/'")
+          .run(toRel, fr.rel, fr.rel, fr.rel)
+      }
       fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
       fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
       fs.renameSync(fr.abs, path.join(this.root, ...target))
@@ -623,7 +632,22 @@ export class TeamFiles {
     if (!f) return null
     if (t.kind === 'folder' && f.path === t.storage_path) return t.original_path // its own rules, parked with it
     if (segsOf(f.path)[0] === PRODUCT.systemDir) return null
-    return f.path === '' || f.path === t.original_path || isUnder(f.path, t.original_path) ? t.original_path : null
+    // A live row is the very folder the item was trashed from (a folder that takes a trashed one's name gets a new
+    // row). The item may sit outside it now: an ordinary folder it was in was moved out of it (move() carries the
+    // item along). trashVisible then asks for read on that folder as well as write where the item goes back to, so
+    // it shows only to people who could see it where it was deleted and can put it where it is now (security
+    // review r3: it was nobody's, not even its group's, until it was purged).
+    return t.original_path
+  }
+  /**
+   * The path a trash item had when it was deleted, for an item stamped with no folders row (a personal folder, or a
+   * team path no folders row covers): the delete's file_events row. Items moved with a folder before security
+   * review r3 could have crossed out of a personal folder (move() no longer takes them across); null: not recorded.
+   */
+  private trashedFrom(t: TrashRow): string | null {
+    const ev = this.ctx.db.query("SELECT path FROM file_events WHERE user_id = ? AND action = 'delete' AND json_extract(detail, '$.trashId') = ? LIMIT 1")
+      .get(t.deleted_by, t.id) as { path: string } | null
+    return ev?.path ?? null
   }
   private trashVisible(user: Principal, rules: RuleSet, t: TrashRow): boolean {
     const home = this.trashHome(t)
@@ -643,6 +667,11 @@ export class TeamFiles {
     if (t.folder_id) {
       const f = this.folderLivePath(t.folder_id)
       if (f !== null && !atLeast(access(f), 'read')) return false
+    } else if (segsOf(home)[0] !== 'users') {
+      // no folder stamp: like a version's path_at_save, the place it was deleted from must be readable too (a file
+      // deleted in users/<id>/ and moved into a team folder with its folder by an older build stays its owner's)
+      const from = this.trashedFrom(t)
+      if (from !== null && from !== home && !atLeast(access(from), 'read')) return false
     }
     return true
   }
@@ -812,6 +841,11 @@ export function activePeople(db: AppContext['db']): Principal[] {
 }
 
 /** Move the folders rows at `from` and below it to `to` (rules are kept by path). */
+/** Whose side of the personal-folder edge a path is on: 'users/<id>' for a personal folder, '' for team folders. */
+function personalSide(segs: readonly string[]): string {
+  return segs[0] === 'users' ? `users/${segs[1] ?? ''}` : ''
+}
+
 function rebaseFolders(db: AppContext['db'], from: string, to: string) {
   db.query("UPDATE folders SET path = ? || substr(path, length(?) + 1) WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").run(to, from, from, from, from)
 }
