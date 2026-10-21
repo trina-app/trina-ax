@@ -819,6 +819,15 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `--tunnel`로 찾은 로컬 터널은 "not touched"로 두고 나머지(CNAME, 다른 터널의 남은 규칙)만 정리한다. 원격 관리 터널도 그
   이름의 CNAME이 가리키거나 그 이름 규칙이 있을 때만 지우거나 비밀을 바꾼다(`--tunnel`로만 닿은 빈 터널은 남의 것일 수
   있음). 시험: `tests/security/r4-remove-local-tunnel.test.ts`.
+- **휴지통에 있는 폴더의 파일 버전은 되돌리지 않는다(4차 7, 치명).** 제한 폴더(`shared/Layoffs`: everyone none, hr write)를
+  휴지통에 넣으면 그 규칙은 `.system/trash` 아래로 옮겨지는데, 버전 되돌리기는 **지금의** 규칙으로 쓰기 권한을 봐서 위
+  폴더(`shared/`, 모두 쓰기)로 통과하고 그 자리에 폴더와 파일을 규칙 없이 다시 만들었다. hr 사람(휴지통 속 버전은 여전히 보임)
+  이나 관리자가 평범하게 "이 버전으로 되돌리기"를 누르면 팀 전체가 그 내용을 읽고 고치고 지울 수 있었다. 이제
+  `restoreVersion`은 버전의 폴더(`folder_id`)가 휴지통에 있으면(`parkedView`가 null이 아님, 휴지통 항목이 사라진 경우 포함)
+  409 `folderInTrash`("폴더를 먼저 되돌리세요")로 거부하고, 버전이 모두 그런 경우 `history`가 `canRestore:false`를 준다. 폴더를
+  휴지통에서 되돌리면 규칙과 함께 돌아오고 그때 버전 되돌리기가 된다. 버전의 폴더가 지금 그 경로를 맡는지까지 요구하는 것은
+  하지 않았다: 파일을 다른 폴더로 옮겨도 `folder_id`는 저장 때 폴더라 정상 되돌리기가 막힌다. 시험:
+  `tests/security/r4-restore-version-trashed-folder.test.ts`(hr·관리자 모두 409, mallory는 내용·트리 404, 폴더를 되돌린 뒤 성공).
 - **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 14, 검토 중 추가).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
   `teamName`(설정 전 null, 뒤 팀 이름)이 그대로 나갔고, `POST /api/setup`은 "이미 설정됨"(409)을 터널 거부(403)보다 먼저 봐서
   설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
