@@ -892,6 +892,7 @@ export class MockServer {
     },
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
+    officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없습니다.'),
     // nothing connected, no scheduled tasks yet
     listConnected: () => ({ items: [] }),
     listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
