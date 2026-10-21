@@ -9,6 +9,7 @@ import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
 import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
+import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
 
 export const authRoutes: RouteModule = {
   name: 'auth',
@@ -54,8 +55,11 @@ export const authRoutes: RouteModule = {
         // merge: a PATCH carrying only { theme } keeps the other preferences
         let cur: Record<string, unknown> = {}
         try { cur = JSON.parse(u!.prefs || '{}') } catch {}
-        const next: Record<string, unknown> = { ...cur, ...body.prefs }
-        for (const [k, v] of Object.entries(next)) if (v === undefined) delete next[k]
+        // own default engine / model: only for people who may pick (others' requests keep their theme etc.); null = back
+        // to the team default
+        const next: Record<string, unknown> = { ...cur, ...filterEnginePrefs(ctx, auth.user, body.prefs) }
+        if (!canChooseEngine(ctx, auth.user)) { delete next.engine; delete next.model }
+        for (const [k, v] of Object.entries(next)) if (v === undefined || v === null) delete next[k]
         sets.push('prefs = ?'); args.push(JSON.stringify(next))
       }
       ctx.db.transaction(() => {

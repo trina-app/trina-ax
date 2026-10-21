@@ -1,9 +1,11 @@
 // AI engines: per engine install / login / lockdown status (what is missing, in plain words), re-check, enable;
-// team defaults (engine, model, turns at the same time); usage limits; and, folded under "advanced", company API
-// keys for proxy mode (owner only, off by default — this version runs on the owner's subscriptions).
-import { CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
+// team defaults (engine, model, turns at the same time); who else may pick the engine ("팀원이 엔진 고르기 허용", off:
+// owner and admins only) and the optional Claude-limit fallback to Codex (off; warns that data then also goes to
+// OpenAI; unavailable while Codex is off); usage limits; and, folded under "advanced", company API keys for proxy
+// mode (owner only, off by default — this version runs on the owner's subscriptions).
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { Budget, EngineId, EngineStatus, Group, User } from '@mycel/shared/api'
+import type { Budget, EngineId, EnginesResponse, EngineStatus, Group, MemberEngineChoice, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
@@ -84,6 +86,7 @@ export default function Engines() {
               </Button>
             </Card>
           )}
+          <MemberChoice data={d} onSaved={(r) => state.setData(r)} />
           <Budgets />
           {isOwner(me) && (
             <section className="mb-6">
@@ -375,5 +378,91 @@ function BudgetForm({ budget, users, groups, onClose, onSaved }: { budget: Budge
         </Field>
       </div>
     </Modal>
+  )
+}
+
+type EnginesData = EnginesResponse
+
+/** "팀원이 엔진 고르기 허용" and "Claude 한도에 닿으면 Codex로 넘기기". */
+function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesData) => void }) {
+  const t = useT()
+  const act = useAction()
+  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const [choice, setChoice] = useState<MemberEngineChoice>(data.memberChoice)
+  const [fallback, setFallback] = useState(data.limitFallback)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    setChoice(data.memberChoice)
+    setFallback(data.limitFallback)
+  }, [data.memberChoice, data.limitFallback])
+  const toggleIn = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id))
+  // owner and admins always pick: only members are listed
+  const members = (users.data ?? []).filter((u) => u.role === 'member' && u.status === 'active')
+  const save = async () => {
+    setBusy(true)
+    const r = await act(() => api.call(API.updateEngines, { body: { memberChoice: choice, limitFallback: fallback && data.limitFallbackAvailable } }), t('common.saved'))
+    setBusy(false)
+    if (r) onSaved(r)
+  }
+  return (
+    <Card title={t('engines.choice')} desc={t('engines.choiceDesc')}>
+      <div className="space-y-4" data-testid="engine-choice">
+        <fieldset>
+          <legend className="mb-2 text-sm font-medium">{t('engines.choice.allow')}</legend>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('engines.choice.allow')}>
+            {(['off', 'everyone', 'selected'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={choice.mode === mode}
+                onClick={() => setChoice({ ...choice, mode })}
+                className={`rounded-lg border px-3 py-2 text-sm ${choice.mode === mode ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}`}
+                data-testid={`engine-choice-${mode}`}
+              >
+                {t(`engines.choice.${mode}`)}
+              </button>
+            ))}
+          </div>
+          {choice.mode === 'selected' && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted">{t('engines.choice.groups')}</p>
+                {(groups.data ?? []).length === 0 && <p className="text-xs text-faint">{t('engines.choice.noGroups')}</p>}
+                {(groups.data ?? []).map((g) => (
+                  <label key={g.id} className="flex items-center gap-2 py-1 text-sm">
+                    <input type="checkbox" checked={choice.groupIds.includes(g.id)} onChange={(e) => setChoice({ ...choice, groupIds: toggleIn(choice.groupIds, g.id, e.target.checked) })} />
+                    {g.name}
+                  </label>
+                ))}
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted">{t('engines.choice.people')}</p>
+                {members.map((u) => (
+                  <label key={u.id} className="flex items-center gap-2 py-1 text-sm">
+                    <input type="checkbox" checked={choice.userIds.includes(u.id)} onChange={(e) => setChoice({ ...choice, userIds: toggleIn(choice.userIds, u.id, e.target.checked) })} />
+                    {u.name} <span className="text-xs text-faint">{u.username}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-faint">{t('engines.choice.hint')}</p>
+        </fieldset>
+        <div className="border-t border-line pt-4">
+          <Switch checked={fallback && data.limitFallbackAvailable} disabled={!data.limitFallbackAvailable} onChange={setFallback} label={t('engines.fallback')} />
+          <p className="mt-1 text-xs text-muted">{t(data.limitFallbackAvailable ? 'engines.fallbackDesc' : 'engines.fallbackUnavailable')}</p>
+          {fallback && data.limitFallbackAvailable && (
+            <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="fallback-warning">
+              <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden /> {t('engines.fallbackWarning')}
+            </p>
+          )}
+        </div>
+        <Button variant="primary" busy={busy} onClick={save} data-testid="engine-choice-save">
+          {t('common.save')}
+        </Button>
+      </div>
+    </Card>
   )
 }
