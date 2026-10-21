@@ -83,7 +83,8 @@ export class TeamFiles {
     for (const r of rows) m.set(r.id, { id: r.id, name: r.name })
     return m
   }
-  private publish(changes: FileChange[]) { publishChanges(this.ctx, changes) }
+  /** `before`: the rules loaded before a change that moved folders rows (see changes.ts) */
+  private publish(changes: FileChange[], before?: RuleSet) { publishChanges(this.ctx, changes, before) }
   private by(userId: string): UserRef { const u = this.userRefs([userId]).get(userId); return u ?? { id: userId, name: userId } }
 
   // ---------------- tree ----------------
@@ -276,7 +277,8 @@ export class TeamFiles {
       fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
-    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }])
+    // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
+    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }], rules)
     return { entry: this.entry(user, rules, target) }
   }
 
@@ -326,7 +328,8 @@ export class TeamFiles {
       } catch (e) { fs.renameSync(path.join(this.root, ...storage.split('/')), r.abs); throw e }
     })()
     this.dropTextCache(r.rel, isDir)
-    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }])
+    // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
+    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
     return { trashId: id, purgeAt }
   }
 
