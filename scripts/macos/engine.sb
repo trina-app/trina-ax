@@ -121,6 +121,9 @@
       (subpath (in-home "/.claude/backups"))
       (subpath (param "SESSION_DIR")))
     (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
+    ;; Claude Code's login when it is not in the keychain: some Macs keep it in ~/.claude/.credentials.json, and
+    ;; without it every turn ends "Not logged in". Read-write so a refreshed token is saved.
+    (allow file-read* file-write* (literal (in-home "/.claude/.credentials.json")))
     ;; Codex: the login only
     (allow file-read* file-write* (literal (in-home "/.codex/auth.json")))
     ;; the installed CLIs (no secrets) and the login keychain (Security framework reads it in-process)
