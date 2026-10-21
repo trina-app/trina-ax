@@ -4,12 +4,15 @@
 // component post the document (built by lib/artifacts.ts, meta CSP first) to it. The document never goes in through
 // srcdoc or a blob: URL: both would inherit the app's CSP, which then would have to allow inline scripts.
 //
+// The listener is attached in the same task that inserts the frame (layout effect), and when the receiver has loaded
+// without its "ready" reaching us, a "ping" asks for it again: a missed "ready" left the panel empty for good.
+//
 // Messages are only taken from this frame's own window (event.source). Expected loads: the receiver, then the
 // document it wrote (document.close). A further load — or the "leaving" signal of the written document — means it
 // tried to navigate away: the frame is reset to about:blank and a notice is shown (a signal only; the app's frame-src
 // CSP is what blocks the navigation).
 import { AlertTriangle } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { SANDBOX, SANDBOX_FRAME_URL } from '../lib/artifacts'
 import { useT } from '../i18n'
 
@@ -38,7 +41,7 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
   const stopRef = useRef(stop)
   stopRef.current = stop
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const win = ref.current?.contentWindow
       if (!win || e.source !== win) return
@@ -77,6 +80,8 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
       onLoad={() => {
         loads.current += 1
         if (loads.current > EXPECTED_LOADS) stop()
+        // the receiver is up but its "ready" didn't arrive (or came before we listened): ask again
+        else if (loads.current === 1 && !sent.current) ref.current?.contentWindow?.postMessage({ source: 'mycel-host', type: 'ping' }, '*')
       }}
     />
   )
