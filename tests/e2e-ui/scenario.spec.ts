@@ -117,7 +117,7 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   await bp.getByTestId('login-username').fill(st.bob.username)
   await bp.getByTestId('login-password').fill(temp)
   await bp.getByTestId('login-submit').click()
-  await bp.getByLabel('임시 비밀번호').fill(temp)
+  // right after signing in with the temporary password only the new one is asked
   await bp.getByLabel('새 비밀번호').fill(st.bob.password)
   await bp.getByLabel('비밀번호 확인').fill(st.bob.password)
   await bp.getByRole('button', { name: '비밀번호 바꾸기' }).click()
