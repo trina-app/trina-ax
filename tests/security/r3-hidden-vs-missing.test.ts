@@ -2,12 +2,16 @@
 // not there gets, through every route that takes a path, so its existence never shows.
 //
 // Round 2 fixed GET /api/files/history (tests/security/r2-history-existence-oracle.test.ts; the exploit is ported again
-// below). The same oracle remained in the AI file tools: authorize() refused a hidden path as Denied ("Access denied:
-// not found or no access: 'x'") but a missing one as a ToolError ("Error: not found: 'x'"), so read, list, glob, grep,
-// share_file and make_file's source told the AI (and through it the person) that groups/marketing/salaries or an
-// admin's 'none' folder skills/performance-reviews exists, by its exact name or a case variant. The HTTP routes mapped
-// both to one 404.
-// Now a missing path is refused for reads and listings with the same Denied as a hidden one.
+// below). Two places kept the same oracle:
+//  1. The AI file tools. authorize() refused a hidden path as Denied ("Access denied: not found or no access: 'x'") but
+//     a missing one as a ToolError ("Error: not found: 'x'"), so read, list, glob, grep, share_file and make_file's
+//     source told the AI (and through it the person) that groups/marketing/salaries or an admin's 'none' folder
+//     skills/performance-reviews exists, by its exact name or a case variant. The HTTP routes mapped both to one 404.
+//  2. Writes below a folder the caller may only read. A missing name there is refused "read-only folder" (403), a
+//     hidden one was refused "no access" (404): mkdir, save, upload, move, copy and the write tool all told a reader
+//     of skills/ that skills/performance-reviews exists.
+// Now a missing path is refused for reads and listings with the same Denied as a hidden one, and a write to a hidden
+// path is refused the way the same path would be if it were not there (read-only below a read-only folder).
 // Fixture: alice = member of marketing (skills/ read-only, groups/marketing write, salaries/ and groups/finance none);
 // carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -51,6 +55,12 @@ const TOOLS: [string, Call][] = [
   ['share_file', (p) => toolRegistry(A.ctx.files).call('share_file', { path: p, mode: 'preview' }, ctx())],
   ['make_file source', (p) => toolRegistry(A.ctx.files).call('make_file', { source: p, format: 'docx', output: 'users/alice/out.docx' }, ctx())],
 ]
+const READ_ONLY_WRITE_TOOLS: [string, Call][] = [
+  ['write', (p) => A.ctx.files.call('write', { file_path: p + '/new.md', content: 'x' }, ctx())],
+  ['edit', (p) => A.ctx.files.call('edit', { file_path: p, old_string: 'secret', new_string: 'x' }, ctx())],
+  ['make_file output', (p) => toolRegistry(A.ctx.files).call('make_file', { content: '# x\n', format: 'docx', output: p + '/out.docx' }, ctx())],
+]
+
 describe('AI file tools answer a hidden path exactly like one that does not exist', () => {
   for (const [parent, real, probes, missing] of CASES) {
     for (const [tool, call] of TOOLS) {
@@ -68,16 +78,52 @@ describe('AI file tools answer a hidden path exactly like one that does not exis
       })
     }
   }
+
+  const [parent, real, probes, missing] = READ_ONLY_PARENT
+  for (const [tool, call] of READ_ONLY_WRITE_TOOLS) {
+    test(`${tool} below the read-only ${parent}/: '${real}' and its variants answer like '${missing}'`, async () => {
+      for (const below of BELOW) {
+        const control = await call(`${parent}/${missing}${below}`)
+        expect(control.isError).toBe(true)
+        for (const probe of probes) {
+          const p = `${parent}/${probe}${below}`
+          const r = await call(p)
+          expect({ p, r: masked(r.text, probe) }).toEqual({ p, r: masked(control.text, missing) })
+          if (probe !== real) expect(r.text).not.toContain(real)
+        }
+      }
+      expect(fs.readdirSync(path.join(A.team, 'skills', 'performance-reviews')).sort()).toEqual(['q3.md'])
+    })
+  }
 })
 
 // ---------------------------------------------------------------- HTTP
 type Req = (p: string) => Promise<{ status: number; body: unknown }>
+const upload = (folder: string, name: string) => {
+  const fd = new FormData()
+  fd.set('folder', folder)
+  fd.set('name', name)
+  fd.set('onExists', 'fail')
+  fd.set('file', new File(['probe'], name))
+  return A.json('/api/files/upload', { method: 'POST', body: fd, as: 'alice' })
+}
 const HTTP_READS: [string, Req][] = [
   ['history', (p) => A.json('/api/files/history?path=' + encodeURIComponent(p), { as: 'alice' })],
   ['tree', (p) => A.json('/api/files/tree?path=' + encodeURIComponent(p), { as: 'alice' })],
   ['content', (p) => A.json('/api/files/content?path=' + encodeURIComponent(p), { as: 'alice' })],
   ['download', (p) => A.json('/api/files/download?path=' + encodeURIComponent(p), { as: 'alice' })],
 ]
+const HTTP_WRITES: [string, Req][] = [
+  ['mkdir', (p) => A.json('/api/files/mkdir', { as: 'alice', ...jsonBody({ path: p }) })],
+  ['mkdir below', (p) => A.json('/api/files/mkdir', { as: 'alice', ...jsonBody({ path: p + '/x' }) })],
+  ['save', (p) => A.json('/api/files/content', { as: 'alice', ...jsonBody({ path: p + '/new.md', content: 'x', baseSha256: null }, 'PUT') })],
+  ['upload into', (p) => upload(p, 'probe.md')],
+  ['move into', (p) => A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'users/alice/todo.md', to: p + '/todo.md' }) })],
+  ['move onto', (p) => A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'users/alice/todo.md', to: p }) })],
+  ['copy into', (p) => A.json('/api/files/copy', { as: 'alice', ...jsonBody({ from: 'users/alice/todo.md', to: p + '/todo.md' }) })],
+  ['delete', (p) => A.json('/api/files?path=' + encodeURIComponent(p), { as: 'alice', method: 'DELETE', headers: { 'x-mycel-csrf': '1' } })],
+]
+
 describe('HTTP answers a hidden path exactly like one that does not exist', () => {
   test('setup: the hidden folder is not in alice\'s tree, carol sees and edits it', async () => {
     const t = await A.json('/api/files/tree?path=skills', { as: 'alice' })
@@ -102,6 +148,23 @@ describe('HTTP answers a hidden path exactly like one that does not exist', () =
         }
       })
     }
+  }
+
+  const [parent, real, probes, missing] = READ_ONLY_PARENT
+  for (const [route, call] of HTTP_WRITES) {
+    test(`${route} below the read-only ${parent}/: '${real}' and its variants match '${missing}' (status and body)`, async () => {
+      for (const below of ['', '/q3.md', '/sub']) {
+        const control = await call(`${parent}/${missing}${below}`)
+        expect(control.status).toBeGreaterThanOrEqual(400)
+        for (const probe of probes) {
+          const p = `${parent}/${probe}${below}`
+          const r = await call(p)
+          expect({ p, status: r.status, body: masked(r.body, probe) }).toEqual({ p, status: control.status, body: masked(control.body, missing) })
+        }
+      }
+      expect(fs.readdirSync(path.join(A.team, 'skills', 'performance-reviews')).sort()).toEqual(['q3.md'])
+      expect(fs.existsSync(path.join(A.team, 'users', 'alice', 'todo.md'))).toBe(true)
+    })
   }
 })
 
