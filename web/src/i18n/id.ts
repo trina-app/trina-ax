@@ -618,6 +618,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.invite.create': 'Membuat tautan undangan',
   'audit.act.invite.revoke': 'Mencabut tautan undangan',
   'audit.act.invite.accept': 'Menerima undangan',
+  'audit.act.project.update': 'Proyek diubah',
+  'audit.act.project.delete': 'Proyek dihapus',
   'audit.act.group.create': 'Membuat grup',
   'audit.act.group.update': 'Mengubah grup',
   'audit.act.group.delete': 'Menghapus grup',

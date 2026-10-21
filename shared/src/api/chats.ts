@@ -103,6 +103,7 @@ export const CreateProjectBody = z.object({
   folderPath: RelPath,
   instructions: z.string().max(50_000).default(''),
 })
+/** Creator or admin+ only. folderPath: admin or owner only, never under users/ (a personal project is shared by copy). */
 export const UpdateProjectBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   folderPath: RelPath.optional(),
@@ -128,6 +129,6 @@ export const CHATS = {
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project on a folder the caller can write.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
-  updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit (write access to the folder needed).' }),
-  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (chats stay, without project; the folder stays).' }),
+  updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/.' }),
+  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (the creator or an admin; chats stay, without project; the folder stays).' }),
 } as const

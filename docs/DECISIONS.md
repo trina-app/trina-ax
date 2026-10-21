@@ -391,3 +391,8 @@ polish/0(보안)·1(정확성)·2(화면·UX)·3(계약·데드 코드)을 이 �
 - **충돌 정리**: 채팅 도구의 파일 문맥은 polish/1의 `livePrincipal()`(도구 호출마다 사람 정보를 다시 읽음)과 polish/0의 `person`(서버 확인 카드)을 함께 쓴다. polish/0의 공개 범위 확인(`confirmWidening`)도 저장할 때의 최신 사람 정보로 판단한다(비활성 계정이면 예외 → 저장하지 않음). polish/3이 옮긴 `tests/lib/stage1-runner.ts`는 polish/1의 UTF-8 줄 읽기(`Utf8Lines`)를 그대로 쓴다. 목 서버와 웹 e2e는 서버 안전 확인 카드(polish/0)와 새로고침 뒤 열린 카드 복구(polish/3)를 모두 가진다.
 - **병합 뒤 고친 것**: polish/0이 더한 감사 action `proxy.refused`에 ko/en/id 문구가 없어 polish/2의 "모든 감사 action에 문구" 시험이 실패했다. 문구를 넣었다.
 - 검증: typecheck, unit 917, web unit 99, relay(Node 25) 17, stage 1 fast, 웹 e2e(목) 56, 데스크톱 e2e 18, 실제 엔진 e2e-ui 14단계(Claude 8회·Codex 1회).
+
+## 보안 검토 r1 — 공유 흐름 (sec/r1-sharing-works, 2026-10-21)
+
+- **프로젝트 이름·지침 수정과 프로젝트 삭제는 만든 사람과 admin·owner만(그리고 그 폴더 쓰기 권한이 있을 때만).** 4·5번 탭 그대로. `Project.canEdit`도 이 뜻이다. 지침이 바뀌면 audit_log `project.update`에 전후 diff를 남기고, 그 폴더를 읽을 수 있는 다른 사람에게 `notice`(`project_instructions_changed`)를 보낸다. 개인 프로젝트(`users/` 아래)는 감사 기록에 내용 없이 바뀐 항목만 남긴다(admin이 볼 수 없는 내용이므로). (보안 검토 r1: 전에는 폴더 쓰기 권한만 있으면 만든 사람이 아닌 팀원도 모든 사람의 AI에 들어가는 지침을 바꾸거나 프로젝트를 지울 수 있었다.)
+- **프로젝트 폴더 바꾸기(`PATCH /api/projects/:id {folderPath}`)는 admin·owner만, users/ 아래로는 아무도 못 한다(400 validation, `invalid_path`).** 설계의 PATCH 본문은 `{name?, instructions?}`뿐이지만 관리자가 잘못 고른 폴더를 고칠 길로 남겼다. (전에는 팀원이 팀 프로젝트를 users/<나>/로 옮겨 만든 사람·owner·admin 모두에게서 사라지게 할 수 있었다.) 웹의 프로젝트 편집 창은 관리자가 아니면 폴더를 바꿀 수 없게 보인다.

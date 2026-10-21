@@ -618,6 +618,8 @@ export const en: Record<MessageKey, string> = {
   'audit.act.invite.create': 'Created an invite link',
   'audit.act.invite.revoke': 'Revoked an invite link',
   'audit.act.invite.accept': 'Accepted an invite',
+  'audit.act.project.update': 'Project changed',
+  'audit.act.project.delete': 'Project deleted',
   'audit.act.group.create': 'Created a group',
   'audit.act.group.update': 'Changed a group',
   'audit.act.group.delete': 'Deleted a group',

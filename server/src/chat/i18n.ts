@@ -13,6 +13,10 @@ export const TEXT = {
   notAssistantMessage: t('AI 답변만 다시 생성할 수 있습니다.', 'Only AI answers can be regenerated.', 'Hanya jawaban AI yang bisa dibuat ulang.'),
   badParent: t('이어 쓸 메시지를 찾을 수 없습니다.', 'The message to continue from was not found.', 'Pesan yang mau dilanjutkan tidak ditemukan.'),
   projectFolderFile: t('프로젝트 폴더 자리에 파일이 있습니다.', 'A file is in the way of the project folder.', 'Ada berkas di lokasi folder proyek.'),
+  projectCreatorOnly: t('프로젝트 이름·지침 수정과 삭제는 만든 사람과 관리자만 할 수 있습니다.', 'Only the person who created the project and admins can rename it, change its instructions or delete it.', 'Hanya pembuat proyek dan admin yang bisa mengganti nama, instruksi, atau menghapusnya.'),
+  projectFolderAdminOnly: t('프로젝트 폴더를 바꾸는 것은 관리자만 할 수 있습니다.', 'Only admins can change the folder of a project.', 'Hanya admin yang bisa mengganti folder proyek.'),
+  projectFolderPersonal: t('팀 프로젝트를 개인 폴더(users/)로 옮길 수 없습니다.', 'A team project cannot move into a personal folder (users/).', 'Proyek tim tidak dapat dipindah ke folder pribadi (users/).'),
+  projectInstructionsChanged: t("'{name}' 프로젝트 지침을 {by} 님이 바꿨습니다.", "{by} changed the instructions of the project '{name}'.", "{by} mengubah instruksi proyek '{name}'."),
   projectFolderNoWrite: t('이 폴더에 쓰기 권한이 없습니다.', 'You cannot write to this folder.', 'Anda tidak bisa menulis ke folder ini.'),
   browserUnavailable: t('데스크톱 앱 창이 연결되어 있지 않습니다.', 'The desktop app window is not connected.', 'Jendela aplikasi desktop tidak terhubung.'),
 

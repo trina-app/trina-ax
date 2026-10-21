@@ -616,6 +616,8 @@ export const ko = {
   'audit.act.invite.create': '초대 링크 만듦',
   'audit.act.invite.revoke': '초대 링크 취소',
   'audit.act.invite.accept': '초대 수락',
+  'audit.act.project.update': '프로젝트 변경',
+  'audit.act.project.delete': '프로젝트 삭제',
   'audit.act.group.create': '그룹 만듦',
   'audit.act.group.update': '그룹 변경',
   'audit.act.group.delete': '그룹 삭제',

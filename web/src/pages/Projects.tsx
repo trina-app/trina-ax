@@ -11,6 +11,7 @@ import { previewKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { isAdmin, useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
@@ -71,6 +72,9 @@ export function ProjectList() {
 function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose: () => void; onSaved: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
+  // an existing project's folder is changed by admins only (the server refuses it for anyone else)
+  const folderLocked = !!project && !isAdmin(me)
   const [name, setName] = useState(project?.name ?? '')
   const [folder, setFolder] = useState(project?.folderPath ?? '')
   const [instructions, setInstructions] = useState(project?.instructions ?? '')
@@ -82,7 +86,7 @@ function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose
     setError(null)
     try {
       const p = project
-        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: name.trim(), folderPath: folder, instructions } })
+        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: name.trim(), instructions, ...(folder !== project.folderPath ? { folderPath: folder } : {}) } })
         : await api.call(API.createProject, { body: { name: name.trim(), folderPath: folder, instructions } })
       onSaved(p)
       onClose()
@@ -116,7 +120,7 @@ function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose
         <Field label={t('projects.folder')} hint={t('projects.folderHint')}>
           <div className="flex gap-2">
             <input className={inputCls} value={folder || t('files.root')} readOnly />
-            <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>
+            {!folderLocked && <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>}
           </div>
         </Field>
         <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
