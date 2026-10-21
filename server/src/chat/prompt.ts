@@ -191,7 +191,7 @@ export function skillsSection(files: FileService, user: Principal): string {
     lines.push(`To save a workflow as a skill when the user asks, write ${top.map((f) => f + '/<short-name>.md').join(' or ')} starting with a header: a line "---", "name: <name>", "description: <one sentence>", "---", then the steps. ` +
       'Everything under skills/ is followed by every teammate\'s AI, so the server shows the user a confirmation card with the change before anything there is saved; if they decline, do not try again.')
   } else {
-    lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use "Suggest as skill" ("스킬로 제안", "Usulkan sebagai skill") under your answer: someone who manages team skills reviews it.')
+    lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use the "Suggest as skill" button under your answer (it is shown in their screen language): someone who manages team skills reviews it.')
   }
   return lines.join('\n')
 }
