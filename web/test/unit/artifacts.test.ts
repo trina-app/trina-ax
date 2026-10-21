@@ -69,6 +69,8 @@ describe('other types and file names', () => {
   test('mermaid uses the vendor bundle; svg is framed', () => {
     const m = buildArtifactDocument('mermaid', 'graph TD; A-->B', O, null, MSG)
     expect(m.ok && m.html).toContain(`${O}/vendor/mermaid.js`)
+    // a gantt gets a fixed width (the frame's flex body would shrink it to ~250px)
+    expect(m.ok && m.html).toContain('gantt: { useWidth: 720 }')
     const s = buildArtifactDocument('svg', '<svg><circle r="3"/></svg>', O, null, MSG)
     expect(s.ok && s.html).toContain('Content-Security-Policy')
   })
