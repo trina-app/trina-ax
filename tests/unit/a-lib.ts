@@ -16,9 +16,9 @@ import { WORK } from '../lib/env'
 export const SETUP_TOKEN = 'setup-token-for-tests-0123456789'
 export const OWNER_PW = 'owner horse battery 42'
 
-export function testConfig(name: string, over: Partial<AppConfig> = {}): AppConfig {
+export function testConfig(name: string, over: Partial<AppConfig> = {}, o: { reuse?: boolean } = {}): AppConfig {
   const dir = path.join(WORK, `a-${name}`)
-  fs.rmSync(dir, { recursive: true, force: true })
+  if (!o.reuse) fs.rmSync(dir, { recursive: true, force: true }) // reuse: open the same folders again (a restart)
   fs.mkdirSync(dir, { recursive: true })
   return {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 19110 }, tls: null, publicOrigins: [],
@@ -57,8 +57,8 @@ export interface Harness {
   close(): Promise<void>
 }
 
-export async function harness(name: string, over: Partial<AppConfig> = {}): Promise<Harness> {
-  const cfg = testConfig(name, over)
+export async function harness(name: string, over: Partial<AppConfig> = {}, o: { reuse?: boolean } = {}): Promise<Harness> {
+  const cfg = testConfig(name, over, o)
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
   const ctx = createContext({ config: cfg, db, log: silentLogger })
   ctx.onClose(() => db.close())

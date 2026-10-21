@@ -103,8 +103,9 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
     const s = devEngineSandbox()
     return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy, launcher: { allowCmds, ...(s ? { sandbox: { ...s, localLogin: false, proxyPort: modelProxy.port } } : {}) } })
   }
+  // the Mac user's Codex login opens to engines only when Codex is on (office mode turns it off)
   const sandbox = devEngineSandbox()
-  return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox } : {}) } })
+  return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex } } : {}) } })
 }
 
 

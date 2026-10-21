@@ -20,7 +20,8 @@
 //   archive --out FILE             encrypted copy of the database + team folder for an external disk (password on stdin)
 //   restore-archive --in FILE [--replace]
 //                                  put an archive's database and team folder in place (password on stdin); without
-//                                  --replace only into an installation where nobody has set up the team yet
+//                                  --replace only into an installation where nobody has set up the team yet. Every
+//                                  sign-in ends (everyone signs in again) and unused invite / reset links are gone
 //   public-address set HOST TOKEN-FILE | off | status
 //                                  the internet address through a Cloudflare Tunnel (docs/OFFICE.md "인터넷 주소"):
 //                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
@@ -42,6 +43,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
+import { endSessions } from '../system/backup'
 import { launchAgent, plist } from '../../../scripts/dev-service'
 import { REPO_ROOT } from '../app-config'
 import { peerAllowed } from '../http/middleware'
@@ -441,22 +443,32 @@ function newestServerLog(dir: string): string | null {
 }
 
 /** Put a restored archive (<dir>/db/app.sqlite, <dir>/team) in place of data/app.db and team/. The previous ones
- * stay next to them as *.before-restore-<time>. */
-export function swapInRestore(home: string, restored: string, stamp = new Date().toISOString().replace(/[:.]/g, '-')): { db: string; team: string } {
+ * stay next to them as *.before-restore-<time>. Every sign-in ends (the same as the admin restore, endSessions):
+ * a session ended after the archive was made must not work again. The engine session stashes (data/sessions)
+ * belong to the replaced database and are moved aside too, so every chat starts fresh from the restored history. */
+export function swapInRestore(home: string, restored: string, stamp = new Date().toISOString().replace(/[:.]/g, '-')): { db: string; team: string; sessions: string | null } {
   const p = officePaths(home)
   const db = path.join(p.data, 'app.db')
   const oldDb = `${db}.before-restore-${stamp}`
   const oldTeam = `${p.team}.before-restore-${stamp}`
+  const incoming = path.join(restored, 'db', 'app.sqlite')
+  endSessions(incoming) // before it is in place: a failure here leaves the current installation untouched
   if (fs.existsSync(db)) fs.renameSync(db, oldDb)
   for (const sfx of ['-wal', '-shm']) fs.rmSync(db + sfx, { force: true })
-  fs.renameSync(path.join(restored, 'db', 'app.sqlite'), db)
+  fs.renameSync(incoming, db)
   fs.chmodSync(db, 0o600)
   if (fs.existsSync(p.team)) fs.renameSync(p.team, oldTeam)
   fs.renameSync(path.join(restored, 'team'), p.team)
   fs.chmodSync(p.team, 0o700)
+  const stashes = path.join(p.data, 'sessions')
+  let oldSessions: string | null = null
+  if (fs.existsSync(stashes)) {
+    oldSessions = `${stashes}.before-restore-${stamp}`
+    try { fs.renameSync(stashes, oldSessions) } catch { fs.rmSync(stashes, { recursive: true, force: true }); oldSessions = null }
+  }
   fs.rmSync(p.setupToken, { force: true })
   fs.rmSync(restored, { recursive: true, force: true })
-  return { db: oldDb, team: oldTeam }
+  return { db: oldDb, team: oldTeam, sessions: oldSessions }
 }
 
 // ---- the internet address (cloudflared LaunchAgent) ---------------------------------------------------------
@@ -692,7 +704,9 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
           if (hit) break
         }
         if (hit && hit.version) picks.push({ ...hit, ask: false })
-        for (const f of listed) if (!hit || fs.realpathSync(f.file) !== fs.realpathSync(hit.file)) notes.push(`목록(${MANIFEST})과 다른 파일이라 건너뜀 / not in the bundle's ${MANIFEST}, skipped: ${f.file} (to offer it anyway: ${teamax} desktop add "${f.file}")`)
+        // another copy of a listed file (same name and hash, e.g. the exe both next to the zip and in ~/Downloads) is no news
+        const isListed = (f: Found) => { try { return manifest.get(path.basename(f.file)) === sha256File(f.file) } catch { return false } }
+        for (const f of listed) if ((!hit || fs.realpathSync(f.file) !== fs.realpathSync(hit.file)) && !isListed(f)) notes.push(`목록(${MANIFEST})과 다른 파일이라 건너뜀 / not in the bundle's ${MANIFEST}, skipped: ${f.file} (to offer it anyway: ${teamax} desktop add "${f.file}")`)
         continue
       }
       const near = findInstallers(main).find((f) => f.platform === platform)
@@ -881,7 +895,7 @@ export async function main(argv: string[]): Promise<number> {
         const code = runTool(home, 'admin', ['restore-archive', '--in', path.resolve(src), '--to', to, ...(args.includes('--plain') ? [] : ['--password-stdin'])], 'inherit')
         if (code !== 0) return code
         const kept = swapInRestore(home, to)
-        lines(`restored. previous database: ${kept.db}; previous team folder: ${kept.team}`)
+        lines(`restored. previous database: ${kept.db}; previous team folder: ${kept.team}\nevery sign-in ended: everyone (desks and the owner) signs in again; unused invite and reset links are gone (make new ones)`)
       } finally {
         fs.rmSync(to, { recursive: true, force: true })
         if (wasRunning) lines(agent.start())

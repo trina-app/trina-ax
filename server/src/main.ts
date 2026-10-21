@@ -16,6 +16,7 @@ import { applyPendingRestore } from './system/backup'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
 import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
+import { guardOfficeClaudeJson } from './engine/claude-json-guard'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -72,6 +73,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
+  guardOfficeClaudeJson(ctx, 'start') // office: no MCP servers in the Mac user's ~/.claude.json (an engine may write it)
   cfg.setupToken = ensureSetupToken(cfg, db)
   checkSocketPaths(ctx, log)
   const app = await buildApp(ctx)

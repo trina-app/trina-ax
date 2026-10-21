@@ -97,7 +97,12 @@ BUN_SRC="$SRC/app/bin/$ARCH/bun"
 "$BUN_SRC" --version >/dev/null 2>&1 || { xattr -d com.apple.quarantine "$BUN_SRC" 2>/dev/null || true; "$BUN_SRC" --version >/dev/null 2>&1 || die "$BUN_SRC does not run on this Mac"; }
 
 say "Team AX office mode $VERSION ($ARCH) -> $PREFIX"
-[ "$UPDATE" = 1 ] || say "Claude Code: $CLAUDE (logged in)"
+if [ "$UPDATE" != 1 ]; then
+say "Claude Code: $CLAUDE (logged in)"
+# the engine can write ~/.claude.json (the CLI keeps its login there); the server removes MCP servers from it, and this
+# account should run `claude` only to log in again (an MCP server planted there would run outside the sandbox)
+say "Use 'claude' on this Mac account only to log in again (/login); check 'claude mcp list' shows no servers first."
+fi
 if [ "$CHECK_ONLY" = 1 ]; then
   # settings are validated by the same code the install uses, written into a throwaway folder
   T=$(mktemp -d)
