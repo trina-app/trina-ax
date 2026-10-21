@@ -15,7 +15,8 @@ import type { AuthInfo, RealtimeHub, RequestInfo, SessionService } from '../serv
 import { getTeamSettings } from '../admin/settings'
 import { audit } from '../admin/audit'
 import { hashToken, newToken, verifyPassword } from './passwords'
-import { RateLimiter, reauthKey } from './rate-limit'
+import { limitIp, RateLimiter, reauthKey } from './rate-limit'
+import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
@@ -182,6 +183,10 @@ export class AuthService implements SessionService {
   // ---------------- sign-in ----------------
   /** Create a session, set the cookie (cookie mode) and return the LoginResponse. */
   signIn(c: Context<AppEnv>, userId: string, client: ClientKind, tokenMode: 'cookie' | 'bearer'): LoginResponse {
+    // every caller proved a secret (password, invite or reset link): this network is now one the person uses, so
+    // failed sign-ins from elsewhere cannot lock them out here (accounts.ts login, rate-limit.ts AccountScope)
+    const info = c.get('info')
+    if (info.ip && !(!info.tunnel && isLoopback(info.ip))) this.limiter.rememberNet(userId, limitIp(info.ip))
     const s = this.createSession(userId, client, c.req.header('user-agent') ?? null)
     if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })
     const me = this.me(userId, s.id)
