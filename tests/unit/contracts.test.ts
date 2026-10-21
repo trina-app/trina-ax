@@ -77,7 +77,7 @@ describe('endpoint registry', () => {
       'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/password', 'GET /api/me', 'POST /api/invites/:token/accept',
       'GET /api/chats', 'POST /api/chats', 'PATCH /api/chats/:id', 'DELETE /api/chats/:id', 'GET /api/chats/:id/messages', 'POST /api/chats/:id/messages',
       'POST /api/chats/:id/stop', 'POST /api/chats/:id/restore', 'GET /api/projects', 'POST /api/projects', 'PATCH /api/projects/:id', 'DELETE /api/projects/:id',
-      'GET /api/files/tree', 'GET /api/files/content', 'GET /api/files/download', 'POST /api/files/upload', 'POST /api/files/move', 'DELETE /api/files',
+      'GET /api/files/tree', 'GET /api/files/content', 'GET /api/files/download', 'POST /api/files/upload', 'POST /api/files/move', 'POST /api/files/copy', 'DELETE /api/files', 'POST /api/projects/:id/share',
       'GET /api/files/history', 'POST /api/files/restore', 'POST /api/uploads', 'GET /api/chats/:id/artifacts', 'GET /api/memories', 'DELETE /api/memories',
       'POST /api/transcribe', 'POST /api/upload-sessions', 'PUT /api/upload-sessions/:id/chunks/:n', 'GET /api/upload-sessions/:id', 'POST /api/upload-sessions/:id/complete',
       'GET /api/jobs/:id', 'POST /api/jobs/:id/cancel', 'POST /api/turns/:id/answer',

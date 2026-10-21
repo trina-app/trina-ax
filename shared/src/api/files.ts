@@ -65,6 +65,24 @@ export const MkdirBody = z.object({ path: RelPath })
  */
 export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false) })
 export const MoveResult = z.object({ entry: FileEntry })
+/**
+ * Share by copying (design tab 2 rule 3, tab 4): a file the caller can read -> `to` in a folder the caller can write.
+ * Files only, up to 2 GB. onExists like upload (rename by default; replace keeps the old one as a version, or saves a
+ * conflict copy when baseSha256 no longer matches). dryRun: nothing is copied, answers how many more people would see
+ * the copy than see the original (people counted, never named).
+ */
+export const CopyBody = z.object({
+  from: RelPath,
+  to: RelPath,
+  baseSha256: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
+  dryRun: z.boolean().default(false),
+  onExists: z.enum(['fail', 'replace', 'rename']).default('rename'),
+})
+export const CopyResult = z.union([
+  z.object({ path: RelPath, sha256: z.string() }),
+  z.object({ viewersAdded: z.number().int().nonnegative() }),
+])
+export type CopyResult = z.infer<typeof CopyResult>
 export const DeleteResult = z.object({ trashId: Uuid7, purgeAt: IsoTime })
 export const HistoryResponse = z.object({ path: RelPath, items: z.array(FileVersion) })
 /** Restore an old version of a file (the current content becomes a new version first). */
@@ -112,6 +130,7 @@ export const FILES = {
   upload: endpoint({ method: 'POST', path: '/api/files/upload', auth: 'user', owner: 'C', status: 201, body: multipart(UploadFields, SMALL_UPLOAD_MAX), response: FileEntry, summary: 'Upload one file up to 50 MB into a folder (write access).' }),
   mkdir: endpoint({ method: 'POST', path: '/api/files/mkdir', auth: 'user', owner: 'C', status: 201, body: MkdirBody, response: FileEntry, summary: 'Create a folder (name rules + collision check).' }),
   move: endpoint({ method: 'POST', path: '/api/files/move', auth: 'user', owner: 'C', body: MoveBody, response: MoveResult, summary: 'Move / rename (write access at both ends; folders.path follows). Group / project / rule folders: admin or owner only, never into users/ (400). Into users/<me>/ when others lose sight of it: 409 audience_narrowed unless confirm.' }),
+  copy: endpoint({ method: 'POST', path: '/api/files/copy', auth: 'user', owner: 'C', status: 201, body: CopyBody, response: CopyResult, summary: 'Copy a readable file into a writable folder (sharing a personal file). dryRun: {viewersAdded} only (also 201).' }),
   remove: endpoint({ method: 'DELETE', path: '/api/files', auth: 'user', owner: 'C', query: PathQuery, response: DeleteResult, summary: 'Move a file or folder to the trash (30 days). Group / project / rule folders: admin or owner only.' }),
   history: endpoint({ method: 'GET', path: '/api/files/history', auth: 'user', owner: 'C', query: PathQuery, response: HistoryResponse, summary: 'Version history of a file.' }),
   versionDownload: endpoint({ method: 'GET', path: '/api/files/history/:versionId/download', auth: 'user', owner: 'C', response: stream(true), summary: 'Download an old version (read access to its path).' }),

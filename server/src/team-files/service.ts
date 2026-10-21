@@ -18,13 +18,18 @@ import { getTeamSettings } from '../admin/settings'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
 import { fileError } from './errors'
-import { checkRegular, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import crypto from 'node:crypto'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
 const BINARY_EXT = new Set(['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'odt', 'ods', 'odp', 'pdf', 'hwp', 'hwpx', 'zip', 'gz', 'tgz', '7z', 'rar',
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'bmp', 'tiff', 'ico', 'mp3', 'm4a', 'wav', 'ogg', 'flac', 'aac', 'webm', 'mp4', 'mov', 'avi', 'mkv',
   'woff', 'woff2', 'ttf', 'otf', 'exe', 'dmg', 'pkg', 'bin', 'sqlite', 'db', 'key', 'numbers', 'pages'])
 export const DEFAULT_CONTENT_BYTES = 2 * 1024 * 1024
+/** design tab 4: copy takes files up to 2 GB; sharing a project folder copies at most 1,000 files / 500 MB */
+export const COPY_MAX_BYTES = 2 * 1024 ** 3
+export const SHARE_MAX_FILES = 1000
+export const SHARE_MAX_BYTES = 500 * 1024 ** 2
 const DAY = 86_400_000
 
 export const mimeOf = (name: string): string | null => {
@@ -309,6 +314,129 @@ export class TeamFiles {
     this.moveTextCache(fr.rel, toRel, isDir)
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }])
     return { entry: this.entry(user, rules, target) }
+  }
+
+  // ---------------- copy: sharing a personal file / project (design tab 2 rule 3, tab 4 POST /api/files/copy) ----------------
+  /** Active people other than `self` who could read `to` and cannot read `from` (counted, never named). */
+  private viewersAdded(rules: RuleSet, self: string, from: string[], to: string[]): number {
+    let n = 0
+    for (const p of activePeople(this.ctx.db)) {
+      if (p.id === self) continue
+      if (atLeast(rules.access(p, to), 'read') && !atLeast(rules.access(p, from), 'read')) n++
+    }
+    return n
+  }
+
+  /**
+   * Copy one file the caller can read to `to` (a new name in a folder the caller can write). Sibling-name and conflict
+   * rules as for uploads: onExists rename (default) -> "name (2).ext"; replace -> the current file becomes a version, or,
+   * when baseSha256 no longer matches it, the copy is saved as a conflict copy next to it; fail -> 409.
+   * dryRun: nothing is copied; how many more people would see the copy than see the original.
+   * A source the caller cannot read answers exactly like a missing one (not_found).
+   */
+  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename' } = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
+    if (fr.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
+    const st = checkRegular(fr.abs)
+    if (st.size > COPY_MAX_BYTES) fileError('payload_too_large', 'tooLarge')
+    const typed = segsOf(to.normalize('NFC'))
+    const name = typed[typed.length - 1] ?? ''
+    const bad = badSegment(name)
+    if (!name || bad) fileError('validation', 'badName', { to: bad || 'empty name' })
+    const pr = authorize(this.fx, rules, user, typed.slice(0, -1).join('/'), 'write', { mustExist: true })
+    if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    let r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+    const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
+    if (o.dryRun) return { viewersAdded: added }
+    const onExists = o.onExists ?? 'rename'
+    let replaced = false
+    if (r.exists) {
+      if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
+      if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
+      if (onExists === 'rename') r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, name)].join('/'), 'write', { mustExist: false })
+      else {
+        const cur = await this.sha(r.abs, checkRegular(r.abs))
+        if (o.baseSha256 && o.baseSha256 !== cur) {
+          // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
+          let cn = conflictCopyName(name, user.name)
+          if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
+          r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
+        } else {
+          snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
+          replaced = true
+        }
+      }
+    }
+    const out = copyTeamFile(this.root, fr.abs, r.segs)
+    const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool: 'file-screen' } })
+    this.extractText(r.rel)
+    this.publish([{ path: r.rel, action: replaced ? 'update' : 'create', by: this.by(userId), turnId: null }])
+    return { path: r.rel, sha256: sha }
+  }
+
+  /**
+   * Copy a whole folder the caller can read into `toParent` (a folder the caller can write), under the same name
+   * (" (2)" when taken). Only what the caller can read is copied (links, hard links, odd names and hidden entries are
+   * left out); at most `limits` files / bytes (413 beyond). Built under a hidden temp name, then renamed into place.
+   */
+  copyFolderTree(userId: string, from: string, toParent: string, o: { dryRun?: boolean; maxFiles?: number; maxBytes?: number } = {}): { path: string; files: number; bytes: number } | { viewersAdded: number } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
+    if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    const pr = authorize(this.fx, rules, user, toParent, 'write', { mustExist: true })
+    if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    if (pr.rel === fr.rel || isUnder(fr.rel, pr.rel)) fileError('validation', 'intoItself', { toParent })
+    const name = freeName(pr.abs, fr.segs[fr.segs.length - 1]!, true)
+    const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+    const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
+    if (o.dryRun) return { viewersAdded: added }
+    const maxFiles = o.maxFiles ?? SHARE_MAX_FILES, maxBytes = o.maxBytes ?? SHARE_MAX_BYTES
+    // what to copy: readable regular files and listable folders, walked without following anything
+    const dirs: string[][] = [], files: { segs: string[]; size: number }[] = []
+    let bytes = 0
+    const walk = (segs: string[]) => {
+      for (const e of fs.readdirSync(path.join(this.root, ...fr.segs, ...segs), { withFileTypes: true })) {
+        if (hiddenEntry(e.name, fr.segs.length + segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+        const rel = [...segs, e.name]
+        const abs = path.join(this.root, ...fr.segs, ...rel)
+        let st: fs.Stats
+        try { st = fs.lstatSync(abs) } catch { continue }
+        if (st.isDirectory()) {
+          if (!atLeast(rules.access(user, [...fr.segs, ...rel]), 'read')) continue
+          dirs.push(rel)
+          walk(rel)
+        } else if (st.isFile() && st.nlink === 1 && atLeast(rules.access(user, [...fr.segs, ...rel]), 'read')) {
+          files.push({ segs: rel, size: st.size })
+          bytes += st.size
+          if (files.length > maxFiles || bytes > maxBytes) fileError('payload_too_large', 'tooLarge')
+        }
+      }
+    }
+    walk([])
+    const tmp = path.join(pr.abs, PRODUCT.tmpPrefix + crypto.randomUUID())
+    fs.mkdirSync(tmp, { mode: 0o700 })
+    try {
+      for (const d of dirs) fs.mkdirSync(path.join(tmp, ...d), { mode: 0o700 })
+      for (const f of files) {
+        const src = path.join(this.root, ...fr.segs, ...f.segs)
+        const before = checkRegular(src)
+        const dst = path.join(tmp, ...f.segs)
+        fs.copyFileSync(src, dst, fs.constants.COPYFILE_EXCL | fs.constants.COPYFILE_FICLONE)
+        const after = checkRegular(src)
+        if (after.ino !== before.ino || after.dev !== before.dev || fs.lstatSync(dst).size !== after.size) throw new Denied('path changed while copying')
+        fs.chmodSync(dst, 0o600)
+      }
+      verifyChain(this.root, tr.segs, true)
+      fs.renameSync(tmp, tr.abs)
+    } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
+    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
+    for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
+    this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
+    return { path: tr.rel, files: files.length, bytes }
   }
 
   private moveTextCache(from: string, to: string, isDir: boolean) {

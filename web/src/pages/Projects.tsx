@@ -1,7 +1,7 @@
 // Projects: a folder of the team folder + instructions. Chats opened inside a project use both as their default
 // context. List (projects whose folder the person can read), create (folder they can write), project home with
 // instructions, the folder's files and the person's chats in it.
-import { FolderKanban, Folder, MessageSquarePlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FolderKanban, Folder, MessageSquarePlus, Pencil, Plus, Share2, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Chat, FileEntry, Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
@@ -205,6 +205,26 @@ export function ProjectHome() {
   const [chats, setChats] = useState<Chat[] | null>(null)
   const [files, setFiles] = useState<FileEntry[] | null>(null)
   const [editing, setEditing] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const me = useMe()
+  // a personal project (users/<me>/...) is shared by copying its folder into a team folder (design tab 5)
+  const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
+  const shareTo = async (toParent: string) => {
+    setSharing(false)
+    if (!p) return
+    try {
+      const dry = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent, dryRun: true } })
+      const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
+      if (!(await confirmDialog({ title: t('projects.shareTitle'), body: t('projects.shareBody', { n }), confirm: t('files.shareCopy') }))) return
+      const r = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent } })
+      if ('id' in r) {
+        setP(r)
+        toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) })
+      }
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
 
   useEffect(() => {
     let live = true
@@ -254,6 +274,11 @@ export function ProjectHome() {
           <>
             {p.canEdit && (
               <>
+                {personal && (
+                  <Button variant="ghost" onClick={() => setSharing(true)} data-testid="project-share">
+                    <Share2 size={14} aria-hidden /> {t('projects.share')}
+                  </Button>
+                )}
                 <Button variant="ghost" onClick={() => setEditing(true)}>
                   <Pencil size={14} aria-hidden /> {t('common.edit')}
                 </Button>
@@ -319,6 +344,7 @@ export function ProjectHome() {
         </aside>
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
+      <FolderPicker open={sharing} title={t('projects.share')} confirmLabel={t('files.shareHere')} initial="shared" onPick={(x) => void shareTo(x)} onClose={() => setSharing(false)} />
     </div>
   )
 }

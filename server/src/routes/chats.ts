@@ -16,6 +16,8 @@ import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
 import { canRead, canWrite, ensureProjectFolder, ensureProjectFolderEx, lookupFolder, projectFolderName } from '../chat/projects'
 import { badSegment } from '../policy/names'
+import { componentC } from '../team-files/component'
+import { mapErrors } from '../team-files/errors'
 import { afterAccessChange, captureState, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
@@ -439,6 +441,27 @@ export const chatsRoutes: RouteModule = {
       })()
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
+      return rt.store.toProject(after, mayEdit(ctx, p, after))
+    })
+
+    kit.handle(API.shareProject, async ({ c, params, body, auth }) => {
+      const locale = c.get('locale')
+      const p = principal(ctx, auth)
+      const r = rt.store.projectRow(params.id)
+      if (!r || !canRead(ctx.files, p, r.folder_path)) fail('not_found')
+      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
+      const segs = r!.folder_path.split('/')
+      // only a personal project is shared this way; a team project's audience is its folder rules (admin screen)
+      if (segs[0] !== 'users' || segs[1] !== p.id || segs.length < 3) fail('validation', tr('projectShareNotPersonal', locale), { fields: { 'params.id': 'not a personal project' } })
+      const out = await mapErrors(locale, () => componentC(ctx).files.copyFolderTree(p.id, r!.folder_path, body.toParent, { dryRun: body.dryRun }), 'toParent')
+      if ('viewersAdded' in out) return out
+      ctx.db.transaction(() => {
+        // the copy is a project folder in a team folder: a rule-less folders row, like a project on an existing folder
+        if (!isPersonalPath(out.path)) ensureFolderRow(ctx.db, out.path)
+        ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(out.path, r!.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: isPersonalPath(out.path) ? null : { name: r!.name, folderPath: out.path, files: out.files, bytes: out.bytes } })
+      })()
+      const after = rt.store.projectRow(r!.id)!
       return rt.store.toProject(after, mayEdit(ctx, p, after))
     })
 

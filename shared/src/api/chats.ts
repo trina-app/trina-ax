@@ -117,6 +117,10 @@ export const CreateProjectBody = z.object({
   participants: z.array(ProjectParticipant).max(200).default([]),
   instructions: z.string().max(50_000).default(''),
 })
+/** Share a personal project with the team: its folder is copied under toParent (a folder the caller can write; at most
+ * 1,000 files / 500 MB) and the project points at the copy; the personal folder stays. dryRun: {viewersAdded} only. */
+export const ShareProjectBody = z.object({ toParent: RelPath, dryRun: z.boolean().default(false) })
+export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative() })])
 /** Creator or admin+ only. folderPath: admin or owner only, never under users/ (a personal project is shared by copy). */
 export const UpdateProjectBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -144,5 +148,6 @@ export const CHATS = {
   createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: personal (users/<me>/projects/<slug>), on an existing folder the caller can write, or a new projects/<slug> with participants (admin or owner).' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/.' }),
+  shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Copy a personal project\'s folder into a team folder and point the project at it (the personal folder stays).' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (the creator or an admin; chats stay, without project; the folder stays).' }),
 } as const
