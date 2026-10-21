@@ -1,4 +1,5 @@
 // Sign-in, first-run setup (/setup?token=), invite acceptance (/invite/:token) and the forced password change.
+import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -49,7 +50,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
       <main className="w-full max-w-sm">
         <p className="mb-6 text-center text-xl font-semibold tracking-tight">{PRODUCT.displayName}</p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)]">
-          <h1 className="mb-1 text-lg font-semibold">{title}</h1>
+          <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-muted">{sub}</div>}
           {children}
         </div>

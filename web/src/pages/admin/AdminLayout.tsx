@@ -48,7 +48,8 @@ export default function AdminLayout() {
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('admin.title')} desc={t('admin.desc')} />
       <div className="flex flex-col gap-4 p-4 sm:p-6 lg:flex-row">
-        <nav aria-label={t('admin.title')} className="flex shrink-0 gap-1 overflow-x-auto lg:w-48 lg:flex-col">
+        {/* narrow screens: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
+        <nav aria-label={t('admin.title')} className="scroll-thin -mx-4 flex shrink-0 gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:mx-0 lg:w-48 lg:flex-col lg:px-0">
           {visible.map((s) => (
             <NavLink key={s.id} to={`/admin/${s.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover', isActive && 'bg-hover font-medium')}>
               <s.icon size={15} aria-hidden /> {t(s.label)}

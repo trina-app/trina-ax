@@ -36,7 +36,8 @@ export default function Settings() {
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('settings.title')} />
       <div className="flex flex-col gap-6 p-4 sm:p-6 md:flex-row">
-        <nav aria-label={t('settings.title')} className="flex gap-1 overflow-x-auto md:w-48 md:flex-col">
+        {/* phones: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
+        <nav aria-label={t('settings.title')} className="scroll-thin -mx-4 flex gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:w-48 md:flex-col md:px-0">
           {TABS.map((x) => (
             <NavLink key={x.id} to={`/settings/${x.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover', (isActive || (x.id === 'profile' && tab === 'profile')) && 'bg-hover font-medium')}>
               <x.icon size={15} aria-hidden /> {t(x.label)}
