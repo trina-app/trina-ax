@@ -1,4 +1,4 @@
-# Team AX installer helpers (bash, sourced by scripts/install-macos.sh). Root works in folders the role accounts own
+# Installer helpers (bash, sourced by scripts/install-macos.sh). Root works in folders the role accounts own
 # (design tab 6: root only copies, replaces and chowns there): these helpers make sure a link or file planted by such
 # an account never turns a root write or chown into one somewhere else. The installer stops every process of the role
 # accounts first, so nothing changes between a check and the step after it.

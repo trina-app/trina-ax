@@ -21,7 +21,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
-/** like a server whose relay.officialAvailable is off: the Team AX relay is not offered */
+/** like a server whose relay.officialAvailable is off: the official relay is not offered */
 const defaultConnection = (): ConnectionStatus => ({ mode: 'self-relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null }, teamName: 'acme', availableModes: ['self-relay', 'direct-only'] })
 class Fail extends Error {
   constructor(public code: ErrorCode, public status: number, msg?: string, public fields?: Record<string, string>) {

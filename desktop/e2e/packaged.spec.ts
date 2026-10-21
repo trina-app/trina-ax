@@ -7,9 +7,10 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { ACME, newUserData, ROOT } from './helpers'
+import { PRODUCT } from '@mycel/shared'
 
-const APP = join(ROOT, 'release/mac-arm64/Team AX.app')
-const exe = join(APP, 'Contents/MacOS/Team AX')
+const APP = join(ROOT, `release/mac-arm64/${PRODUCT.displayName}.app`)
+const exe = join(APP, `Contents/MacOS/${PRODUCT.displayName}`)
 const framework = join(APP, 'Contents/Frameworks/Electron Framework.framework/Electron Framework')
 
 /** Electron's fuse wire (https://github.com/electron/fuses): sentinel, version 1, length, one '0' / '1' per fuse. */

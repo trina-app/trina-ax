@@ -1,4 +1,4 @@
-// Team AX menubar app — status model (no UI): reads status/status.json written by the server every 30 s and the
+// The menubar app — status model (no UI): reads status/status.json written by the server every 30 s and the
 // result of GET /api/health, and decides what the menu shows. Pure Swift so it can be tested without AppKit
 // (menubar/Tests/main.swift, run by `menubar/build.sh --test`). Design tab 6 "상태 읽기".
 import Foundation
@@ -58,7 +58,7 @@ public enum Lang: String { case ko, en, id
 public struct MenuState: Equatable {
     public enum Icon: String { case ok, warn, fail, off, replaced }
     public var icon: Icon
-    /// first line, e.g. "Team AX: 켜짐 (0.1.0)"
+    /// first line, e.g. "<product>: 켜짐 (0.1.0)"
     public var headline: String
     /// further lines (connection, queue, problems)
     public var lines: [String]
@@ -96,7 +96,7 @@ public enum DaemonState: Equatable { case running, notRunning, disabled, unknown
 
 /// Decide the menu from the last status file, the health check and (when health fails) the launchd state.
 /// `now` and `statusAge` let tests pin time: a status file older than 2 minutes means the server stopped writing.
-public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Health?, daemon: DaemonState, lang: Lang, product: String = "Team AX") -> MenuState {
+public func menuState(status: StatusFile?, statusAge: TimeInterval?, health: Health?, daemon: DaemonState, lang: Lang, product: String) -> MenuState {
     let stale = (statusAge ?? .infinity) > 120
     guard let h = health, h.ok else {
         var lines: [String] = []

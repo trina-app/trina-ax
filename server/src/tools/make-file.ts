@@ -32,6 +32,7 @@ import { publishChanges } from '../team-files/changes'
 import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, runIsolated } from './isolate'
+import { PRODUCT } from '@mycel/shared'
 
 type Input = z.output<typeof MakeFileInput>
 export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string }
@@ -245,7 +246,7 @@ export class MakeFile {
       tables.forEach((t, i) => sheets.push({ name: t.title ?? `Sheet${i + 1}`, rows: t.rows }))
     } else sheets.push({ name: 'Sheet1', rows: parseCsv(text, kind === 'tsv' ? '\t' : ',') })
     const wb = new ExcelJS.Workbook()
-    wb.creator = 'Team AX'
+    wb.creator = PRODUCT.displayName
     wb.created = new Date()
     const used = new Set<string>()
     for (const s of sheets) {

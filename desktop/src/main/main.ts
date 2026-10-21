@@ -1,5 +1,5 @@
 /**
- * Team AX desktop app (component E): the team's web page in a window, plus the in-app browser pane the AI drives
+ * The desktop app (component E): the team's web page in a window, plus the in-app browser pane the AI drives
  * over CDP when a browser tool call arrives through the team page's WebSocket (design tab 5).
  *
  * Environment (development and tests only; ignored in packaged builds unless noted):
@@ -46,7 +46,9 @@ const kit: Kit = (() => {
 })()
 
 app.setName(PRODUCT.displayName)
-if (process.env.MYCEL_DESKTOP_USER_DATA) app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA)
+// the settings folder keeps its first name (PRODUCT.desktopDataDir) when the product is renamed: Electron would
+// otherwise take the new name and every desk would forget its teams, window and language
+app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), PRODUCT.desktopDataDir))
 
 // Sandboxed srcdoc frames (artifacts, previews) stay in the team page's renderer process, so the page-level
 // document-start script that removes RTCPeerConnection reaches them before their own scripts run. Electron's

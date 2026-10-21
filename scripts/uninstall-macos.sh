@@ -1,5 +1,5 @@
 #!/bin/bash
-# Team AX server uninstaller for macOS ("설치 되돌리기", design tab 6). Component G. Idempotent.
+# Team server uninstaller for macOS ("설치 되돌리기", design tab 6). Component G. Idempotent.
 #
 #   sudo scripts/uninstall-macos.sh [--id mycel] [--server-user _axserver] [--agent-user _axagent] [--delete-data]
 #                                   [--keep-accounts]   (repair / reinstall: leave the role accounts in place)

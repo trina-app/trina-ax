@@ -13,6 +13,7 @@
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { compareVersions, keyId } from '../system/update'
+import { PRODUCT } from '@mycel/shared'
 
 /** the only address the office updater contacts unless config/office.env sets TEAMAX_UPDATE_FEED (tests) */
 export const DEFAULT_FEED = 'https://updates.treesoop.com'
@@ -47,7 +48,7 @@ export const OfficeRelease = z.object({
   minFrom: Version,
   publishedAt: z.string().datetime(),
   notes: z.string().max(20_000).default(''),
-  /** the office zip (TeamAX-office-<version>-mac.zip). 'universal' = both Mac processors in one zip. */
+  /** the office zip (<PRODUCT.officeBundle>-<version>-mac.zip). 'universal' = both Mac processors in one zip. */
   office: z.array(ReleaseFile.extend({ arch: z.enum(['universal', 'arm64', 'amd64']) })).min(1),
   /** the Windows desktop app the Mac offers its desks (data/downloads), with electron-updater's latest.yml */
   windows: z.object({ version: Version, installer: ReleaseFile, latestYml: ReleaseFile }).nullable().default(null),
@@ -127,6 +128,6 @@ export function decide(installed: string, r: Pick<OfficeRelease, 'version' | 'mi
   const c = compareVersions(r.version, installed)
   if (c === 0) return { kind: 'current' }
   if (c < 0) return { kind: 'older', reason: `the feed offers ${r.version}, older than the installed ${installed}: never installed (no downgrades)` }
-  if (compareVersions(installed, r.minFrom) < 0) return { kind: 'too-old', reason: `${r.version} updates only from ${r.minFrom} or newer; install TeamAX-office-${r.version}-mac.zip by hand once (office-install.sh)` }
+  if (compareVersions(installed, r.minFrom) < 0) return { kind: 'too-old', reason: `${r.version} updates only from ${r.minFrom} or newer; install ${PRODUCT.officeBundle}-${r.version}-mac.zip by hand once (office-install.sh)` }
   return { kind: 'install' }
 }

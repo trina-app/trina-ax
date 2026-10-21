@@ -1,7 +1,7 @@
 /**
  * The in-app browser pane (design tab 5), the way the Claude desktop app does it: real browser tabs
  * (WebContentsView) inside the app window, driven over the Chrome DevTools Protocol through Electron's
- * webContents.debugger. Ported from Saram desktop/src/pane.ts and extended for Team AX:
+ * webContents.debugger. Ported from Saram desktop/src/pane.ts and extended for this app:
  *
  *  - every call comes from the team server as a BrowserCall (shared/src/api/browser.ts) and its input is checked
  *    against shared/src/browser-tools.ts; the result goes back as a BrowserResult
@@ -24,7 +24,7 @@ import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneR
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
 import { sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope } from '../../common/site-permissions'
 import { isNotice, type PaneActivity } from '../../common/pane-activity'
-import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK } from '@mycel/shared'
+import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { HostClassifier } from './classify'
@@ -151,6 +151,10 @@ const PAYMENT_REFUSED = 'That is a payment card field (card number, expiry or se
 type SecretField = 'password' | 'payment'
 const asSecret = (v: unknown): SecretField | '' => (v === 'payment' ? 'payment' : v ? 'password' : '')
 
+const reEscape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** the app's own token in Electron's User-Agent ("<app name>/<version>", the name as PRODUCT or package.json say) */
+const APP_UA_TOKEN = new RegExp(` \\S*(${[PRODUCT.id, PRODUCT.displayName, PRODUCT.artifactBase].map(reEscape).join('|')})\\S*\\/\\S+`, 'gi')
+
 export class BrowserPane {
   private tabs = new Map<string, Tab>()
   private activeId?: string
@@ -192,7 +196,7 @@ export class BrowserPane {
     const chrome = ua
       .replace(` ${IN_APP_BROWSER_UA_MARK}`, '')
       .replace(/ Electron\/\S+/, '')
-      .replace(/ \S*(mycel|team-ax|Team AX)\S*\/\S+/gi, '')
+      .replace(APP_UA_TOKEN, '')
     const marked = `${chrome} ${IN_APP_BROWSER_UA_MARK}`
     if (marked !== ua) session.setUserAgent(marked)
     // sites in the pane get fullscreen and the copy button, nothing else (no camera, location, devices ...)

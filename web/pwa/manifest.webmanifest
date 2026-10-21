@@ -1,6 +1,6 @@
 {
-  "name": "Team AX",
-  "short_name": "Team AX",
+  "name": "__PRODUCT_NAME__",
+  "short_name": "__PRODUCT_SHORT_NAME__",
   "description": "Team AI workspace",
   "id": "/",
   "start_url": "/",

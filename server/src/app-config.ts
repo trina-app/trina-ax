@@ -6,7 +6,7 @@
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
-// (1 = the Team AX relay may be offered).
+// (1 = the official relay may be offered).
 // Office mode (one Mac in a clinic or office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -96,7 +96,7 @@ export const AppConfigFile = z.object({
     /** wss://relay.example/connect; null = no relay */
     url: z.string().nullable().default(null),
     teamName: z.string().nullable().default(null),
-    /** the Team AX relay (wss://relay.treesoop.com/connect) is running and may be offered in Admin > System. Off until
+    /** the official relay (wss://relay.treesoop.com/connect) is running and may be offered in Admin > System. Off until
      * the production relay exists (docs/OWNER-TODO.md 4): selecting it before then never connects. */
     officialAvailable: z.boolean().default(false),
   }).default({ url: null, teamName: null, officialAvailable: false }),
