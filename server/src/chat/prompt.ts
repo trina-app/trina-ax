@@ -188,7 +188,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
 
 /**
  * The parts of the instructions that change from turn to turn (tab 3 items 2, 3, 4, 6, plus the browser rules when
- * this turn has the browser), for a RESUMED Claude session: Claude Code keeps the system prompt of the session's
+ * this turn has the browser, and where the AI runs, so sessions started before that part existed get it too), for a RESUMED Claude session: Claude Code keeps the system prompt of the session's
  * first turn on --resume (snapshot), so without this a memory saved after the session started, a new date, a
  * changed project or lost folder access would never reach the model. Goes in front of the user's message.
  */
@@ -198,6 +198,7 @@ export function buildTurnContext(files: FileService, i: PromptInput): string {
     personLines(files, i).join('\n'),
     memoryBlock(i.memories) || 'No memories about the user.',
     i.project ? projectSection(i.project) : 'This chat belongs to no project.',
+    ENVIRONMENT,
     i.browser ? BROWSER_RULES : '',
   ].filter(Boolean)
   return `<turn_context>\n${parts.join('\n\n')}\n</turn_context>`
