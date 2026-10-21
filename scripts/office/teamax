@@ -6,6 +6,7 @@
 #   ~/TeamAX/teamax backup                        a backup now (on this Mac's disk, like the nightly one)
 #   ~/TeamAX/teamax archive [--out] <file>        encrypted copy for an external disk (asks for a password)
 #   ~/TeamAX/teamax restore-archive [--in] <file> [--replace]
+#                                                 put an archive in place; everyone signs in again afterwards
 #   ~/TeamAX/teamax public-address set <app.example.com> <token file> | off | status
 #                                                 the internet address (Cloudflare Tunnel, docs/OFFICE.md)
 #   ~/TeamAX/teamax desktop list | add <installer.exe|.dmg> [--version x.y.z] [--keep] | remove <file>

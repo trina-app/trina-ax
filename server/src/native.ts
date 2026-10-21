@@ -32,8 +32,9 @@ export async function startGate(bin: string, listen: string, upstream: string, s
 }
 
 /** macOS: run every engine turn under sandbox-exec with this profile (scripts/macos/engine.sb). localLogin opens the
- * account's own CLI login files and direct HTTPS (dev: the engine runs as the owner with the owner's login). */
-export interface LauncherSandbox { profile: string; localLogin: boolean; proxyPort?: number }
+ * account's own Claude login files and direct HTTPS (dev: the engine runs as the owner with the owner's login);
+ * localCodex (with localLogin) also its Codex login, only when a Codex binary is configured. */
+export interface LauncherSandbox { profile: string; localLogin: boolean; localCodex?: boolean; proxyPort?: number }
 
 /** Stage 1 convenience: start the launcher as the current user. Production: LaunchDaemon as _axagent (stage 3). */
 export async function startLauncher(bin: string, o: { listen: string; agentRoot: string; toolsSock: string; allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox; codexAuthDir?: string; proxyPort?: number }) {
@@ -43,6 +44,7 @@ export async function startLauncher(bin: string, o: { listen: string; agentRoot:
   if (o.sandbox) {
     args.push('--sandbox-profile', o.sandbox.profile, '--proxy-port', String(o.sandbox.proxyPort ?? o.proxyPort ?? 0))
     if (o.sandbox.localLogin) args.push('--local-login')
+    if (o.sandbox.localLogin && o.sandbox.localCodex) args.push('--local-codex')
   } else if (o.proxyPort) args.push('--proxy-port', String(o.proxyPort))
   if (o.codexAuthDir) args.push('--codex-auth-dir', o.codexAuthDir)
   fs.mkdirSync(o.agentRoot, { recursive: true, mode: 0o700 })

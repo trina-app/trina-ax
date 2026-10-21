@@ -190,7 +190,10 @@ var (
 	// model proxy port as parameters. Empty = no sandbox (stage-1 tests, Linux).
 	sandboxProfile = flag.String("sandbox-profile", "", "macOS: sandbox-exec profile every engine runs under")
 	proxyPort      = flag.Int("proxy-port", 0, "model proxy port the sandbox allows (127.0.0.1)")
-	localLogin     = flag.Bool("local-login", false, "sandbox: also allow the account's own ~/.claude, ~/.codex, login keychain and direct HTTPS (dev / owner login mode)")
+	localLogin     = flag.Bool("local-login", false, "sandbox: also allow the account's own ~/.claude, login keychain and direct HTTPS (dev / owner login mode)")
+	// with --local-login: also the account's ~/.codex login and CLI (only when a Codex binary is configured; office
+	// mode turns Codex off and its engines must not read the Mac user's Codex login, security round 4)
+	localCodex = flag.Bool("local-codex", false, "sandbox, with --local-login: also allow the account's ~/.codex/auth.json and ~/.codex/packages")
 	// the server starts this launcher itself (dev / local-login) and holds our stdin open: when the server dies, even
 	// by kill -9, the pipe closes and we stop every turn and exit instead of staying behind as an orphan
 	exitWithParent = flag.Bool("exit-with-parent", false, "stop all turns and exit when stdin closes (the starting server is gone)")
@@ -253,9 +256,12 @@ func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.C
 	if err != nil {
 		return nil, nil, fmt.Errorf("engine: %v", err)
 	}
-	ll := "0"
+	ll, lc := "0", "0"
 	if *localLogin {
 		ll = "1"
+		if *localCodex {
+			lc = "1"
+		}
 	}
 	params := map[string]string{
 		"CHAT_DIR":    resolvePath(chat),
@@ -265,6 +271,7 @@ func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.C
 		"TOOLS_SOCK":  resolvePath(*toolsSock),
 		"PROXY_PORT":  strconv.Itoa(*proxyPort),
 		"LOCAL_LOGIN": ll,
+		"LOCAL_CODEX": lc,
 		"USER_HOME":   resolvePath(accountHome),
 		"SESSION_DIR": resolvePath(filepath.Clean(sessDir)),
 	}

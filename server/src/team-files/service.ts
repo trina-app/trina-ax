@@ -6,6 +6,7 @@ import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
+import { resetEngineSessions } from '../chat/runtime'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
@@ -256,6 +257,23 @@ export class TeamFiles {
     return n
   }
 
+  /** Active people who can read `segs` under `rules` (before a move or delete, to see who lost it after). */
+  private readersOf(rules: RuleSet, segs: string[]): Principal[] {
+    return activePeople(this.ctx.db).filter((p) => atLeast(rules.access(p, segs), 'read'))
+  }
+  /**
+   * People who could read a file and no longer can after a move or delete: their chats start a fresh engine session
+   * at the next turn, as after a rule change (H7). A stashed session may hold the file's content (an attachment or a
+   * read by the AI) and a resumed session answered from it although the app showed the file as unavailable (security
+   * round 4).
+   */
+  private dropSessionsOf(lost: Principal[], why: { path: string; to?: string }) {
+    for (const p of lost) {
+      const n = resetEngineSessions(this.ctx, p.id)
+      if (n) this.ctx.log.info('engine sessions reset after a file left a person\'s reach', { user: p.id, chats: n, ...why })
+    }
+  }
+
   // ---------------- move / rename ----------------
   move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean } = {}): { entry: FileEntry } {
     const user = this.principal(userId)
@@ -296,6 +314,7 @@ export class TeamFiles {
     }
     const toRel = target.join('/')
     const db = this.ctx.db
+    const readers = this.readersOf(rules, fr.segs)
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
       const clash = db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel) as { path: string } | null
       if (clash) fileError('conflict', 'exists', { to: toRel })
@@ -337,6 +356,8 @@ export class TeamFiles {
       fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
+    const after = this.rules()
+    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
     // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }], rules)
     return { entry: this.entry(user, rules, target) }
@@ -507,6 +528,7 @@ export class TeamFiles {
     const id = newId()
     const purgeAt = iso(Date.now() + getTeamSettings(this.ctx.db).trashRetentionDays * DAY)
     const db = this.ctx.db
+    const readers = this.readersOf(rules, r.segs)
     db.transaction(() => {
       const storage = moveIntoTrash(this.root, r.segs)
       try {
@@ -519,6 +541,10 @@ export class TeamFiles {
       } catch (e) { fs.renameSync(path.join(this.root, ...storage.split('/')), r.abs); throw e }
     })()
     this.dropTextCache(r.rel, isDir)
+    // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
+    const t = this.trashRow(id)
+    const after = this.rules()
+    this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
     // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
     this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
     return { trashId: id, purgeAt }
@@ -571,6 +597,8 @@ export class TeamFiles {
     const rows = (this.ctx.db.query('SELECT id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(at) as VersionRow[])
       .filter((v) => this.versionVisible(user, rules, v))
     if (!exists && rows.length === 0) throw new HttpError('not_found')
+    // versions whose folder is in the trash cannot be restored until the folder is (restoreVersion refuses them)
+    if (rows.length && rows.every((v) => this.versionInTrash(v))) canRestore = false
     const refs = this.userRefs(rows.map((v) => v.author_id))
     return {
       path: at,
@@ -581,6 +609,11 @@ export class TeamFiles {
         turnId: v.turn_id, kind: v.kind, conflictPath: v.conflict_path, createdAt: normIso(v.created_at),
       })),
     }
+  }
+
+  /** the folder the version was saved under is in the trash (or parked with a trash item that is gone) */
+  private versionInTrash(v: Pick<VersionRow, 'folder_id'>): boolean {
+    return !!v.folder_id && this.parkedView(v.folder_id) !== null
   }
 
   private versionRow(user: Principal, rules: RuleSet, versionId: string): VersionRow {
@@ -606,6 +639,11 @@ export class TeamFiles {
     const r = authorize(this.fx, rules, user, rel, 'write', { createDirs: true })
     const v = this.versionRow(user, rules, versionId)
     if (v.path !== r.rel) throw new HttpError('not_found')
+    // the version's folder is in the trash (its rules parked under .system/trash): the live rules no longer have them,
+    // so write access fell back to the folder above (shared/: everyone write) and the restored file came back with no
+    // rule at all, readable and writable by the whole team (security round 4). The folder comes back first, with its
+    // rules; then the version.
+    if (this.versionInTrash(v)) fileError('conflict', 'folderInTrash', { path: r.rel })
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
     checkRegular(blob)

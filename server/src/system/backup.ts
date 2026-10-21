@@ -400,13 +400,29 @@ export class BackupManager {
 }
 
 /**
+ * End every sign-in in a restored database copy (every restore path calls this: the admin restore at the next start,
+ * `admin.js restore-archive` when it unpacks an archive, and the office `teamax restore-archive` swap). Sign-ins come
+ * back with an old DB: someone who signed out, was disabled, changed a stolen password or whose device was revoked
+ * after the copy was made would be signed in again. Unused password reset links and invites go too: one used or
+ * withdrawn after the copy would work again. Everyone signs in again; an admin makes new links.
+ */
+export function endSessions(file: string): void {
+  const db = new Database(file)
+  try {
+    const has = (t: string) => !!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
+    db.transaction(() => {
+      db.run('DELETE FROM sessions')
+      if (has('password_resets')) db.run('DELETE FROM password_resets WHERE used_at IS NULL')
+      if (has('invites')) db.run('DELETE FROM invites WHERE used_at IS NULL')
+    })()
+    db.run('PRAGMA wal_checkpoint(TRUNCATE)') // the copy is moved without side files: nothing may stay in a -wal
+  } finally { db.close() }
+}
+
+/**
  * Called by the server at start, BEFORE the DB is opened: if a restore was staged, keep the current DB files in
  * data/backups/before-restore-<time>/ and put the staged copy in place. Failures leave the current DB untouched.
  */
-function endSessions(file: string): void {
-  const db = new Database(file)
-  try { db.run('DELETE FROM sessions') } finally { db.close() }
-}
 
 export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 'error'>, o: { rename?: (a: string, b: string) => void } = {}): { applied: boolean; backupId?: string; error?: string } {
   const rename = o.rename ?? fs.renameSync
