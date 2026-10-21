@@ -406,6 +406,27 @@ describe('the update LaunchAgent and the schedule', () => {
     expect(p).toContain('<key>TEAMAX_CLAUDE_BIN</key><string>/Users/x/.local/bin/claude</string>')
     expect(updatePlist(s, '23:45', '/usr/bin')).toContain('<integer>23</integer><key>Minute</key><integer>45</integer>')
   })
+  test('an update run rewrites the agent plist without reloading it (it is the running job) and leaves a marker the supervisor acts on later', async () => {
+    const { syncUpdateAgent, reloadMarkedUpdateAgent } = await import('../../server/src/office/update-cli')
+    const home = makeHome('agent-marker', '0.3.0')
+    const agents = path.join(BASE, 'agents-marker')
+    process.env.TEAMAX_AGENTS_DIR = agents
+    try {
+      const s = settingsFrom(home, { TEAMAX_LABEL: 'app.team-ax.marker-test' })
+      expect(syncUpdateAgent(s, '/usr/bin', { ...process.env, TEAMAX_UPDATE_RUN: '1' })).toBe('')
+      expect(fs.readFileSync(path.join(agents, 'app.team-ax.marker-test.update.plist'), 'utf8')).toContain('StartCalendarInterval')
+      expect(fs.existsSync(path.join(home, 'update', 'agent-reload'))).toBe(true)
+      // the same plist again: no new marker needed
+      fs.rmSync(path.join(home, 'update', 'agent-reload'))
+      syncUpdateAgent(s, '/usr/bin', { ...process.env, TEAMAX_UPDATE_RUN: '1' })
+      expect(fs.existsSync(path.join(home, 'update', 'agent-reload'))).toBe(false)
+      // while an update runs the supervisor waits
+      fs.writeFileSync(path.join(home, 'update', 'agent-reload'), '')
+      fs.writeFileSync(path.join(home, 'update', 'state.json'), JSON.stringify({ running: { pid: process.pid, since: new Date().toISOString(), step: 'install', phase: 'x', target: '0.3.1' } }))
+      expect(reloadMarkedUpdateAgent({ ...s, label: 'app.team-ax.marker-test' })).toBe('')
+      expect(fs.existsSync(path.join(home, 'update', 'agent-reload'))).toBe(true)
+    } finally { delete process.env.TEAMAX_AGENTS_DIR }
+  })
   test('next window: today if still ahead, else tomorrow; none while paused', () => {
     const at = (h: number, m: number) => { const d = new Date(2026, 9, 21, h, m); return d }
     expect(nextWindow('03:00', at(1, 0))!.getDate()).toBe(21)

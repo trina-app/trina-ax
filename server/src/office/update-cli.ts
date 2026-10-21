@@ -31,7 +31,8 @@ export function syncUpdateAgent(s: OfficeSettings, envPath: string, env: Record<
   fs.mkdirSync(p.agentsDir, { recursive: true })
   fs.mkdirSync(p.logs, { recursive: true, mode: 0o750 })
   if (env.TEAMAX_UPDATE_RUN === '1' || readUpdateState(s.home).running) {
-    if (before !== text) fs.writeFileSync(file, text, { mode: 0o644 })
+    // launchd keeps the job it loaded: the supervisor reloads it once the update is over (reloadMarkedUpdateAgent)
+    if (before !== text) { fs.writeFileSync(file, text, { mode: 0o644 }); fs.writeFileSync(reloadMarker(s.home), '', { mode: 0o600 }) }
     return ''
   }
   if (before === text && ua.loaded()) return ''
@@ -40,6 +41,22 @@ export function syncUpdateAgent(s: OfficeSettings, envPath: string, env: Record<
   ua.start()
   const t = readUpdateSettings(s.home)
   return `자동 업데이트 / automatic updates (${label}): 매일 / every night ${t.time}, ${t.channel}${t.paused ? ', 꺼짐 / paused' : ''}`
+}
+
+const reloadMarker = (home: string) => `${updatePaths(home).dir}/agent-reload`
+
+/** The supervisor (office.js run, every 30 s): an update rewrote the update agent's plist while that agent was running
+ * it; once no update runs, load the new one (bootout + bootstrap). */
+export function reloadMarkedUpdateAgent(s: OfficeSettings): string {
+  const m = reloadMarker(s.home)
+  if (!fs.existsSync(m) || readUpdateState(s.home).running) return ''
+  const label = updateLabel(s)
+  const ua = launchAgent(label, officePaths(s.home).plist(label))
+  fs.rmSync(m, { force: true })
+  if (!fs.existsSync(officePaths(s.home).plist(label))) return ''
+  if (ua.loaded()) ua.stop()
+  ua.start()
+  return `update agent reloaded (${label})`
 }
 
 export function removeUpdateAgent(s: OfficeSettings): string {

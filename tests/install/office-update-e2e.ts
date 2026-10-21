@@ -80,7 +80,11 @@ if (cmd === 'seed') {
   const users = await call('GET', '/api/admin/users', undefined, oc!)
   check('both accounts in the database', JSON.stringify(users.json ?? '').includes('desk1'), users.text)
   check('team file unchanged', sha(seed.file.path) === seed.file.sha256)
-  check('office CA unchanged', sha(path.join(P, 'tls', 'ca.crt')) === seed.tls)
+  // the CA stays, unless the new version replaces it on purpose (security round 4: a CA with the bare Mac name in its
+  // name constraint is made again once, the old one kept as ca.crt.old-<date>; desks on the in-office path reinstall it)
+  const caSame = sha(path.join(P, 'tls', 'ca.crt')) === seed.tls
+  const oldKept = fs.readdirSync(path.join(P, 'tls')).some((f) => f.startsWith('ca.crt.old-') && sha(path.join(P, 'tls', f)) === seed.tls)
+  check(caSame ? 'office CA unchanged' : 'office CA replaced by the new version on purpose, the old one kept', caSame || oldKept)
   check('config/office.env unchanged', sha(path.join(P, 'config', 'office.env')) === seed.env)
   const setup = await call('GET', '/api/setup')
   check('team still set up', setup.json?.needed === false, setup.text)

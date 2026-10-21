@@ -54,7 +54,7 @@ import {
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
-import { removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
+import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 import { updateView } from './update'
 
 const CHECK_MS = 30_000
@@ -227,6 +227,7 @@ export async function run(home: string): Promise<never> {
   const check = async () => {
     if (stopping || restarting) return
     startHelper()
+    try { const r = reloadMarkedUpdateAgent(s); if (r) say(r) } catch (e) { say(`update agent reload failed: ${(e as Error).message}`) }
     const host = localHostName()
     const lan = lanInfo({ includeVpn: s.includeVpn })
     const key = JSON.stringify([host, lan])
