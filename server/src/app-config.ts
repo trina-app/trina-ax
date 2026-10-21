@@ -5,7 +5,8 @@
 //                                                           prod: /Library/Application Support/mycel/config/server.json
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
-// MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay).
+// MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
+// (1 = the Team AX relay may be offered).
 // Relative paths in the file are resolved against the file's folder.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -70,7 +71,10 @@ export const AppConfigFile = z.object({
     /** wss://relay.example/connect; null = no relay */
     url: z.string().nullable().default(null),
     teamName: z.string().nullable().default(null),
-  }).default({ url: null, teamName: null }),
+    /** the Team AX relay (wss://relay.treesoop.com/connect) is running and may be offered in Admin > System. Off until
+     * the production relay exists (docs/OWNER-TODO.md 4): selecting it before then never connects. */
+    officialAvailable: z.boolean().default(false),
+  }).default({ url: null, teamName: null, officialAvailable: false }),
   update: z.object({
     channel: z.enum(['stable', 'beta']).default('stable'),
     feedUrl: z.string().nullable().default(null),
@@ -91,7 +95,7 @@ export interface AppConfig {
   logDir: string | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   engine: { authMode: 'local-login' | 'proxy' | 'subscription'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number; modelUpstream?: string }
-  relay: { url: string | null; teamName: string | null }
+  relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null }
   validateResponses: boolean
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
@@ -160,6 +164,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
       teamName: env[P + 'RELAY_TEAM'] ?? f.relay.teamName,
+      officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
     update: f.update,
     validateResponses: f.validateResponses ?? mode === 'dev',

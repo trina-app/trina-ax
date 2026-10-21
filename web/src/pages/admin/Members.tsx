@@ -1,7 +1,8 @@
 // Members and invites. Invites are links (no mail in v1): pick role and groups, copy the link or show its QR code,
 // hand it over any way you like; revoke unused ones. Members: role, groups, disable (ends their sessions),
-// temporary password reset (audited), remove.
-import { KeyRound, Link2, Plus, QrCode as QrIcon, Trash2, UserPlus } from 'lucide-react'
+// temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
+// Mac), remove.
+import { KeyRound, Link2, Plus, QrCode as QrIcon, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
 import { useState } from 'react'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
@@ -28,6 +29,7 @@ export default function Members() {
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [secret, setSecret] = useState<{ title: string; value: string } | null>(null)
+  const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? '?'
@@ -36,6 +38,12 @@ export default function Members() {
     if (!(await confirmDialog({ title: t('members.resetTitle', { name: u.name }), body: t('members.resetBody'), confirm: t('members.reset') }))) return
     const r = await act(() => api.call(API.resetPassword, { params: { id: u.id } }))
     if (r) setSecret({ title: t('members.tempPasswordFor', { name: u.name }), value: r.temporaryPassword })
+  }
+  /** One-time link (24 h) the person opens to choose a new password; no email, the admin hands it over. */
+  const createResetLink = async (u: User) => {
+    if (!(await confirmDialog({ title: t('members.resetLinkConfirm', { name: u.name }), body: t('members.resetLinkBody'), confirm: t('members.resetLinkCreate') }))) return
+    const r = await act(() => api.call(API.createResetLink, { params: { id: u.id } }))
+    if (r) setResetLink({ name: u.name, url: /^https?:\/\//.test(r.url) ? r.url : `${location.origin}${r.url.startsWith('/') ? '' : '/'}${r.url}`, expiresAt: r.expiresAt })
   }
   const toggleDisabled = async (u: User) => {
     const disabling = u.status === 'active'
@@ -104,6 +112,9 @@ export default function Members() {
                             </Button>
                             <IconButton label={t('members.reset')} onClick={() => resetPassword(u)}>
                               <KeyRound size={15} />
+                            </IconButton>
+                            <IconButton label={t('members.resetLinkButton')} onClick={() => createResetLink(u)} data-testid={`reset-link-${u.username}`}>
+                              <UserRoundKey size={15} />
                             </IconButton>
                             <Button size="sm" variant="ghost" onClick={() => toggleDisabled(u)}>
                               {u.status === 'active' ? t('members.disable') : t('members.enable')}
@@ -188,6 +199,14 @@ export default function Members() {
             void users.reload()
           }}
         />
+      )}
+      {resetLink && (
+        <Modal open onClose={() => setResetLink(null)} title={t('members.resetLinkFor', { name: resetLink.name })} footer={<Button variant="primary" onClick={() => setResetLink(null)}>{t('common.done')}</Button>}>
+          <SecretBox label={t('members.resetLink')} value={resetLink.url} note={t('members.resetLinkNote', { date: formatDateTime(resetLink.expiresAt, locale) })} />
+          <div className="mt-3">
+            <CopyButton text={resetLink.url} label={t('members.copyLink')} showLabel className="border border-line" />
+          </div>
+        </Modal>
       )}
       {secret && (
         <Modal open onClose={() => setSecret(null)} title={secret.title} footer={<Button variant="primary" onClick={() => setSecret(null)}>{t('common.done')}</Button>}>

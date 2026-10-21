@@ -28,12 +28,21 @@ export function certFingerprint(certFile: string): string | null {
   }
 }
 
+/**
+ * The connection modes Admin > System offers. The Team AX relay only while it runs (relay.officialAvailable;
+ * before that it could be picked and never connected). Cloudflare tunnel and Tailscale are not in v1 (tab 6).
+ */
+export function availableModes(cfg: AppContext['config']): ConnectionMode[] {
+  return cfg.relay.officialAvailable ? ['relay', 'self-relay', 'direct-only'] : ['self-relay', 'direct-only']
+}
+
 export function connectionStatus(ctx: AppContext): ConnectionStatus {
   const cfg = ctx.config
   const direct = { enabled: !!cfg.tls, port: cfg.tls?.port ?? 8443, fingerprintSha256: cfg.tls ? certFingerprint(cfg.tls.certFile) : null }
+  const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg) }
   if (ctx.services.relay) {
     const s = ctx.services.relay.status()
-    return { ...s, direct: s.direct.fingerprintSha256 || !direct.enabled ? s.direct : direct }
+    return { ...s, direct: s.direct.fingerprintSha256 || !direct.enabled ? s.direct : direct, ...extra }
   }
   const mode = modeOf(cfg.relay.url)
   return {
@@ -43,16 +52,27 @@ export function connectionStatus(ctx: AppContext): ConnectionStatus {
     detail: null,
     connectedSince: null,
     direct,
+    ...extra,
   }
 }
 
 export class ConnectionChangeError extends Error {
-  constructor(public code: 'unsupported' | 'no_config' | 'invalid', message: string) { super(message) }
+  constructor(public code: 'unsupported' | 'no_config' | 'invalid' | 'team_name_missing', message: string) { super(message) }
+}
+
+export interface SaveConnectionOptions {
+  relayUrl?: string
+  /** team name at the relay (relay.teamName); kept when not given */
+  teamName?: string
+  /** the Team AX relay may be chosen (config relay.officialAvailable) */
+  officialAvailable?: boolean
 }
 
 /** Write the new relay settings into the server's config file. Returns the URL now configured. */
-export function saveConnectionMode(configFile: string | null, mode: ConnectionMode, relayUrl?: string): string | null {
+export function saveConnectionMode(configFile: string | null, mode: ConnectionMode, o: SaveConnectionOptions = {}): string | null {
+  const relayUrl = o.relayUrl
   if (mode === 'cloudflare' || mode === 'tailscale') throw new ConnectionChangeError('unsupported', `${mode} is not available in this version`)
+  if (mode === 'relay' && !o.officialAvailable) throw new ConnectionChangeError('unsupported', 'the Team AX relay is not available yet')
   if (!configFile) throw new ConnectionChangeError('no_config', 'this server runs without a config file (development); set relay.url in .dev/server.json')
   let url: string | null
   if (mode === 'direct-only') url = null
@@ -65,7 +85,10 @@ export function saveConnectionMode(configFile: string | null, mode: ConnectionMo
   }
   const raw = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, 'utf8')) as Record<string, unknown> : {}
   const relay = (raw.relay && typeof raw.relay === 'object' ? raw.relay : {}) as Record<string, unknown>
-  raw.relay = { ...relay, url }
+  const teamName = o.teamName ?? (typeof relay.teamName === 'string' && relay.teamName ? relay.teamName : null)
+  // a relay without a team name stays "not registered" forever (install-guide check: there was no field for it)
+  if (url && !teamName) throw new ConnectionChangeError('team_name_missing', 'a relay connection needs a team name')
+  raw.relay = { ...relay, url, ...(o.teamName ? { teamName: o.teamName } : {}) }
   const tmp = configFile + '.tmp'
   fs.writeFileSync(tmp, JSON.stringify(raw, null, 2) + '\n', { mode: 0o600 })
   fs.renameSync(tmp, configFile)

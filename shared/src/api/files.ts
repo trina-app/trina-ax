@@ -84,7 +84,15 @@ export const CopyResult = z.union([
 ])
 export type CopyResult = z.infer<typeof CopyResult>
 export const DeleteResult = z.object({ trashId: Uuid7, purgeAt: IsoTime })
-export const HistoryResponse = z.object({ path: RelPath, items: z.array(FileVersion) })
+export const HistoryResponse = z.object({
+  path: RelPath,
+  items: z.array(FileVersion),
+  /** sha256 of the file as it is now (null: it does not exist any more); a version with this sha256 is the current
+   * content, so restoring it changes nothing */
+  currentSha256: z.string().nullable().optional(),
+  /** the caller may restore versions (write access to the path; the same check POST /api/files/restore makes) */
+  canRestore: z.boolean().optional(),
+})
 /** Restore an old version of a file (the current content becomes a new version first). */
 export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7 })
 /** mine: only items the caller deleted */

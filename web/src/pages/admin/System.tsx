@@ -2,7 +2,7 @@
 // changes ask for the password again. Long work runs as a job with progress from the WebSocket.
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, HardDrive, RefreshCw, RotateCcw, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { Job } from '@mycel/shared/api'
+import type { ConnectionMode, Job } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
@@ -161,23 +161,40 @@ function Diagnostics() {
   )
 }
 
-const MODES = ['relay', 'self-relay', 'cloudflare', 'tailscale', 'direct-only'] as const
+type Mode = ConnectionMode
+/** Offered when an older server does not say (the Team AX relay is not running yet; tunnels are not in v1). */
+const FALLBACK_MODES: Mode[] = ['self-relay', 'direct-only']
+/** Team name at a relay: <name>.<relay domain> (same rule as the server's RelayTeamName). */
+const TEAM_NAME_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+const needsTeamName = (m: Mode) => m === 'relay' || m === 'self-relay'
 
 function Connection() {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
   const state = useLoad(() => api.call(API.connection))
-  const [change, setChange] = useState<{ mode: (typeof MODES)[number]; relayUrl: string } | null>(null)
+  const [change, setChange] = useState<{ mode: Mode; relayUrl: string; teamName: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const modes = state.data?.availableModes ?? FALLBACK_MODES
+  const teamNameOk = (n: string) => n.length >= 2 && n.length <= 40 && TEAM_NAME_RE.test(n)
+  const open = () => {
+    const c = state.data
+    if (!c) return
+    setChange({ mode: modes.includes(c.mode) ? c.mode : modes[0]!, relayUrl: '', teamName: c.teamName ?? '' })
+  }
   return (
-    <Card title={t('system.connection')} actions={<Button size="sm" onClick={() => state.data && setChange({ mode: state.data.mode, relayUrl: '' })}>{t('system.changeMode')}</Button>}>
+    <Card title={t('system.connection')} actions={<Button size="sm" onClick={open}>{t('system.changeMode')}</Button>}>
       <Loadable state={state} lines={2}>
         {(c) => (
           <div className="space-y-1 text-sm">
             <p>
               <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge> <span className="ml-1">{t(`system.mode.${c.mode}`)}</span>
             </p>
+            {c.teamName && c.mode !== 'direct-only' && (
+              <p>
+                <span className="text-faint">{t('system.teamName')}</span> <code>{c.teamName}</code>
+              </p>
+            )}
             {c.address && (
               <p>
                 <span className="text-faint">{t('system.address')}</span> <code>{c.address}</code>
@@ -200,7 +217,11 @@ function Connection() {
               <Button variant="ghost" onClick={() => setChange(null)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="primary" disabled={change.mode === 'self-relay' && !/^wss?:\/\/|^https?:\/\//.test(change.relayUrl)} onClick={() => setConfirming(true)}>
+              <Button
+                variant="primary"
+                disabled={(change.mode === 'self-relay' && !/^wss?:\/\/|^https?:\/\//.test(change.relayUrl)) || (needsTeamName(change.mode) && !teamNameOk(change.teamName))}
+                onClick={() => setConfirming(true)}
+              >
                 {t('common.continue')}
               </Button>
             </>
@@ -208,8 +229,8 @@ function Connection() {
         >
           <div className="space-y-3">
             <Field label={t('system.mode')}>
-              <select className={inputCls} value={change.mode} onChange={(e) => setChange({ ...change, mode: e.target.value as (typeof MODES)[number] })}>
-                {MODES.map((m) => (
+              <select className={inputCls} value={change.mode} onChange={(e) => setChange({ ...change, mode: e.target.value as Mode })} data-testid="connection-mode">
+                {modes.map((m) => (
                   <option key={m} value={m}>
                     {t(`system.mode.${m}`)}
                   </option>
@@ -219,6 +240,19 @@ function Connection() {
             {change.mode === 'self-relay' && (
               <Field label={t('system.relayUrl')}>
                 <input className={inputCls} value={change.relayUrl} onChange={(e) => setChange({ ...change, relayUrl: e.target.value })} placeholder="wss://relay.example.com/connect" />
+              </Field>
+            )}
+            {needsTeamName(change.mode) && (
+              <Field label={t('system.teamName')} hint={t('system.teamNameHint')} error={change.teamName && !teamNameOk(change.teamName) ? t('system.teamNameInvalid') : null}>
+                <input
+                  className={inputCls}
+                  value={change.teamName}
+                  onChange={(e) => setChange({ ...change, teamName: e.target.value.trim().toLowerCase() })}
+                  placeholder="acme"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-testid="relay-team-name"
+                />
               </Field>
             )}
             <p className="text-xs text-warn">{t('system.modeWarning')}</p>
@@ -232,7 +266,13 @@ function Connection() {
           confirm={t('common.save')}
           onClose={() => setConfirming(false)}
           onConfirm={async (password) => {
-            const r = await act(() => api.call(API.updateConnection, { body: { mode: change.mode, relayUrl: change.mode === 'self-relay' ? change.relayUrl : undefined, password } }), t('common.saved'))
+            const r = await act(
+              () =>
+                api.call(API.updateConnection, {
+                  body: { mode: change.mode, relayUrl: change.mode === 'self-relay' ? change.relayUrl : undefined, teamName: needsTeamName(change.mode) ? change.teamName : undefined, password },
+                }),
+              t('common.saved'),
+            )
             if (r) {
               state.setData(r)
               setChange(null)

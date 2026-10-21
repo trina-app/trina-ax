@@ -286,6 +286,9 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   await subscription(asAgent)
   await codexChecks()
 
+  // ---- ops: connect-info, office-connection failure reports, Diagnostics while the launcher daemon is stopped ----
+  await opsChecks()
+
   // ---- updates: switch, bootstrap roll-back of a crashing version, manual roll-back ----
   const stg = admin(['stage-update', v2.archive])
   check('admin stage-update (verified unpack into app/versions)', stg.code === 0, stg.err.trim().slice(0, 200))
@@ -543,6 +546,55 @@ async function codexChecks() {
   }
   const out = admin(['codex-logout'])
   check('admin codex-logout removes the login', out.code === 0 && !fs.existsSync(`${BASE}/agent/codex-auth/auth.json`) && admin(['codex-status']).code === 3, out.out.trim())
+}
+
+/** fp "AA:BB:..." / "aabb..." -> "AABB..." */
+const normFp = (s: string | null | undefined) => (s ?? '').replace(/[^0-9a-fA-F]/g, '').toUpperCase()
+
+async function opsChecks() {
+  // the team exists by now (the account tool made the owner); sign in as that owner (web session cookie)
+  const si = await fetch(`http://127.0.0.1:${PORT}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1', origin: `http://127.0.0.1:${PORT}` },
+    body: JSON.stringify({ username: OWNER.username, password: OWNER.password }),
+  }).catch(() => null)
+  const cookie = (si?.headers.get('set-cookie') ?? '').split(';')[0]!
+  check('ops checks: the owner signs in (web session)', si?.status === 200 && !!cookie, String(si?.status))
+  const api = (p: string, init: RequestInit = {}) => fetch(`http://127.0.0.1:${PORT}${p}`, { ...init, headers: { cookie, 'x-mycel-csrf': '1', 'content-type': 'application/json' } })
+  const getJson = async (p: string) => { try { const r = await api(p); return { status: r.status, body: (await r.json()) as any } } catch (e) { return { status: 0, body: String(e) } } }
+
+  // connect-info: what the desktop app pins is the certificate the office port really serves
+  const ci = await getJson('/api/connect-info')
+  const fpFile = (() => { try { return fs.readFileSync(`${BASE}/setup/lan-cert.sha256`, 'utf8').trim() } catch { return '' } })()
+  check('connect-info: fingerprint = the installed office certificate, port = the TLS port', ci.status === 200 && normFp(ci.body.lanCertSha256) === normFp(fpFile) && ci.body.lanPort === TLS, JSON.stringify(ci.body).slice(0, 300))
+  const served = sh(['/bin/sh', '-c', `echo | /usr/bin/openssl s_client -connect 127.0.0.1:${TLS} 2>/dev/null | /usr/bin/openssl x509 -noout -fingerprint -sha256`]).out
+  check('connect-info: the TLS port serves the announced certificate', !!ci.body?.lanCertSha256 && normFp(served.replace(/^.*=/, '')) === normFp(ci.body.lanCertSha256), served.trim())
+  check('connect-info: LAN hosts are the Bonjour name and private IPv4 addresses', Array.isArray(ci.body?.lanHosts) && ci.body.lanHosts.every((h: string) => /\.local$|^(10|172|192)\./.test(h)), JSON.stringify(ci.body?.lanHosts))
+  const lf = await api('/api/connect-info/lan-failure', { method: 'POST', body: JSON.stringify({ code: 'unreachable' }) }).catch(() => null)
+  const d0 = await getJson('/api/admin/diagnostics')
+  check('lan-failure report shows in Diagnostics', lf?.status === 204 && d0.body?.checks?.find((c: any) => c.id === 'lan_direct')?.status === 'warn', JSON.stringify(d0.body?.checks?.find((c: any) => c.id === 'lan_direct')))
+  // exactly one launcher check (a running launcher used to get a second, failing one beside "Connected")
+  const launcherChecks = (d: { body?: any }) => (d.body?.checks ?? []).filter((c: any) => c.id === 'launcher') as { status: string; detail: string }[]
+  check('Diagnostics: launcher connected (one check), socket paths fit', launcherChecks(d0).map((c) => c.status).join() === 'ok' && d0.body?.checks?.find((c: any) => c.id === 'sockets')?.status === 'ok', JSON.stringify(d0.body?.checks?.filter((c: any) => ['launcher', 'sockets'].includes(c.id))))
+
+  // the launcher daemon stopped: Diagnostics must answer "not running" and the server must keep running
+  const before = await health()
+  const up0 = ((await (await fetch(`http://127.0.0.1:${PORT}/api/health`)).json()) as { uptimeSec: number }).uptimeSec
+  const stop = sh(['/bin/launchctl', 'bootout', `system/${LABEL}.launcher`])
+  check('launcher daemon stopped for the test', stop.code === 0 || /No such process/.test(stop.err), stop.err.trim())
+  await Bun.sleep(1500)
+  for (let i = 0; i < 3; i++) {
+    const d = await getJson('/api/admin/diagnostics')
+    const l = d.body?.checks?.find((c: any) => c.id === 'launcher')
+    if (i === 0) check('Diagnostics with the launcher stopped: "not running" and the command that starts it', d.status === 200 && l?.status === 'fail' && String(l?.detail).includes(`launchctl kickstart -k system/${LABEL}.launcher`) && String(l?.detail).includes(`launchctl bootstrap system /Library/LaunchDaemons/${LABEL}.launcher.plist`) && String(l?.detail).includes(`/Library/Logs/${ID}/crash/launcher.log`), JSON.stringify(l))
+  }
+  // a chat turn would connect to the launcher too: the server must survive that as well (SocketLauncher)
+  await Bun.sleep(1000)
+  const h = await fetch(`http://127.0.0.1:${PORT}/api/health`).then((r) => r.json() as Promise<{ uptimeSec: number; version: string }>).catch(() => null)
+  check('the server kept running (no restart: uptime grew)', !!before && !!h && h.uptimeSec >= up0, `before=${up0}s after=${h?.uptimeSec}s`)
+  const start = sh(['/bin/launchctl', 'bootstrap', 'system', `/Library/LaunchDaemons/${LABEL}.launcher.plist`])
+  check('launcher daemon started again', start.code === 0, start.err.trim())
+  const back = await until(() => getJson('/api/admin/diagnostics'), (d) => launcherChecks(d).map((c) => c.status).join() === 'ok', 30_000)
+  check('Diagnostics: launcher connected again (one check)', launcherChecks(back).map((c) => c.status).join() === 'ok', JSON.stringify(launcherChecks(back)))
 }
 
 async function uninstall() {

@@ -57,8 +57,10 @@ interface Team {
   bridged: Set<string>
   /** test clock skew: this server's clock runs skewMs ahead of the real one (health time and call deadlines) */
   skewMs: number
+  /** POST /api/connect-info/lan-failure bodies the app sent */
+  lanFailures: { code: string; csrf: boolean }[]
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set() })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [] })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
@@ -130,6 +132,11 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     if (!t.direct) return json({ error: { code: 'not_found', message: 'no direct connection' } }, 404)
     return json({ teamId: `team-${t.name.toLowerCase()}`, lanCertSha256: t.direct.announce, lanPort: t.direct.port, lanHosts: ['127.0.0.1'] })
   }
+  if (p === '/api/connect-info/lan-failure' && req.method === 'POST') {
+    t.lanFailures.push({ code: String(((await req.json()) as { code?: string }).code), csrf: req.headers.get('x-mycel-csrf') === '1' })
+    return new Response(null, { status: 204 })
+  }
+  if (p === '/test/lan-failures') return json({ items: t.lanFailures })
   if (p === '/test/login') {
     const v = crypto.randomUUID()
     return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax` })

@@ -546,16 +546,24 @@ export class TeamFiles {
    * and the plain 404 of content/download when there are none. So the history of a deleted file the caller may read
    * still shows, and a hidden entry cannot be told from a missing one (security r2: 404 for a hidden entry or a
    * hidden look-alike vs 200 {items:[]} for a missing name was an existence oracle).
+   * Also: the current file's hash (to tell which versions differ) and whether the caller may restore (write access to
+   * the path, the rule restoreVersion checks; false for a path the caller cannot see).
    */
-  history(userId: string, rel: string): { path: string; items: FileVersion[] } {
+  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean }> {
     const user = this.principal(userId)
     const rules = this.rules()
     let at = parseInput(rel).join('/') // malformed input is refused the same way for everyone
     let exists = false
+    let canRestore = false
+    let currentSha256: string | null = null
     try {
       const r = authorize(this.fx, rules, user, rel, 'read', { mustExist: false })
       at = r.rel
       exists = r.exists
+      // every listed version can be restored by whoever may write the file (restoreVersion checks the same);
+      // the newest version is the content before the last change, not the current file
+      canRestore = atLeast(rules.access(user, r.segs), 'write')
+      if (r.exists && r.st!.isFile()) { try { currentSha256 = await this.sha(r.abs, checkRegular(r.abs)) } catch {} }
     } catch (e) {
       if (!(e instanceof Denied) && !(e instanceof ToolError && e.code === 'not_found')) throw e
     }
@@ -565,6 +573,8 @@ export class TeamFiles {
     const refs = this.userRefs(rows.map((v) => v.author_id))
     return {
       path: at,
+      currentSha256,
+      canRestore,
       items: rows.map((v) => ({
         id: v.id, path: v.path, version: v.version, sha256: v.sha256, size: v.size, author: v.author_id ? refs.get(v.author_id) ?? { id: v.author_id, name: v.author_id } : null,
         turnId: v.turn_id, kind: v.kind, conflictPath: v.conflict_path, createdAt: normIso(v.created_at),

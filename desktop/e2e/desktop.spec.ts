@@ -497,6 +497,8 @@ test.describe('office direct connection', () => {
       await expect.poll(() => page.evaluate(() => (window as any).testState?.connection?.fingerprintMismatch), { timeout: 20_000 }).toBe(true)
       expect(page.url().startsWith(BAD)).toBe(true)
       expect(await page.evaluate(() => (window as any).testState.connection.route)).toBe('remote')
+      // and the team server hears about it through the team address (Diagnostics: office direct connection failed)
+      await expect.poll(async () => ((await (await fetch(`${BAD}/test/lan-failures`)).json()) as { items: { code: string; csrf: boolean }[] }).items, { timeout: 10_000 }).toContainEqual({ code: 'cert_mismatch', csrf: true })
     } finally {
       await close(app)
     }

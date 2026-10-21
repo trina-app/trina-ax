@@ -17,6 +17,7 @@ import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
 import type { LauncherSandbox } from './native'
 import { noSessions, nullRealtime, type Services } from './services'
+import { engineSockets, socketPathMessage, tooLongSockets, type SocketPathProblem } from './system/sockets'
 import pkg from '../package.json'
 
 /** Release builds set the version at bundle time (scripts/build-bundle.ts: --define process.env.MYCEL_BUILD_VERSION). */
@@ -69,11 +70,21 @@ export function devEngineSandbox(platform: NodeJS.Platform = process.platform, p
   return { profile, localLogin: true }
 }
 
+/** Engine sockets of this server whose paths do not fit in a Unix socket address (checked at start and before the
+ * engine core starts; Diagnostics shows the same). */
+export function socketPathProblems(config: AppConfig, engineConfig: ServerConfig): SocketPathProblem[] {
+  const prodLauncher = config.mode === 'prod' ? config.engine.launcherSock ?? path.join(engineConfig.runDir, 'launcher.sock') : null
+  return tooLongSockets(engineSockets(engineConfig.runDir, prodLauncher))
+}
+
 /** Dev / local-login: launcher runs as the current user; claude / codex from PATH (or config.engine.*Bin). */
 export async function startLocalCore(ctx: AppContext): Promise<Running> {
   const cfg = ctx.engineConfig
   const gate = path.join(cfg.nativeBin, 'mycel-gate')
   if (!fs.existsSync(gate)) throw new CoreUnavailableError(`native helpers not built (${gate} missing): run \`bun run build:native\``)
+  // without this the gate failed with "bind: invalid argument" and every chat said "the AI engine stopped unexpectedly"
+  const long = socketPathProblems(ctx.config, cfg)
+  if (long.length) throw new CoreUnavailableError(socketPathMessage(long, ctx.config.mode === 'dev'))
   const modelProxy = subscriptionProxy(ctx)
   if (ctx.config.mode === 'prod') {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect

@@ -85,13 +85,37 @@ test('version history with restore; start a chat with a file', async ({ page }) 
   const list = page.getByTestId('history-list')
   await expect(list).toContainText('v2')
   await expect(list).toContainText('Bob')
-  await list.getByRole('button', { name: '되돌리기' }).click()
+  await list.locator('[data-version="1"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByText('v1으로 되돌렸어요.')).toBeVisible()
 
   // a file goes into a new chat as an attached team file (a folder is still named in the prompt)
   await rowMenu(page, 'notes.txt', 'AI에게 이 파일 물어보기')
   await expect(page.locator('[data-testid="attachment-chip"][data-source="team"]')).toContainText('notes.txt')
+})
+
+test('version history: every earlier version can be restored, the newest too; one equal to now is marked; read-only files offer download only', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await rowMenu(page, 'plan.md', '버전 기록')
+  const list = page.getByTestId('history-list')
+  // v3 is the file as it is now: nothing to restore
+  await expect(list.locator('[data-version="3"]')).toContainText('지금 내용과 같음')
+  await expect(list.locator('[data-version="3"]').getByRole('button', { name: '되돌리기' })).toHaveCount(0)
+  // v2 is the newest version that differs from now (before the fix only versions below the newest had the button)
+  for (const v of ['1', '2']) await expect(list.locator(`[data-version="${v}"]`).getByRole('button', { name: '되돌리기' })).toBeVisible()
+  await list.locator('[data-version="2"]').getByRole('button', { name: '되돌리기' }).click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByText('v2으로 되돌렸어요.')).toBeVisible()
+
+  // finance is read-only for this person: the history shows, versions download, nothing restores
+  await page.goto('/files?path=finance/2026')
+  await rowMenu(page, 'q3.csv', '버전 기록')
+  const ro = page.getByTestId('history-list')
+  await expect(ro.locator('[data-version="1"]')).toBeVisible()
+  await expect(ro.locator('[data-version="1"]').getByRole('button', { name: '내려받기' })).toBeVisible()
+  await expect(ro.getByRole('button', { name: '되돌리기' })).toHaveCount(0)
 })
 
 test('files.changed from an answer refreshes the folder on screen', async ({ page, browser }) => {
