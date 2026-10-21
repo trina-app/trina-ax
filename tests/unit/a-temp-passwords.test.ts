@@ -219,7 +219,7 @@ describe('temporary passwords end to end', () => {
     await owner.call('POST', `/api/admin/users/${row.id}/reset-password`, { temporaryPassword: 'walnut5678' })
     expect((await owner.call('GET', '/api/admin/users')).items.find((u: { username: string }) => u.username === 'yuri').tempPassword.voided).toBe(false)
     expect((await h.client().login('yuri', 'walnut5678')).me.session.tempLogin).toBe(true)
-  })
+  }, 30_000) // 50+ password hashes: about 3 s alone, over bun's default 5 s on a busy Mac
 
   test(`fewer than ${TEMP_PASSWORD_MAX_FAILURES} wrong tries (a stranger trying a desk username for a while) leave the temporary password working`, async () => {
     expect(TEMP_PASSWORD_MAX_FAILURES).toBeGreaterThanOrEqual(50)

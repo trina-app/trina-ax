@@ -32,6 +32,8 @@ describe.skipIf(!bin || !fs.existsSync('/usr/sbin/cupsfilter'))('mycel-ocr (Appl
   const bytes = (f: string) => new Uint8Array(fs.readFileSync(path.join(W, f)))
   const tools = { pandoc: null, pdftotext, ocr: bin }
   const squash = (s: string) => s.replace(/\s+/g, '')
+  // real Apple Vision runs (each may take up to extract.ts's 20 s); bun's default 5 s timed out on a busy Mac
+  const OCR_MS = 30_000
 
   test('a scanned PDF (no text layer) is recognized, with or without pdftotext', async () => {
     for (const t of [tools, { ...tools, pdftotext: null }]) {
@@ -39,10 +41,10 @@ describe.skipIf(!bin || !fs.existsSync('/usr/sbin/cupsfilter'))('mycel-ocr (Appl
       expect(squash(text)).toContain('오전9시부터오후6시까지')
       expect(text).toContain('Invoice 2026-10-21')
     }
-  })
+  }, OCR_MS)
   test('an image with a transparent background', async () => {
     expect(squash(await extractText('사진.PNG', bytes('page.png'), tools))).toContain('진료예약안내')
-  })
+  }, OCR_MS)
   test('a PDF with a text layer keeps pdftotext (no OCR)', async () => {
     if (!pdftotext) return
     expect(await extractText('text.pdf', bytes('text.pdf'), tools)).toBe((await extractText('text.pdf', bytes('text.pdf'), { ...tools, ocr: null })))
