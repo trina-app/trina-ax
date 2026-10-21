@@ -507,7 +507,7 @@ export const id: Record<MessageKey, string> = {
   'connected.partial': 'sisanya nanti',
   'connected.empty': 'Belum ada folder tersambung',
   'engines.api.title': 'Mesin API',
-  'engines.api.desc': 'Mesin untuk API yang kompatibel dengan OpenAI (OpenAI, Gemini, OpenRouter, Ollama di Mac ini …). Berjalan di dalam server dan hanya bisa memakai alat tim. Biaya API ditagihkan ke akun kunci ini.',
+  'engines.api.desc': 'Mesin untuk API yang kompatibel dengan OpenAI (Claude API, OpenAI, Gemini, OpenRouter, Ollama di Mac ini …). Berjalan di dalam server dan hanya bisa memakai alat tim. Biaya API ditagihkan ke akun kunci ini.',
   'engines.api.preset': 'Penyedia',
   'engines.api.custom': 'Kustom',
   'engines.api.baseUrl': 'Alamat API',

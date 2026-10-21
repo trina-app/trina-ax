@@ -507,7 +507,7 @@ export const en: Record<MessageKey, string> = {
   'connected.partial': 'more next time',
   'connected.empty': 'No connected folders',
   'engines.api.title': 'API engine',
-  'engines.api.desc': 'An engine for any OpenAI-compatible API (OpenAI, Gemini, OpenRouter, Ollama on this Mac …). It runs inside the server and can only use the team tools. API costs go to this key\'s account.',
+  'engines.api.desc': 'An engine for any OpenAI-compatible API (Claude API, OpenAI, Gemini, OpenRouter, Ollama on this Mac …). It runs inside the server and can only use the team tools. API costs go to this key\'s account.',
   'engines.api.preset': 'Provider',
   'engines.api.custom': 'Custom',
   'engines.api.baseUrl': 'API address',
