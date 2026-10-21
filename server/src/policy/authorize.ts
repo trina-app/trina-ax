@@ -42,6 +42,11 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
 
   const exists = w.missing.length === 0
   if (!exists) {
+    // A path that is not there answers a read or a listing exactly like one the caller may not see. "not found: 'x'"
+    // (a ToolError) for a missing name next to "Access denied: not found or no access: 'x'" for a 'none' rule folder
+    // told the AI tools (read, list, glob, grep, make_file sources, share_file) which hidden folders exist under a
+    // folder the caller can read (security r3). The HTTP routes already answered both with the same 404.
+    if (mustExist && op !== 'write') throw new Denied(hidden(input))
     if (mustExist) throw new ToolError(`not found: '${full.join('/')}'`, 'not_found')
     if (w.missing.length > 1 && !opts.createDirs) throw new ToolError(`folder does not exist: '${full.slice(0, -1).join('/')}'`, 'not_found')
     if (!w.st.isDirectory()) throw new Denied(`not a folder: '${w.actual.join('/')}'`)
