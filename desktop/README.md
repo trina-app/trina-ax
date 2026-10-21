@@ -21,7 +21,7 @@ desktop/
     app-window.ts          window layout, teams, team page view, direct-connection switching
     security.ts            webPreferences, navigation / frame guards, permissions, WebRTC, RTCPeerConnection removal
     direct.ts              /api/connect-info, pinned LAN probe, certificate pinning, session cookie mirroring
-    pane/pane.ts           BrowserPane: tabs (WebContentsView), CDP tools, prompts, password refusal, cancel
+    pane/pane.ts           BrowserPane: tabs (WebContentsView), CDP tools, prompts, password and card-field refusal, cancel
     pane/net-guard.ts      office-network guard on the pane session (prompts, blocks, DNS rebinding stop)
     pane/classify.ts       host classification with DNS (cached)
     pane/page-script.js    refs / read_page / find / form helpers injected into pages
@@ -45,7 +45,7 @@ desktop/
 The permission prompts (one at a time), the "AI is using the browser" bar (with a stop button, the AI's latest
 action and an accent frame around the page), the activity log (☰ in the toolbar: script runs, network bodies,
 requests held back or refused) with at most one dismissible line over the page for what needs the person now (a
-page load stopped at an office or this-computer address, a refused password field), and the settings panel (⚙:
+page load stopped at an office or this-computer address, a refused password or card field), and the settings panel (⚙:
 site access "ask for each new site" / "allow all websites", the sites allowed always) live in the desktop's own UI,
 not in the team page: a page served through the relay can send browser commands but cannot answer the person's
 prompts or change the setting.

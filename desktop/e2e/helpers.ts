@@ -34,8 +34,10 @@ export async function launch(userData: string, env: Record<string, string> = {})
     env: {
       ...(process.env as Record<string, string>),
       MYCEL_DESKTOP_USER_DATA: userData,
-      MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test,attacker.test',
+      MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test,cdn.shop.test,attacker.test',
       MYCEL_DESKTOP_TEST_PRIVATE_HOSTS: 'nas.lan',
+      // resolved by the pane session's own resolver to 127.0.0.1, with no test exemption (quiet.spec.ts)
+      MYCEL_DESKTOP_TEST_DNS_HOSTS: 'rebind.test',
       // a Korean system: the app's own language must not follow it (docs/DECISIONS.md "언어")
       LANG: 'ko_KR.UTF-8',
       ...env,

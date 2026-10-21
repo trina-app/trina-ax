@@ -21,6 +21,8 @@ export type ActivityKind =
   | 'forbidden'
   /** the AI tried to type or click into a password field */
   | 'password'
+  /** the AI tried to type or click into a payment-card field (card number, expiry, security code) */
+  | 'payment'
 
 export interface PaneActivity {
   id: number
@@ -29,11 +31,18 @@ export interface PaneActivity {
   at: number
   /** shown as the one line over the page (else only in the log) */
   notice: boolean
+  /** the same event repeated right after itself this many times in all (log rows are grouped: "×7") */
+  count?: number
+}
+
+/** The AI's own routine actions: logged, but they do not raise the unseen count. */
+export function isRoutine(kind: ActivityKind): boolean {
+  return kind === 'script' || kind === 'network'
 }
 
 /** Is this event worth interrupting the person? `topLevel`: it stopped a whole page load (main frame / the tab). */
 export function isNotice(kind: ActivityKind, topLevel: boolean): boolean {
-  if (kind === 'password') return true
+  if (kind === 'password' || kind === 'payment') return true
   if (kind === 'blocked' || kind === 'forbidden') return topLevel
   return false
 }
@@ -52,13 +61,30 @@ export interface ActivityView {
 
 export const emptyActivity = (): ActivityView => ({ log: [], notice: null, unseen: 0 })
 
-/** Add an event: into the log; a notice replaces the current one (one at most). */
+/**
+ * Add an event: into the log (the same event right after itself becomes "×N" on that row); a notice replaces the
+ * current one (one at most). Only events the person may want to look at raise the unseen count (not the AI's own
+ * routine script runs and network reads, which the "AI is using the browser" bar shows while it happens).
+ */
 export function addActivity(v: ActivityView, a: PaneActivity, logOpen: boolean): ActivityView {
+  const top = v.log[0]
+  const repeat = top && !a.notice && !top.notice && top.kind === a.kind && top.host === a.host
+  const log = repeat ? [{ ...a, count: (top.count ?? 1) + 1 }, ...v.log.slice(1)] : [a, ...v.log].slice(0, MAX_ACTIVITY_LOG)
   return {
-    log: [a, ...v.log].slice(0, MAX_ACTIVITY_LOG),
+    log,
     notice: a.notice ? a : v.notice,
-    unseen: logOpen ? 0 : Math.min(v.unseen + 1, 999),
+    unseen: logOpen || isRoutine(a.kind) ? (logOpen ? 0 : v.unseen) : Math.min(v.unseen + 1, 999),
   }
+}
+
+/**
+ * What the "AI is using the browser" bar shows: the AI's own latest action (a script run, a network read) since this
+ * AI call started, never a refusal or an entry from another site or an earlier call (UX review: a stale "held back a
+ * request … static.licdn.com" line showed on naver.com).
+ */
+export function drivingLine(v: ActivityView, since: number): PaneActivity | null {
+  const a = v.log.find((e) => isRoutine(e.kind))
+  return a && a.at >= since ? a : null
 }
 
 /** The person closed the notice, or it timed out (only that notice: a newer one stays). */

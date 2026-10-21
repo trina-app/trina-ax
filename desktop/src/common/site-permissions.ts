@@ -35,6 +35,57 @@ export function siteKey(url: string): string {
   }
 }
 
+/**
+ * Second-level labels under a two-letter country code that are registries, not sites (example.co.kr, shop.com.au,
+ * x.ac.id). Also any second-level label of 2 letters or fewer under a country code (conservative: a wrong guess only
+ * makes a site narrower).
+ */
+const CC_SLD = new Set(['co', 'com', 'net', 'org', 'ac', 'go', 'or', 'ne', 're', 'pe', 'gov', 'edu', 'mil', 'sch', 'web', 'biz', 'ltd', 'plc', 'nhs', 'gob', 'gouv', 'nic', 'info', 'desa', 'ponpes', 'kep', 'busan', 'seoul', 'daegu', 'incheon', 'gwangju', 'daejeon', 'ulsan', 'gyeonggi', 'gangwon', 'chungbuk', 'chungnam', 'jeonbuk', 'jeonnam', 'gyeongbuk', 'gyeongnam', 'jeju', 'sejong'])
+/**
+ * Hosting suffixes where every subdomain belongs to someone else (Public Suffix List, private section; the ones a team
+ * is likely to meet). Under these, a site is one label plus the suffix: alice.github.io and bob.github.io are two sites.
+ */
+const SHARED_SUFFIXES = [
+  'github.io', 'gitlab.io', 'pages.dev', 'workers.dev', 'vercel.app', 'now.sh', 'netlify.app', 'netlify.com', 'herokuapp.com', 'herokussl.com',
+  'appspot.com', 'web.app', 'firebaseapp.com', 'blogspot.com', 'wordpress.com', 'tumblr.com', 'substack.com', 'notion.site', 'myshopify.com',
+  'cloudfront.net', 'azurewebsites.net', 'azurestaticapps.net', 'amazonaws.com', 'awsapps.com', 'onrender.com', 'fly.dev', 'glitch.me',
+  'repl.co', 'replit.app', 'replit.dev', 'ngrok.io', 'ngrok-free.app', 'ngrok.app', 'trycloudflare.com', 'deno.dev', 'surge.sh', 'translate.goog',
+  'googleusercontent.com', 'storage.googleapis.com', 'blob.core.windows.net', 'r2.dev', 'supabase.co', 'framer.website', 'webflow.io',
+  'wixsite.com', 'carrd.co', 'neocities.org', 'readthedocs.io', 'duckdns.org', 'ddns.net', 'no-ip.org', 'ts.net', 'github.dev', 'codesandbox.io',
+  'stackblitz.io', 'pythonanywhere.com', 'azureedge.net', 'akamaized.net', 'fastly.net', 'b-cdn.net', 'tistory.com', 'blog.me', 'modoo.at',
+]
+
+/**
+ * The registrable domain of a hostname ("site" as browsers mean it): news.naver.com and naver.com -> naver.com,
+ * media.cnn.com -> cnn.com, a.example.co.kr -> example.co.kr, alice.github.io -> alice.github.io. IP literals and
+ * single-label names are their own site. An approximation of the Public Suffix List that errs narrow.
+ */
+export function registrableDomain(hostname: string): string {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (!h.includes('.') || /^[\d.]+$/.test(h) || h.includes(':')) return h
+  const labels = h.split('.')
+  for (const suffix of SHARED_SUFFIXES) {
+    if (h === suffix) return h
+    if (h.endsWith(`.${suffix}`)) return labels.slice(-(suffix.split('.').length + 1)).join('.')
+  }
+  const tld = labels[labels.length - 1]
+  const sld = labels[labels.length - 2]
+  const n = tld.length === 2 && (sld.length <= 2 || CC_SLD.has(sld)) ? 3 : 2
+  return labels.slice(-n).join('.')
+}
+
+/** The site of a host[:port] key: its registrable domain, same port. */
+export function siteOf(key: string): string {
+  const m = /^(\[[^\]]+\]|[^:]+)(:\d+)?$/.exec(key)
+  if (!m) return key
+  return `${registrableDomain(m[1])}${m[2] ?? ''}`
+}
+
+/** Two host[:port] keys belong to the same site (registrable domain and port). */
+export function sameSite(a: string, b: string): boolean {
+  return a === b || (Boolean(a) && Boolean(b) && siteOf(a) === siteOf(b))
+}
+
 export class SitePermissions {
   private always: Record<SiteScope, Set<string>>
   /** turnId -> scope -> hosts allowed for that turn */
@@ -59,11 +110,16 @@ export class SitePermissions {
     return true
   }
 
+  /**
+   * Allowed: the host itself, or (public sites only) its whole site when the person allowed the site's own domain:
+   * naver.com covers news.naver.com, news.naver.com covers only itself. Office-network grants are exact.
+   */
   isAllowed(scope: SiteScope, host: string, turnId?: string): boolean {
     if (!host) return false
     if (scope === 'site' && this.access === 'all') return true
-    if (this.always[scope].has(host)) return true
-    return Boolean(turnId && this.once.get(turnId)?.[scope].has(host))
+    const keys = scope === 'site' && siteOf(host) !== host ? [host, siteOf(host)] : [host]
+    const once = turnId ? this.once.get(turnId)?.[scope] : undefined
+    return keys.some((k) => this.always[scope].has(k) || Boolean(once?.has(k)))
   }
 
   /** Record the person's answer. Returns true when the decision changed what is saved (caller persists). */

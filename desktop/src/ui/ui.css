@@ -278,6 +278,10 @@ body.pane.driving {
 }
 .icon:hover,
 .tab .x:hover {
+  color: var(--text);
+}
+.tab .x:hover,
+.icon[aria-expanded='true'] {
   background: var(--line);
   color: var(--text);
 }
@@ -399,19 +403,29 @@ body.driving .driving-bar {
 }
 .log-button {
   position: relative;
+  padding-right: 12px;
 }
+/* beside the glyph, not over it */
 .badge {
   position: absolute;
-  top: -2px;
-  right: -4px;
-  min-width: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--muted);
-  color: var(--panel);
-  font-size: 10px;
-  line-height: 16px;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
   text-align: center;
+  pointer-events: none;
+}
+.log .count {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .pill {
   padding: 1px 8px;
@@ -508,4 +522,9 @@ body.driving .driving-bar {
   padding: 24px 16px;
   color: var(--muted);
   text-align: center;
+}
+/* the accent frame fills the empty pane while the AI drives: keep the text readable on it */
+body.pane.driving .empty {
+  color: var(--accent-text);
+  font-weight: 600;
 }

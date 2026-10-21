@@ -7,16 +7,19 @@
 //    already allowed, the person typed it, or the tab is already on an allowed office page (intranet browsing)
 //  - sub-requests (images, fetch, WebSocket, iframes) to private addresses are blocked unless the page itself is
 //    an allowed office page
-//  - a document or script-readable response that came from a private IP although its name looked public (DNS
-//    rebinding, or DNS gave no answer before the request) stops the tab (stopIfRebound, fed from the tab's CDP
-//    network events)
+//  - a name the pane's resolver gave no answer for (failed, timed out): a page load goes on (Chromium resolves with
+//    the same resolver and fails the same way), every other request is cancelled (common/net-policy.ts
+//    unresolvedVerdict); never "office network" (owner's LinkedIn test, split DNS such as Tailscale)
+//  - any response from an office or this-computer address for a DNS name that was not allowed as an office address
+//    (DNS rebinding) stops the tab (stopIfRebound, fed from the tab's CDP network events)
 // What it refused goes to the pane's activity log; only a stopped page load (main frame) to the office network or
 // this computer is shown over the page (common/pane-activity.ts).
 import type { OnBeforeRequestListenerDetails, WebContents } from 'electron'
 import { redactUrl } from '../../common/input'
-import { isLoopbackIp } from '../../common/netaddr'
-import { publicRequestVerdict, REBIND_CHECKED_TYPES, responseSourceVerdict } from '../../common/net-policy'
+import { isIpLiteral, isLoopbackIp } from '../../common/netaddr'
+import { connectedThroughProxy, proxiesIn, publicRequestVerdict, responseSourceVerdict, unresolvedVerdict } from '../../common/net-policy'
 import type { ActivityKind } from '../../common/pane-activity'
+import { sameSite } from '../../common/site-permissions'
 import type { BrowserPane } from './pane'
 
 const FILTER = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }
@@ -45,13 +48,7 @@ export function installNetGuard(pane: BrowserPane) {
     pane.activity(kind, host, topLevel)
   }
 
-  const approved = (key: string, turnId?: string) => pane.perms.isAllowed('private', key, turnId) || pane.userHosts.has(key)
-
-  async function topIsApprovedOffice(topUrl: string, turnId?: string): Promise<boolean> {
-    const top = keyOf(topUrl)
-    if (!top || !/^https?:/.test(topUrl)) return false
-    return approved(top.key, turnId) && (await pane.classifier.classify(top.hostname)) === 'private'
-  }
+  const approved = (key: string, turnId?: string) => officeApproved(pane, key, turnId)
 
   async function decide(d: OnBeforeRequestListenerDetails): Promise<{ cancel?: boolean }> {
     const k = keyOf(d.url)
@@ -62,12 +59,17 @@ export function installNetGuard(pane: BrowserPane) {
     }
     const ctx = pane.currentCall()
     const owner = d.webContentsId !== undefined ? pane.tabForWebContents(d.webContentsId) : undefined
-    if ((await pane.classifier.classify(k.hostname)) === 'public') return decidePublic(d, k.key, owner, ctx)
+    const look = await pane.classifier.lookup(k.hostname)
+    // no DNS answer: not "office network" (that blocked LinkedIn's CDN), but nothing unchecked gets through either
+    if (unresolvedVerdict({ dns: look.dns, mainFrame: d.resourceType === 'mainFrame', hasOwner: Boolean(owner) }) === 'cancel') return { cancel: true }
+    // the proxy the response will come through is known before it arrives (stopIfRebound reads it synchronously)
+    warmProxy(pane, d.url)
+    if (look.cls === 'public') return decidePublic(d, k.key, owner, ctx)
     if (approved(k.key, ctx?.turnId)) return {}
     if (!owner) return { cancel: true } // service workers and unknown requesters get no office access
-    const topOk = await topIsApprovedOffice(owner.topUrl, ctx?.turnId)
+    const topOk = await topIsApprovedOffice(pane, owner.topUrl, ctx?.turnId)
     if (d.resourceType === 'mainFrame') {
-      if (topOk && !pane.isDriving && !pane.anyScripted) return {}
+      if (topOk && !pane.isDriving && !pane.anyScripted) return letThroughOffice(pane, k.key)
       const decision = await pane.ask({ scope: 'private', host: k.key, url: redactUrl(d.url), tool: ctx?.tool ?? 'navigate' }, ctx)
       if (decision === 'deny') {
         noteBlocked(k.key, 'denied', d)
@@ -76,7 +78,7 @@ export function installNetGuard(pane: BrowserPane) {
       pane.grant(['site', 'private'], k.key, decision, ctx?.turnId)
       return {}
     }
-    if (topOk) return {}
+    if (topOk) return letThroughOffice(pane, k.key)
     noteBlocked(k.key, 'blocked', d)
     return { cancel: true }
   }
@@ -97,7 +99,7 @@ export function installNetGuard(pane: BrowserPane) {
       driving: pane.isDriving,
       anyScripted: pane.anyScripted,
       scripted: owner ? pane.scriptedFor(owner.tab, owner.topUrl) : false,
-      sameSiteAsTop: owner ? keyOf(owner.topUrl)?.key === key : false,
+      sameSiteAsTop: owner ? sameSite(keyOf(owner.topUrl)?.key ?? '', key) : false,
       siteAllowed: pane.perms.isAllowed('site', key, ctx?.turnId) || pane.userHosts.has(key),
     })
     if (verdict === 'allow') return {}
@@ -121,28 +123,97 @@ export function installNetGuard(pane: BrowserPane) {
   })
 }
 
+/** The person allowed `key` as an office-network address (this turn or always), or typed it themselves. */
+function officeApproved(pane: BrowserPane, key: string, turnId?: string): boolean {
+  return pane.perms.isAllowed('private', key, turnId) || pane.userHosts.has(key)
+}
+
 /**
- * A response that came from an office address although its name was let through as public (DNS answered differently
- * when Chromium connected: rebinding; or gave no answer before the request), or from this computer. Called from the
- * tab's CDP Network.responseReceived with the address Chromium connected to. Resolves true when the tab was stopped.
+ * An office address let through because the page asking is an allowed office page (intranet browsing): its responses
+ * come from the office on purpose. Bounded; a host that falls out is only checked more strictly (its next office
+ * response stops the tab until it is let through again).
  */
-export async function stopIfRebound(pane: BrowserPane, wc: WebContents, url: string, ip: string | undefined, type: string): Promise<boolean> {
-  if (!ip || !REBIND_CHECKED_TYPES.has(type)) return false
+function letThroughOffice(pane: BrowserPane, key: string): Record<string, never> {
+  const set = pane.officeLetThrough
+  set.delete(key)
+  set.add(key)
+  if (set.size > 2000) set.delete(set.values().next().value as string)
+  return {}
+}
+
+/** The tab's page is an office page the person allowed (intranet browsing: its own office resources load). */
+async function topIsApprovedOffice(pane: BrowserPane, topUrl: string, turnId?: string): Promise<boolean> {
+  const top = keyOf(topUrl)
+  if (!top || !/^https?:/.test(topUrl)) return false
+  return officeApproved(pane, top.key, turnId) && (await pane.classifier.classify(top.hostname)) === 'private'
+}
+
+/** session.resolveProxy answers per origin, and the addresses of the proxies it names (kept 30 s). */
+const PROXY_TTL_MS = 30_000
+interface ProxyInfo {
+  list: string
+  addrs: string[]
+  at: number
+}
+const proxyCache = new WeakMap<BrowserPane, Map<string, ProxyInfo | Promise<ProxyInfo>>>()
+
+function proxyInfo(pane: BrowserPane, url: string): ProxyInfo | Promise<ProxyInfo> {
+  let origin: string
+  try {
+    origin = new URL(url).origin
+  } catch {
+    return { list: 'DIRECT', addrs: [], at: Date.now() }
+  }
+  let m = proxyCache.get(pane)
+  if (!m) proxyCache.set(pane, (m = new Map()))
+  const hit = m.get(origin)
+  if (hit && (hit instanceof Promise || Date.now() - hit.at < PROXY_TTL_MS)) return hit
+  const p = (async (): Promise<ProxyInfo> => {
+    const list = (await pane.session.resolveProxy(url).catch(() => 'DIRECT')).trim() || 'DIRECT'
+    const addrs: string[] = []
+    for (const host of proxiesIn(list)) {
+      addrs.push(host)
+      if (!isIpLiteral(host)) addrs.push(...(await pane.session.resolveHost(host).then((r) => r.endpoints.map((e) => e.address), () => [])))
+    }
+    const info = { list, addrs, at: Date.now() }
+    m!.set(origin, info)
+    if (m!.size > 500) m!.delete(m!.keys().next().value as string)
+    return info
+  })()
+  m.set(origin, p)
+  return p
+}
+
+function warmProxy(pane: BrowserPane, url: string) {
+  const r = proxyInfo(pane, url)
+  if (r instanceof Promise) r.catch(() => {})
+}
+
+/**
+ * A response that came from an office address for a DNS name the person did not allow as one (DNS answered
+ * differently when Chromium connected: rebinding), or from this computer. Called from the tab's CDP
+ * Network.responseReceived (every resource type) with the address Chromium connected to. Resolves true when the tab
+ * was stopped.
+ */
+export async function stopIfRebound(pane: BrowserPane, wc: WebContents, url: string, ip: string | undefined): Promise<boolean> {
+  if (!ip) return false
   const k = keyOf(url)
   if (!k) return false
   const loopback = isLoopbackIp(ip)
   const privateIp = pane.classifier.classifyIpNow(ip) === 'private'
   if (!loopback && !privateIp) return false
-  // through a proxy the address is the proxy's (often 127.0.0.1 or an office address): nothing to learn from it
-  const proxied = !/^DIRECT\b/.test((await pane.session.resolveProxy(url).catch(() => 'DIRECT')).trim() || 'DIRECT')
+  const turnId = pane.currentCall()?.turnId
+  const p = proxyInfo(pane, url)
+  const proxy = p instanceof Promise ? await p : p
   const verdict = responseSourceVerdict({
     ip,
-    proxied,
+    // through a proxy the address is the proxy's (often 127.0.0.1 or an office address): nothing to learn from it
+    proxied: connectedThroughProxy(proxy.list, ip, proxy.addrs),
     loopback,
     privateIp,
     testMapped: pane.classifier.isTestMapped(k.hostname),
-    resolvedPublic: pane.classifier.wasResolvedPublic(k.hostname),
-    privateAllowed: pane.perms.isAllowed('private', k.key, pane.currentCall()?.turnId) || pane.userHosts.has(k.key),
+    dnsName: pane.classifier.isDnsName(k.hostname),
+    privateAllowed: officeApproved(pane, k.key, turnId) || pane.officeLetThrough.has(k.key),
   })
   return verdict === 'ok' ? false : stopTab(pane, wc, k.key, verdict)
 }

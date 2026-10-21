@@ -4,7 +4,7 @@
 // now (common/pane-activity.ts), and the settings panel (site access: ask / allow all websites, and the sites
 // allowed always). The page itself is a separate view placed under this toolbar by the main process.
 import type { DesktopPaneState } from '@mycel/shared'
-import { addActivity, dismissNotice, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
+import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
 import { h, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type SiteSettings } from './dom'
 
 /** the line over the page goes away by itself after this long */
@@ -17,6 +17,8 @@ let activity: ActivityView = emptyActivity()
 let showLog = false
 let showSites = false
 let sites: SiteSettings = { always: [], privateAlways: [], siteAccess: 'ask' }
+/** when the current AI call started (the bar shows only what the AI did since) */
+let drivingSince = 0
 let editingAddress = false
 let addressDraft = ''
 
@@ -29,6 +31,7 @@ function render() {
   const hadFocus = document.activeElement?.id
   const tab = activeTab()
   if (!editingAddress) addressDraft = tab?.url && tab.url !== 'about:blank' ? tab.url : ''
+  const lastAction = state.driving ? drivingLine(activity, drivingSince) : null
   const toolbar = h(
     'div',
     { id: 'toolbar' },
@@ -125,8 +128,8 @@ function render() {
       { class: 'driving-bar', role: 'status', 'data-testid': 'driving' },
       h('span', { class: 'dot', 'aria-hidden': 'true' }),
       h('span', {}, tr('pane.driving')),
-      // the AI's latest action, in place of a banner per action
-      activity.log[0] ? h('span', { class: 'last', 'data-testid': 'driving-last', title: activityText(activity.log[0]) }, activityText(activity.log[0])) : null,
+      // the AI's own latest action in this call, in place of a banner per action (never a refusal or an old entry)
+      lastAction ? h('span', { class: 'last', 'data-testid': 'driving-last', title: activityText(lastAction) }, activityText(lastAction)) : null,
       h('button', { type: 'button', 'data-testid': 'stop', onclick: () => ui.pane.stop() }, tr('pane.stop')),
     ),
     prompts[0] ? promptCard(prompts[0], prompts.length - 1) : null,
@@ -192,7 +195,13 @@ function logBox() {
     { class: 'log', 'data-testid': 'activity', 'aria-label': tr('pane.activity') },
     h('strong', {}, tr('pane.activity')),
     activity.log.length
-      ? h('ol', {}, ...activity.log.map((a) => h('li', { 'data-kind': a.kind }, h('time', {}, time(a.at)), h('span', {}, activityText(a)))))
+      ? h(
+          'ol',
+          {},
+          ...activity.log.map((a) =>
+            h('li', { 'data-kind': a.kind }, h('time', {}, time(a.at)), h('span', {}, activityText(a)), a.count && a.count > 1 ? h('span', { class: 'count', 'data-testid': 'activity-repeat' }, `×${a.count}`) : null),
+          ),
+        )
       : h('p', {}, tr('pane.activityNone')),
   )
 }
@@ -223,6 +232,7 @@ function activityText(a: PaneActivity) {
   if (a.kind === 'offsite') return tr('activity.offsite', { host: a.host })
   if (a.kind === 'denied') return tr('activity.denied', { host: a.host })
   if (a.kind === 'forbidden') return tr('activity.forbidden', { host: a.host })
+  if (a.kind === 'payment') return tr('activity.payment')
   return tr('activity.password')
 }
 
@@ -308,6 +318,7 @@ const observer = new ResizeObserver((entries) => {
 })
 
 ui.pane.onState((s) => {
+  if (s.driving && !state.driving) drivingSince = Date.now()
   state = s
   render()
 })

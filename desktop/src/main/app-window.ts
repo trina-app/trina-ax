@@ -17,7 +17,7 @@ import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, up
 import { UI_ORIGIN } from '../common/trust'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
-import { HostClassifier } from './pane/classify'
+import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -261,7 +261,8 @@ export class AppWindow {
       browserSes,
       this.o.pageScript,
       this.o.store.loadPermissions(id),
-      this.o.classifier,
+      // the pane resolves names through its own session: the same resolver and cache Chromium connects with
+      this.o.classifier.withResolver(sessionResolver(browserSes)),
     )
     this.send(this.chrome, 'ui:pane-prompts', [])
     // this team's settings and a fresh activity log in the toolbar

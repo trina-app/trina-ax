@@ -7,6 +7,8 @@
  *   MYCEL_DESKTOP_TEAM         team address to add and open at start (dev convenience)
  *   MYCEL_DESKTOP_TEST_PUBLIC_HOSTS  comma-separated names the browser maps to 127.0.0.1 and treats as public sites
  *   MYCEL_DESKTOP_TEST_PRIVATE_HOSTS comma-separated office-style names (nas.lan) the browser maps to 127.0.0.1
+ *   MYCEL_DESKTOP_TEST_DNS_HOSTS     comma-separated names the browser's resolver maps to 127.0.0.1 with no exemption:
+ *                                    the checks see them as DNS names answering with this computer's address
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, sep } from 'node:path'
@@ -57,8 +59,17 @@ const testPrivate = new Set(
         .filter(Boolean)
     : [],
 )
+const testDns = new Set(
+  dev
+    ? (process.env.MYCEL_DESKTOP_TEST_DNS_HOSTS ?? '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    : [],
+)
 const testMapped = new Set([...testPublic, ...testPrivate])
-if (testMapped.size) app.commandLine.appendSwitch('host-resolver-rules', [...testMapped].map((h) => `MAP ${h} 127.0.0.1`).join(', '))
+const resolverRules = [...testMapped, ...testDns].map((h) => `MAP ${h} 127.0.0.1`)
+if (resolverRules.length) app.commandLine.appendSwitch('host-resolver-rules', resolverRules.join(', '))
 
 protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false } }])
 
