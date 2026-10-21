@@ -143,6 +143,12 @@ export async function startModelProxy(o: ProxyOpts): Promise<{ port: number; url
       if (!tok) return apiError(401, 'authentication_error', 'missing proxy token')
       const row = db.query('SELECT * FROM proxy_tokens WHERE token_hash = ?').get(h(tok)) as any
       if (!row || row.revoked_at || row.expires_at < new Date().toISOString()) return apiError(401, 'authentication_error', 'invalid proxy token')
+      // the Claude path is for Claude turns only: a Codex turn's token (its HTTPS_PROXY) or the codex-login token must
+      // not reach the Anthropic API with the owner's Claude credential (the Codex turn's process passes the peer check)
+      if (String(row.turn_id).startsWith('codex-login:') || (db.query('SELECT engine FROM turns WHERE id = ?').get(row.turn_id) as { engine: string } | null)?.engine === 'codex') {
+        audit(db, { actor: row.user_id ?? null, action: 'proxy.refused', target: row.turn_id, detail: { reason: 'not a Claude turn', path: url.pathname.slice(0, 120) } })
+        return apiError(403, 'permission_error', 'this token is not for the Claude API')
+      }
       if (o.peerCheck) {
         if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
       }
@@ -232,7 +238,9 @@ export async function startModelProxy(o: ProxyOpts): Promise<{ port: number; url
     res.end()
   })
   const onConnect = o.connect ? codexConnectHandler({ db, ...o.connect }) : null
+  let closing = false
   server.on('connect', (req, sock, head) => {
+    if (closing) { sock.destroy(); return }
     if (onConnect) { void onConnect(req, sock, head); return }
     audit(db, { actor: null, action: 'proxy.connect_refused', target: null, detail: { reason: 'no tunnels on this proxy', host: String(req.url ?? '').slice(0, 120) } })
     sock.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
@@ -245,6 +253,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<{ port: number; url
   return {
     port: serverPort,
     url: `http://127.0.0.1:${serverPort}`,
-    stop: () => new Promise<void>((ok) => { server.closeAllConnections?.(); server.close(() => ok()) }),
+    // CONNECT sockets are detached from the http server: closeAllConnections does not reach the open tunnels
+    stop: () => new Promise<void>((ok) => { closing = true; onConnect?.closeAll(); server.closeAllConnections?.(); server.close(() => ok()) }),
   }
 }

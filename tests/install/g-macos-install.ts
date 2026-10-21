@@ -185,6 +185,9 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   check('launcher+sandbox+pf: no other localhost port', turn('c1', 'talk', '127.0.0.1', String(DECOY)).code !== 0 && turn('c1', 'talk', '::1', String(DECOY)).code !== 0)
   check('launcher+sandbox+pf: model proxy port reachable', turn('c1', 'talk', '127.0.0.1', String(PROXY)).code === 0)
   check('launcher+sandbox: no shell', turn('c1', 'exec', '/bin/sh').code !== 0)
+  // a Codex login copy left in a chat folder (launcher crashed mid Codex turn) is removed before another engine's turn
+  sh(['/bin/sh', '-c', `mkdir -p '${BASE}/agent/c3/.codex' && echo '{"tokens":{"account_id":"a","refresh_token":"left-over"}}' > '${BASE}/agent/c3/.codex/auth.json'`], { user: AGT })
+  check('launcher: a left-over Codex login copy is gone before a non-Codex turn in that chat', turn('c3', 'read', '{CHAT_DIR}/.codex/auth.json').code !== 0 && sh(['/bin/test', '-e', `${BASE}/agent/c3/.codex`], { user: AGT }).code !== 0)
   // nc, not the bun client: the launcher answers a refused peer and closes at once, which bun can report as
   // ECONNREFUSED before it reads the answer
   const ask = (user?: string) => sh(['/usr/bin/nc', '-U', `${BASE}/run-launcher/launcher.sock`], { input: '{"op":"run"}\n', user })

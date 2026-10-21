@@ -35,6 +35,16 @@ export interface ConnectOpts {
   dial?: (host: string, port: number) => net.Socket
   /** how long a CONNECT of a codex-login token waits for the CLI to bind it to the login process */
   loginBindWaitMs?: number
+  /** how often open tunnels are re-checked (token revoked or expired, turn no longer running -> closed); default 1000 */
+  sweepMs?: number
+}
+
+export interface ConnectHandler {
+  (req: IncomingMessage, sock: Duplex, head: Buffer): Promise<void>
+  /** open tunnels (tests / diagnostics) */
+  open(): number
+  /** close every tunnel (proxy stop) */
+  closeAll(): void
 }
 
 const sha = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
@@ -45,10 +55,38 @@ function refuse(sock: Duplex, status: 403 | 407 | 502, extra = '') {
 }
 
 /** The 'connect' listener of the model proxy's node:http server. */
-export function codexConnectHandler(o: ConnectOpts) {
+export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
   const hosts = new Set(o.hosts ?? CODEX_CONNECT_HOSTS)
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-  return async (req: IncomingMessage, sock: Duplex, head: Buffer) => {
+  // Open tunnels outlive the CONNECT check: a tunnel stays open after its token was revoked (turn over, login CLI
+  // done) unless something closes it. A process of the turn that survived the turn (or the login process after the
+  // CLI gave up) would keep a live pipe to chatgpt.com. The sweep closes every tunnel whose token is no longer valid
+  // or whose turn is no longer running.
+  const tunnels = new Map<Duplex, { tokenHash: string; turnId: string; up: net.Socket }>()
+  let timer: ReturnType<typeof setInterval> | null = null
+  const valid = (tokenHash: string, turnId: string) => {
+    const r = o.db.query('SELECT turn_id, expires_at, revoked_at FROM proxy_tokens WHERE token_hash = ?').get(tokenHash) as
+      { turn_id: string; expires_at: string; revoked_at: string | null } | null
+    if (!r || r.revoked_at || r.expires_at < new Date().toISOString() || r.turn_id !== turnId) return false
+    if (turnId.startsWith('codex-login:')) return true
+    const t = o.db.query('SELECT status FROM turns WHERE id = ?').get(turnId) as { status: string } | null
+    return t?.status === 'running'
+  }
+  const sweep = () => {
+    for (const [sock, t] of tunnels) {
+      let ok = false
+      try { ok = valid(t.tokenHash, t.turnId) } catch { ok = false }
+      if (!ok) { t.up.destroy(); sock.destroy(); tunnels.delete(sock) }
+    }
+    if (!tunnels.size && timer) { clearInterval(timer); timer = null }
+  }
+  const track = (sock: Duplex, tokenHash: string, turnId: string, up: net.Socket) => {
+    tunnels.set(sock, { tokenHash, turnId, up })
+    const drop = () => { tunnels.delete(sock) }
+    sock.once('close', drop); up.once('close', drop)
+    if (!timer) { timer = setInterval(sweep, o.sweepMs ?? 1000); (timer as { unref?(): void }).unref?.() }
+  }
+  const handler = async (req: IncomingMessage, sock: Duplex, head: Buffer) => {
     sock.on('error', () => {})
     const target = String(req.url ?? '')
     const clientPort = (sock as net.Socket).remotePort ?? 0
@@ -96,8 +134,11 @@ export function codexConnectHandler(o: ConnectOpts) {
     const host = target.slice(0, i), port = Number(target.slice(i + 1))
     const up = (o.dial ?? ((h, p) => net.connect(p, h)))(host, port)
     let open = false
+    const turnId = r.turn_id
     up.on('connect', () => {
       open = true
+      if (sock.destroyed) { up.destroy(); return }
+      track(sock, tokenHash, turnId, up)
       sock.write('HTTP/1.1 200 Connection Established\r\n\r\n')
       if (head?.length) up.write(head)
       up.pipe(sock)
@@ -107,4 +148,12 @@ export function codexConnectHandler(o: ConnectOpts) {
     sock.on('close', () => up.destroy())
     up.on('close', () => sock.destroy())
   }
+  return Object.assign(handler, {
+    open: () => tunnels.size,
+    closeAll: () => {
+      for (const [sock, t] of tunnels) { t.up.destroy(); sock.destroy() }
+      tunnels.clear()
+      if (timer) { clearInterval(timer); timer = null }
+    },
+  })
 }

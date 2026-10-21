@@ -153,6 +153,52 @@ describe('model proxy CONNECT (Codex tunnels)', () => {
     const r = await fetch(proxy.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': issueProxyToken(db, 'cl1', 'alice'), 'content-type': 'application/json' }, body: '{}' })
     expect(r.status).toBe(503)
   })
+  test('the Claude path refuses a Codex turn\'s token and the codex-login token (the owner\'s Claude credential is for Claude turns)', async () => {
+    const p = await startModelProxy({ db, upstream: { baseUrl: 'http://127.0.0.1:1', kind: 'oauth', secret: 'real-claude-token' } })
+    try {
+      for (const tok of [issueProxyToken(db, 'cx1', 'alice'), issueProxyToken(db, CODEX_LOGIN_BOUND + '4242', 'codex-login-cli')]) {
+        const r = await fetch(p.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': tok, 'content-type': 'application/json' }, body: '{}' })
+        expect(r.status).toBe(403)
+      }
+      const last = db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+      expect(JSON.parse(last.detail).reason).toBe('not a Claude turn')
+    } finally { await p.stop() }
+  })
+  test('open tunnels are closed once the token is revoked, the turn stops running, or the proxy stops', async () => {
+    db.query("INSERT OR REPLACE INTO turns (id, chat_id, user_id, engine, status) VALUES ('cx3', 'c', 'alice', 'codex', 'running')").run()
+    sessions.cx3 = 4242
+    const p = await startModelProxy({ db, upstream: null, connect: { dial, turnSession: (t) => sessions[t] ?? null, peerSession: async () => 4242, sweepMs: 50 } })
+    /** an open tunnel; resolves `closed` when the proxy closes it */
+    const tunnel = (tok: string) => new Promise<{ status: string; closed: Promise<void> }>((res) => {
+      const c = net.connect(p.port, '127.0.0.1')
+      let b = ''
+      const closed = new Promise<void>((ok) => c.on('close', () => ok()))
+      c.on('connect', () => c.write(`CONNECT chatgpt.com:443 HTTP/1.1\r\nHost: chatgpt.com:443\r\nProxy-Authorization: Basic ${Buffer.from(`turn:${tok}`).toString('base64')}\r\n\r\n`))
+      c.on('data', (x) => { b += x.toString(); if (b.includes('\r\n\r\n')) res({ status: b.split('\r\n')[0]!, closed }) })
+      c.on('error', () => {})
+    })
+    const within = (pr: Promise<void>, ms: number) => Promise.race([pr.then(() => true), Bun.sleep(ms).then(() => false)])
+    try {
+      // the turn's token is revoked (turn over): the tunnel goes
+      const t1 = issueProxyToken(db, 'cx3', 'alice')
+      const a = await tunnel(t1)
+      expect(a.status).toBe('HTTP/1.1 200 Connection Established')
+      expect(await within(a.closed, 300)).toBe(false) // stays open while the turn runs
+      db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ?').run(new Date().toISOString(), 'cx3')
+      expect(await within(a.closed, 2000)).toBe(true)
+      // the turn is no longer running (token still valid)
+      const b = await tunnel(issueProxyToken(db, 'cx3', 'alice'))
+      expect(b.status).toBe('HTTP/1.1 200 Connection Established')
+      db.query("UPDATE turns SET status = 'done' WHERE id = 'cx3'").run()
+      expect(await within(b.closed, 2000)).toBe(true)
+      // the proxy stops
+      db.query("UPDATE turns SET status = 'running' WHERE id = 'cx3'").run()
+      const c = await tunnel(issueProxyToken(db, 'cx3', 'alice'))
+      expect(c.status).toBe('HTTP/1.1 200 Connection Established')
+      await p.stop()
+      expect(await within(c.closed, 2000)).toBe(true)
+    } finally { await p.stop().catch(() => {}); db.query("UPDATE turns SET status = 'done' WHERE id = 'cx3'").run() }
+  })
   test('a proxy without tunnels refuses CONNECT', async () => {
     const p = await startModelProxy({ db, upstream: null })
     expect(await connect(p.port, 'chatgpt.com:443', `turn:${issueProxyToken(db, 'cx1', 'alice')}`)).toMatch(/^HTTP\/1\.1 403/)
@@ -302,6 +348,24 @@ describe('Codex turns of the engine account (fake Codex through the real launche
     const notes = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'engine.codex_auth'").all() as { detail: string }[]).map((r) => JSON.parse(r.detail).note)
     expect(notes.some((n) => /another ChatGPT account/.test(n))).toBe(true)
     expect(notes.some((n) => /not a plain file|symbolic|too many levels|loop/i.test(n))).toBe(true)
+  })
+  test('a Codex turn\'s proxy token does not open the Claude path (403), its tunnels still work', async () => {
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ claudeCall: true }))
+    expect(r.done.content).toBe('403')
+  })
+  test('a Codex login copy left in a chat folder (launcher crash) is gone before a turn of another engine starts there', async () => {
+    const chat = await newChat()
+    await ask(h, alice, 'alice', chat.id, fake({ say: 'codex first' }))
+    const chatDir = path.join(h.ctx.engineConfig.agentRoot, chat.id)
+    // what a crashed launcher leaves behind
+    fs.mkdirSync(path.join(chatDir, '.codex'), { recursive: true, mode: 0o700 })
+    fs.writeFileSync(path.join(chatDir, '.codex', 'auth.json'), JSON.stringify(FAKE_CODEX_AUTH), { mode: 0o600 })
+    // the chat switches to Claude: its next turn runs in the same folder
+    await h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { engine: 'claude-code' } })
+    const r = await ask(h, alice, 'alice', chat.id, fake({ exists: '.codex/auth.json' }))
+    expect(r.done.content).toBe('false')
+    expect(fs.existsSync(path.join(chatDir, '.codex'))).toBe(false)
   })
   test('without a login the answer says the AI connection needs the admin (no crash, no retry loop)', async () => {
     const saved = fs.readFileSync(authFile())

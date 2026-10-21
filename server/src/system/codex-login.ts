@@ -71,6 +71,14 @@ export async function codexCommand(cmd: 'codex-status' | 'codex-login' | 'codex-
   const pending = CODEX_LOGIN_PENDING + crypto.randomBytes(8).toString('hex')
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
   let bound: string | null = null
+  // Ctrl-C / kill: the process exits without running `finally`, which left the one-time proxy token valid for 20
+  // minutes (bound to the login pid). Revoke it first. (The launcher stops the login when this connection closes.)
+  const onSignal = (sig: NodeJS.Signals) => {
+    try { revokeProxyTokens(db, pending); if (bound) revokeProxyTokens(db, bound) } catch {}
+    process.exit(sig === 'SIGINT' ? 130 : 143)
+  }
+  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
+  for (const s of signals) process.once(s, onSignal)
   try {
     const token = issueProxyToken(db, pending, 'codex-login-cli', { ttlMs: 20 * 60_000 })
     let shown = false
@@ -103,6 +111,7 @@ export async function codexCommand(cmd: 'codex-status' | 'codex-login' | 'codex-
     io.err(`the Codex sign-in did not finish (${r.message ?? `exit ${r.code}`})${tail ? `: ${tail}` : ''}`)
     return 1
   } finally {
+    for (const s of signals) process.off(s, onSignal)
     revokeProxyTokens(db, pending)
     if (bound) revokeProxyTokens(db, bound)
     db.close()

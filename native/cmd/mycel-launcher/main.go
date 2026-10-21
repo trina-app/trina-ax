@@ -421,6 +421,14 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if st, err := os.Lstat(chat); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("bad chat folder")
 	}
+	if *codexAuthDir != "" && !req.CodexAuth {
+		// a Codex turn's copy of the engine account's login (<chat>/.codex/auth.json, the ChatGPT refresh token) is
+		// removed when that turn ends; after a launcher crash or kill it stays. A later turn of another engine in the
+		// same chat (Claude with its tools) must not find it: remove the folder before any other turn starts here.
+		if err := os.RemoveAll(filepath.Join(chat, ".codex")); err != nil {
+			return fmt.Errorf("could not clear a left-over Codex folder: %v", err)
+		}
+	}
 	_ = os.MkdirAll(filepath.Join(chat, ".tmp"), 0o700) // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
 	turn := filepath.Join(chat, ".turn")
 	_ = os.RemoveAll(turn)

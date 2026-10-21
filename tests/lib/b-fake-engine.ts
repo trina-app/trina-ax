@@ -17,6 +17,8 @@
 //   @fake {"refreshAuth": "acc-1"}           (Codex) rewrite CODEX_HOME/auth.json like a token refresh, for that account
 //   @fake {"linkAuth": "/path"}              (Codex) replace CODEX_HOME/auth.json by a symbolic link to the path
 //   @fake {"connect": "host:443"}            (Codex) CONNECT through HTTPS_PROXY, say the proxy's status line
+//   @fake {"claudeCall": true}               (Codex) call the proxy's Claude path with this turn's proxy token, say the status
+//   @fake {"exists": "rel/path"}             say whether the path exists in the chat folder (lstat)
 // Without directives it answers "echo: <first line of the message>".
 import fs from 'node:fs'
 import path from 'node:path'
@@ -204,6 +206,18 @@ for (const d of directives) {
     j.tokens.account_id = String(d.refreshAuth); j.tokens.refresh_token = 'rt-' + Date.now(); j.last_refresh = new Date().toISOString()
     fs.writeFileSync(f + '.new', JSON.stringify(j)); fs.renameSync(f + '.new', f)
     await say('refreshed')
+  } else if (d.claudeCall) {
+    const px = new URL(process.env.HTTPS_PROXY ?? 'http://none:0@127.0.0.1:1')
+    let status = 'error'
+    try {
+      const r = await fetch(`http://${px.hostname}:${px.port}/v1/messages`, { method: 'POST', headers: { 'x-api-key': decodeURIComponent(px.password), 'content-type': 'application/json' }, body: '{"model":"claude-x","max_tokens":1,"messages":[]}' })
+      status = String(r.status)
+    } catch (e) { status = 'error ' + (e as Error).message }
+    await say(status)
+  } else if (d.exists !== undefined) {
+    let there = true
+    try { fs.lstatSync(path.join(process.cwd(), String(d.exists))) } catch { there = false }
+    await say(String(there))
   } else if (d.linkAuth) {
     const f = path.join(process.env.CODEX_HOME!, 'auth.json')
     fs.rmSync(f); fs.symlinkSync(String(d.linkAuth), f)
