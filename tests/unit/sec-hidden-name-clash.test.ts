@@ -184,3 +184,22 @@ describe('legitimate near-duplicates still get the helpful answer', () => {
     expect(r.status).toBe(201)
   })
 })
+
+describe('reads never scan for look-alikes (security r2)', () => {
+  // the guard exists to stop *creating* a look-alike; a read of a missing path (GET /api/files/history asks with
+  // mustExist:false) that ran it answered "no access" for a hidden look-alike and "nothing here" for any other name
+  test('a read of a missing look-alike of the hidden folder is just a missing path', () => {
+    const alice = A.ctx.files.principal('alice')
+    for (const p of [`${DIR}/${PROBE}`, `${DIR}/ſalaries`]) {
+      const r = authorize(A.ctx.files.fx, A.ctx.files.rules(), alice, p, 'read', { mustExist: false })
+      expect(r.exists).toBe(false)
+      expect(r.rel).toBe(p)
+    }
+  })
+  test('the create guard is unchanged for writes', () => {
+    expect(() => authorize(A.ctx.files.fx, A.ctx.files.rules(), A.ctx.files.principal('alice'), `${DIR}/ſalaries`, 'write', { mustExist: false }))
+      .toThrow(/^not found or no access/)
+    expect(() => authorize(A.ctx.files.fx, A.ctx.files.rules(), A.ctx.files.principal('carol'), `${DIR}/ſalaries`, 'write', { mustExist: false }))
+      .toThrow(/almost the same name/)
+  })
+})

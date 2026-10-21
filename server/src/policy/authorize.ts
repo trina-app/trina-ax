@@ -50,8 +50,11 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
     // create fail exactly like a path the caller may not access, so a look-alike probe ('ⓢalaries', 'SALARIES' on
     // Linux) learns neither the hidden spelling nor anything the exact name would not tell. This message also reaches
     // the AI verbatim in tool results.
+    // Writes only: the guard is about creating a name, and a read creates nothing. A read of a missing path
+    // (history) that scanned the siblings answered "no access" for a hidden look-alike and "nothing here" for any other
+    // name, which told a reader with only READ on the parent that the hidden entry exists (security r2).
     const k = foldKey(w.missing[0])
-    const clashes = fs.readdirSync(path.join(fx.root, ...w.actual)).filter((n) => n !== w.missing[0] && foldKey(n) === k)
+    const clashes = op !== 'write' ? [] : fs.readdirSync(path.join(fx.root, ...w.actual)).filter((n) => n !== w.missing[0] && foldKey(n) === k)
     if (clashes.length) {
       const seen = clashes.find((n) => siblingVisible(fx, rules, user, w.actual, n))
       if (seen === undefined) throw new Denied(hidden(input))

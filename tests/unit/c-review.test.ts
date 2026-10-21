@@ -146,8 +146,9 @@ describe('trashed folders take their rules with them', () => {
     expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (restored)/secret.md'), { as: 'alice' })).body.content).toBe('v2 SECRET')
     expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (restored)/secret.md'), { as: 'bob' })).status).toBe(404)
     expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (restored)/secret.md'), { as: 'erin' })).status).toBe(404)
-    // the old version (saved under the folder's rules) stays hidden from bob at the old path, now his folder
-    expect((await A.json('/api/files/history?path=shared/hr/secret.md', { as: 'bob' })).body.items).toEqual([])
+    // the old version (saved under the folder's rules) stays hidden from bob at the old path, now his folder: the
+    // missing file with only hidden versions is answered like any missing path (404, security r2)
+    expect((await A.json('/api/files/history?path=shared/hr/secret.md', { as: 'bob' })).status).toBe(404)
     // trash it again and purge: the parked rules and the history kept under them are gone
     const again = await A.json('/api/files?path=' + encodeURIComponent('shared/hr (restored)'), { method: 'DELETE', as: 'carol' })
     expect((await A.req(`/api/files/trash/${again.body.trashId}`, { method: 'DELETE', as: 'carol' })).status).toBe(204)
