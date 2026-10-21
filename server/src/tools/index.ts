@@ -11,6 +11,7 @@ import { componentC } from '../team-files/component'
 import { toolRegistry } from './registry'
 import { egressOf } from './egress'
 import { registerHiggsfield } from './higgsfield'
+import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
 import { resolveTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
@@ -117,6 +118,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
   for (const name of C_TOOL_NAMES) exposeToTurns(name)
   // search by meaning (tools/search.ts): only when it is on
   if (registerSearch(ctx, reg)) exposeToTurns('search')
+  // scheduled tasks (tools/schedules.ts)
+  registerScheduleTools(ctx, reg)
+  for (const name of SCHEDULE_TOOL_NAMES) exposeToTurns(name)
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')
 }
