@@ -49,9 +49,11 @@ describe('group / project / rule folders: members cannot move, rename or trash t
     expect((A.ctx.db.query("SELECT COUNT(*) AS n FROM folders WHERE path IN ('projects/falcon', 'groups/marketing', 'groups/finance')").get() as { n: number }).n).toBe(3)
   })
 
-  test('a plain folder that holds a folders row (even one without rules) is managed too', async () => {
+  test('a plain folder that holds a project folder (a folders row without rules) is managed too', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/team-x/inner'), { recursive: true })
     A.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_team_x_inner', 'shared/team-x/inner')").run()
+    // r2: a rule-less row counts while a project uses the folder (tests/security/r2-project-folder-unlock.test.ts)
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path) VALUES ('p_team_x', 'Team X', 'shared/team-x/inner')").run()
     expect((await move('alice', 'shared/team-x', 'users/alice/team-x')).status).toBe(403)
     expect((await move('alice', 'shared/team-x', 'shared/team-y')).status).toBe(403)
     expect((await del('alice', 'shared/team-x')).status).toBe(403)

@@ -18,7 +18,7 @@ import { canRead, canWrite, ensureProjectFolder, ensureProjectFolderEx, lookupFo
 import { badSegment } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
-import { afterAccessChange, captureState, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
+import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
@@ -424,6 +424,8 @@ export const chatsRoutes: RouteModule = {
       const next = { name: body.name ?? r!.name, instructions: body.instructions ?? r!.instructions }
       ctx.db.transaction(() => {
         ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ? WHERE id = ?').run(next.name, folder, next.instructions, r!.id)
+        // the old folder stops being a project folder: its rule-less marker row goes (else it stays admin-only for good)
+        if (folder !== r!.folder_path) dropProjectMarker(ctx.db, r!.folder_path)
         // a personal project's content stays out of the audit log (admins read it; they cannot read users/<id>/)
         const personal = isPersonalPath(r!.folder_path) && isPersonalPath(folder)
         const changed = { name: next.name !== r!.name, instructions: next.instructions !== r!.instructions, folder: folder !== r!.folder_path }
@@ -459,6 +461,7 @@ export const chatsRoutes: RouteModule = {
         // the copy is a project folder in a team folder: a rule-less folders row, like a project on an existing folder
         if (!isPersonalPath(out.path)) ensureFolderRow(ctx.db, out.path)
         ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(out.path, r!.id)
+        dropProjectMarker(ctx.db, r!.folder_path)
         audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: isPersonalPath(out.path) ? null : { name: r!.name, folderPath: out.path, files: out.files, bytes: out.bytes } })
       })()
       const after = rt.store.projectRow(r!.id)!
@@ -475,6 +478,9 @@ export const chatsRoutes: RouteModule = {
       ctx.db.transaction(() => {
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
+        // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
+        // folder, and every folder above it, admin-only to move, rename or trash for good)
+        dropProjectMarker(ctx.db, r!.folder_path)
         audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path } })
       })()
     })

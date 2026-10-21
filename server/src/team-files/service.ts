@@ -220,13 +220,32 @@ export class TeamFiles {
   }
 
   /**
-   * true when `base` or something below it is a managed folder: a folders row (group / project folder, a rule folder,
-   * shared/, skills/; also rows without rules) or a rule folder. Design tab 4 move/delete: those move, are renamed and
-   * go to the trash only by an admin or the owner, and never move under users/ (rules there are not read, tab 2 rule 3).
+   * true when `base` or something below it is a managed folder: a rule folder, a group's folder, shared/, skills/, or a
+   * folder a project uses. Design tab 4 move/delete: those move, are renamed and go to the trash only by an admin or the
+   * owner, and never move under users/ (rules there are not read, tab 2 rule 3). A rule-less folders row no project
+   * uses any more (the project was deleted or moved elsewhere) does not count: it would lock an ordinary folder, its
+   * author's included, for good (security review r2).
    */
   private managedInside(rules: RuleSet, base: string): boolean {
     if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
-    return !!this.ctx.db.query("SELECT 1 FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(base, base, base)
+    return this.managedRows(base, base)
+  }
+  /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
+   * (differs for rows parked with a trashed folder, whose projects still name the path it had). */
+  private managedRows(rowPrefix: string, livePrefix: string): boolean {
+    const db = this.ctx.db
+    const rows = db.query("SELECT id, path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(rowPrefix, rowPrefix, rowPrefix) as { id: string; path: string }[]
+    for (const f of rows) {
+      const live = livePrefix + f.path.slice(rowPrefix.length)
+      if (live === 'shared' || live === 'skills') return true
+      if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(f.id)) return true
+      if (db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) return true
+    }
+    // a project's folder (with or without a marker row: a project repointed by an admin has none); personal projects
+    // live under users/<me>/, where nothing is managed
+    if (livePrefix === 'users' || livePrefix.startsWith('users/')) return false
+    return !!db.query(`SELECT 1 FROM projects WHERE substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
+      .get(...(livePrefix === '' ? [] : [livePrefix]))
   }
   private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
     const managed = this.managedInside(rules, base)
