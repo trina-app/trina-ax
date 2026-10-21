@@ -122,9 +122,14 @@ class UniqueTaken extends Error { constructor(public field: string) { super(fiel
 /** SQLite unique / primary key violation (a concurrent insert won). */
 export const isUniqueViolation = (e: unknown) => e instanceof Error && /UNIQUE constraint failed|PRIMARY KEY/i.test(e.message)
 
-/** Open invites made by someone who can no longer invite (deleted, disabled, no longer admin) stop working. */
-export function revokeInvitesBy(ctx: AppContext, userId: string): number {
-  return ctx.db.query('UPDATE invites SET revoked_at = ? WHERE created_by = ? AND used_at IS NULL AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes
+/**
+ * Open invites made by someone who can no longer invite (deleted, disabled, no longer admin) stop working; with
+ * `role`, only the invites of that role (an owner who became admin keeps their member invites, not admin ones).
+ */
+export function revokeInvitesBy(ctx: AppContext, userId: string, role?: 'admin' | 'member'): number {
+  const now = new Date().toISOString()
+  const open = 'UPDATE invites SET revoked_at = ? WHERE created_by = ? AND used_at IS NULL AND revoked_at IS NULL'
+  return (role ? ctx.db.query(`${open} AND role = ?`).run(now, userId, role) : ctx.db.query(open).run(now, userId)).changes
 }
 
 /**
@@ -232,6 +237,10 @@ export function transferOwnership(c: Context<AppEnv>, ctx: AppContext, userId: s
   ctx.db.transaction(() => {
     ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'owner'").run(auth.user.id)
     ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ?").run(userId)
-    audit(ctx.db, { actor: auth.user.id, action: 'owner.transfer', target: userId, detail: { from: auth.user.id } })
+    // the ex-owner is now an admin, who may not make admin invites: the ones made while owner die with that power
+    // (their member invites stay: an admin may still make those). Reset links need nothing here: resetUsable
+    // already limits an admin's links to members, so those made for admins or the new owner stop working.
+    const revoked = revokeInvitesBy(ctx, auth.user.id, 'admin')
+    audit(ctx.db, { actor: auth.user.id, action: 'owner.transfer', target: userId, detail: { from: auth.user.id, ...(revoked ? { adminInvitesRevoked: revoked } : {}) } })
   })()
 }
