@@ -1,10 +1,12 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
 // Implements: MEMORIES (own memories only; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
+// Also SKILLS (the team skills the caller can read, for the composer's "/" list). Contract: shared/src/api/skills.ts
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { decodeCursor, encodeCursor } from '../chat/store'
+import { listSkills } from '../chat/skills'
 
 type Row = { id: string; text: string; source_chat_id: string | null; created_at: string }
 
@@ -32,6 +34,11 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.clearMemories, ({ auth }) => {
       ctx.db.query('DELETE FROM memories WHERE user_id = ?').run(auth.user.id)
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'cleared', memory: null } })
+    })
+    kit.handle(API.listSkills, ({ auth }) => {
+      let p
+      try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+      return { items: listSkills(ctx.files, p).map(({ path, name, description }) => ({ path, name, description })) }
     })
   },
 }
