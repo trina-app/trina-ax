@@ -27,6 +27,9 @@ export const ANTHROPIC_API = 'https://api.anthropic.com'
 /** same port under its production name (installer --proxy-port; pf and the engine sandbox allow the engine account only this) */
 export const PROD_PROXY_PORT = DEFAULT_PROXY_PORT
 
+/** a public DNS name with at least one dot (app.example.com): lower case letters, digits, hyphens; no IP address */
+export const PUBLIC_HOST_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/
+
 export const AppConfigFile = z.object({
   mode: z.enum(['dev', 'prod']).optional(),
   listen: z.object({
@@ -46,6 +49,16 @@ export const AppConfigFile = z.object({
   allowedPeers: z.array(z.string()).default([]),
   /** office mode (single Mac in a clinic or office, docs/OFFICE.md): mode stays 'dev' for the engine (local-login) */
   office: z.boolean().default(false),
+  /** public address through a Cloudflare Tunnel (office mode, docs/OFFICE.md "인터넷 주소"): cloudflared on this Mac
+   * delivers https://<host> to the loopback app port (listen). Such requests (app port, loopback peer, Host = host)
+   * are handled as https://<host> (Secure __Host- cookie, CSRF origin), their client IP is CF-Connecting-IP, and the
+   * first-run setup is refused on them. allowFrom (IPv4 CIDRs) / countries (CF-IPCountry, e.g. KR) narrow who may use
+   * the address; empty = anyone. null = no public address. */
+  tunnel: z.object({
+    host: z.string().regex(PUBLIC_HOST_RE, 'tunnel.host must be a lower-case DNS name such as app.example.com'),
+    allowFrom: z.array(z.string().regex(/^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/, 'tunnel.allowFrom: IPv4 CIDRs (a.b.c.d/n)')).default([]),
+    countries: z.array(z.string().regex(/^[A-Z]{2}$/, 'tunnel.countries: two-letter country codes such as KR')).default([]),
+  }).nullable().default(null),
   /** extra allowed Origins for CSRF / WebSocket checks, e.g. https://acme.treesoop.com. Same host is always allowed. */
   publicOrigins: z.array(z.string()).default([]),
   teamRoot: z.string().optional(),
@@ -108,6 +121,8 @@ export interface AppConfig {
   allowedPeers?: string[]
   /** office mode (docs/OFFICE.md) */
   office?: boolean
+  /** see AppConfigFile.tunnel; absent or null = no public address */
+  tunnel?: { host: string; allowFrom: string[]; countries: string[] } | null
   publicOrigins: string[]
   teamRoot: string
   dataDir: string
@@ -169,6 +184,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     allowedHosts: f.allowedHosts.map((h) => h.toLowerCase()),
     allowedPeers: f.allowedPeers,
     office: f.office,
+    tunnel: f.tunnel,
     publicOrigins: origins,
     teamRoot: env[P + 'TEAM_ROOT'] ? path.resolve(cwd, env[P + 'TEAM_ROOT']!) : f.teamRoot ? abs(f.teamRoot) : def.teamRoot,
     dataDir: env[P + 'DATA_DIR'] ? path.resolve(cwd, env[P + 'DATA_DIR']!) : f.dataDir ? abs(f.dataDir) : def.dataDir,

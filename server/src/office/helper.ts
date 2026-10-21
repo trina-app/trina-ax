@@ -149,8 +149,9 @@ ${WIN_EN(main)}
  * the trusted copy of the fingerprint: it never travels over the network. Desk staff compare the thumbprint Windows
  * shows with it before they install the certificate.
  */
-export function deskCard(s: HelperState, o: { helper: string | null; caCer: string; teamName?: string | null; made: string }): string {
+export function deskCard(s: HelperState, o: { helper: string | null; caCer: string; teamName?: string | null; made: string; public?: string | null }): string {
   const main = s.origins[0] ?? ''
+  const pub = o.public ?? null
   const other = s.origins.slice(1)
   const name = PRODUCT.displayName
   return `<!doctype html>
@@ -161,6 +162,10 @@ export function deskCard(s: HelperState, o: { helper: string | null; caCer: stri
 .big{font:700 1.35rem/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all}</style></head><body><main>
 <h1>${esc(name)} 데스크 카드</h1>
 <p class="muted noprint">이 페이지를 인쇄해(⌘P) 데스크마다 두세요. 이 카드는 서버 맥에서 만든 것이라 네트워크로 바뀔 수 없습니다. 만든 때: ${esc(o.made)}</p>
+${pub ? `<section><h3>인터넷 주소 (기본, 인증서 설치 필요 없음)</h3>
+<p class="big">${esc(pub)}</p>
+<p class="muted">Edge에서 이 주소를 열고 ⋯ → 앱 → <b>이 사이트를 앱으로 설치</b>. 처음에는 관리자가 보낸 초대 링크로 가입합니다. 사무실 밖에서도 됩니다.</p></section>
+<h2 style="font-size:1rem;margin:1rem 0 0">사무실 안 대체 경로 (인터넷이 끊겼을 때)</h2>` : ''}
 <section><h3>1. 인증서 받기 (처음 한 번)</h3>
 ${o.helper ? `<p>Edge 주소창에 <b>http://</b>까지 그대로 입력: <span class="big">${esc(o.helper)}</span></p>` : ''}
 <p class="muted">또는 관리자가 USB로 준 <code>ca.cer</code> (서버 맥의 <code>${esc(o.caCer)}</code>)</p></section>
@@ -172,6 +177,7 @@ ${o.helper ? `<p>Edge 주소창에 <b>http://</b>까지 그대로 입력: <span 
 ${other.length ? `<p class="muted">이름으로: ${other.map(esc).join(', ')}</p>` : ''}
 <p class="muted">Edge ⋯ → 앱 → <b>이 사이트를 앱으로 설치</b> → 바탕화면 아이콘. 처음에는 관리자가 보낸 초대 링크로 가입합니다.</p></section>
 <section><h3>Desk card (English)</h3>
+${pub ? `<p>Main: open <code>${esc(pub)}</code> in Edge (no certificate to install) and install it as an app (Edge ⋯ → Apps). In-office fallback when the internet is down:</p>` : ''}
 <p>1. Certificate: ${o.helper ? `<code>${esc(o.helper)}</code> (type http://) or ` : ''}<code>ca.cer</code> from USB. 2. Thumbprint (Windows: certificate → Details → Thumbprint) must be <code>${esc(windowsThumbprint(s.sha1))}</code>. 3. Then open <code>${esc(main)}</code> and install it as an app (Edge ⋯ → Apps).</p></section>
 </main></body></html>
 `

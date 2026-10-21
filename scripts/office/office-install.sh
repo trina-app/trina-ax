@@ -10,6 +10,11 @@
 #   --app-port N         this Mac's own port on 127.0.0.1 (default 47830)
 #   --label L            LaunchAgent label (default app.team-ax.office; tests use another one)
 #   --run-dir DIR        engine socket folder when the install folder path is too long for a socket (tests)
+#   --public-host NAME --tunnel-token-file FILE
+#                        the internet address (docs/OFFICE.md "인터넷 주소"): NAME (e.g. app.example.com) reaches this
+#                        Mac through a Cloudflare Tunnel whose connector token is in FILE (made on the owner's Mac by
+#                        scripts/office/public-address.ts). The token is copied to <prefix>/config/tunnel-token (600)
+#                        and the bundled cloudflared runs as a second LaunchAgent. Later: <prefix>/teamax public-address
 #   --no-open            do not open the setup page in the browser
 #   --check-only         run the checks, print what would happen, change nothing
 #
@@ -31,10 +36,10 @@ say() { echo "office-install: $*"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) PREFIX=$2; shift 2 ;;
-    --lan-port|--helper-port|--app-port|--label|--run-dir) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
+    --lan-port|--helper-port|--app-port|--label|--run-dir|--public-host|--tunnel-token-file) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
     --no-open) OPEN=0; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -94,7 +99,8 @@ chmod 755 "$PREFIX"
 "$BUN_SRC" "$SRC/app/server/src/office.js" configure --home "$PREFIX" "${CONF_ARGS[@]}" > /dev/null
 LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env")
 
-# ---- stop a running installation before its program is replaced ----
+# ---- stop a running installation before its program is replaced (the server and its cloudflared) ----
+launchctl bootout "gui/$(id -u)/$LABEL.tunnel" >/dev/null 2>&1 || true
 if launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then sleep 1; fi
 
 # ---- the ports must be free now (another program, e.g. a second installation, would make the server wait forever) ----
@@ -123,11 +129,22 @@ INSTALL_ARGS=(install --home "$PREFIX")
 
 # ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
 FW=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true)
+PUBLIC=$(sed -n 's/^TEAMAX_PUBLIC_HOST=//p' "$PREFIX/config/office.env")
 cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
-명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup
+명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address
 설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-치과-설치가이드.pdf)
+EOF
+if [ -n "$PUBLIC" ]; then
+  cat <<EOF
+
+인터넷 주소 / internet address:  https://$PUBLIC
+  데스크는 Edge로 이 주소를 열면 됩니다 (인증서 설치 필요 없음). 첫 설정(소유자 계정)은 이 맥에서만 합니다.
+  desks open this address in Edge (no certificate to install). The first-run setup is done on this Mac only.
+EOF
+fi
+cat <<EOF
 
 데스크 카드를 인쇄하세요 / print the desk card:  $PREFIX/teamax card
   카드의 지문(thumbprint)으로 데스크가 인증서를 확인합니다. 데스크가 많으면 $PREFIX/tls/ca.cer 를 USB로 나눠 주면 더 안전합니다.

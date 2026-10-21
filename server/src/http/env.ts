@@ -12,6 +12,11 @@ export interface AppBindings {
   port?: number
   /** Bun server, for WebSocket upgrades (hono/bun) */
   server?: unknown
+  /** direct: the request came through the office public address (http/tunnel.ts) */
+  tunnel?: boolean
+  /** the request Bun.serve handed over, when app.fetch got a rewritten copy (tunnel: https URL); Bun upgrades only
+   * its own request object to a WebSocket */
+  upgradeReq?: Request
 }
 
 export interface AppVariables {
