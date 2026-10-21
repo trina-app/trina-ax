@@ -10,6 +10,7 @@ import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
 import { canRead } from './projects'
 import { newId } from '../db'
+import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
@@ -87,6 +88,8 @@ const isInt = (min: number, max: number) => (v: unknown): v is number => typeof 
 
 export class ChatRuntime {
   readonly store: ChatStore
+  /** scheduled tasks (schedules.ts); its loop runs outside tests */
+  readonly schedules: Schedules
   readonly hub: Hub
   readonly relay: BrowserRelay
   readonly engines: EngineProvider
@@ -113,6 +116,8 @@ export class ChatRuntime {
     this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
     this.maxEngineTurns = o.maxEngineTurns ?? DEFAULT_MAX_ENGINE_TURNS
     this.timeZone = o.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
+    this.schedules = new Schedules(this.db, this)
+    if (process.env.NODE_ENV !== 'test') this.schedules.startLoop(ctx)
     this.purger = setInterval(() => { try { this.purgeTrash() } catch (e) { this.log.error('chat purge failed', { err: e }) } }, o.purgeIntervalMs ?? 60 * 60_000)
     ;(this.purger as { unref?: () => void }).unref?.()
     ctx.onClose(() => this.shutdown())

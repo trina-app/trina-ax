@@ -34,6 +34,16 @@ export const AUTH_MESSAGES = {
   codexBetaDefault: { ko: 'Codex는 이 설치에서 아직 시험 중(베타)이라 기본 엔진으로 정할 수 없습니다.', en: 'Codex is still in beta on this installation, so it cannot be the default engine.', id: 'Codex masih beta di instalasi ini, jadi tidak dapat menjadi mesin bawaan.' },
   limitFallbackNeedsCodex: { ko: 'Codex가 꺼져 있어 한도 대체를 켤 수 없습니다(사무실 모드에서는 Codex를 쓰지 않습니다).', en: 'Codex is off, so the limit fallback cannot be turned on (office mode does not use Codex).', id: 'Codex dimatikan, jadi pengalihan batas tidak dapat diaktifkan (mode kantor tidak memakai Codex).' },
   budgetSubject: { ko: '예산 대상이 올바르지 않습니다.', en: 'The budget subject is not valid.', id: 'Subjek anggaran tidak valid.' },
+  connected_bad_name: { ko: '폴더 이름으로 쓸 수 없는 이름입니다.', en: 'That name can\'t be used for a folder.', id: 'Nama itu tidak bisa dipakai untuk folder.' },
+  connected_not_absolute: { ko: '맥의 전체 경로를 입력해 주세요(예: /Volumes/공유).', en: 'Enter the full path on the Mac (e.g. /Volumes/Share).', id: 'Masukkan path lengkap di Mac (mis. /Volumes/Share).' },
+  connected_not_found: { ko: '그 경로가 이 맥에 없습니다. NAS가 Finder에 연결되어 있는지 확인해 주세요.', en: 'That path doesn\'t exist on this Mac. Check that the NAS is connected in Finder.', id: 'Path itu tidak ada di Mac ini. Pastikan NAS tersambung di Finder.' },
+  connected_not_folder: { ko: '폴더가 아닙니다.', en: 'That is not a folder.', id: 'Itu bukan folder.' },
+  connected_team_folder: { ko: '팀 폴더나 서버 데이터는 연결할 수 없습니다.', en: 'The team folder and the server\'s data can\'t be connected.', id: 'Folder tim dan data server tidak bisa disambungkan.' },
+  connected_hidden: { ko: '숨김 폴더는 연결할 수 없습니다.', en: 'Hidden folders can\'t be connected.', id: 'Folder tersembunyi tidak bisa disambungkan.' },
+  connected_not_allowed: { ko: '연결할 수 있는 곳: /Volumes 아래(NAS·외장 디스크), 클라우드 폴더(~/Library/CloudStorage), /Users/Shared, 홈 안의 보이는 폴더.', en: 'Folders that can be connected: under /Volumes (NAS, external disks), cloud folders (~/Library/CloudStorage), /Users/Shared, and visible folders in the home.', id: 'Yang bisa disambungkan: di bawah /Volumes (NAS, disk eksternal), folder cloud (~/Library/CloudStorage), /Users/Shared, dan folder yang terlihat di home.' },
+  connected_name_taken: { ko: '같은 이름의 연결 폴더가 이미 있습니다.', en: 'A connected folder with that name already exists.', id: 'Sudah ada folder tersambung dengan nama itu.' },
+  connected_permission: { ko: 'macOS가 읽기를 막았습니다. 시스템 설정 › 개인정보 보호 및 보안 › 전체 디스크 접근 권한에서 bun을 허용한 뒤 다시 시도해 주세요.', en: 'macOS blocked reading it. Allow bun in System Settings › Privacy & Security › Full Disk Access, then try again.', id: 'macOS memblokir pembacaan. Izinkan bun di System Settings › Privacy & Security › Full Disk Access, lalu coba lagi.' },
+  connected_unreadable: { ko: '폴더를 읽을 수 없습니다.', en: 'The folder can\'t be read.', id: 'Folder tidak bisa dibaca.' },
 } satisfies Record<string, Record<Locale, string>>
 
 export type MessageKey = keyof typeof AUTH_MESSAGES
