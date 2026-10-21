@@ -24,13 +24,20 @@ const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).di
 /** like a server whose relay.officialAvailable is off: the Team AX relay is not offered */
 const defaultConnection = (): ConnectionStatus => ({ mode: 'self-relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null }, teamName: 'acme', availableModes: ['self-relay', 'direct-only'] })
 class Fail extends Error {
-  constructor(public code: ErrorCode, public status: number, msg?: string) {
+  constructor(public code: ErrorCode, public status: number, msg?: string, public fields?: Record<string, string>) {
     super(msg ?? ERROR_MESSAGES[code].ko)
   }
 }
-const fail = (code: ErrorCode, status: number, msg?: string): never => {
-  throw new Fail(code, status, msg)
+const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>): never => {
+  throw new Fail(code, status, msg, fields)
 }
+/** Like server/src/admin/users.ts temporaryFor: a typed temporary password must be ASCII, 8+ and not a common one. */
+function checkTemp(pw: string | undefined): void {
+  if (pw === undefined) return
+  if (!/^[\x21-\x7e]+$/.test(pw)) fail('validation', 400, '임시 비밀번호에는 영문·숫자·기호만 쓸 수 있습니다(공백·한글 불가). 한/영 키를 확인해 주세요.', { 'body.temporaryPassword': 'letters, digits and symbols only' })
+  if (['12345678', 'password', 'qwerty123'].includes(pw.toLowerCase())) fail('validation', 400, '더 안전한 비밀번호를 정해 주세요. 너무 흔한 비밀번호입니다.', { 'body.temporaryPassword': 'this password is too common' })
+}
+const tempUntil = () => new Date(Date.now() + 7 * 86400_000).toISOString()
 const now = () => new Date().toISOString()
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -702,8 +709,10 @@ export class MockServer {
 
     listUsers: () => ({ items: this.users }),
     createUser: (c) => {
-      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger427')
-      return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger427' } }
+      checkTemp(c.body.temporaryPassword)
+      if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디입니다.')
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger4271')
+      return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://exampleteam.example.com' } }
     },
     updateUser: (c) => {
       const { locale, ...rest } = c.body
@@ -718,11 +727,12 @@ export class MockServer {
     },
     resetPassword: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      const temp = c.body?.temporaryPassword ?? 'maple385'
+      checkTemp(c.body?.temporaryPassword)
+      const temp = c.body?.temporaryPassword ?? 'maple0385'
       this.passwords.set(u!.username, temp)
       u!.mustChangePassword = true
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
-      return { temporaryPassword: temp }
+      return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://exampleteam.example.com' }
     },
     createResetLink: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -915,7 +925,7 @@ export class MockServer {
       const checked = (ep.response as z.ZodType).parse(o.body)
       return new Response(JSON.stringify(checked), { status, headers })
     } catch (e) {
-      if (e instanceof Fail) return new Response(JSON.stringify(ApiErrorResponse.parse({ error: { code: e.code, message: e.message } })), { status: e.status, headers: { 'content-type': 'application/json' } })
+      if (e instanceof Fail) return new Response(JSON.stringify(ApiErrorResponse.parse({ error: { code: e.code, message: e.message, ...(e.fields ? { fields: e.fields } : {}) } })), { status: e.status, headers: { 'content-type': 'application/json' } })
       console.error('mock error', req.method, p, e)
       return new Response(JSON.stringify({ error: { code: 'internal', message: String(e) } }), { status: 500, headers: { 'content-type': 'application/json' } })
     }

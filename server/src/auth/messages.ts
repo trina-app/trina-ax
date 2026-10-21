@@ -9,6 +9,7 @@ export const AUTH_MESSAGES = {
   wrongCurrentPassword: { ko: '현재 비밀번호가 맞지 않습니다.', en: 'The current password is wrong.', id: 'Kata sandi saat ini salah.' },
   weakPassword: { ko: '더 안전한 비밀번호를 정해 주세요.', en: 'Please choose a stronger password.', id: 'Pilih kata sandi yang lebih kuat.' },
   tempPasswordExpired: { ko: '임시 비밀번호의 사용 기한이 지났습니다. 관리자에게 새 임시 비밀번호를 받아 주세요.', en: 'This temporary password has expired. Ask your admin for a new one.', id: 'Kata sandi sementara ini sudah kedaluwarsa. Minta yang baru ke admin.' },
+  tempPasswordChars: { ko: '임시 비밀번호에는 영문·숫자·기호만 쓸 수 있습니다(공백·한글 불가). 한/영 키를 확인해 주세요.', en: 'A temporary password may only use English letters, digits and symbols (no spaces or other scripts).', id: 'Kata sandi sementara hanya boleh berisi huruf Latin, angka dan simbol (tanpa spasi atau huruf lain).' },
   currentPasswordRequired: { ko: '현재 비밀번호를 입력해 주세요.', en: 'Please enter your current password.', id: 'Masukkan kata sandi Anda saat ini.' },
   samePassword: { ko: '지금 비밀번호와 다른 비밀번호를 정해 주세요.', en: 'Choose a password different from the current one.', id: 'Pilih kata sandi yang berbeda dari yang sekarang.' },
   usernameTaken: { ko: '이미 쓰고 있는 아이디입니다.', en: 'This username is already taken.', id: 'Nama pengguna ini sudah dipakai.' },

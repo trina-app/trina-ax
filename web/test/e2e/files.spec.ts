@@ -180,5 +180,6 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
   await expect(panel.getByRole('heading', { level: 2 })).toContainText('plan (충돌 사본')
   await expect(panel).toContainText('second change')
   await page.getByRole('button', { name: '새로 고침' }).click()
-  await expect(row(page, 'plan (충돌 사본')).toBeVisible()
+  // this save's copy (the mock also has an older copy of Bob's)
+  await expect(row(page, 'plan (충돌 사본 - Olga)')).toBeVisible()
 })

@@ -5,11 +5,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
+import { tempPasswordCharsOk } from '@mycel/shared'
 import type { CreateUserBody, Locale, ResetPasswordBody, Role, UpdateUserBody, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
-import { tempPasswordExpiry } from '../auth/accounts'
+import { linkBase, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { accountKey } from '../auth/rate-limit'
@@ -47,6 +48,7 @@ function guard(c: Context<AppEnv>, target: UserRow, o: { self?: boolean; newRole
 /** The temporary password an admin typed (or the form pre-filled), checked like any new password; none = make one. */
 function temporaryFor(c: Context<AppEnv>, given: string | undefined, username: string): string {
   if (given === undefined) return temporaryPassword()
+  if (!tempPasswordCharsOk(given)) fail('validation', msg('tempPasswordChars', c.get('locale')), { fields: { 'body.temporaryPassword': 'letters, digits and symbols only' } })
   const p = passwordProblem(given, { username })
   if (p) fail('validation', weakPasswordMessage(p, c.get('locale')), { fields: { 'body.temporaryPassword': p } })
   return given
@@ -58,7 +60,7 @@ function checkGroups(ctx: AppContext, ids: readonly string[], locale: Locale): s
   return g
 }
 
-export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<typeof CreateUserBody>): Promise<{ user: User; temporaryPassword: string }> {
+export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<typeof CreateUserBody>): Promise<{ user: User; temporaryPassword: string; expiresAt?: string; signInUrl: string }> {
   const auth = c.get('auth')!
   const locale = c.get('locale')
   if (b.role === 'admin' && auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyAdmins', locale))
@@ -84,7 +86,8 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     throw e
   }
   ensurePersonalFolder(ctx.files.fx.root, id)
-  return { user: toUser(ctx.db, getUser(ctx.db, id)!), temporaryPassword: temp }
+  const user = toUser(ctx.db, getUser(ctx.db, id)!)
+  return { user, temporaryPassword: temp, expiresAt: user.tempPassword?.expiresAt, signInUrl: linkBase(c, ctx) }
 }
 
 export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: In<typeof UpdateUserBody>): User {
@@ -216,7 +219,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
 }
 
-export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: string, b: In<typeof ResetPasswordBody> = {}): Promise<{ temporaryPassword: string }> {
+export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: string, b: In<typeof ResetPasswordBody> = {}): Promise<{ temporaryPassword: string; expiresAt: string; signInUrl: string }> {
   const auth = c.get('auth')!
   const target = liveUser(ctx, id)
   guard(c, target)
@@ -224,13 +227,14 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
   const hash = await hashPassword(temp)
   const nowMs = authOf(ctx).now()
   const now = new Date(nowMs).toISOString()
+  const expiresAt = tempPasswordExpiry(nowMs)
   ctx.db.transaction(() => {
-    ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, tempPasswordExpiry(nowMs), auth.user.id, now, id)
+    ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, expiresAt, auth.user.id, now, id)
     audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
   })()
   authOf(ctx).endUserSessions(id, 'password_changed')
   authOf(ctx).limiter.clear(accountKey(target.username))
-  return { temporaryPassword: temp }
+  return { temporaryPassword: temp, expiresAt, signInUrl: linkBase(c, ctx) }
 }
 
 /** Guard for reset links (the link itself is made in auth/accounts.ts). */
