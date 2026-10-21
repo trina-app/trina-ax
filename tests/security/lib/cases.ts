@@ -96,6 +96,9 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's project`) } },
   deleteProject: { build: (c, w) => c.del(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's project`) } },
+  // sharing by copy (sec/r1-sharing-works): reading the source is alice's alone; dryRun so the allowed pass copies nothing
+  shareProject: { build: (c, w) => c.post(`/api/projects/${w.ids.projAlice}/share`, { toParent: 'shared', dryRun: true }), scope: 'users-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} shared alice's private project`) } },
 
   // ---- memories (own only) ----
   listMemories: { build: (c) => c.get('/api/memories'), scope: 'self',
@@ -119,6 +122,8 @@ export const SPECS: Record<string, Spec> = {
   history: { build: (c) => c.get('/api/files/history?path=users%2Falice%2Ftodo.md'), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceFileOld)) throw new Error(`${who} sees alice's old version`) } },
   versionDownload: { build: (c, w) => w.ids.aliceVersion ? c.get(`/api/files/history/${w.ids.aliceVersion}/download`) : Promise.resolve({ status: 404, text: '', json: null, headers: new Headers() }), scope: 'users-alice' },
+  copy: { build: (c) => c.post('/api/files/copy', { from: 'users/alice/todo.md', to: 'shared/copied-todo.md', dryRun: true }), scope: 'users-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} copied a file out of users/alice`) } },
   restoreVersion: { build: (c, w) => c.post('/api/files/restore', { path: 'users/alice/todo.md', versionId: w.ids.aliceVersion ?? '00000000-0000-7000-8000-000000000000' }), scope: 'users-alice' },
   trash: { build: (c) => c.get('/api/files/trash'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceTrashName)) throw new Error(`${who} sees alice's trashed file name`)
