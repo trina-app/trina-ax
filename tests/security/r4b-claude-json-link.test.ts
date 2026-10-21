@@ -5,7 +5,7 @@
 // interactive `claude` of the Mac user ran it outside every sandbox. The CLI's backups (~/.claude.json.backup,
 // ~/.claude/backups/.claude.json.backup.<time>, restored when the config is unreadable) were never cleaned at all.
 // Fixed: the cleanup replaces a link with a cleaned regular file (keeping what it pointed to only when that is a
-// regular file in the home and outside Team AX's folders, else {}), cleans the backups too and removes a link in place
+// regular file in the home and outside the server's own folders, else {}), cleans the backups too and removes a link in place
 // of the backups folder; engine.sb refuses symbolic links (also renamed into place) and hard links at those names.
 // Fake home only; the real ~/.claude.json is never opened.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -63,7 +63,7 @@ describe('the MCP cleanup replaces a link and cleans the backups', () => {
     expect(read(target).mcpServers.x).toBeDefined() // never written through
   })
 
-  test('a link out of the home, into Team AX\'s folders, to a folder or to nothing: reset to an empty config', () => {
+  test('a link out of the home, into the server\'s own folders, to a folder or to nothing: reset to an empty config', () => {
     const f = path.join(H, '.claude.json')
     const outside = path.join(box.base, 'outside.json')
     fs.writeFileSync(outside, planted({ secret: 'outside-the-home' }))
@@ -114,7 +114,7 @@ describe('the MCP cleanup replaces a link and cleans the backups', () => {
       fs.writeFileSync(target, planted())
       fs.rmSync(f, { force: true }); fs.symlinkSync(target, f)
       expect(guardOfficeClaudeJson(ctx, 'turn', H)).toEqual(['.claude.json: (link replaced)'])
-      expect(read(f)).toEqual({}) // the team folder is Team AX's: never copied into the config
+      expect(read(f)).toEqual({}) // the team folder is the server's: never copied into the config
       const row = db.query("SELECT detail FROM audit_log WHERE action = 'engine.claude_json_mcp_removed'").get() as { detail: string } | null
       expect(row?.detail).toContain('link replaced')
     } finally { db.close() }

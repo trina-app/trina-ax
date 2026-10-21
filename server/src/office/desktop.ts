@@ -16,6 +16,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { PRODUCT } from '@mycel/shared'
 
 export type DesktopPlatform = 'mac' | 'windows'
 /** verified: a real check passed; unverified: a signature is there but nothing checked it (or the check failed) */
@@ -31,9 +32,10 @@ export interface DownloadItem {
 export const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,150}\.(exe|dmg)$/
 const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,6}(?:-[0-9A-Za-z][0-9A-Za-z.]{0,30})?$/
 /** what office-install.sh looks for: the Windows installer and the Mac disk image the desktop build makes */
+const BASE = PRODUCT.artifactBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export const FOUND_PATTERNS: [RegExp, DesktopPlatform][] = [
-  [/^Team-AX-Setup-.+-x64\.exe$/i, 'windows'],
-  [/^Team-AX-.+-mac.*\.dmg$/i, 'mac'],
+  [new RegExp(`^${BASE}-Setup-.+-x64\\.exe$`, 'i'), 'windows'],
+  [new RegExp(`^${BASE}-.+-mac.*\\.dmg$`, 'i'), 'mac'],
 ]
 /** the list of installers a bundle built with --with-desktop carries (sha256 and name per line, like shasum -a 256) */
 export const MANIFEST = 'desktop.sha256'
@@ -51,7 +53,7 @@ export function macArchFromName(name: string): MacArch | undefined {
   return undefined
 }
 
-/** "Team-AX-Setup-0.1.0-x64.exe" → 0.1.0, "Team-AX-1.2.0-beta.2-mac-universal.dmg" → 1.2.0-beta.2 */
+/** "<artifactBase>-Setup-0.1.0-x64.exe" → 0.1.0, "<artifactBase>-1.2.0-beta.2-mac-universal.dmg" → 1.2.0-beta.2 */
 export function versionFromName(name: string): string | null {
   const m = /(?:^|[-_ v])(\d{1,4}\.\d{1,4}\.\d{1,6}(?:-(?:alpha|beta|rc)(?:\.?\d+)?)?)(?=[-_. ]|$)/i.exec(path.basename(name))
   return m ? m[1]! : null
@@ -129,7 +131,7 @@ export function inspectInstaller(file: string, o: { signature?: SignatureCheck }
           if ((pos + i - 4) % 512 === 0) { first = pos + i - 4; break }
         }
       }
-      if (first < 0) throw new Error(`${path.basename(file)} is a Windows program but not an NSIS installer (the Team AX Windows installer is Team-AX-Setup-<version>-x64.exe)`)
+      if (first < 0) throw new Error(`${path.basename(file)} is a Windows program but not an NSIS installer (the ${PRODUCT.displayName} Windows installer is ${PRODUCT.artifactBase}-Setup-<version>-x64.exe)`)
       const fh = readAt(fd, first, 28)
       const total = fh.length === 28 ? fh.readUInt32LE(24) : 0
       if (total < 28) throw new Error(`${path.basename(file)}: the NSIS header is damaged`)
@@ -229,7 +231,7 @@ export function planAdd(dir: string, src: string, o: AddOptions = {}): AddPlan {
   const base = o.name ?? path.basename(src)
   const name = SAFE_NAME.test(base) && platformOf(base) === info.platform
     ? base
-    : info.platform === 'windows' ? `Team-AX-Setup-${version}-x64.exe` : `Team-AX-${version}-mac.dmg`
+    : info.platform === 'windows' ? `${PRODUCT.artifactBase}-Setup-${version}-x64.exe` : `${PRODUCT.artifactBase}-${version}-mac.dmg`
   const arch = info.platform === 'mac' ? macArchFromName(base) ?? macArchFromName(src) : undefined
   const size = fs.statSync(real).size
   const item: Omit<DownloadItem, 'sha256'> = { platform: info.platform, file: name, version, size, signed: info.signed, signature: info.signature, ...(arch ? { arch } : {}) }
@@ -314,7 +316,7 @@ function archRank(f: string): number {
   return a === 'universal' ? 2 : a ? 0 : 1
 }
 
-/** The newest Team AX installer per platform in these folders (by the version in the name, a universal .dmg before a
+/** The newest desktop app installer per platform in these folders (by the version in the name, a universal .dmg before a
  * one-architecture one, then the newest file). */
 export function findInstallers(dirs: string[]): Found[] {
   const best = new Map<DesktopPlatform, Found & { mtime: number }>()

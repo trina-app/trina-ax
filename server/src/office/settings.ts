@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PUBLIC_HOST_RE } from '../app-config'
 import { hostPort, type OfficeNames } from './tls'
+import { PRODUCT } from '@mycel/shared'
 
 export const DEFAULT_LABEL = 'app.team-ax.office'
 export const DEFAULT_APP_PORT = 47830
@@ -191,7 +192,7 @@ export function loadSettings(home: string): OfficeSettings {
 export function settingsText(s: OfficeSettings): string {
   const line = (k: string, v: string | number | null) => `${k}=${v ?? ''}`
   return [
-    '# Team AX office mode settings (docs/OFFICE.md). Written by office-install.sh; edit, then `teamax restart`.',
+    `# ${PRODUCT.displayName} office mode settings (docs/OFFICE.md). Written by office-install.sh; edit, then \`teamax restart\`.`,
     line('TEAMAX_LABEL', s.label),
     line('TEAMAX_APP_PORT', s.appPort),
     line('TEAMAX_LAN_PORT', s.lanPort),

@@ -4,11 +4,12 @@
 //   bun scripts/build-office.ts [--version 0.1.0] [--out dist/office] [--no-pandoc] [--keep-stage]
 //                               [--with-desktop | --desktop-prebuilt]
 //
-// Output: <out>/TeamAX-office-<version>-mac.zip, containing TeamAX-office-<version>/:
+// Output: <out>/<officeBundle>-<version>-mac.zip, containing <officeBundle>-<version>/ (PRODUCT, shared/src/product.ts):
 //   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-치과-설치가이드.pdf and the desks' guide
 //   Team-AX-윈도우-데스크-가이드.pdf (docs/office, when built)
 //   app/docs/OFFICE.md (the runbook; the person at the clinic has no copy of the repository)
-//   app/VERSION, app/teamax (control command), app/versions.json
+//   app/VERSION, app/teamax (control command), app/versions.json, app/product.env (the product's names for the
+//   shell scripts: scripts/product-env.ts)
 //   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
 //   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-ocr}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
@@ -16,7 +17,7 @@
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
 // The desktop app installers are NOT in the zip (110–200 MB each). --with-desktop builds them (desktop: dist:win and
 // dist:mac, the universal dmg; TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE make a clinic's kit build) and copies them next to
-// the zip as Team-AX-Setup-<v>-x64.exe and Team-AX-<v>-mac-universal.dmg; --desktop-prebuilt copies what
+// the zip as <artifactBase>-Setup-<v>-x64.exe and <artifactBase>-<v>-mac-universal.dmg; --desktop-prebuilt copies what
 // desktop/release already has. Either way the installers are made first and the zip carries desktop.sha256 (their
 // names and SHA-256), so office-install.sh offers exactly those under Settings → Apps and nothing else it finds;
 // the clinic gets the zip and the installers in the same folder.
@@ -26,6 +27,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
+import { PRODUCT, productEnv } from '../shared/src/product'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -127,7 +129,7 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
   }
   if (!fs.existsSync(path.join(REPO, 'web', 'dist', 'index.html'))) throw new Error('web/dist missing: run bun run --cwd web build')
 
-  const name = `TeamAX-office-${o.version}`
+  const name = `${PRODUCT.officeBundle}-${o.version}`
   const stage = path.join(o.out, name)
   const app = path.join(stage, 'app')
   fs.rmSync(stage, { recursive: true, force: true })
@@ -191,6 +193,8 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
   if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, DESK_PDF))
   else console.warn(`warning: ${deskPdf} not built (bun docs/install/build-pdf.ts --windows)`)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
+  // the product's names for office-install.sh / office-uninstall.sh (they print them; nothing is run from it)
+  fs.writeFileSync(path.join(app, 'product.env'), productEnv({ PRODUCT_OFFICE_PDF: OFFICE_PDF }))
   // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
@@ -208,8 +212,8 @@ export function desktopInstallers(o: { out: string; build: boolean; release?: st
   const version = o.version ?? (JSON.parse(fs.readFileSync(path.join(desktop, 'package.json'), 'utf8')) as { version: string }).version
   const release = o.release ?? path.join(desktop, 'release')
   const want: [string, string, string][] = [
-    ['dist:win', `Team-AX-Setup-${version}-win-x64.exe`, `Team-AX-Setup-${version}-x64.exe`],
-    ['dist:mac', `Team-AX-${version}-mac-universal.dmg`, `Team-AX-${version}-mac-universal.dmg`],
+    ['dist:win', `${PRODUCT.artifactBase}-Setup-${version}-win-x64.exe`, `${PRODUCT.artifactBase}-Setup-${version}-x64.exe`],
+    ['dist:mac', `${PRODUCT.artifactBase}-${version}-mac-universal.dmg`, `${PRODUCT.artifactBase}-${version}-mac-universal.dmg`],
   ]
   fs.mkdirSync(o.out, { recursive: true })
   const out: { file: string; size: number; sha256: string }[] = []

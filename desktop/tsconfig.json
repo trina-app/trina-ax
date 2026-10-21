@@ -11,5 +11,5 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "e2e/**/*.ts", "build.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "e2e/**/*.ts", "build.ts", "electron-builder.config.ts", "scripts/**/*.ts"]
 }

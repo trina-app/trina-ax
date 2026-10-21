@@ -3,6 +3,7 @@
 // Contract: shared/src/api/system.ts. Health is implemented by the foundation (the dev server, CI smoke test and
 // the menubar app need it from day one); G implements the rest. The work itself is in server/src/system/*.
 import { API, type Health, type Locale } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
@@ -44,7 +45,7 @@ export const T = {
   officeMode: { ko: '사무실 모드는 사무실 네트워크로만 접속합니다. 연결 방식은 바꿀 수 없습니다(docs/OFFICE.md).', en: 'Office mode connects over the office network only; the connection mode cannot be changed (docs/OFFICE.md).', id: 'Mode kantor hanya terhubung lewat jaringan kantor; mode koneksi tidak bisa diubah (docs/OFFICE.md).' },
   unsupportedMode: { ko: '이 연결 방식은 이번 버전에서 아직 쓸 수 없습니다.', en: 'This connection mode is not available in this version yet.', id: 'Mode koneksi ini belum tersedia di versi ini.' },
   noConfigFile: { ko: '개발 모드 서버는 설정 파일 없이 실행 중이라 연결 방식을 바꿀 수 없습니다(.dev/server.json의 relay.url).', en: 'This development server runs without a config file, so the connection mode cannot be changed here (relay.url in .dev/server.json).', id: 'Server pengembangan ini berjalan tanpa berkas konfigurasi, jadi mode koneksi tidak bisa diubah di sini (relay.url di .dev/server.json).' },
-  relayUnavailable: { ko: 'Team AX 중계 서버는 아직 운영되지 않아 고를 수 없습니다. 자체 중계 서버나 사무실 안 연결을 쓰세요.', en: 'The Team AX relay is not running yet, so it cannot be chosen. Use your own relay server or the office network only.', id: 'Relay Team AX belum berjalan, jadi belum bisa dipilih. Gunakan server relay sendiri atau jaringan kantor saja.' },
+  relayUnavailable: { ko: `${PRODUCT.displayName} 중계 서버는 아직 운영되지 않아 고를 수 없습니다. 자체 중계 서버나 사무실 안 연결을 쓰세요.`, en: `The ${PRODUCT.displayName} relay is not running yet, so it cannot be chosen. Use your own relay server or the office network only.`, id: `Relay ${PRODUCT.displayName} belum berjalan, jadi belum bisa dipilih. Gunakan server relay sendiri atau jaringan kantor saja.` },
   teamNameMissing: { ko: '중계 서버에 등록할 팀 이름을 입력해 주세요(영문 소문자·숫자·하이픈).', en: 'Enter the team name to register at the relay (lowercase letters, digits and hyphens).', id: 'Masukkan nama tim untuk didaftarkan di relay (huruf kecil, angka, dan tanda hubung).' },
   badRelayUrl: { ko: '자체 중계 서버 주소는 wss://로 시작하는 주소여야 합니다.', en: 'The self-hosted relay address must be a wss:// address.', id: 'Alamat relay sendiri harus berupa alamat wss://.' },
 }
