@@ -11,6 +11,9 @@ import FolderPicker from '../../components/FolderPicker'
 import { Badge, Button, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 
+/** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
+const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
+
 type RuleRow = { subjectType: FolderRuleInput['subjectType']; subjectId: string | null; access: Access }
 
 const toInput = (r: RuleRow): FolderRuleInput | null => {
@@ -83,9 +86,11 @@ export default function Folders() {
                         {f.rules.map((r) => (
                           <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
                             {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
+                            {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
                           </Badge>
                         ))}
                       </span>
+                      {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
                     </span>
                     <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })}>
                       {t('common.edit')}
@@ -176,6 +181,11 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
       }
     >
       <p className="mb-3 text-xs text-muted">{t('rules.editHint')}</p>
+      {isSkillsFolder(path) && (
+        <p role="note" className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-folder-warning">
+          {t('skillMgr.folderHint')}
+        </p>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-faint">

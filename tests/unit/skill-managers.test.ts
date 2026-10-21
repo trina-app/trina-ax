@@ -43,7 +43,8 @@ const aiCtx = (user: string) => {
   return { user: h.ctx.files.principal(user), turnId, files: new TurnFiles() }
 }
 const setManager = (by: string, body: { subjectType: 'user' | 'group'; subjectId: string; path?: string; enabled: boolean }) => h.api(by).call(API.setSkillManager, { body })
-const notices = (user: string, code: string) => socks[user]!.frames.filter((f) => f.type === 'notice' && f.data.code === code).map((f) => f.data as { message: string; link?: string })
+type Card = { question: string; origin?: string; preview?: { kind: string; path: string; diff: string; isNew: boolean; skillName: string | null; added: number; removed: number } }
+const notices = (user: string, code: string) => socks[user]!.frames.flatMap((f) => (f.type === 'notice' && f.data.code === code ? [f.data as { message: string; link?: string }] : []))
 
 describe('"팀 스킬 관리": a write rule on skills/, nothing else', () => {
   test('a member without it cannot change skills/ over HTTP or through AI tools (even with an approval)', async () => {
@@ -120,10 +121,10 @@ describe('the AI never saves under skills/ without the person confirming (fail c
   async function aiTurn(user: string, content: string, answer?: 'save' | 'skip' | null) {
     const chat = await h.api(user).call(API.createChat, { body: {} })
     const r = await h.api(user).call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
-    let card: { question: string; origin?: string; preview?: { kind: string; path: string; diff: string; isNew: boolean; skillName: string | null; added: number; removed: number } } | null = null
+    let card: Card | null = null
     if (answer !== undefined) {
       const c = await socks[user]!.next('turn.request', (f) => f.data.turnId === r.turnId)
-      card = c.data.request as typeof card
+      card = c.data.request as Card
       if (answer !== null) await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer } })
     }
     const done = await socks[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
