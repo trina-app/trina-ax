@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { checkDataDir, checkPorts } from './dev-checks'
 
 const ROOT = path.resolve(import.meta.dir, '..')
 const args = process.argv.slice(2)
@@ -93,6 +94,19 @@ if (relay) {
     say(`relay skipped: it needs Node ${RELAY_MIN_NODE}+ (found ${v || 'no node'}). Direct access still works on http://localhost:${SERVER_PORT}`)
     relay = false
   }
+}
+
+// 4. before anything starts: the fixed ports must be free, and the data folder must suit the engine's sockets
+const portProblems = await checkPorts([
+  { port: SERVER_PORT, what: 'team server' },
+  ...(relay ? [{ port: RELAY_PORT, what: 'relay' }] : []),
+  ...(flag('--vite') ? [{ port: 19140, what: 'vite' }] : []),
+])
+const dataCheck = checkDataDir(dataEnv().MYCEL_DATA_DIR!)
+for (const w of dataCheck.warnings) say(`warning: ${w}`)
+if (portProblems.length || dataCheck.errors.length) {
+  for (const p of [...portProblems, ...dataCheck.errors]) say(`cannot start: ${p}`)
+  process.exit(1)
 }
 
 fs.mkdirSync(path.join(DEV_HOME, 'data'), { recursive: true, mode: 0o700 })

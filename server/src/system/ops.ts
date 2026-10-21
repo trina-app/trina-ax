@@ -1,7 +1,6 @@
 // Operations service of component G: diagnostics (tab 7 "진단 화면"), the menubar status file (tab 6 "상태 읽기"),
 // the nightly backup schedule, and the managers for backups and updates. One instance per server (routes/system.ts).
 import fs from 'node:fs'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Locale } from '@mycel/shared/api'
@@ -13,6 +12,7 @@ import { checkEngines, type EngineLogin } from './engines'
 import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M, tr, uptimeText } from './messages'
+import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { UpdateManager } from './update'
 
 /** after a failed nightly backup, the next try waits this long */
@@ -33,8 +33,16 @@ export interface OpsOptions {
   atDir?: string
 }
 
+/** Reported failures of the desktop app's office-network direct connection (POST /api/connect-info/lan-failure). */
+export type LanFailureCode = 'unreachable' | 'cert_mismatch' | 'timeout'
+const LAN_FAILURE_WINDOW_MS = 24 * 3600_000
+const LAN_FAILURE_PER_SESSION_MS = 3600_000
+
 export class OpsService {
   readonly layout: InstallLayout
+  /** sessionId -> last counted failure time; failures in the last 24 h (memory only: a restart starts over) */
+  private lanBySession = new Map<string, number>()
+  private lanFailures: { at: number; code: LanFailureCode }[] = []
   readonly backups: BackupManager
   readonly updates: UpdateManager
   private engineCache: { at: number; v: EngineLogin[] } | null = null
@@ -94,13 +102,28 @@ export class OpsService {
     try { return fs.readFileSync(path.join(this.layout.launchDaemonsDir, `${this.layout.label}.launcher.plist`), 'utf8') } catch { return null }
   }
 
-  private connectable(sock: string): Promise<boolean> {
-    return new Promise((res) => {
-      const c = net.createConnection(sock)
-      const t = setTimeout(() => { c.destroy(); res(false) }, 2000)
-      c.once('connect', () => { clearTimeout(t); c.end(); res(true) })
-      c.once('error', () => { clearTimeout(t); res(false) })
-    })
+  /**
+   * A desktop app found the office address but could not use it (design tab 4 / 6 "응용 프로그램 방화벽"). Counted
+   * once per session per hour, so one laptop retrying every minute is one failure. Returns whether it was counted.
+   */
+  recordLanFailure(sessionId: string, code: LanFailureCode): boolean {
+    const now = this.now().getTime()
+    const last = this.lanBySession.get(sessionId)
+    if (last !== undefined && now - last < LAN_FAILURE_PER_SESSION_MS) return false
+    this.lanBySession.set(sessionId, now)
+    this.lanFailures.push({ at: now, code })
+    this.pruneLan(now)
+    return true
+  }
+  private pruneLan(now: number) {
+    this.lanFailures = this.lanFailures.filter((f) => now - f.at < LAN_FAILURE_WINDOW_MS).slice(-1000)
+    for (const [k, at] of this.lanBySession) if (now - at >= LAN_FAILURE_PER_SESSION_MS) this.lanBySession.delete(k)
+  }
+  lanFailureSummary(): { total: number; byCode: Record<LanFailureCode, number> } {
+    this.pruneLan(this.now().getTime())
+    const byCode: Record<LanFailureCode, number> = { unreachable: 0, cert_mismatch: 0, timeout: 0 }
+    for (const f of this.lanFailures) byCode[f.code]++
+    return { total: this.lanFailures.length, byCode }
   }
 
   private async tmExcluded(p: string): Promise<boolean | null> {
@@ -157,6 +180,21 @@ export class OpsService {
       else add(id, 'engines', label, 'fail', t(M.engineNotLoggedIn))
     }
 
+    // engine sockets: a path that does not fit in a Unix socket address (long data folder) stops every engine turn
+    const runDir = this.ctx.engineConfig.runDir
+    const long = tooLongSockets(engineSockets(runDir, prod ? this.ctx.config.engine.launcherSock ?? path.join(runDir, 'launcher.sock') : null))
+    if (long.length) add('sockets', 'engines', t(M.sockets), 'fail', t(M.socketsTooLong(long.map((x) => `${x.path} (${x.bytes})`).join(', '), long[0]!.max, !prod)))
+    else if (process.platform === 'darwin' && !prod && underSandboxDeniedTmp(runDir)) add('sockets', 'engines', t(M.sockets), 'warn', t(M.socketsTmp(L.dataDir)))
+    else add('sockets', 'engines', t(M.sockets), 'ok', t(M.socketsOk(maxSocketPathBytes())))
+
+    // office-network direct connection (TLS): failures the desktop apps reported
+    const tls = this.ctx.config.tls
+    if (tls) {
+      const lan = this.lanFailureSummary()
+      if (lan.total) add('lan_direct', 'connection', t(M.lan), 'warn', t(M.lanFailed(lan.total, lan.byCode.cert_mismatch, tls.port)))
+      else add('lan_direct', 'connection', t(M.lan), 'ok', t(M.lanOk(tls.port)))
+    }
+
     // queue
     const q = this.queue()
     add('queue', 'queue', t(M.queue), q.queued > 3 * q.concurrency ? 'warn' : 'ok', q.queued > 3 * q.concurrency ? t(M.queueLong(q.queued)) : t(M.queueDetail(q.running, q.queued, q.concurrency)))
@@ -176,8 +214,15 @@ export class OpsService {
       add('sandbox', 'sandbox', t(M.sandbox), sbOk ? 'ok' : 'fail', t(sbOk ? M.sandboxOk : M.sandboxMissing))
       const sock = this.ctx.config.engine.launcherSock
       if (sock) {
-        const up = await this.connectable(sock)
-        add('launcher', 'launcher', t(M.launcher), up ? 'ok' : 'fail', t(up ? M.launcherOk : M.launcherDown))
+        // never throws (a failed connect used to end the whole server here, see system/sockets.ts)
+        const r = await probeSocket(sock).catch(() => 'error' as const)
+        if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
+        // the installer logs the server to /Library/Logs/<id>/server and launchd's launcher output to .../crash
+        const logsRoot = L.logDir ? (path.basename(L.logDir) === 'server' ? path.dirname(L.logDir) : L.logDir) : null
+        if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, logsRoot)))
+        else if (r === 'denied') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDenied))
+        else if (r === 'timeout') add('launcher', 'launcher', t(M.launcher), 'warn', t(M.launcherTimeout))
+        else if (r !== 'too_long') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDown)) // too_long: the sockets check says it
       }
       const agentUid = this.ctx.config.engine.agentUid
       if (agentUid !== undefined) {

@@ -506,15 +506,22 @@ export class TeamFiles {
     return !row.path_at_save || atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')
   }
 
-  history(userId: string, rel: string): { path: string; items: FileVersion[] } {
+  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean }> {
     const user = this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'read', { mustExist: false })
+    // every listed version can be restored by whoever may write the file (restoreVersion checks the same);
+    // the newest version is the content before the last change, not the current file
+    const canRestore = atLeast(rules.access(user, r.segs), 'write')
+    let currentSha256: string | null = null
+    if (r.exists && r.st!.isFile()) { try { currentSha256 = await this.sha(r.abs, checkRegular(r.abs)) } catch {} }
     const rows = (this.ctx.db.query('SELECT id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(r.rel) as VersionRow[])
       .filter((v) => this.versionVisible(user, rules, v))
     const refs = this.userRefs(rows.map((v) => v.author_id))
     return {
       path: r.rel,
+      currentSha256,
+      canRestore,
       items: rows.map((v) => ({
         id: v.id, path: v.path, version: v.version, sha256: v.sha256, size: v.size, author: v.author_id ? refs.get(v.author_id) ?? { id: v.author_id, name: v.author_id } : null,
         turnId: v.turn_id, kind: v.kind, conflictPath: v.conflict_path, createdAt: normIso(v.created_at),

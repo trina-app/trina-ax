@@ -91,13 +91,17 @@ bun run dev
 [server] … first-run setup: … (or open http://127.0.0.1:19100/setup?token=<T>)
 ```
 
-- Ports 19100 and 19161 are fixed in `scripts/dev.ts`, so **only one dev instance can run per Mac**. If the dev
-  service is running, stop it first with `bun run dev:service stop`.
+- Ports 19100 and 19161 are fixed in `scripts/dev.ts`, so **only one dev instance can run per Mac**. Before it starts
+  anything, `bun run dev` checks 19100, 19161 (and 19140 with `--vite`) and stops with the process that holds a port
+  (`cannot start: port 19100 (team server) is in use by pid …`). If that is the dev service, stop it with
+  `bun run dev:service stop`.
 - The log line "relay: team address registered; the recovery code was saved once…" can be ignored in dev.
 - Flags: `--vite` (Vite on 19140), `--no-relay`, `--team <name>`, `--rebuild-web`, `--no-web-build`.
 - `TEAM_AX_DEV_DIR` moves the data folder. Keep it short and **not under /tmp**. The engine sandbox denies `/tmp`,
-  and `<data>/data/run/tools.sock` must fit in a Unix socket path (104 bytes). Otherwise every chat ends with "The
-  AI engine stopped unexpectedly" and the log shows `bind: invalid argument` / `gate did not start: exit 1`.
+  and every socket under `<data>/data/run/` must fit in a Unix socket path (at most 103 bytes on macOS). `bun run dev`
+  refuses a data folder whose socket paths are too long and names them (`cannot start: socket path too long: …`), and
+  warns about /tmp. The server says the same at start, in Admin → System → Diagnostics ("AI engine socket paths") and
+  in the log when a chat tries to start the engine.
 
 ### 1.4 Create the team
 
@@ -268,9 +272,10 @@ port, `https://<host>.local:8443/setup?token=…`. The screen is the same as in 
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token file exists. Codex: a warning, most likely "Not installed", because `_axserver` cannot reach a `codex` under `/Users/<you>`. pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | "Company API key mode cannot be turned on in this version yet. Use the subscription login mode." |
 
-**Known crash.** If the launcher socket is missing (the launcher daemon is down), opening Diagnostics kills the
-production server with `connect ENOENT …/launcher.sock` (`server/src/system/ops.ts`). If Diagnostics stops
-responding, check `/Library/Logs/mycel/crash/{server,launcher}.log`.
+**Launcher daemon down.** Diagnostics shows "AI engine launcher: The AI launcher is not running" with the command that
+starts it again (`sudo launchctl kickstart -k system/app.treesoop.mycel.launcher`) and the log to read if it stops
+again (`/Library/Logs/mycel/crash/launcher.log`). Until 2026-10-21 opening Diagnostics (or sending a chat) while the
+launcher was down ended the server with `connect ENOENT …/launcher.sock`; that is fixed.
 
 ### 2.8 Menubar app (optional)
 
@@ -296,7 +301,7 @@ With FileVault on, the Mac waits at the unlock screen after a power cut (not tes
 |---|---|---|
 | Dev mode | `http://localhost:19100`, `http://demo.localhost:19161` | The server Mac only |
 | Production, office network | `https://<LocalHostName>.local:8443` or `https://<LAN-IP>:8443` | Browsers and phones on the same network. The certificate is self-signed, so each person clicks through the warning once. Chats don't work yet (Part 2). |
-| Team AX relay | `https://<team>.treesoop.com` | Not available: `wss://relay.treesoop.com/connect` is not running. The mode can be selected in Admin → System but never connects. |
+| Team AX relay | `https://<team>.treesoop.com` | Not available: `wss://relay.treesoop.com/connect` is not running. Admin → System does not offer it until `relay.officialAvailable` is `true` in `config/server.json`. |
 | Your own relay | your domain | Advanced and not tested end to end; see below. The "Cloudflare tunnel" and "Tailscale" modes are rejected with "not available in this version". |
 
 Find the host name with `scutil --get LocalHostName`. If the macOS application firewall blocks the server, allow the
@@ -321,7 +326,10 @@ software" setting may already cover it.
 
 Alternatives:
 - **Add directly**: set a temporary password, which the member must change at first sign-in.
-- **Reset password**: sends a reset link.
+- **Reset password** (key icon): a temporary password the member must change at their next sign-in.
+- **Reset link** (person-with-key icon): a one-time link, valid for 24 hours, that you copy and hand over (no email).
+  The member opens it and picks a new password, which signs them out everywhere else. A new link cancels the old
+  one. The owner's own password is reset only on the server Mac (`bun run dev admin reset-link` in dev).
 
 **Mac app.**
 1. Build it:
@@ -341,8 +349,13 @@ Addresses the app accepts:
 - a bare name becomes `https://<name>.treesoop.com`;
 - any other address needs a publicly trusted HTTPS certificate.
 
-So today the app works only on the server Mac in dev mode. It cannot use the self-signed office address, because the
-server has no `/api/connect-info` for certificate pinning. There is no auto-update.
+The office address is not typed in. Signed in at the team address, the app asks `GET /api/connect-info` for the
+office address (`<LocalHostName>.local` and the Mac's private IPv4 addresses), the port and the SHA-256 of the office
+certificate, and on the office network it uses that address with only that certificate (pinned, never trust on first
+use). When the office address does not answer while the server Mac's `.local` name does, or shows another
+certificate, the app reports it (`POST /api/connect-info/lan-failure`) and Diagnostics shows "Office direct
+connection" with the count. A server with no team address (office network only) still cannot be added in the app
+(adding by QR code / fingerprint is not built). There is no auto-update.
 
 **Windows.** Build the installer with:
 
@@ -381,10 +394,9 @@ The full setup:
    Use `--trusted-proxies` when `cloudflared` runs on the relay host.
 2. On the team server, open Admin → System → **Change connection** → "Your own relay server", enter
    `wss://relay.yourdomain/connect`, and enter your password again.
-3. **There is no team-name field.** Set `relay.teamName` in `config/server.json` by hand (as root), then run:
-   ```sh
-   sudo launchctl kickstart -k system/app.treesoop.mycel.server
-   ```
+3. In the same dialog, enter the **team name at the relay** (lowercase letters, digits and hyphens; the team address
+   becomes `<name>.yourdomain`). The server saves `relay.url` and `relay.teamName` in `config/server.json` and
+   restarts.
 4. The recovery code is written once to `data/relay/recovery-code.txt`. Print it, then delete the file.
 5. To free a name later, run `node relay/src/main.ts release <team> --domain <d> --data <dir>`. The name stays held
    for a year.
@@ -469,13 +481,13 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | Symptom | What to do |
 |---|---|
 | Logs | Dev: the terminal, `bun run dev:service logs`, `~/Library/Logs/team-ax-dev/dev.log`. Production: `/Library/Logs/mycel/server/` (JSON) and `/Library/Logs/mycel/crash/{server,launcher,pf}.log` (daemon stdout/stderr, start failures) |
-| "The AI engine stopped unexpectedly" (dev) + `bind: invalid argument` / `gate did not start: exit 1` | The data folder path is too long or under /tmp; use the default `~/.team-ax-dev`. Diagnostics still show the engines as OK |
+| `cannot start: socket path too long` (dev) or Diagnostics "AI engine socket paths" fails | The data folder path is too long; use the default `~/.team-ax-dev` |
 | "The AI engine is not available right now…" | Dev: no `native/bin/<platform>`; install Go and run `bun run build:native` (Intel: `ARCHS=amd64`). Production: expected today |
 | "Company API key mode cannot be turned on…" | Production: expected today |
 | Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → AI engines |
 | "relay skipped: it needs Node 25+" | Install Node 25+; the direct address still works |
 | Port in use | `lsof -nP -iTCP:<port> -sTCP:LISTEN`. Dev: 19100, 19161, 19140. Production: 47820, 8443, 47821 |
-| Production server stops when Diagnostics opens | Known crash when the launcher socket is missing (2.7) |
+| Diagnostics: "The AI launcher is not running" | Run the command it shows; if it stops again read `/Library/Logs/mycel/crash/launcher.log` (2.7) |
 | Relay "Not registered" | `relay.teamName` missing in `server.json`, or the name is taken or reserved |
 | Owner password forgotten | Dev: `bun run dev admin reset-link`. Production: no tool yet |
 | Claude token expiry (1 year) | Repeat 2.4; diagnostics do not check expiry |
@@ -489,15 +501,13 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 2. **Codex is not connected in production.** There is no `engine.codexBin`; the launcher's `--allow-cmd` would not
    allow a PATH codex; there is no `models_cache.json`; and three different codex-home folders appear in the code.
 3. **Engine names are not checked.** `--engine` is not validated, and the first engine becomes `claudeBin`.
-4. **Diagnostics can crash the production server** when `launcher.sock` is missing (`system/ops.ts`).
-5. **No team-name field for your own relay.** Admin → System has none, so the server stays `team_name_missing`
-   until `server.json` is edited. "Team AX relay" can be selected although that relay does not exist.
-6. **The desktop app cannot use the office address.** It cannot connect to a self-signed office-only server, and
-   `GET /api/connect-info` is not implemented.
+4. *(fixed 2026-10-21)* Diagnostics no longer ends the server when `launcher.sock` is missing.
+5. *(fixed 2026-10-21)* Admin → System asks for the relay team name and hides "Team AX relay" while it is not running.
+6. **An office-only server cannot be added in the desktop app.** The app uses the office address once it knows the
+   team address (`GET /api/connect-info`, pinned certificate); adding a server by QR code / fingerprint is not built.
 7. **Re-installing a new version does not switch `app/current`.** The in-app update has no feed.
 8. **No account CLI in production.** `auth/cli.ts` is not in the bundle.
-9. **Dev data-folder paths are fragile.** A path that is too long or under /tmp only gives a generic engine error,
-   and Diagnostics does not check socket path length.
+9. *(fixed 2026-10-21)* Socket paths that are too long are named by `bun run dev`, at server start and in Diagnostics.
 10. **Small doc and code mismatches:**
     - The comment at `install-macos.sh:308` says the menubar app reads `setup/code`; it doesn't.
     - `uninstall-macos.sh --help` prints `set -uo pipefail`.
@@ -505,6 +515,6 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 11. **The TLS certificate covers the `en0` IP only.**
 12. **Intel Macs and the DMG are arm64-first.** `native/build.sh` builds arm64 by default, and the DMG is
     arm64 only.
-13. **Dev ports are fixed (19100/19161)**, with no check for ports already in use.
+13. **Dev ports are fixed (19100/19161).** `bun run dev` now names the process holding one before it starts.
 14. **Owner-blocked items.** Apple and Windows signing, the production relay and CI billing are waiting on the
     owner; see [OWNER-TODO.md](OWNER-TODO.md). Run `bun run typecheck && bun run test` locally.

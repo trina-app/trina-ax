@@ -476,12 +476,19 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
   const t = useT()
   const locale = useLocale()
   const [items, setItems] = useState<FileVersion[] | null>(null)
+  // every stored version is an earlier content of the file (the newest one is what it was before the last change),
+  // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
+  const [current, setCurrent] = useState<{ sha256: string | null; canRestore: boolean }>({ sha256: null, canRestore: true })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     api.call(API.history, { query: { path } }).then(
-      (r) => live && setItems([...r.items].sort((a, b) => b.version - a.version)),
+      (r) => {
+        if (!live) return
+        setItems([...r.items].sort((a, b) => b.version - a.version))
+        setCurrent({ sha256: r.currentSha256 ?? null, canRestore: r.canRestore ?? true })
+      },
       (e) => live && setError(errorText(e, locale, t('error.network'))),
     )
     return () => {
@@ -510,8 +517,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
       {items && !items.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
       {items && items.length > 0 && (
         <ul className="divide-y divide-line" data-testid="history-list">
-          {items.map((v, i) => (
-            <li key={v.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+          {items.map((v) => (
+            <li key={v.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm" data-version={v.version}>
               <span className="w-10 font-medium tabular-nums">v{v.version}</span>
               <span className="min-w-0 flex-1">
                 <span className="block">{v.author?.name ?? t('files.byAi')}</span>
@@ -529,10 +536,14 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
               <IconButton label={t('common.download')} onClick={() => startDownload(versionDownloadUrl(v.id), `${baseName(path)}`)}>
                 <Download size={15} />
               </IconButton>
-              {i > 0 && (
-                <Button size="sm" busy={busy === v.id} onClick={() => restore(v)}>
-                  <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
-                </Button>
+              {current.sha256 === v.sha256 ? (
+                <Badge tone="neutral">{t('files.sameAsNow')}</Badge>
+              ) : (
+                current.canRestore && (
+                  <Button size="sm" busy={busy === v.id} onClick={() => restore(v)}>
+                    <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
+                  </Button>
+                )
               )}
             </li>
           ))}

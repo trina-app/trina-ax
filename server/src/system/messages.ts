@@ -89,6 +89,47 @@ export const M = {
   launcher: { ko: 'AI 엔진 실행기', en: 'AI engine launcher', id: 'Peluncur mesin AI' },
   launcherOk: { ko: '연결됨', en: 'Connected', id: 'Terhubung' },
   launcherDown: { ko: '실행기에 연결할 수 없습니다. 맥을 다시 시작하거나 메뉴바 앱의 \'설치 다시 하기\'를 실행해 주세요.', en: 'Cannot reach the engine launcher. Restart the Mac or run "Reinstall" from the menubar app.', id: 'Tidak dapat menjangkau peluncur mesin. Mulai ulang Mac atau jalankan "Pasang ulang" dari aplikasi menubar.' },
+  /** the launcher daemon is not running (no socket, or a socket left over from a launcher that ended) */
+  launcherNotRunning: (label: string | null, logs: string | null): T => {
+    const cmd = `sudo launchctl kickstart -k system/${label ?? '<label>'}.launcher`
+    const log = logs ? `${logs}/crash/launcher.log` : ''
+    const tail: T = log
+      ? { ko: ` 다시 멈추면 ${log}를 확인해 주세요.`, en: ` If it stops again, look at ${log}.`, id: ` Jika berhenti lagi, lihat ${log}.` }
+      : { ko: '', en: '', id: '' }
+    return {
+      ko: `AI 실행기가 실행 중이 아니어서 채팅이 시작되지 않습니다. 서버 맥의 터미널에서 \`${cmd}\`를 실행해 다시 띄워 주세요(관리자 비밀번호).${tail.ko}`,
+      en: `The AI launcher is not running, so chats cannot start. Start it again in Terminal on the server Mac: \`${cmd}\` (asks for an admin password).${tail.en}`,
+      id: `Peluncur AI tidak berjalan, jadi chat tidak bisa dimulai. Jalankan lagi di Terminal Mac server: \`${cmd}\` (meminta kata sandi admin).${tail.id}`,
+    }
+  },
+  launcherDenied: { ko: '서버 계정이 AI 실행기 소켓을 열 수 없습니다(권한). 설치 스크립트를 다시 실행해 폴더 권한을 고쳐 주세요.', en: 'The server account may not open the AI launcher socket (permissions). Run the installer again to repair the folder permissions.', id: 'Akun server tidak boleh membuka soket peluncur AI (izin). Jalankan pemasang lagi untuk memperbaiki izin folder.' },
+  launcherTimeout: { ko: 'AI 실행기가 2초 안에 답하지 않았습니다. 잠시 뒤 새로 고침해 보고, 계속되면 실행기를 다시 띄워 주세요.', en: 'The AI launcher did not answer within 2 seconds. Refresh in a moment; if it stays like this, restart the launcher.', id: 'Peluncur AI tidak menjawab dalam 2 detik. Muat ulang sebentar lagi; jika tetap, mulai ulang peluncur.' },
+
+  sockets: { ko: 'AI 엔진 소켓 경로', en: 'AI engine socket paths', id: 'Jalur soket mesin AI' },
+  socketsOk: (max: number): T => ({ ko: `모든 소켓 경로가 ${max}바이트 안에 들어갑니다.`, en: `All socket paths fit in ${max} bytes.`, id: `Semua jalur soket muat dalam ${max} byte.` }),
+  socketsTooLong: (list: string, max: number, dev: boolean): T => ({
+    ko: `소켓 경로가 너무 깁니다: ${list}. 이 시스템의 소켓 경로는 ${max}바이트까지라서 AI 엔진이 시작되지 않습니다. ${dev ? '데이터 폴더를 짧은 경로(기본값 ~/.team-ax-dev)로 옮겨 주세요(TEAM_AX_DEV_DIR).' : 'config/server.json의 engine.runDir·engine.launcherSock을 짧은 경로로 바꿔 주세요.'}`,
+    en: `Socket path too long: ${list}. Socket paths can be at most ${max} bytes on this system, so the AI engine cannot start. ${dev ? 'Move the data folder to a shorter path (the default ~/.team-ax-dev; TEAM_AX_DEV_DIR).' : 'Set engine.runDir / engine.launcherSock in config/server.json to a shorter path.'}`,
+    id: `Jalur soket terlalu panjang: ${list}. Jalur soket paling panjang ${max} byte di sistem ini, jadi mesin AI tidak bisa mulai. ${dev ? 'Pindahkan folder data ke jalur yang lebih pendek (bawaan ~/.team-ax-dev; TEAM_AX_DEV_DIR).' : 'Ubah engine.runDir / engine.launcherSock di config/server.json ke jalur yang lebih pendek.'}`,
+  }),
+  socketsTmp: (dir: string): T => ({
+    ko: `데이터 폴더(${dir})가 임시 폴더(/tmp 등) 안에 있습니다. 엔진 샌드박스가 이 폴더를 막아 채팅이 실패할 수 있습니다. 홈 폴더 아래 짧은 경로(기본값 ~/.team-ax-dev)로 옮겨 주세요.`,
+    en: `The data folder (${dir}) is inside a temporary folder (/tmp or similar). The engine sandbox denies it, so chats can fail. Move it to a short path in your home folder (the default ~/.team-ax-dev).`,
+    id: `Folder data (${dir}) ada di dalam folder sementara (/tmp atau sejenisnya). Sandbox mesin menolaknya, jadi chat bisa gagal. Pindahkan ke jalur pendek di folder rumah (bawaan ~/.team-ax-dev).`,
+  }),
+
+  lan: { ko: '사무실 직접 연결', en: 'Office direct connection', id: 'Koneksi langsung kantor' },
+  lanOk: (port: number): T => ({ ko: `포트 ${port}에서 켜져 있습니다. 데스크톱 앱이 보고한 연결 실패가 없습니다(24시간).`, en: `On, port ${port}. No connection failures reported by the desktop apps (24 h).`, id: `Aktif, port ${port}. Tidak ada kegagalan koneksi yang dilaporkan aplikasi desktop (24 jam).` }),
+  lanFailed: (n: number, mismatch: number, port: number): T => {
+    const mm: T = mismatch
+      ? { ko: ` 그중 ${mismatch}번은 인증서가 달랐습니다: 서버 인증서를 다시 만들었거나 같은 네트워크의 다른 기기가 서버인 척했을 수 있습니다.`, en: ` ${mismatch} of them saw a different certificate: the server certificate was re-created, or another device on the network pretended to be the server.`, id: ` ${mismatch} di antaranya melihat sertifikat lain: sertifikat server dibuat ulang, atau perangkat lain di jaringan menyamar sebagai server.` }
+      : { ko: '', en: '', id: '' }
+    return {
+      ko: `데스크톱 앱이 사무실 안에서 직접 연결에 ${n}번 실패했습니다(24시간, 사람·1시간마다 한 번 셈).${mm.ko} 시스템 설정 > 네트워크 > 방화벽에서 '모든 들어오는 연결 차단'이 꺼져 있는지, 포트 ${port}이 막혀 있지 않은지 확인해 주세요. 그동안 앱은 원격 주소로 계속 연결됩니다.`,
+      en: `Desktop apps in the office failed to connect directly ${enPlural(n, 'time', 'times')} (24 h, counted once per person per hour).${mm.en} Check System Settings > Network > Firewall ("Block all incoming connections" must be off) and that port ${port} is not blocked. Meanwhile the apps keep using the remote address.`,
+      id: `Aplikasi desktop di kantor gagal terhubung langsung ${n} kali (24 jam, dihitung sekali per orang per jam).${mm.id} Periksa Pengaturan Sistem > Jaringan > Firewall ("Blokir semua koneksi masuk" harus mati) dan pastikan port ${port} tidak diblokir. Sementara itu aplikasi tetap memakai alamat jarak jauh.`,
+    }
+  },
 
   backups: { ko: '백업', en: 'Backups', id: 'Cadangan' },
   backupNone: { ko: '아직 백업이 없습니다. 매일 새벽 3시에 자동으로 만들어집니다. 지금 만들려면 \'지금 백업\'을 누르세요.', en: 'No backup yet. One is made every night at 03:00; use "Back up now" to make one now.', id: 'Belum ada cadangan. Dibuat otomatis setiap pukul 03:00; gunakan "Cadangkan sekarang".' },

@@ -10,13 +10,14 @@
 // origin that has it to the one it opens (both inside the team's own partition). The web page never sees the
 // token, and images, downloads and the WebSocket keep working with plain cookies.
 import { createHash, X509Certificate } from 'node:crypto'
+import dns from 'node:dns/promises'
 import https from 'node:https'
 import type { Session } from 'electron'
 import { CONNECT_INFO_PATH, ConnectInfo } from '@mycel/shared'
-import { DEV_SESSION_COOKIE, Health, SESSION_COOKIE } from '@mycel/shared/api'
+import { CSRF_HEADER, DEV_SESSION_COOKIE, Health, SESSION_COOKIE, type LanFailureCode } from '@mycel/shared/api'
 import { normalizeFingerprint, type DirectInfo } from '../common/teams'
 
-export type ProbeResult = 'ok' | 'mismatch' | 'unreachable'
+export type ProbeResult = 'ok' | 'mismatch' | 'unreachable' | 'timeout'
 export const PROBE_TIMEOUT_MS = 1000
 
 /** GET /api/connect-info on the team address, with the team's cookies. null when the server has none. */
@@ -60,7 +61,7 @@ export function probePinned(host: string, port: number, fingerprint: string, tim
       agent: false,
       headers: { accept: 'application/json' },
     })
-    const timer = setTimeout(() => done('unreachable'), timeoutMs)
+    const timer = setTimeout(() => done('timeout'), timeoutMs)
     req.on('socket', (socket) => {
       socket.once('secureConnect', () => {
         const cert = (socket as import('node:tls').TLSSocket).getPeerCertificate()
@@ -93,7 +94,39 @@ export async function probeDirect(d: DirectInfo, timeoutMs = PROBE_TIMEOUT_MS): 
   const results = await Promise.all(d.hosts.map(async (h) => ({ h, r: await probePinned(h, d.port, d.fingerprint, timeoutMs) })))
   const okHost = results.find((x) => x.r === 'ok')
   if (okHost) return { result: 'ok', origin: `https://${okHost.h.includes(':') ? `[${okHost.h}]` : okHost.h}:${d.port}` }
-  return { result: results.some((x) => x.r === 'mismatch') ? 'mismatch' : 'unreachable' }
+  return { result: results.some((x) => x.r === 'mismatch') ? 'mismatch' : results.some((x) => x.r === 'timeout') ? 'timeout' : 'unreachable' }
+}
+
+/** The report code for a failed probe (design tab 4: POST /api/connect-info/lan-failure). */
+export function lanFailureCode(r: ProbeResult): LanFailureCode | null {
+  return r === 'ok' ? null : r === 'mismatch' ? 'cert_mismatch' : r === 'timeout' ? 'timeout' : 'unreachable'
+}
+
+/**
+ * Is the team's server Mac on this network? Its Bonjour name (<name>.local) answers only on the same link (mDNS),
+ * which stands in for the design's Bonjour discovery of the same teamId: an unreachable office address is worth
+ * reporting only then (from home it is expected).
+ */
+export async function officeNameAnswers(hosts: string[], timeoutMs = 1000, lookup: (h: string) => Promise<unknown> = (h) => dns.lookup(h)): Promise<boolean> {
+  const local = hosts.filter((h) => /\.local$/i.test(h))
+  if (!local.length) return false
+  const one = (h: string) => Promise.race([lookup(h).then(() => true, () => false), new Promise<boolean>((r) => setTimeout(() => r(false), timeoutMs))])
+  return (await Promise.all(local.map(one))).some(Boolean)
+}
+
+/** Tell the team server (through the team address) why the office address could not be used. */
+export async function reportLanFailure(ses: Session, origin: string, code: LanFailureCode, timeoutMs = 5000): Promise<boolean> {
+  try {
+    const res = await ses.fetch(origin + CONNECT_INFO_PATH + '/lan-failure', {
+      method: 'POST',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+      body: JSON.stringify({ code }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 /** SHA-256 of an Electron Certificate (PEM) as AA:BB:... */

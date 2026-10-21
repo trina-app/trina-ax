@@ -2,7 +2,7 @@
 // server/src/system/*). Everything but health is owner-only; update and restore ask for the password again (tab 4).
 import { z } from 'zod'
 import { IsoTime, JobAccepted } from './common'
-import { endpoint } from './endpoint'
+import { empty, endpoint } from './endpoint'
 
 export const Health = z.object({
   ok: z.boolean(),
@@ -79,14 +79,43 @@ export const ConnectionStatus = z.object({
   connectedSince: IsoTime.nullable(),
   /** office-network direct connection (TLS 8443): cert fingerprint for desktop pinning */
   direct: z.object({ enabled: z.boolean(), port: z.number().int(), fingerprintSha256: z.string().nullable() }),
+  /** the team name registered at the relay (relay.teamName in config/server.json; self-relay needs one) */
+  teamName: z.string().nullable().optional(),
+  /** the modes this server offers in Admin > System > Change connection; "relay" (Team AX relay) only while it runs */
+  availableModes: z.array(ConnectionMode).optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>
+/** Team name at a relay: becomes <name>.<relay domain>. ASCII lowercase letters, digits and inner hyphens (tab 6). */
+export const RelayTeamName = z.string().trim().toLowerCase().min(2).max(40).regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/)
 export const UpdateConnectionBody = z.object({
   mode: ConnectionMode,
   /** self-relay URL */
   relayUrl: z.url().optional(),
+  /** team name at the relay (self-relay: required unless one is set already) */
+  teamName: RelayTeamName.optional(),
   password: z.string().min(1).max(256),
 })
+
+/**
+ * Office-network direct connection info (design tab 4 / 6). The desktop app asks the team address (real TLS) and
+ * then accepts only this certificate on the LAN addresses (no trust on first use). Signed-in users only.
+ */
+export const ConnectInfo = z.object({
+  /** stable id of this team server (the same in every answer; Bonjour TXT later) */
+  teamId: z.string().min(1).max(200),
+  /** SHA-256 of the LAN certificate (DER), hex, with or without colons; null when the office connection is off */
+  lanCertSha256: z.string().regex(/^([0-9A-Fa-f]{2}:?){31}[0-9A-Fa-f]{2}$/).nullable(),
+  lanPort: z.number().int().min(1).max(65535),
+  /** e.g. ["acme-mac.local", "192.168.0.20"] */
+  lanHosts: z.array(z.string().min(1).max(253)).max(8),
+  /** the team address apps should use (the relay address); null when there is none */
+  canonicalOrigin: z.string().nullable().optional(),
+})
+export type ConnectInfo = z.infer<typeof ConnectInfo>
+/** Why the desktop app could not use the office address it found (counted once per session per hour). */
+export const LanFailureCode = z.enum(['unreachable', 'cert_mismatch', 'timeout'])
+export type LanFailureCode = z.infer<typeof LanFailureCode>
+export const LanFailureBody = z.object({ code: LanFailureCode })
 
 export const SYSTEM = {
   health: endpoint({ method: 'GET', path: '/api/health', auth: 'public', owner: 'G', response: Health, summary: 'Liveness for the menubar app, relay and update check. No private data.' }),
@@ -98,5 +127,7 @@ export const SYSTEM = {
   startRestore: endpoint({ method: 'POST', path: '/api/admin/restore', auth: 'owner-reauth', owner: 'G', status: 202, body: StartRestoreBody, response: JobAccepted, summary: 'Restore a backup (everything after it is lost; the UI shows how much).' }),
   startExport: endpoint({ method: 'POST', path: '/api/admin/export', auth: 'owner', owner: 'G', status: 202, body: StartExportBody, response: JobAccepted, summary: 'Export chats / memories / files (optionally password-encrypted with age).' }),
   connection: endpoint({ method: 'GET', path: '/api/admin/connection', auth: 'owner', owner: 'G', response: ConnectionStatus, summary: 'Relay / direct connection state (from the relay client, component F).' }),
+  connectInfo: endpoint({ method: 'GET', path: '/api/connect-info', auth: 'user', owner: 'G', response: ConnectInfo, summary: 'Office-network address and certificate fingerprint for the desktop app (pinning).' }),
+  lanFailure: endpoint({ method: 'POST', path: '/api/connect-info/lan-failure', auth: 'user', owner: 'G', status: 204, body: LanFailureBody, response: empty, summary: 'The desktop app could not use the office address (shown in Diagnostics).' }),
   updateConnection: endpoint({ method: 'PUT', path: '/api/admin/connection', auth: 'owner-reauth', owner: 'G', body: UpdateConnectionBody, response: ConnectionStatus, summary: 'Change the connection mode.' }),
 } as const

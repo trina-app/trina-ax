@@ -6,6 +6,7 @@ import net from 'node:net'
 import crypto from 'node:crypto'
 import type { Subprocess } from 'bun'
 import type { LaunchEvent, LaunchRequest } from '@mycel/shared'
+import { connectUnix } from './system/sockets'
 
 async function waitReady(p: Subprocess<any, 'pipe', any>, what: string, ms = 5000) {
   const reader = (p.stdout as ReadableStream<Uint8Array>).getReader()
@@ -66,37 +67,47 @@ export class SocketLauncher implements Launcher {
    * account can see its own processes (the server uid gets EPERM). */
   tcpPeer(clientPort: number, serverPort: number): Promise<{ pid: number; pgid: number; sid: number } | null> {
     return new Promise((res) => {
-      const c = net.createConnection(this.sock)
-      let b = ""
-      c.setEncoding("utf8")
-      c.on("connect", () => c.write(JSON.stringify({ op: "tcp-peer", clientPort, serverPort }) + "\n"))
-      c.on("data", (d: string) => { b += d })
-      c.on("close", () => { try { const j = JSON.parse(b.split("\n")[0]); res(j.ev === "peer" ? { pid: j.pid, pgid: j.pgid, sid: j.sid } : null) } catch { res(null) } })
-      c.on("error", () => res(null))
+      // connectUnix: a failed connect must not become an uncaught exception (launcher daemon down, see system/sockets.ts)
+      connectUnix(this.sock, (c) => {
+        let b = ""
+        c.setEncoding("utf8")
+        c.on("connect", () => c.write(JSON.stringify({ op: "tcp-peer", clientPort, serverPort }) + "\n"))
+        c.on("data", (d: string) => { b += d })
+        c.on("close", () => { try { const j = JSON.parse(b.split("\n")[0]); res(j.ev === "peer" ? { pid: j.pid, pgid: j.pgid, sid: j.sid } : null) } catch { res(null) } })
+        c.on("error", () => res(null))
+      })
     })
   }
   launch(req: LaunchRequest): LaunchHandle {
-    const c = net.createConnection(this.sock)
-    c.write(JSON.stringify(req) + '\n')
     const queue: LaunchEvent[] = []
     let wake: (() => void) | null = null
     let ended = false
+    let killed = false
     let buf = ''
-    c.setEncoding('utf8')
-    c.on('data', (d: string) => {
-      buf += d
-      let i
-      while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l) try { queue.push(JSON.parse(l)) } catch {} }
-      wake?.()
-    })
+    let c: net.Socket | null = null
     const end = () => { ended = true; wake?.() }
-    c.on('close', end); c.on('error', (e) => { queue.push({ ev: 'error', message: 'launcher: ' + e.message }); end() })
+    const killLine = JSON.stringify({ op: 'kill' }) + '\n'
+    // on the next macrotask: with the launcher daemon down, a connect started inside the request that sends a chat
+    // message was an uncaught exception in Bun and ended the server (system/sockets.ts connectUnix)
+    connectUnix(this.sock, (s) => {
+      c = s
+      s.setEncoding('utf8')
+      s.on('data', (d: string) => {
+        buf += d
+        let i
+        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l) try { queue.push(JSON.parse(l)) } catch {} }
+        wake?.()
+      })
+      s.on('close', end); s.on('error', (e) => { queue.push({ ev: 'error', message: 'launcher: ' + e.message }); end() })
+      s.write(JSON.stringify(req) + '\n')
+      if (killed) s.write(killLine)
+    })
     return {
-      kill: () => { try { c.write(JSON.stringify({ op: 'kill' }) + '\n') } catch {} },
+      kill: () => { if (!c) { killed = true; return } try { c.write(killLine) } catch {} },
       events: {
         async *[Symbol.asyncIterator]() {
           while (true) {
-            if (queue.length) { const e = queue.shift()!; yield e; if (e.ev === 'exit' || e.ev === 'error') { c.end(); return } continue }
+            if (queue.length) { const e = queue.shift()!; yield e; if (e.ev === 'exit' || e.ev === 'error') { (c as net.Socket | null)?.end(); return } continue }
             if (ended) return
             await new Promise<void>((r) => (wake = r)); wake = null
           }

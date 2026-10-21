@@ -15,7 +15,7 @@ import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { UI_ORIGIN } from '../common/trust'
-import { directFromConnectInfo, fetchConnectInfo, mirrorSessionCookie, pinCertificates, probeDirect } from './direct'
+import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, mirrorSessionCookie, officeNameAnswers, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
@@ -66,6 +66,8 @@ export class AppWindow {
   private lastCheck = 0
   private configuredSessions = new WeakSet<Session>()
   private notifyTimes: number[] = []
+  /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
+  private lanReported = new Map<string, number>()
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -359,6 +361,7 @@ export class AppWindow {
     const d = this.team?.direct
     if (!d) return this.team!.origin
     const r = await probeDirect(d)
+    void this.reportLan(r.result, d)
     if (r.result === 'ok' && r.origin) {
       this.directOrigin = r.origin
       return r.origin
@@ -427,6 +430,7 @@ export class AppWindow {
     }
     const r = await probeDirect(d)
     debug('direct probe', r.result, r.origin ?? '')
+    void this.reportLan(r.result, d)
     if (r.result === 'mismatch') return this.onFingerprintMismatch(d.hosts[0]) // also leaves the direct address
     if (r.result === 'ok' && r.origin && !onDirect) await this.switchTo(r.origin, r.origin)
     else if (r.result !== 'ok' && onDirect) await this.switchTo(this.team.origin, null)
@@ -445,6 +449,24 @@ export class AppWindow {
     await this.loadOrigin(origin, path)
     if (!direct) this.directOrigin = null
     this.sendConnection()
+  }
+
+  /**
+   * Report a failed office connection to the team server through the team address (design tab 4 / 6: Diagnostics
+   * shows "office direct connection failed"). A different certificate is always reported; an address that does not
+   * answer only when the server Mac's Bonjour name answers on this network (otherwise the person is simply not in
+   * the office).
+   */
+  private async reportLan(result: ProbeResult, d: DirectInfo) {
+    const team = this.team
+    const code = lanFailureCode(result)
+    if (!team || !this.app || !code) return
+    const key = `${team.id}:${code}`
+    if (Date.now() - (this.lanReported.get(key) ?? 0) < 3600_000) return
+    if (code !== 'cert_mismatch' && !(await officeNameAnswers(d.hosts))) return
+    this.lanReported.set(key, Date.now())
+    const ok = await reportLanFailure(this.app.webContents.session, team.origin, code)
+    debug('lan failure report', code, ok ? 'sent' : 'not sent')
   }
 
   private onFingerprintMismatch(_host: string) {

@@ -12,7 +12,7 @@ import { z } from 'zod'
 import {
   ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  type Project, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
+  type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -20,6 +20,9 @@ import { makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
 
 type Json = Record<string, unknown>
+const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
+/** like a server whose relay.officialAvailable is off: the Team AX relay is not offered */
+const defaultConnection = (): ConnectionStatus => ({ mode: 'self-relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null }, teamName: 'acme', availableModes: ['self-relay', 'direct-only'] })
 class Fail extends Error {
   constructor(public code: ErrorCode, public status: number, msg?: string) {
     super(msg ?? ERROR_MESSAGES[code].ko)
@@ -67,6 +70,7 @@ export class MockServer {
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
+  connection: ConnectionStatus = defaultConnection()
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -123,6 +127,7 @@ export class MockServer {
     this.openAsks.clear()
     this.stopped.clear()
     this.revoked.clear()
+    this.connection = defaultConnection()
     if (!this.setupNeeded) this.seed()
     for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
   }
@@ -147,6 +152,10 @@ export class MockServer {
     this.folders[0]!.rules = [{ id: uuidv7(), folderId: this.folders[0]!.id, subjectType: 'group', subjectId: g.id, access: 'read', updatedBy: null, updatedAt: now() }]
     this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 1, sha256: 'a'.repeat(64), size: 20, author: { id: 'bob', name: 'Bob' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now() })
     this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 2, sha256: 'b'.repeat(64), size: 26, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now() })
+    // a version identical to the file as it is now (after a restore): shown as "same as now", not offered
+    this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 3, sha256: sha256Hex(this.files.get('marketing/plan.md')!.data!), size: 26, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'restore', conflictPath: null, createdAt: now() })
+    // finance is read-only for the owner here: versions can be downloaded, not restored
+    this.versions.push({ id: uuidv7(), path: 'finance/2026/q3.csv', version: 1, sha256: 'c'.repeat(64), size: 12, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now() })
   }
 
   /** like the server: people without their own language see the team default */
@@ -575,13 +584,17 @@ export class MockServer {
       this.trash.push(item)
       return { trashId: item.id, purgeAt: item.purgeAt }
     },
-    history: (c) => ({ path: c.query.path, items: this.versions.filter((v) => v.path === c.query.path) }),
+    history: (c) => {
+      const f = this.files.get(c.query.path!)
+      return { path: c.query.path, items: this.versions.filter((v) => v.path === c.query.path), currentSha256: f?.data ? sha256Hex(f.data) : null, canRestore: this.access(c.query.path!, c.user) === 'write' }
+    },
     versionDownload: (c) => {
       const v = this.versions.find((x) => x.id === c.params.versionId) ?? fail('not_found', 404)
       return new Response(`version ${v.version}`, { headers: { 'content-disposition': 'attachment' } })
     },
     restoreVersion: (c) => {
       const v = this.versions.find((x) => x.id === c.body.versionId) ?? fail('not_found', 404)
+      if (this.access(v.path, c.user) !== 'write') fail('forbidden', 403)
       this.versions.push({ ...v, id: uuidv7(), version: this.versions.filter((x) => x.path === v.path).length + 1, kind: 'restore', createdAt: now() })
       return { path: v.path, conflict: false, entry: this.entry(v.path, this.files.get(v.path)!, c.user) }
     },
@@ -673,6 +686,12 @@ export class MockServer {
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
       return { temporaryPassword: 'reset-password-9' }
     },
+    createResetLink: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (u.role === 'owner') fail('forbidden', 403)
+      const token = 'rst' + uuidv7().replace(/-/g, '')
+      return { token, url: `/reset-password/${token}`, expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString() }
+    },
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
@@ -759,7 +778,15 @@ export class MockServer {
       void c
       return { status: 202, body: { jobId: id } }
     },
-    connection: () => ({ mode: 'relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null } }),
+    connection: () => this.connection,
+    updateConnection: (c) => {
+      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
+      if (!(this.connection.availableModes ?? []).includes(c.body.mode)) fail('conflict', 409, 'This connection mode is not available in this version yet.')
+      if (c.body.mode !== 'direct-only' && !(c.body.teamName ?? this.connection.teamName)) fail('validation', 400)
+      this.connection = { ...this.connection, mode: c.body.mode, teamName: c.body.teamName ?? this.connection.teamName, state: c.body.mode === 'direct-only' ? 'disabled' : 'connecting', detail: 'Applies after the server restarts.' }
+      return this.connection
+    },
+    connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
   }
 
   enginesResponse() {

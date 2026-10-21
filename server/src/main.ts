@@ -7,11 +7,12 @@ import { PRODUCT } from '@mycel/shared'
 import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, type AppConfig } from './app-config'
 import { buildApp } from './app'
-import { createContext, type AppContext } from './context'
+import { createContext, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
 import { applyPendingRestore } from './system/backup'
+import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
 
 /** Exit codes the menubar app / launchd wrapper understand. */
 export const EXIT = { ok: 0, config: 78, schemaTooNew: 75, startFailed: 1 } as const
@@ -28,6 +29,26 @@ export function ensureSetupToken(cfg: AppConfig, db: AppContext['db']): string |
   return t
 }
 
+/**
+ * Say at start, in plain words, when the engine cannot work because of where the data lives: a socket path that does
+ * not fit in a Unix socket address (long data folder), or (macOS dev) a data folder under /tmp, which the engine
+ * sandbox denies. The server still starts (files, settings and the web app work); Diagnostics shows the same.
+ */
+export function checkSocketPaths(ctx: AppContext, log: Logger): string | null {
+  const long = socketPathProblems(ctx.config, ctx.engineConfig)
+  if (long.length) {
+    const m = socketPathMessage(long, ctx.config.mode === 'dev')
+    log.error(m, { sockets: long.map((x) => ({ name: x.name, path: x.path, bytes: x.bytes, max: x.max })) })
+    return m
+  }
+  if (process.platform === 'darwin' && ctx.config.mode === 'dev' && underSandboxDeniedTmp(ctx.engineConfig.runDir)) {
+    const m = `the data folder ${ctx.config.dataDir} is under a temporary folder (/tmp, /private/var/folders): the engine sandbox denies it, so chats can fail. Use a short folder in your home (the default ~/.team-ax-dev).`
+    log.warn(m)
+    return m
+  }
+  return null
+}
+
 export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve>[]; url: string; stop(): Promise<void> }
 
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
@@ -38,6 +59,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
   cfg.setupToken = ensureSetupToken(cfg, db)
+  checkSocketPaths(ctx, log)
   const app = await buildApp(ctx)
 
   const servers: ReturnType<typeof Bun.serve>[] = []
