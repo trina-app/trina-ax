@@ -47,7 +47,8 @@ export function resolveLayout(cfg: AppConfig, env: Record<string, string | undef
     statusDir: path.join(base, 'status'),
     pfStatusFile: path.join(base, 'run', 'pf.json'),
     setupDir: path.join(base, 'setup'),
-    secretsDir: path.join(base, 'secrets'),
+    // office mode keeps its secrets (tunnel token, the owner's setup-token) in <home>/config (700, files 600)
+    secretsDir: path.join(base, cfg.office ? 'config' : 'secrets'),
     dataDir: cfg.dataDir,
     teamRoot: cfg.teamRoot,
     logDir: cfg.logDir,

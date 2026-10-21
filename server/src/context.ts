@@ -16,6 +16,7 @@ import type { Logger } from './log'
 import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
 import type { LauncherSandbox } from './native'
+import { CLAUDE_CONNECT_HOSTS } from './proxy/connect'
 import { noSessions, nullRealtime, type Services } from './services'
 import { engineSockets, socketPathMessage, tooLongSockets, type SocketPathProblem } from './system/sockets'
 import pkg from '../package.json'
@@ -105,7 +106,22 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   }
   // the Mac user's Codex login opens to engines only when Codex is on (office mode turns it off)
   const sandbox = devEngineSandbox()
-  return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex } } : {}) } })
+  const sessionRoots = [path.join(os.homedir(), '.claude', 'projects')]
+  const tunnel = officeLoginProxy(ctx)
+  if (tunnel) {
+    // office mode with the Mac user's login (security round 4b): the engine sandbox gets no network but the proxy port
+    // (no :443 to any address, no DNS), and Claude Code reaches Anthropic through the proxy's CONNECT tunnel, which
+    // opens only to CLAUDE_CONNECT_HOSTS for a running Claude turn's own processes
+    return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy: tunnel, launcher: { allowCmds, sessionRoots, ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex, proxyPort: tunnel.port } } : {}) } })
+  }
+  return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots, ...(sandbox ? { sandbox: { ...sandbox, localCodex: !!codex } } : {}) } })
+}
+
+/** Office mode with the Mac user's own Claude login: the proxy that carries the engines' HTTPS (CONNECT to the Claude
+ * hosts only; no Claude HTTP path, no credential in it). null in every other mode. */
+export function officeLoginProxy(ctx: AppContext) {
+  if (!ctx.config.office || ctx.config.engine.authMode !== 'local-login') return null
+  return { ...prodProxyBase(ctx), upstreamUrl: null, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS } }
 }
 
 

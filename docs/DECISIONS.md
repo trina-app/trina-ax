@@ -899,6 +899,60 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
   클라이언트가 없음, 필드는 옛 클라이언트를 위해 남김). 기본 언어(`defaultLocale`)는 설정 때 고른 언어로 바뀌므로 약한 신호가
   남지만, 로그인 화면의 언어라서 받아들였다(영어를 고르면 신호 없음). 시험: `tests/security/r4-setup-state-oracle.test.ts`.
+## 보안 4차 보완: 사무실 엔진의 네트워크·`~/.claude.json`·구독 토큰 (sec/r4b, 2026-10-21)
+
+4차에서 남긴 사무실 엔진 항목 넷(SECURITY-AUDIT.md "4차" 8·9·10·13의 나머지)을 닫거나 닫을 길을 넣었다.
+
+- **엔진의 네트워크는 맥 안의 프록시 하나(4차 10, 8의 유출 절반).** 샌드박스 규칙은 호스트 이름을 쓸 수 없어 `*:443`·`udp *:53`을
+  열어 두었다(인터넷, 사무실 LAN의 차트 서버·NAS, DNS 이름으로 내보내기). 이제 사무실 모드(`office` + local-login)는 운영 설치의
+  모델 프록시를 **CONNECT 전용**(Claude HTTP 경로 없음, 자격 증명 없음, `upstreamUrl: null`)으로 `engine.proxyPort`(사무실 기본
+  47831, `TEAMAX_PROXY_PORT`)에 띄우고(`officeLoginProxy`, `context.ts`), Claude 턴마다 시도별 프록시 토큰을 발급해
+  `HTTPS_PROXY=http://turn:<토큰>@127.0.0.1:<포트>`로 준다(`ClaudeConf.connectProxy`, 토큰은 턴이 끝나면 취소). CONNECT 처리기
+  (`proxy/connect.ts`)는 엔진별 목록을 쓴다: Codex 턴은 `hosts`, Claude 턴은 `claudeHosts` = `CLAUDE_CONNECT_HOSTS`
+  (`api.anthropic.com:443`, `platform.claude.com:443`)이고, 운영(구독 모드)처럼 `claudeHosts`가 없으면 Claude 턴은 403. 토큰은
+  환경 변수라 같은 계정의 다른 프로세스가 읽을 수 있지만(KERN_PROCARGS2), 프록시가 TCP 상대가 그 턴의 엔진 세션인지 실행기에
+  물어 보므로 다른 턴은 쓸 수 없다(Codex와 같은 모델). `engine.sb`는 `PROXY_PORT`가 있으면 `LOCAL_LOGIN=1`이어도 `*:443`·
+  `udp *:53`·`/private/var/run/mDNSResponder`, mach `mDNSResponder`·`dnssd`·`trustd`·`trustd.agent`·`ocspd`를 열지 않는다(DNS는
+  이름으로 내보내는 길, trustd/ocspd는 인증서의 URL을 대신 가져오는 길). 개발(프록시 없음, `PROXY_PORT=0`)은 그대로다.
+  **호스트는 관찰로 정했다**: Claude Code 2.1.306의 실제 턴 두 번(맥 사용자의 로그인, 바뀐 프로필, 프록시가 CONNECT 대상을
+  찍게 한 관찰 턴 하나 + 최종 코드 턴 하나)에서 연결한 곳은 `api.anthropic.com:443`뿐이었고(WebSearch를 쓴 턴 포함: 웹 검색은
+  Anthropic 쪽 서버 도구), 거부된 CONNECT도, 샌드박스의 네트워크·DNS·trustd 거부도 없었다(`systemkeychaincheck.socket`
+  거부는 전부터 있던 것). 로그인 갱신 주소는 그 턴에 일어나지 않아 CLI 안의 `TOKEN_URL`
+  (`https://platform.claude.com/v1/oauth/token`, 2.1.306 바이너리에 있는 유일한 oauth/token 주소)로 정했다. 키체인 읽기는
+  trustd·DNS 없이 되는 것을 `sandbox-exec`에서 `/usr/bin/security find-generic-password`로 확인했다. 원격 측정·오류 보고·
+  자동 업데이트는 `CLAUDE_LOCK_ENV`로 꺼져 있어 다른 호스트가 필요 없다. 시험: `tests/security/r4b-office-engine-network.test.ts`
+  (프로브: `:443`·`udp 53`·mDNSResponder EPERM, 프록시 포트만 됨, 개발은 그대로; CONNECT: Claude 호스트 둘만, 다른 호스트·포트·LAN
+  주소·끝난 턴·다른 프로세스·Codex 턴 거부; 실제 사무실 엔진 코어 + 가짜 엔진의 턴에서 `HTTPS_PROXY`로 evil 거부·Anthropic 통과).
+- **`~/.claude.json` 자리의 링크(9의 나머지, 높음).** 4차의 MCP 지우기는 보통 파일이 아니면 건너뛰어, 턴이 `~/.claude.json`을
+  자기가 쓸 수 있는 파일로 가는 링크로 바꾸고 거기에 MCP 서버를 심으면 다음 대화형 `claude`까지 남았다. 백업
+  (`~/.claude.json.backup`, `~/.claude/backups/.claude.json.backup.<ms>`: 설정이 깨지면 CLI가 최신 백업을 되살림)은 아예 보지
+  않았다. 이제 `guardClaudeJson`은 링크를 **보통 파일로 바꾼다**(같은 폴더 임시 파일 + rename이라 링크 자체가 바뀌고 대상은 쓰지
+  않음): 링크가 가리키는 것이 홈 안의 보통 파일이고 Team AX 폴더(`~/TeamAX`, 데이터, 팀 폴더) 밖이면 그 내용을 MCP를 지워서,
+  아니면(홈 밖, Team AX 폴더 안, 폴더, 없음) 빈 설정 `{}`(대상 내용을 모든 턴이 읽는 곳으로 옮기지 않으려고). 하드 링크가 있는
+  파일도 새 파일로 쓴다. `guardClaudeJsonFamily`가 `~/.claude.json`, `.backup`, `backups/.claude.json.backup*`을 모두 보고, 백업
+  폴더 자리의 링크는 지운다. 감사 항목은 그대로 `engine.claude_json_mcp_removed`(키에 `(link replaced)`). 샌드박스도 막는다:
+  그 이름들에 심볼릭 링크 만들기(`file-write-create` + `vnode-type SYMLINK`; 채팅 폴더에서 만든 링크를 rename으로 옮기는 것도
+  같은 검사에 걸림)와 하드 링크(`file-link`)를 거부한다(실제 프로브로 확인). 시험: `tests/security/r4b-claude-json-link.test.ts`.
+- **`~/.claude.json` 형제 이름을 CLI가 쓰는 것만(13의 나머지, 낮음).** 4차의 `\.tmp\.[^/]+`·`\.backup[^/]*`와 `backups` 폴더
+  전체를 2.1.306이 실제로 쓰는 이름으로 좁혔다: `.lock`(proper-lockfile의 **폴더**), `.tmp.<pid>.<16진 12자>`(원자적 쓰기),
+  `.backup`(예전 버전), `~/.claude/backups`와 그 안의 `.claude.json.backup.<숫자>`. 관찰 방법: 같은 2.1.306을 가짜 HOME에서
+  `allow … (with report)` 프로필로 돌려 커널 샌드박스 기록에 남은 쓰기 이름을 모았고(`claude auth status`가 설정을 저장하는 같은
+  코드), 실제 턴(관찰 턴)에서는 `~/.claude.json`을 읽기만 하고 쓰지 않았으며 그 이름들에 대한 거부는 없었다. 깨진 설정의
+  사본(`.corrupted.<시각>`)은 거부된다: CLI가 "Could not back up corrupted config … continuing"을 남기고 계속한다. SBPL 정규식에
+  `{n}`이 없어(시험해 보니 맞지 않음) 16진 12자는 풀어 썼다. 시험: `tests/security/r4b-claude-json-names.test.ts`
+  (4차 시험의 `.tmp.4242.<13자리 숫자>`는 실제 형식이 아니어서 `<pid>.<16진 12자>`로 고쳤다).
+- **사무실도 구독 setup-token으로(8, 남은 높음).** 맥의 Claude 로그인을 엔진에서 떼는 유일한 방법은 엔진이 그 로그인을 아예 쓰지
+  않는 것이다. 운영의 구독 모드(모델 프록시가 턴별 가짜 토큰을 owner의 `claude setup-token` 토큰으로 바꿈, HOME·
+  `CLAUDE_CONFIG_DIR`은 채팅 폴더, `LOCAL_LOGIN=0`: 키체인·홈 파일·직접 네트워크 없음)를 사무실에서 고를 수 있게 했다:
+  `office-install.sh --claude-token-file <파일>` / `teamax configure --claude-token-file <파일>`이 토큰 형식(`TOKEN_RE`, 보통 파일만)을
+  확인해 `config/claude-oauth-token`(600)에 쓰고 `TEAMAX_CLAUDE_AUTH=subscription`; `--claude-auth local-login`으로 되돌림.
+  사무실 설치의 비밀 폴더(`resolveLayout().secretsDir`)는 `<home>/config`다(터널 토큰과 같은 곳, 700). 구독 모드면 설치기는
+  `claude auth status`를 보지 않는다(자동 업데이트의 `--update`도 office.env의 모드를 따름). 엔진 경로는 개발+구독 리허설
+  (`tests/unit/g-subscription.test.ts`)과 같은 코드라 새 프록시 코드는 없다. 시험: `tests/security/r4b-office-subscription.test.ts`
+  (토큰 저장·거부, server.json → 모델 프록시, 가짜 Anthropic으로 사무실 턴: 진짜 토큰만 위로, 엔진에 자격 증명 없음, 엔진이 맥의
+  `~/.claude.json`·키체인·`~/.claude`를 못 읽음). **실제 Anthropic으로는 아직 확인하지 않았다**: 실제 토큰이 없다. owner가
+  `claude setup-token`을 실행하면 한 턴으로 확인하고 exampleteam을 바꾼다. 그 전까지 exampleteam은 local-login(위 두 항목으로 좁힌 것)이다.
+
 ## 뜻으로 찾기: 로컬 임베딩 (feat/semantic-search, 2026-10-21)
 
 - **AI 도구 `search`**(`server/src/tools/search.ts`): 정확한 낱말·파일 이름을 모를 때 뜻으로 찾는다. 결과는 그 사람이 읽을 수 있는 파일의 구절과 경로(grep과 같은 `visiblePath`), 읽은 범위(readPaths)에 더해진다. 정확한 낱말은 계속 grep.

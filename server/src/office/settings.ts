@@ -9,6 +9,8 @@
 //     config/office.env        settings written by the installer (below)
 //     config/server.json       written by the supervisor at every start (do not edit: change office.env)
 //     config/tunnel-token      the Cloudflare Tunnel connector token of the public address (600; `teamax public-address`)
+//     config/claude-oauth-token the owner's `claude setup-token` token (600; office-install.sh --claude-token-file):
+//                              with it Claude runs through the model proxy, not with this Mac's login (security round 4b)
 //     logs/                    office.log (supervisor + launchd), tunnel.log (cloudflared), server/ (the server's JSON
 //                              logs, 14 days)
 //     status/                  status.json of the running server
@@ -23,6 +25,9 @@ import { hostPort, type OfficeNames } from './tls'
 export const DEFAULT_LABEL = 'app.team-ax.office'
 export const DEFAULT_APP_PORT = 47830
 export const DEFAULT_LAN_PORT = 8443
+/** the local proxy engines talk through (127.0.0.1 only): CONNECT to the Claude hosts with the Mac's login, the model
+ * proxy with a setup-token (security round 4b) */
+export const DEFAULT_PROXY_PORT_OFFICE = 47831
 /** plain-HTTP helper page with the CA certificate: lanPort - 1 by default, 0 = off */
 export const helperDefault = (lanPort: number) => lanPort - 1
 /** unix socket paths are limited to 104 bytes on macOS; <runDir>/private/server.sock must fit */
@@ -38,6 +43,12 @@ export interface OfficeSettings {
   runDir: string | null
   claudeBin: string | null
   codexBin: string | null
+  /** 'local-login': Claude Code with this Mac's own login (the engine can read it); 'subscription': the owner's
+   * setup-token in config/claude-oauth-token behind the model proxy, per-turn tokens, HOME without the login (closes
+   * SECURITY-AUDIT.md 4차 #8) */
+  claudeAuth: 'local-login' | 'subscription'
+  /** the local proxy port (127.0.0.1) */
+  proxyPort: number
   /** name constraints on a CA made from now on (an existing CA keeps what it has) */
   caConstraints: boolean
   /** VPN / tunnel interfaces and 100.64/10 in the certificate and the desk addresses (off: the office network only) */
@@ -57,6 +68,9 @@ export interface OfficePaths {
   logs: string; serverLogs: string; officeLog: string; info: string; card: string; setupToken: string; agentsDir: string; plist: (label: string) => string
   /** the connector token of the public address (600) and cloudflared's log */
   tunnelToken: string; tunnelLog: string
+  /** the owner's setup-token (subscription mode; CLAUDE_OAUTH_TOKEN_FILE in config/, which is the secrets folder of an
+   * office installation: system/layout.ts) */
+  claudeToken: string
 }
 
 export function officePaths(home: string, env: Record<string, string | undefined> = process.env): OfficePaths {
@@ -69,6 +83,7 @@ export function officePaths(home: string, env: Record<string, string | undefined
     info: path.join(h, 'ADDRESSES.txt'), card: path.join(h, 'DESK-CARD.html'), setupToken: path.join(h, 'data', 'setup-token'),
     agentsDir, plist: (label) => path.join(agentsDir, `${label}.plist`),
     tunnelToken: path.join(h, 'config', 'tunnel-token'), tunnelLog: path.join(h, 'logs', 'tunnel.log'),
+    claudeToken: path.join(h, 'config', 'claude-oauth-token'),
   }
 }
 
@@ -106,6 +121,8 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     runDir: e.TEAMAX_RUN_DIR ? path.resolve(e.TEAMAX_RUN_DIR) : null,
     claudeBin: e.TEAMAX_CLAUDE_BIN || null,
     codexBin: e.TEAMAX_CODEX_BIN || null,
+    claudeAuth: parseClaudeAuth(e.TEAMAX_CLAUDE_AUTH),
+    proxyPort: port(e.TEAMAX_PROXY_PORT, DEFAULT_PROXY_PORT_OFFICE, 'TEAMAX_PROXY_PORT'),
     caConstraints: e.TEAMAX_CA_CONSTRAINTS !== '0',
     includeVpn: e.TEAMAX_INCLUDE_VPN === '1',
     allowFrom: parseAllowFrom(e.TEAMAX_ALLOW_FROM),
@@ -114,9 +131,17 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     publicCountries: parseCountries(e.TEAMAX_PUBLIC_COUNTRIES),
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9.-]{2,100}$/.test(s.label)) throw new Error(`TEAMAX_LABEL ${s.label} is not a launchd label`)
-  const ports = [s.appPort, s.lanPort, ...(s.helperPort ? [s.helperPort] : [])]
-  if (new Set(ports).size !== ports.length) throw new Error('TEAMAX_APP_PORT, TEAMAX_LAN_PORT and TEAMAX_HELPER_PORT must differ')
+  const ports = [s.appPort, s.lanPort, s.proxyPort, ...(s.helperPort ? [s.helperPort] : [])]
+  if (new Set(ports).size !== ports.length) throw new Error('TEAMAX_APP_PORT, TEAMAX_LAN_PORT, TEAMAX_PROXY_PORT and TEAMAX_HELPER_PORT must differ')
   return s
+}
+
+/** TEAMAX_CLAUDE_AUTH: '' / 'local-login' (this Mac's Claude login) or 'subscription' (setup-token behind the proxy) */
+export function parseClaudeAuth(v: string | undefined): OfficeSettings['claudeAuth'] {
+  const t = (v ?? '').trim()
+  if (!t || t === 'local-login') return 'local-login'
+  if (t === 'subscription') return 'subscription'
+  throw new Error(`TEAMAX_CLAUDE_AUTH must be local-login or subscription (got ${v})`)
 }
 
 const CIDR = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/
@@ -174,6 +199,9 @@ export function settingsText(s: OfficeSettings): string {
     line('TEAMAX_RUN_DIR', s.runDir),
     line('TEAMAX_CLAUDE_BIN', s.claudeBin),
     line('TEAMAX_CODEX_BIN', s.codexBin),
+    '# Claude: local-login (this Mac\'s login) or subscription (config/claude-oauth-token, office-install.sh --claude-token-file)',
+    line('TEAMAX_CLAUDE_AUTH', s.claudeAuth),
+    line('TEAMAX_PROXY_PORT', s.proxyPort),
     line('TEAMAX_CA_CONSTRAINTS', s.caConstraints ? 1 : 0),
     line('TEAMAX_INCLUDE_VPN', s.includeVpn ? 1 : 0),
     line('TEAMAX_ALLOW_FROM', Array.isArray(s.allowFrom) ? s.allowFrom.join(',') : s.allowFrom),
@@ -226,7 +254,8 @@ export function allowedPeers(s: Pick<OfficeSettings, 'allowFrom'>, subnets: [str
   return (subnets.length ? subnets : [['10.0.0.0', '255.0.0.0'], ['172.16.0.0', '255.240.0.0'], ['192.168.0.0', '255.255.0.0']] as [string, string][]).map(cidr)
 }
 
-/** config/server.json for this installation: dev mode's engine setup (local-login, engine.sb, lockdown) with
+/** config/server.json for this installation: dev mode's engine setup (local-login, engine.sb, lockdown; or the
+ * owner's setup-token behind the model proxy with TEAMAX_CLAUDE_AUTH=subscription) with
  * office: true, plain HTTP on 127.0.0.1 only, TLS on 0.0.0.0 (IPv4) for the desks of the office subnet, and the
  * internet address (tunnel) when one is set: cloudflared delivers it to the loopback app port. Codex is
  * off (codexBin ''): the clinic's data goes to one AI provider, Anthropic, as the guide says. */
@@ -249,7 +278,10 @@ export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [st
     logLevel: 'info' as const,
     validateResponses: false,
     engine: {
-      authMode: 'local-login' as const,
+      // local-login: engines tunnel through the proxy to the Claude hosts only; subscription: the model proxy swaps the
+      // per-turn token for the setup-token in config/ (security round 4b)
+      authMode: s.claudeAuth,
+      proxyPort: s.proxyPort,
       ...(s.claudeBin ? { claudeBin: s.claudeBin } : {}),
       codexBin: s.codexBin ?? '',
       runDir: runDirFor(s),

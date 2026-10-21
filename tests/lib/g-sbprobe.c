@@ -1,6 +1,10 @@
 // Sandbox / firewall probe for the installer-ops tests (component G). One operation per run, exit 0 = allowed.
 //   probe read <file> | write <file> | list <dir> | tcp <ip> <port> | talk <ip> <port> | unix <socket path> | exec <program>
 //         | stat <path> | realpath <path> | procs | procargs <pid> | hold <ms> [ignored ...] | watchargv <needle> <marker> <ms>
+//         | net <ip> <port> | udp <ip> <port> | symlink <target> <link> | hardlink <file> <new> | rename <from> <to>
+//         | mkdir <dir>
+// net = TCP connect where only the sandbox's answer counts: exit 1 when the connect is refused with EPERM (the sandbox
+// said no), 0 otherwise (connected, or nothing listens: ECONNREFUSED). udp = one datagram, exit 1 on EPERM.
 // stat exits 0 (found), 1 (EPERM: the sandbox said no), 3 (ENOENT) or 4 (other error), so a test can tell "denied"
 // from "does not exist" (a denied stat must not reveal whether the path exists). procs = list every process
 // (KERN_PROC_ALL), procargs = read another process's argv (KERN_PROCARGS2).
@@ -99,6 +103,23 @@ int main(int argc, char **argv) {
     if (n <= 0) return fail("read");
     return 0;
   }
+  if (!strcmp(op, "net") || !strcmp(op, "udp")) {
+    if (argc < 4) return 2;
+    struct sockaddr_in s4; memset(&s4, 0, sizeof s4); s4.sin_family = AF_INET; s4.sin_port = htons(atoi(argv[3]));
+    if (inet_pton(AF_INET, a, &s4.sin_addr) != 1) return 2;
+    int udp = !strcmp(op, "udp");
+    int fd = socket(AF_INET, udp ? SOCK_DGRAM : SOCK_STREAM, 0); if (fd < 0) return fail("socket");
+    struct timeval tv = { 3, 0 }; setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    int r = udp ? (int)sendto(fd, "q", 1, 0, (struct sockaddr *)&s4, sizeof s4) : connect(fd, (struct sockaddr *)&s4, sizeof s4);
+    if (r < 0 && errno == EPERM) return fail(udp ? "sendto" : "connect");
+    return 0;
+  }
+  if (!strcmp(op, "symlink") || !strcmp(op, "hardlink") || !strcmp(op, "rename")) {
+    if (argc < 4) return 2;
+    int r = !strcmp(op, "symlink") ? symlink(a, argv[3]) : !strcmp(op, "hardlink") ? link(a, argv[3]) : rename(a, argv[3]);
+    return r < 0 ? fail(op) : 0;
+  }
+  if (!strcmp(op, "mkdir")) { if (mkdir(a, 0700) < 0) return fail("mkdir"); rmdir(a); return 0; }
   if (!strcmp(op, "unix")) {
     struct sockaddr_un su; memset(&su, 0, sizeof su); su.sun_family = AF_UNIX;
     strncpy(su.sun_path, a, sizeof su.sun_path - 1);

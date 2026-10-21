@@ -187,7 +187,7 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
     const ll = (...a: string[]) => probeWith({ localLogin: true, home: H, sessionDir: mine }, ...a)
     // what the CLIs need
     expect(ll('read', path.join(H, '.claude.json'))).toBe(0)
-    expect(ll('write', path.join(H, '.claude.json.tmp.1.abc'))).toBe(0)
+    expect(ll('write', path.join(H, '.claude.json.tmp.1.0fcd31173c31'))).toBe(0) // <pid>.<12 hex> (security round 4b)
     expect(ll('write', path.join(H, '.claude', 'backups', '.claude.json.backup.1'))).toBe(0)
     expect(ll('read', path.join(H, '.claude', 'settings.json'))).toBe(0)
     expect(ll('read', path.join(mine, 'old.jsonl'))).toBe(0)
