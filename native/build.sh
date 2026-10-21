@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap}.
+# Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap},
+# plus bin/darwin-<arch>/mycel-ocr (Swift, Apple Vision; only when built on a Mac with swiftc).
 #   bash native/build.sh                     arm64 (this repo's default; dev on Apple silicon)
 #   ARCHS=amd64 bash native/build.sh         Intel
 #   ARCHS="arm64 amd64" bash native/build.sh both, plus bin/darwin-universal (lipo) for a universal release bundle
@@ -20,8 +21,21 @@ for os in darwin linux; do
     echo "built $out"
   done
 done
+# OCR for scanned PDFs and images (read/grep): macOS 13+ (Korean text recognition), skipped without swiftc
+OCR=0
+if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
+  for arch in $ARCHS; do
+    t=$([[ $arch == amd64 ]] && echo x86_64 || echo arm64)
+    swiftc -O -target "$t-apple-macos13" -o "bin/darwin-$arch/mycel-ocr" ocr/main.swift
+  done
+  OCR=1
+  echo "built mycel-ocr"
+else
+  echo "native/build.sh: no swiftc (or not macOS): mycel-ocr not built, scanned PDFs and images won't be read" >&2
+fi
 if [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" amd64 "* ]]; then
   mkdir -p bin/darwin-universal
   for c in $CMDS; do lipo -create "bin/darwin-arm64/$c" "bin/darwin-amd64/$c" -output "bin/darwin-universal/$c"; done
+  if [[ $OCR == 1 ]]; then lipo -create bin/darwin-arm64/mycel-ocr bin/darwin-amd64/mycel-ocr -output bin/darwin-universal/mycel-ocr; fi
   echo "built bin/darwin-universal"
 fi
