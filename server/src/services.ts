@@ -6,7 +6,8 @@ import type { Attachment, ClientKind, ConnectionStatus, JobKind, Locale, Role, S
 /** Who is calling (set by the session middleware for every request). */
 export interface AuthInfo {
   user: { id: string; username: string; name: string; role: Role; locale: Locale; mustChangePassword: boolean }
-  session: { id: string; client: ClientKind }
+  /** expiresAt (ISO): when the session ends; the realtime hub closes the session's sockets then (no expiry: never) */
+  session: { id: string; client: ClientKind; expiresAt?: string }
   /** cookie: CSRF header required on state-changing requests; bearer: not */
   via: 'cookie' | 'bearer'
 }

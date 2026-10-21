@@ -123,3 +123,49 @@ describe('access_changed notice', () => {
     expect(mal.of('notice').map((n) => [n.data.code, n.data.message])).toEqual([['access_changed', 'shared/Design']])
   })
 })
+
+describe('session expiry', () => {
+  /** sign in, make this one session expire `ms` from now, open a window on it */
+  async function soonExpiring(username: string, ms: number) {
+    const m = await addMember(h, owner, { username })
+    const sid = (await m.client.call('GET', '/api/me')).session.id
+    h.ctx.db.query('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(h.auth.now() + ms).toISOString(), sid)
+    const conn = await connect(m.client, 'window-' + username)
+    expect(conn.of('hello').length).toBe(1)
+    return { ...m, sid, conn }
+  }
+
+  test('a socket whose session expired gets no more events: session.ended expired, close 4401', async () => {
+    const { conn } = await soonExpiring('eve', 2_000)
+    h.advance(5_000)
+    await owner.call('PUT', '/api/files/content', { path: 'shared/after-expiry.md', content: 'x', baseSha256: null })
+    expect(conn.text()).not.toContain('after-expiry')
+    expect(conn.of('session.ended').map((e) => e.data.reason)).toEqual(['expired'])
+    expect(conn.closed?.code).toBe(WsClose.unauthorized)
+  })
+
+  test('the hub sweep closes an expired socket even when nothing is published', async () => {
+    const { conn } = await soonExpiring('zed', 2_000)
+    h.advance(5_000)
+    hub.sweep()
+    expect(conn.of('session.ended').map((e) => e.data.reason)).toEqual(['expired'])
+    expect(conn.closed?.code).toBe(WsClose.unauthorized)
+  })
+
+  test('the session sweeper closes the sockets of the sessions it deletes', async () => {
+    const { conn, sid } = await soonExpiring('yan', 60_000)
+    // the row now says it is over (the hub still holds the old expiry): the hourly sweeper deletes it
+    h.ctx.db.query('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(h.auth.now() - 1000).toISOString(), sid)
+    expect(h.auth.sweepSessions()).toBeGreaterThanOrEqual(1)
+    expect(conn.of('session.ended').map((e) => e.data.reason)).toEqual(['expired'])
+    expect(conn.closed?.code).toBe(WsClose.unauthorized)
+  })
+
+  test('a REST request with the expired session ends its sockets too', async () => {
+    const { conn, sid, client } = await soonExpiring('ula', 60_000)
+    h.ctx.db.query('UPDATE sessions SET expires_at = ? WHERE id = ?').run(new Date(h.auth.now() - 1000).toISOString(), sid)
+    expect((await client.try('GET', '/api/me')).status).toBe(401)
+    expect(conn.of('session.ended').map((e) => e.data.reason)).toEqual(['expired'])
+    expect(conn.closed?.code).toBe(WsClose.unauthorized)
+  })
+})

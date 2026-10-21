@@ -91,7 +91,11 @@ export class AuthService implements SessionService {
     if (!row) return null
     const now = this.now()
     if (Date.parse(row.expires_at) <= now || row.status !== 'active' || row.deleted_at) {
-      if (Date.parse(row.expires_at) <= now) this.db.query('DELETE FROM sessions WHERE id = ?').run(row.sid)
+      if (Date.parse(row.expires_at) <= now) {
+        this.db.query('DELETE FROM sessions WHERE id = ?').run(row.sid)
+        // a window still open on this session must not keep receiving team events
+        this.ctx.services.realtime.disconnectSession?.(row.sid, 'expired')
+      }
       return null
     }
     if (now - Date.parse(row.s_seen) > TOUCH_MS) {
@@ -101,7 +105,7 @@ export class AuthService implements SessionService {
     }
     return {
       user: { id: row.id, username: row.username, name: row.name, role: row.role, locale: row.locale, mustChangePassword: !!row.must_change_password },
-      session: { id: row.sid, client: row.client },
+      session: { id: row.sid, client: row.client, expiresAt: row.expires_at },
       via: t.via,
     }
   }
@@ -166,8 +170,13 @@ export class AuthService implements SessionService {
       .all(userId, this.iso()) as SessionRow[]
   }
 
+  /** Delete expired sessions and close the windows still open on them (they were authenticated only at connect). */
   sweepSessions(): number {
-    return this.db.query('DELETE FROM sessions WHERE expires_at <= ?').run(this.iso()).changes
+    const at = this.iso()
+    const ids = (this.db.query('SELECT id FROM sessions WHERE expires_at <= ?').all(at) as { id: string }[]).map((r) => r.id)
+    const n = this.db.query('DELETE FROM sessions WHERE expires_at <= ?').run(at).changes
+    for (const id of ids) this.ctx.services.realtime.disconnectSession?.(id, 'expired')
+    return n
   }
 
   // ---------------- sign-in ----------------
