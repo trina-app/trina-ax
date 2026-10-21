@@ -13,6 +13,14 @@ describe('prepareMarkdown (ported from Saram)', () => {
     expect(prepareMarkdown('$x^2$ and $$a+b$$')).toBe('$x^2$ and $$a+b$$')
     expect(prepareMarkdown('$1$')).toBe('$1$')
   })
+  test('LaTeX delimiters \\( \\) and \\[ \\] become math (Codex writes them)', () => {
+    expect(prepareMarkdown('복리:\n\\[ A = P(1+r)^n \\]\n끝')).toBe('복리:\n\n$$\nA = P(1+r)^n\n$$\n\n끝')
+    expect(prepareMarkdown('\\(A\\): 최종 금액')).toBe('$A$: 최종 금액')
+    expect(prepareMarkdown('(\\(1,000,000 \\times 1.05^2\\))입니다')).toBe('($1,000,000 \\times 1.05^2$)입니다')
+    // an escaped bracket that is not math stays text; code is untouched
+    expect(prepareMarkdown('\\[주의\\] 확인')).toBe('\\[주의\\] 확인')
+    expect(prepareMarkdown('`\\(x\\)` and\n```\n\\[ a+b \\]\n```')).toBe('`\\(x\\)` and\n```\n\\[ a+b \\]\n```')
+  })
   test('code is left alone', () => {
     expect(prepareMarkdown('`$5` and\n```\n$PATH\n```')).toBe('`$5` and\n```\n$PATH\n```')
   })
