@@ -71,10 +71,12 @@ export const systemRoutes: RouteModule = {
     }
     const release = () => { busy = null }
 
-    kit.handle(API.health, (): Health => {
+    kit.handle(API.health, ({ c, auth }): Health => {
       let dbOk = true
       let applied = 0
       try { applied = schemaInfo(ctx.db).maxVersion } catch { dbOk = false }
+      // the office internet address, signed out: liveness only, no build fingerprint (attack review finding 1)
+      if (c.get('info').tunnel && !auth) return { ok: dbOk, time: new Date().toISOString() }
       return {
         ok: dbOk,
         version: ctx.version,

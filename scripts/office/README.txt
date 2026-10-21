@@ -10,8 +10,11 @@ Team AX 사무실 모드 (맥 한 대 + 같은 네트워크의 데스크 PC들)
      bash ~/Downloads/TeamAX-office-<버전>/office-install.sh \
        --public-host app.example.com --tunnel-token-file ~/Downloads/app.example.com.tunnel-token
 
-   인터넷 주소(--public-host)와 연결 토큰 파일은 원장님 맥에서 만든 것입니다(가이드 6장). 없으면 두 옵션을 빼고
+   인터넷 주소(--public-host)와 연결 토큰 파일은 원장님 맥에서 미리 만든 것입니다(가이드 2-0). 없으면 두 옵션을 빼고
    설치하고 나중에  ~/TeamAX/teamax public-address set <주소> <토큰 파일>.
+   설치가 끝나면 받은 토큰 파일은 지웁니다 (~/TeamAX/config 에 복사됨):
+     rm ~/Downloads/app.example.com.tunnel-token
+   --app-port 로 앱 포트를 바꿨다면 원장님 맥에서 public-address.ts set <주소> --port <그 포트> 를 한 번 더.
 
    관리자 암호(sudo)는 필요 없습니다. ~/TeamAX 에 설치됩니다.
    끝나면 데스크에서 열 주소와 첫 설정 링크가 나오고, 첫 설정 페이지가 이 맥의 브라우저에 열립니다.

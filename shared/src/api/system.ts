@@ -6,10 +6,13 @@ import { empty, endpoint } from './endpoint'
 
 export const Health = z.object({
   ok: z.boolean(),
-  version: z.string(),
+  /** version, schema and uptime are left out for a signed-out caller on the office internet address (docs/OFFICE.md
+   * "인터넷 주소"): the internet does not learn which build runs. Everyone else (this Mac, the office LAN, the relay,
+   * a signed-in person) gets them. */
+  version: z.string().optional(),
   /** schema version range this build reads */
-  schema: z.object({ applied: z.number().int(), readerLevel: z.number().int() }),
-  uptimeSec: z.number().nonnegative(),
+  schema: z.object({ applied: z.number().int(), readerLevel: z.number().int() }).optional(),
+  uptimeSec: z.number().nonnegative().optional(),
   time: IsoTime,
 })
 export type Health = z.infer<typeof Health>
