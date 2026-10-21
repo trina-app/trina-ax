@@ -7,15 +7,20 @@
 //   constant memory), a resumed download (Range: bytes=N- or N-<last byte>) as Bun.file().slice(N) to the end of the
 //   file (measured: Bun 1.3.12 ends that body correctly, direct and when the body is read; only slices that stop
 //   before the end lose their end), any other range from the bounded pull stream of team-files/download.ts.
+// - Only index.json and the files it lists are served (one name, no folders), each opened like a team file
+//   (O_NOFOLLOW, a regular file with one link): a symlink, hard link or stray file in the folder stays private.
 // - Cache-Control: private, so Cloudflare (which caches .exe / .dmg by extension) never keeps a copy it could hand to
-//   someone without a session; CORP same-origin like the API (sibling team addresses are the same site).
+//   someone without a session (a zone "Cache Everything" rule would override that: docs/OFFICE.md says to keep
+//   /downloads/* out of such rules), Vary: Cookie, Authorization for any other cache; CORP same-origin like the API
+//   (sibling team addresses are the same site).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { AppEnv } from '../http/env'
 import type { AppContext } from '../context'
 import { contentDisposition, parseRange, rangeStream, RANGE_MAX } from '../team-files/download'
-import { safeFile } from './web-static'
+import { openChecked } from '../team-files/place'
+import { readIndex, SAFE_NAME } from '../office/desktop'
 
 export const INSTALLER_TYPES: Record<string, string> = {
   '.exe': 'application/vnd.microsoft.portable-executable',
@@ -38,17 +43,23 @@ export async function downloadRoute(c: Context<AppEnv>, ctx: AppContext, dir: st
 /** The file part (no auth check): tests and the route above. */
 export function serveDownload(req: Request, sub: string, dir: string | null): Response {
   if (!dir || !fs.existsSync(dir)) return text(404, 'Not found\n')
-  const file = safeFile(path.resolve(dir), sub)
-  if (!file) return text(404, 'Not found\n')
+  let name: string
+  try { name = decodeURIComponent(sub.replace(/^\//, '')) } catch { return text(404, 'Not found\n') }
+  if (name !== 'index.json' && !(SAFE_NAME.test(name) && readIndex(dir).some((i) => i.file === name))) return text(404, 'Not found\n')
+  const file = path.join(path.resolve(dir), name)
   let st: fs.Stats
-  try { st = fs.statSync(file) } catch { return text(404, 'Not found\n') }
-  const name = path.basename(file)
+  try {
+    const opened = openChecked(file)
+    fs.closeSync(opened.fd)
+    st = opened.st
+  } catch { return text(404, 'Not found\n') }
   const size = st.size
   const etag = `"${st.ino.toString(36)}-${size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`
   const lastModified = st.mtime.toUTCString()
   const headers = new Headers({
     'Content-Type': INSTALLER_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream',
     'Cache-Control': 'private, no-cache',
+    'Vary': 'Cookie, Authorization',
     'Cross-Origin-Resource-Policy': 'same-origin',
     'X-Content-Type-Options': 'nosniff',
     'Accept-Ranges': 'bytes',

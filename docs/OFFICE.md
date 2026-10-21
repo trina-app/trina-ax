@@ -397,21 +397,34 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 서버에 올라온 데스크톱 앱이 없어요"가 나오면 맥 미니에 설치 파일이 아직 없는 것입니다. 올리는 길은 둘입니다:
 
 - **설치할 때 자동으로**: `Team-AX-Setup-<버전>-x64.exe`(윈도우)·`Team-AX-<버전>-mac-universal.dmg`(맥)를 office zip과 같은
-  폴더(보통 `~/Downloads`)에 두고 `office-install.sh`를 실행(또는 다시 실행)하면, 압축을 푼 폴더·그 옆·`~/Downloads`에서
-  찾아 플랫폼마다 가장 새 버전을 올리고 무엇을 올렸는지 출력합니다(`--no-desktop`으로 끔, `--check-only`는 올릴 파일만 보여 줌).
+  폴더(보통 `~/Downloads`)에 두고 `office-install.sh`를 실행(또는 다시 실행)하면, 압축을 푼 폴더와 그 옆에서 찾아 플랫폼마다
+  가장 새 버전을 올리고 무엇을 올렸는지 출력합니다(`--no-desktop`으로 끔, `--check-only`는 실제 실행과 같은 판단으로 올릴
+  파일만 보여 줌). zip 옆이 아닌 `~/Downloads`는 그 플랫폼 파일이 zip 옆에 없을 때만 보고, **물어본 뒤에만** 올립니다(예전
+  파일이나 엉뚱한 파일이 모두가 받는 앱이 되지 않게). `--with-desktop`으로 만든 zip에는 `desktop.sha256`이 들어 있어, 그때는
+  목록의 파일(이름과 SHA-256이 같은 것)만 올리고 나머지는 건너뛴다고 알려 줍니다.
 - **명령으로**:
   ```sh
   ~/TeamAX/teamax desktop add ~/Downloads/Team-AX-Setup-0.1.0-x64.exe   # 검사 → data/downloads에 복사 → 목록 갱신
   ~/TeamAX/teamax desktop list                                           # 올라간 것 (버전, 크기, 서명 여부)
   ~/TeamAX/teamax desktop remove Team-AX-Setup-0.1.0-x64.exe
   ```
-  `.exe`는 NSIS 설치 파일인지, `.dmg`는 디스크 이미지인지 확인하고 받습니다(다른 파일은 거절). 버전은 파일 이름에서 읽고,
-  이름에 없으면 `--version 0.2.0`. 같은 플랫폼의 이전 버전은 지워집니다(둘 다 두려면 `--keep`). 서버를 다시 시작할 필요는
-  없습니다. 파일은 `~/TeamAX/data/downloads/`(권한 600)에 있고 `index.json`이 목록입니다.
+  `.exe`는 NSIS 설치 파일인지, `.dmg`는 디스크 이미지인지, 그리고 **끝까지 다 있는지**(설치 파일 머리에 적힌 길이와 비교:
+  복사·내려받기가 중간에 끊긴 파일은 거절) 확인하고 받습니다. 버전은 파일 이름에서 읽고, 이름에 없으면 `--version 0.2.0`.
+  같은 플랫폼의 이전 버전은 지워집니다(둘 다 두려면 `--keep`). 서버를 다시 시작할 필요는 없습니다. 파일은
+  `~/TeamAX/data/downloads/`(폴더 700, 파일 600)에 있고 `index.json`이 목록입니다. 서버는 **목록에 있는 파일만** 내줍니다
+  (폴더에 다른 파일·링크가 있어도 안 보임).
+- **서명**: `서명 확인됨`은 실제 검사가 통과했을 때만입니다(윈도우: `osslsigncode verify`, 맥: Gatekeeper
+  `spctl -a -t open --context context:primary-signature`). 인증서가 붙어 있기만 하거나 ad-hoc 서명인 파일은 `서명 있음(확인 안
+  됨)`이고, 설정 → 앱은 SmartScreen·Gatekeeper 단계를 계속 보여 줍니다. 지금 빌드는 서명하지 않으므로 `서명 없음`.
+- **맥 dmg**: `-mac-universal.dmg`(인텔·애플 실리콘 모두)를 올리세요. `-mac-arm64.dmg`를 올리면 설정 → 앱에 "Apple Silicon(M1
+  이후) 맥 전용"이 붙고, 같은 버전이면 universal이 우선입니다.
 
 개발 맥에서 zip과 설치 파일을 함께 만들려면 `bun scripts/build-office.ts --with-desktop`(부록 A): 설치 파일은 zip 안이 아니라
 **zip 옆** `dist/office/`에 놓입니다(각 110–200 MB). 세 파일을 같은 폴더로 보내면 됩니다. 내려받기는 Cloudflare 인터넷 주소로도
-되고(이어받기 가능), Cloudflare가 복사본을 저장하지 않습니다(`Cache-Control: private`).
+되고(이어받기 가능), Cloudflare가 복사본을 저장하지 않습니다(`Cache-Control: private`, `Vary: Cookie, Authorization`).
+**Cloudflare 대시보드에서 이 이름에 "Cache Everything"·Edge Cache TTL 같은 캐시 규칙을 걸지 마세요**: 그런 규칙은 `private`를
+무시하고 `.exe`/`.dmg`를 확장자로 캐시해 로그인 없이 내줄 수 있습니다. 영역 전체에 캐시 규칙이 꼭 필요하면 `/downloads/*`를
+우회(Bypass cache)하는 Cache Rule을 먼저 두세요.
 
 ## 알려진 한계
 

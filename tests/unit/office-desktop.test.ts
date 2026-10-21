@@ -4,9 +4,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { desktopCommand, downloadsDir } from '../../server/src/office/cli'
+import { askTerminal, desktopCommand, downloadsDir } from '../../server/src/office/cli'
 import {
-  addInstaller, compareVersions, findInstallers, inspectInstaller, listInstallers, readIndex, removeInstaller, versionFromName,
+  addInstaller, compareVersions, findInstallers, inspectInstaller, listInstallers, macArchFromName, MANIFEST, readIndex, readManifest, removeInstaller,
+  sha256File, versionFromName,
 } from '../../server/src/office/desktop'
 import { serveDownload } from '../../server/src/routes/downloads'
 import { desktopInstallers } from '../../scripts/build-office'
@@ -18,7 +19,7 @@ const REPO = path.resolve(import.meta.dir, '..', '..')
 fs.rmSync(BASE, { recursive: true, force: true })
 fs.mkdirSync(BASE, { recursive: true })
 const mode = (f: string) => fs.statSync(f).mode & 0o777
-const noSign = () => false
+const noSign = () => 'none' as const
 
 /** A minimal PE32 file with the NSIS first header on a 512-byte boundary (what electron-builder's NSIS makes), and
  * optionally an Authenticode certificate table. */
@@ -36,6 +37,8 @@ function fakeExe(o: { nsis?: boolean; signed?: boolean; size?: number } = {}): B
     const at = 20 * 512
     Buffer.from([0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde]).copy(b, at)
     b.write('NullsoftInst', at + 8, 'latin1')
+    b.writeUInt32LE(200, at + 20) // length of the header
+    b.writeUInt32LE((o.signed ? size - 1024 : size) - at, at + 24) // everything from the first header on (CRC included)
   }
   if (o.signed) {
     const off = size - 1024
@@ -47,9 +50,11 @@ function fakeExe(o: { nsis?: boolean; signed?: boolean; size?: number } = {}): B
   }
   return b
 }
-function fakeDmg(size = 48 * 1024): Buffer {
+function fakeDmg(size = 48 * 1024, fork = size - 512): Buffer {
   const b = Buffer.alloc(size, 0x22)
   b.write('koly', size - 512, 'latin1')
+  b.writeBigUInt64BE(0n, size - 512 + 0x18) // data fork offset
+  b.writeBigUInt64BE(BigInt(fork), size - 512 + 0x20) // data fork length
   return b
 }
 function put(dir: string, name: string, data: Buffer | string): string {
@@ -61,20 +66,54 @@ function put(dir: string, name: string, data: Buffer | string): string {
 
 describe('installer checks and versions', () => {
   const D = path.join(BASE, 'inspect')
-  test('a Windows NSIS installer and a Mac disk image pass; signatures are read, not assumed', () => {
-    expect(inspectInstaller(put(D, 'a.exe', fakeExe()))).toEqual({ platform: 'windows', signed: false, kind: 'nsis' })
-    expect(inspectInstaller(put(D, 'b.exe', fakeExe({ signed: true })))).toEqual({ platform: 'windows', signed: true, kind: 'nsis' })
-    expect(inspectInstaller(put(D, 'c.dmg', fakeDmg()), { codesign: noSign })).toEqual({ platform: 'mac', signed: false, kind: 'udif' })
-    expect(inspectInstaller(put(D, 'd.dmg', fakeDmg()), { codesign: () => true }).signed).toBe(true)
-    // the real codesign on macOS: a made-up image is not signed
+  test('a Windows NSIS installer and a Mac disk image pass; a signature counts only when a real check passed', () => {
+    expect(inspectInstaller(put(D, 'a.exe', fakeExe()))).toEqual({ platform: 'windows', signed: false, signature: 'none', kind: 'nsis' })
+    // security review: a certificate table alone (junk inside) used to read as "signed" and hid the SmartScreen step
+    expect(inspectInstaller(put(D, 'b.exe', fakeExe({ signed: true })))).toEqual({ platform: 'windows', signed: false, signature: 'unverified', kind: 'nsis' })
+    expect(inspectInstaller(put(D, 'b2.exe', fakeExe({ signed: true })), { signature: () => 'verified' }).signed).toBe(true)
+    const asked: [string, boolean][] = []
+    inspectInstaller(put(D, 'b3.exe', fakeExe()), { signature: (_f, p, present) => { asked.push([p, present]); return 'verified' } })
+    expect(asked).toEqual([]) // no certificate table: nothing to verify, never 'verified'
+    expect(inspectInstaller(put(D, 'c.dmg', fakeDmg()), { signature: noSign })).toEqual({ platform: 'mac', signed: false, signature: 'none', kind: 'udif' })
+    expect(inspectInstaller(put(D, 'd.dmg', fakeDmg()), { signature: () => 'verified' }).signed).toBe(true)
+    expect(inspectInstaller(put(D, 'd2.dmg', fakeDmg()), { signature: () => 'unverified' }).signed).toBe(false)
+    // the real checks on macOS (Gatekeeper, not codesign alone): a made-up image is not signed
     expect(inspectInstaller(put(D, 'e.dmg', fakeDmg())).signed).toBe(false)
+  })
+  test.if(process.platform === 'darwin')('an ad-hoc signed .dmg (codesign --verify accepts it, Gatekeeper does not) is not verified', () => {
+    const img = path.join(D, 'blank.dmg'), dmg = path.join(D, 'Team-AX-0.0.1-mac-adhoc.dmg')
+    expect(Bun.spawnSync(['/usr/bin/hdiutil', 'create', '-quiet', '-size', '1m', '-fs', 'HFS+', '-volname', 'adhoc', '-ov', img]).exitCode).toBe(0)
+    expect(Bun.spawnSync(['/usr/bin/hdiutil', 'convert', '-quiet', img, '-format', 'UDZO', '-ov', '-o', dmg]).exitCode).toBe(0)
+    expect(Bun.spawnSync(['/usr/bin/codesign', '-s', '-', '-f', dmg]).exitCode).toBe(0)
+    expect(Bun.spawnSync(['/usr/bin/codesign', '--verify', dmg]).exitCode).toBe(0)
+    const r = inspectInstaller(dmg)
+    expect(r.signature).toBe('unverified')
+    expect(r.signed).toBe(false)
+  }, 60_000)
+  test('a copy cut short (interrupted download, USB, AirDrop) is refused: NSIS and UDIF say their own length', () => {
+    const exe = fakeExe({ size: 256 * 1024 })
+    expect(() => inspectInstaller(put(D, 'cut.exe', exe.subarray(0, 100 * 1024)))).toThrow(/cut short/)
+    const signedExe = fakeExe({ size: 256 * 1024, signed: true })
+    expect(() => inspectInstaller(put(D, 'cut-signed.exe', signedExe.subarray(0, signedExe.length - 10)))).toThrow(/cut short/)
+    const broken = fakeExe(); broken.writeUInt32LE(0, 20 * 512 + 24)
+    expect(() => inspectInstaller(put(D, 'broken.exe', broken))).toThrow(/NSIS header is damaged/)
+    const dmg = fakeDmg(64 * 1024)
+    expect(() => inspectInstaller(put(D, 'cut.dmg', dmg.subarray(0, 40 * 1024)), { signature: noSign })).toThrow(/not a whole Mac disk image/)
+    expect(() => inspectInstaller(put(D, 'cut2.dmg', fakeDmg(48 * 1024, 900 * 1024)), { signature: noSign })).toThrow(/cut short/)
+    // the real Windows installer (when this Mac has one): whole passes, its first 5 MB do not
+    const real = path.join(process.env.HOME ?? '', 'Downloads', 'Team-AX-Setup-0.1.0-x64.exe')
+    if (fs.existsSync(real)) {
+      expect(inspectInstaller(real).kind).toBe('nsis')
+      const fd = fs.openSync(real, 'r'); const head = Buffer.alloc(5 * 1024 * 1024); fs.readSync(fd, head, 0, head.length, 0); fs.closeSync(fd)
+      expect(() => inspectInstaller(put(D, 'Team-AX-Setup-0.2.0-x64.exe', head))).toThrow(/cut short/)
+    }
   })
   test('anything else is refused with the reason', () => {
     expect(() => inspectInstaller(put(D, 'x.exe', fakeExe({ nsis: false })))).toThrow(/not an NSIS installer/)
     expect(() => inspectInstaller(put(D, 'y.exe', Buffer.alloc(8192, 0x41)))).toThrow(/no MZ header/)
     const noPe = fakeExe(); noPe.write('XX', 0x80, 'latin1')
     expect(() => inspectInstaller(put(D, 'z.exe', noPe))).toThrow(/no PE header/)
-    expect(() => inspectInstaller(put(D, 'w.dmg', Buffer.alloc(8192, 1)))).toThrow(/not a Mac disk image/)
+    expect(() => inspectInstaller(put(D, 'w.dmg', Buffer.alloc(8192, 1)))).toThrow(/not a whole Mac disk image/)
     expect(() => inspectInstaller(put(D, 'v.zip', fakeDmg()))).toThrow(/only Windows .exe and Mac .dmg/)
     expect(() => inspectInstaller(put(D, 'tiny.exe', 'MZ'))).toThrow(/too small/)
   })
@@ -98,7 +137,7 @@ describe('teamax desktop add / list / remove', () => {
 
   test('add: copied with mode 600 into a 700 folder, listed in index.json (platform, version, size, signed, sha256)', () => {
     const exe = put(src, 'Team-AX-Setup-0.1.0-x64.exe', fakeExe())
-    const r = addInstaller(dir, exe, { codesign: noSign })
+    const r = addInstaller(dir, exe, { signature: noSign })
     expect(r.unchanged).toBe(false)
     expect(r.item).toMatchObject({ platform: 'windows', file: 'Team-AX-Setup-0.1.0-x64.exe', version: '0.1.0', size: 64 * 1024, signed: false })
     expect(r.item.sha256).toMatch(/^[0-9a-f]{64}$/)
@@ -112,9 +151,9 @@ describe('teamax desktop add / list / remove', () => {
   })
 
   test('the same file again changes nothing; a newer version replaces the older one (file removed too)', () => {
-    const again = addInstaller(dir, path.join(src, 'Team-AX-Setup-0.1.0-x64.exe'), { codesign: noSign })
+    const again = addInstaller(dir, path.join(src, 'Team-AX-Setup-0.1.0-x64.exe'), { signature: noSign })
     expect(again.unchanged).toBe(true)
-    const newer = addInstaller(dir, put(src, 'Team-AX-Setup-0.2.0-x64.exe', fakeExe({ size: 70 * 1024 })), { codesign: noSign })
+    const newer = addInstaller(dir, put(src, 'Team-AX-Setup-0.2.0-x64.exe', fakeExe({ size: 70 * 1024 })), { signature: noSign })
     expect(newer.removed).toEqual(['Team-AX-Setup-0.1.0-x64.exe'])
     expect(fs.existsSync(path.join(dir, 'Team-AX-Setup-0.1.0-x64.exe'))).toBe(false)
     expect(readIndex(dir).map((i) => i.file)).toEqual(['Team-AX-Setup-0.2.0-x64.exe'])
@@ -122,20 +161,20 @@ describe('teamax desktop add / list / remove', () => {
 
   test('an older one is refused while a newer one is offered, unless --keep (then both are listed)', () => {
     const old = put(src, 'Team-AX-Setup-0.1.5-x64.exe', fakeExe())
-    expect(() => addInstaller(dir, old, { codesign: noSign })).toThrow(/a newer Windows app is already offered/)
-    addInstaller(dir, old, { keep: true, codesign: noSign })
+    expect(() => addInstaller(dir, old, { signature: noSign })).toThrow(/a newer Windows app is already offered/)
+    addInstaller(dir, old, { keep: true, signature: noSign })
     expect(readIndex(dir).map((i) => i.version)).toEqual(['0.2.0', '0.1.5'])
     expect(removeInstaller(dir, 'Team-AX-Setup-0.1.5-x64.exe')).toBe(true)
     expect(removeInstaller(dir, 'Team-AX-Setup-0.1.5-x64.exe')).toBe(false)
   })
 
   test('platforms are independent; Windows is listed first; --version and an unsafe name', () => {
-    addInstaller(dir, put(src, 'Team-AX-0.2.0-mac-universal.dmg', fakeDmg()), { codesign: noSign })
+    addInstaller(dir, put(src, 'Team-AX-0.2.0-mac-universal.dmg', fakeDmg()), { signature: noSign })
     expect(readIndex(dir).map((i) => i.platform)).toEqual(['windows', 'mac'])
-    expect(() => addInstaller(dir, put(src, 'installer.dmg', fakeDmg()), { codesign: noSign })).toThrow(/pass --version/)
-    const odd = addInstaller(dir, put(src, '팀 AX 맥.dmg', fakeDmg()), { version: '0.3.0', codesign: noSign })
+    expect(() => addInstaller(dir, put(src, 'installer.dmg', fakeDmg()), { signature: noSign })).toThrow(/pass --version/)
+    const odd = addInstaller(dir, put(src, '팀 AX 맥.dmg', fakeDmg()), { version: '0.3.0', signature: noSign })
     expect(odd.item.file).toBe('Team-AX-0.3.0-mac.dmg')
-    expect(() => addInstaller(dir, put(src, 'Team-AX-Setup-1.0-x64.exe', fakeExe()), { version: '1.0; rm', codesign: noSign })).toThrow(/is not like 1.2.3/)
+    expect(() => addInstaller(dir, put(src, 'Team-AX-Setup-1.0-x64.exe', fakeExe()), { version: '1.0; rm', signature: noSign })).toThrow(/is not like 1.2.3/)
     expect(() => removeInstaller(dir, '../app.db')).toThrow(/not a file name/)
   })
 
@@ -175,6 +214,103 @@ describe('teamax desktop add / list / remove', () => {
   })
 })
 
+describe('add-from: which files office-install.sh may offer (security review: ~/Downloads)', () => {
+  const home = path.join(BASE, 'home-from')
+  const dir = downloadsDir(home)
+  const bundle = path.join(BASE, 'zipdir', 'TeamAX-office-0.1.0'), zipdir = path.dirname(bundle), dl = path.join(BASE, 'fake-Downloads')
+  const no = () => false
+  test('a file in ~/Downloads never replaces the one next to the bundle, even with a higher version', () => {
+    fs.mkdirSync(bundle, { recursive: true })
+    put(zipdir, 'Team-AX-Setup-0.1.0-x64.exe', fakeExe())
+    put(dl, 'Team-AX-Setup-9.9.9-x64.exe', fakeExe({ size: 66 * 1024 }))
+    const asked: string[] = []
+    const out: string[] = []
+    expect(desktopCommand(home, ['add-from', bundle, zipdir, '--fallback', dl], (x) => out.push(x), { ask: (q) => { asked.push(q); return true } })).toBe(0)
+    expect(asked).toEqual([])
+    expect(readIndex(dir).map((i) => i.version)).toEqual(['0.1.0'])
+    expect(out.join('\n')).not.toContain('9.9.9')
+  })
+  test('~/Downloads is looked at only for a platform the bundle has nothing for, and only added after a yes', () => {
+    put(dl, 'Team-AX-0.1.0-mac-universal.dmg', fakeDmg())
+    const dry: string[] = []
+    expect(desktopCommand(home, ['add-from', '--dry-run', bundle, zipdir, '--fallback', dl], (x) => dry.push(x), { ask: () => { throw new Error('a dry run never asks') } })).toBe(0)
+    expect(dry.join('\n')).toContain(`would ask about: ${path.join(dl, 'Team-AX-0.1.0-mac-universal.dmg')}`)
+    const out: string[] = []
+    expect(desktopCommand(home, ['add-from', bundle, zipdir, '--fallback', dl], (x) => out.push(x), { ask: no })).toBe(0)
+    expect(readIndex(dir).map((i) => i.platform)).toEqual(['windows'])
+    expect(out.join('\n')).toContain('not added')
+    expect(out.join('\n')).toContain(`desktop add "${path.join(dl, 'Team-AX-0.1.0-mac-universal.dmg')}"`)
+    let q = ''
+    expect(desktopCommand(home, ['add-from', bundle, zipdir, '--fallback', dl], () => {}, { ask: (x) => { q = x; return true } })).toBe(0)
+    expect(q).toContain(dl)
+    expect(readIndex(dir).map((i) => i.platform)).toEqual(['windows', 'mac'])
+    // no terminal (stdin not a TTY, as in this test run): the default answer is no
+    if (!process.stdin.isTTY) expect(askTerminal('?')).toBe(false)
+  })
+  test("with the bundle's desktop.sha256 only the listed files (name and hash) are offered, from any folder", () => {
+    const h2 = path.join(BASE, 'home-manifest'), d2 = downloadsDir(h2)
+    const b2 = path.join(BASE, 'zip2', 'TeamAX-office-0.2.0'), z2 = path.dirname(b2), dl2 = path.join(BASE, 'dl2')
+    fs.mkdirSync(b2, { recursive: true })
+    const good = put(dl2, 'Team-AX-Setup-0.2.0-x64.exe', fakeExe({ size: 68 * 1024 }))
+    put(z2, 'Team-AX-Setup-0.3.0-x64.exe', fakeExe({ size: 69 * 1024 })) // not built with this zip
+    put(z2, 'Team-AX-0.2.0-mac-universal.dmg', fakeDmg(50 * 1024)) // listed name, other content
+    fs.writeFileSync(path.join(b2, MANIFEST), `${sha256File(good)}  Team-AX-Setup-0.2.0-x64.exe\n${'0'.repeat(64)}  Team-AX-0.2.0-mac-universal.dmg\n`)
+    expect(readManifest(path.join(b2, MANIFEST))!.size).toBe(2)
+    expect(readManifest(path.join(b2, 'missing'))).toBeNull()
+    const out: string[] = []
+    expect(desktopCommand(h2, ['add-from', b2, z2, '--fallback', dl2, '--manifest', path.join(b2, MANIFEST)], (x) => out.push(x), { ask: () => { throw new Error('listed files need no question') } })).toBe(0)
+    expect(readIndex(d2).map((i) => `${i.platform} ${i.version}`)).toEqual(['windows 0.2.0'])
+    expect(out.join('\n')).toContain(`skipped: ${path.join(z2, 'Team-AX-Setup-0.3.0-x64.exe')}`)
+    expect(out.join('\n')).toContain(`skipped: ${path.join(z2, 'Team-AX-0.2.0-mac-universal.dmg')}`)
+  })
+  test('the preview says what the real run will do (newer already offered, same file again); a failed add does not claim success', () => {
+    const h3 = path.join(BASE, 'home-preview'), d3 = downloadsDir(h3), f3 = path.join(BASE, 'from-preview')
+    addInstaller(d3, put(path.join(BASE, 'src-preview'), 'Team-AX-Setup-0.2.0-x64.exe', fakeExe()), { signature: noSign })
+    put(f3, 'Team-AX-Setup-0.1.0-x64.exe', fakeExe())
+    const dry: string[] = []
+    expect(desktopCommand(h3, ['add-from', '--dry-run', f3], (x) => dry.push(x))).toBe(0)
+    expect(dry.join('\n')).toContain('a newer Windows app is already offered')
+    expect(dry.join('\n')).not.toContain('would add')
+    const real: string[] = []
+    expect(desktopCommand(h3, ['add-from', f3], (x) => real.push(x))).toBe(0)
+    expect(real.join('\n')).toContain('a newer Windows app is already offered')
+    expect(readIndex(d3).map((i) => i.version)).toEqual(['0.2.0'])
+    const f4 = path.join(BASE, 'from-same')
+    fs.copyFileSync(path.join(d3, 'Team-AX-Setup-0.2.0-x64.exe'), put(f4, 'Team-AX-Setup-0.2.0-x64.exe', ''))
+    const same: string[] = []
+    expect(desktopCommand(h3, ['add-from', '--dry-run', f4], (x) => same.push(x))).toBe(0)
+    expect(same.join('\n')).toContain('already offered')
+    // a broken installer: "not added", exit 1, and no "members download it" line
+    const h5 = path.join(BASE, 'home-broken'), f5 = path.join(BASE, 'from-broken')
+    put(f5, 'Team-AX-Setup-0.1.0-x64.exe', fakeExe().subarray(0, 20 * 1024))
+    const bad: string[] = []
+    expect(desktopCommand(h5, ['add-from', f5], (x) => bad.push(x))).toBe(1)
+    expect(bad.join('\n')).toContain('not added')
+    expect(bad.join('\n')).not.toContain('Settings → Apps')
+    expect(bad.join('\n')).toContain('no desktop app is offered yet')
+  })
+  test('a universal Mac image wins over an Apple-Silicon-only one of the same version; the arch is listed', () => {
+    const f = path.join(BASE, 'from-arch')
+    put(f, 'Team-AX-0.5.0-mac-arm64.dmg', fakeDmg())
+    expect(findInstallers([f])[0]!.file).toEndWith('mac-arm64.dmg')
+    put(f, 'Team-AX-0.5.0-mac-universal.dmg', fakeDmg())
+    expect(findInstallers([f])[0]!.file).toEndWith('mac-universal.dmg')
+    expect(macArchFromName('Team-AX-0.1.0-mac-arm64.dmg')).toBe('arm64')
+    expect(macArchFromName('Team-AX-0.1.0-mac-x64.dmg')).toBe('x64')
+    expect(macArchFromName('Team-AX-0.1.0-mac.dmg')).toBeUndefined()
+    const r = addInstaller(path.join(BASE, 'arch-dl'), path.join(f, 'Team-AX-0.5.0-mac-arm64.dmg'), { signature: noSign })
+    expect(r.item.arch).toBe('arm64')
+  })
+  test('usage: a missing file says so plainly; desktop --help is not an error', () => {
+    expect(desktopCommand(home, ['add', path.join(BASE, 'nope.exe')], () => {})).toBe(1)
+    expect(() => addInstaller(downloadsDir(home), path.join(BASE, 'nope.exe'))).toThrow(/no such file: .*nope\.exe/)
+    const help: string[] = []
+    expect(desktopCommand(home, ['--help'], (x) => help.push(x))).toBe(0)
+    expect(help.join('\n')).toContain('--version x.y.z')
+    expect(help.join('\n')).toContain('--keep')
+  })
+})
+
 describe('build-office.ts --desktop-prebuilt / --with-desktop', () => {
   test('the release files are checked and copied next to the zip under the names office-install.sh looks for', () => {
     const release = path.join(BASE, 'release'), out = path.join(BASE, 'dist-office')
@@ -200,6 +336,10 @@ describe('office-install.sh finds the installers next to the bundle', () => {
     fs.writeFileSync(path.join(B, 'app', 'server', 'src', 'office.js'), `const { main } = await import(${JSON.stringify(path.join(REPO, 'server', 'src', 'office', 'cli.ts'))}); process.exit(await main(process.argv.slice(2)))\n`)
     fs.copyFileSync(path.join(REPO, 'scripts', 'office', 'office-install.sh'), path.join(B, 'office-install.sh'))
     put(top, 'Team-AX-Setup-0.1.0-x64.exe', fakeExe())
+    // ~/Downloads: a higher Windows version there is not even looked at (the bundle's folder has one); a Mac image
+    // there would be asked about
+    put(path.join(BASE, 'fakehome', 'Downloads'), 'Team-AX-Setup-9.9.9-x64.exe', fakeExe())
+    put(path.join(BASE, 'fakehome', 'Downloads'), 'Team-AX-0.1.0-mac-universal.dmg', fakeDmg())
     const claude = path.join(BASE, 'claude')
     fs.writeFileSync(claude, `#!/bin/sh\n[ "$1 $2" = "auth status" ] && echo '{ "loggedIn": true }'\nexit 0\n`, { mode: 0o755 })
     const prefix = path.join(BASE, 'inst')
@@ -210,6 +350,8 @@ describe('office-install.sh finds the installers next to the bundle', () => {
     const out = p.stdout.toString() + p.stderr.toString()
     expect(p.exitCode).toBe(0)
     expect(out).toContain(`would add: ${path.join(top, 'Team-AX-Setup-0.1.0-x64.exe')} (Windows 0.1.0)`)
+    expect(out).not.toContain('Team-AX-Setup-9.9.9')
+    expect(out).toContain(`would ask about: ${path.join(BASE, 'fakehome', 'Downloads', 'Team-AX-0.1.0-mac-universal.dmg')}`)
     expect(fs.existsSync(prefix)).toBe(false)
     const skip = Bun.spawnSync(['bash', path.join(B, 'office-install.sh'), '--prefix', prefix, '--lan-port', '18453', '--app-port', '18440', '--run-dir', '/tmp/tx-od', '--check-only', '--no-desktop'], {
       stdout: 'pipe', stderr: 'pipe',
@@ -227,8 +369,8 @@ describe('/downloads/*: signed-in people only, resumable, never cached by Cloudf
     h = await harness('office-desktop-dl')
     owner = await withOwner(h)
     const src = put(path.join(BASE, 'dl-src'), 'Team-AX-Setup-0.1.0-x64.exe', exe)
-    addInstaller(path.join(h.ctx.config.dataDir, 'downloads'), src, { codesign: noSign })
-    addInstaller(path.join(h.ctx.config.dataDir, 'downloads'), put(path.join(BASE, 'dl-src'), 'Team-AX-0.1.0-mac-universal.dmg', fakeDmg()), { codesign: noSign })
+    addInstaller(path.join(h.ctx.config.dataDir, 'downloads'), src, { signature: noSign })
+    addInstaller(path.join(h.ctx.config.dataDir, 'downloads'), put(path.join(BASE, 'dl-src'), 'Team-AX-0.1.0-mac-universal.dmg', fakeDmg()), { signature: noSign })
   })
   afterAll(() => h.close())
 
@@ -315,6 +457,36 @@ describe('/downloads/*: signed-in people only, resumable, never cached by Cloudf
     // the URL parser folds %2e%2e away before routing: that is the app shell at /app.db, never the database
     expect(await (await owner.raw('GET', '/downloads/%2e%2e/app.db')).text()).not.toContain('SQLite')
     expect(serveDownload(new Request('http://x/downloads/a.exe'), '/a.exe', null).status).toBe(404)
+  })
+
+  test('only index.json and the files it lists: no hard link, stray file, other type or subfolder (security review)', async () => {
+    const dl = path.join(h.ctx.config.dataDir, 'downloads')
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'secret.txt'), 'SECRET')
+    fs.linkSync(path.join(h.ctx.config.dataDir, 'secret.txt'), path.join(dl, 'hard.txt'))
+    fs.writeFileSync(path.join(dl, 'stray.svg'), '<svg/>')
+    fs.writeFileSync(path.join(dl, 'Stray-1.0.0.exe'), 'x')
+    fs.mkdirSync(path.join(dl, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(dl, 'sub', 'x.html'), '<script>1</script>')
+    fs.symlinkSync(path.join(h.ctx.config.dataDir, 'secret.txt'), path.join(dl, 'Link-1.0.0.exe'))
+    for (const p of ['/downloads/hard.txt', '/downloads/stray.svg', '/downloads/Stray-1.0.0.exe', '/downloads/sub/x.html', '/downloads/sub%2fx.html', '/downloads/Link-1.0.0.exe']) {
+      const res = await owner.raw('GET', p)
+      expect(res.status, p).toBe(404)
+      expect(await res.text(), p).not.toContain('SECRET')
+    }
+    // a listed name that became a hard link to data outside the folder is refused too
+    const listed = path.join(dl, 'Team-AX-0.1.0-mac-universal.dmg')
+    const keep = fs.readFileSync(listed)
+    fs.rmSync(listed)
+    fs.linkSync(path.join(h.ctx.config.dataDir, 'secret.txt'), listed)
+    expect((await owner.raw('GET', '/downloads/Team-AX-0.1.0-mac-universal.dmg')).status).toBe(404)
+    fs.rmSync(listed)
+    fs.writeFileSync(listed, keep, { mode: 0o600 })
+    for (const f of ['hard.txt', 'stray.svg', 'Stray-1.0.0.exe', 'Link-1.0.0.exe']) fs.rmSync(path.join(dl, f))
+    fs.rmSync(path.join(dl, 'sub'), { recursive: true })
+    const ok = await owner.raw('GET', '/downloads/Team-AX-0.1.0-mac-universal.dmg')
+    expect(ok.status).toBe(200)
+    expect(ok.headers.get('vary')).toBe('Cookie, Authorization')
+    await ok.arrayBuffer()
   })
 
   test('through a real socket (the Cloudflare tunnel connects like this): whole file and resume end exactly', async () => {

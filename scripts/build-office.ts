@@ -17,14 +17,15 @@
 // The desktop app installers are NOT in the zip (110–200 MB each). --with-desktop builds them (desktop: dist:win and
 // dist:mac, the universal dmg; TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE make a clinic's kit build) and copies them next to
 // the zip as Team-AX-Setup-<v>-x64.exe and Team-AX-<v>-mac-universal.dmg; --desktop-prebuilt copies what
-// desktop/release already has. office-install.sh offers the ones it finds next to the unzipped folder (or in
-// ~/Downloads) under Settings → Apps, so the clinic gets the zip and the installers in the same folder.
+// desktop/release already has. Either way the installers are made first and the zip carries desktop.sha256 (their
+// names and SHA-256), so office-install.sh offers exactly those under Settings → Apps and nothing else it finds;
+// the clinic gets the zip and the installers in the same folder.
 // bun, ripgrep, pandoc and cloudflared (the connector of the office internet address, docs/OFFICE.md "인터넷 주소") come
 // from their GitHub releases, pinned by version and SHA-256 below, cached in dist/cache/ so a rebuild works offline.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { inspectInstaller } from '../server/src/office/desktop'
+import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 
 const REPO = path.resolve(import.meta.dir, '..')
 const ARCHS = [{ dir: 'darwin-arm64', bun: 'aarch64', rg: 'aarch64', pandoc: 'arm64', cf: 'arm64' }, { dir: 'darwin-amd64', bun: 'x64', rg: 'x86_64', pandoc: 'x86_64', cf: 'amd64' }] as const
@@ -117,7 +118,7 @@ function walk(d: string): string[] {
   return out
 }
 
-export async function buildOffice(o: { version: string; out: string; pandoc: boolean; keepStage?: boolean }) {
+export async function buildOffice(o: { version: string; out: string; pandoc: boolean; keepStage?: boolean; desktop?: { file: string; sha256: string }[] }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
   if (process.platform !== 'darwin') throw new Error('build the office bundle on a Mac (ditto, codesign)')
   for (const a of ARCHS) for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher']) {
@@ -186,6 +187,8 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
   if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, DESK_PDF))
   else console.warn(`warning: ${deskPdf} not built (bun docs/install/build-pdf.ts --windows)`)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
+  // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
+  if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
   const zip = path.join(o.out, `${name}-mac.zip`)
   fs.rmSync(zip, { force: true })
@@ -227,7 +230,8 @@ if (import.meta.main) {
   const version = arg('--version') ?? (JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'package.json'), 'utf8')) as { version: string }).version
   const out = path.resolve(arg('--out') ?? path.join(REPO, 'dist', 'office'))
   const withDesktop = process.argv.includes('--with-desktop'), prebuilt = process.argv.includes('--desktop-prebuilt')
-  const r = await buildOffice({ version, out, pandoc: !process.argv.includes('--no-pandoc'), keepStage: process.argv.includes('--keep-stage') })
+  // the installers first: the zip lists them (desktop.sha256)
   const desktop = withDesktop || prebuilt ? desktopInstallers({ out, build: withDesktop }) : null
+  const r = await buildOffice({ version, out, pandoc: !process.argv.includes('--no-pandoc'), keepStage: process.argv.includes('--keep-stage'), desktop: desktop ?? undefined })
   console.log(JSON.stringify({ ...r, ...(desktop ? { desktop } : {}) }, null, 1))
 }
