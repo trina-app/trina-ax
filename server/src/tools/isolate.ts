@@ -99,6 +99,9 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
     `(allow file-write* (subpath ${sq(real(o.workDir))}) (literal "/dev/null")${gpu.map((d) => ` (subpath ${sq(d)})`).join('')})`,
     `(deny file-read-data ${deny.map((d) => `(subpath ${sq(d)})`).join(' ')})`,
     `(allow file-read-data ${allowRead.map((d) => `(subpath ${sq(d)})`).join(' ')})`,
+    // the listing of the converter's own folder (not the files in it): Apple's frameworks look next to the executable
+    // (mycel-ocr's Vision request fails without it when the helper sits under a denied folder such as the home)
+    `(allow file-read-data (literal ${sq(path.dirname(real(o.cmd)))}))`,
   ].join('\n')
 }
 

@@ -9,7 +9,7 @@
 //   app/docs/OFFICE.md (the runbook; the person at the clinic has no copy of the repository)
 //   app/VERSION, app/teamax (control command), app/versions.json
 //   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
-//   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher}
+//   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-ocr}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
 //   app/scripts/macos/engine.sb, app/web/dist/
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
@@ -113,7 +113,7 @@ function walk(d: string): string[] {
 export async function buildOffice(o: { version: string; out: string; pandoc: boolean; keepStage?: boolean }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
   if (process.platform !== 'darwin') throw new Error('build the office bundle on a Mac (ditto, codesign)')
-  for (const a of ARCHS) for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher']) {
+  for (const a of ARCHS) for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']) {
     if (!fs.existsSync(path.join(REPO, 'native', 'bin', a.dir, b))) throw new Error(`native/bin/${a.dir}/${b} missing: run ARCHS="arm64 amd64" bash native/build.sh`)
   }
   if (!fs.existsSync(path.join(REPO, 'web', 'dist', 'index.html'))) throw new Error('web/dist missing: run bun run --cwd web build')
@@ -154,7 +154,7 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
     if (sha256(cf) !== CLOUDFLARED_BIN_SHA256[a.cf]) throw new Error(`cloudflared ${a.cf}: SHA-256 ${sha256(cf)}, expected ${CLOUDFLARED_BIN_SHA256[a.cf]}`)
     const nat = path.join(app, 'native', 'bin', a.dir)
     fs.mkdirSync(nat, { recursive: true })
-    for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher']) {
+    for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']) {
       fs.copyFileSync(path.join(REPO, 'native', 'bin', a.dir, b), path.join(nat, b))
       fs.chmodSync(path.join(nat, b), 0o755)
     }
