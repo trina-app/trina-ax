@@ -63,6 +63,20 @@ describe('a personal folder shared by moving it: what its owner deleted stays th
     expect((await item('alice', id))?.originalPath).toBe('users/alice/r2/a.md')
   })
 
+  test('moving a file leaves a trashed file that had the same path where it was deleted', async () => {
+    expect((await save('alice', 'users/alice/memo.md', 'OLD-PRIVATE-MEMO\n')).status).toBe(200)
+    const mine = await del('alice', 'users/alice/memo.md')
+    expect((await save('alice', 'users/alice/memo.md', 'new memo to share\n')).status).toBe(200)
+    expect((await move('alice', 'users/alice/memo.md', 'shared/memo.md')).status).toBe(200)
+    expect(await item('bob', mine)).toBeUndefined()
+    expect((await item('alice', mine))?.originalPath).toBe('users/alice/memo.md')
+    expect((await save('erin', 'groups/marketing/brief.md', 'old brief\n')).status).toBe(200)
+    const team = await del('erin', 'groups/marketing/brief.md')
+    expect((await save('erin', 'groups/marketing/brief.md', 'new brief\n')).status).toBe(200)
+    expect((await move('erin', 'groups/marketing/brief.md', 'groups/marketing/brief-2026.md')).status).toBe(200)
+    expect((await item('alice', team))?.originalPath).toBe('groups/marketing/brief.md')
+  })
+
   test('a team folder moved into someone\'s personal folder leaves the team\'s trash with the team', async () => {
     expect((await save('bob', 'shared/notes/team.md', 'TEAM-NOTE\n')).status).toBe(200)
     const id = await del('bob', 'shared/notes/team.md')

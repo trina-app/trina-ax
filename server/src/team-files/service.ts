@@ -326,9 +326,11 @@ export class TeamFiles {
       // moving it into a team folder, and what the team deleted stays the team's when someone moves the folder into
       // their personal folder. Otherwise the whole team saw and restored a file the owner had deleted on purpose
       // before sharing the folder (security review r3).
-      if (personalSide(fr.segs) === personalSide(target)) {
-        db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND ${under('original_path')}`)
-          .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
+      // Only what was inside the folder: a trashed file or folder that merely had the moved entry's own path was
+      // another one and stays where it was deleted.
+      if (isDir && personalSide(fr.segs) === personalSide(target)) {
+        db.query("UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/'")
+          .run(toRel, fr.rel, fr.rel, fr.rel)
       }
       fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
       fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
