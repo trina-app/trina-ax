@@ -44,7 +44,7 @@ for d in server launcher pf; do
 done
 # processes of the role accounts that outlived their daemon
 for u in "$SRV_USER" "$AGT_USER"; do
-  if id "$u" >/dev/null 2>&1; then pkill -KILL -u "$(id -u "$u")" >/dev/null 2>&1 || true; fi
+  if id "$u" >/dev/null 2>&1; then launchctl bootout "user/$(id -u "$u")" >/dev/null 2>&1 || true; pkill -KILL -u "$(id -u "$u")" >/dev/null 2>&1 || true; fi
 done
 
 # 2) firewall: empty our anchor, release our reference (pf stays as it was before us)
