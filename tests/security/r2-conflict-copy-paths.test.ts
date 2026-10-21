@@ -15,7 +15,7 @@ afterAll(async () => { await A.close() })
 type Who = 'alice' | 'bob' | 'carol' | 'dana' | 'erin'
 const q = (o: Record<string, string>) => '?' + new URLSearchParams(o).toString()
 const save = (who: Who, p: string, content: string, baseSha256: string | null) => A.json('/api/files/content', { as: who, ...jsonBody({ path: p, content, baseSha256 }, 'PUT') })
-const notices = () => A.hub.events.filter((e) => e.ev.type === 'files.conflict').map((e) => ({ to: e.userId, data: e.ev.data as { path: string; copyPath: string; by: { id: string } | null } }))
+const notices = () => A.hub.events.filter((e) => e.ev.type === 'files.conflict').map((e) => ({ to: e.userId, data: e.ev.data as { path: string; copyPath: string; by: { id: string; name: string } | null } }))
 const history = async (who: Who, p: string) => (await A.json('/api/files/history' + q({ path: p }), { as: who })).body.items as { kind: string; conflictPath: string | null }[]
 let rpc = 0
 async function tool(who: Who, name: string, args: unknown, tc = A.toolCtx(who, A.turn(who, A.chat(who)))) {

@@ -36,8 +36,9 @@ describe('uuidv7', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
   test('encodes the time', () => {
-    const t = Date.UTC(2026, 9, 21, 3, 4, 5, 678)
-    expect(uuidv7Time(uuidv7(t + 10_000))).toBe(t + 10_000)
+    // ahead of every id this process has made: uuidv7 never goes back in time, so a fixed date fails once the clock passes it
+    const t = Date.now() + 86_400_000
+    expect(uuidv7Time(uuidv7(t))).toBe(t)
   })
 })
 
