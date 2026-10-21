@@ -16,7 +16,7 @@ export default {
     const url = new URL(req.url)
     let key
     try { key = decodeURIComponent(url.pathname).replace(/^\/+/, '') } catch { return text(404, 'Not found\n') }
-    if (key === '') return text(200, 'Team AX updates\n')
+    if (key === '') return text(200, 'Office updates\n')
     if (!KEY.test(key)) return text(404, 'Not found\n')
     const obj = await env.BUCKET.get(key, { range: req.headers, onlyIf: req.headers })
     if (obj === null) return text(404, 'Not found\n')

@@ -27,6 +27,7 @@ import { compareVersions } from '../system/update'
 import { CHANNELS, decide, DEFAULT_FEED, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
 import { addInstaller, readIndex } from './desktop'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
+import { PRODUCT } from '@mycel/shared'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -354,6 +355,12 @@ export function pickOffice(r: OfficeRelease, arch = process.arch): ReleaseFile {
   return f
 }
 
+/** "<name>-office-<version>", name = letters, digits, . _ - (PRODUCT.officeBundle today; older or newer names too) */
+export function isOfficeFolder(name: string, version: string): boolean {
+  const suffix = `-office-${version}`
+  return name.endsWith(suffix) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name.slice(0, -suffix.length))
+}
+
 /** Unpack the zip into staging/<version>; returns the bundle folder (with office-install.sh and app/). */
 export async function unpack(zip: string, version: string, home: string, d: Pick<UpdateDeps, 'exec'>): Promise<string> {
   const base = path.join(updatePaths(home).staging, version)
@@ -362,7 +369,9 @@ export async function unpack(zip: string, version: string, home: string, d: Pick
   const r = await d.exec(['/usr/bin/ditto', '-x', '-k', zip, base], { capture: true, timeoutMs: 10 * 60_000 })
   if (r.code !== 0) throw new UpdateFailure(`unzip failed: ${r.out.slice(0, 500)}`)
   const top = fs.readdirSync(base).filter((n) => !n.startsWith('.') && n !== '__MACOSX')
-  if (top.length !== 1 || top[0] !== `TeamAX-office-${version}`) throw new UpdateFailure(`the zip does not hold TeamAX-office-${version}/ (found ${top.join(', ') || 'nothing'})`)
+  // one folder <name>-office-<version>: the name is PRODUCT.officeBundle, but any name is taken, so a renamed product's
+  // zip still updates an office installed under the old name (the signed manifest is what is trusted, not the name)
+  if (top.length !== 1 || !isOfficeFolder(top[0]!, version)) throw new UpdateFailure(`the zip does not hold ${PRODUCT.officeBundle}-${version}/ (found ${top.join(', ') || 'nothing'})`)
   const dir = path.join(base, top[0]!)
   const v = (() => { try { return fs.readFileSync(path.join(dir, 'app', 'VERSION'), 'utf8').trim() } catch { return '' } })()
   if (v !== version) throw new UpdateFailure(`the zip's app/VERSION is ${v || 'missing'}, the release says ${version}`)
@@ -566,7 +575,7 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
     phase('rollback', `${problem}: rolling back to ${current}`, target)
     let back: string | null = null
     try { back = await rollBack(home, current, target, d, o.healthWaitMs ?? HEALTH_WAIT_MS) } catch (e) { d.log(`rollback: ${(e as Error).message}`) }
-    if (back !== current) return fail(`${problem}; the rollback to ${current} did not answer either: run ${path.join(home, 'teamax')} status and office-install.sh from the TeamAX-office-${current} zip`)
+    if (back !== current) return fail(`${problem}; the rollback to ${current} did not answer either: run ${path.join(home, 'teamax')} status and office-install.sh from the ${PRODUCT.officeBundle}-${current} zip`)
     return fail(`${problem}; rolled back to ${current}`, 'rolled-back')
   }
   patchUpdateState(home, (x) => {

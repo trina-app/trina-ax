@@ -1,5 +1,5 @@
 #!/bin/bash
-# Team AX office mode control command (docs/OFFICE.md). Installed as <home>/app/teamax, linked from <home>/teamax.
+# Office mode control command (docs/OFFICE.md). Installed as <home>/app/teamax, linked from <home>/teamax.
 #
 #   ~/TeamAX/teamax status | start | stop | restart | logs [n] | info | card | setup-link
 #   ~/TeamAX/teamax reset-link [--username U]     one-time password reset link

@@ -1,4 +1,4 @@
-// Team AX menubar app (design tab 6 "서버 앱 구성 / 상태 읽기"). Shows whether the server is on, the remote-access
+// The menubar app (design tab 6 "서버 앱 구성 / 상태 읽기"). Shows whether the server is on, the remote-access
 // state (including "replaced by another instance"), queue and problems; opens the web screen and the logs folder.
 // Polls GET /api/health every minute (and right after opening the menu) and reads status/status.json, which the
 // server rewrites every 30 s (readable by the admin group). The setup assistant, AI-subscription connection and
@@ -10,7 +10,8 @@ import UserNotifications
 struct Settings {
     /// product id (folder names): Info.plist MycelProductId, overridden by --id <id>
     let productId: String
-    let displayName = "Team AX"
+    /// the product's name: Info.plist CFBundleDisplayName, which menubar/build.sh writes from shared/src/product.ts
+    let displayName: String
     var base: String { "/Library/Application Support/\(productId)" }
     var statusFile: String { "\(base)/status/status.json" }
 
@@ -18,13 +19,15 @@ struct Settings {
         var id = (Bundle.main.object(forInfoDictionaryKey: "MycelProductId") as? String) ?? "mycel"
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--id"), i + 1 < args.count { id = args[i + 1] }
-        return Settings(productId: id)
+        let name = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? ProcessInfo.processInfo.processName
+        return Settings(productId: id, displayName: name)
     }
 }
 
 @MainActor
 final class Monitor: ObservableObject {
-    @Published var state = MenuState(icon: .off, headline: "Team AX", lines: [], alert: nil, offerLoginItems: false, webUrl: nil)
+    @Published var state = MenuState(icon: .off, headline: "", lines: [], alert: nil, offerLoginItems: false, webUrl: nil)
     /// the team's default language from status.json, remembered for when the server is off
     @Published var lang: Lang = Lang.forTeam(nil, lastSeen: UserDefaults.standard.string(forKey: "teamLocale"))
     let settings = Settings.load()
@@ -32,6 +35,7 @@ final class Monitor: ObservableObject {
     private var notifiedReplaced = false
 
     init() {
+        state = MenuState(icon: .off, headline: settings.displayName, lines: [], alert: nil, offerLoginItems: false, webUrl: nil)
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
     }
@@ -83,10 +87,11 @@ final class Monitor: ObservableObject {
 
     func notify(_ text: String) {
         let c = UNUserNotificationCenter.current()
+        let title = settings.displayName
         c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
             guard ok else { return }
             let n = UNMutableNotificationContent()
-            n.title = "Team AX"
+            n.title = title
             n.body = text
             c.add(UNNotificationRequest(identifier: "replaced", content: n, trigger: nil))
         }
@@ -100,7 +105,7 @@ final class Monitor: ObservableObject {
 }
 
 @main
-struct TeamAXMenubar: App {
+struct MenubarApp: App {
     @StateObject private var monitor = Monitor()
 
     var body: some Scene {

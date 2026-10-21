@@ -10,6 +10,7 @@ import { siteKey, SitePermissions } from '../../desktop/src/common/site-permissi
 import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
 import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
 import { BrowserResult } from '../../shared/src/api/browser'
+import { PRODUCT } from '@mycel/shared'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -231,6 +232,6 @@ describe('UI strings', () => {
     expect(UI_LOCALES.map((l) => l.label)).toEqual(['English', '한국어', 'Bahasa Indonesia'])
     for (const l of ['en', 'id'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
     expect(t('en', 'perm.site.title', { host: 'shop.test' })).toBe('The AI wants to use shop.test')
-    expect(t('ko', 'err.notTeamServer')).toBe('이 주소는 Team AX 팀 서버가 아니에요.')
+    expect(t('ko', 'err.notTeamServer')).toBe(`이 주소는 ${PRODUCT.displayName} 팀 서버가 아니에요.`)
   })
 })

@@ -6,7 +6,7 @@
 // outside every sandbox, as that user: tunnel token, app.db, the team folder, the office CA key. Engine turns never
 // load it (--strict-mcp-config, --setting-sources ''), so office mode removes whatever MCP configuration it finds there,
 // at server start and after every Claude turn: the values are emptied, every other key stays as it was, and the
-// removal is written to the log and the audit list. The office Mac is dedicated to Team AX (docs/OFFICE.md 8).
+// removal is written to the log and the audit list. The office Mac is dedicated to this server (docs/OFFICE.md 8).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -44,7 +44,7 @@ export function stripMcp(j: Record<string, unknown>): string[] {
 export interface GuardOptions {
   /** the account's home: a link at the file may keep the content it points to only when that is a regular file in it */
   home?: string
-  /** folders whose files are never copied into the file through a link (Team AX's own data, team folder, config) */
+  /** folders whose files are never copied into the file through a link (the server's own data, team folder, config) */
   privateDirs?: string[]
 }
 
@@ -63,7 +63,7 @@ function replaceWith(file: string, j: Record<string, unknown>, mode: number) {
 }
 
 /** What a link at the file may keep (security round 4b): the content it points to when that is a regular file inside
- * the account's home and outside Team AX's own folders, else nothing ({}): a link out of the home, to a folder, to the
+ * the account's home and outside the server's own folders, else nothing ({}): a link out of the home, to a folder, to the
  * server's config or to a file a turn controls must not become the Mac user's Claude config. */
 function linkedContent(file: string, o: GuardOptions): Record<string, unknown> {
   const home = o.home ?? os.homedir()

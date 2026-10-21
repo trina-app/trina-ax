@@ -1,7 +1,7 @@
 #!/bin/bash
-# Team AX office mode installer (docs/OFFICE.md). No sudo: everything goes into your own home folder.
+# Office mode installer (docs/OFFICE.md). No sudo: everything goes into your own home folder.
 #
-#   bash office-install.sh [options]          from the unzipped TeamAX-office-<version> folder
+#   bash office-install.sh [options]          from the unzipped <name>-office-<version> folder
 #
 #   --prefix DIR         install folder (default ~/TeamAX). Data (data/, team/, tls/, config/) is never inside app/,
 #                        so running a newer zip's installer again updates the program and keeps everything else.
@@ -34,7 +34,7 @@
 # office mode (the clinic's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
-# for the desks and the first-run setup link. Desktop app installers (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg) in
+# for the desks and the first-run setup link. Desktop app installers (<base>-Setup-*-x64.exe, <base>-*-mac*.dmg) in
 # this folder or the folder it was unzipped into (where the zip usually is) are offered to the members under
 # Settings → Apps (the newest per platform). ~/Downloads is looked at only for a platform those have nothing for, and
 # its file is offered only after you answer yes. A bundle built with --with-desktop carries desktop.sha256: then only
@@ -48,6 +48,10 @@ CONF_ARGS=()
 OPEN=1 CHECK_ONLY=0 DESKTOP=1 UPDATE=0 TOKEN_FILE=
 die() { echo "office-install: $*" >&2; exit 1; }
 say() { echo "office-install: $*"; }
+# the product's names (app/product.env, written by build-office.ts from shared/src/product.ts): read, never sourced
+penv() { [ -f "$SRC/app/product.env" ] || return 0; sed -n "s/^$1=//p" "$SRC/app/product.env" | head -n 1; }
+PRODUCT_NAME=$(penv PRODUCT_NAME); PRODUCT_NAME=${PRODUCT_NAME:-the team server}
+OFFICE_PDF=$(penv PRODUCT_OFFICE_PDF)
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) PREFIX=$2; shift 2 ;;
@@ -63,7 +67,7 @@ while [ $# -gt 0 ]; do
 done
 
 # ---- checks ----
-[ "${TEAMAX_TEST_UNAME:-$(uname -s)}" = Darwin ] || die "Team AX office mode runs on macOS"
+[ "${TEAMAX_TEST_UNAME:-$(uname -s)}" = Darwin ] || die "$PRODUCT_NAME office mode runs on macOS"
 [ "$(id -u)" != 0 ] || die "do not use sudo: run it as the Mac user whose Claude Code login the team will use"
 OSV=${TEAMAX_TEST_OSVERSION:-$(sw_vers -productVersion 2>/dev/null || echo 0)}
 [ "${OSV%%.*}" -ge 13 ] 2>/dev/null || die "macOS 13 or newer is needed (this Mac: $OSV)"
@@ -72,7 +76,7 @@ case "${TEAMAX_TEST_ARCH:-$(uname -m)}" in
   x86_64) ARCH=darwin-amd64 ;;
   *) die "unsupported processor $(uname -m)" ;;
 esac
-[ -f "$SRC/app/VERSION" ] && [ -x "$SRC/app/bin/$ARCH/bun" ] && [ -f "$SRC/app/server/src/office.js" ] || die "$SRC is not an unpacked TeamAX-office bundle for $ARCH"
+[ -f "$SRC/app/VERSION" ] && [ -x "$SRC/app/bin/$ARCH/bun" ] && [ -f "$SRC/app/server/src/office.js" ] || die "$SRC is not an unpacked office bundle for $ARCH"
 VERSION=$(tr -d '[:space:]' < "$SRC/app/VERSION")
 case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
 # where desktop app installers may be: inside this folder and next to it (the zip's folder); ~/Downloads only as a
@@ -110,7 +114,7 @@ fi
 BUN_SRC="$SRC/app/bin/$ARCH/bun"
 "$BUN_SRC" --version >/dev/null 2>&1 || { xattr -d com.apple.quarantine "$BUN_SRC" 2>/dev/null || true; "$BUN_SRC" --version >/dev/null 2>&1 || die "$BUN_SRC does not run on this Mac"; }
 
-say "Team AX office mode $VERSION ($ARCH) -> $PREFIX"
+say "$PRODUCT_NAME office mode $VERSION ($ARCH) -> $PREFIX"
 if [ "$UPDATE" != 1 ]; then
 if [ "$SUBSCRIPTION" = 1 ]; then
   say "Claude Code: $CLAUDE with the owner's setup-token (subscription mode: the AI engine does not use or see this Mac's Claude login)"
@@ -158,7 +162,7 @@ if launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then sleep 1; fi
 NEW="$PREFIX/app.new"
 rm -rf "$NEW"
 mkdir -p "$NEW/bin" "$NEW/native/bin"
-for p in server scripts web docs teamax VERSION versions.json; do [ -e "$SRC/app/$p" ] && cp -R "$SRC/app/$p" "$NEW/$p"; done
+for p in server scripts web docs teamax VERSION versions.json product.env; do [ -e "$SRC/app/$p" ] && cp -R "$SRC/app/$p" "$NEW/$p"; done
 cp -R "$SRC/app/bin/$ARCH/." "$NEW/bin/"
 cp -R "$SRC/app/native/bin/$ARCH" "$NEW/native/bin/$ARCH"
 xattr -dr com.apple.quarantine "$NEW" 2>/dev/null || true
@@ -190,7 +194,7 @@ cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
 명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | desktop
-설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-치과-설치가이드.pdf)
+설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md${OFFICE_PDF:+ (PDF: 압축을 푼 폴더의 $OFFICE_PDF)}
 EOF
 if [ -n "$PUBLIC" ]; then
   cat <<EOF
@@ -209,8 +213,8 @@ cat <<EOF
   1. 잠자기 끄기·정전 후 자동 켜짐 (관리자 암호 필요, 한 번만) / never sleep, start after a power cut:
        sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
   2. 공유기에서 이 맥의 주소를 고정 (DHCP 예약) / reserve this Mac's address in the router (DHCP reservation)
-  3. 정전 뒤: FileVault가 켜져 있으면 맥 앞에서 암호를 한 번 입력하면 Team AX가 스스로 켜집니다.
-     after a power cut with FileVault on, type the Mac password once at the Mac; Team AX starts by itself.
+  3. 정전 뒤: FileVault가 켜져 있으면 맥 앞에서 암호를 한 번 입력하면 $PRODUCT_NAME 서버가 스스로 켜집니다.
+     after a power cut with FileVault on, type the Mac password once at the Mac; $PRODUCT_NAME starts by itself.
 EOF
 case "$FW" in
   *enabled*|*"State = 1"*|*"State = 2"*)
