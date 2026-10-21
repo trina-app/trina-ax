@@ -7,6 +7,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { Database } from 'bun:sqlite'
+import { openDb } from '../../server/src/db'
 import { loadAppConfig } from '../../server/src/app-config'
 import { sessionCookie } from '../../server/src/auth/service'
 import { ipKeys, limitIp, RateLimiter, tokenIpKeys } from '../../server/src/auth/rate-limit'
@@ -514,26 +516,55 @@ describe('LaunchAgent and restore', () => {
     }
   })
 
-  test('restore swap: archive database and team folder in place, the previous ones kept beside them, setup token gone', () => {
+  test('restore swap: archive database and team folder in place, the previous ones kept beside them, setup token gone, every sign-in ended', () => {
     const home = path.join(BASE, 'restore-home')
     const p = officePaths(home)
     fs.mkdirSync(p.data, { recursive: true })
     fs.mkdirSync(path.join(p.team, 'old'), { recursive: true })
     fs.writeFileSync(path.join(p.data, 'app.db'), 'old-db')
     fs.writeFileSync(path.join(p.data, 'app.db-wal'), 'wal')
+    fs.mkdirSync(path.join(p.data, 'sessions', 'chat-1'), { recursive: true })
+    fs.writeFileSync(path.join(p.data, 'sessions', 'chat-1', 's.jsonl'), 'stash')
     fs.writeFileSync(p.setupToken, 'token')
     const r = path.join(home, 'restore-1')
     fs.mkdirSync(path.join(r, 'db'), { recursive: true })
     fs.mkdirSync(path.join(r, 'team', 'users', 'desk1'), { recursive: true })
-    fs.writeFileSync(path.join(r, 'db', 'app.sqlite'), 'new-db')
+    // a real database as an archive holds it: sign-ins, a used and an unused reset link, a used and an unused invite
+    const ndb = openDb(path.join(r, 'db', 'app.sqlite'))
+    ndb.run("INSERT INTO users (id, username, name, role) VALUES ('u1', 'desk1', 'Desk', 'member')")
+    for (const id of ['s1', 's2']) ndb.run("INSERT INTO sessions (id, user_id, token_hash, client, created_at, last_seen_at, expires_at) VALUES (?, 'u1', ?, 'web', 'x', 'x', '2999-01-01')", [id, `h-${id}`])
+    ndb.run("INSERT INTO password_resets (id, user_id, token_hash, created_at, expires_at, used_at) VALUES ('r1', 'u1', 'hr1', 'x', '2999-01-01', NULL), ('r2', 'u1', 'hr2', 'x', '2999-01-01', 'x')")
+    ndb.run("INSERT INTO invites (id, role, token_hash, expires_at, used_at) VALUES ('i1', 'member', 'hi1', '2999-01-01', NULL), ('i2', 'member', 'hi2', '2999-01-01', 'x')")
+    ndb.close()
     const kept = swapInRestore(home, r, 'T')
-    expect(fs.readFileSync(path.join(p.data, 'app.db'), 'utf8')).toBe('new-db')
-    expect(fs.existsSync(path.join(p.data, 'app.db-wal'))).toBe(false)
+    expect(fs.existsSync(path.join(p.data, 'app.db-wal'))).toBe(false) // the old WAL is gone, the new copy has none
+    const db = new Database(path.join(p.data, 'app.db'))
+    const ids = (t: string) => (db.query(`SELECT id FROM ${t} ORDER BY id`).all() as { id: string }[]).map((x) => x.id)
+    expect(ids('users')).toEqual(['u1'])
+    expect(ids('sessions')).toEqual([])
+    expect(ids('password_resets')).toEqual(['r2'])
+    expect(ids('invites')).toEqual(['i2'])
+    db.close()
+    expect(fs.existsSync(path.join(p.data, 'sessions'))).toBe(false)
+    expect(fs.readFileSync(path.join(kept.sessions!, 'chat-1', 's.jsonl'), 'utf8')).toBe('stash')
     expect(fs.existsSync(path.join(p.team, 'users', 'desk1'))).toBe(true)
     expect(fs.readFileSync(kept.db, 'utf8')).toBe('old-db')
     expect(fs.existsSync(path.join(kept.team, 'old'))).toBe(true)
     expect(fs.existsSync(p.setupToken)).toBe(false)
     expect(fs.existsSync(r)).toBe(false)
+  })
+
+  test('restore swap: an unreadable archive database leaves the installation untouched', () => {
+    const home = path.join(BASE, 'restore-home-bad')
+    const p = officePaths(home)
+    fs.mkdirSync(p.data, { recursive: true })
+    fs.writeFileSync(path.join(p.data, 'app.db'), 'old-db')
+    const r = path.join(home, 'restore-1')
+    fs.mkdirSync(path.join(r, 'db'), { recursive: true })
+    fs.mkdirSync(path.join(r, 'team'), { recursive: true })
+    fs.writeFileSync(path.join(r, 'db', 'app.sqlite'), 'not a database')
+    expect(() => swapInRestore(home, r, 'T')).toThrow()
+    expect(fs.readFileSync(path.join(p.data, 'app.db'), 'utf8')).toBe('old-db')
   })
 })
 

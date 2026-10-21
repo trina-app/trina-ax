@@ -765,3 +765,18 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   가이드와 같은 모양), office zip에 함께 넣는다. 화면은 실제 앱(사무실 모드 시험 설치의 웹 앱, 데스크톱 앱, exampleteam 주소의 실제
   530 페이지)에서 찍었고, 윈도우에만 있는 화면(Edge 앱 설치, SmartScreen, 설치 창)은 글로만 썼다. 치과 가이드·OFFICE.md의 예시
   주소는 exampleteam으로 바꿨다(일반 설명의 자리표시는 그대로).
+
+## 보안 4차 (sec/r4, 2026-10-21)
+
+첫 치과 exampleteam 전에 사무실 모드(LAN·인터넷 주소·터널 스크립트·엔진)를 다시 공격한 결과를 고쳤다. 표와 남은 위험은
+[SECURITY-AUDIT.md](SECURITY-AUDIT.md) "4차".
+
+- **복원은 어느 길이든 로그인을 모두 끝낸다(4차 1).** `teamax restore-archive --replace`가 보관본의 세션을 그대로 살려, 보관본을
+  만든 뒤 로그아웃했거나 비밀번호를 바꿔 끝난 토큰이 다시 통했다(인터넷 주소로는 어디서나). 관리자 복원에만 있던
+  `endSessions`를 내보내 세 곳에서 쓴다: `admin.js restore-archive`가 풀 때(풀린 폴더를 쓰는 모든 길: 사무실 바꿔 넣기, 운영
+  설치에 손으로 넣기), 사무실 `swapInRestore`가 넣기 전에(실패하면 지금 설치는 그대로), 관리자 복원. 같은 이유로 **안 쓴
+  비밀번호 재설정 링크와 초대**도 지운다(보관본 뒤에 쓰였거나 거둔 링크가 되살아나지 않게; 쓴 기록은 남김). 사무실 바꿔 넣기도
+  `data/sessions`(엔진 세션 사본)를 `sessions.before-restore-<시각>`으로 옮긴다(관리자 복원과 같음). 복원 화면·`teamax`
+  도움말·OFFICE.md에 "모두 다시 로그인, 안 쓴 링크는 새로"를 적었다. 시험: `tests/security/r4-restore-archive-sessions.test.ts`
+  (실제 `admin.js archive`/`restore-archive` + 바꿔 넣기 + 같은 폴더로 서버 다시 열기: 로그아웃한 토큰 401),
+  `tests/unit/office.test.ts`(세션 0, 안 쓴 링크만 지움, `data/sessions` 옮김, 읽을 수 없는 DB면 그대로).
