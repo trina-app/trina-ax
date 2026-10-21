@@ -52,7 +52,7 @@ export class FileService {
   readonly events = new EventEmitter()
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     this.fx = { root: cfg.teamRoot, caseInsensitive: detectCaseInsensitive(cfg.teamRoot) }
-    this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext })
+    this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext, ocr: cfg.ocr })
   }
   rules() { return RuleSet.load(this.db) }
   principal(userId: string) { const p = loadPrincipal(this.db, userId); if (!p) throw new Denied('unknown or disabled user'); return p }
@@ -131,7 +131,7 @@ export class FileService {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const { bytes } = readRegular(r.abs)
-    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext })
+    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr })
     ctx.files.readHashes.set(r.rel, sha256(bytes))
     ctx.files.readPaths.add(r.rel)
     const lines = text.split(/\r?\n/)

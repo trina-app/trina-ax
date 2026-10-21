@@ -146,7 +146,6 @@ export function safeFile(root: string, urlPath: string): string | null {
 
 export interface WebOptions {
   dist: string
-  downloads: string | null
   dev: boolean
   devPort: number
 }
@@ -158,7 +157,8 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   if (p === '/api' || p.startsWith('/api/')) return null
   const root = path.resolve(o.dist)
 
-  if (p.startsWith('/downloads/')) return serveDownload(p.slice('/downloads'.length), o.downloads)
+  // desktop installers: routes/downloads.ts (signed-in people only) answers these before this handler runs
+  if (p.startsWith('/downloads/')) return new Response('Not found', { status: 404 })
   if (p === SANDBOX_FRAME_PATH) return serveSandboxFrame(url.host)
 
   const index = path.join(root, 'index.html')
@@ -192,20 +192,3 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) },
   })
 }
-
-function serveDownload(sub: string, dir: string | null): Response {
-  if (!dir || !fs.existsSync(dir)) return new Response('Not found', { status: 404 })
-  const file = safeFile(path.resolve(dir), sub)
-  if (!file) return new Response('Not found', { status: 404 })
-  const res = new Response(Bun.file(file))
-  if (path.basename(file) === 'index.json') {
-    res.headers.set('content-type', 'application/json; charset=utf-8')
-    res.headers.set('cache-control', 'no-cache')
-  } else {
-    res.headers.set('content-disposition', `attachment; filename="${path.basename(file).replace(/["\\\r\n]/g, '_')}"`)
-    res.headers.set('content-type', 'application/octet-stream')
-    res.headers.set('cache-control', 'no-cache')
-  }
-  return res
-}
-

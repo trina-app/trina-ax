@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
+import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/shared'
 import {
   type AcceptInviteBody, type ChangePasswordBody, type CompletePasswordResetBody, type CreateInviteBody, type Invite,
   type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
@@ -24,6 +25,29 @@ import { authOf } from './service'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 
 export const RESET_TTL_MS = 24 * 3600_000
+/** A temporary password (admin "add member" / "new temporary password") stops working this long after it was set. */
+export const TEMP_PASSWORD_TTL_MS = TEMP_PASSWORD_TTL_DAYS * 24 * 3600_000
+
+/** Until when a temporary password set now works (users.temp_password_expires_at). */
+export const tempPasswordExpiry = (now: number): string => new Date(now + TEMP_PASSWORD_TTL_MS).toISOString()
+
+/** The account's password is a temporary one that no longer works (expired, or voided after too many wrong tries). */
+const tempExpired = (u: UserRow, now: number) => !!u.must_change_password && !!u.temp_password_expires_at && Date.parse(u.temp_password_expires_at) <= now
+
+/**
+ * A wrong try against a temporary password: counted, and after TEMP_PASSWORD_MAX_FAILURES the temporary password is
+ * void (expires now) and the admin must give a new one (Admin > Members shows it). With ~23 bits per memorable
+ * temporary password this bounds an online guesser to about 50 / 10^7 (shared/src/temp-password.ts), whatever the
+ * per-account rate limit allows.
+ */
+function countTempFailure(ctx: AppContext, u: UserRow, now: number, ip: string | null): void {
+  if (!u.must_change_password || !u.temp_password_expires_at || tempExpired(u, now)) return
+  const r = ctx.db.query('UPDATE users SET temp_password_failures = temp_password_failures + 1 WHERE id = ? AND must_change_password = 1 RETURNING temp_password_failures').get(u.id) as { temp_password_failures: number } | null
+  if (r && r.temp_password_failures >= TEMP_PASSWORD_MAX_FAILURES) {
+    ctx.db.query('UPDATE users SET temp_password_expires_at = ? WHERE id = ?').run(new Date(now).toISOString(), u.id)
+    audit(ctx.db, { actor: null, action: 'auth.temp_password_voided', target: u.id, detail: { failures: r.temp_password_failures, ip } })
+  }
+}
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -137,27 +161,56 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   // a disabled account fails exactly like a wrong password (same 401, same words, still counted toward the limit):
   // a different answer would tell anyone that the account exists, is disabled and that this password is right
   if (!u || !ok || u.status !== 'active') {
+    if (u && !ok && u.status === 'active') countTempFailure(ctx, u, a.now(), ip)
     audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: viaOf(c.get('info')), ...(u && ok ? { disabled: true } : {}) } })
     fail('unauthorized', msg('badLogin', locale))
+  }
+  // the right temporary password, but too late: saying so tells nothing useful to anyone else (it no longer opens the
+  // account), and the person knows to ask for a new one. Still counted as a failure. A temporary password voided after
+  // TEMP_PASSWORD_MAX_FAILURES wrong tries answers like any wrong password: otherwise a guesser who caused the void
+  // could keep guessing (no longer counted) and be told when the guess is right.
+  if (tempExpired(u!, a.now())) {
+    const voided = u!.temp_password_failures >= TEMP_PASSWORD_MAX_FAILURES
+    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u!.id, detail: { ip, via: viaOf(c.get('info')), ...(voided ? { tempPasswordVoided: true } : { tempPasswordExpired: true }) } })
+    fail('unauthorized', msg(voided ? 'badLogin' : 'tempPasswordExpired', locale))
   }
   hold.release()
   // only this scope's failures: a correct password at the clinic must not hand an internet guesser ten more tries
   a.limiter.clear(accountKey(b.username, scope))
-  audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client } })
-  return a.signIn(c, u!.id, b.client, b.tokenMode)
+  const temp = !!u!.must_change_password
+  audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client, ...(temp ? { temporaryPassword: true } : {}) } })
+  return a.signIn(c, u!.id, b.client, b.tokenMode, { tempLogin: temp })
 }
 
 export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<typeof ChangePasswordBody>): Promise<void> {
   const a = authOf(ctx)
   const auth = c.get('auth')!
   const locale = c.get('locale')
-  if (!(await a.verifyPassword(auth.user.id, b.currentPassword, c.get('info')))) fail('forbidden', msg('wrongCurrentPassword', locale), { fields: { 'body.currentPassword': 'wrong password' } })
-  if (b.newPassword === b.currentPassword) fail('validation', msg('samePassword', locale), { fields: { 'body.newPassword': 'same as current' } })
+  // Without the current password only right after signing in with a temporary one: a session made by that sign-in
+  // (sessions.temp_login, at most an hour old) while the account must still change it (resolve() reports tempLogin
+  // only then). Any other session, settings included, must type the current password. Cookie requests also pass the
+  // CSRF check (custom header, same-site Origin) like every other change.
+  const forced = b.currentPassword === undefined
+  if (forced) {
+    if (!auth.session.tempLogin || !auth.user.mustChangePassword) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
+    const u = getUser(ctx.db, auth.user.id)
+    // the temporary password ran out (7 days) or was voided after this session was made: the session no longer
+    // stands for it, so it may not set a new password without it (sign in again with a new one from the admin)
+    if (!u || tempExpired(u, a.now())) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
+    if (await verifyPassword(b.newPassword, u!.password_hash)) fail('validation', msg('samePassword', locale), { fields: { 'body.newPassword': 'same as current' } })
+  } else {
+    if (!(await a.verifyPassword(auth.user.id, b.currentPassword!, c.get('info')))) fail('forbidden', msg('wrongCurrentPassword', locale), { fields: { 'body.currentPassword': 'wrong password' } })
+    if (b.newPassword === b.currentPassword) fail('validation', msg('samePassword', locale), { fields: { 'body.newPassword': 'same as current' } })
+  }
   checkNewPassword(b.newPassword, auth.user.username, locale, 'body.newPassword')
   const hash = await hashPassword(b.newPassword)
-  ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hash, auth.user.id)
+  // the forced path writes only while the account still has its temporary password (a second, parallel change in the
+  // same session finds must_change_password = 0 and is refused)
+  const changed = ctx.db.query(`UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?${forced ? ' AND must_change_password = 1' : ''}`).run(hash, auth.user.id).changes
+  if (!changed) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
+  if (auth.session.tempLogin) a.finishTempLogin(auth.session.id)
   const ended = a.endUserSessions(auth.user.id, 'password_changed', auth.session.id)
-  audit(ctx.db, { actor: auth.user.id, action: 'auth.password_changed', target: auth.user.id, detail: { otherSessionsEnded: ended, ip: c.get('info').ip } })
+  audit(ctx.db, { actor: auth.user.id, action: 'auth.password_changed', target: auth.user.id, detail: { otherSessionsEnded: ended, ip: c.get('info').ip, ...(forced ? { fromTemporary: true } : {}) } })
 }
 
 // ---------------- invites ----------------
@@ -328,7 +381,7 @@ export async function completeReset(c: Context<AppEnv>, ctx: AppContext, token: 
     const fresh = ctx.db.query('SELECT id, user_id, created_by, expires_at, used_at FROM password_resets WHERE id = ?').get(r!.id) as ResetRow | null
     if (!fresh || !resetUsable(ctx.db, fresh, getUser(ctx.db, u!.id), a.now())) return false
     if (ctx.db.query('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now, r!.id).changes !== 1) return false
-    ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, r!.created_by, now, u!.id)
+    ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, r!.created_by, now, u!.id)
     audit(ctx.db, { actor: u!.id, action: 'auth.password_reset', target: u!.id, detail: { by: r!.created_by, ip: c.get('info').ip } })
     return true
   })()
