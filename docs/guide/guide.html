@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Team AX 사용 설명서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<style>
+/* Team AX 사용 설명서 — A4 문서. build-pdf.ts가 Playwright로 PDF를 만든다.
+   하우스 스타일(~/.claude/slide_style.md)의 mint 강조·Inter/Space Grotesk를 A4 문서에 맞게 옮김. */
+:root{
+  --ink:#0A0A0A; --ink-2:#3A3A3A; --ink-3:#6B6B6B; --line:#E4E4E0; --paper:#FFFFFF; --soft:#F4F4F1;
+  --mint:#22F0A0; --mint-soft:#DDFBEF; --mint-ink:#0B7A52; --warn:#B45309; --warn-soft:#FFF4E0;
+  --font:'Pretendard','Inter','Apple SD Gothic Neo',-apple-system,sans-serif;
+  --num:'Space Grotesk','Inter',sans-serif;
+}
+@page{ size:A4; margin:15mm 17mm 17mm 17mm; }
+@page:first{ margin:0; }
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{background:var(--paper); color:var(--ink); font-family:var(--font); font-size:9.8pt; line-height:1.58; -webkit-font-smoothing:antialiased; word-break:keep-all; overflow-wrap:break-word;}
+@media screen{ body{max-width:210mm; margin:0 auto; padding:16mm 17mm; background:#fff;} html{background:#ddd;} }
+
+/* ---------------- cover ---------------- */
+.cover{ height:297mm; margin:0; padding:26mm 22mm 22mm; background:#0A0A0A; color:#fff; position:relative; overflow:hidden; break-after:page; display:flex; flex-direction:column; }
+@media screen{ .cover{margin:-16mm -17mm 16mm;} }
+.cover .brand{ font-family:var(--num); font-weight:700; font-size:15pt; letter-spacing:.02em; display:flex; align-items:center; gap:10px;}
+.cover .brand i{ width:12px; height:12px; background:var(--mint); border-radius:3px; display:inline-block;}
+.cover h1{ margin-top:62mm; font-size:40pt; line-height:1.15; font-weight:800; letter-spacing:-.02em;}
+.cover h1 .em{ background:var(--mint); color:#000; padding:0 10px; }
+.cover .sub{ margin-top:9mm; font-size:14pt; color:#cfcfcf; line-height:1.6; font-weight:500;}
+.cover .smile{ position:absolute; right:26mm; top:118mm; width:120px; height:54px; border:14px solid var(--mint); border-top:0; border-radius:0 0 120px 120px / 0 0 54px 54px; }
+.cover .meta{ margin-top:auto; display:flex; justify-content:space-between; align-items:flex-end; font-size:9.5pt; color:#9a9a9a; border-top:1px solid #2a2a2a; padding-top:6mm;}
+.cover .meta b{ color:#fff; font-weight:600;}
+.cover .who{ margin-top:14mm; display:flex; gap:10px; flex-wrap:wrap;}
+.cover .who span{ border:1px solid #333; border-radius:999px; padding:4px 12px; font-size:9.5pt; color:#ddd;}
+
+/* ---------------- headings ---------------- */
+section.chap{ break-before:page; }
+section.chap.flow{ break-before:auto; margin-top:8mm; }
+.chap-head{ display:flex; align-items:center; gap:12px; margin-bottom:4.5mm; padding-bottom:3mm; border-bottom:2px solid var(--ink); break-after:avoid;}
+.chap-head .no{ font-family:var(--num); font-weight:700; font-size:13pt; background:var(--mint); color:#000; min-width:30px; height:30px; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; padding:0 7px;}
+.chap-head h2{ font-size:19pt; font-weight:800; letter-spacing:-.02em; line-height:1.2;}
+.chap-head .for{ margin-left:auto; font-size:8.5pt; color:var(--ink-3); border:1px solid var(--line); border-radius:999px; padding:2px 10px; white-space:nowrap;}
+.lead{ font-size:10.6pt; color:var(--ink-2); margin-bottom:3.5mm;}
+h3{ font-size:12pt; font-weight:700; margin:5mm 0 2mm; break-after:avoid; display:flex; align-items:center; gap:8px; letter-spacing:-.01em;}
+h3::before{ content:""; width:4px; height:14px; background:var(--mint); border-radius:2px; display:inline-block; flex:none;}
+h3.first{ margin-top:0;}
+p{ margin:0 0 2mm; }
+ul,ol{ margin:0 0 2.5mm 5mm; }
+li{ margin:0 0 1mm; padding-left:1mm;}
+b,strong{ font-weight:700;}
+.ui{ font-weight:600; background:var(--soft); border:1px solid var(--line); border-radius:4px; padding:0 4px; font-size:.95em; white-space:nowrap;}
+.path{ font-family:'Inter',var(--font); font-size:.92em; color:var(--ink-2); background:var(--soft); border-radius:3px; padding:0 3px;}
+kbd{ font-family:var(--num); font-size:.85em; border:1px solid #cfcfca; border-bottom-width:2px; border-radius:4px; padding:0 4px; background:#fff;}
+
+/* numbered steps that match the pins on screenshots */
+.n{ font-family:var(--num); font-weight:700; font-size:8.5pt; display:inline-flex; align-items:center; justify-content:center; width:17px; height:17px; border-radius:50%; background:var(--ink); color:var(--mint); vertical-align:1px; margin-right:3px; flex:none;}
+ol.steps{ list-style:none; margin-left:0; break-inside:avoid;}
+ol.steps li{ padding-left:0; margin-bottom:1.5mm;}
+ol.steps li .n{ margin-right:6px;}
+
+/* ---------------- screenshots ---------------- */
+figure.shot{ margin:2.5mm 0 3mm; break-inside:avoid; }
+figure.shot .frame{ position:relative; border:1px solid #D9D9D4; border-radius:8px; overflow:hidden; box-shadow:0 5px 7px -4px rgba(0,0,0,.16), 0 2px 2px -1px rgba(0,0,0,.08); background:#fff; line-height:0;}
+figure.shot img{ width:100%; display:block; }
+figure.shot figcaption{ font-size:8.6pt; color:var(--ink-3); margin-top:1.5mm; line-height:1.45;}
+figure.shot.center{ margin-left:auto; margin-right:auto; }
+.pin{ position:absolute; width:19px; height:19px; border-radius:50%; background:var(--ink); color:var(--mint); font:700 10px/19px var(--num); text-align:center; box-shadow:0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,.35); z-index:3;}
+.box{ position:absolute; border:2.2px solid var(--mint); border-radius:6px; box-shadow:0 0 0 1px rgba(0,0,0,.22); z-index:2;}
+.row{ display:flex; gap:5mm; align-items:flex-start; break-inside:avoid; }
+.row > *{ flex:1; min-width:0; }
+.row .side{ flex:1.1; }
+.row figure.shot{ margin-top:1mm; }
+
+/* ---------------- boxes ---------------- */
+.tip,.warn,.note{ border-radius:8px; padding:2.8mm 4mm; margin:2.5mm 0 3mm; break-inside:avoid; font-size:9.5pt; line-height:1.56;}
+.tip{ background:var(--mint-soft); border-left:4px solid var(--mint);}
+.warn{ background:var(--warn-soft); border-left:4px solid #F2A33A;}
+.note{ background:var(--soft); border-left:4px solid #BDBDB6;}
+.tip > b:first-child,.warn > b:first-child,.note > b:first-child{ display:block; margin-bottom:.6mm; font-size:9.8pt;}
+.tip > b:first-child::before{ content:"TIP  "; font-family:var(--num); color:var(--mint-ink); }
+.warn > b:first-child::before{ content:"주의  "; color:var(--warn); }
+.tip p:last-child,.warn p:last-child,.note p:last-child{ margin-bottom:0;}
+.tip ul,.warn ul,.note ul{ margin-bottom:0;}
+
+/* ---------------- tables ---------------- */
+table.t{ width:100%; border-collapse:collapse; font-size:9.2pt; margin:2mm 0 3.5mm; break-inside:avoid;}
+table.t th{ text-align:left; font-weight:700; background:var(--soft); border-bottom:1.5px solid var(--ink); padding:1.8mm 2.5mm;}
+table.t td{ border-bottom:1px solid var(--line); padding:1.6mm 2.5mm; vertical-align:top;}
+table.t td.c, table.t th.c{ text-align:center;}
+.yes{ color:var(--mint-ink); font-weight:700;}
+.ro{ color:#7a5a12; font-weight:600;}
+.no{ color:#B3B3AD;}
+
+/* ---------------- folder picture (chapter 1) ---------------- */
+.folders{ display:grid; grid-template-columns:repeat(4,1fr); gap:3mm; margin:3.5mm 0 3mm;}
+.fd{ border:1.5px solid var(--ink); border-radius:4px 10px 10px 10px; padding:3mm 3mm 3mm; position:relative; background:#fff; break-inside:avoid;}
+.fd::before{ content:""; position:absolute; top:-7px; left:-1.5px; width:42%; height:8px; border:1.5px solid var(--ink); border-bottom:0; border-radius:6px 6px 0 0; background:#fff;}
+.fd .k{ font-size:11.5pt; font-weight:800; }
+.fd .p{ font-family:'Inter',var(--font); font-size:8.3pt; color:var(--ink-3);}
+.fd .w{ margin-top:2mm; font-size:8.8pt; line-height:1.45; color:var(--ink-2);}
+.fd.me{ background:var(--mint-soft);}
+.fd.me::before{ background:var(--mint-soft);}
+.aiflow{ display:flex; align-items:center; gap:3mm; margin:2mm 0 3mm; font-size:9.6pt;}
+.aiflow .who{ border:1.5px solid var(--ink); border-radius:999px; padding:1.5mm 4mm; font-weight:700; white-space:nowrap;}
+.aiflow .ai{ background:var(--ink); color:var(--mint); border-radius:8px; padding:1.5mm 4mm; font-weight:700; font-family:var(--num); white-space:nowrap;}
+.aiflow .arrow{ color:var(--ink-3); font-family:var(--num);}
+
+/* ---------------- toc ---------------- */
+.toc-title{ font-size:20pt; font-weight:800; letter-spacing:-.02em; margin-bottom:6mm; display:flex; align-items:center; gap:10px;}
+.toc-title::before{ content:""; width:10px; height:22px; background:var(--mint); border-radius:3px;}
+ol.toc{ list-style:none; margin:0 0 8mm; border-top:1.5px solid var(--ink);}
+ol.toc li{ display:flex; align-items:baseline; gap:4mm; padding:2.6mm 0; border-bottom:1px solid var(--line); margin:0;}
+ol.toc .no{ font-family:var(--num); font-weight:700; width:8mm; color:var(--ink);}
+ol.toc .tt{ font-weight:600; font-size:11pt;}
+ol.toc .ds{ color:var(--ink-3); font-size:9pt; margin-left:2mm;}
+ol.toc .pg{ margin-left:auto; font-family:var(--num); font-weight:700;}
+.legend{ display:grid; grid-template-columns:1fr 1fr; gap:3mm 6mm; font-size:9.3pt;}
+.legend > div{ display:flex; gap:3mm; align-items:flex-start;}
+.qs{ display:grid; grid-template-columns:repeat(3,1fr); gap:3mm; margin:3mm 0 6mm;}
+.qs > div{ border:1px solid var(--line); border-radius:8px; padding:3mm 3.5mm; background:var(--soft);}
+.qs .big{ font-family:var(--num); font-weight:700; font-size:16pt; color:var(--ink); line-height:1;}
+.qs .h{ font-weight:700; margin:1.5mm 0 .5mm;}
+.qs p{ font-size:9pt; color:var(--ink-2); margin:0;}
+
+/* ---------------- faq ---------------- */
+.faq{ margin-bottom:3mm; break-inside:avoid;}
+.faq .q{ font-weight:700; font-size:10.5pt; display:flex; gap:6px;}
+.faq .q::before{ content:"Q"; font-family:var(--num); color:var(--mint-ink); font-weight:700;}
+.faq .a{ padding-left:15px; color:var(--ink-2);}
+.faq .a p{ margin-bottom:1mm;}
+.faq .a ul{ margin-bottom:1mm;}
+.small{ font-size:8.8pt; color:var(--ink-3);}
+.endnote{ margin-top:6mm; padding-top:3mm; border-top:1px solid var(--line); font-size:8.6pt; color:var(--ink-3);}
+dl.kv{ break-inside:avoid; display:grid; grid-template-columns:auto 1fr; gap:1.6mm 4mm; margin:2mm 0 3mm; font-size:9.5pt;}
+dl.kv dt{ font-weight:700; white-space:nowrap;}
+dl.kv dd{ color:var(--ink-2);}
+</style>
+</head>
+<body>
+
+<!-- ============================================================ cover -->
+<div class="cover" id="cover">
+  <div class="brand"><i></i>Team AX</div>
+  <h1>Team AX<br><span class="em">사용 설명서</span></h1>
+  <p class="sub">우리 팀 AI를 처음 쓰는 분을 위한 안내서예요.<br>채팅, 팀 파일, 관리자 화면까지 화면 그대로 보여 드려요.</p>
+  <div class="smile"></div>
+  <div class="who"><span>팀원</span><span>팀장·관리자</span><span>웹 · 맥 앱 · 휴대폰</span></div>
+  <div class="meta">
+    <div><b>Team AX 0.1</b> · 2026년 10월</div>
+    <div>화면은 실제 앱(데모 팀)에서 찍었어요.</div>
+  </div>
+</div>
+
+<!-- ============================================================ toc -->
+<section class="toc-page">
+  <div class="toc-title">차례</div>
+  <ol class="toc">
+    <li><span class="no">01</span><span class="tt">Team AX가 뭔가요</span><span class="ds">팀 AI와 폴더 권한</span><span class="pg" data-toc="c1"></span></li>
+    <li><span class="no">02</span><span class="tt">접속하기</span><span class="ds">웹 · 데스크톱 앱 · 휴대폰</span><span class="pg" data-toc="c2"></span></li>
+    <li><span class="no">03</span><span class="tt">로그인과 내 설정</span><span class="ds">초대 링크 · 비밀번호 · 언어 · 로그아웃</span><span class="pg" data-toc="c3"></span></li>
+    <li><span class="no">04</span><span class="tt">AI와 채팅하기</span><span class="ds">첨부 · 멈추기 · 다시 생성 · 수정 · 대기</span><span class="pg" data-toc="c4"></span></li>
+    <li><span class="no">05</span><span class="tt">팀 파일</span><span class="ds">올리기 · 미리보기 · 고치기 · 버전 · 휴지통</span><span class="pg" data-toc="c5"></span></li>
+    <li><span class="no">06</span><span class="tt">AI가 만든 결과물</span><span class="ds">파일 만들기 · 결과물 창</span><span class="pg" data-toc="c6"></span></li>
+    <li><span class="no">07</span><span class="tt">데스크톱 앱의 브라우저</span><span class="ds">AI가 웹사이트에서 일하기</span><span class="pg" data-toc="c7"></span></li>
+    <li><span class="no">08</span><span class="tt">기억과 프로젝트</span><span class="ds">메모리 · 프로젝트 지침</span><span class="pg" data-toc="c8"></span></li>
+    <li><span class="no">09</span><span class="tt">팀장·관리자용</span><span class="ds">멤버 · 그룹 · 폴더 권한 · 사용량 · 기록 · 팀 설정</span><span class="pg" data-toc="c9"></span></li>
+    <li><span class="no">10</span><span class="tt">자주 묻는 질문</span><span class="ds">내 폴더와 대화는 누가 보나요</span><span class="pg" data-toc="c10"></span></li>
+  </ol>
+
+  <h3>3분 만에 시작하기</h3>
+  <div class="qs">
+    <div><div class="big">1</div><div class="h">팀 주소 열기</div><p>팀장에게 받은 주소를 브라우저나 Team AX 앱에 넣어요.</p></div>
+    <div><div class="big">2</div><div class="h">로그인</div><p>초대 링크를 받았다면 링크를 열어 계정을 만들어요.</p></div>
+    <div><div class="big">3</div><div class="h">물어보기</div><p>“shared 폴더의 회의록에서 할 일만 정리해 줘”처럼 편하게 말해요.</p></div>
+  </div>
+
+  <h3>이 설명서 보는 법</h3>
+  <div class="legend">
+    <div><span class="n">1</span><span>화면 속 번호는 설명의 번호와 같아요. 초록 테두리는 설명하는 곳이에요.</span></div>
+    <div><span class="ui">새 채팅</span><span>화면에 보이는 버튼·메뉴 이름이에요.</span></div>
+    <div><span class="path">shared/회의록</span><span>팀 폴더 안의 위치예요.</span></div>
+    <div><span class="n" style="background:#F2A33A;color:#000">!</span><span>주의 상자는 꼭 알아 둘 점, TIP 상자는 알면 편한 점이에요.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ 1 -->
+<section class="chap" id="c1">
+  <div class="chap-head"><span class="no">01</span><h2>Team AX가 뭔가요</h2></div>
+  <p class="lead">Team AX는 우리 팀이 함께 쓰는 AI 작업 공간이에요. ChatGPT나 Claude처럼 대화하면서, <b>팀 폴더에 있는 회의록·엑셀·PDF를 AI가 직접 읽고 정리</b>해 줘요. 사무실 맥 한 대(팀 서버)에서 돌아가고, 팀 파일과 대화는 그 맥에 저장돼요.</p>
+
+  <h3>가장 중요한 한 가지: 각자 볼 수 있는 만큼만</h3>
+  <p>내 AI는 <b>내가 볼 수 있는 폴더만</b> 읽고 쓸 수 있어요. 재무팀 폴더를 못 보는 사람이 AI에게 “급여 파일 보여 줘”라고 해도, AI는 그런 파일이 없는 것처럼 대답해요.</p>
+  <div class="aiflow"><span class="who">나</span><span class="arrow">→</span><span class="ai">내 AI</span><span class="arrow">→</span><span>내가 볼 수 있는 폴더만 읽고 써요. 다른 사람의 AI도 마찬가지예요.</span></div>
+
+  <div class="folders">
+    <div class="fd"><div class="k">공용</div><div class="p">shared</div><div class="w">팀 모두가 보고 고치는 곳. 회의록, 회사 소개서처럼 다 같이 쓰는 자료.</div></div>
+    <div class="fd"><div class="k">그룹</div><div class="p">groups/마케팅</div><div class="w">그 그룹 사람만 봐요. 그룹을 만들면 폴더가 같이 생겨요.</div></div>
+    <div class="fd"><div class="k">프로젝트</div><div class="p">projects/신제품-출시</div><div class="w">프로젝트마다 누가 보고 누가 고칠지 따로 정해요.</div></div>
+    <div class="fd me"><div class="k">내 폴더</div><div class="p">users/내 아이디</div><div class="w">앱에서는 <b>나만</b> 봐요. 팀장·관리자 화면에도 안 나와요. 내가 첨부한 파일도 여기 들어가요.</div></div>
+  </div>
+  <p class="small">이 밖에 ‘skills’(팀 규칙) 폴더에는 모두가 따르는 답변 규칙(예: 금액은 “1,500만 원”처럼 쓰기)이 있어요. 모두 읽을 수 있고, AI가 대답할 때마다 참고해요.</p>
+
+  <h3>예: 데모 팀에서 누가 무엇을 보나</h3>
+  <table class="t">
+    <tr><th>폴더</th><th class="c">Alice (마케팅)</th><th class="c">Bob (재무)</th><th class="c">팀장·관리자</th></tr>
+    <tr><td>shared (공용)</td><td class="c yes">읽기·쓰기</td><td class="c yes">읽기·쓰기</td><td class="c yes">읽기·쓰기</td></tr>
+    <tr><td>groups/마케팅</td><td class="c yes">읽기·쓰기</td><td class="c no">안 보임</td><td class="c yes">읽기·쓰기</td></tr>
+    <tr><td>groups/재무</td><td class="c no">안 보임</td><td class="c yes">읽기·쓰기</td><td class="c yes">읽기·쓰기</td></tr>
+    <tr><td>groups/재무/급여</td><td class="c no">안 보임</td><td class="c no">안 보임</td><td class="c yes">읽기·쓰기</td></tr>
+    <tr><td>projects/신제품-출시</td><td class="c yes">읽기·쓰기</td><td class="c ro">읽기만</td><td class="c yes">읽기·쓰기</td></tr>
+    <tr><td>users/alice (Alice의 폴더)</td><td class="c yes">읽기·쓰기</td><td class="c no">안 보임</td><td class="c no">안 보임</td></tr>
+  </table>
+  <p class="small" style="margin-top:-2mm">급여 폴더는 재무 그룹이라도 따로 막아 두었어요. 이렇게 하위 폴더마다 다르게 정할 수 있어요.</p>
+  <figure class="shot center" style="width:72%"><div class="frame"><img src="img/folders-alice.png" alt=""></div><figcaption>Alice가 새 채팅을 열면 보이는 카드. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. Bob의 카드에는 groups/마케팅 대신 groups/재무가 있고, 신제품-출시는 자물쇠(읽기 전용)로 보여요.</figcaption></figure>
+  <div class="note"><b>AI는 두 종류가 있어요</b><p>Claude(기본)와 Codex예요. 대부분은 기본 그대로 쓰면 돼요. 답을 만들 때 질문과 AI가 읽은 내용은 그 AI 회사(Claude는 Anthropic, Codex는 OpenAI)로 보내져요(10장 참고).</p></div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section class="chap flow" id="c2">
+  <div class="chap-head"><span class="no">02</span><h2>접속하기</h2></div>
+  <p class="lead">어디로 들어와도 같은 계정, 같은 채팅, 같은 파일이에요. <b>팀 주소</b>는 팀장이 알려 줘요.</p>
+  <ul>
+    <li><b>웹 브라우저</b> — 설치 없이 크롬·엣지·사파리에서 팀 주소를 열어요. 가장 간단해요.</li>
+    <li><b>데스크톱 앱</b>(맥) — AI에게 웹사이트 일을 맡기고 싶을 때(7장) 설치해요.</li>
+    <li><b>휴대폰</b> — 휴대폰 브라우저로 팀 주소를 열고 홈 화면에 추가해요.</li>
+  </ul>
+  <p class="small">팀 설정에 따라 팀 주소가 사무실 안에서만 열릴 수도 있어요. 밖이나 휴대폰에서 안 열리면 팀장에게 물어보세요.</p>
+
+  <h3>휴대폰</h3>
+  <div class="row">
+    <div class="side">
+      <p>휴대폰 브라우저에서 팀 주소를 열고 로그인해요. 앱처럼 쓰려면 홈 화면에 추가하세요.</p>
+      <ul>
+        <li><b>아이폰</b>: 사파리 아래 공유 버튼 → <b>홈 화면에 추가</b>. 추가한 아이콘으로 열면 한 번 더 로그인해요.</li>
+        <li><b>안드로이드</b>: 크롬 메뉴(⋮) → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>.</li>
+      </ul>
+      <p>화면이 좁아서 채팅 목록과 메뉴는 숨어 있어요. 왼쪽 위 <b>☰(메뉴 열기)</b>를 누르면 나와요.</p>
+      <p>입력창에는 <b>사진 찍기</b> 버튼이 더 있어서, 영수증이나 화이트보드를 찍어 바로 물어볼 수 있어요.</p>
+      <p class="small">컴퓨터에서도 크롬·엣지 주소창 오른쪽의 설치 아이콘을 누르면 웹 화면을 앱처럼 띄울 수 있어요.</p>
+    </div>
+    <figure class="shot" style="flex:.6"><div class="frame"><img src="img/phone-chat.png" alt=""></div><figcaption>휴대폰에서 본 채팅.</figcaption></figure>
+  </div>
+  <h3>데스크톱 앱 설치 — 맥</h3>
+  <p class="small" style="margin-bottom:2mm">애플 실리콘(M1 이후) 맥용이에요. 인텔 맥에서는 아직 쓸 수 없어요.</p>
+  <div class="row">
+    <div class="side">
+      <ol class="steps">
+        <li><span class="n">1</span>팀장이 준 <b>Team-AX-….dmg</b> 파일을 열고, Team AX 아이콘을 <b>응용 프로그램</b> 폴더로 끌어 놓아요. (설정 › 앱 화면에 내려받기 버튼이 있으면 거기서 받아도 돼요.)</li>
+        <li><span class="n">2</span>Team AX를 한 번 열어 봐요. “확인되지 않은 개발자” 같은 경고가 나오면 <b>완료</b>를 눌러 닫아요.</li>
+        <li><span class="n">3</span><b>시스템 설정 → 개인정보 보호 및 보안</b>을 열고, 아래쪽 “Team AX이(가) 차단되었습니다” 옆 <span class="ui">그래도 열기</span>를 눌러요. 맥 암호를 넣으면 열려요.</li>
+        <li><span class="n">4</span>첫 화면에 팀 주소를 넣고 <span class="ui">연결</span>을 눌러요. 다음부터는 바로 열려요.</li>
+      </ol>
+      <p class="small">예전 맥(macOS 14 이하)에서는 Finder에서 오른쪽 클릭 → 열기로도 열 수 있어요.</p>
+    </div>
+    <figure class="shot" style="flex:.85"><div class="frame"><img src="img/desk-welcome.png" alt=""></div><figcaption>데스크톱 앱 첫 화면. 팀 주소를 넣어요. (그림의 주소는 데모용이에요)</figcaption></figure>
+  </div>
+  <div class="warn"><b>“손상되었기 때문에 열 수 없습니다”가 나오면</b><p>카카오톡·메신저로 받은 파일에서 생길 수 있어요. 직접 고치려 하지 말고 팀장에게 도움을 요청하세요. 경고가 나오는 건 아직 애플의 공식 서명을 받기 전이라서예요.</p></div>
+
+  <h3>윈도우</h3>
+  <p>윈도우 앱은 <b>준비 중</b>이에요. 그동안은 웹 브라우저로 쓰세요. 나중에 설치 파일을 받으면 실행하고, “Windows의 PC 보호” 파란 창이 나오면 <b>추가 정보 → 실행</b>을 눌러요.</p>
+
+</section>
+
+<!-- ============================================================ 3 -->
+<section class="chap flow" id="c3">
+  <div class="chap-head"><span class="no">03</span><h2>로그인과 내 설정</h2></div>
+
+  <div class="row">
+    <div class="side">
+      <h3 class="first">초대 링크로 가입하기</h3>
+      <p>Team AX는 메일을 보내지 않아요. 팀장이나 관리자가 <b>초대 링크</b>를 카카오톡·슬랙 등으로 보내 줘요.</p>
+      <ol class="steps">
+        <li><span class="n">1</span>받은 링크를 열어요. “○○ 팀에 참여하기”처럼 팀 이름과 링크를 쓸 수 있는 기한이 보여요.</li>
+        <li><span class="n">2</span><b>이름</b>, <b>아이디</b>(영문·숫자), <b>비밀번호</b>와 <b>비밀번호 확인</b>을 넣어요.</li>
+        <li><span class="n">3</span><span class="ui">계정 만들고 참여하기</span>를 누르면 바로 시작이에요.</li>
+      </ol>
+      <div class="warn"><b>링크는 한 번만 쓸 수 있어요</b><p>한 사람이 가입하면 그 링크는 끝나요. 쓸 수 있는 기한(보통 7일)도 있어요. 만료됐다고 나오면 초대한 사람에게 새 링크를 부탁하세요.</p></div>
+    </div>
+    <figure class="shot" style="flex:.62"><div class="frame"><img src="img/invite.png" alt=""></div><figcaption>초대 링크를 연 화면.</figcaption></figure>
+  </div>
+  <div class="row">
+    <div class="side">
+      <h3>로그인</h3>
+      <p>팀 주소를 열고 아이디와 비밀번호를 넣어요. 화면 아래에서 언어(한국어, English, Bahasa Indonesia)도 고를 수 있어요.</p>
+      <p>팀장이 직접 계정을 만들어 준 경우에는 <b>임시 비밀번호</b>를 받아요. 처음 로그인하면 새 비밀번호를 정하는 화면이 먼저 나와요.</p>
+    </div>
+    <figure class="shot" style="flex:.5;margin-top:5mm"><div class="frame"><img src="img/login.png" alt=""></div><figcaption>로그인 화면.</figcaption></figure>
+  </div>
+
+  <h3>비밀번호 바꾸기와 로그인한 기기</h3>
+  <div class="row">
+    <div class="side" style="flex:.62">
+      <ol class="steps">
+        <li><span class="n">1</span>왼쪽 아래 <b>내 이름</b>을 누르고 <span class="ui">설정</span>을 골라요. 같은 메뉴에 <span class="ui">로그아웃</span>도 있어요.</li>
+        <li><span class="n">2</span><span class="ui">보안·기기</span>에서 현재 비밀번호, 새 비밀번호, 비밀번호 확인을 넣고 <span class="ui">비밀번호 바꾸기</span>.</li>
+        <li><span class="n">3</span>아래쪽 <b>로그인한 기기</b>에서 모르는 기기가 있으면 <span class="ui">로그아웃</span>을 누르고 비밀번호를 바꾸세요.</li>
+      </ol>
+      <p class="small">비밀번호는 10자 이상이어야 하고, 너무 흔한 비밀번호나 아이디가 들어간 비밀번호는 쓸 수 없어요. 바꾸면 다른 기기에서는 모두 로그아웃돼요.</p>
+      <figure class="shot" style="width:75%"><div class="frame"><img src="img/account-menu.png" alt=""></div><figcaption>왼쪽 아래 이름 → 설정·로그아웃</figcaption></figure>
+    </div>
+    <figure class="shot"><div class="frame"><img src="img/security.png" alt=""></div><figcaption>설정 › 보안·기기</figcaption></figure>
+  </div>
+
+  <div class="row">
+    <div class="side">
+      <h3>이름·언어·테마 바꾸기</h3>
+      <p><span class="ui">설정</span> › <span class="ui">프로필</span>에서 이름을 바꾸고 <span class="ui">저장</span>해요. 같은 화면에서 고르는 <b>언어</b>는 화면 글자와 <b>AI가 답하는 언어</b>에 함께 쓰여요. <b>테마</b>는 밝게·어둡게·시스템 설정 따르기 중에 골라요.</p>
+    </div>
+    <figure class="shot" style="flex:.7"><div class="frame"><img src="img/profile-lang.png" alt=""></div></figure>
+  </div>
+  <div class="tip"><b>비밀번호를 잊었다면</b><p>팀장이나 관리자에게 재설정을 부탁하세요. 임시 비밀번호를 받아 로그인한 뒤 새 비밀번호를 정하면 돼요. 누가 언제 재설정했는지는 내 <span class="ui">보안·기기</span> 화면에 남아요.</p></div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section class="chap flow" id="c4">
+  <div class="chap-head"><span class="no">04</span><h2>AI와 채팅하기</h2></div>
+  <figure class="shot" data-crop="0,0,1300,660">
+    <div class="frame"><img src="img/home.png" alt="">
+      <i data-box="10,52,246,84" data-pin="1" data-pos="r"></i>
+      <i data-box="500,314,1195,343" data-pin="2" data-pos="r"></i>
+      <i data-box="503,352,529,379" data-pin="3" data-pos="l"></i>
+      <i data-box="538,354,612,378" data-pin="4" data-pos="b"></i>
+      <i data-box="1121,352,1148,380" data-pin="5" data-pos="b"></i>
+      <i data-box="489,421,1207,555" data-pin="6" data-pos="l"></i>
+    </div>
+    <figcaption>처음 들어왔을 때의 화면</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><span class="ui">새 채팅</span>(<kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd>, 윈도우는 Ctrl+Shift+O) — 새 대화를 시작해요. 지난 대화는 그 아래 <b>최근 채팅</b>에 남고, <span class="ui">검색</span>(<kbd>⌘</kbd><kbd>K</kbd>)으로 찾을 수 있어요.</li>
+    <li><span class="n">2</span><b>입력창</b> — 하고 싶은 말을 쓰고 <kbd>Enter</kbd>. 줄을 바꾸려면 <kbd>Shift</kbd>+<kbd>Enter</kbd>.</li>
+    <li><span class="n">3</span><b>파일 첨부</b> — 클립을 누르거나, 파일을 입력창에 끌어다 놓거나, 복사한 이미지를 붙여 넣어요.</li>
+    <li><span class="n">4</span><b>AI 고르기</b> — 보통은 그대로 두세요(화면에는 ‘기본 엔진’이라고 보여요). Claude와 Codex 중에 고를 수도 있어요.</li>
+    <li><span class="n">5</span><b>음성 입력</b> — 마이크를 누르고 말하면 글로 받아 적어요. 처음 한 번은 준비하느라 시간이 좀 걸려요.</li>
+    <li><span class="n">6</span><b>내 AI가 볼 수 있는 폴더</b> — 새 채팅을 열면 입력창 아래에 보여요. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. 대화를 시작한 뒤에는 <span class="ui">파일</span> 화면에서 확인할 수 있어요.</li>
+  </ol>
+
+  <h3>파일을 첨부해서 묻기</h3>
+  <figure class="shot center" style="width:74%"><div class="frame"><img src="img/chat-attach.png" alt=""></div><figcaption>첨부한 파일은 입력창 위에 붙어요. ×를 누르면 빼요. 첨부한 파일은 내 폴더에만 저장돼요.</figcaption></figure>
+  <p>팀 폴더에 이미 있는 파일은 첨부하지 않아도 돼요. “<span class="path">shared/회의록</span>의 주간 회의록 요약해 줘”처럼 위치나 이름을 말하면 AI가 찾아서 읽어요. 엑셀·워드·파워포인트·PDF·이미지 모두 읽을 수 있어요.</p>
+</section>
+
+<section id="c4b">
+  <h3>답변 읽기 — AI가 무엇을 봤는지 확인</h3>
+  <figure class="shot center" data-crop="440,195,1265,630" style="width:82%">
+    <div class="frame"><img src="img/chat-answer.png" alt="">
+      <i data-box="515,208,905,306" data-pin="1" data-pos="l"></i>
+      <i data-box="1150,387,1215,409" data-pin="2" data-pos="r"></i>
+    </div>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><b>작업 단계</b> — ‘작업 3단계’(숫자는 AI가 한 일의 개수예요)를 누르면 AI가 어떤 폴더를 보고 어떤 파일을 읽었는지 나와요. 답이 어디서 나왔는지 확인할 때 보세요.</li>
+    <li><span class="n">2</span><b>표 복사</b> — 답변 속 표에 마우스를 올리면 나와요. 엑셀·구글 시트에 그대로 붙여 넣을 수 있어요.</li>
+  </ol>
+
+  <div class="row">
+    <div>
+      <h3>멈추기</h3>
+      <figure class="shot" data-crop="262,758,778,892">
+        <div class="frame"><img src="img/chat-stop.png" alt="">
+          <i data-box="713,815,749,851" data-pin="1" data-pos="t"></i>
+        </div>
+      </figure>
+      <p><span class="n">1</span>AI가 답하는 동안 보내기 버튼이 <b>■ 멈추기</b>로 바뀌어요. 질문을 잘못 보냈으면 바로 누르세요.</p>
+    </div>
+    <div>
+      <h3>복사 · 다시 생성 · 고치기</h3>
+      <figure class="shot" data-crop="840,60,1245,232">
+        <div class="frame"><img src="img/chat-user-hover.png" alt="">
+          <i data-box="1168,157,1193,183" data-pin="1" data-pos="l"></i>
+          <i data-box="1197,157,1222,183" data-pin="2" data-pos="b"></i>
+        </div>
+        <figcaption>내 메시지에 마우스를 올리면 나오는 버튼</figcaption>
+      </figure>
+      <p><span class="n">1</span>내 질문 복사 <span class="n">2</span><b>메시지 수정</b>(연필): 질문을 고쳐 다시 보내요. 이전 답은 사라지지 않고 <b>‹ 1/2 ›</b>로 오가며 볼 수 있어요.</p>
+    </div>
+  </div>
+  <ul>
+    <li><b>답변 복사 · 다시 생성</b>: 답변 바로 아래 작은 버튼이에요(6장 그림의 4번).</li>
+    <li><b>채팅 이름 바꾸기·삭제</b>: 왼쪽 목록에서 채팅에 마우스를 올리고 ⋯ 를 눌러요. 지운 직후 뜨는 알림의 <span class="ui">실행 취소</span>로 바로 되살릴 수 있고, 7일 동안은 왼쪽 아래 <span class="ui">삭제한 채팅</span>에서 <span class="ui">되돌리기</span>할 수 있어요.</li>
+  </ul>
+  <div class="warn"><b>다시 생성해도 파일은 그대로</b><p>AI가 이미 팀 폴더 파일을 바꿨다면, 다시 생성해도 파일은 되돌아가지 않아요. 바뀌기 전 내용은 파일의 <b>버전 기록</b>(5장)에 남아요.</p></div>
+
+  <h3>이런 표시가 보이면</h3>
+  <dl class="kv">
+    <dt>AI가 확인하고 싶어 해요</dt><dd>AI가 답하다가 확인할 게 생기면 이 카드를 띄워요. 보기를 고르거나 직접 답하면 이어서 일해요. 이때 왼쪽 채팅 목록에는 <b>답변 필요</b> 표시가 붙어요. 비밀번호나 인증 코드는 AI에게 알려 주지 마세요.</dd>
+    <dt>대기 중 (앞에 N개)</dt><dd>팀 전체가 한 번에 받을 수 있는 답변 수(기본 3개)를 넘으면 순서를 기다려요. 그대로 두면 차례가 와요.</dd>
+    <dt>AI 사용 한도를 다 썼어요</dt><dd>팀이 정한 하루·한 달 한도를 넘었어요. 안내에 나온 시각부터 다시 쓸 수 있고, 더 필요하면 관리자에게 말해요.</dd>
+    <dt>…로 바뀌었어요</dt><dd>대화 중에 AI를 Claude ↔ Codex로 바꾸면 나와요. 새 AI는 이전 대화를 기록으로 넘겨받아 이어서 답해요.</dd>
+  </dl>
+  <div class="tip"><b>잘 묻는 법</b><p>“무엇을(어느 파일) + 어떻게(표·요약·초안) + 어디에(저장 위치)”를 같이 말해요. 예: “<span class="path">groups/마케팅</span> 회의록으로 이번 주 보고서 초안을 써서 내 폴더에 워드로 저장해 줘”.</p></div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section class="chap flow" id="c5">
+  <div class="chap-head"><span class="no">05</span><h2>팀 파일</h2></div>
+  <p class="lead">왼쪽 메뉴의 <span class="ui">파일</span>에서 팀 폴더를 직접 열어 볼 수 있어요. 여기서도 <b>내가 볼 수 있는 폴더만</b> 보여요.</p>
+  <figure class="shot" data-crop="256,0,1440,485">
+    <div class="frame"><img src="img/files-menu.png" alt="">
+      <i data-box="1341,12,1416,44" data-pin="1" data-pos="b"></i>
+      <i data-box="1266,14,1333,42" data-pin="2" data-pos="b"></i>
+      <i data-box="388,15,434,40" data-pin="3" data-pos="r"></i>
+      <i data-box="1193,249,1415,480" data-pin="4" data-pos="l"></i>
+    </div>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><span class="ui">올리기</span> — 내 컴퓨터의 파일을 지금 폴더에 올려요. 파일을 화면에 끌어다 놓아도 돼요. 큰 파일도 올릴 수 있어요.</li>
+    <li><span class="n">2</span><span class="ui">새 폴더</span> — 쓰기 권한이 있는 폴더 안에 만들 수 있어요.</li>
+    <li><span class="n">3</span><span class="ui">휴지통</span> — 지운 파일이 30일 동안 있어요. 거기서 <span class="ui">되돌리기</span>를 눌러요.</li>
+    <li><span class="n">4</span><b>⋯ 메뉴</b> — 미리보기, 내려받기, <b>이 파일로 채팅 시작</b>, 버전 기록, 이름 바꾸기, 옮기기, 휴지통으로.</li>
+  </ol>
+
+  <h3>미리보기와 고치기</h3>
+  <div class="row">
+    <div class="side">
+      <p>파일 이름을 누르면 오른쪽에 미리보기가 열려요. <b>PDF, 워드, 파워포인트, 엑셀(시트별 탭), CSV, 이미지, 글 문서</b>를 볼 수 있어요.</p>
+      <p><span class="n">1</span>글 문서(.md, .txt 등)는 미리보기 위쪽의 연필(<span class="ui">고치기</span>)을 눌러 바로 고쳐요. 다 고치면 아래쪽 <span class="ui">저장</span>을 눌러요.</p>
+      <p class="small">읽기만 가능한 폴더에서도 연필은 보이지만, 저장하면 권한이 없다고 나오고 저장되지 않아요.</p>
+    </div>
+    <div style="flex:1">
+      <figure class="shot" data-crop="778,0,1440,330">
+        <div class="frame"><img src="img/files-preview.png" alt="">
+          <i data-box="1319,11,1340,33" data-pin="1" data-pos="b"></i>
+        </div>
+      </figure>
+      <figure class="shot"><div class="frame"><img src="img/files-edit.png" alt=""></div><figcaption>고치는 중인 화면의 아래쪽. <span class="ui">저장</span> 또는 <span class="ui">취소</span>.</figcaption></figure>
+    </div>
+  </div>
+  <div class="note"><b>엑셀·워드 같은 오피스 파일을 고칠 때</b><p>화면에서 바로 고칠 수는 없어요. 내려받아 고친 뒤 같은 폴더에 올리면, 원래 파일을 덮어쓰지 않고 <span class="path">2026-4분기-예산 (2).xlsx</span>처럼 <b>새 파일로 따로</b> 올라가요. 원래 이름으로 쓰려면 예전 파일을 휴지통으로 옮긴 뒤 새 파일의 이름을 바꾸세요.</p></div>
+
+  <div class="note"><b>두 사람이 동시에 고쳤다면 — 충돌 사본</b><p>내가 고치는 사이 다른 사람(또는 AI)이 먼저 저장했다면, 원본은 그대로 두고 <b>내 내용은 사본으로</b> 따로 저장돼요. 내용이 사라지지 않아요. 예: <span class="path">회의록 (충돌 사본 - Alice 2026-10-21 14.30).md</span> — 목록에 <b>충돌 사본</b> 표시가 붙어요. 두 파일을 비교해 하나로 합치세요.</p></div>
+
+  <div class="row">
+    <div>
+      <h3>버전 기록 — 예전 내용 받기</h3>
+      <figure class="shot"><div class="frame"><img src="img/files-history.png" alt=""></div><figcaption>⋯ › 버전 기록. 한 번 바뀐 파일이라 예전 내용(v1)이 하나 있어요.</figcaption></figure>
+      <p class="small">파일이 바뀔 때마다 <b>바뀌기 전 내용</b>이 한 줄씩 남아요. 줄마다 내려받기 버튼이 있고, 두 번째 줄부터는 <span class="ui">되돌리기</span> 버튼도 있어요. 맨 위 줄(바로 전 내용)은 내려받기만 돼요. 글 문서라면 받은 내용을 고치기 화면에 붙여 넣으세요.</p>
+    </div>
+    <div>
+      <h3>지우기와 휴지통</h3>
+      <figure class="shot"><div class="frame"><img src="img/files-delete.png" alt=""></div></figure>
+      <p class="small">지운 파일은 30일 동안 휴지통에 있어요. 그 폴더에 쓰기 권한이 있는 사람만 되돌릴 수 있어요. 지운 직후 뜨는 알림의 <span class="ui">실행 취소</span>로 바로 되돌릴 수도 있어요.</p>
+    </div>
+  </div>
+  <p class="small">예전 버전은 팀 설정의 보관 기간 동안만 남아요(9장 ‘팀 설정’). 오래된 버전은 저절로 지워져요.</p>
+</section>
+
+<!-- ============================================================ 6 -->
+<section class="chap flow" id="c6">
+  <div class="chap-head"><span class="no">06</span><h2>AI가 만든 결과물</h2></div>
+  <p class="lead">AI는 대답만 하는 게 아니라 <b>엑셀·워드·파워포인트·PDF 파일</b>을 만들어 팀 폴더에 저장하고, 차트·표·페이지 같은 결과물을 채팅 옆 <b>결과물 창</b>에 바로 띄워요.</p>
+  <figure class="shot center" data-crop="0,0,760,316" style="width:84%">
+    <div class="frame"><img src="img/chat-file.png" alt="">
+      <i data-box="108,81,390,114" data-pin="1" data-pos="r"></i>
+      <i data-box="44,136,492,193" data-pin="2" data-pos="r"></i>
+      <i data-box="44,206,752,280" data-pin="3" data-pos="l"></i>
+      <i data-box="44,288,102,310" data-pin="4" data-pos="r"></i>
+    </div>
+    <figcaption>“위 할 일 표를 엑셀로 만들어서 내 폴더에 저장하고, 담당자별 막대 차트도 보여 줘”에 대한 답 (가운데 설명 부분은 줄였어요)</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><b>만든 파일</b> — 눈 모양을 누르면 미리보기, 화살표는 내려받기예요.</li>
+    <li><span class="n">2</span><b>결과물 카드</b> — 누르면 오른쪽 결과물 창에 열려요.</li>
+    <li><span class="n">3</span><b>파일 저장 요약</b> — 어느 폴더에 무엇을 새로 만들었고 무엇을 고쳤는지 보여요. 쓰기 권한이 없는 곳이면 “권한 없음”으로 알려 주고, <span class="ui">내 폴더에 저장하도록 다시 요청</span> 버튼이 나와요.</li>
+    <li><span class="n">4</span><b>답변 복사 · 다시 생성</b></li>
+  </ol>
+  <h3>결과물 창(아티팩트)</h3>
+  <div class="row">
+    <figure class="shot" data-crop="778,0,1440,470" style="flex:1.15">
+      <div class="frame"><img src="img/artifact.png" alt="">
+        <i data-box="1316,8,1428,36" data-pin="1" data-pos="b"></i>
+        <i data-box="790,51,891,75" data-pin="2" data-pos="r"></i>
+      </div>
+      <figcaption>AI가 만든 막대 차트가 결과물 창에 열린 모습</figcaption>
+    </figure>
+    <div>
+      <ol class="steps">
+        <li><span class="n">1</span><b>복사 · 내려받기 · 팀 폴더에 저장</b> — 마음에 들면 팀 폴더에 파일로 남겨요.</li>
+        <li><span class="n">2</span><span class="ui">미리보기</span>와 <span class="ui">코드</span>로 화면을 바꿔 봐요. AI에게 고쳐 달라고 하면 새 버전이 생기고, 예전 버전으로 돌아갈 수도 있어요.</li>
+      </ol>
+      <p class="small">웹 페이지, 차트, 다이어그램, 문서 등을 만들 수 있어요. 결과물에서 오류가 나면 <span class="ui">AI에게 고쳐 달라고 하기</span> 버튼이 떠요.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 7 -->
+<section class="chap flow" id="c7">
+  <div class="chap-head"><span class="no">07</span><h2>데스크톱 앱의 브라우저</h2><span class="for">데스크톱 앱 전용</span></div>
+  <p class="lead">데스크톱 앱에서는 AI가 앱 안의 브라우저로 <b>웹사이트를 열어 읽고, 클릭하고, 입력</b>할 수 있어요. “거래처 사이트에서 이번 달 공지 제목을 정리해 줘” 같은 일을 맡길 수 있어요. 웹 브라우저로 접속했을 때는 이 기능이 없어요.</p>
+  <figure class="shot" data-crop="256,0,1440,250">
+    <div class="frame"><img src="img/desk-permission.png" alt="">
+      <i data-box="744,8,781,38" data-pin="1" data-pos="b"></i>
+      <i data-box="815,195,1052,231" data-pin="2" data-pos="l"></i>
+      <i data-box="1366,76,1424,103" data-pin="3" data-pos="b"></i>
+      <i data-box="1384,8,1406,30" data-pin="4" data-pos="l"></i>
+    </div>
+    <figcaption>AI에게 example.com을 열어 제목을 알려 달라고 했을 때. 오른쪽이 앱 안 브라우저예요.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><b>브라우저 열기·닫기</b> — 채팅 위쪽의 지구본 버튼. 주소를 직접 넣어 내가 쓸 수도 있어요.</li>
+    <li><span class="n">2</span><b>사이트 허용 질문</b> — AI가 새 사이트를 쓰려고 하면 먼저 물어봐요. <span class="ui">이번만 허용</span> · <span class="ui">항상 허용</span> · <span class="ui">거부</span> 중에 골라요. 회사 안에서만 쓰는 사이트(사내망)도 먼저 물어봐요. 카드 아래 작은 글씨는 AI가 하려는 작업 이름과 주소예요.</li>
+    <li><span class="n">3</span><b>멈추기</b> — “AI가 브라우저를 사용 중” 띠가 떠 있는 동안 언제든 눌러서 AI를 멈출 수 있어요.</li>
+    <li><span class="n">4</span><b>허용한 사이트</b>(⚙) — ‘항상 허용’한 사이트 목록이에요. 여기서 <span class="ui">삭제</span>하거나 <span class="ui">모두 지우기</span>로 허용을 거둘 수 있어요.</li>
+  </ol>
+  <figure class="shot"><div class="frame"><img src="img/desk-done.png" alt=""></div><figcaption>허용하자 AI가 페이지를 읽고 제목을 알려 줬어요. 브라우저 위쪽에 AI가 한 일(“AI가 example.com에서 스크립트를 실행했어요”)이 표시돼요.</figcaption></figure>
+  <div class="warn"><b>비밀번호는 AI가 채우지 않아요</b><p>로그인이 필요한 사이트는 <b>내가 직접</b> 브라우저 창에서 로그인하세요. AI는 비밀번호 칸에 입력할 수 없어요. 허용한 사이트에서는 AI가 클릭과 입력을 할 수 있으니, <b>믿을 수 있는 사이트만 허용</b>하고 중요한 버튼(결제, 전송)은 직접 확인하세요.</p></div>
+  <p class="small">여러 팀을 쓴다면 화면 위 메뉴 막대의 <b>팀 › 팀 추가…</b>로 다른 팀 주소를 더하고, <b>팀 › 팀 목록…</b>에서 팀을 바꿔요.</p>
+</section>
+
+<!-- ============================================================ 8 -->
+<section class="chap flow" id="c8">
+  <div class="chap-head"><span class="no">08</span><h2>기억과 프로젝트</h2></div>
+  <h3 class="first">기억(메모리) — 나에 대해 알아 두게 하기</h3>
+  <p>“나는 마케팅 담당이야. 보고서는 항상 표로 먼저 요약해 줘. 기억해 줘”처럼 말하면 AI가 기억해 두고 <b>다음 채팅부터</b> 반영해요.</p>
+  <figure class="shot center" data-crop="460,60,1240,282" style="width:84%">
+    <div class="frame"><img src="img/mem-chat.png" alt="">
+      <i data-box="513,209,1217,235" data-pin="1" data-pos="l"></i>
+    </div>
+    <figcaption><span class="n">1</span>작업 단계에 “기억함: …”으로 무엇을 기억했는지 보여요.</figcaption>
+  </figure>
+  <div class="row">
+    <figure class="shot" data-crop="486,90,1180,270" style="flex:1.7">
+      <div class="frame"><img src="img/memory.png" alt="">
+        <i data-box="1128,166,1150,190" data-pin="1" data-pos="l"></i>
+      </div>
+    </figure>
+    <div>
+      <p><span class="ui">설정</span> › <span class="ui">메모리</span>에서 AI가 기억한 내용을 모두 볼 수 있어요.</p>
+      <p><span class="n">1</span>휴지통 아이콘(잊게 하기)으로 하나씩 지우거나 <span class="ui">모두 지우기</span>를 눌러요.</p>
+      <p class="small">메모리는 앱에서 나만 볼 수 있어요. 관리자 화면에도 나오지 않아요.</p>
+    </div>
+  </div>
+
+  <h3>프로젝트 — 같은 자료·같은 지침으로 계속 대화</h3>
+  <p>프로젝트는 <b>팀 폴더 하나 + 지침</b>을 묶은 거예요. 프로젝트 안에서 연 채팅은 그 폴더를 기본으로 보고, 지침(예: “일정은 출시-일정.md 기준으로 답하고 바뀐 일정은 그 파일에 반영”)을 항상 따라요.</p>
+  <figure class="shot" data-crop="256,0,1440,345">
+    <div class="frame"><img src="img/project-home.png" alt="">
+      <i data-box="1251,36,1416,72" data-pin="1" data-pos="b"></i>
+      <i data-box="1096,118,1416,335" data-pin="2" data-pos="l"></i>
+    </div>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><span class="ui">이 프로젝트에서 채팅</span> — 프로젝트의 폴더와 지침으로 새 대화를 시작해요. 내 채팅은 왼쪽 “내 채팅”에 모여요.</li>
+    <li><span class="n">2</span><b>지침</b>과 <b>폴더의 파일</b> — 지침을 고치려면 위쪽 <span class="ui">수정</span>을 눌러요. 프로젝트 폴더에 쓰기 권한이 있어야 고칠 수 있어요.</li>
+  </ol>
+  <p class="small">새 프로젝트는 <span class="ui">프로젝트</span> › <span class="ui">새 프로젝트</span>에서 이름, 폴더(쓰기 권한이 있는 폴더), 지침을 정해 만들어요. 프로젝트를 지워도 폴더와 채팅은 남아요.</p>
+</section>
+
+<!-- ============================================================ 9 -->
+<section class="chap flow" id="c9">
+  <div class="chap-head"><span class="no">09</span><h2>팀장·관리자용</h2><span class="for">팀장 · 관리자</span></div>
+  <p class="lead">왼쪽 메뉴의 <span class="ui">관리자</span>에서 팀원, 그룹, 폴더 권한, AI, 사용량, 기록, 팀 설정을 관리해요. 앱에는 다른 사람의 대화와 메모리를 여는 화면이 없어요.</p>
+  <div class="row">
+    <table class="t" style="flex:1">
+      <tr><th style="width:17mm">역할</th><th>할 수 있는 일</th></tr>
+      <tr><td><b>팀장</b></td><td>관리자가 하는 모든 일 + <b>관리자 만들기</b>(관리자 역할로 추가·초대), <span class="ui">시스템</span>(진단·백업·복원·업데이트·내보내기).</td></tr>
+      <tr><td><b>관리자</b></td><td><span class="ui">멤버·초대</span>, <span class="ui">그룹</span>, <span class="ui">폴더 권한</span>, <span class="ui">AI 엔진</span>(사용 한도 포함), <span class="ui">사용량</span>, <span class="ui">기록</span>, <span class="ui">팀 설정</span>. 다른 사람의 개인 폴더를 뺀 모든 폴더에 쓸 수 있어요.</td></tr>
+      <tr><td><b>팀원</b></td><td>폴더 권한에 따라 정해진 폴더만 보고 써요.</td></tr>
+    </table>
+    <figure class="shot" style="flex:none;width:36mm"><div class="frame"><img src="img/admin-nav.png" alt=""></div><figcaption>관리자 메뉴</figcaption></figure>
+  </div>
+  <p class="small" style="margin-top:-1mm">팀장과 관리자도 다른 사람의 개인 폴더(<span class="path">users/아이디</span>)는 볼 수 없어요.</p>
+
+  <h3>멤버 추가하기 — 멤버·초대</h3>
+  <figure class="shot" data-crop="488,116,1418,452">
+    <div class="frame"><img src="img/admin-members.png" alt="">
+      <i data-box="1212,130,1303,161" data-pin="1" data-pos="b"></i>
+      <i data-box="1311,130,1399,161" data-pin="2" data-pos="b"></i>
+      <i data-box="1283,289,1305,313" data-pin="3" data-pos="t"></i>
+    </div>
+  </figure>
+  <ol class="steps">
+    <li><span class="n">1</span><span class="ui">직접 추가</span> — 이름·아이디·역할·그룹을 넣으면 <b>임시 비밀번호</b>가 한 번 보여요. 직접 전해 주세요. 그 사람은 처음 로그인할 때 새 비밀번호를 정해요.</li>
+    <li><span class="n">2</span><span class="ui">초대 링크</span> — 역할·그룹·유효 기간을 고르고 링크를 만들어요. 받은 사람이 아이디와 비밀번호를 직접 정해요. 관리자 역할로 초대하는 건 팀장만 할 수 있어요.</li>
+    <li><span class="n">3</span><b>비밀번호 재설정</b>(열쇠) — 임시 비밀번호를 새로 만들어요. 재설정한 사실은 기록과 그 사람의 <span class="ui">보안·기기</span>에 남아요.</li>
+  </ol>
+  <dl class="kv">
+    <dt><span class="ui">비활성화</span></dt><dd>바로 모든 기기에서 로그아웃되고 로그인할 수 없게 돼요. 데이터는 그대로 남아요. 잠시 막을 때 쓰세요.</dd>
+    <dt>휴지통 아이콘(삭제)</dt><dd>멤버를 삭제해요. 채팅과 메모리는 7일 뒤 지워지고, 개인 폴더 <span class="path">users/아이디/</span>는 기본으로 팀장의 개인 폴더 안 ‘보관된 계정’으로 옮겨져서 팀장이 처리해요.</dd>
+  </dl>
+  <div class="row">
+    <figure class="shot"><div class="frame"><img src="img/admin-invite-form.png" alt=""></div><figcaption>초대 링크 만들기: 역할, 그룹, 유효 기간</figcaption></figure>
+    <figure class="shot" data-crop="480,309,960,591">
+      <div class="frame"><img src="img/admin-invite-ready.png" alt="">
+        <i data-box="494,482,580,509" data-pin="1" data-pos="b"></i>
+      </div>
+      <figcaption><span class="n">1</span><span class="ui">링크 복사</span> 또는 QR 코드. 창을 닫으면 링크를 다시 볼 수 없어요. (주소는 예시)</figcaption>
+    </figure>
+  </div>
+  <div class="warn"><b>메일은 가지 않아요</b><p>Team AX는 초대 메일을 보내지 않아요. 복사한 링크를 카카오톡·슬랙 등으로 직접 보내 주세요. 링크는 한 사람만 쓸 수 있고, 쓰지 않은 링크는 목록에서 <span class="ui">취소</span>할 수 있어요.</p></div>
+</section>
+
+<section id="c9b">
+  <h3>그룹</h3>
+  <p><span class="ui">그룹</span> › <span class="ui">새 그룹</span>에서 이름과 멤버를 정해요. 그룹을 만들면 <span class="path">groups/그룹 이름</span> 폴더가 생기고, 그 그룹은 이 폴더를 읽고 쓸 수 있어요. 멤버는 <span class="ui">수정</span>에서 바꿔요. 그룹을 지우면 그 그룹에 걸린 폴더 권한도 함께 지워져요.</p>
+  <h3>AI 사용 한도</h3>
+  <figure class="shot"><div class="frame"><img src="img/admin-limits.png" alt=""></div></figure>
+  <p><span class="ui">AI 엔진</span> › <span class="ui">사용 한도</span> › <span class="ui">한도 추가</span>에서 사람·그룹·팀 단위로 하루·한 달 한도를 정해요. 넘으면 <b>경고만</b> 하거나 <b>사용을 막을</b> 수 있어요. 기본은 한도 없음이에요. 같은 화면의 <b>동시 실행 수</b>(기본 3)는 팀 전체가 한 번에 받을 수 있는 답변 수예요.</p>
+
+  <h3>폴더 권한 — 바꾸기 전에 “누가 무엇을 보나” 미리보기</h3>
+  <div class="row">
+    <div class="side">
+      <p><span class="ui">폴더 권한</span>에서 폴더마다 <b>누가</b>(모두·역할·그룹·사람) <b>무엇을</b>(권한 없음 / 읽기만 / 읽기·쓰기) 할지 정해요. 규칙이 없는 하위 폴더는 위 폴더의 규칙을 따라요.</p>
+      <ol class="steps">
+        <li><span class="n">1</span>폴더 옆 <span class="ui">수정</span>(새 폴더는 <span class="ui">폴더 추가</span>)을 누르고 규칙을 바꿔요.</li>
+        <li><span class="n">2</span><span class="ui">누가 무엇을 보나</span>를 누르면 저장하기 전에 사람별로 어떻게 바뀌는지 보여요.</li>
+        <li><span class="n">3</span><b>권한을 잃는 사람</b>이 빨간 상자로 따로 보여요. 확인한 뒤 <span class="ui">저장</span>.</li>
+      </ol>
+      <p class="small">저장하면 권한을 잃은 사람의 화면에 “폴더 권한이 바뀌었어요” 알림이 떠요. 그 사람의 AI는 그 폴더를 다시 읽지 못하지만, 이미 답변에 나온 내용은 그 사람의 채팅에 남아요.</p>
+    </div>
+    <figure class="shot" data-crop="359,139,1081,762" style="flex:1.25">
+      <div class="frame"><img src="img/admin-folder-preview.png" alt="">
+        <i data-box="376,268,1024,347" data-pin="1"></i>
+        <i data-box="853,713,1002,746" data-pin="2" data-pos="l"></i>
+        <i data-box="376,616,1064,682" data-pin="3"></i>
+      </div>
+      <figcaption>예: 신제품 출시 폴더에서 재무 그룹을 “권한 없음”으로 바꾸면 Bob이 권한을 잃어요. (미리보기만 하고 저장하지 않았어요)</figcaption>
+    </figure>
+  </div>
+
+  <h3>사용량</h3>
+  <figure class="shot center" style="width:88%"><div class="frame"><img src="img/admin-usage.png" alt=""></div></figure>
+  <p>사람·그룹·AI 종류·날짜별로 <b>답변 수, 사용량(토큰), 예상 금액(달러)</b>이 보여요. 구독으로 쓰는 동안 금액은 추정치예요. 대화 내용은 나오지 않아요.</p>
+</section>
+
+<section id="c9c">
+  <h3>기록</h3>
+  <figure class="shot center" style="width:88%"><div class="frame"><img src="img/admin-audit.png" alt=""></div><figcaption>종류를 “파일”로 거른 화면</figcaption></figure>
+  <p>관리자 작업, 파일 변경, AI 도구 사용, 로그인(실패 포함)이 시간순으로 남아요. 대화 내용은 남지 않지만, <b>AI 도구</b> 기록에는 다음이 보여요.</p>
+  <ul>
+    <li>AI가 읽고 쓴 팀 파일의 위치, AI가 연 웹 페이지 주소, 만든 결과물 이름, 브라우저에서 한 동작 이름</li>
+    <li>권한이 없어 막힌 시도(<b>거부됨</b>, 위치 포함)</li>
+  </ul>
+  <p class="small">AI가 검색한 단어는 남지 않고, 다른 사람의 개인 폴더 안 파일 이름은 가려져요. 이 내용은 팀원에게도 알려 주세요(10장).</p>
+
+  <h3>팀 설정</h3>
+  <p>팀 이름, 팀 기본 언어, 업데이트 시간, 그리고 <b>보관 기간</b>(기록, 파일 버전, 파일 휴지통, 삭제한 채팅)을 정해요.</p>
+  <figure class="shot center" style="width:88%"><div class="frame"><img src="img/admin-settings.png" alt=""></div><figcaption>팀 설정의 보관 기간 부분</figcaption></figure>
+  <div class="warn"><b>처음 한 번 저장하세요</b><p>화면의 보관 기간은 <span class="ui">저장</span>을 눌러야 적용돼요. 한 번도 저장하지 않았다면 파일 버전은 <b>7일</b>만 남아요. 설치한 뒤 값을 확인하고 저장을 눌러 주세요.</p></div>
+  <p><span class="ui">시스템</span>(팀장 전용)에서는 서버 상태 진단, 백업(매일 자동, 14일 보관)과 복원, 업데이트, 내보내기를 해요. 백업에는 모든 팀 파일과 개인 폴더, 대화가 들어 있으니 안전하게 다뤄 주세요.</p>
+</section>
+
+<!-- ============================================================ 10 -->
+<section class="chap flow" id="c10">
+  <div class="chap-head"><span class="no">10</span><h2>자주 묻는 질문</h2></div>
+
+  <div class="faq"><div class="q">AI가 내 개인 폴더를 다른 사람에게 보여 주나요?</div><div class="a"><p>아니요. 앱에서 <span class="path">users/내 아이디</span> 폴더는 나만 볼 수 있어요. 팀장·관리자 화면에도 나오지 않고, 다른 사람의 AI도 읽을 수 없어요. 내가 채팅에 첨부한 파일도 이 폴더에 저장돼요.</p><p>다만 두 가지는 알아 두세요. 계정이 삭제되면 내 폴더는 팀장에게 넘어가요. 그리고 팀 서버 맥을 직접 관리하는 사람은 그 맥의 디스크와 백업에 접근할 수 있어요.</p></div></div>
+
+  <div class="faq"><div class="q">관리자가 내 대화를 보나요?</div><div class="a"><p>앱에는 다른 사람의 대화나 메모리를 여는 화면이 없어요. 팀장도 마찬가지예요. 다만 대화는 팀 서버(사무실 맥)와 그 백업에 저장되니, 서버 맥을 직접 다루는 사람은 기술적으로 꺼내 볼 수 있어요.</p><p>관리자 화면의 <b>기록</b>에는 대화 내용은 없지만, AI가 읽고 쓴 팀 파일 위치, AI가 연 웹 페이지 주소, 권한이 없어 막힌 시도(위치 포함), 로그인 기록이 남아요. <b>사용량</b>에는 사람별 답변 수와 사용량이 나와요.</p></div></div>
+
+  <div class="faq"><div class="q">AI 회사로는 무엇이 가나요?</div><div class="a"><p>답을 만들려고 내 질문, 첨부한 파일, AI가 읽은 팀 파일 내용, 메모리, 그 채팅의 이전 대화가 AI 회사로 보내져요(Claude는 Anthropic, Codex는 OpenAI). 팀이 연결한 AI 계정으로 처리돼요. 회사 밖으로 나가면 안 되는 자료는 AI에게 읽히지 마세요.</p></div></div>
+
+  <div class="faq"><div class="q">내가 볼 수 없는 폴더의 내용을 AI에게 물어보면요?</div><div class="a"><p>AI도 그 폴더를 볼 수 없어서 “찾지 못했다”고 답해요. 파일이 있는지 없는지도 알려 주지 않아요. 프로젝트 안에서 물어봐도 마찬가지예요. 다만 그 폴더를 볼 수 있는 사람이 내용을 공용 폴더로 옮기면, 공용 폴더를 보는 사람은 모두 볼 수 있어요.</p></div></div>
+
+  <div class="faq"><div class="q">AI가 파일을 지우거나 밖으로 보내나요?</div><div class="a"><p>AI에게는 파일을 지우는 기능이 없고, 메일을 직접 보내는 기능도 없어요. 파일을 고치면 바뀌기 전 내용이 버전 기록에 남아요. 인터넷 검색과 웹 페이지 읽기는 할 수 있어요. 데스크톱 앱 브라우저에서는 <b>내가 허용한 사이트</b>에서 클릭·입력을 할 수 있어서, 그 사이트에 글을 올리거나 양식을 보낼 수도 있어요. 허용은 신중하게 해 주세요.</p></div></div>
+
+  <div class="faq"><div class="q">AI가 더 많은 사람이 보는 폴더에 저장해 버리면요?</div><div class="a"><p>내가 읽은 자료보다 더 많은 사람이 보는 폴더에 AI가 쓰려고 하면, 저장하기 전에 “팀 서버의 안전 확인” 카드로 먼저 물어봐요. 거절하면 저장하지 않아요. 허용하면 그 폴더를 보는 사람은 모두 볼 수 있으니 잘 보고 고르세요.</p></div></div>
+
+  <div class="faq"><div class="q">실수로 파일이나 채팅을 지웠어요.</div><div class="a"><p>파일은 <span class="ui">파일</span> › <span class="ui">휴지통</span>에서 30일 안에, 채팅은 <span class="ui">삭제한 채팅</span>에서 7일 안에 되돌릴 수 있어요. 내용을 잘못 고쳤다면 ⋯ › <span class="ui">버전 기록</span>에서 예전 내용을 받아요(5장).</p></div></div>
+
+  <div class="faq"><div class="q">갑자기 어떤 폴더가 안 보여요.</div><div class="a"><p>폴더 권한이 바뀌었을 수 있어요. 화면에 “폴더 권한이 바뀌었어요” 알림이 떴다면 팀장이나 관리자에게 확인해 보세요.</p></div></div>
+
+  <div class="faq"><div class="q">비밀번호를 잊었어요. 초대 메일이 안 와요.</div><div class="a"><p>비밀번호는 팀장·관리자가 임시 비밀번호로 재설정해 줘요. 초대는 원래 메일로 오지 않아요. 초대한 사람에게 링크를 직접 보내 달라고 하세요.</p></div></div>
+
+  <div class="faq"><div class="q">AI 답을 그대로 믿어도 되나요?</div><div class="a"><p>AI는 실수할 수 있어요. 숫자·날짜·사람 이름처럼 중요한 내용은 답변의 <b>작업 단계</b>를 펼쳐 어느 파일을 읽었는지 보고, 원본과 맞는지 확인해 주세요.</p></div></div>
+
+  <div class="faq"><div class="q">“팀 서버에 연결할 수 없어요”가 떠요.</div><div class="a"><p>인터넷 연결을 확인하고 잠시 뒤 다시 시도해 주세요. 잠깐 끊긴 거라면 저절로 다시 연결되고, 보던 답변은 그대로 있어요. 계속되면 팀장에게 알려 주세요.</p></div></div>
+
+</section>
+
+<script>
+// 스크린샷 위 번호(pin)와 테두리(box). 좌표는 원본 화면(1440×900)의 CSS px, figure의 data-crop 기준으로 %로 바꾼다.
+// 테두리는 글자에 겹치지 않게 사방으로 PAD px 넓힌다.
+const PAD = 3
+for (const fig of document.querySelectorAll('figure[data-crop]')) {
+  const [x0, y0, x1, y1] = fig.dataset.crop.split(',').map(Number)
+  const W = x1 - x0, H = y1 - y0
+  for (const el of fig.querySelectorAll('i[data-box]')) {
+    let [a, b, c, d] = el.dataset.box.split(',').map(Number)
+    a = Math.max(x0, a - PAD); b = Math.max(y0, b - PAD); c = Math.min(x1, c + PAD); d = Math.min(y1, d + PAD)
+    const box = document.createElement('span')
+    box.className = 'box'
+    Object.assign(box.style, { left: (a - x0) / W * 100 + '%', top: (b - y0) / H * 100 + '%', width: (c - a) / W * 100 + '%', height: (d - b) / H * 100 + '%' })
+    el.replaceWith(box)
+    if (!el.dataset.pin) continue
+    const pin = document.createElement('span')
+    pin.className = 'pin'
+    pin.textContent = el.dataset.pin
+    // pin position: on the top-left corner (default), or just outside the left / right / top / bottom edge of the box
+    const pos = el.dataset.pos || 'tl'
+    const at = (x, y, t) => { pin.style.left = (x - x0) / W * 100 + '%'; pin.style.top = (y - y0) / H * 100 + '%'; pin.style.transform = t }
+    if (pos === 'l') at(a, (b + d) / 2, 'translate(-125%,-50%)')
+    else if (pos === 'r') at(c, (b + d) / 2, 'translate(25%,-50%)')
+    else if (pos === 'b') at((a + c) / 2, d, 'translate(-50%,20%)')
+    else if (pos === 't') at((a + c) / 2, b, 'translate(-50%,-120%)')
+    else at(a, b, 'translate(-50%,-50%)')
+    box.after(pin)
+  }
+}
+</script>
+</body>
+</html>
