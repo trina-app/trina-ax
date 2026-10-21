@@ -167,7 +167,7 @@ dl.kv dd{ color:var(--ink-2);}
     <li><span class="no">06</span><span class="tt">AI가 만든 결과물</span><span class="ds">파일 만들기 · 결과물 창</span><span class="pg" data-toc="c6"></span></li>
     <li><span class="no">07</span><span class="tt">데스크톱 앱의 브라우저</span><span class="ds">AI가 웹사이트에서 일하기</span><span class="pg" data-toc="c7"></span></li>
     <li><span class="no">08</span><span class="tt">기억과 프로젝트</span><span class="ds">메모리 · 프로젝트 지침</span><span class="pg" data-toc="c8"></span></li>
-    <li><span class="no">09</span><span class="tt">팀장·관리자용</span><span class="ds">멤버 · 그룹 · 폴더 권한 · 사용량 · 기록 · 팀 설정</span><span class="pg" data-toc="c9"></span></li>
+    <li><span class="no">09</span><span class="tt">팀장·관리자용</span><span class="ds">멤버 · 그룹 · 팀 스킬 관리 · 폴더 권한 · 사용량 · 기록 · 팀 설정</span><span class="pg" data-toc="c9"></span></li>
     <li><span class="no">10</span><span class="tt">자주 묻는 질문</span><span class="ds">내 폴더와 대화는 누가 보나요</span><span class="pg" data-toc="c10"></span></li>
   </ol>
 
@@ -609,6 +609,26 @@ dl.kv dd{ color:var(--ink-2);}
 <section id="c9b">
   <h3>그룹</h3>
   <p><span class="ui">그룹</span> › <span class="ui">새 그룹</span>에서 이름과 멤버를 정해요. 그룹을 만들면 <span class="path">groups/그룹 이름</span> 폴더가 생기고, 그 그룹은 이 폴더를 읽고 쓸 수 있어요. 멤버는 <span class="ui">수정</span>에서 바꿔요. 그룹을 지우면 그 그룹에 걸린 폴더 권한도 함께 지워져요.</p>
+  <h3>팀 스킬 관리 — 누가 스킬을 바꾸나</h3>
+  <p><span class="path">skills</span> 폴더의 스킬과 팀 규칙은 <b>팀 전체 AI가 따라요</b>. 그래서 바꿀 수 있는 사람을 따로 정해요. 팀장·관리자는 항상 바꿀 수 있고, 다른 사람은 <span class="ui">멤버·초대</span>나 <span class="ui">그룹</span> 화면의 <span class="ui">팀 스킬 관리</span> 스위치를 켜 준 경우에만 바꿀 수 있어요.</p>
+  <div class="row">
+    <div class="side">
+      <ol class="steps">
+        <li><span class="n">1</span>사람(또는 그룹) 줄의 <span class="ui">팀 스킬 관리</span> 스위치를 켜요. 경고를 읽어 주세요.</li>
+        <li><span class="n">2</span><span class="ui">관리할 범위</span>에서 <span class="path">skills</span> 전체나 <span class="path">skills/재무</span> 같은 하위 폴더만 골라요(<span class="ui">새 하위 폴더…</span>로 만들 수도 있어요).</li>
+        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. 이 설정은 <span class="ui">폴더 권한</span>에서 “읽기·쓰기 · 팀 스킬 관리”로도 보여요. 끄면 쓰기 권한만 빠지고 만든 스킬은 남아요.</li>
+      </ol>
+      <p class="small">누가 바꾸든(AI 포함) 팀장·관리자에게 “팀 스킬이 바뀌었어요” 알림이 가요. <span class="ui">버전 기록 보기</span>를 누르면 그 파일의 예전 버전으로 되돌릴 수 있어요. 지난 변경은 왼쪽 <span class="ui">팀 스킬</span> › <span class="ui">최근 변경</span>에 있어요.</p>
+    </div>
+    <figure class="shot" style="flex:1"><div class="frame"><img src="img/skills-manager.png" alt=""></div><figcaption>Bob에게 <span class="path">skills/재무</span>만 맡기는 화면.</figcaption></figure>
+  </div>
+  <div class="row">
+    <figure class="shot" style="flex:1"><div class="frame"><img src="img/skills-confirm.png" alt=""></div><figcaption>AI가 <span class="path">skills</span>에 저장하기 전에 뜨는 서버의 확인 카드. 바뀌는 줄이 보여요.</figcaption></figure>
+    <div class="side">
+      <p><b>AI가 스킬을 저장할 때는 꼭 물어봐요.</b> 팀장·관리자를 포함해 누구의 AI든 <span class="path">skills</span>에 저장하기 전에 <span class="ui">팀 서버의 안전 확인</span> 카드가 떠요. <span class="ui">저장</span>을 골라야만 저장되고, <span class="ui">저장하지 않기</span>를 고르거나 답하지 않으면 아무것도 바뀌지 않아요. 이 카드는 AI가 대신 답할 수 없어요.</p>
+      <p><b>스킬로 제안.</b> 스킬을 바꿀 수 없는 사람은 채팅 답변 아래나 내 폴더 파일 메뉴의 <span class="ui">스킬로 제안</span>을 눌러요. 제안은 바로 들어가지 않고, 그 폴더를 관리하는 사람이 <span class="ui">팀 스킬</span> › <span class="ui">검토 대기</span>에서 고쳐서 <span class="ui">등록</span>하거나 <span class="ui">거절</span>해요. 결과는 제안한 사람에게 알림으로 가요.</p>
+    </div>
+  </div>
   <h3>AI 엔진 고르기 — 누가, 무엇으로</h3>
   <p><span class="ui">AI 엔진</span> 화면의 <b>팀 기본값</b>이 모든 답의 엔진과 모델이에요(처음에는 Claude Code, 기본 모델). 팀원은 채팅에서 엔진을 고르지 않고 이 기본값으로 답을 받아요. 같은 화면의 <b>엔진 선택 권한</b>에서 바꿀 수 있어요.</p>
   <ul>

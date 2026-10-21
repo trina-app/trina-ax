@@ -84,7 +84,8 @@ export function dispatch(ev: ServerEvent) {
         const link = ev.data.link
         const label = ev.data.code === 'skill_changed' ? (link.startsWith('/trash') ? t('notice.open') : t('notice.openHistory')) : ev.data.code.startsWith('skill_') ? t('notice.openSkills') : t('notice.open')
         if (ev.data.code.startsWith('skill_')) skillsChanged.emit()
-        toast({ level: ev.data.level, text: ev.data.message, sticky: true, action: { label, run: () => navigateTo(link) } })
+        // not sticky: it would sit over the composer; the same changes and suggestions stay on the 팀 스킬 screen
+        toast({ level: ev.data.level, text: ev.data.message, action: { label, run: () => navigateTo(link) } })
         return
       }
       toast({ level: ev.data.level, text: ev.data.message, sticky: ev.data.level === 'error' })
