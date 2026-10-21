@@ -75,6 +75,9 @@ export const SPECS: Record<string, Spec> = {
   listChats: { build: (c) => c.get('/api/chats'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceChatTitle)) throw new Error(`${who}'s chat list shows alice's chat`) } },
   createChat: { build: (c) => c.post('/api/chats', { title: 'mine' }), scope: 'self' },
+  // engine / model choice is the admin's (r5-engine-choice.test.ts): members see canChoose false and no engines
+  chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',
+    check: (r, w, who) => { if (r.status === 200 && (who === 'memberIn' || who === 'other' || who === 'memberOut') && (r.json?.canChoose !== false || r.json?.engines?.length)) throw new Error(`${who} may pick the engine by default`) } },
   getChat: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat' },
   updateChat: { build: (c, w) => c.patch(`/api/chats/${w.ids.chatA}`, { title: 'pwned-by-' + crypto.randomUUID().slice(0, 4) }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's chat`) } },
@@ -191,7 +194,8 @@ export const SPECS: Record<string, Spec> = {
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
   engines: { build: (c) => c.get('/api/admin/engines'), scope: 'byLevel' },
-  updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3 }), scope: 'byLevel' },
+  // the request a member would make to let themselves pick the engine (and to send conversations to OpenAI)
+  updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },
   checkEngine: { build: (c) => c.post('/api/admin/engines/claude-code/check'), scope: 'byLevel' },
   addEngineAccount: { build: (c) => c.post('/api/admin/engines/accounts', { engine: 'anthropic', secret: 'sk-test-1234567890' }), scope: 'byLevel' },
   deleteEngineAccount: { build: (c) => c.del('/api/admin/engines/accounts/none'), scope: 'byLevel' },

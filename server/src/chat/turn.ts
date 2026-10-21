@@ -33,6 +33,8 @@ import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, typ
 import { authorize } from '../policy/authorize'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { budgetBlock } from '../admin/budgets'
+import { ENGINE_LABELS } from '../admin/engines'
+import { limitFallbackOn } from '../admin/engine-choice'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -52,6 +54,8 @@ export interface TurnSpec {
   engine: EngineId
   model: string | null
   locale: Locale
+  /** the chat's engine is switched off: this turn runs on the team default (step note) */
+  substitutedFrom?: EngineId
 }
 
 interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null }
@@ -155,6 +159,8 @@ export class TurnExec {
   private async execute() {
     const { rt, spec } = this
     try { this.principal = rt.files.principal(spec.userId) } catch { this.error = engineError('user_disabled', spec.locale); return }
+    // the chat's engine was switched off by an admin: this answer comes from the team default
+    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
     const problem = confs.problems[spec.engine]
     const claude = spec.engine === 'claude-code' ? confs.claude : null
@@ -270,42 +276,81 @@ export class TurnExec {
       }
     } else if (codex) {
       const model = spec.model && rt.engines.get().codexModels.includes(spec.model) ? spec.model : undefined
-      // the engine account (production) reaches OpenAI only through the model proxy's CONNECT tunnel, with a proxy
-      // token of this turn (revoked when the turn ends; the proxy also checks the turn is running)
-      let proxy: { port: number; token: string } | undefined
-      if (codex.auth === 'agent-own') {
-        if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
-        proxy = { port: core.proxy.port, token: issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS }) }
-      }
-      try {
-        const retried = new Set<string>()
-        for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
-          prepareCodexTurn(codex, chatDir)
-          const parser = new CodexEventParser()
-          const errors: EngineEvent[] = []
-          this.attemptHadOutput = false
-          const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: prompt(true), message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, model, proxy }, codex)
-          const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
-          this.closeThinking()
-          try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
-          // the launcher did not write a changed Codex login back (link, other account, ...): an engine may have tried
-          // to swap it (design tab 2 "로그인 파일")
-          for (const n of notes) { audit(rt.db, { actor: null, action: 'engine.codex_auth', target: spec.turnId, detail: { note: n.slice(0, 300) } }); rt.log.warn('codex login note', { turn: this.id, note: n }) }
-          if (this.stopReason) break
-          // the engine account has no Codex login yet (the owner runs the codex-login command once)
-          if (exit?.ev === 'error' && /codex_not_signed_in|codex_not_configured/.test(String(exit.message))) { this.error = engineError('auth', spec.locale); rt.log.warn('codex: engine account not signed in', { turn: this.id, message: exit.message }); break }
-          const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
-          const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
-          if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
-          if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-          if (err) this.error = engineError(err.code, spec.locale)
-          else if (crashed) this.error = engineError('crash', spec.locale)
-          break
-        }
-      } finally {
-        if (proxy) revokeProxyTokens(rt.db, spec.turnId)
-      }
+      await this.runCodex(core, codex, { chatDir, token, systemPrompt: prompt(true), message, extraTools, model })
     }
+    // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
+    // 429 path reported a limit, never for budgets, refusals or crashes
+    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: prompt(true), message, extraTools })
+  }
+
+  /** Codex: one turn (a crash without output is tried once more). */
+  private async runCodex(core: Running, codex: CodexConf, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[]; model: string | undefined }) {
+    const { rt, spec } = this
+    const { chatDir, token, model } = o
+    // the engine account (production) reaches OpenAI only through the model proxy's CONNECT tunnel, with a proxy
+    // token of this turn (revoked when the turn ends; the proxy also checks the turn is running)
+    let proxy: { port: number; token: string } | undefined
+    if (codex.auth === 'agent-own') {
+      if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
+      proxy = { port: core.proxy.port, token: issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS }) }
+    }
+    try {
+      const retried = new Set<string>()
+      for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
+        prepareCodexTurn(codex, chatDir)
+        const parser = new CodexEventParser()
+        const errors: EngineEvent[] = []
+        this.attemptHadOutput = false
+        const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy }, codex)
+        const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
+        this.closeThinking()
+        try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
+        // the launcher did not write a changed Codex login back (link, other account, ...): an engine may have tried
+        // to swap it (design tab 2 "로그인 파일")
+        for (const n of notes) { audit(rt.db, { actor: null, action: 'engine.codex_auth', target: spec.turnId, detail: { note: n.slice(0, 300) } }); rt.log.warn('codex login note', { turn: this.id, note: n }) }
+        if (this.stopReason) break
+        if (this.proxyError) { this.error = this.proxyError; break }
+        // the engine account has no Codex login yet (the owner runs the codex-login command once)
+        if (exit?.ev === 'error' && /codex_not_signed_in|codex_not_configured/.test(String(exit.message))) { this.error = engineError('auth', spec.locale); rt.log.warn('codex: engine account not signed in', { turn: this.id, message: exit.message }); break }
+        const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
+        const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
+        if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
+        if (err) this.error = engineError(err.code, spec.locale)
+        else if (crashed) this.error = engineError('crash', spec.locale)
+        break
+      }
+    } finally {
+      if (proxy) revokeProxyTokens(rt.db, spec.turnId)
+    }
+  }
+
+  /**
+   * Claude hit the subscription limit and the admin turned on "Claude 한도에 닿으면 Codex로 넘기기": the same question
+   * goes to Codex (a fresh session with the branch history), with a step saying so and an audit entry. Not while
+   * Codex is off (switched off, office mode, not set up) or, in production, for someone outside the Codex beta.
+   */
+  private async limitFallback(core: Running, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[] }) {
+    const { rt, spec } = this
+    if (!limitFallbackOn(rt.ctx)) return
+    const confs = rt.engines.get()
+    const codex = confs.codex
+    if (!codex || confs.problems.codex) return
+    if (codexIsBeta(rt.ctx) && (!this.principal || !codexBetaAllowed(rt.db, this.principal))) return
+    const label = tr('limitFallback', spec.locale, { from: ENGINE_LABELS['claude-code'], to: ENGINE_LABELS.codex })
+    this.addStep({ kind: 'tool', tool: 'engine', label, status: 'ok' })
+    rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_limit_fallback', message: label } })
+    audit(rt.db, { actor: spec.userId, action: 'engine.limit_fallback', target: spec.turnId, detail: { from: 'claude-code', to: 'codex', model: spec.model } })
+    rt.log.info('claude limit: answering with codex', { turn: this.id })
+    this.error = null
+    this.proxyError = null
+    if (this.content && !this.content.endsWith('\n\n')) this.appendText('\n\n')
+    // the answer and the turn are Codex's now (usage, the "answered by" label); the Claude session lacks this answer,
+    // so the next Claude turn starts fresh from the history
+    rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
+    rt.db.query("UPDATE turns SET engine = 'codex', model = NULL WHERE id = ?").run(spec.turnId)
+    rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
+    await this.runCodex(core, codex, { ...o, model: undefined })
   }
 
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",

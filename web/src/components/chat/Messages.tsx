@@ -2,7 +2,7 @@
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped), copy, regenerate, branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
@@ -21,8 +21,9 @@ import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import FileSummary from './FileSummary'
 import Steps from './Steps'
+import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
-export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude', codex: 'Codex' }
+export { ENGINE_LABEL }
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
@@ -244,6 +245,7 @@ export function AssistantMessage({
   busy,
   switchedFrom,
   onRegenerate,
+  retryWith,
   onSelectBranch,
   onAskOwnFolder,
 }: {
@@ -252,7 +254,9 @@ export function AssistantMessage({
   isLast: boolean
   busy: boolean
   switchedFrom: EngineId | null
-  onRegenerate: (m: ViewMessage) => void
+  onRegenerate: (m: ViewMessage, with_?: EnginePick) => void
+  /** people who may pick the engine: "retry with another model" next to "retry" on a failed answer */
+  retryWith?: { engines: EngineId[]; models: Partial<Record<EngineId, { id: string; label: string }[]>> }
   onSelectBranch: (id: string) => void
   onAskOwnFolder: (path: string) => void
 }) {
@@ -303,10 +307,11 @@ export function AssistantMessage({
             <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1">{errText ?? t('chat.answerFailed')}</span>
             {isLast && (
-              <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)}>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                 <RotateCcw size={13} aria-hidden /> {t('common.retry')}
               </Button>
             )}
+            {isLast && retryWith && retryWith.engines.length > 0 && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
           </div>
         )}
         {m.status === 'stopped' && (
@@ -325,6 +330,32 @@ export function AssistantMessage({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** "다른 모델로 다시 시도": the engines and models the person may pick, for a new answer to the same question. */
+function RetryWithModel({ m, busy, retryWith, onPick }: { m: ViewMessage; busy: boolean; retryWith: NonNullable<Parameters<typeof AssistantMessage>[0]['retryWith']>; onPick: (p: EnginePick) => void }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <Button size="sm" variant="secondary" disabled={busy} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="retry-other-model">
+        {t('chat.retryOtherModel')} <ChevronDown size={13} aria-hidden />
+      </Button>
+      {open && (
+        <ul role="listbox" aria-label={t('chat.retryOtherModel')} className="absolute top-full right-0 z-30 mt-1 max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1 text-ink shadow-lg" onMouseLeave={() => setOpen(false)}>
+          <EngineOptions
+            engines={retryWith.engines}
+            models={retryWith.models}
+            current={{ engine: (m.engine ?? undefined) as EngineId | undefined, model: m.model }}
+            onPick={(p) => {
+              setOpen(false)
+              onPick(p)
+            }}
+          />
+        </ul>
+      )}
     </div>
   )
 }

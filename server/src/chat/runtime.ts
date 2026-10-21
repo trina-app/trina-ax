@@ -248,6 +248,8 @@ export class ChatRuntime {
   createTurn(o: {
     chat: ChatRow; userId: string; locale: Locale; windowId: string | null; clientKind: string | null
     engine: EngineId; model: string | null
+    /** the chat's engine was off: this turn runs on the team default and says so in a step */
+    substitutedFrom?: EngineId
     user?: { parentId: string | null; content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
   }): TurnStarted {
@@ -268,7 +270,8 @@ export class ChatRuntime {
       this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
         .run(assistantId, title, o.engine, o.model, now, o.chat.id)
     })()
-    const spec: TurnSpec = { turnId, chatId: o.chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale }
+    const spec: TurnSpec = { turnId, chatId: o.chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
+      ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
     const userMessage = o.user ? this.store.toMessage(this.store.messageRow(userMessageId)!) : null
     const assistantMessage = this.store.toMessage(this.store.messageRow(assistantId)!)
     if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: o.chat.id, message: userMessage } })

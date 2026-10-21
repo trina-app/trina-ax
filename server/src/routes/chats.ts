@@ -22,7 +22,7 @@ import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, re
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
-import { safeModel } from '../chat/engines'
+import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
@@ -94,16 +94,10 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   return { items: slice.map((m) => rt.liveMessage(m)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
-/** A model name from the request: null/undefined pass, anything else must be a plain model name (it reaches argv). */
-function checkModel(model: string | null | undefined) {
-  if (model !== null && model !== undefined && !safeModel(model)) fail('validation', undefined, { fields: { 'body.model': 'not a model name' } })
-}
-
-function pickEngine(rt: ChatRuntime, chat: ChatRow, body: { engine?: EngineId; model?: string | null }): { engine: EngineId; model: string | null } {
-  checkModel(body.model)
-  const engine: EngineId = body.engine ?? (chat.engine === 'codex' ? 'codex' : 'claude-code')
-  const model = body.model !== undefined ? body.model : body.engine && body.engine !== chat.engine ? null : chat.model ?? rt.defaultModelFor(engine)
-  return { engine, model: model ?? null }
+/** The turn's engine and model: the chat's (or the team default when the admin switched it off); a choice in the
+ * request only from people who may pick (admin/engine-choice.ts). */
+function pickEngine(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo, chat: ChatRow, body: { engine?: EngineId; model?: string | null }, locale: Locale): TurnEngine {
+  return turnEngine(ctx, auth.user, chat, body, locale, (e) => rt.defaultModelFor(e))
 }
 
 function messageInChat(rt: ChatRuntime, chatId: string, id: string): MessageRow {
@@ -154,16 +148,16 @@ export const chatsRoutes: RouteModule = {
       return { items: items.map((r) => chatOut(rt, r)), nextCursor: more && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
     })
 
-    kit.handle(API.createChat, ({ body, auth }) => {
-      checkModel(body.model)
+    kit.handle(API.chatEngines, ({ auth }) => chatEnginesFor(ctx, auth.user))
+
+    kit.handle(API.createChat, ({ c, body, auth }) => {
+      const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canRead(ctx.files, principal(ctx, auth), p.folder_path)) fail('not_found')
       }
       const id = newId()
       const now = new Date().toISOString()
-      const engine = body.engine ?? rt.defaultEngine()
-      const model = body.model !== undefined ? body.model : (body.engine ? null : rt.defaultModel())
       ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
         .run(id, auth.user.id, body.projectId ?? null, body.title?.trim() ?? '', engine, model ?? null, now, now)
       rt.publishChat(auth.user.id, id, 'created')
@@ -172,9 +166,9 @@ export const chatsRoutes: RouteModule = {
 
     kit.handle(API.getChat, ({ params, auth }) => chatOut(rt, ownChat(rt, auth, params.id, { deleted: true })))
 
-    kit.handle(API.updateChat, ({ params, body, auth }) => {
+    kit.handle(API.updateChat, ({ c, params, body, auth }) => {
       const chat = ownChat(rt, auth, params.id)
-      checkModel(body.model)
+      checkChatEngineChange(ctx, auth.user, chat, body, c.get('locale'))
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canRead(ctx.files, principal(ctx, auth), p.folder_path)) fail('not_found')
@@ -230,9 +224,9 @@ export const chatsRoutes: RouteModule = {
       }
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
       checkBudget(ctx, auth.user.id, c.get('locale'))
-      const { engine, model } = pickEngine(rt, chat, body)
+      const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model,
+        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId); if (r) return r }
@@ -254,8 +248,8 @@ export const chatsRoutes: RouteModule = {
       if (question.role !== 'user') fail('validation', tr('notAssistantMessage', c.get('locale')))
       if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
       checkBudget(ctx, auth.user.id, c.get('locale'))
-      const { engine, model } = pickEngine(rt, chat, body)
-      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, answerTo: question })
+      const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
+      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, answerTo: question })
     })
 
     kit.handle(API.editMessage, ({ c, params, body, auth }) => {
@@ -267,9 +261,9 @@ export const chatsRoutes: RouteModule = {
       if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
       checkBudget(ctx, auth.user.id, c.get('locale'))
-      const { engine, model } = pickEngine(rt, chat, body)
+      const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model,
+        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId); if (r) return r }
