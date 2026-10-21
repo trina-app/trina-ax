@@ -22,9 +22,26 @@ export type LimitKind = 'account' | 'ip' | 'reauth' | 'token-ip'
 export interface LimitKey { kind: LimitKind; id: string }
 
 export const accountKey = (username: string): LimitKey => ({ kind: 'account', id: username.toLowerCase() })
-export const ipKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'ip', id: ip }] : [])
+/**
+ * The id an IP's limit counts under: an IPv4 address as is, an IPv6 address by its /64 network. One machine on a LAN
+ * can give itself any number of IPv6 addresses in its /64 (link-local fe80::/64 needs no router), so counting each
+ * address apart would let it try without limit; a /64 is what one network segment gets.
+ */
+export function limitIp(ip: string): string {
+  if (!ip.includes(':')) return ip
+  const bare = ip.replace(/%.*$/, '').toLowerCase()
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(bare)
+  if (mapped) return mapped[1]!
+  const [head = '', tail = ''] = bare.split('::')
+  const h = head ? head.split(':') : [], t = bare.includes('::') && tail ? tail.split(':') : []
+  const groups = bare.includes('::') ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h
+  if (groups.length < 4) return bare
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64'
+}
+
+export const ipKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'ip', id: limitIp(ip) }] : [])
 export const reauthKey = (userId: string): LimitKey => ({ kind: 'reauth', id: userId })
-export const tokenIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'token-ip', id: ip }] : [])
+export const tokenIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'token-ip', id: limitIp(ip) }] : [])
 
 const keyStr = (k: LimitKey) => `${k.kind}:${k.id}`
 

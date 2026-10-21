@@ -18,9 +18,10 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Codex in production | Beta (owner only); not yet tried with a real ChatGPT login with pf on (2.5) |
 | Public team address `<team>.treesoop.com` | Not available: the production relay is not running |
 | Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
-| Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only |
+| Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |
 | Phones | Production office address only; not tested |
+| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md), clinic PDF [office/Team-AX-치과-설치가이드.pdf](office/Team-AX-치과-설치가이드.pdf)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
 
 **Production chats (subscription mode).** The installer writes `engine.authMode: "subscription"`. Claude Code runs
 as the hidden engine account `_axagent` under the sandbox and pf; the only address it can reach is the server's
@@ -504,6 +505,7 @@ server does not start until someone unlocks it at the Mac (not tested). Decide w
 | Install | Address | Who can reach it |
 |---|---|---|
 | Dev mode | `http://localhost:19100`, `http://demo.localhost:19161` | The server Mac only |
+| Office mode ([OFFICE.md](OFFICE.md)) | `https://<LAN-IP>:8443`, `https://<LocalHostName>.local:8443` | Desks and phones on the Mac's office subnet after installing the office CA once (page on `http://<LAN-IP>:8442`, thumbprint compared with the desk card from `teamax card`). Chats work. |
 | Production, office network | `https://<LocalHostName>.local:8443` or `https://<LAN-IP>:8443` | Browsers and phones on the same network (not tested on a real install). The certificate is self-signed, so each person clicks through the warning once (again after it is renewed for a new address): Chrome/Edge **Advanced → Proceed to … (unsafe)**; Safari on the Mac **Show Details → visit this website → Visit Website** (asks for the Mac password); Safari on iPhone **Show Details → visit this website → Visit Website**. |
 | Team AX relay | `https://<team>.treesoop.com` | Not available: `wss://relay.treesoop.com/connect` is not running. Admin → System does not offer it until `relay.officialAvailable` is `true` in `config/server.json`. |
 | Your own relay | your domain | Advanced and not tested end to end; see below. The "Cloudflare tunnel" and "Tailscale" modes are rejected with "not available in this version". |

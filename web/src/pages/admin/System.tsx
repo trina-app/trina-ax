@@ -183,7 +183,8 @@ function Connection() {
     setChange({ mode: modes.includes(c.mode) ? c.mode : modes[0]!, relayUrl: '', teamName: c.teamName ?? '' })
   }
   return (
-    <Card title={t('system.connection')} actions={<Button size="sm" onClick={open}>{t('system.changeMode')}</Button>}>
+    // one mode only (office mode: the office network): nothing to change
+    <Card title={t('system.connection')} actions={modes.length > 1 ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
           <div className="space-y-1 text-sm">

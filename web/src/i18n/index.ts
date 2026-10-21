@@ -64,6 +64,16 @@ export function pickLocale(user: Locale | null | undefined, teamDefault: Locale 
   return user ?? teamDefault ?? DEFAULT_LOCALE
 }
 
+/** The first of the browser's languages we have (navigator.languages: "ko-KR", "en-US" ...), or null. The first-run
+ * setup screen starts in it: before setup there is no team language yet, and a Korean clinic should not see English. */
+export function browserLocale(languages: readonly string[] | undefined): Locale | null {
+  for (const l of languages ?? []) {
+    const x = asLocale(l)
+    if (x) return x
+  }
+  return null
+}
+
 const STORED_KEY = 'mycel.locale'
 /** The language picked on the sign-in / invite / reset / setup screens (this browser only), or null. */
 export function storedLocale(): Locale | null {

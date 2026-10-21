@@ -8,7 +8,7 @@ import {
 } from '@mycel/shared/api'
 import type { AuthInfo, RealtimeConn, RealtimeHub, RequestInfo } from '../services'
 import type { AppContext } from '../context'
-import { originAllowed } from '../http/middleware'
+import { originAllowed, originsFor } from '../http/middleware'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { visibleChanges } from '../team-files/changes'
 
@@ -184,7 +184,7 @@ export class Hub implements RealtimeHub {
       } else {
         // cookie sessions: the Origin must be this server or a configured public origin (cross-site WebSocket hijacking)
         const origin = req.headers.get('origin')
-        if (!origin || origin === 'null' || !originAllowed(origin, req.url, this.ctx.config.publicOrigins)) {
+        if (!origin || origin === 'null' || !originAllowed(origin, req.url, originsFor(this.ctx.config, info))) {
           conn.close(WsClose.forbiddenOrigin, 'origin not allowed'); return
         }
         auth = await this.ctx.services.sessions.resolve(req, info)

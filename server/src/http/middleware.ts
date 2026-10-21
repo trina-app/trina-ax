@@ -43,7 +43,7 @@ export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const requestId = uuidv7()
     c.set('requestId', requestId)
-    const info = { ip: c.env?.ip ?? null, via: c.env?.via ?? 'direct' } as const
+    const info = { ip: c.env?.ip ?? null, via: c.env?.via ?? 'direct', port: c.env?.port ?? null } as const
     c.set('info', info)
     c.set('log', ctx.log.child({ rid: requestId }))
     c.set('auth', null)
@@ -75,6 +75,70 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
       if (!ancestors || ancestors === "'none'") setHeader(c, 'X-Frame-Options', 'DENY')
       setHeader(c, 'Cross-Origin-Opener-Policy', 'same-origin')
     }
+  }
+}
+
+/** The port of a host[:port] / origin authority, or null when it has none. */
+function portOf(host: string): number | null {
+  const m = /:(\d{1,5})$/.exec(host)
+  return m ? Number(m[1]) : null
+}
+
+/** Is this Host header one of the configured names (host:port, compared in lower case)? No list = any Host. With
+ * `port` (the listener the request came in on) the Host must also name that port: the loopback app port's names
+ * are not answered on the office port and the other way round. */
+export function hostAllowed(host: string | null | undefined, allowed: readonly string[] | undefined, port?: number | null): boolean {
+  if (!allowed || allowed.length === 0) return true
+  if (!host) return false
+  const h = host.toLowerCase()
+  return allowed.includes(h) && (port == null || portOf(h) === port)
+}
+
+/** The public origins a direct request may name (CSRF Origin, WebSocket Origin): with a Host allow-list (office
+ * mode) only those of the listener's own port, so the office port never accepts http://localhost:<app port>. */
+export function originsFor(config: AppContext['config'], info: { via: string; port?: number | null }): string[] {
+  if (info.via !== 'direct' || info.port == null || !config.allowedHosts?.length) return config.publicOrigins
+  return config.publicOrigins.filter((o) => { try { return portOf(new URL(o).host) === info.port } catch { return false } })
+}
+
+const V4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+const v4n = (ip: string) => { const m = V4.exec(ip); return m ? m.slice(1).reduce((n, o) => ((n << 8) | Number(o)) >>> 0, 0) : null }
+
+/** Is this socket peer in one of the IPv4 CIDRs? Loopback always is (the Mac itself). No list = any peer. */
+export function peerAllowed(ip: string | null | undefined, cidrs: readonly string[] | undefined): boolean {
+  if (!cidrs || cidrs.length === 0) return true
+  if (!ip) return false
+  const a = v4n(ip)
+  if (a === null) return false // office mode is IPv4 only
+  if (a >>> 24 === 127) return true
+  return cidrs.some((c) => {
+    const [base, bits] = c.split('/')
+    const b = v4n(base ?? ''), n = Number(bits)
+    if (b === null || !Number.isInteger(n) || n < 0 || n > 32) return false
+    const mask = n === 0 ? 0 : (0xffffffff << (32 - n)) >>> 0
+    return ((a & mask) >>> 0) === ((b & mask) >>> 0)
+  })
+}
+
+/**
+ * Office mode (docs/OFFICE.md) lists the server's own names and addresses in config.allowedHosts: a direct request
+ * (socket peer: the loopback port or the office-network TLS port) with any other Host, a Host of the other
+ * listener's port, or no Host at all gets 421. A web page whose name an attacker re-points at the office Mac (DNS
+ * rebinding) still sends its own name as Host, so it never reaches the API or the cookies' origin. config.allowedPeers
+ * keeps the office port to the office subnet (a VPN peer gets 403). Relayed requests are routed by the relay's own
+ * host check.
+ */
+export function hostCheck(ctx: AppContext): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const info = c.get('info')
+    if (info.via === 'direct') {
+      if (!peerAllowed(info.ip, ctx.config.allowedPeers)) return c.text('Forbidden: this server answers only the office network\n', 403)
+      // the header as the browser sent it (never parsed from the request URL: no Host means no answer)
+      if (!hostAllowed(c.req.header('host'), ctx.config.allowedHosts, info.port)) {
+        return c.text('Misdirected request: this server answers only on its own addresses\n', 421)
+      }
+    }
+    await next()
   }
 }
 
@@ -118,7 +182,7 @@ export function csrf(ctx: AppContext): MiddlewareHandler<AppEnv> {
       if (!c.req.header(CSRF_HEADER)) fail('csrf')
       if (c.req.header('sec-fetch-site') === 'cross-site') fail('csrf')
       const origin = c.req.header('origin')
-      if (origin && origin !== 'null' && !originAllowed(origin, c.req.url, ctx.config.publicOrigins)) fail('csrf')
+      if (origin && origin !== 'null' && !originAllowed(origin, c.req.url, originsFor(ctx.config, c.get('info')))) fail('csrf')
       if (origin === 'null') fail('csrf')
     }
     await next()

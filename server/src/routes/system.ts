@@ -41,6 +41,7 @@ export const T = {
   restartNeeded: { ko: '복원할 데이터를 준비했습니다. 서버를 다시 시작하면 적용됩니다.', en: 'The restore is prepared and applies when the server restarts.', id: 'Pemulihan disiapkan dan berlaku saat server dimulai ulang.' },
   restarting: { ko: '서버를 다시 시작합니다.', en: 'Restarting the server.', id: 'Memulai ulang server.' },
   afterRestart: { ko: '서버를 다시 시작한 뒤 적용됩니다.', en: 'Applies after the server restarts.', id: 'Berlaku setelah server dimulai ulang.' },
+  officeMode: { ko: '사무실 모드는 사무실 네트워크로만 접속합니다. 연결 방식은 바꿀 수 없습니다(docs/OFFICE.md).', en: 'Office mode connects over the office network only; the connection mode cannot be changed (docs/OFFICE.md).', id: 'Mode kantor hanya terhubung lewat jaringan kantor; mode koneksi tidak bisa diubah (docs/OFFICE.md).' },
   unsupportedMode: { ko: '이 연결 방식은 이번 버전에서 아직 쓸 수 없습니다.', en: 'This connection mode is not available in this version yet.', id: 'Mode koneksi ini belum tersedia di versi ini.' },
   noConfigFile: { ko: '개발 모드 서버는 설정 파일 없이 실행 중이라 연결 방식을 바꿀 수 없습니다(.dev/server.json의 relay.url).', en: 'This development server runs without a config file, so the connection mode cannot be changed here (relay.url in .dev/server.json).', id: 'Server pengembangan ini berjalan tanpa berkas konfigurasi, jadi mode koneksi tidak bisa diubah di sini (relay.url di .dev/server.json).' },
   relayUnavailable: { ko: 'Team AX 중계 서버는 아직 운영되지 않아 고를 수 없습니다. 자체 중계 서버나 사무실 안 연결을 쓰세요.', en: 'The Team AX relay is not running yet, so it cannot be chosen. Use your own relay server or the office network only.', id: 'Relay Team AX belum berjalan, jadi belum bisa dipilih. Gunakan server relay sendiri atau jaringan kantor saja.' },
@@ -196,6 +197,8 @@ export const systemRoutes: RouteModule = {
 
     kit.handle(API.updateConnection, ({ c, body }) => {
       const locale = c.get('locale')
+      // office mode: server.json is rewritten by its supervisor at every start, and no relay is part of it
+      if (ctx.config.office) fail('conflict', tr(locale, T.officeMode))
       try {
         const url = saveConnectionMode(ctx.config.configFile, body.mode, { relayUrl: body.relayUrl, teamName: body.teamName, officialAvailable: !!ctx.config.relay.officialAvailable })
         ctx.log.info('connection mode changed', { mode: body.mode, teamName: body.teamName ?? null })

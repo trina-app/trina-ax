@@ -1,0 +1,150 @@
+#!/bin/bash
+# Team AX office mode installer (docs/OFFICE.md). No sudo: everything goes into your own home folder.
+#
+#   bash office-install.sh [options]          from the unzipped TeamAX-office-<version> folder
+#
+#   --prefix DIR         install folder (default ~/TeamAX). Data (data/, team/, tls/, config/) is never inside app/,
+#                        so running a newer zip's installer again updates the program and keeps everything else.
+#   --lan-port N         https port for the desks (default 8443, or what an earlier install chose)
+#   --helper-port N      plain-http certificate page (default lan-port - 1; 0 = off)
+#   --app-port N         this Mac's own port on 127.0.0.1 (default 47830)
+#   --label L            LaunchAgent label (default app.team-ax.office; tests use another one)
+#   --run-dir DIR        engine socket folder when the install folder path is too long for a socket (tests)
+#   --no-open            do not open the setup page in the browser
+#   --check-only         run the checks, print what would happen, change nothing
+#
+# Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
+# (`claude auth status`), the ports are free (after stopping this installation's own agent). Codex is not used in
+# office mode (the clinic's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
+# as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
+# starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
+# for the desks and the first-run setup link.
+set -euo pipefail
+umask 022
+
+SRC=$(cd "$(dirname "$0")" && pwd)
+PREFIX="$HOME/TeamAX"
+CONF_ARGS=()
+OPEN=1 CHECK_ONLY=0
+die() { echo "office-install: $*" >&2; exit 1; }
+say() { echo "office-install: $*"; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prefix) PREFIX=$2; shift 2 ;;
+    --lan-port|--helper-port|--app-port|--label|--run-dir) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
+    --no-open) OPEN=0; shift ;;
+    --check-only) CHECK_ONLY=1; shift ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    *) die "unknown option $1 (see --help)" ;;
+  esac
+done
+
+# ---- checks ----
+[ "${TEAMAX_TEST_UNAME:-$(uname -s)}" = Darwin ] || die "Team AX office mode runs on macOS"
+[ "$(id -u)" != 0 ] || die "do not use sudo: run it as the Mac user whose Claude Code login the team will use"
+OSV=${TEAMAX_TEST_OSVERSION:-$(sw_vers -productVersion 2>/dev/null || echo 0)}
+[ "${OSV%%.*}" -ge 13 ] 2>/dev/null || die "macOS 13 or newer is needed (this Mac: $OSV)"
+case "${TEAMAX_TEST_ARCH:-$(uname -m)}" in
+  arm64) ARCH=darwin-arm64 ;;
+  x86_64) ARCH=darwin-amd64 ;;
+  *) die "unsupported processor $(uname -m)" ;;
+esac
+[ -f "$SRC/app/VERSION" ] && [ -x "$SRC/app/bin/$ARCH/bun" ] && [ -f "$SRC/app/server/src/office.js" ] || die "$SRC is not an unpacked TeamAX-office bundle for $ARCH"
+VERSION=$(tr -d '[:space:]' < "$SRC/app/VERSION")
+case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
+[[ "$PREFIX" != *$'\n'* && "$PREFIX" != *:* ]] || die "the install folder may not contain ':' or a line break"
+
+# Claude Code: the engine is this Mac's own login (the owner's subscription)
+CLAUDE=${TEAMAX_CLAUDE_BIN:-}
+if [ -z "$CLAUDE" ]; then
+  for c in "$(command -v claude 2>/dev/null || true)" "$HOME/.local/bin/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do
+    if [ -n "$c" ] && [ -x "$c" ]; then CLAUDE=$c; break; fi
+  done
+fi
+[ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || die "Claude Code is not installed for this user. Install it (curl -fsSL https://claude.ai/install.sh | bash), run 'claude', log in with the subscription account, then run this again."
+AUTH=$("$CLAUDE" auth status 2>/dev/null || true)
+echo "$AUTH" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' || die "Claude Code is installed ($CLAUDE) but not logged in. Run 'claude' in Terminal, log in (/login) with the subscription account, then run this again."
+CONF_ARGS+=(--claude-bin "$CLAUDE")
+BUN_SRC="$SRC/app/bin/$ARCH/bun"
+"$BUN_SRC" --version >/dev/null 2>&1 || { xattr -d com.apple.quarantine "$BUN_SRC" 2>/dev/null || true; "$BUN_SRC" --version >/dev/null 2>&1 || die "$BUN_SRC does not run on this Mac"; }
+
+say "Team AX office mode $VERSION ($ARCH) -> $PREFIX"
+say "Claude Code: $CLAUDE (logged in)"
+if [ "$CHECK_ONLY" = 1 ]; then
+  # settings are validated by the same code the install uses, written into a throwaway folder
+  T=$(mktemp -d)
+  trap 'rm -rf "$T"' EXIT
+  if [ -f "$PREFIX/config/office.env" ]; then mkdir -p "$T/config"; cp "$PREFIX/config/office.env" "$T/config/office.env"; fi
+  "$BUN_SRC" "$SRC/app/server/src/office.js" configure --home "$T" --as-home "$PREFIX" "${CONF_ARGS[@]}" | sed 's/^/  /'
+  TL=$(sed -n 's/^TEAMAX_LABEL=//p' "$T/config/office.env")
+  if launchctl print "gui/$(id -u)/$TL" >/dev/null 2>&1; then
+    say "ports: in use by this installation's running agent ($TL), reused by the update"
+  else
+    "$BUN_SRC" "$SRC/app/server/src/office.js" check-ports --home "$T" || die "a port is taken (see above)"
+    say "ports: free"
+  fi
+  if [ -d "$PREFIX/app" ]; then say "would update $PREFIX/app (data/, team/, tls/, config/ kept)"; else say "would install into $PREFIX"; fi
+  say "check only: nothing changed"
+  exit 0
+fi
+
+# ---- settings first (validates ports and the socket path before anything is copied) ----
+mkdir -p "$PREFIX"
+chmod 755 "$PREFIX"
+"$BUN_SRC" "$SRC/app/server/src/office.js" configure --home "$PREFIX" "${CONF_ARGS[@]}" > /dev/null
+LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env")
+
+# ---- stop a running installation before its program is replaced ----
+if launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then sleep 1; fi
+
+# ---- the ports must be free now (another program, e.g. a second installation, would make the server wait forever) ----
+"$BUN_SRC" "$SRC/app/server/src/office.js" check-ports --home "$PREFIX" || die "a port is taken (see above); nothing was changed except config/office.env. If this installation was running, start it again: $PREFIX/teamax start"
+
+# ---- program: this Mac's architecture only ----
+NEW="$PREFIX/app.new"
+rm -rf "$NEW"
+mkdir -p "$NEW/bin" "$NEW/native/bin"
+for p in server scripts web docs teamax VERSION versions.json; do [ -e "$SRC/app/$p" ] && cp -R "$SRC/app/$p" "$NEW/$p"; done
+cp -R "$SRC/app/bin/$ARCH/." "$NEW/bin/"
+cp -R "$SRC/app/native/bin/$ARCH" "$NEW/native/bin/$ARCH"
+xattr -dr com.apple.quarantine "$NEW" 2>/dev/null || true
+chmod -R go-w "$NEW"
+"$NEW/bin/bun" --version >/dev/null || die "the copied bun does not run"
+if [ -d "$PREFIX/app" ]; then rm -rf "$PREFIX/app.previous"; mv "$PREFIX/app" "$PREFIX/app.previous"; fi
+mv "$NEW" "$PREFIX/app"
+ln -sfn app/teamax "$PREFIX/teamax"
+for d in data team tls config; do mkdir -p "$PREFIX/$d"; chmod 700 "$PREFIX/$d"; done
+mkdir -p "$PREFIX/logs"
+
+# ---- agent ----
+INSTALL_ARGS=(install --home "$PREFIX")
+[ "$OPEN" = 1 ] || INSTALL_ARGS+=(--no-open)
+"$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" "${INSTALL_ARGS[@]}" || die "the server did not start; see $PREFIX/logs/office.log ($PREFIX/teamax logs)"
+
+# ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
+FW=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true)
+cat <<EOF
+
+=== 설치 끝 / installed: $VERSION ===
+명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup
+설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-치과-설치가이드.pdf)
+
+데스크 카드를 인쇄하세요 / print the desk card:  $PREFIX/teamax card
+  카드의 지문(thumbprint)으로 데스크가 인증서를 확인합니다. 데스크가 많으면 $PREFIX/tls/ca.cer 를 USB로 나눠 주면 더 안전합니다.
+
+이 맥이 계속 켜져 있게 / keep this Mac running (docs/OFFICE.md):
+  1. 잠자기 끄기·정전 후 자동 켜짐 (관리자 암호 필요, 한 번만) / never sleep, start after a power cut:
+       sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
+  2. 공유기에서 이 맥의 주소를 고정 (DHCP 예약) / reserve this Mac's address in the router (DHCP reservation)
+  3. 정전 뒤: FileVault가 켜져 있으면 맥 앞에서 암호를 한 번 입력하면 Team AX가 스스로 켜집니다.
+     after a power cut with FileVault on, type the Mac password once at the Mac; Team AX starts by itself.
+EOF
+case "$FW" in
+  *enabled*|*"State = 1"*|*"State = 2"*)
+    cat <<EOF
+  4. 방화벽이 켜져 있습니다 / the firewall is on: when macOS asks whether "bun" may accept incoming connections,
+     click Allow. Or once, in Terminal:
+       sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$PREFIX/app/bin/bun" --unblockapp "$PREFIX/app/bin/bun"
+EOF
+    ;;
+esac
