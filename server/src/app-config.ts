@@ -5,10 +5,11 @@
 //                                                           prod: /Library/Application Support/mycel/config/server.json
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
-// MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay).
+// MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
+// (1 = the Team AX relay may be offered).
 // Office mode (one Mac in a clinic or office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
-// lockdown) with `office: true`: no DEV banner, and server/src/office/supervisor.ts writes the file (TLS listener on
-// the office network, allowedHosts, publicOrigins).
+// lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
+// listener on the office network, allowedHosts, publicOrigins).
 // Relative paths in the file are resolved against the file's folder.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,6 +21,11 @@ export const DEV_DIR = path.join(REPO_ROOT, '.dev')
 export const PROD_BASE = `/Library/Application Support/${PRODUCT.id}`
 /** Foundation dev server port (component port ranges: docs/WORKPLAN.md). */
 export const DEV_PORT = 19100
+/** model proxy port when server.json names none (the installer's default --proxy-port) */
+export const DEFAULT_PROXY_PORT = 47821
+export const ANTHROPIC_API = 'https://api.anthropic.com'
+/** same port under its production name (installer --proxy-port; pf and the engine sandbox allow the engine account only this) */
+export const PROD_PROXY_PORT = DEFAULT_PROXY_PORT
 
 export const AppConfigFile = z.object({
   mode: z.enum(['dev', 'prod']).optional(),
@@ -28,8 +34,10 @@ export const AppConfigFile = z.object({
     host: z.string().default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(DEV_PORT),
   }).default({ host: '127.0.0.1', port: DEV_PORT }),
-  /** office-network direct connection (TLS, tab 4: 8443); null = off. host: '0.0.0.0' (IPv4) or '::' (IPv4 + IPv6) */
-  tls: z.object({ host: z.string().default('0.0.0.0'), port: z.number().int().default(8443), certFile: z.string(), keyFile: z.string() }).nullable().default(null),
+  /** office-network direct connection (TLS, tab 4: 8443); null = off. host: '0.0.0.0' (IPv4) or '::' (IPv4 + IPv6).
+   * managed: the server keeps the self-signed certificate naming every LAN address of this Mac (system/lan-cert.ts;
+   * the production installer sets it). Office mode leaves it off: its supervisor keeps a CA-signed one. */
+  tls: z.object({ host: z.string().default('0.0.0.0'), port: z.number().int().default(8443), certFile: z.string(), keyFile: z.string(), managed: z.boolean().default(false) }).nullable().default(null),
   /** Host headers (host:port, lower case) the direct listeners answer; anything else gets 421. Empty = any (dev, the
    * relay sets its own). Office mode lists the certificate's names and addresses: a DNS-rebinding page never gets in. */
   allowedHosts: z.array(z.string()).default([]),
@@ -42,8 +50,23 @@ export const AppConfigFile = z.object({
   logDir: z.string().nullable().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   engine: z.object({
-    /** local-login: owner's own CLI login, engine runs as the current user (dev / subscriptions). proxy: company key. */
+    /** local-login: owner's own CLI login, engine runs as the current user (dev). subscription: the owner's
+     * `claude setup-token` token in <install>/secrets/claude-oauth-token behind the model proxy (production, written
+     * by scripts/install-macos.sh). proxy: company key (code only, refused). */
     authMode: AuthMode.default('local-login'),
+    /** the model proxy's port on 127.0.0.1 (the installer's --proxy-port), the engine account's only network path:
+     * Claude requests and Codex tunnels. pf and the launcher's sandbox allow the engine account only this port, so
+     * another value here only makes the engine fail closed. */
+    proxyPort: z.number().int().min(1).max(65535).optional(),
+    /** where the model proxy sends requests (tests point it at a fake upstream). The owner's token goes there, so
+     * HTTPS only; plain HTTP only to this Mac (a fake upstream in tests); no user:password in the address. */
+    modelUpstream: z.string().url().refine((u) => {
+      try {
+        const x = new URL(u)
+        if (x.username || x.password) return false
+        return x.protocol === 'https:' || (x.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(x.hostname))
+      } catch { return false }
+    }, 'modelUpstream must be https:// (http:// only for 127.0.0.1 / localhost)').optional(),
     claudeBin: z.string().optional(),
     codexBin: z.string().optional(),
     /** installed layout (tab 6, written by scripts/install-macos.sh): sockets <runDir>/tools.sock + private/, per-chat
@@ -57,7 +80,10 @@ export const AppConfigFile = z.object({
     /** wss://relay.example/connect; null = no relay */
     url: z.string().nullable().default(null),
     teamName: z.string().nullable().default(null),
-  }).default({ url: null, teamName: null }),
+    /** the Team AX relay (wss://relay.treesoop.com/connect) is running and may be offered in Admin > System. Off until
+     * the production relay exists (docs/OWNER-TODO.md 4): selecting it before then never connects. */
+    officialAvailable: z.boolean().default(false),
+  }).default({ url: null, teamName: null, officialAvailable: false }),
   update: z.object({
     channel: z.enum(['stable', 'beta']).default('stable'),
     feedUrl: z.string().nullable().default(null),
@@ -71,7 +97,8 @@ export interface AppConfig {
   mode: 'dev' | 'prod'
   configFile: string | null
   listen: { host: string; port: number }
-  tls: { host: string; port: number; certFile: string; keyFile: string } | null
+  /** host: absent = 0.0.0.0 */
+  tls: { host?: string; port: number; certFile: string; keyFile: string; managed?: boolean } | null
   /** see AppConfigFile.allowedHosts; absent or empty = any Host */
   allowedHosts?: string[]
   /** office mode (docs/OFFICE.md) */
@@ -81,8 +108,8 @@ export interface AppConfig {
   dataDir: string
   logDir: string | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  engine: { authMode: 'local-login' | 'proxy'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number }
-  relay: { url: string | null; teamName: string | null }
+  engine: { authMode: 'local-login' | 'proxy' | 'subscription'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number; modelUpstream?: string }
+  relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null }
   validateResponses: boolean
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
@@ -133,7 +160,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     mode,
     configFile: file,
     listen: { host: env[P + 'HOST'] ?? f.listen.host, port },
-    tls: f.tls ? { host: f.tls.host, port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile) } : null,
+    tls: f.tls ? { host: f.tls.host, port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile), managed: f.tls.managed } : null,
     allowedHosts: f.allowedHosts.map((h) => h.toLowerCase()),
     office: f.office,
     publicOrigins: origins,
@@ -147,10 +174,13 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       ...(f.engine.agentRoot ? { agentRoot: abs(f.engine.agentRoot) } : {}),
       ...(f.engine.launcherSock ? { launcherSock: abs(f.engine.launcherSock) } : {}),
       ...(f.engine.agentUid !== undefined ? { agentUid: f.engine.agentUid } : {}),
+      ...(f.engine.proxyPort !== undefined ? { proxyPort: f.engine.proxyPort } : {}),
+      ...(f.engine.modelUpstream ? { modelUpstream: f.engine.modelUpstream } : {}),
     },
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
       teamName: env[P + 'RELAY_TEAM'] ?? f.relay.teamName,
+      officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
     update: f.update,
     validateResponses: f.validateResponses ?? mode === 'dev',

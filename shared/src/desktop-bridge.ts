@@ -11,7 +11,6 @@
 //   const bridge = getDesktopBridge()
 //   const relay = bridge && createBrowserRelay({ bridge, windowId, send: (f) => ws.send(JSON.stringify(f)) })
 //   ws.onmessage = (m) => { const ev = ServerFrame.parse(JSON.parse(m.data)); relay?.handle(ev); ... }
-import { z } from 'zod'
 import { BrowserCall, BrowserResult } from './api/browser'
 import type { ClientFrame, ServerFrame } from './api/ws'
 
@@ -102,15 +101,8 @@ export function getDesktopBridge(): DesktopBridge | null {
  * address (real TLS); the desktop app then accepts only this certificate on the LAN address (no trust on first use).
  */
 export const CONNECT_INFO_PATH = '/api/connect-info'
-export const ConnectInfo = z.object({
-  teamId: z.string().min(1).max(200),
-  /** SHA-256 of the LAN certificate (DER), hex, with or without colons */
-  lanCertSha256: z.string().regex(/^([0-9A-Fa-f]{2}:?){31}[0-9A-Fa-f]{2}$/).nullable(),
-  lanPort: z.number().int().min(1).max(65535),
-  /** e.g. ["acme-mac.local", "192.168.0.20"] */
-  lanHosts: z.array(z.string().min(1).max(253)).max(8),
-})
-export type ConnectInfo = z.infer<typeof ConnectInfo>
+/** the schema lives with the endpoint (shared/src/api/system.ts) */
+export { ConnectInfo } from './api/system'
 
 export interface BrowserRelayOptions {
   bridge: DesktopBridge

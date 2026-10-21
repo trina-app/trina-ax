@@ -1,6 +1,6 @@
 // Sandbox / firewall probe for the installer-ops tests (component G). One operation per run, exit 0 = allowed.
 //   probe read <file> | write <file> | list <dir> | tcp <ip> <port> | talk <ip> <port> | unix <socket path> | exec <program>
-//         | stat <path> | procs | procargs <pid> | hold <ms> [ignored ...] | watchargv <needle> <marker> <ms>
+//         | stat <path> | realpath <path> | procs | procargs <pid> | hold <ms> [ignored ...] | watchargv <needle> <marker> <ms>
 // stat exits 0 (found), 1 (EPERM: the sandbox said no), 3 (ENOENT) or 4 (other error), so a test can tell "denied"
 // from "does not exist" (a denied stat must not reveal whether the path exists). procs = list every process
 // (KERN_PROC_ALL), procargs = read another process's argv (KERN_PROCARGS2).
@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,13 @@ int main(int argc, char **argv) {
   if (!strcmp(op, "procargs")) {
     int mib[3] = { CTL_KERN, KERN_PROCARGS2, atoi(a) }; static char buf[1 << 16]; size_t len = sizeof buf;
     if (sysctl(mib, 3, buf, &len, NULL, 0) < 0) return fail("sysctl kern.procargs2"); return 0;
+  }
+  if (!strcmp(op, "realpath")) {
+    // what an engine does with its working folder: getcwd() and realpath() of <path> must both work and agree
+    char cwd[PATH_MAX], rp[PATH_MAX];
+    if (!getcwd(cwd, sizeof cwd)) return fail("getcwd");
+    if (!realpath(a, rp)) return fail("realpath");
+    printf("%s\n%s\n", cwd, rp); return 0;
   }
   if (!strcmp(op, "hold")) { usleep((useconds_t)atoi(a) * 1000); return 0; }
   if (!strcmp(op, "watchargv")) {

@@ -11,6 +11,7 @@ import { transcribe, transcribeConfig, type TranscribeConfig } from '../jobs/tra
 import { Artifacts } from '../tools/artifact'
 import { findConverters, MakeFile } from '../tools/make-file'
 import { Attachments } from '../uploads/attachments'
+import { TeamFileRefs } from '../uploads/team-refs'
 import { UploadSessions } from '../uploads/sessions'
 import { publishChanges } from './changes'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
@@ -19,6 +20,8 @@ import { TeamFiles } from './service'
 export interface ComponentC {
   files: TeamFiles
   attachments: Attachments
+  /** team files attached to chats by reference (the composer's "Add from team files") */
+  teamRefs: TeamFileRefs
   uploads: UploadSessions
   artifacts: Artifacts
   makeFile: MakeFile
@@ -37,13 +40,14 @@ export function componentC(ctx: AppContext): ComponentC {
   const have = instances.get(ctx)
   if (have) return have
   const files = new TeamFiles(ctx)
-  const attachments = new Attachments(ctx, files)
+  const teamRefs = new TeamFileRefs(ctx, files)
+  const attachments = new Attachments(ctx, files, teamRefs)
   const uploads = new UploadSessions(ctx, files, attachments)
   const jobs = new JobServiceImpl(ctx)
   const stt = transcribeConfig(ctx.config.dataDir)
   const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
-    files, attachments, uploads, jobs,
+    files, attachments, teamRefs, uploads, jobs,
     artifacts: new Artifacts(ctx),
     makeFile: new MakeFile(ctx, files, findConverters(ctx.engineConfig.pandoc)),
     transcribe: stt,
@@ -70,6 +74,7 @@ export function componentC(ctx: AppContext): ComponentC {
       run('uploads', () => uploads.sweep())
       run('jobs', () => jobs.sweep())
       run('thumbs', () => attachments.sweep())
+      run('teamRefs', () => teamRefs.sweep())
       // converter work folders and spooled small uploads left behind by a crash
       run('scratch', () => {
         let n = 0
@@ -108,7 +113,12 @@ export function componentC(ctx: AppContext): ComponentC {
     } catch (err) { ctx.log.warn('files.conflict publish failed', { err }) }
   })
   // B reads a message's attachments back by id through this service (services.ts AttachmentStore)
-  ctx.services.attachments = { get: (userId, chatId, ids) => attachments.byIds(userId, chatId, ids) }
+  ctx.services.attachments = {
+    get: (userId, chatId, ids) => attachments.byIds(userId, chatId, ids),
+    lookup: (userId, chatId, ids) => attachments.lookup(userId, chatId, ids),
+    view: (userId, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.view(userId, a) : a)),
+    check: (userId, atts) => Promise.all(atts.map((a) => (a.source === 'team' ? teamRefs.check(userId, a) : a))),
+  }
   instances.set(ctx, c)
   return c
 }

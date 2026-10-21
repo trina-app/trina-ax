@@ -17,9 +17,12 @@ export type EngineEvent = z.infer<typeof EngineEvent>
 export type EngineErrorCode = z.infer<typeof EngineErrorCode>
 
 /** How the engine authenticates to the model.
- * - proxy: company key behind the server's model proxy; the engine only gets a per-turn proxy token (design default).
+ * - subscription: the owner's long-lived Claude subscription token (`claude setup-token`, <install>/secrets/
+ *   claude-oauth-token) stays with the server; the engine talks to the server's model proxy with a per-turn token
+ *   and the proxy puts the real one on the request (production / role-account install, design tab 1 "프록시 동작").
+ * - proxy: the same with a company API key (code only; refused by chat/engines.ts, owner decision: subscriptions only).
  * - local-login: the engine uses the claude CLI's own existing login on this machine (dev/test only; no proxy). */
-export const AuthMode = z.enum(['proxy', 'local-login'])
+export const AuthMode = z.enum(['proxy', 'local-login', 'subscription'])
 export type AuthMode = z.infer<typeof AuthMode>
 
 // ---------------- launcher protocol (server <-> native launcher, JSON lines over launcher.sock) ----------------
@@ -43,6 +46,13 @@ export const LaunchRequest = z.object({
   stdin: z.string(),
   /** extra files written under chatDir before the run (e.g. a per-turn engine config) */
   files: z.array(z.object({ rel: z.string(), content: z.string() })).optional(),
+  /** per-turn model proxy token. The launcher hands it to the engine on an inherited pipe (fd 3, read once by Claude
+   * Code: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR / CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR), never in argv or the
+   * environment, which other processes of the engine account can read (KERN_PROCARGS2). */
+  modelToken: z.object({ kind: z.enum(['oauth', 'api-key']), value: z.string().min(1).max(512) }).optional(),
+  /** Codex as the engine account: the launcher copies the account's Codex login (--codex-auth-dir) into
+   * <chatDir>/.codex for this turn and writes a refreshed one back after it (one Codex turn at a time) */
+  codexAuth: z.boolean().optional(),
 })
 export type LaunchRequest = z.infer<typeof LaunchRequest>
 export const LaunchEvent = z.discriminatedUnion('ev', [
@@ -51,5 +61,7 @@ export const LaunchEvent = z.discriminatedUnion('ev', [
   z.object({ ev: z.literal('stderr'), b64: z.string() }),
   z.object({ ev: z.literal('exit'), code: z.number(), signal: z.string().optional(), session: z.object({ b64: z.string() }).optional() }),
   z.object({ ev: z.literal('error'), message: z.string() }),
+  /** something the server should audit (e.g. a refreshed Codex login that was not written back) */
+  z.object({ ev: z.literal('note'), message: z.string() }),
 ])
 export type LaunchEvent = z.infer<typeof LaunchEvent>

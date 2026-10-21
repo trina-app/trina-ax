@@ -10,6 +10,7 @@ import { FileService } from './files/service'
 import { TurnRegistry } from './turns'
 import { startMcpSocket } from './mcp/socket'
 import { SocketLauncher, startGate, startLauncher, type Launcher, type LauncherSandbox } from './native'
+import { ModelProxyService, type ProxyServiceOptions } from './proxy/subscription'
 
 export interface Running {
   cfg: ServerConfig
@@ -19,6 +20,9 @@ export interface Running {
   toolsSock: string
   launcherSock: string
   launcher: Launcher | null
+  /** the model proxy the engine account talks through: Claude requests (subscription token swapped in) and Codex
+   * HTTPS tunnels (CONNECT). Production and dev subscription mode; null otherwise. */
+  proxy: ModelProxyService | null
   rejected: () => { reason: string }[]
   close(): Promise<void>
 }
@@ -34,13 +38,42 @@ export function proxyPeerCheck(srv: Running) {
   }
 }
 
+/** proxy options for this core: the TCP peer of a request / tunnel must belong to the turn's engine session, asked of
+ * this core's launcher */
+function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 'peerCheck'>): ProxyServiceOptions {
+  const l = () => running.launcher as SocketLauncher | null
+  return {
+    ...o, db: running.db, peerCheck: proxyPeerCheck(running),
+    connect: {
+      ...o.connect,
+      turnSession: (turnId) => running.turns.get(turnId)?.pgid ?? null,
+      peerSession: async (clientPort, serverPort) => (await l()?.tcpPeer?.(clientPort, serverPort))?.sid ?? null,
+    },
+  }
+}
+
+/** Start the model proxy for a core started without one (tests): Codex tunnels only when `upstreamUrl` is null. Waits
+ * for the bind and throws when the port is taken. Stops with srv.close(). */
+export async function startEngineProxy(srv: Running, o: { port?: number; upstreamUrl?: string | null; secretsDir?: string; connectHosts?: string[]; dial?: (host: string, port: number) => import('node:net').Socket }) {
+  const svc = new ModelProxyService(coreProxyOptions(srv, {
+    port: o.port ?? 0, upstreamUrl: o.upstreamUrl ?? null, secretsDir: o.secretsDir ?? srv.cfg.dataDir,
+    connect: { ...(o.connectHosts ? { hosts: o.connectHosts } : {}), ...(o.dial ? { dial: o.dial } : {}) },
+  })).start()
+  await svc.started
+  if (!svc.ready) throw new Error(`model proxy could not listen on 127.0.0.1:${o.port ?? 0}`)
+  srv.proxy = svc
+  return svc
+}
+
 export interface StartOptions {
-  launcher?: { allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox }
+  launcher?: { allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox; codexAuthDir?: string; proxyPort?: number }
   externalLauncher?: string
   toolsSockMode?: string
   /** reuse an open DB / file service (the HTTP server owns them); otherwise opened here and closed by close() */
   db?: Database
   files?: FileService
+  /** run the model proxy (peer checks through this core's launcher) */
+  modelProxy?: Omit<ProxyServiceOptions, 'db' | 'peerCheck'>
 }
 
 export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Promise<Running> {
@@ -57,12 +90,17 @@ export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Prom
   const launcherSock = path.join(cfg.runDir, 'private', 'launcher.sock')
   let launcher: Launcher | null = o.externalLauncher ? new SocketLauncher(o.externalLauncher) : null
   if (o.launcher) {
-    procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots, sandbox: o.launcher.sandbox }))
+    procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots, sandbox: o.launcher.sandbox, codexAuthDir: o.launcher.codexAuthDir, proxyPort: o.launcher.proxyPort }))
     launcher = new SocketLauncher(launcherSock)
   }
-  return {
-    cfg, db, files, turns, toolsSock, launcherSock, launcher,
+  const running: Running = {
+    cfg, db, files, turns, toolsSock, launcherSock, launcher, proxy: null,
     rejected: () => mcp.rejected,
-    async close() { for (const p of procs) { p.kill(); await p.exited } mcp.stop(); if (ownDb) db.close() },
+    async close() { await running.proxy?.stop(); for (const p of procs) { p.kill(); await p.exited } mcp.stop(); if (ownDb) db.close() },
   }
+  if (o.modelProxy) {
+    running.proxy = new ModelProxyService(coreProxyOptions(running, o.modelProxy)).start()
+    await running.proxy.started
+  }
+  return running
 }

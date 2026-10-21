@@ -63,8 +63,16 @@ export const M = {
   engineOk: (m: string | null): T => ({ ko: `로그인됨${m ? ` (${m})` : ''}`, en: `Signed in${m ? ` (${m})` : ''}`, id: `Sudah masuk${m ? ` (${m})` : ''}` }),
   engineNotInstalled: { ko: '설치되어 있지 않습니다.', en: 'Not installed.', id: 'Tidak terpasang.' },
   engineNotLoggedIn: { ko: '로그인되어 있지 않습니다. 서버 맥에서 owner가 이 엔진에 다시 로그인해 주세요(Claude Code: `claude`, Codex: `codex login`).', en: 'Not signed in. The owner has to sign this engine in again on the server Mac (Claude Code: `claude`, Codex: `codex login`).', id: 'Belum masuk. Owner perlu memasukkan lagi mesin ini di Mac server (Claude Code: `claude`, Codex: `codex login`).' },
-  engineSetupToken: { ko: 'Claude 구독 장기 토큰이 없습니다. owner가 서버 맥에서 `claude setup-token`을 실행해 만든 토큰을 secrets/claude-oauth-token에 저장해야 엔진 계정으로 AI가 동작합니다(docs/OWNER-TODO.md).', en: 'No long-lived Claude subscription token. The owner has to run `claude setup-token` on the server Mac and store the token in secrets/claude-oauth-token before the engine account can answer (docs/OWNER-TODO.md).', id: 'Tidak ada token langganan Claude jangka panjang. Owner perlu menjalankan `claude setup-token` di Mac server dan menyimpan tokennya di secrets/claude-oauth-token agar akun mesin bisa menjawab (docs/OWNER-TODO.md).' },
-  engineCodexLogin: { ko: 'Codex는 엔진 계정 전용 로그인(codex login --device-auth)이 필요합니다. owner가 서버 맥에서 엔진 계정으로 한 번 로그인해야 합니다(docs/OWNER-TODO.md).', en: 'Codex needs its own engine-account login (codex login --device-auth). The owner has to sign the engine account in once on the server Mac (docs/OWNER-TODO.md).', id: 'Codex memerlukan login akun mesin sendiri (codex login --device-auth). Owner perlu memasukkan akun mesin sekali di Mac server (docs/OWNER-TODO.md).' },
+  engineSetupToken: { ko: 'Claude 구독 장기 토큰이 없습니다. owner가 서버 맥에서 `claude setup-token`으로 토큰을 만들고 `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"`으로 저장해야 AI가 답합니다(docs/INSTALL.md 2.4).', en: 'No long-lived Claude subscription token. The owner has to make one with `claude setup-token` on the server Mac and store it with `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` before the AI can answer (docs/INSTALL.md 2.4).', id: 'Tidak ada token langganan Claude jangka panjang. Owner perlu membuatnya dengan `claude setup-token` di Mac server lalu menyimpannya dengan `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` agar AI bisa menjawab (docs/INSTALL.md 2.4).' },
+  engineSetupTokenExpired: { ko: 'Claude 구독 장기 토큰이 만료되었습니다(1년). owner가 `claude setup-token`으로 새 토큰을 만들어 같은 방법으로 다시 저장해 주세요(docs/INSTALL.md 2.4).', en: 'The long-lived Claude subscription token has expired (one year). The owner has to make a new one with `claude setup-token` and store it the same way (docs/INSTALL.md 2.4).', id: 'Token langganan Claude jangka panjang sudah kedaluwarsa (satu tahun). Owner perlu membuat token baru dengan `claude setup-token` dan menyimpannya dengan cara yang sama (docs/INSTALL.md 2.4).' },
+  engineSetupTokenInvalid: { ko: 'Claude 구독 장기 토큰이 거절되었습니다(취소되었거나 잘못 붙여 넣음). owner가 `claude setup-token`으로 새 토큰을 만들어 다시 저장해 주세요(docs/INSTALL.md 2.4).', en: 'The long-lived Claude subscription token was refused (revoked or pasted wrong). The owner has to make a new one with `claude setup-token` and store it again (docs/INSTALL.md 2.4).', id: 'Token langganan Claude jangka panjang ditolak (dicabut atau salah tempel). Owner perlu membuat token baru dengan `claude setup-token` dan menyimpannya lagi (docs/INSTALL.md 2.4).' },
+  engineSetupTokenExpiring: (at: string): T => ({ ko: `로그인됨 (setup-token). ${at}에 만료되니 그 전에 새 토큰으로 바꿔 주세요.`, en: `Signed in (setup-token). It expires on ${at}; replace it before then.`, id: `Sudah masuk (setup-token). Kedaluwarsa pada ${at}; ganti sebelum itu.` }),
+  subscriptionRejected: { ko: 'Claude 구독 토큰이 거절되었습니다(만료 또는 취소). owner가 서버 맥에서 `claude setup-token`으로 새 토큰을 만들어 다시 연결해야 합니다(docs/INSTALL.md 2.4).', en: 'The Claude subscription token was refused (expired or revoked). The owner has to make a new one with `claude setup-token` on the server Mac and connect it again (docs/INSTALL.md 2.4).', id: 'Token langganan Claude ditolak (kedaluwarsa atau dicabut). Owner perlu membuat token baru dengan `claude setup-token` di Mac server lalu menghubungkannya lagi (docs/INSTALL.md 2.4).' },
+  modelProxy: { ko: '모델 프록시', en: 'Model proxy', id: 'Proxy model' },
+  modelProxyOk: (port: number): T => ({ ko: `127.0.0.1:${port}에서 동작 중`, en: `Listening on 127.0.0.1:${port}`, id: `Berjalan di 127.0.0.1:${port}` }),
+  modelProxyPortInUse: (port: number): T => ({ ko: `모델 프록시 포트 사용 중(127.0.0.1:${port}). 다른 프로그램이 이 포트를 쓰는 동안 Claude가 답하지 않습니다. 10초마다 다시 시도합니다.`, en: `Model proxy port in use (127.0.0.1:${port}). Claude cannot answer while another program holds it; retrying every 10 seconds.`, id: `Port proxy model sedang dipakai (127.0.0.1:${port}). Claude tidak bisa menjawab selama program lain memakainya; dicoba lagi tiap 10 detik.` }),
+  modelProxyNotStarted: { ko: '첫 질문 때 시작합니다.', en: 'Starts with the first question.', id: 'Dimulai pada pertanyaan pertama.' },
+  engineCodexLogin: { ko: 'Codex는 엔진 계정 전용 로그인이 필요합니다. owner가 서버 맥에서 관리 명령 `admin.js codex-login`을 한 번 실행해, 나오는 주소와 코드로 로그인합니다(docs/INSTALL.md 2.5).', en: 'Codex needs its own engine-account login. The owner runs the admin command `admin.js codex-login` once on the server Mac and signs in with the address and code it prints (docs/INSTALL.md 2.5).', id: 'Codex memerlukan login akun mesin sendiri. Owner menjalankan perintah admin `admin.js codex-login` sekali di Mac server lalu masuk dengan alamat dan kode yang ditampilkan (docs/INSTALL.md 2.5).' },
   engineCheckFailed: { ko: '로그인 상태를 확인하지 못했습니다. 잠시 뒤 다시 확인해 주세요.', en: 'Could not check the sign-in state. Try again in a moment.', id: 'Tidak dapat memeriksa status masuk. Coba lagi sebentar lagi.' },
 
   queue: { ko: '대기열', en: 'Queue', id: 'Antrean' },
@@ -89,6 +97,50 @@ export const M = {
   launcher: { ko: 'AI 엔진 실행기', en: 'AI engine launcher', id: 'Peluncur mesin AI' },
   launcherOk: { ko: '연결됨', en: 'Connected', id: 'Terhubung' },
   launcherDown: { ko: '실행기에 연결할 수 없습니다. 맥을 다시 시작하거나 메뉴바 앱의 \'설치 다시 하기\'를 실행해 주세요.', en: 'Cannot reach the engine launcher. Restart the Mac or run "Reinstall" from the menubar app.', id: 'Tidak dapat menjangkau peluncur mesin. Mulai ulang Mac atau jalankan "Pasang ulang" dari aplikasi menubar.' },
+  /** the launcher daemon is not running (no socket, or a socket left over from a launcher that ended) */
+  launcherNotRunning: (label: string | null, logs: string | null, launchDaemonsDir = '/Library/LaunchDaemons'): T => {
+    const l = `${label ?? '<label>'}.launcher`
+    const cmd = `sudo launchctl kickstart -k system/${l}`
+    // kickstart only reaches a loaded job; one that was booted out (or never loaded) needs bootstrap
+    const load = `sudo launchctl bootstrap system ${launchDaemonsDir}/${l}.plist`
+    const log = logs ? `${logs}/crash/launcher.log` : ''
+    const tail: T = log
+      ? { ko: ` 다시 멈추면 ${log}를 확인해 주세요.`, en: ` If it stops again, look at ${log}.`, id: ` Jika berhenti lagi, lihat ${log}.` }
+      : { ko: '', en: '', id: '' }
+    return {
+      ko: `AI 실행기가 실행 중이 아니어서 채팅이 시작되지 않습니다. 서버 맥의 터미널에서 \`${cmd}\`를 실행해 다시 띄워 주세요(관리자 비밀번호). 서비스를 찾을 수 없다고 나오면 \`${load}\`를 실행해 주세요.${tail.ko}`,
+      en: `The AI launcher is not running, so chats cannot start. Start it again in Terminal on the server Mac: \`${cmd}\` (asks for an admin password). If that says the service could not be found, run \`${load}\`.${tail.en}`,
+      id: `Peluncur AI tidak berjalan, jadi chat tidak bisa dimulai. Jalankan lagi di Terminal Mac server: \`${cmd}\` (meminta kata sandi admin). Jika muncul layanan tidak ditemukan, jalankan \`${load}\`.${tail.id}`,
+    }
+  },
+  launcherDenied: { ko: '서버 계정이 AI 실행기 소켓을 열 수 없습니다(권한). 설치 스크립트를 다시 실행해 폴더 권한을 고쳐 주세요.', en: 'The server account may not open the AI launcher socket (permissions). Run the installer again to repair the folder permissions.', id: 'Akun server tidak boleh membuka soket peluncur AI (izin). Jalankan pemasang lagi untuk memperbaiki izin folder.' },
+  launcherTimeout: { ko: 'AI 실행기가 2초 안에 답하지 않았습니다. 잠시 뒤 새로 고침해 보고, 계속되면 실행기를 다시 띄워 주세요.', en: 'The AI launcher did not answer within 2 seconds. Refresh in a moment; if it stays like this, restart the launcher.', id: 'Peluncur AI tidak menjawab dalam 2 detik. Muat ulang sebentar lagi; jika tetap, mulai ulang peluncur.' },
+
+  sockets: { ko: 'AI 엔진 소켓 경로', en: 'AI engine socket paths', id: 'Jalur soket mesin AI' },
+  socketsOk: (max: number): T => ({ ko: `모든 소켓 경로가 ${max}바이트 안에 들어갑니다.`, en: `All socket paths fit in ${max} bytes.`, id: `Semua jalur soket muat dalam ${max} byte.` }),
+  socketsTooLong: (list: string, max: number, dev: boolean): T => ({
+    ko: `소켓 경로가 너무 깁니다: ${list}. 이 시스템의 소켓 경로는 ${max}바이트까지라서 AI 엔진이 시작되지 않습니다. ${dev ? '데이터 폴더를 짧은 경로(기본값 ~/.team-ax-dev)로 옮겨 주세요(TEAM_AX_DEV_DIR).' : 'config/server.json의 engine.runDir·engine.launcherSock을 짧은 경로로 바꿔 주세요.'}`,
+    en: `Socket path too long: ${list}. Socket paths can be at most ${max} bytes on this system, so the AI engine cannot start. ${dev ? 'Move the data folder to a shorter path (the default ~/.team-ax-dev; TEAM_AX_DEV_DIR).' : 'Set engine.runDir / engine.launcherSock in config/server.json to a shorter path.'}`,
+    id: `Jalur soket terlalu panjang: ${list}. Jalur soket paling panjang ${max} byte di sistem ini, jadi mesin AI tidak bisa mulai. ${dev ? 'Pindahkan folder data ke jalur yang lebih pendek (bawaan ~/.team-ax-dev; TEAM_AX_DEV_DIR).' : 'Ubah engine.runDir / engine.launcherSock di config/server.json ke jalur yang lebih pendek.'}`,
+  }),
+  socketsTmp: (dir: string): T => ({
+    ko: `데이터 폴더(${dir})가 임시 폴더(/tmp 등) 안에 있습니다. 엔진 샌드박스가 이 폴더를 막아 채팅이 실패할 수 있습니다. 홈 폴더 아래 짧은 경로(기본값 ~/.team-ax-dev)로 옮겨 주세요.`,
+    en: `The data folder (${dir}) is inside a temporary folder (/tmp or similar). The engine sandbox denies it, so chats can fail. Move it to a short path in your home folder (the default ~/.team-ax-dev).`,
+    id: `Folder data (${dir}) ada di dalam folder sementara (/tmp atau sejenisnya). Sandbox mesin menolaknya, jadi chat bisa gagal. Pindahkan ke jalur pendek di folder rumah (bawaan ~/.team-ax-dev).`,
+  }),
+
+  lan: { ko: '사무실 직접 연결', en: 'Office direct connection', id: 'Koneksi langsung kantor' },
+  lanOk: (port: number): T => ({ ko: `포트 ${port}에서 켜져 있습니다. 데스크톱 앱이 보고한 연결 실패가 없습니다(24시간).`, en: `On, port ${port}. No connection failures reported by the desktop apps (24 h).`, id: `Aktif, port ${port}. Tidak ada kegagalan koneksi yang dilaporkan aplikasi desktop (24 jam).` }),
+  lanFailed: (n: number, mismatch: number, port: number): T => {
+    const mm: T = mismatch
+      ? { ko: ` 그중 ${mismatch}번은 인증서가 달랐습니다: 서버 인증서를 다시 만들었거나 같은 네트워크의 다른 기기가 서버인 척했을 수 있습니다.`, en: ` ${mismatch} of them saw a different certificate: the server certificate was re-created, or another device on the network pretended to be the server.`, id: ` ${mismatch} di antaranya melihat sertifikat lain: sertifikat server dibuat ulang, atau perangkat lain di jaringan menyamar sebagai server.` }
+      : { ko: '', en: '', id: '' }
+    return {
+      ko: `데스크톱 앱이 사무실 안에서 직접 연결에 ${n}번 실패했습니다(24시간, 사람·1시간마다 한 번 셈).${mm.ko} 시스템 설정 > 네트워크 > 방화벽에서 '모든 들어오는 연결 차단'이 꺼져 있는지, 포트 ${port}이 막혀 있지 않은지 확인해 주세요. 그동안 앱은 원격 주소로 계속 연결됩니다.`,
+      en: `Desktop apps in the office failed to connect directly ${enPlural(n, 'time', 'times')} (24 h, counted once per person per hour).${mm.en} Check System Settings > Network > Firewall ("Block all incoming connections" must be off) and that port ${port} is not blocked. Meanwhile the apps keep using the remote address.`,
+      id: `Aplikasi desktop di kantor gagal terhubung langsung ${n} kali (24 jam, dihitung sekali per orang per jam).${mm.id} Periksa Pengaturan Sistem > Jaringan > Firewall ("Blokir semua koneksi masuk" harus mati) dan pastikan port ${port} tidak diblokir. Sementara itu aplikasi tetap memakai alamat jarak jauh.`,
+    }
+  },
 
   backups: { ko: '백업', en: 'Backups', id: 'Cadangan' },
   backupNone: { ko: '아직 백업이 없습니다. 매일 새벽 3시에 자동으로 만들어집니다. 지금 만들려면 \'지금 백업\'을 누르세요.', en: 'No backup yet. One is made every night at 03:00; use "Back up now" to make one now.', id: 'Belum ada cadangan. Dibuat otomatis setiap pukul 03:00; gunakan "Cadangkan sekarang".' },

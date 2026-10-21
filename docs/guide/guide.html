@@ -332,7 +332,7 @@ dl.kv dd{ color:var(--ink-2);}
   <ol class="steps">
     <li><span class="n">1</span><span class="ui">새 채팅</span>(<kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd>, 윈도우는 Ctrl+Shift+O) — 새 대화를 시작해요. 지난 대화는 그 아래 <b>최근 채팅</b>에 남고, <span class="ui">검색</span>(<kbd>⌘</kbd><kbd>K</kbd>)으로 찾을 수 있어요.</li>
     <li><span class="n">2</span><b>입력창</b> — 하고 싶은 말을 쓰고 <kbd>Enter</kbd>. 줄을 바꾸려면 <kbd>Shift</kbd>+<kbd>Enter</kbd>.</li>
-    <li><span class="n">3</span><b>파일 첨부</b> — 클립을 누르거나, 파일을 입력창에 끌어다 놓거나, 복사한 이미지를 붙여 넣어요.</li>
+    <li><span class="n">3</span><b>파일 첨부</b> — 클립을 누르면 <span class="ui">내 컴퓨터에서 올리기</span>와 <span class="ui">팀 파일에서 추가</span>를 고를 수 있어요. 파일을 입력창에 끌어다 놓거나, 복사한 이미지를 붙여 넣어도 돼요.</li>
     <li><span class="n">4</span><b>AI 고르기</b> — 보통은 그대로 두세요(화면에는 ‘기본 엔진’이라고 보여요). Claude와 Codex 중에 고를 수도 있어요.</li>
     <li><span class="n">5</span><b>음성 입력</b> — 마이크를 누르고 말하면 글로 받아 적어요. 처음 한 번은 준비하느라 시간이 좀 걸려요.</li>
     <li><span class="n">6</span><b>내 AI가 볼 수 있는 폴더</b> — 새 채팅을 열면 입력창 아래에 보여요. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. 대화를 시작한 뒤에는 <span class="ui">파일</span> 화면에서 확인할 수 있어요.</li>
@@ -341,6 +341,16 @@ dl.kv dd{ color:var(--ink-2);}
   <h3>파일을 첨부해서 묻기</h3>
   <figure class="shot center" style="width:74%"><div class="frame"><img src="img/chat-attach.png" alt=""></div><figcaption>첨부한 파일은 입력창 위에 붙어요. ×를 누르면 빼요. 첨부한 파일은 내 폴더에만 저장돼요.</figcaption></figure>
   <p>팀 폴더에 이미 있는 파일은 첨부하지 않아도 돼요. “<span class="path">shared/회의록</span>의 주간 회의록 요약해 줘”처럼 위치나 이름을 말하면 AI가 찾아서 읽어요. 엑셀·워드·파워포인트·PDF·이미지 모두 읽을 수 있어요.</p>
+
+  <h3>팀 파일 첨부하기</h3>
+  <p>맥 미니(팀 서버)에 있는 파일도 바로 첨부할 수 있어요. 클립을 누르고 <span class="ui">팀 파일에서 추가</span>를 고르면 팀 폴더가 열려요. 내 컴퓨터의 파일은 <span class="ui">내 컴퓨터에서 올리기</span>(휴대폰에서는 <span class="ui">기기에서 올리기</span>)로 올려요.</p>
+  <figure class="shot center" style="width:54%"><div class="frame"><img src="img/chat-attach-team.png" alt=""></div><figcaption>팀 파일에서 추가 — 최근 파일이나 폴더에서 고르거나 이름으로 찾아요. 체크한 뒤 <span class="ui">첨부</span>를 누르면 입력창 위에 폴더 아이콘이 붙은 칩으로 들어가요.</figcaption></figure>
+  <ul>
+    <li><b>내가 열 수 있는 파일만 보여요.</b> 다른 팀의 폴더나 남의 개인 폴더는 목록에도, 검색에도 나오지 않아요. 메시지 하나에 20개까지 첨부할 수 있어요.</li>
+    <li><b>복사하지 않고 연결해요.</b> 첨부한 뒤 파일이 바뀌면 AI는 지금 내용을 읽고, 옮겨지거나 이름이 바뀌어도 따라가요. 답변의 진행 단계에 “바뀜”·“옮겨짐”이 표시돼요.</li>
+    <li><b>지워졌거나 더 이상 열 수 없게 되면</b> 칩이 ‘더 이상 열 수 없는 파일’로 바뀌고, 이름도 내용도 보이지 않아요. 보내려던 메시지라면 <span class="ui">다시 보내기</span>를 누르면 그 파일만 빼고 보내요.</li>
+    <li><span class="ui">파일</span> 화면이나 파일 미리보기에서 <span class="ui">AI에게 이 파일 물어보기</span>(새 채팅에 첨부)나 <span class="ui">“채팅 이름” 채팅에 추가</span>를 눌러도 되고, 파일을 입력창으로 끌어다 놓아도 돼요.</li>
+  </ul>
 </section>
 
 <section id="c4b">
@@ -395,7 +405,7 @@ dl.kv dd{ color:var(--ink-2);}
 </section>
 
 <!-- ============================================================ 5 -->
-<section class="chap flow" id="c5">
+<section class="chap" id="c5">
   <div class="chap-head"><span class="no">05</span><h2>팀 파일</h2></div>
   <p class="lead">왼쪽 메뉴의 <span class="ui">파일</span>에서 팀 폴더를 직접 열어 볼 수 있어요. 여기서도 <b>내가 볼 수 있는 폴더만</b> 보여요.</p>
   <figure class="shot" data-crop="256,0,1440,485">
@@ -410,7 +420,7 @@ dl.kv dd{ color:var(--ink-2);}
     <li><span class="n">1</span><span class="ui">올리기</span> — 내 컴퓨터의 파일을 지금 폴더에 올려요. 파일을 화면에 끌어다 놓아도 돼요. 큰 파일도 올릴 수 있어요.</li>
     <li><span class="n">2</span><span class="ui">새 폴더</span> — 쓰기 권한이 있는 폴더 안에 만들 수 있어요. 그룹·프로젝트 폴더나 shared 같은 팀 폴더 자체를 옮기거나 이름을 바꾸거나 지우는 건 관리자만 할 수 있어요.</li>
     <li><span class="n">3</span><span class="ui">휴지통</span> — 지운 파일이 30일 동안 있어요. 거기서 <span class="ui">되돌리기</span>를 눌러요.</li>
-    <li><span class="n">4</span><b>⋯ 메뉴</b> — 미리보기, 내려받기, <b>이 파일로 채팅 시작</b>, 버전 기록, 이름 바꾸기, 옮기기, 휴지통으로.</li>
+    <li><span class="n">4</span><b>⋯ 메뉴</b> — 미리보기, 내려받기, <b>AI에게 이 파일 물어보기</b>(파일을 첨부한 새 채팅. 채팅을 열어 둔 적이 있으면 <b>“채팅 이름” 채팅에 추가</b>도 나와요), 버전 기록, 이름 바꾸기, 옮기기, 휴지통으로.</li>
   </ol>
 
   <h3>미리보기와 고치기</h3>

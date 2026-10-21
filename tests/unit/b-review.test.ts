@@ -57,10 +57,10 @@ describe('office-network check (bypasses)', () => {
     for (const u of ['file:///etc/passwd', 'FILE:///Users/x/.ssh/id_ed25519', 'javascript:alert(1)', 'data:text/html,<b>x</b>', 'chrome://settings', 'view-source:https://a.com', 'blob:https://a.com/x', 'ftp://a.com/x']) {
       expect(browserUrl(u).ok, u).toBe(false)
     }
-    expect(browserUrl('about:blank')).toEqual({ ok: true, host: null })
-    expect(browserUrl('localhost:3000/admin')).toEqual({ ok: true, host: 'localhost' })
-    expect(browserUrl('10.0.0.5:8080')).toEqual({ ok: true, host: '10.0.0.5' })
-    expect(browserUrl('example.com/path')).toEqual({ ok: true, host: 'example.com' })
+    expect(browserUrl('about:blank')).toEqual({ ok: true, host: null, href: null })
+    expect(browserUrl('localhost:3000/admin')).toEqual({ ok: true, host: 'localhost', href: 'https://localhost:3000/admin' })
+    expect(browserUrl('10.0.0.5:8080')).toEqual({ ok: true, host: '10.0.0.5', href: 'https://10.0.0.5:8080/' })
+    expect(browserUrl('example.com/path')).toEqual({ ok: true, host: 'example.com', href: 'https://example.com/path' })
   })
 
   test('a url on any browser tool is checked, not only navigate / preview_start', () => {

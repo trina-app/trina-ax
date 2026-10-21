@@ -13,11 +13,24 @@
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
+//   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
+//                                            from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), POST
+//                                            $ANTHROPIC_BASE_URL/v1/messages?beta=true with stream, say the text deltas;
+//                                            an HTTP error ends the turn like Claude Code's "API Error: <status> ..."
+//   @fake {"echo": "secrets"}                say whether a model credential is visible in env / argv (it must not be)
+//   @fake {"direct": "http://127.0.0.1:N/"}  try to reach an address other than the proxy; says direct=blocked|reached
+//   @fake {"echo": "codexEnv"}               (Codex) say what the turn got: login copy in CODEX_HOME, proxy, certificates
+//   @fake {"refreshAuth": "acc-1"}           (Codex) rewrite CODEX_HOME/auth.json like a token refresh, for that account
+//   @fake {"linkAuth": "/path"}              (Codex) replace CODEX_HOME/auth.json by a symbolic link to the path
+//   @fake {"connect": "host:443"}            (Codex) CONNECT through HTTPS_PROXY, say the proxy's status line
+//   @fake {"claudeCall": true}               (Codex) call the proxy's Claude path with this turn's proxy token, say the status
+//   @fake {"exists": "rel/path"}             say whether the path exists in the chat folder (lstat)
 // Without directives it answers "echo: <first line of the message>".
 import fs from 'node:fs'
 import path from 'node:path'
 
 const argv = process.argv.slice(2)
+if (argv[0] === '--version') { process.stdout.write('0.0.1 (fake engine)\n'); process.exit(0) }
 const codex = argv[0] === 'exec'
 const arg = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }
 const stdin = await new Response(Bun.stdin.stream()).text()
@@ -165,6 +178,46 @@ function finish(o: { error?: string; refused?: boolean } = {}) {
   process.exit(o.error ? 1 : 0)
 }
 
+// ---------------- the model, through the team server's proxy (subscription mode) ----------------
+let modelToken: string | null = null
+function proxyToken(): string {
+  if (modelToken !== null) return modelToken
+  const fdVar = process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR ? 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' : 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR'
+  const fd = Number(process.env[fdVar])
+  modelToken = Number.isInteger(fd) && fd > 2 ? fs.readFileSync(fd, 'utf8').trim() : ''
+  delete process.env[fdVar] // like Claude Code: read once, then forget where it came from
+  return modelToken
+}
+async function callModel(prompt: string) {
+  const base = process.env.ANTHROPIC_BASE_URL
+  if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
+  let r: Response
+  try {
+    r = await fetch(base.replace(/\/$/, '') + '/v1/messages?beta=true', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + proxyToken(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14', 'user-agent': 'claude-cli/0.0.0-fake (external, cli)', 'x-app': 'cli', 'x-stainless-os': 'MacOS' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }] }),
+    })
+  } catch (e) { return finish({ error: `API Error: Connection error (${(e as Error).message})` }) }
+  if (!r.ok) return finish({ error: `API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
+  let buf = ''
+  const dec = new TextDecoder()
+  for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
+    buf += dec.decode(chunk, { stream: true })
+    let i
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+      if (!l.startsWith('data:')) continue
+      try { const ev = JSON.parse(l.slice(5)); if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') await say(ev.delta.text) } catch {}
+    }
+  }
+}
+function secretsVisible(): string {
+  const looks = (v: string) => /mpx_|sk-ant-/.test(v)
+  const env = Object.entries(process.env).filter(([, v]) => v && looks(v)).map(([k]) => k)
+  return `envSecrets=${env.join(',') || 'none'} argvSecrets=${process.argv.some(looks) ? 'yes' : 'none'} fdVar=${process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR ?? 'none'} base=${process.env.ANTHROPIC_BASE_URL ?? 'none'}`
+}
+
 // ---------------- run the directives ----------------
 const directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
@@ -185,8 +238,55 @@ for (const d of directives) {
   else if (d.echo === 'message') await say(message)
   else if (d.echo === 'model') await say(`model=${model}`)
   else if (d.echo === 'resume') await say(`resumed=${resumed}`)
-  else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
-  else if (d.echo === 'tools') {
+  else if (d.model !== undefined) await callModel(String(d.model))
+  else if (d.echo === 'secrets') await say(secretsVisible())
+  else if (d.direct) {
+    let reached = false
+    try { await fetch(String(d.direct), { signal: AbortSignal.timeout(3000) }); reached = true } catch {}
+    await say(`direct=${reached ? 'reached' : 'blocked'}`)
+  } else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
+  else if (d.echo === 'codexEnv') {
+    const home = process.env.CODEX_HOME ?? ''
+    let account: string | null = null
+    try { account = JSON.parse(fs.readFileSync(path.join(home, 'auth.json'), 'utf8')).tokens?.account_id ?? null } catch {}
+    const px = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : null
+    await say(JSON.stringify({ codexHome: path.relative(process.cwd(), home), account, homeEmpty: fs.readdirSync(process.env.HOME!).length === 0,
+      proxyUser: px?.username ?? null, proxyHost: px ? `${px.hostname}:${px.port}` : null, sslCertFile: process.env.SSL_CERT_FILE ?? null,
+      credStore: argv.includes('cli_auth_credentials_store="file"') }))
+  } else if (d.refreshAuth) {
+    const f = path.join(process.env.CODEX_HOME!, 'auth.json')
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+    j.tokens.account_id = String(d.refreshAuth); j.tokens.refresh_token = 'rt-' + Date.now(); j.last_refresh = new Date().toISOString()
+    fs.writeFileSync(f + '.new', JSON.stringify(j)); fs.renameSync(f + '.new', f)
+    await say('refreshed')
+  } else if (d.claudeCall) {
+    const px = new URL(process.env.HTTPS_PROXY ?? 'http://none:0@127.0.0.1:1')
+    let status = 'error'
+    try {
+      const r = await fetch(`http://${px.hostname}:${px.port}/v1/messages`, { method: 'POST', headers: { 'x-api-key': decodeURIComponent(px.password), 'content-type': 'application/json' }, body: '{"model":"claude-x","max_tokens":1,"messages":[]}' })
+      status = String(r.status)
+    } catch (e) { status = 'error ' + (e as Error).message }
+    await say(status)
+  } else if (d.exists !== undefined) {
+    let there = true
+    try { fs.lstatSync(path.join(process.cwd(), String(d.exists))) } catch { there = false }
+    await say(String(there))
+  } else if (d.linkAuth) {
+    const f = path.join(process.env.CODEX_HOME!, 'auth.json')
+    fs.rmSync(f); fs.symlinkSync(String(d.linkAuth), f)
+    await say('linked')
+  } else if (d.connect) {
+    const px = new URL(process.env.HTTPS_PROXY ?? 'http://none:0@127.0.0.1:1')
+    const status = await new Promise<string>((res) => {
+      const c = require('node:net').connect(Number(px.port), px.hostname)
+      let b = ''
+      c.on('connect', () => c.write(`CONNECT ${d.connect} HTTP/1.1\r\nHost: ${d.connect}\r\nProxy-Authorization: Basic ${Buffer.from(`${decodeURIComponent(px.username)}:${decodeURIComponent(px.password)}`).toString('base64')}\r\n\r\n`))
+      c.on('data', (x: Buffer) => { b += x.toString(); if (b.includes('\r\n')) { c.destroy(); res(b.split('\r\n')[0]!) } })
+      c.on('error', (e: Error) => res('error ' + e.message))
+      c.on('close', () => res(b.split('\r\n')[0] || 'closed'))
+    })
+    await say(status)
+  } else if (d.echo === 'tools') {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
     await say((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))

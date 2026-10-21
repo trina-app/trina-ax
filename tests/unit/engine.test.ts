@@ -89,12 +89,17 @@ describe('locked engine invocations', () => {
     expect(r.stdin).toBe('hi')
     expect(r.env.ANTHROPIC_API_KEY).toBeUndefined()
   })
-  test('claude proxy mode: own config dir, per-turn token in the right variable', () => {
+  test('claude proxy modes: own config dir and home in the chat folder, per-turn token for the launcher pipe, never in env', () => {
     const base = { turnId: 't', chatDir, token: 'tok', systemPrompt: 's', message: 'm', sessionId: 'x', resume: false, stash: null, maxTurns: 3, timeoutMs: 1, proxyToken: 'mpx_1' }
     const k = buildClaudeLaunch(base, { bin: 'c', authMode: 'proxy', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'api-key' } })
-    expect(k.env).toMatchObject({ HOME: '/agent/home', CLAUDE_CONFIG_DIR: path.join(chatDir, '.claude'), ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_API_KEY: 'mpx_1' })
-    const o = buildClaudeLaunch(base, { bin: 'c', authMode: 'proxy', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth' } })
-    expect(o.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('mpx_1'); expect(o.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(k.env).toMatchObject({ HOME: path.join(chatDir, '.home'), CLAUDE_CONFIG_DIR: path.join(chatDir, '.claude'), ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' })
+    expect(k.modelToken).toEqual({ kind: 'api-key', value: 'mpx_1' })
+    const o = buildClaudeLaunch(base, { bin: 'c', authMode: 'subscription', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth' } })
+    expect(o.modelToken).toEqual({ kind: 'oauth', value: 'mpx_1' })
+    for (const r of [k, o]) {
+      expect(JSON.stringify(r.env)).not.toContain('mpx_1'); expect(JSON.stringify(r.args)).not.toContain('mpx_1')
+      expect(r.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined(); expect(r.env.ANTHROPIC_API_KEY).toBeUndefined()
+    }
     expect(o.sessionCollect).toEqual({ dir: path.join(chatDir, '.claude', 'projects'), name: 'x.jsonl', removeDir: true })
   })
   test('claude local-login keeps the real home (CLI login) and stashes under ~/.claude/projects/<slug>', () => {
@@ -140,9 +145,17 @@ describe('codex per-chat state (dev-owner-symlink)', () => {
     expect(lr.env.HOME).toBe(path.join(chat, '.home'))
     expect(lr.args).toContain(`model_catalog_json=${JSON.stringify(path.join(chat, '.codex', 'catalog.json'))}`)
     expect(lr.args.join(' ')).not.toContain(path.join(W, 'data'))
-    // role-account mode keeps its configured folders
-    const own = buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000 }, { ...conf, auth: 'agent-own' })
-    expect(own.env.CODEX_HOME).toBe(conf.codexHome)
+    // role-account mode: the launcher makes <chat>/.codex (login copy) and <chat>/.home; the catalog stays in the
+    // engine folder; HTTPS only through the model proxy
+    const own = buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000, proxy: { port: 47821, token: 'mpx_tok' } }, { ...conf, auth: 'agent-own' })
+    expect(own.env.CODEX_HOME).toBe('{CHAT_DIR}/.codex')
+    expect(own.env.HOME).toBe('{CHAT_DIR}/.home')
+    expect(own.env.HTTPS_PROXY).toBe('http://turn:mpx_tok@127.0.0.1:47821')
+    expect(own.env.SSL_CERT_FILE).toBe('/etc/ssl/cert.pem')
+    expect(own.codexAuth).toBe(true)
+    expect(own.args).toContain(`model_catalog_json=${JSON.stringify(catalog)}`)
+    expect(own.args).toContain('cli_auth_credentials_store="file"')
+    expect(() => buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000 }, { ...conf, auth: 'agent-own' })).toThrow(/model proxy/)
   })
 
   test('links the engine left in its chat folder are removed, not followed', () => {

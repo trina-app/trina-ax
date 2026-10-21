@@ -85,7 +85,8 @@ meant to hold on its own:
    (`scripts/macos/engine.sb`) with a pf anchor (only the local model proxy is reachable), in per-chat folders the
    launcher creates; the server account never runs anything from those folders, and root never trusts files the
    role accounts can change. The profile also hides metadata: a turn can stat() only its own paths and the folders
-   above them. Because any process of the account can read another one's argv and environment (macOS does not let
+   above them, except the agent folder that holds every chat folder (its size and time would count and time other
+   people's chats), and of `/` only the system folders. Because any process of the account can read another one's argv and environment (macOS does not let
    a sandbox stop that), no engine's argv or environment names its chat: the launcher passes chat paths relative to
    the engine's working folder and the sandbox parameters in a randomly named profile copy. In DEV mode (`bun run dev`) this layer is only partly there: on macOS every turn still runs under
    `engine.sb` (its chat folder plus the few login files Claude Code / Codex need, not the rest of your home, the
@@ -175,19 +176,27 @@ name-constrained office CA made on that Mac (helper page with the CA on `http://
 **Step-by-step install guide: [docs/INSTALL.md](docs/INSTALL.md)** (dev mode, production install, connecting
 members, update/backup/uninstall, troubleshooting, known gaps; Korean illustrated PDF:
 [docs/install/Team-AX-설치가이드.pdf](docs/install/Team-AX-설치가이드.pdf)). In this version a production install
-cannot answer chats yet (the installer's `engine.authMode` "proxy" is refused), so teams use dev mode for now.
+answers Claude chats once the owner stored a `claude setup-token` token (subscription mode, INSTALL.md 2.4); the
+role-account run of that path still waits for a `sudo` test run (`tests/install/g-macos-install.ts`).
 
 ```sh
 bun run build:bundle                                    # native helpers, web/dist, then scripts/build-bundle.ts
 sudo scripts/install-macos.sh --from dist/release --allow-unsigned --engine claude=<path to claude>
 sudo scripts/uninstall-macos.sh [--delete-data]
+sudo "/Library/Application Support/mycel/root/mycel-account" reset-link   # owner password recovery (no email)
 ```
+
+`--engine` takes `claude=` and/or `codex=`; `scripts/install-macos.sh --check …` checks everything without root.
+Re-running the installer with a newer bundle switches to it and keeps the old version for roll-back;
+`bun run build:bundle:universal` builds one bundle for Apple silicon and Intel.
 
 The installer (what the signed setup package will run) creates the hidden role accounts `_axserver` (server) and
 `_axagent` (engine), the LaunchDaemons, the sandbox profile and pf rules, `config/server.json` and a one-time setup
 code; flags and the full list are in its header. The engine running as `_axagent` needs its own subscription login
-(`claude setup-token`, `codex login --device-auth`), which only the owner can do — see
-[docs/OWNER-TODO.md](docs/OWNER-TODO.md). Until then use `bun run dev`.
+(`claude setup-token`, stored with `pbpaste | sudo "<install>/root/set-claude-token"`; for Codex the owner runs
+`admin.js codex-login` once, which signs `_axagent` in by device auth through the launcher and the model proxy,
+docs/INSTALL.md 2.5), which only the owner can do — see [docs/OWNER-TODO.md](docs/OWNER-TODO.md). Codex on the
+engine account is beta (owner only) until it is verified with a real login and pf on.
 
 ## Status (2026-10-21)
 
@@ -207,6 +216,7 @@ Done and running on the owner's MacBook in DEV mode (`bun run dev:service`, demo
 Blocked on the owner (details and exact steps in [docs/OWNER-TODO.md](docs/OWNER-TODO.md)): the engine running as
 `_axagent` (`claude setup-token`, Codex device login), Apple signing and notarization, the production relay
 (Linux + Cloudflare `*.treesoop.com`), a separate team-address domain, the product name and public GitHub release,
-Windows signing, mail (not needed for v1: invites are copy-a-link by design), GitHub Actions billing. Company-key
-(model proxy) mode stays code-only by owner decision: with `engine.authMode: "proxy"` Claude Code reports
-`proxy_mode` as not available.
+Windows signing, mail (not needed for v1: invites are copy-a-link by design), GitHub Actions billing. Production
+Claude chats run in subscription mode (`engine.authMode: "subscription"`): the engine account talks only to the model
+proxy, which adds the owner's setup-token. Company-key mode stays code-only by owner decision: with
+`engine.authMode: "proxy"` Claude Code reports `proxy_mode` as not available.

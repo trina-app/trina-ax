@@ -5,7 +5,8 @@
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
-import { Download, FileText, FolderOpen, Loader2, Pencil, X } from 'lucide-react'
+import clsx from 'clsx'
+import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -15,6 +16,8 @@ import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
 import { languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
+import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
+import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { CodeBlock, Markdown } from './Markdown'
 import SandboxFrame from './SandboxFrame'
@@ -34,6 +37,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
+  const chatAttach = useTeamAttach()
   const [blob, setBlob] = useState<Blob | null>(file.source === 'local' ? file.blob : null)
   const [error, setError] = useState<{ kind: 'missing' | 'large' | 'other'; text: string } | null>(null)
   const body = useRef<HTMLDivElement>(null)
@@ -124,10 +128,31 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <FileText size={16} className="shrink-0 text-muted" aria-hidden />
-        <h2 className="min-w-0 truncate text-sm font-semibold" title={file.source === 'team' ? file.path : file.name}>
+        <h2
+          className={clsx('min-w-0 truncate text-sm font-semibold', file.source === 'team' && 'cursor-grab')}
+          title={file.source === 'team' ? `${file.path}\n${t('files.dragToChat')}` : file.name}
+          draggable={file.source === 'team'}
+          onDragStart={(e) => {
+            if (file.source !== 'team') return
+            e.dataTransfer.setData(TEAM_FILE_DRAG_TYPE, file.path)
+            e.dataTransfer.setData('text/plain', file.path)
+            e.dataTransfer.effectAllowed = 'copy'
+          }}
+          data-testid="file-panel-title"
+        >
           {file.name}
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
+          {file.source === 'team' && error?.kind !== 'missing' && (
+            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-sm:py-1.5" data-testid="file-ask-ai">
+              <Sparkles size={14} aria-hidden /> {t('files.askAiShort')}
+            </button>
+          )}
+          {file.source === 'team' && error?.kind !== 'missing' && chatAttach.target && (
+            <IconButton label={t('files.addToChatNamed', { title: chatAttach.target.title })} onClick={() => chatAttach.addToChat([file.path])} data-testid="file-add-to-chat">
+              <Paperclip size={16} />
+            </IconButton>
+          )}
           {canEdit && !editing && !error && (
             <IconButton label={t('preview.edit')} onClick={() => void startEdit()} disabled={loadingEdit} data-testid="file-edit">
               {loadingEdit ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}

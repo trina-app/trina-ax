@@ -2,7 +2,7 @@
 // upload (drag and drop; chunked and resumable when large), download, new folder, rename / move, trash, version
 // history with restore, conflict copies marked, "start a chat with this file". Refreshes on files.changed.
 import clsx from 'clsx'
-import { ArchiveRestore, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Pencil, Presentation, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileVersion, TrashItem, TreeResponse } from '@mycel/shared/api'
@@ -11,6 +11,8 @@ import { formatDateTime, formatSize } from '../lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
+import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
+import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile, type UploadProgress } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
@@ -225,7 +227,10 @@ export default function Files() {
     }
   }
 
-  const chatWith = (e: FileEntry) => navigate(`/?prompt=${encodeURIComponent(t('files.chatPrompt', { path: e.path }))}`)
+  // a file goes into a new chat as an attachment (a team-file reference); a folder is named in the prompt
+  const chatAttach = useTeamAttach()
+  const chatWith = (e: FileEntry) => (e.type === 'file' ? chatAttach.askAi([e.path]) : navigate(`/?prompt=${encodeURIComponent(t('files.chatPrompt', { path: e.path }))}`))
+  const addToChat = (e: FileEntry) => chatAttach.addToChat([e.path])
 
   return (
     <div
@@ -333,6 +338,8 @@ export default function Files() {
                       selected={select === e.name}
                       onOpen={() => (e.type === 'folder' ? go(e.path) : previewKind(e.name) ? openTeamFile(e.path) : startDownload(fileUrl(e.path), e.name))}
                       onChat={() => chatWith(e)}
+                      onAddToChat={chatAttach.target ? () => addToChat(e) : null}
+                      chatTitle={chatAttach.target?.title ?? ''}
                       onRename={() => void rename(e)}
                       onMove={() => setMoving(e)}
                       onShare={() => setSharing(e)}
@@ -360,7 +367,7 @@ export default function Files() {
   )
 }
 
-function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onShare, onDelete, onHistory }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void }) {
+function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -382,7 +389,20 @@ function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onShare, onDel
   return (
     <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
       <td className="px-2 py-1.5">
-        <button type="button" onClick={onOpen} className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline" title={dim ? t('files.navigationOnly') : undefined}>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline"
+          title={dim ? t('files.navigationOnly') : undefined}
+          // a file can be dragged into a chat's message box (attached as a team file)
+          draggable={!folder}
+          onDragStart={(ev) => {
+            if (folder) return
+            ev.dataTransfer.setData(TEAM_FILE_DRAG_TYPE, e.path)
+            ev.dataTransfer.setData('text/plain', e.path)
+            ev.dataTransfer.effectAllowed = 'copy'
+          }}
+        >
           <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           <span className="min-w-0 truncate">{e.name}</span>
           {dim && <span className="sr-only">({t('files.navigationOnly')})</span>}
@@ -411,8 +431,13 @@ function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onShare, onDel
               </button>
             )}
             <button role="menuitem" type="button" className={item} onClick={onChat} data-testid="chat-with-file">
-              <MessageSquarePlus size={14} aria-hidden /> {t('files.chatWith')}
+              {folder ? <MessageSquarePlus size={14} aria-hidden /> : <Sparkles size={14} aria-hidden />} {t(folder ? 'files.chatWith' : 'files.askAi')}
             </button>
+            {!folder && onAddToChat && (
+              <button role="menuitem" type="button" className={item} onClick={onAddToChat} data-testid="add-to-chat">
+                <Paperclip size={14} aria-hidden /> <span className="min-w-0 truncate">{t('files.addToChatNamed', { title: chatTitle })}</span>
+              </button>
+            )}
             {!folder && (
               <button role="menuitem" type="button" className={item} onClick={onHistory}>
                 <History size={14} aria-hidden /> {t('files.history')}
@@ -476,12 +501,19 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
   const t = useT()
   const locale = useLocale()
   const [items, setItems] = useState<FileVersion[] | null>(null)
+  // every stored version is an earlier content of the file (the newest one is what it was before the last change),
+  // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
+  const [current, setCurrent] = useState<{ sha256: string | null; canRestore: boolean }>({ sha256: null, canRestore: true })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     api.call(API.history, { query: { path } }).then(
-      (r) => live && setItems([...r.items].sort((a, b) => b.version - a.version)),
+      (r) => {
+        if (!live) return
+        setItems([...r.items].sort((a, b) => b.version - a.version))
+        setCurrent({ sha256: r.currentSha256 ?? null, canRestore: r.canRestore ?? true })
+      },
       (e) => live && setError(errorText(e, locale, t('error.network'))),
     )
     return () => {
@@ -510,8 +542,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
       {items && !items.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
       {items && items.length > 0 && (
         <ul className="divide-y divide-line" data-testid="history-list">
-          {items.map((v, i) => (
-            <li key={v.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+          {items.map((v) => (
+            <li key={v.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm" data-version={v.version}>
               <span className="w-10 font-medium tabular-nums">v{v.version}</span>
               <span className="min-w-0 flex-1">
                 <span className="block">{v.author?.name ?? t('files.byAi')}</span>
@@ -529,10 +561,14 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
               <IconButton label={t('common.download')} onClick={() => startDownload(versionDownloadUrl(v.id), `${baseName(path)}`)}>
                 <Download size={15} />
               </IconButton>
-              {i > 0 && (
-                <Button size="sm" busy={busy === v.id} onClick={() => restore(v)}>
-                  <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
-                </Button>
+              {current.sha256 === v.sha256 ? (
+                <Badge tone="neutral">{t('files.sameAsNow')}</Badge>
+              ) : (
+                current.canRestore && (
+                  <Button size="sm" busy={busy === v.id} onClick={() => restore(v)}>
+                    <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
+                  </Button>
+                )
               )}
             </li>
           ))}

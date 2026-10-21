@@ -84,7 +84,15 @@ export const CopyResult = z.union([
 ])
 export type CopyResult = z.infer<typeof CopyResult>
 export const DeleteResult = z.object({ trashId: Uuid7, purgeAt: IsoTime })
-export const HistoryResponse = z.object({ path: RelPath, items: z.array(FileVersion) })
+export const HistoryResponse = z.object({
+  path: RelPath,
+  items: z.array(FileVersion),
+  /** sha256 of the file as it is now (null: it does not exist any more); a version with this sha256 is the current
+   * content, so restoring it changes nothing */
+  currentSha256: z.string().nullable().optional(),
+  /** the caller may restore versions (write access to the path; the same check POST /api/files/restore makes) */
+  canRestore: z.boolean().optional(),
+})
 /** Restore an old version of a file (the current content becomes a new version first). */
 export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7 })
 /** mine: only items the caller deleted */
@@ -122,6 +130,21 @@ export const UploadComplete = z.discriminatedUnion('kind', [
 ])
 export type UploadComplete = z.infer<typeof UploadComplete>
 
+// ---------------- team files in chats (the composer's "Add from team files") ----------------
+/** Attach a team-folder file to an own chat by reference (no copy). Files the caller cannot read, server folders,
+ * other people's users/<id>/ and odd paths all answer the same 404 as a file that does not exist. */
+export const AttachTeamFileBody = z.object({ chatId: Uuid7, path: RelPath })
+/** Name search over the files the caller can read (the same check as the file screen's tree). */
+export const FindFilesQuery = z.object({
+  q: z.string().trim().min(1).max(200),
+  /** optional folder to search under (default: the whole team folder) */
+  path: RelPath.default(''),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+})
+export const RecentFilesQuery = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
+export const FileList = z.object({ items: z.array(FileEntry), truncated: z.boolean() })
+export type FileList = z.infer<typeof FileList>
+
 export const FILES = {
   tree: endpoint({ method: 'GET', path: '/api/files/tree', auth: 'user', owner: 'C', query: TreeQuery, response: TreeResponse, summary: 'List a folder (only what the caller may see; ancestors of visible folders shown for navigation).' }),
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
@@ -140,7 +163,10 @@ export const FILES = {
   purgeTrash: endpoint({ method: 'DELETE', path: '/api/files/trash/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a trashed item for good (admin or owner).' }),
 
   uploadAttachment: endpoint({ method: 'POST', path: '/api/uploads', auth: 'user', owner: 'C', status: 201, body: multipart(AttachmentUploadFields, SMALL_UPLOAD_MAX), response: Attachment, summary: 'Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/.' }),
-  attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment.' }),
+  attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
+  attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
+  findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name contains q, among the files the caller can read (newest first).' }),
+  recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires after 24 h.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),
   getUploadSession: endpoint({ method: 'GET', path: '/api/upload-sessions/:id', auth: 'user', owner: 'C', response: UploadSession, summary: 'Which chunks arrived (to resume after a disconnect).' }),

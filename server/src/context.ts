@@ -5,7 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
-import type { AppConfig } from './app-config'
+import { ANTHROPIC_API, DEFAULT_PROXY_PORT, type AppConfig } from './app-config'
+import { resolveLayout } from './system/layout'
+import { audit } from './admin/audit'
+import { M, tr } from './system/messages'
+import type { Locale } from '@mycel/shared/api'
 import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
 import { FileService } from './files/service'
 import type { Logger } from './log'
@@ -13,6 +17,7 @@ import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
 import type { LauncherSandbox } from './native'
 import { noSessions, nullRealtime, type Services } from './services'
+import { engineSockets, socketPathMessage, tooLongSockets, type SocketPathProblem } from './system/sockets'
 import pkg from '../package.json'
 
 /** Release builds set the version at bundle time (scripts/build-bundle.ts: --define process.env.MYCEL_BUILD_VERSION). */
@@ -65,19 +70,67 @@ export function devEngineSandbox(platform: NodeJS.Platform = process.platform, p
   return { profile, localLogin: true }
 }
 
+/** Engine sockets of this server whose paths do not fit in a Unix socket address (checked at start and before the
+ * engine core starts; Diagnostics shows the same). */
+export function socketPathProblems(config: AppConfig, engineConfig: ServerConfig): SocketPathProblem[] {
+  const prodLauncher = config.mode === 'prod' ? config.engine.launcherSock ?? path.join(engineConfig.runDir, 'launcher.sock') : null
+  return tooLongSockets(engineSockets(engineConfig.runDir, prodLauncher))
+}
+
 /** Dev / local-login: launcher runs as the current user; claude / codex from PATH (or config.engine.*Bin). */
 export async function startLocalCore(ctx: AppContext): Promise<Running> {
   const cfg = ctx.engineConfig
   const gate = path.join(cfg.nativeBin, 'mycel-gate')
   if (!fs.existsSync(gate)) throw new CoreUnavailableError(`native helpers not built (${gate} missing): run \`bun run build:native\``)
+  // without this the gate failed with "bind: invalid argument" and every chat said "the AI engine stopped unexpectedly"
+  const long = socketPathProblems(ctx.config, cfg)
+  if (long.length) throw new CoreUnavailableError(socketPathMessage(long, ctx.config.mode === 'dev'))
+  const modelProxy = subscriptionProxy(ctx)
   if (ctx.config.mode === 'prod') {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect
-    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660' })
+    // The model proxy is the engine account's only network path (pf + engine sandbox allow just this port): Claude
+    // requests get the owner's subscription token swapped in, Codex turns tunnel HTTPS through it (CONNECT). It runs
+    // whatever the auth mode (without subscription mode it has no Claude path), so the codex-login CLI works too.
+    const proxy = modelProxy ?? { ...prodProxyBase(ctx), upstreamUrl: null }
+    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660', modelProxy: proxy })
   }
   const codex = findCodexBin(ctx.config.engine.codexBin)
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
+  if (modelProxy) {
+    // dev + subscription ("same user" rehearsal of production, tests/unit/g-subscription.test.ts): the engine runs as
+    // the current user under the production sandbox profile (no owner login files, no direct HTTPS, only the proxy
+    // port), with the model proxy and the per-turn token exactly as in production; no pf and no separate account
+    const s = devEngineSandbox()
+    return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy, launcher: { allowCmds, ...(s ? { sandbox: { ...s, localLogin: false, proxyPort: modelProxy.port } } : {}) } })
+  }
   const sandbox = devEngineSandbox()
   return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox } : {}) } })
+}
+
+
+function prodProxyBase(ctx: AppContext) {
+  return { port: ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT, secretsDir: resolveLayout(ctx.config).secretsDir, log: ctx.log.child({ c: 'model-proxy' }) }
+}
+
+/** subscription mode: the model proxy settings (port, upstream, where the owner's token is); null in other modes */
+export function subscriptionProxy(ctx: AppContext) {
+  if (ctx.config.engine.authMode !== 'subscription') return null
+  let lastNotice = 0
+  return {
+    ...prodProxyBase(ctx),
+    upstreamUrl: ctx.config.engine.modelUpstream ?? ANTHROPIC_API,
+    onAuthRejected() {
+      // the upstream refused the owner's token: every admin is told (at most once an hour), and the audit log keeps it
+      if (Date.now() - lastNotice < 3600_000) return
+      lastNotice = Date.now()
+      ctx.log.warn('the model upstream refused the subscription token (401)')
+      audit(ctx.db, { actor: null, action: 'engine.subscription_rejected', target: 'claude-code' })
+      try {
+        const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active'").all() as { id: string; locale: Locale | null }[]
+        for (const u of admins) ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'error', code: 'subscription_rejected', message: tr(u.locale ?? 'en', M.subscriptionRejected) } })
+      } catch (e) { ctx.log.warn('could not notify the admins', { err: e }) }
+    },
+  }
 }
 
 export function createContext(o: ContextOptions): AppContext {
@@ -106,7 +159,7 @@ export function createContext(o: ContextOptions): AppContext {
     async appFetch() { throw new Error('appFetch used before buildApp finished') },
     core() {
       if (!core) {
-        core = (o.startCore ?? startLocalCore)(ctx).then((r) => { closers.push(() => r.close()); return r })
+        core = (o.startCore ?? startLocalCore)(ctx).then((r) => { closers.push(() => r.close()); if (r.proxy) ctx.services.modelProxy = r.proxy; return r })
         core.catch((e) => { log.error('engine core failed to start', { err: e }); core = null })
       }
       return core

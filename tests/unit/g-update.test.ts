@@ -45,6 +45,14 @@ describe('versions and signatures', () => {
     expect(compareVersions('1.0.0', '1.0.0-beta.1')).toBe(1)
     expect(compareVersions('1.0.0-beta.2', '1.0.0-beta.1')).toBe(1)
     expect(compareVersions('1.2', '1.2.0')).toBe(0)
+    // the installer decides switch / older with this: pre-release numbers compare as numbers (rc.10 after rc.9)
+    expect(compareVersions('1.0.0-rc.10', '1.0.0-rc.9')).toBe(1)
+    expect(compareVersions('0.9.0-test.4', '0.9.0-test.12')).toBe(-1)
+    expect(compareVersions('1.0.0-rc-2', '1.0.0-rc-1')).toBe(1)
+    expect(compareVersions('1.0.0-beta', '1.0.0-beta.1')).toBe(-1)
+    expect(compareVersions('1.0.0-1', '1.0.0-alpha')).toBe(-1)
+    expect(compareVersions('1.0.0+build.5', '1.0.0+build.7')).toBe(0)
+    expect(compareVersions('1.0.0', '1.0.0')).toBe(0)
   })
 
   test('manifest check catches changed, extra, missing files and symlinks; signatures need a known key', async () => {

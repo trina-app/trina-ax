@@ -320,9 +320,18 @@ export class TeamFiles {
       re('attachments', 'path')
       // items trashed from inside the moved folder: their place to go back to moves with it. Otherwise the trash checks
       // write access on the old path (no rule there any more: the group stops seeing its own trash), and a restore
-      // recreates the old name, or lands in whatever folder took that name since (another group's)
-      db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND ${under('original_path')}`)
-        .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
+      // recreates the old name, or lands in whatever folder took that name since (another group's).
+      // Only while the folder stays on the same side of a personal folder's edge (team folders, or one person's own
+      // users/<id>/): a file someone deleted in their personal folder stays theirs when they share the folder by
+      // moving it into a team folder, and what the team deleted stays the team's when someone moves the folder into
+      // their personal folder. Otherwise the whole team saw and restored a file the owner had deleted on purpose
+      // before sharing the folder (security review r3).
+      // Only what was inside the folder: a trashed file or folder that merely had the moved entry's own path was
+      // another one and stays where it was deleted.
+      if (isDir && personalSide(fr.segs) === personalSide(target)) {
+        db.query("UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/'")
+          .run(toRel, fr.rel, fr.rel, fr.rel)
+      }
       fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
       fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
       fs.renameSync(fr.abs, path.join(this.root, ...target))
@@ -518,6 +527,13 @@ export class TeamFiles {
   // ---------------- history ----------------
   private versionVisible(user: Principal, rules: RuleSet, row: Pick<VersionRow, 'path' | 'folder_id' | 'path_at_save'>): boolean {
     if (!atLeast(rules.access(user, segsOf(row.path)), 'read')) return false
+    // the file's folder is in the trash (its rules parked under .system/trash): judge the version as if that folder,
+    // and every folder that held it and went to the trash after it, were still in place. The live rules alone no
+    // longer have them, so the path fell back to shared/ and every member read old versions of a restricted folder's
+    // files (security round 3).
+    const parked = row.folder_id ? this.parkedView(row.folder_id) : null
+    if (parked === 'unknown') return user.role === 'owner' || user.role === 'admin'
+    if (parked) return atLeast(parked.rules.access(user, segsOf(parked.path)), 'read') && atLeast(parked.rules.access(user, segsOf(row.path)), 'read')
     const f = row.folder_id ? this.folderLivePath(row.folder_id) : null
     if (f !== null) return atLeast(rules.access(user, segsOf(f)), 'read')
     return !row.path_at_save || atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')
@@ -530,16 +546,25 @@ export class TeamFiles {
    * and the plain 404 of content/download when there are none. So the history of a deleted file the caller may read
    * still shows, and a hidden entry cannot be told from a missing one (security r2: 404 for a hidden entry or a
    * hidden look-alike vs 200 {items:[]} for a missing name was an existence oracle).
+   * Also: the current file's hash (to tell which versions differ) and whether the caller may restore (write access to
+   * the path, the rule restoreVersion checks; false for a path hidden from the caller).
    */
-  history(userId: string, rel: string): { path: string; items: FileVersion[] } {
+  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean }> {
     const user = this.principal(userId)
     const rules = this.rules()
     let at = parseInput(rel).join('/') // malformed input is refused the same way for everyone
     let exists = false
+    let canRestore = false
+    let currentSha256: string | null = null
     try {
       const r = authorize(this.fx, rules, user, rel, 'read', { mustExist: false })
       at = r.rel
       exists = r.exists
+      // every listed version can be restored by whoever may write the file (restoreVersion checks the same);
+      // the newest version is the content before the last change, not the current file
+      // (a deleted file's versions too; a path hidden from the caller never gets here and stays false)
+      canRestore = atLeast(rules.access(user, r.segs), 'write')
+      if (r.exists && r.st!.isFile()) { try { currentSha256 = await this.sha(r.abs, checkRegular(r.abs)) } catch {} }
     } catch (e) {
       if (!(e instanceof Denied) && !(e instanceof ToolError && e.code === 'not_found')) throw e
     }
@@ -549,6 +574,8 @@ export class TeamFiles {
     const refs = this.userRefs(rows.map((v) => v.author_id))
     return {
       path: at,
+      currentSha256,
+      canRestore,
       items: rows.map((v) => ({
         id: v.id, path: v.path, version: v.version, sha256: v.sha256, size: v.size, author: v.author_id ? refs.get(v.author_id) ?? { id: v.author_id, name: v.author_id } : null,
         turnId: v.turn_id, kind: v.kind, conflictPath: v.conflict_path, createdAt: normIso(v.created_at),
@@ -611,6 +638,42 @@ export class TeamFiles {
     return t ? t.original_path + f.path.slice(storage.length) : f.path
   }
   /**
+   * For a folders row parked with a trashed folder: the path it stands for and the rules as they would be if that
+   * trashed folder were back in place, together with every folder that held it and was trashed after it (the first
+   * one trashed after it at each step: the folder it was in then). Live rules at or below those paths belong to
+   * folders that took the names since and do not count. null: the row is not parked (the live rules apply as they
+   * are). 'unknown': parked, but the trash item holding it is gone; nobody below admin.
+   */
+  private parkedView(folderId: string): { path: string; rules: RuleSet } | 'unknown' | null {
+    const db = this.ctx.db
+    const f = db.query('SELECT path FROM folders WHERE id = ?').get(folderId) as { path: string } | null
+    if (!f) return null
+    const segs = segsOf(f.path)
+    if (segs[0] !== PRODUCT.systemDir) return null
+    const storage = segs.slice(0, 4).join('/')
+    type Held = { id: string; original_path: string; storage_path: string }
+    const own = db.query("SELECT id, original_path, storage_path FROM trash_items WHERE storage_path = ? AND kind = 'folder' AND restored_at IS NULL").get(storage) as Held | null
+    if (!own) return 'unknown'
+    const chain: Held[] = [own]
+    for (let cur = own; chain.length < 64;) {
+      const up = db.query(`SELECT id, original_path, storage_path FROM trash_items
+        WHERE kind = 'folder' AND restored_at IS NULL AND id > ?1 AND (original_path = '' OR substr(?2, 1, length(original_path) + 1) = original_path || '/')
+        ORDER BY id ASC LIMIT 1`).get(cur.id, cur.original_path) as Held | null
+      if (!up) break
+      chain.push(up)
+      cur = up
+    }
+    const rows = db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as { path: string; subject_type: string; subject_id: string | null; access: string }[]
+    const at = (p: string, base: string) => base === '' || p === base || p.startsWith(base + '/')
+    const out: typeof rows = []
+    for (const r of rows) {
+      const held = chain.find((c) => at(r.path, c.storage_path))
+      if (held) out.push({ ...r, path: held.original_path + r.path.slice(held.storage_path.length) })
+      else if (!chain.some((c) => at(r.path, c.original_path))) out.push(r)
+    }
+    return { path: own.original_path + f.path.slice(storage.length), rules: new RuleSet(out as any) }
+  }
+  /**
    * Where a trash item goes back to now: its original path (move() keeps it up to date), held against the folder it
    * was trashed from (folder_id: the nearest folders row when it was trashed, migration 301). null when that folder is
    * itself in the trash (the item comes back with it: restoreTrash moves it along), was purged, or no longer holds that
@@ -623,7 +686,22 @@ export class TeamFiles {
     if (!f) return null
     if (t.kind === 'folder' && f.path === t.storage_path) return t.original_path // its own rules, parked with it
     if (segsOf(f.path)[0] === PRODUCT.systemDir) return null
-    return f.path === '' || f.path === t.original_path || isUnder(f.path, t.original_path) ? t.original_path : null
+    // A live row is the very folder the item was trashed from (a folder that takes a trashed one's name gets a new
+    // row). The item may sit outside it now: an ordinary folder it was in was moved out of it (move() carries the
+    // item along). trashVisible then asks for read on that folder as well as write where the item goes back to, so
+    // it shows only to people who could see it where it was deleted and can put it where it is now (security
+    // review r3: it was nobody's, not even its group's, until it was purged).
+    return t.original_path
+  }
+  /**
+   * The path a trash item had when it was deleted, for an item stamped with no folders row (a personal folder, or a
+   * team path no folders row covers): the delete's file_events row. Items moved with a folder before security
+   * review r3 could have crossed out of a personal folder (move() no longer takes them across); null: not recorded.
+   */
+  private trashedFrom(t: TrashRow): string | null {
+    const ev = this.ctx.db.query("SELECT path FROM file_events WHERE user_id = ? AND action = 'delete' AND json_extract(detail, '$.trashId') = ? LIMIT 1")
+      .get(t.deleted_by, t.id) as { path: string } | null
+    return ev?.path ?? null
   }
   private trashVisible(user: Principal, rules: RuleSet, t: TrashRow): boolean {
     const home = this.trashHome(t)
@@ -643,6 +721,11 @@ export class TeamFiles {
     if (t.folder_id) {
       const f = this.folderLivePath(t.folder_id)
       if (f !== null && !atLeast(access(f), 'read')) return false
+    } else if (segsOf(home)[0] !== 'users') {
+      // no folder stamp: like a version's path_at_save, the place it was deleted from must be readable too (a file
+      // deleted in users/<id>/ and moved into a team folder with its folder by an older build stays its owner's)
+      const from = this.trashedFrom(t)
+      if (from !== null && from !== home && !atLeast(access(from), 'read')) return false
     }
     return true
   }
@@ -709,11 +792,17 @@ export class TeamFiles {
       this.ctx.db.transaction(() => {
         rebaseFolders(this.ctx.db, t.storage_path, r.rel)
         // items trashed from inside this folder before it went to the trash (hidden meanwhile, trashHome) come back
-        // into the trash of the folder where it now is, " (restored)" name included
-        this.ctx.db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1)
-          WHERE restored_at IS NULL AND id <> ? AND (original_path = ? OR substr(original_path, 1, length(?) + 1) = ? || '/')
-            AND folder_id IN (SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/')`)
-          .run(r.rel, t.original_path, t.id, t.original_path, t.original_path, t.original_path, r.rel, r.rel, r.rel)
+        // into the trash of the folder where it now is, " (restored)" name included. So does a rule folder trashed from
+        // inside it before (its folder_id is its own parked row): it was in this folder, the first one above it trashed
+        // after it, and is judged under this folder's rules wherever it comes back (security round 3: left at the old
+        // path, it fell under whatever took that name, and its versions under shared/)
+        this.ctx.db.query(`UPDATE trash_items SET original_path = ?1 || substr(original_path, length(?2) + 1)
+          WHERE restored_at IS NULL AND id <> ?3 AND (original_path = ?2 OR substr(original_path, 1, length(?2) + 1) = ?2 || '/')
+            AND (folder_id IN (SELECT id FROM folders WHERE path = ?1 OR substr(path, 1, length(?1) + 1) = ?1 || '/')
+              OR (kind = 'folder' AND id < ?3 AND folder_id IN (SELECT id FROM folders WHERE path = trash_items.storage_path)
+                AND NOT EXISTS (SELECT 1 FROM trash_items p WHERE p.kind = 'folder' AND p.id > trash_items.id AND p.id < ?3
+                  AND substr(trash_items.original_path, 1, length(p.original_path) + 1) = p.original_path || '/')))`)
+          .run(r.rel, t.original_path, t.id)
         fs.renameSync(src, r.abs)
       })()
     } else {
@@ -812,6 +901,11 @@ export function activePeople(db: AppContext['db']): Principal[] {
 }
 
 /** Move the folders rows at `from` and below it to `to` (rules are kept by path). */
+/** Whose side of the personal-folder edge a path is on: 'users/<id>' for a personal folder, '' for team folders. */
+function personalSide(segs: readonly string[]): string {
+  return segs[0] === 'users' ? `users/${segs[1] ?? ''}` : ''
+}
+
 function rebaseFolders(db: AppContext['db'], from: string, to: string) {
   db.query("UPDATE folders SET path = ? || substr(path, length(?) + 1) WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").run(to, from, from, from, from)
 }

@@ -211,10 +211,12 @@ describe('update and connection', () => {
     const plain = await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'http://plain.example/x', password: 'owner-pass' }, 'owner', 'PUT')
     expect(plain.status).toBe(400)
     expect(((await plain.json()) as { error: { message: string } }).error.message).toContain('자체 중계 서버 주소') // in the user's language
-    const r = await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example.org/connect', password: 'owner-pass' }, 'owner', 'PUT')
+    // a relay needs the team name to register under (g-prod-ops.test.ts has the details)
+    expect((await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example.org/connect', password: 'owner-pass' }, 'owner', 'PUT')).status).toBe(400)
+    const r = await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example.org/connect', teamName: 'acme', password: 'owner-pass' }, 'owner', 'PUT')
     expect(r.status).toBe(200)
-    expect(await r.json()).toMatchObject({ mode: 'self-relay', state: 'connecting' })
-    expect(JSON.parse(fs.readFileSync(ctx.config.configFile!, 'utf8'))).toMatchObject({ listen: { port: 19172 }, relay: { url: 'wss://relay.example.org/connect' } })
+    expect(await r.json()).toMatchObject({ mode: 'self-relay', state: 'connecting', teamName: 'acme' })
+    expect(JSON.parse(fs.readFileSync(ctx.config.configFile!, 'utf8'))).toMatchObject({ listen: { port: 19172 }, relay: { url: 'wss://relay.example.org/connect', teamName: 'acme' } })
   })
 })
 

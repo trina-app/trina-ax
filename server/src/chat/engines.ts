@@ -1,20 +1,25 @@
-// Which engine binaries / profiles chat turns use. Dev and the owner-subscription setup run "local-login":
-// Claude Code with the owner's own CLI login, Codex CLI with the owner's ChatGPT login (locked profile, stage 1).
-// Company-key mode ("proxy") exists as code only (stage 1 model proxy) and is refused here with a clear message.
+// Which engine binaries / profiles chat turns use. Dev runs "local-login": Claude Code with the owner's own CLI login,
+// Codex CLI with the owner's ChatGPT login (locked profile, stage 1). Production runs "subscription": Claude Code as
+// the engine account behind the model proxy, which adds the owner's `claude setup-token` token (proxy/subscription.ts).
+// Company-key mode ("proxy") exists as code only and is refused here with a clear message.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { Database } from 'bun:sqlite'
 import type { EngineId } from '@mycel/shared/api'
 import type { ClaudeConf } from '../engine/claude'
-import { writeLockedCatalog, type CodexConf } from '../engine/codex'
+import { catalogModels, codexCatalogFor, writeLockedCatalog, type CodexConf } from '../engine/codex'
 import { findCodexBin } from '../config'
 import type { AppContext } from '../context'
+import { DEFAULT_PROXY_PORT } from '../app-config'
+import { resolveLayout } from '../system/layout'
+import { subscriptionTokenStatus } from '../proxy/subscription'
 
 export interface EngineConfs {
   claude: ClaudeConf | null
   codex: CodexConf | null
   /** why an engine can't run (shown as the answer error) */
-  problems: Partial<Record<EngineId, 'engine_missing' | 'proxy_mode'>>
+  problems: Partial<Record<EngineId, 'engine_missing' | 'proxy_mode' | 'setup_token_missing'>>
   /** models the Codex catalog offers (first = default) */
   codexModels: string[]
 }
@@ -40,32 +45,70 @@ export class LocalEngines implements EngineProvider {
     if (config.engine.authMode === 'proxy') {
       // company key mode: the model proxy has to be configured and started (owner decision: not offered for now)
       problems['claude-code'] = 'proxy_mode'
+    } else if (config.engine.authMode === 'subscription') {
+      // the owner's subscription token behind the model proxy; no token = no turn (the engine would only get a 401)
+      const st = subscriptionTokenStatus(resolveLayout(config).secretsDir, null)
+      if (!fs.existsSync(engineConfig.claudeBin)) problems['claude-code'] = 'engine_missing'
+      else if (st.state === 'missing' || st.state === 'malformed') problems['claude-code'] = 'setup_token_missing'
+      else claude = { bin: engineConfig.claudeBin, authMode: 'subscription', agentHome: path.join(config.dataDir, 'agent-home'),
+        modelProxy: { baseUrl: `http://127.0.0.1:${config.engine.proxyPort ?? DEFAULT_PROXY_PORT}`, kind: 'oauth' } }
     } else if (fs.existsSync(engineConfig.claudeBin)) {
       claude = { bin: engineConfig.claudeBin, authMode: 'local-login', agentHome: path.join(config.dataDir, 'agent-home') }
     } else problems['claude-code'] = 'engine_missing'
 
     let codex: CodexConf | null = null
     let codexModels: string[] = []
-    const bin = findCodexBin(config.engine.codexBin)
-    const codexHome = path.join(config.dataDir, 'codex-home')
-    const sources = [path.join(codexHome, 'models_cache.json'), path.join(os.homedir(), '.codex', 'models_cache.json')]
-    const src = sources.find((p) => fs.existsSync(p))
-    if (bin && src) {
-      try {
-        const catalog = path.join(config.dataDir, 'codex-catalog.json')
-        codexModels = writeLockedCatalog(src, catalog)
-        // dev / owner subscription: the engine's CODEX_HOME holds a link to the owner's ChatGPT login (stage 1
-        // "dev-owner-symlink"); a role-account install logs the engine account in itself ("agent-own", stage 3)
-        codex = { bin, codexHome, agentHome: path.join(config.dataDir, 'codex-agent-home'), catalog, model: codexModels[0] ?? 'gpt-5', auth: config.mode === 'prod' ? 'agent-own' : 'dev-owner-symlink' }
-      } catch (e) {
-        this.ctx.log.warn('codex catalog could not be prepared', { err: e })
-        problems.codex = 'engine_missing'
-      }
-    } else problems.codex = 'engine_missing'
+    if (config.mode === 'prod') {
+      // role-account install ("agent-own"): the installer's engine (engine.codexBin, never a PATH lookup: the launcher
+      // allows only that file) and the locked catalog it wrote next to it. The engine account's login lives in
+      // <agent root>/codex-auth, which only the launcher touches (it copies it into each turn's chat folder).
+      const bin = config.engine.codexBin
+      if (bin && fs.existsSync(bin)) {
+        const catalog = codexCatalogFor(bin)
+        try {
+          codexModels = catalogModels(catalog)
+          codex = { bin, codexHome: '{CHAT_DIR}/.codex', agentHome: '{CHAT_DIR}/.home', catalog, model: codexModels[0] ?? 'gpt-5', auth: 'agent-own' }
+        } catch (e) {
+          this.ctx.log.warn('codex catalog missing or not locked: Codex turns are off', { catalog, err: e })
+          problems.codex = 'engine_missing'
+        }
+      } else problems.codex = 'engine_missing'
+    } else {
+      // dev / owner subscription ("dev-owner-symlink"): each turn's <chat>/.codex holds a link to the owner's ChatGPT
+      // login; the catalog is locked from the owner's own models_cache.json
+      const bin = findCodexBin(config.engine.codexBin)
+      const src = path.join(os.homedir(), '.codex', 'models_cache.json')
+      if (bin && fs.existsSync(src)) {
+        try {
+          const catalog = path.join(config.dataDir, 'codex-catalog.json')
+          codexModels = writeLockedCatalog(src, catalog)
+          // CODEX_HOME / HOME are per turn in the chat folder (codexTurnPaths)
+          codex = { bin, codexHome: '', agentHome: '', catalog, model: codexModels[0] ?? 'gpt-5', auth: 'dev-owner-symlink' }
+        } catch (e) {
+          this.ctx.log.warn('codex catalog could not be prepared', { err: e })
+          problems.codex = 'engine_missing'
+        }
+      } else problems.codex = 'engine_missing'
+    }
     this.cached = { claude, codex, problems, codexModels }
     this.cachedAt = this.now()
     return this.cached
   }
+}
+
+/** Codex on the engine account (production) is "beta" until the open checks of design tab 2 "Codex 네트워크" pass
+ * (WebSocket transport through the tunnel, token refresh and web search with pf on, the target "proxy swaps the
+ * token" setup): it is labelled beta, cannot be the team default, and only the owner plus the people in the setting
+ * `codexUsers` (ids; empty by default) may use it. Dev mode (the owner's own login) is not affected. */
+export const CODEX_PROD_BETA = true
+export const codexIsBeta = (ctx: { config: { mode: 'dev' | 'prod' } }) => CODEX_PROD_BETA && ctx.config.mode === 'prod'
+export function codexBetaAllowed(db: Database, user: { id: string; role: string }): boolean {
+  if (user.role === 'owner') return true
+  try {
+    const r = db.query("SELECT value FROM settings WHERE key = 'codexUsers'").get() as { value: string } | null
+    const v = r ? JSON.parse(r.value) : []
+    return Array.isArray(v) && v.includes(user.id)
+  } catch { return false }
 }
 
 /** Fixed engines (tests: fake engines). */

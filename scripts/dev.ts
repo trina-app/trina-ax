@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { checkDataDir, checkPorts } from './dev-checks'
 
 const ROOT = path.resolve(import.meta.dir, '..')
 const args = process.argv.slice(2)
@@ -66,24 +67,7 @@ function newest(p: string): number {
   return m
 }
 
-// 1. native helpers (tool gate, bridge, launcher): needed for every engine turn
-const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`
-if (!fs.existsSync(path.join(ROOT, 'native', 'bin', platform, 'mycel-launcher'))) {
-  if (!Bun.which('go')) say('native helpers are not built and Go is missing: chats will answer "engine unavailable" until `bun run build:native` runs')
-  else if (!run(['bash', 'native/build.sh'])) process.exit(1)
-}
-
-// 2. the web app the server serves (rebuilt when web/ or shared/ changed since the last build)
-const distIndex = path.join(ROOT, 'web', 'dist', 'index.html')
-if (!flag('--no-web-build')) {
-  const built = newest(distIndex)
-  const src = Math.max(newest(path.join(ROOT, 'web', 'src')), newest(path.join(ROOT, 'web', 'index.html')), newest(path.join(ROOT, 'web', 'public')), newest(path.join(ROOT, 'web', 'scripts')), newest(path.join(ROOT, 'shared', 'src')))
-  if (flag('--rebuild-web') || !built || src > built) {
-    if (!run(['bun', 'run', '--cwd', 'web', 'build'])) process.exit(1)
-  }
-}
-
-// 3. relay on Node 25 (Bun.serve has no streaming backpressure, see relay/README.md)
+// 1. relay on Node 25 (Bun.serve has no streaming backpressure, see relay/README.md)
 let relay = !flag('--no-relay')
 if (relay) {
   const node = Bun.which('node')
@@ -92,6 +76,37 @@ if (relay) {
   if (major < RELAY_MIN_NODE) {
     say(`relay skipped: it needs Node ${RELAY_MIN_NODE}+ (found ${v || 'no node'}). Direct access still works on http://localhost:${SERVER_PORT}`)
     relay = false
+  }
+}
+
+// 2. before anything is built or started: the fixed ports must be free, and the data folder must suit the engine's
+//    sockets (a second `bun run dev` next to the dev service stops here instead of after a web build)
+const portProblems = await checkPorts([
+  { port: SERVER_PORT, what: 'team server' },
+  ...(relay ? [{ port: RELAY_PORT, what: 'relay' }] : []),
+  ...(flag('--vite') ? [{ port: 19140, what: 'vite' }] : []),
+])
+const dataCheck = checkDataDir(dataEnv().MYCEL_DATA_DIR!)
+for (const w of dataCheck.warnings) say(`warning: ${w}`)
+if (portProblems.length || dataCheck.errors.length) {
+  for (const p of [...portProblems, ...dataCheck.errors]) say(`cannot start: ${p}`)
+  process.exit(1)
+}
+
+// 3. native helpers (tool gate, bridge, launcher): needed for every engine turn
+const platform = `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`
+if (!fs.existsSync(path.join(ROOT, 'native', 'bin', platform, 'mycel-launcher'))) {
+  if (!Bun.which('go')) say('native helpers are not built and Go is missing: chats will answer "engine unavailable" until `bun run build:native` runs')
+  else if (!run(['bash', 'native/build.sh'])) process.exit(1)
+}
+
+// 4. the web app the server serves (rebuilt when web/ or shared/ changed since the last build)
+const distIndex = path.join(ROOT, 'web', 'dist', 'index.html')
+if (!flag('--no-web-build')) {
+  const built = newest(distIndex)
+  const src = Math.max(newest(path.join(ROOT, 'web', 'src')), newest(path.join(ROOT, 'web', 'index.html')), newest(path.join(ROOT, 'web', 'public')), newest(path.join(ROOT, 'web', 'scripts')), newest(path.join(ROOT, 'shared', 'src')))
+  if (flag('--rebuild-web') || !built || src > built) {
+    if (!run(['bun', 'run', '--cwd', 'web', 'build'])) process.exit(1)
   }
 }
 

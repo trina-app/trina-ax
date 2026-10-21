@@ -7,11 +7,17 @@ import { PRODUCT } from '@mycel/shared'
 import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, type AppConfig } from './app-config'
 import { buildApp } from './app'
-import { createContext, type AppContext } from './context'
+import { createContext, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
 import { applyPendingRestore } from './system/backup'
+import { ensureLanCert } from './system/lan-cert'
+import { resolveLayout } from './system/layout'
+import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
+
+/** how often the installed server checks that its office TLS certificate still names every LAN address */
+const LAN_CERT_CHECK_MS = 60_000
 
 /** Exit codes the menubar app / launchd wrapper understand. */
 export const EXIT = { ok: 0, config: 78, schemaTooNew: 75, startFailed: 1 } as const
@@ -36,6 +42,26 @@ export function peerIp(addr: string | null | undefined): string | null {
   return m ? m[1]! : addr
 }
 
+/**
+ * Say at start, in plain words, when the engine cannot work because of where the data lives: a socket path that does
+ * not fit in a Unix socket address (long data folder), or (macOS dev) a data folder under /tmp, which the engine
+ * sandbox denies. The server still starts (files, settings and the web app work); Diagnostics shows the same.
+ */
+export function checkSocketPaths(ctx: AppContext, log: Logger): string | null {
+  const long = socketPathProblems(ctx.config, ctx.engineConfig)
+  if (long.length) {
+    const m = socketPathMessage(long, ctx.config.mode === 'dev')
+    log.error(m, { sockets: long.map((x) => ({ name: x.name, path: x.path, bytes: x.bytes, max: x.max })) })
+    return m
+  }
+  if (process.platform === 'darwin' && ctx.config.mode === 'dev' && underSandboxDeniedTmp(ctx.engineConfig.runDir)) {
+    const m = `the data folder ${ctx.config.dataDir} is under a temporary folder (/tmp, /private/var/folders): the engine sandbox denies it, so chats can fail. Use a short folder in your home (the default ~/.team-ax-dev).`
+    log.warn(m)
+    return m
+  }
+  return null
+}
+
 export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve>[]; url: string; stop(): Promise<void> }
 
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
@@ -46,6 +72,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
   cfg.setupToken = ensureSetupToken(cfg, db)
+  checkSocketPaths(ctx, log)
   const app = await buildApp(ctx)
 
   const servers: ReturnType<typeof Bun.serve>[] = []
@@ -58,17 +85,55 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   })
   servers.push(http)
   if (cfg.tls) {
-    const tls = Bun.serve({
+    const t = cfg.tls
+    const fingerprintFile = cfg.mode === 'prod' ? path.join(resolveLayout(cfg).setupDir, 'lan-cert.sha256') : null
+    const certCheck = () => {
+      try {
+        const r = ensureLanCert({ certFile: t.certFile, keyFile: t.keyFile, fingerprintFile })
+        if (r.changed) log.info('office TLS certificate renewed', { reason: r.reason, fingerprint: r.fingerprint, names: r.names })
+        return r.changed
+      } catch (e) {
+        log.warn('office TLS certificate check failed', { err: e })
+        return false
+      }
+    }
+    if (t.managed) certCheck()
+    const serveTls = () => Bun.serve({
       ...base,
-      hostname: cfg.tls.host,
-      port: cfg.tls.port,
-      tls: { cert: Bun.file(cfg.tls.certFile), key: Bun.file(cfg.tls.keyFile) },
+      hostname: t.host ?? '0.0.0.0',
+      port: t.port,
+      // read now (Bun.file is lazy): a renewed certificate is a new listener with the new files
+      tls: { cert: fs.readFileSync(t.certFile, 'utf8'), key: fs.readFileSync(t.keyFile, 'utf8') },
       fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', server }),
     })
+    let tls = serveTls()
+    let tlsUp = true
     servers.push(tls)
+    if (t.managed) {
+      // a new Wi-Fi, DHCP lease or network port: the certificate must name the new address (system/lan-cert.ts);
+      // a listener that could not come back is tried again on the next tick instead of taking the server down
+      const timer = setInterval(() => {
+        if (!certCheck() && tlsUp) return
+        const i = servers.indexOf(tls)
+        if (tlsUp) { tls.stop(true); tlsUp = false }
+        try {
+          tls = serveTls()
+          servers[i] = tls
+          tlsUp = true
+        } catch (e) {
+          log.warn('office TLS listener restart failed; trying again in a minute', { err: e })
+        }
+      }, LAN_CERT_CHECK_MS)
+      timer.unref?.()
+      ctx.onClose(() => clearInterval(timer))
+    }
   }
   const url = `http://${cfg.listen.host === '0.0.0.0' ? 'localhost' : cfg.listen.host}:${http.port}`
   log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
+  // production: bring the engine core up now (tools gate, launcher connection, model proxy) so the engine account's
+  // network path exists before the first turn (the codex-login CLI tunnels through the proxy). A failure is logged
+  // and retried on first use.
+  if (cfg.mode === 'prod') void ctx.core().catch(() => {})
   if (cfg.setupToken) {
     // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
     if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)

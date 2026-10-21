@@ -17,6 +17,14 @@
 //   switch <version> [--restart] | rollback [--restart]
 //                                                point app/current at a staged version; --restart stops the running
 //                                                server (pid from status/status.json) so root/bootstrap starts it
+//   codex-login | codex-status | codex-logout   the engine account's own Codex (ChatGPT) sign-in, through the launcher:
+//                                                codex-login prints a URL and a one-time code (device auth)
+//
+// Run by scripts/install-macos.sh as root with the admin.js of the bundle it installs (no config, explicit paths only):
+//   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
+//   install-state --current V|'' --version V --state F --out F
+//                                                plan app/current + state.json for this install (system/install-plan.ts)
+//   compare-versions A B                         -1 / 0 / 1 (A older / same / newer than B)
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -25,11 +33,14 @@ import { SERVER_VERSION } from '../context'
 import { openDb } from '../db'
 import { createLogger } from '../log'
 import { BackupManager, inspectDbCopy, vacuumInto } from './backup'
+import { planInstallState } from './install-plan'
+import { ensureLanCert } from './lan-cert'
 import { resolveLayout } from './layout'
 import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
-import { UpdateManager } from './update'
+import { compareVersions, UpdateManager } from './update'
+import { codexCommand } from './codex-login'
 
 function arg(args: string[], name: string): string | null {
   const i = args.indexOf(name)
@@ -46,6 +57,30 @@ async function readPassword(args: string[]): Promise<string | null> {
 
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = argv
+  if (cmd === 'lan-cert') {
+    const cert = arg(args, '--cert'), key = arg(args, '--key')
+    if (!cert || !key) throw new Error('lan-cert needs --cert <file> --key <file>')
+    const r = ensureLanCert({ certFile: path.resolve(cert), keyFile: path.resolve(key), fingerprintFile: arg(args, '--fingerprint') })
+    console.log(JSON.stringify(r))
+    return 0
+  }
+  if (cmd === 'compare-versions') {
+    // -1 / 0 / 1 as `a` is older than / the same as / newer than `b` (the installer's root/VERSION check)
+    const [a, b] = args
+    if (!a || !b) throw new Error('compare-versions needs two versions')
+    console.log(String(compareVersions(a, b)))
+    return 0
+  }
+  if (cmd === 'install-state') {
+    const version = arg(args, '--version'), stateFile = arg(args, '--state'), outFile = arg(args, '--out')
+    if (!version || !stateFile || !outFile || !args.includes('--current')) throw new Error('install-state needs --current V --version V --state F --out F')
+    let state: unknown = null
+    try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) } catch {}
+    const plan = planInstallState({ current: arg(args, '--current') || null, version, state })
+    fs.writeFileSync(outFile, JSON.stringify(plan.state, null, 2) + '\n', { mode: 0o640 })
+    console.log(plan.action)
+    return 0
+  }
   const cfg = loadAppConfig({ argv: [] })
   const log = createLogger({ level: 'warn' })
   const layout = resolveLayout(cfg)
@@ -142,8 +177,13 @@ export async function main(argv: string[]): Promise<number> {
       }
       return 0
     }
+    // the engine account's Codex login (server/src/system/codex-login.ts)
+    case 'codex-login':
+    case 'codex-status':
+    case 'codex-logout':
+      return codexCommand(cmd, cfg)
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-update|switch|rollback (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|codex-login|codex-status|codex-logout|lan-cert|install-state|compare-versions (see server/src/system/cli.ts)')
       return 2
   }
 }

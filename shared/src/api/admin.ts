@@ -93,6 +93,9 @@ export const EngineStatus = z.object({
   detail: z.string().nullable(),
   models: z.array(z.object({ id: z.string(), label: z.string() })),
   checkedAt: IsoTime.nullable(),
+  /** still being verified on this installation (Codex on the engine account): labelled beta, owner-only, never the
+   * team default */
+  beta: z.boolean().optional(),
 })
 export type EngineStatus = z.infer<typeof EngineStatus>
 export const EnginesResponse = z.object({

@@ -6,6 +6,8 @@
 //   bad   http://bad.localhost:19157    announces https://127.0.0.1:19155 with the WRONG fingerprint
 //   site  http://shop.test:19153 (= 127.0.0.1, "public" in tests) and http://nas.lan:19153 (= 127.0.0.1, an office
 //         address); http://127.0.0.1:19153 itself is "this computer", which the in-app browser never opens
+//   attacker  http://attacker.test:19158 (= 127.0.0.1, "public"): logs every full request URL (GET /__log), for the
+//         exfiltration tests (exfil.spec.ts)
 //
 // Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel.
 // Ports are in component E's range (19150–19159).
@@ -55,8 +57,10 @@ interface Team {
   bridged: Set<string>
   /** test clock skew: this server's clock runs skewMs ahead of the real one (health time and call deadlines) */
   skewMs: number
+  /** POST /api/connect-info/lan-failure bodies the app sent */
+  lanFailures: { code: string; csrf: boolean }[]
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set() })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [] })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
@@ -128,6 +132,11 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     if (!t.direct) return json({ error: { code: 'not_found', message: 'no direct connection' } }, 404)
     return json({ teamId: `team-${t.name.toLowerCase()}`, lanCertSha256: t.direct.announce, lanPort: t.direct.port, lanHosts: ['127.0.0.1'] })
   }
+  if (p === '/api/connect-info/lan-failure' && req.method === 'POST') {
+    t.lanFailures.push({ code: String(((await req.json()) as { code?: string }).code), csrf: req.headers.get('x-mycel-csrf') === '1' })
+    return new Response(null, { status: 204 })
+  }
+  if (p === '/test/lan-failures') return json({ items: t.lanFailures })
   if (p === '/test/login') {
     const v = crypto.randomUUID()
     return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax` })
@@ -253,6 +262,8 @@ Bun.serve({
       )
     }
     if (p === '/data.json') return json({ items: [1, 2, 3] })
+    // an open redirect on an allowed site (exfil.spec.ts)
+    if (p === '/go') return new Response(null, { status: 302, headers: { location: url.searchParams.get('to') ?? '/' } })
     if (p === '/intranet.html') {
       return page(
         'Intranet probe',
@@ -289,3 +300,16 @@ Promise.all(['http://acme.localhost:19151/api/health', 'http://127.0.0.1:19151/a
 })
 
 console.log(`fake team servers ready: ${TEAMS.map((t) => t.port).join(', ')}, site 19153`)
+
+// attacker.test -> 127.0.0.1:19158: records the full URL of every request (exfil.spec.ts reads /__log)
+const attackerLog: string[] = []
+Bun.serve({
+  port: 19158,
+  hostname: '127.0.0.1',
+  fetch(req) {
+    const url = new URL(req.url)
+    if (url.pathname === '/__log') return json({ log: attackerLog })
+    attackerLog.push(req.url)
+    return new Response('<!doctype html><title>ok</title><p>ok</p>', { headers: { 'content-type': 'text/html', 'access-control-allow-origin': '*' } })
+  },
+})

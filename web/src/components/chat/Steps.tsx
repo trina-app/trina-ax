@@ -2,7 +2,7 @@
 // While streaming the last few steps show; afterwards it folds into "작업 N단계" that opens on click.
 // Web search results are plain links (no favicons: an external image would load by itself).
 import clsx from 'clsx'
-import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, FileSearch, Globe, Loader2, MessageCircleQuestion, Monitor, Shapes, Wrench } from 'lucide-react'
+import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, FileSearch, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { localizeStep } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
@@ -24,7 +24,10 @@ function StepRow({ step, live }: { step: Step; live: boolean }) {
   return (
     <li className="text-[13px] text-muted">
       <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
-        {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.status === 'error' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
+        {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.tool === 'attachment' ? (
+          // what happened to an attached team file (changed, moved, unavailable): a note, not a success or a failure
+          <Info size={13} className="shrink-0 text-faint" aria-hidden />
+        ) : step.status === 'error' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
         <Icon size={13} className="shrink-0 text-faint" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{words.label}</span>
         {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}

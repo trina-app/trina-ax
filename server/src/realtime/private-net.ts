@@ -58,7 +58,7 @@ export function privateIp(ip: string): boolean {
 
 /** URL schemes the AI may open in the Browser pane. Others (file:, javascript:, data:, chrome: ...) are refused:
  * they would read the person's own computer or run code outside any web origin. */
-export type BrowserUrl = { ok: true; host: string | null } | { ok: false; reason: string }
+export type BrowserUrl = { ok: true; host: string | null; href: string | null } | { ok: false; reason: string }
 
 /**
  * Classify a URL the AI wants to open. A bare "host[:port]/path" gets https:// (as the desktop app does);
@@ -66,12 +66,12 @@ export type BrowserUrl = { ok: true; host: string | null } | { ok: false; reason
  */
 export function browserUrl(url: string): BrowserUrl {
   const s = url.trim()
-  if (s === 'about:blank') return { ok: true, host: null }
+  if (s === 'about:blank') return { ok: true, host: null, href: null }
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^(javascript|data|file|about|blob|view-source|chrome|chrome-extension|devtools|filesystem|vbscript|mailto|ftp|ws|wss|intent|x-[a-z0-9-]+):/i.test(s)
   let u: URL
   try { u = new URL(hasScheme ? s : `https://${s}`) } catch { return { ok: false, reason: 'not a valid URL' } }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, reason: `${u.protocol} addresses cannot be opened (only http and https)` }
-  return { ok: true, host: normHost(u.hostname) }
+  return { ok: true, host: normHost(u.hostname), href: u.href }
 }
 
 const normHost = (h: string) => h.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase()

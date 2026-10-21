@@ -5,11 +5,10 @@
 // names or e-mail addresses.
 import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
+import type { Database } from 'bun:sqlite'
+import { subscriptionTokenStatus } from '../proxy/subscription'
 
-/** File in <data>/secrets that holds the owner's long-lived Claude subscription token (`claude setup-token`) for the
- * role-account mode. The admin engine screen and the diagnostics both look for this one name. */
-export const CLAUDE_OAUTH_TOKEN_FILE = 'claude-oauth-token'
+export { CLAUDE_OAUTH_TOKEN_FILE } from '../proxy/subscription'
 
 export interface EngineLogin {
   engine: 'claude-code' | 'codex'
@@ -17,8 +16,10 @@ export interface EngineLogin {
   loggedIn: boolean | null
   /** e.g. claude.ai, ChatGPT, setup-token */
   method: string | null
-  /** machine-readable reason when not logged in */
-  reason: 'not_installed' | 'not_logged_in' | 'setup_token_missing' | 'engine_login_missing' | 'check_failed' | null
+  /** machine-readable reason when not logged in (setup_token_expiring: logged in, but the token ends within 14 days) */
+  reason: 'not_installed' | 'not_logged_in' | 'setup_token_missing' | 'setup_token_expired' | 'setup_token_invalid' | 'setup_token_expiring' | 'engine_login_missing' | 'check_failed' | null
+  /** subscription token: when it stops working (one year after it was stored) */
+  expiresAt?: string | null
 }
 
 /**
@@ -42,12 +43,17 @@ async function run(cmd: string[], timeoutMs: number): Promise<{ code: number; ou
 }
 
 export interface EngineCheckOptions {
-  authMode: 'local-login' | 'proxy'
+  authMode: 'local-login' | 'proxy' | 'subscription'
   /** role-account install: the engine runs as another account, local logins do not apply */
   roleAccount: boolean
   claudeBin: string | null
   codexBin: string | null
   secretsDir: string
+  /** the server's database: the model proxy notes there when the upstream refused the token */
+  db?: Database | null
+  /** role-account install: the engine account's Codex login as the launcher sees it (server/src/native.ts
+   * codexLoginState; the server account cannot read <agent root>/codex-auth). null = launcher did not answer. */
+  codexLogin?: () => Promise<{ loggedIn: boolean } | null>
 }
 
 export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]> {
@@ -55,9 +61,12 @@ export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]
   const out: EngineLogin[] = []
   // Claude Code
   if (!exists(o.claudeBin)) out.push({ engine: 'claude-code', installed: false, loggedIn: null, method: null, reason: 'not_installed' })
-  else if (o.roleAccount) {
-    const has = fs.existsSync(path.join(o.secretsDir, CLAUDE_OAUTH_TOKEN_FILE))
-    out.push({ engine: 'claude-code', installed: true, loggedIn: has, method: has ? 'setup-token' : null, reason: has ? null : 'setup_token_missing' })
+  else if (o.roleAccount || o.authMode === 'subscription') {
+    // the owner's setup-token behind the model proxy: present, not older than a year, not refused by the upstream
+    const st = subscriptionTokenStatus(o.secretsDir, o.db ?? null)
+    const reason = ({ missing: 'setup_token_missing', malformed: 'setup_token_invalid', invalid: 'setup_token_invalid', expired: 'setup_token_expired', expiring: 'setup_token_expiring', ok: null } as const)[st.state]
+    const ok = st.state === 'ok' || st.state === 'expiring'
+    out.push({ engine: 'claude-code', installed: true, loggedIn: ok, method: ok ? 'setup-token' : null, reason, expiresAt: st.expiresAt })
   } else {
     try {
       const r = await run([o.claudeBin!, 'auth', 'status'], 15_000)
@@ -70,8 +79,13 @@ export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]
   // Codex CLI
   if (!exists(o.codexBin)) out.push({ engine: 'codex', installed: false, loggedIn: null, method: null, reason: 'not_installed' })
   else if (o.roleAccount) {
-    // the engine account's own login lives in its folder, which the server account cannot read by design
-    out.push({ engine: 'codex', installed: true, loggedIn: null, method: null, reason: 'engine_login_missing' })
+    // the engine account's own login lives in its folder, which the server account cannot read by design: ask the
+    // launcher (it never returns the token)
+    const s = o.codexLogin ? await o.codexLogin().catch(() => null) : null
+    if (!o.codexLogin) out.push({ engine: 'codex', installed: true, loggedIn: null, method: null, reason: 'engine_login_missing' })
+    else if (s?.loggedIn === false) out.push({ engine: 'codex', installed: true, loggedIn: false, method: null, reason: 'engine_login_missing' })
+    else if (!s) out.push({ engine: 'codex', installed: true, loggedIn: null, method: null, reason: 'check_failed' })
+    else out.push({ engine: 'codex', installed: true, loggedIn: true, method: 'ChatGPT (engine account)', reason: null })
   } else {
     try {
       const r = await run([o.codexBin!, 'login', 'status'], 15_000)

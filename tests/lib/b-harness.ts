@@ -11,7 +11,8 @@ import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { createLogger, silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
-import { startServer } from '../../server/src/server'
+import { startEngineProxy, startServer } from '../../server/src/server'
+import { codexAuthDir } from '../../server/src/engine/codex'
 import type { AuthInfo, SessionService } from '../../server/src/services'
 import { configureChat, getChatRuntime, type ChatRuntimeOptions } from '../../server/src/chat/runtime'
 import { LocalEngines, StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
@@ -116,7 +117,15 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   /** the real engines of this machine (owner's local logins) instead of the fake one */
   realEngines?: boolean
   concurrency?: number
+  /** the production engine path instead of the fake wiring: the real core (startLocalCore: sandboxed launcher, model
+   * proxy in subscription mode) and LocalEngines on this engine config */
+  realCore?: { engine: AppConfig['engine'] }
+  /** where the model proxy's Codex tunnels go (default: a refused local port) */
+  proxyDial?: (host: string, port: number) => import('node:net').Socket
 }
+
+/** the engine account's Codex login in the harness (fake tokens) */
+export const FAKE_CODEX_AUTH = { auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: 'x', access_token: 'at', refresh_token: 'rt-0', account_id: 'acc-team' }, last_refresh: '2026-10-21T00:00:00Z' }
 
 export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const base = path.join(WORK, o.name)
@@ -124,7 +133,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const dataDir = fx.data
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
-    teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error', engine: { authMode: 'local-login' },
+    teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error', engine: o.realCore?.engine ?? { authMode: 'local-login' },
     relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null,
   }
   const db = openDb(path.join(dataDir, 'app.db'))
@@ -134,11 +143,24 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const bin = fakeEngineBin(path.join(base, 'bin'))
   const ctx = createContext({
     config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,
-    startCore: (c) => startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [] } }),
+    ...(o.realCore ? {} : {
+    // the fake Codex runs the production path ("agent-own"): the launcher copies the engine account's login from
+    // <agent root>/codex-auth into the turn and the turn talks through the model proxy (tunnels to a local echo
+    // server instead of the internet)
+    startCore: async (c: AppContext) => {
+      const authDir = codexAuthDir(c.engineConfig.agentRoot)
+      fs.mkdirSync(authDir, { recursive: true, mode: 0o700 })
+      if (!fs.existsSync(path.join(authDir, 'auth.json'))) fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify(FAKE_CODEX_AUTH), { mode: 0o600 })
+      const srv = await startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [], codexAuthDir: authDir } })
+      await startEngineProxy(srv, { upstreamUrl: null, dial: o.proxyDial })
+      return srv
+    },
+    }),
   })
-  // unix socket paths must stay short (macOS: 104 bytes)
-  ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
-  configureChat(ctx, { ...o, engines: o.realEngines ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir)) })
+  // unix socket paths must stay short (macOS: 104 bytes); the real core keeps them under the data folder, which the
+  // engine sandbox can reach (it refuses /tmp)
+  if (!o.realCore) ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
+  configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
   const app = await buildApp(ctx, [...ROUTE_MODULES, sessionModule])
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'test', server: s }) })

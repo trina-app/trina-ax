@@ -106,7 +106,7 @@ export class TurnRunner {
     if (!resume) sid = crypto.randomUUID()
     let stashFile: string
     let model = req.model
-    const proxyToken = conf.authMode === 'proxy' ? issueProxyToken(this.srv.db, t.turnId, req.userId, { ttlMs: (req.timeoutMs ?? 20 * 60_000) + 60_000 }) : undefined
+    const proxyToken = conf.modelProxy ? issueProxyToken(this.srv.db, t.turnId, req.userId, { ttlMs: (req.timeoutMs ?? 20 * 60_000) + 60_000 }) : undefined
     for (let attempt = 0; attempt < 3; attempt++) {
       const parser = new ClaudeStreamParser()
       const events: EngineEvent[] = []

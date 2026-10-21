@@ -4,6 +4,7 @@ import type { Locale, Me, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { pickLocale, storedLocale, storeLocale, useLocaleStore } from '../i18n'
+import { forgetTeamAttach } from '../lib/teamAttach'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -88,6 +89,8 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedOut(reason) {
+    // the next person in this tab gets nothing of this one's composer chips, draft chats or last chat
+    forgetTeamAttach()
     pendingPick = null
     pickedBeforeSignIn = false
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language

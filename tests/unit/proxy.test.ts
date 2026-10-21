@@ -21,9 +21,9 @@ const upstream = Bun.serve({
 })
 const turnId = 'tp1'
 env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?, 'c', 'alice', 'claude-code')").run(turnId)
-const key = startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'sk-real-company-key' } })
-const oauth = startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: 'sk-ant-oat-real-subscription' } })
-afterAll(() => { key.stop(); oauth.stop(); upstream.stop(true) })
+const key = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'sk-real-company-key' } })
+const oauth = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: 'sk-ant-oat-real-subscription' } })
+afterAll(async () => { await key.stop(); await oauth.stop(); upstream.stop(true) })
 const call = (base: string, h: Record<string, string>, body: unknown = { model: 'claude-opus-x', max_tokens: 5, messages: [] }) =>
   fetch(base + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...h }, body: JSON.stringify(body) })
 
@@ -59,22 +59,27 @@ describe('model proxy', () => {
     const grew = await waitFor(() => (env.db.query('SELECT output_tokens FROM turns WHERE id = ?').get(turnId) as any).output_tokens - before.output_tokens === 500, { timeoutMs: 3000 })
     expect(grew).toBe(true)
   })
-  test('budget block and per-turn cap return 429', async () => {
+  test('budget block and per-turn cap: 403 budget_exceeded (not 429, which the SDK retries), nothing upstream', async () => {
+    const n = seen.length
     env.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, action) VALUES ('b1','user','alice','day', 0.000001, 'block')").run()
-    expect((await call(key.url, { 'x-api-key': tok })).status).toBe(429)
+    let r = await call(key.url, { 'x-api-key': tok })
+    expect(r.status).toBe(403)
+    expect((await r.json()).error).toEqual({ type: 'permission_error', message: 'budget_exceeded' })
     env.db.query("DELETE FROM budgets").run()
     const capped = issueProxyToken(env.db, turnId, 'alice', { budgetUsd: 0.000001 })
-    expect((await call(key.url, { 'x-api-key': capped })).status).toBe(429)
+    r = await call(key.url, { 'x-api-key': capped })
+    expect(r.status).toBe(403)
+    expect(seen.length).toBe(n)
   })
   test('revoked token (turn ended) is refused', async () => {
     revokeProxyTokens(env.db, turnId)
     expect((await call(key.url, { 'x-api-key': tok })).status).toBe(401)
   })
   test('peer check can refuse callers outside the turn', async () => {
-    const p = startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'k' }, peerCheck: async () => false })
+    const p = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: 'k' }, peerCheck: async () => false })
     env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES ('tp2', 'c', 'alice', 'x')").run()
     expect((await call(p.url, { 'x-api-key': issueProxyToken(env.db, 'tp2', 'alice') })).status).toBe(403)
-    p.stop()
+    await p.stop()
   })
   test('forwarding rules: only what Claude Code needs reaches the upstream with the real credential (design tab 7)', async () => {
     const tok2 = issueProxyToken(env.db, turnId, 'alice')
