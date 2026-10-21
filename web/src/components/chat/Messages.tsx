@@ -306,14 +306,18 @@ export function AssistantMessage({
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {m.status === 'error' && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1">{errText ?? t('chat.answerFailed')}</span>
+            <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
+            {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
+                line of text is as tall as the buttons, so text, icon and buttons share a centre line */}
+            <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
             {isLast && (
-              <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
-                <RotateCcw size={13} aria-hidden /> {t('common.retry')}
-              </Button>
+              <span className="ml-auto flex flex-wrap justify-end gap-2">
+                <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
+                  <RotateCcw size={13} aria-hidden /> {t('common.retry')}
+                </Button>
+                {retryWith && retryWith.engines.length > 0 && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
+              </span>
             )}
-            {isLast && retryWith && retryWith.engines.length > 0 && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
           </div>
         )}
         {m.status === 'stopped' && (
