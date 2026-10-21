@@ -51,7 +51,7 @@ export const filesRoutes: RouteModule = {
     }, 'name'))
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))
-    kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists), 'to'))
+    kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm }), 'to'))
     kit.handle(API.remove, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.remove(auth.user.id, query.path)))
     kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.history(auth.user.id, query.path)))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {

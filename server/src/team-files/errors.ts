@@ -27,26 +27,30 @@ export const MSG = {
   expired: { ko: '업로드가 만료되었습니다(24시간). 다시 시작하세요.', en: 'This upload expired (24 h). Start again.', id: 'Unggahan kedaluwarsa (24 jam).' },
   notChat: { ko: '내 채팅이 아닙니다.', en: 'Not one of your chats.', id: 'Bukan obrolan Anda.' },
   completing: { ko: '업로드를 마무리하는 중이라 취소할 수 없습니다.', en: 'The upload is being finished and cannot be canceled now.', id: 'Unggahan sedang diselesaikan dan tidak dapat dibatalkan.' },
+  ruleFolder: { ko: '그룹·프로젝트 폴더나 권한 규칙이 걸린 폴더(또는 그런 폴더가 든 폴더)는 관리자만 옮기거나 이름을 바꾸거나 지울 수 있습니다.', en: 'Group, project and rule folders (and folders that contain one) can only be moved, renamed or deleted by an admin.', id: 'Folder grup, proyek, dan folder berizin (atau yang berisi folder tersebut) hanya dapat dipindah, diganti nama, atau dihapus oleh admin.' },
+  ruleFolderToUsers: { ko: '그룹·프로젝트 폴더나 권한 규칙이 걸린 폴더는 개인 폴더(users/) 안으로 옮길 수 없습니다.', en: 'Group, project and rule folders cannot be moved into a personal folder (users/).', id: 'Folder grup, proyek, dan folder berizin tidak dapat dipindah ke folder pribadi (users/).' },
+  audienceNarrowed: { ko: '개인 폴더로 옮기면 지금 이 항목을 보는 다른 사람들이 더 이상 볼 수 없습니다. 확인한 뒤 다시 시도하세요.', en: 'Moving this into your personal folder means the other people who can see it now will lose it. Confirm to continue.', id: 'Memindahkan ini ke folder pribadi membuat orang lain yang kini bisa melihatnya kehilangan akses. Konfirmasi untuk melanjutkan.' },
   restoreTaken: { ko: '같은 이름이 있어 되돌릴 수 없습니다.', en: 'Cannot restore: the name is taken.', id: 'Tidak dapat dipulihkan: nama sudah dipakai.' },
 } satisfies Record<string, Msg>
 export type MsgKey = keyof typeof MSG
 
-export const httpError = (code: ConstructorParameters<typeof HttpError>[0], key: MsgKey, locale: Locale, fields?: Record<string, string>) =>
-  new HttpError(code, MSG[key][locale], fields ? { fields } : {})
+type Params = Record<string, string | number | boolean>
+export const httpError = (code: ConstructorParameters<typeof HttpError>[0], key: MsgKey, locale: Locale, fields?: Record<string, string>, params?: Params) =>
+  new HttpError(code, MSG[key][locale], { ...(fields ? { fields } : {}), ...(params ? { params } : {}) })
 
 /** Thrown by the file services (which don't know the caller's language); the route layer localizes it. */
 export class FileError extends Error {
-  constructor(readonly code: ConstructorParameters<typeof HttpError>[0], readonly key: MsgKey, readonly fields?: Record<string, string>) {
+  constructor(readonly code: ConstructorParameters<typeof HttpError>[0], readonly key: MsgKey, readonly fields?: Record<string, string>, readonly params?: Params) {
     super(MSG[key].en)
     this.name = 'FileError'
   }
 }
-export function fileError(code: FileError['code'], key: MsgKey, fields?: Record<string, string>): never { throw new FileError(code, key, fields) }
+export function fileError(code: FileError['code'], key: MsgKey, fields?: Record<string, string>, params?: Params): never { throw new FileError(code, key, fields, params) }
 
 /** Translate a policy / file-tool error into an HttpError (other errors pass through). */
 export function toHttp(e: unknown, locale: Locale, field = 'path'): unknown {
   if (e instanceof HttpError) return e
-  if (e instanceof FileError) return httpError(e.code, e.key, locale, e.fields)
+  if (e instanceof FileError) return httpError(e.code, e.key, locale, e.fields, e.params)
   if (e instanceof Denied) {
     const m = e.message
     if (m.startsWith('not found or no access')) return new HttpError('not_found')

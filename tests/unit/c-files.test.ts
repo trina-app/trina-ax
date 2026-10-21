@@ -151,9 +151,11 @@ describe('mkdir / move / rename', () => {
     db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_q4', 'f_q4_secret', 'user', 'erin', 'none')").run()
     write('groups/marketing/q4/secret/s.md', 'secret')
     db.query("INSERT INTO projects (id, name, folder_path) VALUES ('p_q4', 'Q4', 'groups/marketing/q4')").run()
-    // erin can't touch the secret subfolder, so she may not move its parent
+    // erin can't touch the secret subfolder, so she may not move its parent; alice can write it, but a folder holding a
+    // rule folder moves only by an admin (design tab 4 move)
     expect((await A.json('/api/files/move', { ...jsonBody({ from: 'groups/marketing/q4', to: 'groups/marketing/q4-old' }), as: 'erin' })).status).toBe(403)
-    const r = await A.json('/api/files/move', { ...jsonBody({ from: 'groups/marketing/q4', to: 'groups/marketing/campaigns/q4' }), as: 'alice' })
+    expect((await A.json('/api/files/move', { ...jsonBody({ from: 'groups/marketing/q4', to: 'groups/marketing/q4-old' }), as: 'alice' })).status).toBe(403)
+    const r = await A.json('/api/files/move', { ...jsonBody({ from: 'groups/marketing/q4', to: 'groups/marketing/campaigns/q4' }), as: 'carol' })
     expect(r.status).toBe(200)
     expect((db.query("SELECT path FROM folders WHERE id = 'f_q4_secret'").get() as any).path).toBe('groups/marketing/campaigns/q4/secret')
     expect((db.query("SELECT folder_path FROM projects WHERE id = 'p_q4'").get() as any).folder_path).toBe('groups/marketing/campaigns/q4')

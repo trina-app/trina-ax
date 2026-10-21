@@ -212,12 +212,38 @@ export class TeamFiles {
     for (const f of rows) if (isUnder(base, f.path) && rules.access(user, segsOf(f.path)) !== 'write') fileError('forbidden', 'hiddenInside')
   }
 
+  /**
+   * true when `base` or something below it is a managed folder: a folders row (group / project folder, a rule folder,
+   * shared/, skills/; also rows without rules) or a rule folder. Design tab 4 move/delete: those move, are renamed and
+   * go to the trash only by an admin or the owner, and never move under users/ (rules there are not read, tab 2 rule 3).
+   */
+  private managedInside(rules: RuleSet, base: string): boolean {
+    if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
+    return !!this.ctx.db.query("SELECT 1 FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(base, base, base)
+  }
+  private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
+    const managed = this.managedInside(rules, base)
+    if (managed && user.role !== 'owner' && user.role !== 'admin') fileError('forbidden', 'ruleFolder')
+    return managed
+  }
+  /** Active people other than `self` who can read `from` now but could not read `to` (counted, never named). */
+  private lostViewers(rules: RuleSet, self: string, from: string[], to: string[]): number {
+    let n = 0
+    for (const p of activePeople(this.ctx.db)) {
+      if (p.id === self) continue
+      if (atLeast(rules.access(p, from), 'read') && !atLeast(rules.access(p, to), 'read')) n++
+    }
+    return n
+  }
+
   // ---------------- move / rename ----------------
-  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename'): { entry: FileEntry } {
+  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean } = {}): { entry: FileEntry } {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'write', { mustExist: true })
     this.assertMovable(fr.segs)
+    // a group / project / rule folder (or one holding such a folder): admins and the owner only, renames included
+    const managed = this.assertMayChangeManaged(user, rules, fr.rel)
     const isDir = fr.st!.isDirectory()
     if (!isDir) checkRegular(fr.abs)
     let tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false })
@@ -238,6 +264,15 @@ export class TeamFiles {
     if (isDir && (target.join('/') === fr.rel || isUnder(fr.rel, target.join('/')))) fileError('validation', 'intoItself', { to })
     this.assertMovable(target)
     if (isDir) this.assertSubtreeWritable(user, rules, fr.segs)
+    // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
+    // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
+    if (managed && target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })
+    // an ordinary item into the caller's own folder: whoever could read it and cannot any more must be confirmed
+    let narrowed = 0
+    if (target[0] === 'users' && !(fr.segs[0] === 'users' && fr.segs[1] === target[1])) {
+      narrowed = this.lostViewers(rules, user.id, fr.segs, target)
+      if (narrowed > 0 && !o.confirm) fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed })
+    }
     const toRel = target.join('/')
     const db = this.ctx.db
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
@@ -268,7 +303,7 @@ export class TeamFiles {
       db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND ${under('original_path')}`)
         .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
       fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
-      fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen' } })
+      fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
       fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
@@ -303,6 +338,8 @@ export class TeamFiles {
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
+    // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only
+    this.assertMayChangeManaged(user, rules, r.rel)
     const isDir = r.st!.isDirectory()
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }
@@ -563,6 +600,14 @@ export class TeamFiles {
     }
     return { trash, versions }
   }
+}
+
+/** Every active person with their groups (who could be affected by an audience change). */
+export function activePeople(db: AppContext['db']): Principal[] {
+  const users = db.query("SELECT id, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string; name: string; role: Principal['role'] }[]
+  const groups = new Map<string, string[]>()
+  for (const m of db.query('SELECT group_id, user_id FROM group_members').all() as { group_id: string; user_id: string }[]) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
+  return users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] }))
 }
 
 /** Move the folders rows at `from` and below it to `to` (rules are kept by path). */

@@ -129,7 +129,9 @@ describe('trashed folders take their rules with them', () => {
     const save = await A.json('/api/files/content', { ...jsonBody({ path: 'shared/hr/secret.md', content: 'v2 SECRET', baseSha256: sha256hex('v1') }, 'PUT'), as: 'alice' })
     expect(save.status).toBe(200)
     expect((await A.json('/api/files/content?path=shared/hr/secret.md', { as: 'bob' })).status).toBe(404)
-    const del = await A.json('/api/files?path=shared/hr', { method: 'DELETE', as: 'alice' })
+    // a rule folder goes to the trash only by an admin (design tab 4 delete)
+    expect((await A.json('/api/files?path=shared/hr', { method: 'DELETE', as: 'alice' })).status).toBe(403)
+    const del = await A.json('/api/files?path=shared/hr', { method: 'DELETE', as: 'carol' })
     expect(del.status).toBe(200)
     // bob makes his own shared/hr: it is an ordinary shared folder now
     expect((await A.json('/api/files/mkdir', { ...jsonBody({ path: 'shared/hr' }), as: 'bob' })).status).toBe(201)
@@ -147,7 +149,7 @@ describe('trashed folders take their rules with them', () => {
     // the old version (saved under the folder's rules) stays hidden from bob at the old path, now his folder
     expect((await A.json('/api/files/history?path=shared/hr/secret.md', { as: 'bob' })).body.items).toEqual([])
     // trash it again and purge: the parked rules and the history kept under them are gone
-    const again = await A.json('/api/files?path=' + encodeURIComponent('shared/hr (복원됨)'), { method: 'DELETE', as: 'alice' })
+    const again = await A.json('/api/files?path=' + encodeURIComponent('shared/hr (복원됨)'), { method: 'DELETE', as: 'carol' })
     expect((await A.req(`/api/files/trash/${again.body.trashId}`, { method: 'DELETE', as: 'carol' })).status).toBe(204)
     expect(db.query("SELECT 1 FROM folders WHERE id = 'f_review_hr'").get()).toBeNull()
     expect(db.query("SELECT 1 FROM file_versions WHERE folder_id = 'f_review_hr'").get()).toBeNull()

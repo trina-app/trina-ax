@@ -154,12 +154,25 @@ export default function Files() {
     }
   }
 
+  /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), ask first, then confirm. */
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename' }): Promise<boolean> => {
+    try {
+      await api.call(API.move, { body })
+      return true
+    } catch (err) {
+      if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
+      const n = Number(err.body.params.lostViewers ?? 0)
+      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return false
+      await api.call(API.move, { body: { ...body, confirm: true } })
+      return true
+    }
+  }
+
   const rename = async (e: FileEntry) => {
     const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name || name === e.name) return
     try {
-      await api.call(API.move, { body: { from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' } })
-      void load()
+      if (await moveConfirmed({ from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' })) void load()
     } catch (err) {
       fail(err)
     }
@@ -170,7 +183,7 @@ export default function Files() {
     setMoving(null)
     if (!e) return
     try {
-      await api.call(API.move, { body: { from: e.path, to: joinPath(folder, e.name), onExists: 'rename' } })
+      if (!(await moveConfirmed({ from: e.path, to: joinPath(folder, e.name), onExists: 'rename' }))) return
       toast({ level: 'success', text: t('files.moved', { path: folder || t('files.root') }) })
       void load()
     } catch (err) {

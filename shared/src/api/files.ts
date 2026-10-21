@@ -58,7 +58,12 @@ export const UploadFields = z.object({
   onExists: z.enum(['fail', 'replace', 'rename']).default('rename'),
 })
 export const MkdirBody = z.object({ path: RelPath })
-export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail') })
+/**
+ * confirm: moving an ordinary item into the caller's own users/<me>/ that other people can read now answers 409
+ * conflict {params: {reason:'audience_narrowed', lostViewers}} unless confirm is true (design tab 4 move).
+ * Folders that are or contain group / project / rule folders (a folders row) move only for admins, never under users/.
+ */
+export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false) })
 export const MoveResult = z.object({ entry: FileEntry })
 export const DeleteResult = z.object({ trashId: Uuid7, purgeAt: IsoTime })
 export const HistoryResponse = z.object({ path: RelPath, items: z.array(FileVersion) })
@@ -106,8 +111,8 @@ export const FILES = {
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),
   upload: endpoint({ method: 'POST', path: '/api/files/upload', auth: 'user', owner: 'C', status: 201, body: multipart(UploadFields, SMALL_UPLOAD_MAX), response: FileEntry, summary: 'Upload one file up to 50 MB into a folder (write access).' }),
   mkdir: endpoint({ method: 'POST', path: '/api/files/mkdir', auth: 'user', owner: 'C', status: 201, body: MkdirBody, response: FileEntry, summary: 'Create a folder (name rules + collision check).' }),
-  move: endpoint({ method: 'POST', path: '/api/files/move', auth: 'user', owner: 'C', body: MoveBody, response: MoveResult, summary: 'Move / rename (write access at both ends; folders.path follows).' }),
-  remove: endpoint({ method: 'DELETE', path: '/api/files', auth: 'user', owner: 'C', query: PathQuery, response: DeleteResult, summary: 'Move a file or folder to the trash (30 days).' }),
+  move: endpoint({ method: 'POST', path: '/api/files/move', auth: 'user', owner: 'C', body: MoveBody, response: MoveResult, summary: 'Move / rename (write access at both ends; folders.path follows). Group / project / rule folders: admin or owner only, never into users/ (400). Into users/<me>/ when others lose sight of it: 409 audience_narrowed unless confirm.' }),
+  remove: endpoint({ method: 'DELETE', path: '/api/files', auth: 'user', owner: 'C', query: PathQuery, response: DeleteResult, summary: 'Move a file or folder to the trash (30 days). Group / project / rule folders: admin or owner only.' }),
   history: endpoint({ method: 'GET', path: '/api/files/history', auth: 'user', owner: 'C', query: PathQuery, response: HistoryResponse, summary: 'Version history of a file.' }),
   versionDownload: endpoint({ method: 'GET', path: '/api/files/history/:versionId/download', auth: 'user', owner: 'C', response: stream(true), summary: 'Download an old version (read access to its path).' }),
   restoreVersion: endpoint({ method: 'POST', path: '/api/files/restore', auth: 'user', owner: 'C', body: RestoreVersionBody, response: SaveResult, summary: 'Restore an old version of a file.' }),
