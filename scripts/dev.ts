@@ -29,7 +29,9 @@ const SERVER_PORT = 19100
 const RELAY_PORT = 19161
 const RELAY_MIN_NODE = 25
 
-const say = (s: string) => console.log(`\x1b[1m[dev]\x1b[0m ${s}`)
+/** plain tags when NO_COLOR is set (the background service of `bun run dev:service` writes to a log file) */
+const COLOR = !process.env.NO_COLOR
+const say = (s: string) => console.log(COLOR ? `\x1b[1m[dev]\x1b[0m ${s}` : `[dev] ${s}`)
 
 /** where `bun run dev` keeps the server's data (the account CLI must look at the same database) */
 const dataEnv = (): Record<string, string> => ({
@@ -143,7 +145,7 @@ function spawn(p: (typeof procs)[number], tag: string): ReturnType<typeof Bun.sp
 }
 
 const running: Running[] = procs.map((p, i) => {
-  const tag = `${colors[i % colors.length]}[${p.name}]\x1b[0m `
+  const tag = COLOR ? `${colors[i % colors.length]}[${p.name}]\x1b[0m ` : `[${p.name}] `
   return { ...p, tag, child: spawn(p, tag) }
 })
 
