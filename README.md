@@ -8,7 +8,8 @@ may see**. People use it from the web, the Mac desktop app (with an in-app brows
 their language in Settings > Language (or follows the team default), an admin sets the team default in Admin > Team
 settings, and the sign-in, invite, reset and setup screens have a language switcher; see docs/DECISIONS.md "언어".
 
-**Try it now:** [docs/TRY-IT.md](docs/TRY-IT.md) (demo team, accounts, checklist). **What only the owner can
+**Try it now:** [docs/TRY-IT.md](docs/TRY-IT.md) (demo team, accounts, checklist). **Install:**
+[docs/INSTALL.md](docs/INSTALL.md). **What only the owner can
 unblock:** [docs/OWNER-TODO.md](docs/OWNER-TODO.md). Decisions and deviations from the design:
 [docs/DECISIONS.md](docs/DECISIONS.md); who owns which part: [docs/WORKPLAN.md](docs/WORKPLAN.md).
 
@@ -157,6 +158,11 @@ failed or your spending limit needs to be increased"), so every red run on `main
 `bun run typecheck && bun run test` locally until the billing is fixed.
 
 ## Install on a Mac (role-account mode)
+
+**Step-by-step install guide: [docs/INSTALL.md](docs/INSTALL.md)** (dev mode, production install, connecting
+members, update/backup/uninstall, troubleshooting, known gaps; Korean illustrated PDF:
+[docs/install/Team-AX-설치가이드.pdf](docs/install/Team-AX-설치가이드.pdf)). In this version a production install
+cannot answer chats yet (the installer's `engine.authMode` "proxy" is refused), so teams use dev mode for now.
 
 ```sh
 bun run build:bundle                                    # native helpers, web/dist, then scripts/build-bundle.ts
