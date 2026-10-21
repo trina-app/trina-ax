@@ -765,3 +765,58 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   가이드와 같은 모양), office zip에 함께 넣는다. 화면은 실제 앱(사무실 모드 시험 설치의 웹 앱, 데스크톱 앱, exampleteam 주소의 실제
   530 페이지)에서 찍었고, 윈도우에만 있는 화면(Edge 앱 설치, SmartScreen, 설치 창)은 글로만 썼다. 치과 가이드·OFFICE.md의 예시
   주소는 exampleteam으로 바꿨다(일반 설명의 자리표시는 그대로).
+
+## 사무실 모드 자동 업데이트 (feat/auto-update, 2026-10-21)
+
+치과 맥 미니(사무실 모드)와 데스크 윈도우 앱이 손으로 zip을 받지 않아도 새 버전을 받게. 사용법은 [OFFICE.md](OFFICE.md) 6장.
+
+- **피드 = `https://updates.treesoop.com`, R2 + Worker.** Workers 정적 자산은 파일당 25 MiB라 170 MB zip이 안 들어간다.
+  비공개 R2 버킷 `teamax-updates` 앞에 읽기 전용 Worker(`scripts/release/worker.js`: GET/HEAD, Range, 목록 없음, 정해진
+  경로 모양만, 채널 파일은 no-store, 버전 파일은 immutable)를 두고 사용자 지정 도메인으로 붙였다(`scripts/release/
+  hosting.ts setup`; DNS 기록은 Cloudflare가 Worker용으로 만든 그 이름 하나, 존의 다른 기록은 건드리지 않음, workers.dev
+  주소 끔). treesoop.com 계정 토큰(`~/.config/treesoop/secrets.env`)으로 R2·Workers·사용자 지정 도메인이 다 됐다. 존 DNS
+  읽기 권한은 없다(필요 없음).
+- **서명 = 채널 파일 하나에 payload + Ed25519 서명**(`server/src/office/release.ts`): `{format, payload: "<JSON 글>",
+  keyId, sig}`. 서명과 내용이 한 객체라 올리는 도중 둘이 어긋나는 순간이 없다. 서명 키는 이 맥의
+  `~/.config/teamax-release/release-key.pem`(600, 폴더 700, `scripts/release/keygen.ts`가 덮어쓰지 않음)에만 있고 공개 키
+  (key id 84b790c8b6439e8b)를 빌드에 넣었다. 확인하는 것: 아는 키, 요청한 채널과 같은 채널(beta 릴리스를 stable로 내미는
+  것 거부), 모든 파일 URL이 피드 아래이고 파일 이름과 같음, minFrom ≤ version. 설치 판단(`decide`): 같은 버전은 할 일
+  없음, **더 오래된 버전은 절대 설치하지 않음**, 설치된 버전이 minFrom보다 오래되면 손으로 설치하라고만 함. zip은 크기를
+  넘으면 바로 끊고 SHA-256이 다르면 지운다.
+- **설치는 새 zip의 설치 프로그램이 한다**(`office-install.sh --update`). 업데이트 프로그램(옛 버전)이 새 배치를 알 필요가
+  없다: 새 버전의 설치기가 자기 배치(app/ 교체, app.previous, 에이전트 plist)를 안다. `--update`는 브라우저를 열지 않고,
+  Claude Code 로그인 확인을 하지 않으며(로그인이 풀린 것은 원장님이 고칠 일이지 옛 버전에 머물 이유가 아님), 마지막 안내를
+  뺀다. 순서: 새 설치기 `--check-only` → 진행 중인 답변을 최대 10분 기다림(`status/status.json`의 queue) → `admin.js backup
+  --scope db --kind pre-update` → 설치 → `/api/health`가 **새 버전 번호로** 답하고 15초 뒤에도 답해야 성공(150초 안).
+  실패하면 에이전트를 멈추고 `app` → `app.failed`, `app.previous` → `app`, 옛 버전의 `office.js install`로 다시 띄우고 옛
+  버전이 답하는지 본다. 되돌린 버전은 밤 실행에서 다시 시도하지 않는다(`teamax update now`만). DB는 되돌리지 않는다(마이
+  그레이션은 더하기만; 필요하면 `업데이트 전` 백업).
+- **세 번째 LaunchAgent `<label>.update`**(KeepAlive 없음, RunAtLoad 없음, `StartCalendarInterval` 기본 03:00, 잠들어 있었으면
+  깨어날 때). "지금"은 요청 파일(`update/request.json`) + `launchctl kickstart`: 웹 서버는 업데이트가 자기를 멈추므로 일을
+  직접 하지 않고, 터미널의 `teamax update now`도 에이전트에 맡겨 창을 닫아도 계속된다(진행 단계만 따라 보여 줌). 업데이트
+  중에 설치기가 부르는 `office.js install`은 `TEAMAX_UPDATE_RUN=1`이면 업데이트 에이전트를 다시 올리지 않는다(자기를
+  죽이게 됨) — plist 파일만 쓴다. 상태·설정은 `<home>/update/`(settings.json: 채널·시각·끔, state.json, lock): `data/`,
+  `team/`, `tls/`, `config/`에는 아무것도 쓰지 않는다(설치기가 office.env를 같은 값으로 다시 쓰는 것뿐). 피드 주소는
+  바꿀 수 없다(시험용 `teamax update feed http://127.0.0.1:<포트>`만, 이 맥 주소만 받음).
+- **관리자 > 시스템 > 자동 업데이트**: `GET/POST /api/admin/office-update`(auth admin: 소유자·관리자; 웹 화면은 시스템
+  화면이 소유자 전용이라 소유자에게 보임). 사무실 모드가 아니면 null/409. 작업 단계는 코드(`step`)로 주고 화면이 ko/en/id로
+  보여 준다. 지금 업데이트·끄기·켜기는 감사 기록(`office_update.*`). 비밀번호 재확인은 넣지 않았다: 서명된 더 새 버전만
+  설치되므로 밤 자동 실행과 같은 일이다.
+- **데스크 윈도우 앱**: 릴리스에 윈도우 설치 파일과 electron-builder의 `latest.yml`을 같이 싣고, 맥 미니가 확인한 뒤
+  `data/downloads`에 넣는다(설치 파일 → index.json → latest.yml 순, latest.yml은 그 파일 이름·sha512·크기와 맞아야 함,
+  다른 URL이 들어 있으면 거부). 데스크 앱은 electron-updater(generic, `<팀 주소>/downloads/`, 시작 20초 뒤와 4시간마다,
+  뒤에서 받기, 닫을 때 설치 또는 "업데이트 준비됨 — 다시 시작"). `/downloads/`는 로그인한 사람만이라(feat/office-downloads)
+  팀 페이지의 세션을 `Authorization: Bearer`로 보낸다(electron-updater는 쿠키 없는 자기 세션을 쓰고, 다른 호스트로
+  리디렉트되면 이 헤더를 뺀다). 서명 없는 NSIS: `publisherName`이 없으면 electron-updater가 서명을 묻지 않는다(sha512는
+  확인). 차등 받기는 끔(맥 미니는 최신 설치 파일만 둠). 빌드 설정의 `publish`(generic, 자리표시 주소, `channel: latest`)는
+  latest.yml과 app-update.yml을 만들게 하려는 것뿐이고, 실제 주소는 실행 중에 정한다; `channel: latest`가 없으면
+  0.2.0-beta.2 같은 시험판 빌드가 latest.yml 대신 beta.yml을 쓴다. 맥 데스크톱 앱은 서명이 없어 스스로 바꿀 수 없으므로
+  `/downloads/index.json`의 더 새 맥 앱을 버전마다 한 번 알리고 설정 > 앱을 연다.
+- **릴리스**: `bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]`. 파일을 다 올리고 HEAD로 확인한
+  뒤 서명한 채널 파일을 마지막에 올리고, 피드에서 다시 읽어 사무실과 같은 방법으로 확인한다. 채널은 뒤로 가지 않고, 이미
+  올린 `office/<버전>/<파일>`은 다른 파일로 바꾸지 않는다. stable은 아직 올리지 않았다.
+- **시험**: `tests/unit/office-update.test.ts`(서명·변조·다른 키·채널·피드 밖 URL, 내려가기·minFrom 거부, 해시·크기,
+  가짜 번들로 전체 실행: 설치·데이터 그대로·새 버전이 안 뜰 때 되돌림·밤에는 다시 안 함·설치기가 바로 실패할 때, 윈도우
+  설치 파일과 index.json·latest.yml, plist·다음 시각, 웹 API 권한과 감사 기록, 데스크 업데이트 설정),
+  `desktop/e2e/update.spec.ts`(맥 알림: 세션으로 index.json, 버전마다 한 번, 설정 > 앱), `tests/install/office-update-e2e.ts`
+  (실제 설치본에서 seed/verify).
