@@ -202,7 +202,9 @@ bash ~/Downloads/TeamAX-office-0.2.0/office-install.sh
 ```
 `app/`만 바뀌고(이전 것은 `app.previous`) 데이터·팀 폴더·인증서·설정은 그대로입니다. 확인: `팀이 이미 설정되어
 있습니다`, `자동 업데이트 / automatic updates (app.team-ax.office.update): 매일 / every night 03:00, stable`,
-`=== 설치 끝 / installed: 0.2.0 ===`. 인터넷이 막힌 곳에서는 지금처럼 새 zip + `office-install.sh`로 손으로 업데이트할
+`=== 설치 끝 / installed: 0.2.0 ===`. 0.2.0은 사무실 인증 기관(CA)을 한 번 새로 만듭니다(보안 점검 r4, 옛 것은
+`tls/ca.crt.old-<날짜>`): **사무실 안 대체 경로**(`https://<맥 IP>:8443`)를 쓰는 데스크만 새 데스크 카드(`teamax card`)를 보고
+4장 ①처럼 인증서를 한 번 다시 설치합니다. 인터넷 주소로 쓰는 데스크는 할 일이 없습니다. 인터넷이 막힌 곳에서는 지금처럼 새 zip + `office-install.sh`로 손으로 업데이트할
 수 있습니다(언제나 됨).
 
 자동 업데이트가 하는 일 (`server/src/office/update.ts`, 기록 `~/TeamAX/logs/update.log`, 상태 `~/TeamAX/update/state.json`):
