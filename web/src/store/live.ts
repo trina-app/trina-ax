@@ -2,6 +2,7 @@
 import type { FileChange, Memory, ServerEvent } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
+import { openTeamFile } from '../lib/sidePanel'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
@@ -41,6 +42,12 @@ export function dispatch(ev: ServerEvent) {
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
       return
+    case 'files.conflict': {
+      // a save met a newer version (mine or someone else's): both people hear about the conflict copy
+      const copy = ev.data.copyPath
+      toast({ level: 'warn', text: t('files.conflictNotice', { path: ev.data.path, copy, by: ev.data.by?.name ?? '' }), sticky: true, action: { label: t('files.openCopy'), run: () => openTeamFile(copy) } })
+      return
+    }
     case 'job.progress':
       useJobs.getState().progress(ev.data.jobId, ev.data.kind, ev.data.progress, ev.data.message)
       return

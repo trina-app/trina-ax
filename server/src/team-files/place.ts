@@ -95,6 +95,32 @@ export function installFile(root: string, segs: string[], src: string, o: { keep
   } catch (e) { fs.rmSync(tmp, { force: true }); throw e }
 }
 
+/**
+ * Copy a regular team file (already authorize()d for read) to team path `segs` (already authorize()d for write) without
+ * passing through memory: clonefile on APFS, a plain copy elsewhere. The source is checked before and after the copy
+ * (same inode, still a regular singly linked file), so a file swapped for a link in between is never copied.
+ */
+export function copyTeamFile(root: string, srcAbs: string, segs: string[]): fs.Stats {
+  const before = checkRegular(srcAbs)
+  ensureParents(root, segs)
+  const dir = path.join(root, ...segs.slice(0, -1))
+  const tmp = tmpName(dir)
+  try {
+    fs.copyFileSync(srcAbs, tmp, C.COPYFILE_EXCL | C.COPYFILE_FICLONE)
+    const after = checkRegular(srcAbs)
+    const out = fs.lstatSync(tmp)
+    if (after.ino !== before.ino || after.dev !== before.dev || out.size !== after.size) throw new Denied('path changed while copying')
+    fs.chmodSync(tmp, 0o600)
+    verifyChain(root, segs, true)
+    try {
+      const st = fs.lstatSync(path.join(dir, segs[segs.length - 1]!))
+      if (!st.isFile() || st.nlink > 1) throw new Denied('target is not a regular file')
+    } catch (e: any) { if (e instanceof Denied) throw e }
+    fs.renameSync(tmp, path.join(dir, segs[segs.length - 1]!))
+    return out
+  } catch (e) { fs.rmSync(tmp, { force: true }); throw e }
+}
+
 /** Write bytes to a fresh server-side temp file (for small uploads arriving in memory). */
 export async function writeTemp(dir: string, data: Blob | Uint8Array): Promise<string> {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })

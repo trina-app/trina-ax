@@ -12,7 +12,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   updateChannel: 'stable',
   updateWindow: null,
   auditRetentionDays: 90,
-  fileHistoryRetentionDays: 30,
+  /** tab 1 file_versions: "기본 최근 7일 유지" (the sweep in team-files/service.ts reads this same value) */
+  fileHistoryRetentionDays: 7,
   trashRetentionDays: 30,
   chatTrashRetentionDays: 7,
 }

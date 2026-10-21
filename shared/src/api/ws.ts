@@ -117,6 +117,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable() })),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
+  /** someone's save met a newer version: theirs became `copyPath` next to `path` (sent to the saver and to whoever
+   * changed it first, each only while they can read both; tab 2 "동시 수정", tab 4 PUT content) */
+  ev('files.conflict', z.object({ path: RelPath, copyPath: RelPath, by: UserRef.nullable() })),
   ev('turn.request', z.object({ turnId: Uuid7, chatId: Uuid7, messageId: Uuid7, request: TurnRequest })),
   /** answered (maybe in another window), timed out, or the turn ended: close the card */
   ev('turn.request.closed', z.object({ turnId: Uuid7, requestId: z.string(), reason: z.enum(['answered', 'timeout', 'turn_ended']) })),

@@ -11,7 +11,16 @@ import { fail } from '../http/errors'
 import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
 import { CHAT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
-import { canRead, canWrite, ensureProjectFolder } from '../chat/projects'
+import fs from 'node:fs'
+import path from 'node:path'
+import type { FolderRuleInput } from '@mycel/shared/api'
+import { canRead, canWrite, ensureProjectFolder, ensureProjectFolderEx, lookupFolder, projectFolderName } from '../chat/projects'
+import { badSegment } from '../policy/names'
+import { componentC } from '../team-files/component'
+import { mapErrors } from '../team-files/errors'
+import { afterAccessChange, captureState, ensureFolderRow, replaceRules, validateRules } from '../admin/folders'
+import { atLeast, type Principal } from '../policy/access'
+import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
 import { safeModel } from '../chat/engines'
 import { budgetBlock } from '../admin/budgets'
@@ -29,6 +38,31 @@ function chatOut(rt: ChatRuntime, r: ChatRow): Chat { return rt.store.toChat(r, 
 
 function principal(ctx: AppContext, auth: AuthInfo) {
   try { return ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+}
+
+type ProjectRowT = NonNullable<ReturnType<ChatRuntime['store']['projectRow']>>
+const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
+const isPersonalPath = (folder: string) => folder === 'users' || folder.startsWith('users/')
+/**
+ * Name and instructions (which go into every member's AI context for the project): the creator and admins only,
+ * and only while they can write the folder (design tabs 4 / 5 "지침 수정은 만든 사람과 admin 이상"). A personal
+ * project under users/<me>/ is only ever reachable by its owner.
+ */
+const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => canWrite(ctx.files, p, r.folder_path) && (isAdmin(p) || r.created_by === p.id)
+
+/** Tell everyone else who can read the project folder that its instructions changed (tab 3 지침 6). */
+function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo['user']) {
+  const rules = ctx.files.rules()
+  const segs = r.folder_path === '' ? [] : r.folder_path.split('/')
+  const people = ctx.db.query("SELECT id, locale FROM users WHERE status = 'active' AND deleted_at IS NULL AND id != ?").all(by.id) as { id: string; locale: Locale | null }[]
+  for (const u of people) {
+    let who: Principal
+    try { who = ctx.files.principal(u.id) } catch { continue }
+    if (!atLeast(rules.access(who, segs), 'read')) continue
+    try {
+      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? 'ko', { name: r.name, by: by.name }) } })
+    } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
+  }
 }
 
 /** Attachments of the message (component C stores them; B only reads them back by id). */
@@ -272,34 +306,163 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.listProjects, ({ auth }) => {
       const p = principal(ctx, auth)
       const rows = ctx.db.query('SELECT id, name, folder_path, instructions, created_by, created_at FROM projects ORDER BY name COLLATE NOCASE, id').all() as Parameters<typeof rt.store.toProject>[0][]
-      return { items: rows.filter((r) => canRead(ctx.files, p, r.folder_path)).map((r) => rt.store.toProject(r, canWrite(ctx.files, p, r.folder_path))) }
+      return { items: rows.filter((r) => canRead(ctx.files, p, r.folder_path)).map((r) => rt.store.toProject(r, mayEdit(ctx, p, r))) }
     })
 
     kit.handle(API.createProject, ({ c, body, auth }) => {
+      const locale = c.get('locale')
       const p = principal(ctx, auth)
-      const folder = ensureProjectFolder(ctx.files, p, body.folderPath, c.get('locale'))
+      const db = ctx.db
       const id = newId()
-      ctx.db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?,?,?,?,?,?)')
+      const root = ctx.files.fx.root
+      const insert = (folder: string) => db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?,?,?,?,?,?)')
         .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString())
-      return rt.store.toProject(rt.store.projectRow(id)!, true)
+      const slug = body.slug?.normalize('NFC')
+      if (slug !== undefined && (slug.includes('/') || badSegment(slug))) fail('validation', undefined, { fields: { 'body.slug': 'not a valid folder name' } })
+      const folderRows = () => (db.query('SELECT path FROM folders').all() as { path: string }[]).map((r) => r.path)
+      /** a folder made here goes again when the database step fails: nothing half-made stays behind */
+      const undo = (top: string | null) => { if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {} }
+
+      // ③ personal: users/<me>/projects/<slug>/, the caller's alone (no folders row under users/: rules are not read
+      // there, and admins would see the folder's name in the folder list)
+      if (body.scope === 'personal') {
+        if (body.participants.length) fail('validation', tr('projectParticipantsNewOnly', locale), { fields: { 'body.participants': 'a personal project has no participants' } })
+        let want = body.folderPath
+        if (want === undefined) {
+          const parent = ensureProjectFolderEx(ctx.files, p, `users/${p.id}/projects`, locale)
+          want = `${parent.path}/${projectFolderName(path.join(root, ...parent.path.split('/')), parent.path, [], slug ?? body.name, id)}`
+        }
+        const f = ensureProjectFolderEx(ctx.files, p, want, locale)
+        const segs = f.path.split('/')
+        if (segs[0] !== 'users' || segs[1] !== p.id || segs.length < 3) { undo(f.createdTop); fail('validation', tr('projectPersonalFolder', locale), { fields: { 'body.folderPath': 'a personal project lives in users/<me>/' } }) }
+        try { db.transaction(() => { insert(f.path); audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: null }) })() } catch (e) { undo(f.createdTop); throw e }
+        return rt.store.toProject(rt.store.projectRow(id)!, true)
+      }
+
+      // ① a new team project folder projects/<slug>/: admins only, with its rules (participants + creator write)
+      let want = body.folderPath
+      let fresh = false
+      if (want === undefined) {
+        if (!isAdmin(p)) fail('forbidden', tr('projectNewTeamAdminOnly', locale))
+        fs.mkdirSync(path.join(root, 'projects'), { recursive: true, mode: 0o700 })
+        want = `projects/${projectFolderName(path.join(root, 'projects'), 'projects', folderRows(), slug ?? body.name, id)}`
+        fresh = true
+      } else {
+        const look = lookupFolder(ctx.files, p, want, locale)
+        const segs = look.path.split('/')
+        if (!look.exists && segs[0] === 'projects' && segs.length === 2) {
+          // members may have write somewhere under projects/ through a rule, but a new team project folder is admin+
+          if (!isAdmin(p)) fail('forbidden', tr('projectNewTeamAdminOnly', locale))
+          fresh = true
+        }
+        want = look.path
+      }
+      if (body.participants.length && !fresh) fail('validation', tr('projectParticipantsNewOnly', locale), { fields: { 'body.participants': 'only for a new projects/<slug> folder; existing folders keep their rules' } })
+
+      if (fresh) {
+        // an old folder's rules kept by path (renamed, trashed) must not be picked up by the new project
+        if (db.query("SELECT 1 FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(want, want, want)) fail('conflict', tr('projectFolderTaken', locale), { fields: { 'body.folderPath': 'taken' } })
+        const rules: FolderRuleInput[] = []
+        const seen = new Set<string>()
+        for (const x of [...body.participants, { subjectType: 'user' as const, subjectId: p.id }]) {
+          const k = `${x.subjectType}:${x.subjectId}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          rules.push({ subjectType: x.subjectType, subjectId: x.subjectId, access: 'write' } as FolderRuleInput)
+        }
+        validateRules(db, rules, locale, 'body.participants')
+        const before = captureState(db)
+        const f = ensureProjectFolderEx(ctx.files, p, want, locale)
+        try {
+          db.transaction(() => {
+            const row = ensureFolderRow(db, f.path)
+            replaceRules(db, row.id, rules, auth.user.id)
+            insert(f.path)
+            audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: { name: body.name, folderPath: f.path, rules } })
+          })()
+        } catch (e) { undo(f.createdTop); throw e }
+        afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
+        return rt.store.toProject(rt.store.projectRow(id)!, true)
+      }
+
+      // ② an existing folder (or a new one inside a folder) the caller can write: rules unchanged; a rule-less
+      // folders row marks it as a project folder (moves / renames are then admin-only, tab 4), not under users/
+      const f = ensureProjectFolderEx(ctx.files, p, want, locale)
+      try {
+        db.transaction(() => {
+          if (f.path !== '' && !isPersonalPath(f.path)) ensureFolderRow(db, f.path)
+          insert(f.path)
+          audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: isPersonalPath(f.path) ? null : { name: body.name, folderPath: f.path } })
+        })()
+      } catch (e) { undo(f.createdTop); throw e }
+      return rt.store.toProject(rt.store.projectRow(id)!, mayEdit(ctx, p, rt.store.projectRow(id)!))
     })
 
     kit.handle(API.getProject, ({ params, auth }) => {
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
       if (!r || !canRead(ctx.files, p, r.folder_path)) fail('not_found')
-      return rt.store.toProject(r!, canWrite(ctx.files, p, r!.folder_path))
+      return rt.store.toProject(r!, mayEdit(ctx, p, r!))
     })
 
     kit.handle(API.updateProject, ({ c, params, body, auth }) => {
+      const locale = c.get('locale')
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
       if (!r || !canRead(ctx.files, p, r.folder_path)) fail('not_found')
-      if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', c.get('locale')))
-      const folder = body.folderPath !== undefined && body.folderPath !== r!.folder_path ? ensureProjectFolder(ctx.files, p, body.folderPath, c.get('locale')) : r!.folder_path
-      ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ? WHERE id = ?')
-        .run(body.name ?? r!.name, folder, body.instructions ?? r!.instructions, r!.id)
-      return rt.store.toProject(rt.store.projectRow(r!.id)!, true)
+      if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', locale))
+      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
+      let folder = r!.folder_path
+      if (body.folderPath !== undefined && body.folderPath !== r!.folder_path) {
+        // repointing a team project changes who gets its instructions: admins only, and never into a personal folder
+        // (it would vanish for everyone else, the creator included). Sharing a personal project is a copy (share).
+        if (!isAdmin(p)) fail('forbidden', tr('projectFolderAdminOnly', locale))
+        if (isPersonalPath(body.folderPath)) fail('validation', tr('projectFolderPersonal', locale), { fields: { 'body.folderPath': 'invalid_path: a team project cannot move under users/' } })
+        folder = ensureProjectFolder(ctx.files, p, body.folderPath, locale)
+        if (isPersonalPath(folder)) fail('validation', tr('projectFolderPersonal', locale), { fields: { 'body.folderPath': 'invalid_path: a team project cannot move under users/' } })
+      }
+      const next = { name: body.name ?? r!.name, instructions: body.instructions ?? r!.instructions }
+      ctx.db.transaction(() => {
+        ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ? WHERE id = ?').run(next.name, folder, next.instructions, r!.id)
+        // a personal project's content stays out of the audit log (admins read it; they cannot read users/<id>/)
+        const personal = isPersonalPath(r!.folder_path) && isPersonalPath(folder)
+        const changed = { name: next.name !== r!.name, instructions: next.instructions !== r!.instructions, folder: folder !== r!.folder_path }
+        if (changed.name || changed.instructions || changed.folder) {
+          audit(ctx.db, {
+            actor: auth.user.id, action: 'project.update', target: r!.id,
+            detail: personal ? { changed } : {
+              changed,
+              ...(changed.name ? { name: { before: r!.name, after: next.name } } : {}),
+              ...(changed.instructions ? { instructions: { before: r!.instructions, after: next.instructions } } : {}),
+              ...(changed.folder ? { folderPath: { before: r!.folder_path, after: folder } } : {}),
+            },
+          })
+        }
+      })()
+      const after = rt.store.projectRow(r!.id)!
+      if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
+      return rt.store.toProject(after, mayEdit(ctx, p, after))
+    })
+
+    kit.handle(API.shareProject, async ({ c, params, body, auth }) => {
+      const locale = c.get('locale')
+      const p = principal(ctx, auth)
+      const r = rt.store.projectRow(params.id)
+      if (!r || !canRead(ctx.files, p, r.folder_path)) fail('not_found')
+      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
+      const segs = r!.folder_path.split('/')
+      // only a personal project is shared this way; a team project's audience is its folder rules (admin screen)
+      if (segs[0] !== 'users' || segs[1] !== p.id || segs.length < 3) fail('validation', tr('projectShareNotPersonal', locale), { fields: { 'params.id': 'not a personal project' } })
+      const out = await mapErrors(locale, () => componentC(ctx).files.copyFolderTree(p.id, r!.folder_path, body.toParent, { dryRun: body.dryRun }), 'toParent')
+      if ('viewersAdded' in out) return out
+      ctx.db.transaction(() => {
+        // the copy is a project folder in a team folder: a rule-less folders row, like a project on an existing folder
+        if (!isPersonalPath(out.path)) ensureFolderRow(ctx.db, out.path)
+        ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(out.path, r!.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: isPersonalPath(out.path) ? null : { name: r!.name, folderPath: out.path, files: out.files, bytes: out.bytes } })
+      })()
+      const after = rt.store.projectRow(r!.id)!
+      return rt.store.toProject(after, mayEdit(ctx, p, after))
     })
 
     kit.handle(API.deleteProject, ({ c, params, auth }) => {
@@ -307,9 +470,12 @@ export const chatsRoutes: RouteModule = {
       const r = rt.store.projectRow(params.id)
       if (!r || !canRead(ctx.files, p, r.folder_path)) fail('not_found')
       if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', c.get('locale')))
+      // other people's chats lose the project context: the creator and admins only, like editing it
+      if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
       ctx.db.transaction(() => {
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path } })
       })()
     })
   },

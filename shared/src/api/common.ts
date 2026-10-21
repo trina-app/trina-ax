@@ -98,6 +98,8 @@ export const ApiErrorBody = z.object({
   message: z.string(),
   /** validation: field path ("body.name", "query.limit") -> problem */
   fields: z.record(z.string(), z.string()).optional(),
+  /** machine-readable details for a client that must react (e.g. conflict {reason:'audience_narrowed', lostViewers}) */
+  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   /** rate_limited / busy: seconds to wait */
   retryAfter: z.number().int().nonnegative().optional(),
   /** request id from the X-Request-Id response header, to find the log line */

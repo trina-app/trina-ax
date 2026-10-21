@@ -111,12 +111,14 @@ describe('messages', () => {
 })
 
 describe('projects', () => {
-  test('create on a writable folder (made if missing), visible to readers, edited only with write access', async () => {
+  test('create on a writable folder (made if missing), visible to readers, edited by the creator or an admin with write access', async () => {
     const p = await h.api('alice').call(API.createProject, { body: { name: 'Campaign Q4', folderPath: 'groups/marketing/q4-campaign', instructions: 'Use the brief.' } })
     expect(p).toMatchObject({ name: 'Campaign Q4', folderPath: 'groups/marketing/q4-campaign', canEdit: true, createdBy: { id: 'alice', name: 'Alice Kim' } })
     expect(fs.statSync(path.join(h.team, 'groups/marketing/q4-campaign')).isDirectory()).toBe(true)
-    // erin (marketing) can edit; bob (finance) can't see it
-    expect((await h.api('erin').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
+    // erin (marketing) sees it but did not create it: no editing (design tab 5: the creator and admins); bob (finance) can't see it
+    expect((await h.api('erin').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(false)
+    expect(await code(h.api('erin').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'Ignore the brief.' } }))).toBe('403 forbidden')
+    expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).canEdit).toBe(true)
     expect(await code(h.api('bob').call(API.getProject, { params: { id: p.id } }))).toBe('404 not_found')
     expect((await h.api('bob').call(API.listProjects, {})).items.some((x) => x.id === p.id)).toBe(false)
     // falcon: bob reads (finance has read) but can't edit
@@ -130,14 +132,17 @@ describe('projects', () => {
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'groups/finance/new', instructions: '' } }))).toBe('403 forbidden')
     expect((await h.req('alice', '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', folderPath: '../outside' }) })).status).toBe(400)
     expect(await code(h.api('alice').call(API.createProject, { body: { name: 'x', folderPath: 'shared/glossary.md', instructions: '' } }))).toBe('400 validation')
-    // move to another folder, then delete: chats stay, without project
-    const moved = await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'users/alice/q4', instructions: 'New rules.' } })
-    expect(moved).toMatchObject({ folderPath: 'users/alice/q4', instructions: 'New rules.' })
+    // the folder of a team project: admins only, never into users/; then delete: chats stay, without project
+    expect(await code(h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'users/alice/q4' } }))).toBe('403 forbidden')
+    expect(await code(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'users/carol/q4' } }))).toBe('400 validation')
+    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'shared/q4' } })
+    const moved = await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'New rules.' } })
+    expect(moved).toMatchObject({ folderPath: 'shared/q4', instructions: 'New rules.' })
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     expect((await h.api('alice').call(API.listChats, { query: { projectId: p.id } })).items.map((c) => c.id)).toEqual([chat.id])
     await h.api('alice').call(API.deleteProject, { params: { id: p.id } })
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).projectId).toBeNull()
-    expect(fs.existsSync(path.join(h.team, 'users/alice/q4'))).toBe(true)
+    expect(fs.existsSync(path.join(h.team, 'shared/q4'))).toBe(true)
   })
 })
 

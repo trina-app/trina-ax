@@ -2,7 +2,7 @@
 // upload (drag and drop; chunked and resumable when large), download, new folder, rename / move, trash, version
 // history with restore, conflict copies marked, "start a chat with this file". Refreshes on files.changed.
 import clsx from 'clsx'
-import { ArchiveRestore, ChevronRight, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Pencil, Presentation, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Pencil, Presentation, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileVersion, TrashItem, TreeResponse } from '@mycel/shared/api'
@@ -47,6 +47,7 @@ export default function Files() {
   const [drag, setDrag] = useState(false)
   const [history, setHistory] = useState<string | null>(null)
   const [moving, setMoving] = useState<FileEntry | null>(null)
+  const [sharing, setSharing] = useState<FileEntry | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const go = useCallback((p: string, sel?: string) => setParams(sel ? { path: p, select: sel } : p ? { path: p } : {}), [setParams])
@@ -154,12 +155,25 @@ export default function Files() {
     }
   }
 
+  /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), ask first, then confirm. */
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename' }): Promise<boolean> => {
+    try {
+      await api.call(API.move, { body })
+      return true
+    } catch (err) {
+      if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
+      const n = Number(err.body.params.lostViewers ?? 0)
+      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return false
+      await api.call(API.move, { body: { ...body, confirm: true } })
+      return true
+    }
+  }
+
   const rename = async (e: FileEntry) => {
     const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name || name === e.name) return
     try {
-      await api.call(API.move, { body: { from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' } })
-      void load()
+      if (await moveConfirmed({ from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' })) void load()
     } catch (err) {
       fail(err)
     }
@@ -170,8 +184,26 @@ export default function Files() {
     setMoving(null)
     if (!e) return
     try {
-      await api.call(API.move, { body: { from: e.path, to: joinPath(folder, e.name), onExists: 'rename' } })
+      if (!(await moveConfirmed({ from: e.path, to: joinPath(folder, e.name), onExists: 'rename' }))) return
       toast({ level: 'success', text: t('files.moved', { path: folder || t('files.root') }) })
+      void load()
+    } catch (err) {
+      fail(err)
+    }
+  }
+
+  /** '공유' (design tab 2 rule 3): copy the file into a team folder; first say how many more people will see it. */
+  const shareTo = async (folder: string) => {
+    const e = sharing
+    setSharing(null)
+    if (!e) return
+    const body = { from: e.path, to: joinPath(folder, e.name), onExists: 'rename' as const }
+    try {
+      const dry = await api.call(API.copy, { body: { ...body, dryRun: true } })
+      const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
+      if (n > 0 && !(await confirmDialog({ title: t('files.shareTitle', { name: e.name }), body: t('files.shareBody', { n }), confirm: t('files.shareCopy') }))) return
+      const r = await api.call(API.copy, { body })
+      if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: r.path }) })
       void load()
     } catch (err) {
       fail(err)
@@ -303,6 +335,7 @@ export default function Files() {
                       onChat={() => chatWith(e)}
                       onRename={() => void rename(e)}
                       onMove={() => setMoving(e)}
+                      onShare={() => setSharing(e)}
                       onDelete={() => void remove(e)}
                       onHistory={() => setHistory(e.path)}
                     />
@@ -320,13 +353,14 @@ export default function Files() {
           </div>
         </>
       )}
+      <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
       <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} onPick={moveTo} onClose={() => setMoving(null)} />
       {history && <HistoryModal path={history} onClose={() => setHistory(null)} onRestored={() => void load()} />}
     </div>
   )
 }
 
-function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onDelete, onHistory }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onRename: () => void; onMove: () => void; onDelete: () => void; onHistory: () => void }) {
+function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onShare, onDelete, onHistory }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -382,6 +416,11 @@ function FileRow({ e, selected, onOpen, onChat, onRename, onMove, onDelete, onHi
             {!folder && (
               <button role="menuitem" type="button" className={item} onClick={onHistory}>
                 <History size={14} aria-hidden /> {t('files.history')}
+              </button>
+            )}
+            {!folder && (
+              <button role="menuitem" type="button" className={item} onClick={onShare} data-testid="share-file">
+                <Copy size={14} aria-hidden /> {t('files.share')}
               </button>
             )}
             <button role="menuitem" type="button" className={item} disabled={!writable} onClick={onRename}>

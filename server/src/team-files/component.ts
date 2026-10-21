@@ -13,6 +13,7 @@ import { findConverters, MakeFile } from '../tools/make-file'
 import { Attachments } from '../uploads/attachments'
 import { UploadSessions } from '../uploads/sessions'
 import { publishChanges } from './changes'
+import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { TeamFiles } from './service'
 
 export interface ComponentC {
@@ -89,6 +90,22 @@ export function componentC(ctx: AppContext): ComponentC {
   // live updates for AI tool writes (stage-1 file tools emit 'changed')
   ctx.files.events.on('changed', (e: { path: string; action: 'create' | 'update'; userId: string; userName: string; turnId: string | null }) => {
     publishChanges(ctx, [{ path: e.path, action: e.action, by: { id: e.userId, name: e.userName }, turnId: e.turnId }])
+  })
+  // conflict copies (file screen saves and AI tool writes): both people are told (design tab 4 PUT content), each only
+  // after checking again that they can read both the file and the copy now (the copy's name carries the saver's name;
+  // someone who lost access learns nothing). No content in the event.
+  ctx.files.events.on('conflict', (e: { path: string; copy: string; by?: string; users: string[] }) => {
+    try {
+      const rules = RuleSet.load(ctx.db)
+      const segs = (p: string) => (p === '' ? [] : p.split('/'))
+      const byRow = e.by ? (ctx.db.query('SELECT id, name FROM users WHERE id = ?').get(e.by) as { id: string; name: string } | null) : null
+      for (const id of new Set(e.users)) {
+        const who = loadPrincipal(ctx.db, id)
+        if (!who) continue
+        if (!atLeast(rules.access(who, segs(e.path)), 'read') || !atLeast(rules.access(who, segs(e.copy)), 'read')) continue
+        ctx.services.realtime.publish(id, { type: 'files.conflict', data: { path: e.path, copyPath: e.copy, by: byRow ? { id: byRow.id, name: byRow.name } : null } })
+      }
+    } catch (err) { ctx.log.warn('files.conflict publish failed', { err }) }
   })
   // B reads a message's attachments back by id through this service (services.ts AttachmentStore)
   ctx.services.attachments = { get: (userId, chatId, ids) => attachments.byIds(userId, chatId, ids) }

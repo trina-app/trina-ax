@@ -1,16 +1,17 @@
 // Projects: a folder of the team folder + instructions. Chats opened inside a project use both as their default
 // context. List (projects whose folder the person can read), create (folder they can write), project home with
 // instructions, the folder's files and the person's chats in it.
-import { FolderKanban, Folder, MessageSquarePlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FolderKanban, Folder, MessageSquarePlus, Pencil, Plus, Share2, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import type { Chat, FileEntry, Project } from '@mycel/shared/api'
+import type { Chat, FileEntry, Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { previewKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { isAdmin, useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
@@ -71,6 +72,24 @@ export function ProjectList() {
 function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose: () => void; onSaved: (p: Project) => void }) {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
+  // an existing project's folder is changed by admins only (the server refuses it for anyone else)
+  const folderLocked = !!project && !isAdmin(me)
+  // new project (design tab 5): on an existing folder, a personal one (users/<me>/projects/), or, for admins, a new
+  // team folder projects/<slug> with the groups / people who work in it
+  const [mode, setMode] = useState<'existing' | 'personal' | 'team'>('existing')
+  const [groups, setGroups] = useState<Group[]>([])
+  const [people, setPeople] = useState<User[]>([])
+  const [participants, setParticipants] = useState<ProjectParticipant[]>([])
+  useEffect(() => {
+    if (project || mode !== 'team' || !isAdmin(me)) return
+    api.call(API.listGroups).then((r) => setGroups(r.items), () => setGroups([]))
+    api.call(API.listUsers).then((r) => setPeople(r.items.filter((u) => u.status === 'active')), () => setPeople([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
+  const toggle = (x: ProjectParticipant) =>
+    setParticipants((cur) => (cur.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId) ? cur.filter((y) => !(y.subjectType === x.subjectType && y.subjectId === x.subjectId)) : [...cur, x]))
+  const picked = (x: ProjectParticipant) => participants.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId)
   const [name, setName] = useState(project?.name ?? '')
   const [folder, setFolder] = useState(project?.folderPath ?? '')
   const [instructions, setInstructions] = useState(project?.instructions ?? '')
@@ -82,8 +101,13 @@ function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose
     setError(null)
     try {
       const p = project
-        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: name.trim(), folderPath: folder, instructions } })
-        : await api.call(API.createProject, { body: { name: name.trim(), folderPath: folder, instructions } })
+        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: name.trim(), instructions, ...(folder !== project.folderPath ? { folderPath: folder } : {}) } })
+        : await api.call(API.createProject, {
+            body:
+              mode === 'personal' ? { name: name.trim(), scope: 'personal', instructions, participants: [] }
+              : mode === 'team' ? { name: name.trim(), scope: 'team', instructions, participants }
+              : { name: name.trim(), scope: 'team', folderPath: folder, instructions, participants: [] },
+          })
       onSaved(p)
       onClose()
     } catch (e) {
@@ -113,12 +137,39 @@ function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose
         <Field label={t('projects.name')}>
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} data-autofocus data-testid="project-name" />
         </Field>
-        <Field label={t('projects.folder')} hint={t('projects.folderHint')}>
+        {!project && (
+          <Field label={t('projects.kind')}>
+            <div className="flex flex-wrap gap-3 text-sm" role="radiogroup">
+              {(['existing', 'personal', ...(isAdmin(me) ? ['team' as const] : [])] as const).map((m) => (
+                <label key={m} className="flex items-center gap-1.5">
+                  <input type="radio" name="project-kind" checked={mode === m} onChange={() => setMode(m)} data-testid={`project-kind-${m}`} /> {t(`projects.kind.${m}`)}
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+        {!project && mode === 'team' && (
+          <Field label={t('projects.participants')} hint={t('projects.participantsHint')}>
+            <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-line p-2 text-sm" data-testid="project-participants">
+              {groups.map((g) => (
+                <label key={`g:${g.id}`} className="flex items-center gap-2">
+                  <input type="checkbox" checked={picked({ subjectType: 'group', subjectId: g.id })} onChange={() => toggle({ subjectType: 'group', subjectId: g.id })} /> {g.name}
+                </label>
+              ))}
+              {people.map((u) => (
+                <label key={`u:${u.id}`} className="flex items-center gap-2">
+                  <input type="checkbox" checked={picked({ subjectType: 'user', subjectId: u.id })} onChange={() => toggle({ subjectType: 'user', subjectId: u.id })} /> {u.name}
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+        {(project || mode === 'existing') && <Field label={t('projects.folder')} hint={t('projects.folderHint')}>
           <div className="flex gap-2">
             <input className={inputCls} value={folder || t('files.root')} readOnly />
-            <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>
+            {!folderLocked && <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>}
           </div>
-        </Field>
+        </Field>}
         <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
           <textarea className={`${inputCls} h-40 resize-y py-2`} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={50_000} />
         </Field>
@@ -154,6 +205,26 @@ export function ProjectHome() {
   const [chats, setChats] = useState<Chat[] | null>(null)
   const [files, setFiles] = useState<FileEntry[] | null>(null)
   const [editing, setEditing] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const me = useMe()
+  // a personal project (users/<me>/...) is shared by copying its folder into a team folder (design tab 5)
+  const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
+  const shareTo = async (toParent: string) => {
+    setSharing(false)
+    if (!p) return
+    try {
+      const dry = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent, dryRun: true } })
+      const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
+      if (!(await confirmDialog({ title: t('projects.shareTitle'), body: t('projects.shareBody', { n }), confirm: t('files.shareCopy') }))) return
+      const r = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent } })
+      if ('id' in r) {
+        setP(r)
+        toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) })
+      }
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
 
   useEffect(() => {
     let live = true
@@ -203,6 +274,11 @@ export function ProjectHome() {
           <>
             {p.canEdit && (
               <>
+                {personal && (
+                  <Button variant="ghost" onClick={() => setSharing(true)} data-testid="project-share">
+                    <Share2 size={14} aria-hidden /> {t('projects.share')}
+                  </Button>
+                )}
                 <Button variant="ghost" onClick={() => setEditing(true)}>
                   <Pencil size={14} aria-hidden /> {t('common.edit')}
                 </Button>
@@ -268,6 +344,7 @@ export function ProjectHome() {
         </aside>
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
+      <FolderPicker open={sharing} title={t('projects.share')} confirmLabel={t('files.shareHere')} initial="shared" onPick={(x) => void shareTo(x)} onClose={() => setSharing(false)} />
     </div>
   )
 }

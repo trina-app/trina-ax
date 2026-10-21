@@ -7,7 +7,7 @@ export class HttpError extends Error {
     public code: ErrorCode,
     /** specific user-facing message (already localized); default: ERROR_MESSAGES[code] */
     public userMessage?: string,
-    public extra: { fields?: Record<string, string>; retryAfter?: number; status?: number } = {},
+    public extra: { fields?: Record<string, string>; params?: Record<string, string | number | boolean>; retryAfter?: number; status?: number } = {},
   ) {
     super(userMessage ?? code)
     this.name = 'HttpError'
@@ -19,6 +19,7 @@ export class HttpError extends Error {
       code: this.code,
       message: this.userMessage ?? errorMessage(this.code, locale),
       ...(this.extra.fields ? { fields: this.extra.fields } : {}),
+      ...(this.extra.params ? { params: this.extra.params } : {}),
       ...(this.extra.retryAfter !== undefined ? { retryAfter: this.extra.retryAfter } : {}),
       ...(requestId ? { requestId } : {}),
     }
