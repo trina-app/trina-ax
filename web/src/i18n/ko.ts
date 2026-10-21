@@ -783,7 +783,7 @@ export const ko = {
   'system.backupScope.incremental': '증분',
   'system.restore': '복원',
   'system.restoreTitle': '이 백업으로 복원할까요?',
-  'system.restoreBody': '{date} 이후의 채팅·메모리·설정·폴더 규칙·계정 변경이 사라지고, 그 사이 지운 채팅은 다시 나타나요. 서버가 다시 시작되고 모든 사람이 다시 로그인해야 해요. 팀 폴더의 파일은 지금 그대로예요(파일은 버전 기록이나 휴지통에서 되돌려요). 되돌릴 수 없어요.',
+  'system.restoreBody': '{date} 이후의 채팅·메모리·설정·폴더 규칙·계정 변경이 사라지고, 그 사이 지운 채팅은 다시 나타나요. 서버가 다시 시작되고 모든 사람이 다시 로그인해야 해요. 아직 안 쓴 초대·재설정 링크도 더는 쓸 수 없어요. 팀 폴더의 파일은 지금 그대로예요(파일은 버전 기록이나 휴지통에서 되돌려요). 되돌릴 수 없어요.',
   'system.restoreDone': '복원했어요. 화면을 새로 고쳐 주세요.',
   'system.export': '내보내기',
   'system.exportDesc': '채팅은 Markdown, 메모리는 CSV, 팀 폴더는 그대로 팀장의 exports 폴더에 저장돼요.',
