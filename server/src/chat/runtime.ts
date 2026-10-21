@@ -141,7 +141,7 @@ export class ChatRuntime {
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
-  defaultEngine(): EngineId { return readSetting(this.db, 'defaultEngine', (v): v is EngineId => v === 'claude-code' || v === 'codex', 'claude-code') }
+  defaultEngine(): EngineId { return readSetting(this.db, 'defaultEngine', (v): v is EngineId => v === 'api' || v === 'claude-code' || v === 'codex', 'claude-code') }
   defaultModel(): string | null { return readSetting<string | null>(this.db, 'defaultModel', safeModel, null) }
   /** the team default model applies to the team default engine only */
   defaultModelFor(engine: EngineId): string | null { return engine === this.defaultEngine() ? this.defaultModel() : null }
@@ -385,7 +385,7 @@ export class ChatRuntime {
       }
       seen.add(t.chat_id)
       this.queued.push({ turnId: t.id, chatId: t.chat_id, userId: t.user_id, assistantId: t.message_id, userMessageId: t.user_message_id, windowId: t.window_id,
-        clientKind: t.client_kind, engine: t.engine === 'codex' ? 'codex' : 'claude-code', model: t.model, locale: this.userLocale(t.user_id) })
+        clientKind: t.client_kind, engine: t.engine === 'codex' || t.engine === 'api' ? t.engine : 'claude-code', model: t.model, locale: this.userLocale(t.user_id) })
     }
     // answers left streaming without a turn (crash between writes)
     const queuedIds = new Set(this.queued.map((s) => s.assistantId))

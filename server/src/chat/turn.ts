@@ -43,6 +43,8 @@ import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../prox
 import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { limitFallbackOn } from '../admin/engine-choice'
+import { runApiAgent } from '../engine/api-agent'
+import { makeHandler } from '../mcp/protocol'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -173,7 +175,8 @@ export class TurnExec {
     const problem = confs.problems[spec.engine]
     const claude = spec.engine === 'claude-code' ? confs.claude : null
     const codex = spec.engine === 'codex' ? confs.codex : null
-    if (problem || (!claude && !codex)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
+    const api = spec.engine === 'api' ? confs.api ?? null : null
+    if (problem || (!claude && !codex && !api)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
     if (codex && codexIsBeta(rt.ctx) && !codexBetaAllowed(rt.db, this.principal)) { this.error = engineError('codex_beta', spec.locale); return }
     const core = await rt.core()
     if (this.stopReason) return
@@ -291,6 +294,19 @@ export class TurnExec {
     } else if (codex) {
       const model = spec.model && rt.engines.get().codexModels.includes(spec.model) ? spec.model : undefined
       await this.runCodex(core, codex, { chatDir, token, systemPrompt: prompt(true), message, extraTools, model })
+    } else if (api) {
+      // the team's API engine runs here in the server: its only tools are the turn's MCP tools, answered by the same
+      // handler the gate uses for the other engines (engine/api-agent.ts)
+      const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files }, toolSet)
+      const errors: EngineEvent[] = []
+      this.attemptHadOutput = false
+      await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal })
+      this.closeThinking()
+      const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
+      if (err && !this.stopReason) {
+        rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, message: err.message.slice(0, 300) })
+        this.error = engineError(err.code, spec.locale)
+      }
     }
     // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
     // 429 path reported a limit, never for budgets, refusals or crashes
