@@ -34,6 +34,9 @@ describe('claude stream-json -> EngineEvent', () => {
     const ev = [L({ type: 'assistant', error: 'authentication_failed', message: { content: [{ type: 'text', text: 'Not logged in · Please run /login' }] } }),
       L({ type: 'result', is_error: true, result: 'Not logged in · Please run /login', usage: {} })].flatMap((l) => p.push(l))
     expect(ev.filter((e) => e.type === 'error').every((e: any) => e.code === 'auth')).toBe(true)
+    // the raw error text is not answer text (the person sees the translated auth error)
+    expect(ev.some((e) => e.type === 'text')).toBe(false)
+    expect(p.text).toBe('')
   })
   test('refusal is detected (stop_reason refusal)', () => {
     const p = new ClaudeStreamParser()

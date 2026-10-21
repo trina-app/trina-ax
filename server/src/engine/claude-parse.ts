@@ -45,11 +45,14 @@ export class ClaudeStreamParser {
     } else if (ev.type === 'assistant') {
       const msg = ev.message ?? {}
       if (msg.stop_reason === 'refusal') this.refused = true
+      // an API error (401, limit …) comes as a synthetic assistant message whose text is the raw error: it becomes the
+      // turn's error below, never answer text
+      const apiError = !!ev.error && ev.error !== 'refusal'
       for (const b of msg.content ?? []) {
         if (b.type === 'tool_use') out.push({ type: 'tool_start', id: b.id, name: b.name, summary: JSON.stringify(b.input ?? {}).slice(0, 300), input: b.input ?? {} })
-        else if (b.type === 'text' && !this.sawDeltas && b.text) { this.text += (this.text ? '\n\n' : '') + b.text; out.push({ type: 'text', delta: b.text }) }
+        else if (b.type === 'text' && !this.sawDeltas && b.text && !apiError) { this.text += (this.text ? '\n\n' : '') + b.text; out.push({ type: 'text', delta: b.text }) }
       }
-      if (ev.error && ev.error !== 'refusal') out.push({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) })
+      if (apiError) out.push({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) })
       if (ev.error === 'refusal') this.refused = true
     } else if (ev.type === 'user') {
       for (const b of ev.message?.content ?? []) if (b.type === 'tool_result') {
