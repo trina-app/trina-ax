@@ -780,3 +780,11 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   도움말·OFFICE.md에 "모두 다시 로그인, 안 쓴 링크는 새로"를 적었다. 시험: `tests/security/r4-restore-archive-sessions.test.ts`
   (실제 `admin.js archive`/`restore-archive` + 바꿔 넣기 + 같은 폴더로 서버 다시 열기: 로그아웃한 토큰 401),
   `tests/unit/office.test.ts`(세션 0, 안 쓴 링크만 지움, `data/sessions` 옮김, 읽을 수 없는 DB면 그대로).
+- **사무실 CA의 이름 제한은 `<맥 이름>.local` 하나(4차 2).** 전에는 맥의 맨 이름(`<맥 이름>`)도 허용 범위였다. RFC 5280의
+  dNSName 제한은 그 아래 모든 이름을 허용하므로, 맥 이름이 실제 최상위 도메인(dental, clinic, dentist, office …)이면 CA 키가
+  샐 때 그 TLD 아래 모든 공개 사이트를 데스크에 사칭할 수 있었다. 서버 인증서도 맨 이름을 넣지 않는다(데스크는 IP와
+  `.local`만 쓴다). 맨 이름이 든 예전 CA(`ca.json`에 점 없는 이름이 `local` 말고 있으면)는 다음 시작 때 **새로 만든다**: 옛 CA는
+  `ca.*.old-<날짜>`로 남고, 사무실 기록에 "new office CA … desks on the in-office path install the new CA once"가 나온다.
+  사무실 안 경로를 쓰는 데스크는 CA를 다시 설치해야 하지만, 지금 이 CA를 쓰는 데스크는 없다(exampleteam은 인터넷 주소가 기본이고
+  아직 설정 전). `TEAMAX_CA_CONSTRAINTS=0`으로 만든 CA(제한 없음)는 그대로 둔다. 시험: `tests/security/r4-office-ca-tld.test.ts`
+  (맥 이름 "dental": `www.smile.dental` 등 서명해도 OpenSSL이 거부, 예전 CA는 다시 만듦), `tests/unit/office.test.ts`.

@@ -17,7 +17,7 @@ import { peerIp } from '../../server/src/main'
 import { agentPlist, archiveSummary, backupSummary, configure, helperOrigins, portProblems, prepare, swapInRestore } from '../../server/src/office/cli'
 import { deskCard, HELPER_PATHS, helperFetch, windowsThumbprint, type HelperState } from '../../server/src/office/helper'
 import { allowedHosts, allowedPeers, cidr, deskOrigins, officePaths, parseAllowFrom, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
-import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tlsPaths, wantedNames } from '../../server/src/office/tls'
+import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tldWideConstraint, tlsPaths, wantedNames } from '../../server/src/office/tls'
 import { parseTeamAddress } from '../../desktop/src/common/address'
 import { connectionStatus } from '../../server/src/system/connection'
 import { harness, type Harness } from './a-lib'
@@ -51,15 +51,18 @@ describe('office addresses and names', () => {
   })
 
   test('the certificate names only what the CA may vouch for (this Mac\'s names, its office subnet)', () => {
-    expect(C).toEqual({ dns: ['mini.local', 'mini'], v4: NET, v6: [] })
+    // security review 4 (office-lan 2): never the bare name: an RFC 5280 subtree "dental" is every site under .dental
+    expect(C).toEqual({ dns: ['mini.local'], v4: NET, v6: [] })
     for (const ip of ['192.168.1.1', '192.168.1.254']) expect(ipPermitted(ip, C)).toBe(true)
     // security review 5: not every private address (the EMR server, NAS or router of another subnet), no IPv6
     for (const ip of ['192.168.0.1', '10.200.1.1', '172.31.255.1', '100.64.0.1', 'fd7a:115c::1', 'fc00::1', '8.8.8.8', '2001:db8::1']) expect(ipPermitted(ip, C)).toBe(false)
     expect(dnsPermitted('mini.local', C)).toBe(true)
-    expect(dnsPermitted('mini', C)).toBe(true)
-    for (const d of ['evil.com', 'notmini', 'nas.local', 'printer.local', 'local']) expect(dnsPermitted(d, C)).toBe(false)
+    for (const d of ['evil.com', 'notmini', 'nas.local', 'printer.local', 'local', 'mini', 'www.x.mini']) expect(dnsPermitted(d, C)).toBe(false)
     const w = wantedNames('mini', ['192.168.1.18', '8.8.8.8', '192.168.2.5'], C)
-    expect(w).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18'], left: ['8.8.8.8', '192.168.2.5'] })
+    expect(w).toEqual({ dns: ['mini.local'], ips: ['192.168.1.18'], left: ['8.8.8.8', '192.168.2.5'] })
+    expect(caConstraintsFor('dental', NET).dns).toEqual(['dental.local'])
+    expect(tldWideConstraint({ dns: ['dental.local', 'dental'], v4: NET, v6: [] })).toBe('dental')
+    for (const dns of [['dental.local'], ['local'], []]) expect(tldWideConstraint({ dns, v4: NET, v6: [] })).toBeNull()
     // never an empty side (that would mean "any name" / "any address"): no host name or no subnet known yet
     expect(caConstraintsFor(null, [])).toEqual({ dns: ['local'], v4: PRIVATE_V4, v6: [] })
     // a CA without constraints (TEAMAX_CA_CONSTRAINTS=0) names every address
@@ -80,7 +83,7 @@ describe('office CA and server certificate', () => {
     expect(mode(dir)).toBe(0o700)
     expect(mode(p.caKey)).toBe(0o600)
     expect(mode(p.key)).toBe(0o600)
-    expect(certNames(first.cert)).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18'] })
+    expect(certNames(first.cert)).toEqual({ dns: ['mini.local'], ips: ['192.168.1.18'] })
     expect(first.left).toEqual(['8.8.8.8'])
     expect(first.cert.verify(first.ca.publicKey)).toBe(true)
     expect(first.ca.ca).toBe(true)
@@ -150,7 +153,7 @@ describe('office CA and server certificate', () => {
 
   test('renewed 30 days before it ends, and replaced when it is not signed by the current CA', () => {
     ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.42'], subnets: NET })
-    const want = { dns: ['mini.local', 'mini'], ips: ['192.168.1.42'] }
+    const want = { dns: ['mini.local'], ips: ['192.168.1.42'] }
     expect(serverCertProblem(dir, want)).toBeNull()
     expect(serverCertProblem(dir, want, new Date(Date.now() + 380 * 86400_000))).toBe('expires soon')
     const other = path.join(BASE, 'tls-other')
@@ -191,7 +194,7 @@ describe('office settings and server.json', () => {
 
   test('server.json: dev engine setup with office on, plain HTTP on loopback only, TLS on IPv4 for the office subnet, no Codex', () => {
     const s = settingsFrom('/Users/x/TeamAX', { TEAMAX_CLAUDE_BIN: '/Users/x/.local/bin/claude' })
-    const names = { dns: ['mini.local', 'mini'], ips: ['192.168.1.18', '10.0.0.9'] }
+    const names = { dns: ['mini.local'], ips: ['192.168.1.18', '10.0.0.9'] }
     const cfg = serverConfig(s, names, NET)
     expect(cfg).toMatchObject({ mode: 'dev', office: true, listen: { host: '127.0.0.1', port: 47830 }, tls: { host: '0.0.0.0', port: 8443 }, validateResponses: false, relay: { url: null } })
     expect(cfg.engine).toMatchObject({ authMode: 'local-login', claudeBin: '/Users/x/.local/bin/claude', runDir: '/Users/x/TeamAX/data/run' })
@@ -203,7 +206,7 @@ describe('office settings and server.json', () => {
     expect(allowedPeers({ allowFrom: 'subnet' }, [])).toEqual(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])
     expect(cfg.publicOrigins[0]).toBe('https://192.168.1.18:8443')
     expect(cfg.dataDir.startsWith('/Users/x/TeamAX/app')).toBe(false)
-    expect(allowedHosts(names, s).sort()).toEqual(['10.0.0.9:8443', '127.0.0.1:47830', '192.168.1.18:8443', 'localhost:47830', 'mini.local:8443', 'mini:8443'].sort())
+    expect(allowedHosts(names, s).sort()).toEqual(['10.0.0.9:8443', '127.0.0.1:47830', '192.168.1.18:8443', 'localhost:47830', 'mini.local:8443'].sort())
     // do-it review 7: the desks see the main address (and the .local name), not every address
     expect(deskOrigins(names, 8443, { shown: true })).toEqual(['https://192.168.1.18:8443', 'https://mini.local:8443'])
     expect(helperOrigins(s, ['https://192.168.1.18:8443'])).toEqual(['http://192.168.1.18:8442'])
