@@ -1,6 +1,7 @@
 // What a visitor sees when the relay itself answers: the team server is offline, the address is not registered, or
 // the address is suspended. HTML for browsers, the usual { error: { code, message } } JSON for API calls.
-// Languages ko (default) / en / id from Accept-Language.
+// Languages ko / en / id from Accept-Language, English when it names none of them. (The relay cannot know a team's
+// default language, which the team server uses, while that server is offline; docs/DECISIONS.md "언어".)
 
 export type PageKind =
   | 'team_offline' | 'team_unknown' | 'team_suspended' | 'team_busy' | 'team_timeout' | 'team_connection_lost' | 'bad_gateway'
@@ -14,7 +15,7 @@ export function pickLang(acceptLanguage: string | undefined): Lang {
     if (p.startsWith('en')) return 'en'
     if (p.startsWith('id') || p.startsWith('in')) return 'id'
   }
-  return 'ko'
+  return 'en'
 }
 
 function minutesText(lang: Lang, ms: number | null): string {

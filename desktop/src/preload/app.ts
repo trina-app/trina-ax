@@ -36,6 +36,7 @@ const bridge: DesktopBridge = {
   },
   notify: (n) => ipcRenderer.send('bridge:notify', { title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag === undefined ? undefined : String(n.tag) }),
   openTeams: () => ipcRenderer.send('bridge:open-teams'),
+  setLocale: (locale) => ipcRenderer.send('bridge:set-locale', String(locale)),
 }
 
 // only the top frame gets the bridge (subframes don't run this preload: nodeIntegrationInSubFrames is off)

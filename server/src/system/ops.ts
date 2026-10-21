@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Locale } from '@mycel/shared/api'
 import { PfStatus, type StatusFile } from '@mycel/shared/install'
+import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
@@ -196,7 +197,7 @@ export class OpsService {
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
-      add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
+      add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
     }
     try {
       const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string }
@@ -224,9 +225,10 @@ export class OpsService {
     }
   }
 
-  /** Status for the menubar app; problems in Korean (default UI language). */
+  /** Status for the menubar app: problems in the team's default language, which the menubar app's own words follow. */
   async statusFile(): Promise<StatusFile> {
-    const d = await this.diagnostics('ko')
+    const locale = teamDefaultLocale(this.ctx.db)
+    const d = await this.diagnostics(locale)
     const c = this.connection()
     const get = (id: string) => d.checks.find((x) => x.id === id)?.status ?? 'unknown'
     const port = this.ctx.config.listen.port
@@ -246,6 +248,7 @@ export class OpsService {
       lastBackupAt: this.backups.latest()?.createdAt ?? null,
       overall: worst(d.checks.filter((x) => x.status !== 'unknown').map((x) => x.status)),
       problems: d.checks.filter((x) => x.status === 'fail' || x.status === 'warn').map((x) => `${x.label}: ${x.detail ?? x.status}`).slice(0, 20),
+      locale,
     }
   }
 

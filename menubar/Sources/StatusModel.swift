@@ -30,6 +30,8 @@ public struct StatusFile: Codable, Equatable {
     public var lastBackupAt: String?
     public var overall: String
     public var problems: [String]
+    /// the team's default language (servers before this field: absent)
+    public var locale: String?
 }
 
 public struct Health: Codable, Equatable {
@@ -37,14 +39,18 @@ public struct Health: Codable, Equatable {
     public var version: String
 }
 
+/// The menubar app's language follows the team's default language (status.json `locale`), else the last one seen,
+/// else English. The system language does not decide (docs/DECISIONS.md "언어").
 public enum Lang: String { case ko, en, id
-    public static func current(_ preferred: [String] = Locale.preferredLanguages) -> Lang {
-        for p in preferred {
-            if p.hasPrefix("ko") { return .ko }
-            if p.hasPrefix("en") { return .en }
-            if p.hasPrefix("id") || p.hasPrefix("in") { return .id }
-        }
-        return .ko
+    public static func of(_ code: String?) -> Lang? {
+        guard let c = code?.lowercased() else { return nil }
+        if c.hasPrefix("ko") { return .ko }
+        if c.hasPrefix("en") { return .en }
+        if c.hasPrefix("id") || c.hasPrefix("in") { return .id }
+        return nil
+    }
+    public static func forTeam(_ teamLocale: String?, lastSeen: String? = nil) -> Lang {
+        of(teamLocale) ?? of(lastSeen) ?? .en
     }
 }
 

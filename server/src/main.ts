@@ -9,6 +9,7 @@ import { ConfigError, loadAppConfig, type AppConfig } from './app-config'
 import { buildApp } from './app'
 import { createContext, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
+import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
 import { applyPendingRestore } from './system/backup'
 
@@ -33,6 +34,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
+  syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
   cfg.setupToken = ensureSetupToken(cfg, db)

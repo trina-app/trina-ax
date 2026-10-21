@@ -6,7 +6,7 @@ import { PRODUCT } from '@mycel/shared'
 import type { InviteInfo, Locale, PasswordResetInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import { LOCALES, useLocale, useLocaleStore, useT } from '../i18n'
+import { LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT } from '../i18n'
 import { useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { Button, Field, inputCls } from '../components/ui'
@@ -17,10 +17,36 @@ import { Button, Field, inputCls } from '../components/ui'
  */
 export const usernameProblem = (v: string) => v.length > 0 && !/^[A-Za-z0-9._@-]*$/.test(v)
 
-function AuthFrame({ title, children, sub }: { title: string; children: ReactNode; sub?: ReactNode }) {
+/** The language switcher of the screens before sign-in: the pick is kept in this browser (and sent with an invite
+ * acceptance as the new account's own language); without one the team default shows. */
+export function LanguageSwitcher() {
   const t = useT()
   const locale = useLocale()
   const setLocale = useLocaleStore((s) => s.setLocale)
+  return (
+    <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
+      {t('settings.language')}
+      <select
+        className="rounded border border-line bg-surface px-1.5 py-1 text-xs text-ink"
+        value={locale}
+        data-testid="auth-locale"
+        onChange={(e) => {
+          const l = e.target.value as Locale
+          storeLocale(l)
+          setLocale(l)
+        }}
+      >
+        {LOCALES.map((l) => (
+          <option key={l.id} value={l.id} lang={l.id}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function AuthFrame({ title, children, sub }: { title: string; children: ReactNode; sub?: ReactNode }) {
   return (
     <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10">
       <main className="w-full max-w-sm">
@@ -30,16 +56,7 @@ function AuthFrame({ title, children, sub }: { title: string; children: ReactNod
           {sub && <div className="mb-4 text-sm text-muted">{sub}</div>}
           {children}
         </div>
-        <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
-          {t('settings.language')}
-          <select className="rounded border border-line bg-surface px-1.5 py-1 text-xs text-ink" value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
-            {LOCALES.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <LanguageSwitcher />
       </main>
     </div>
   )
@@ -108,6 +125,7 @@ export function Login() {
 export function Setup() {
   const t = useT()
   const locale = useLocale()
+  const setLocale = useLocaleStore((s) => s.setLocale)
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -134,6 +152,25 @@ export function Setup() {
         )}
         <Field label={t('setup.teamName')}>
           <input className={inputCls} value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
+        </Field>
+        <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
+          {/* the team language is the language on screen: picking one here switches this page too */}
+          <select
+            className={inputCls}
+            value={locale}
+            data-testid="setup-locale"
+            onChange={(e) => {
+              const l = e.target.value as Locale
+              storeLocale(l)
+              setLocale(l)
+            }}
+          >
+            {LOCALES.map((l) => (
+              <option key={l.id} value={l.id} lang={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label={t('auth.name')}>
           <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} />
@@ -185,7 +222,7 @@ export function AcceptInvite() {
     e.preventDefault()
     if (form.password !== form.password2) return setError(t('auth.passwordMismatch'))
     void run(async () => {
-      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { username: form.username.trim(), name: form.name.trim(), password: form.password, locale, client: clientKind(), tokenMode: 'cookie' } })
+      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { username: form.username.trim(), name: form.name.trim(), password: form.password, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
       navigate('/', { replace: true })
     })

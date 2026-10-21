@@ -87,6 +87,9 @@ export interface DesktopBridge {
   notify(n: { title: string; body: string; tag?: string }): void
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
+  /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
+   * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
+  setLocale?(locale: 'ko' | 'en' | 'id'): void
 }
 
 export function getDesktopBridge(): DesktopBridge | null {

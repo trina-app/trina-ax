@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
+import { teamDefaultLocale } from '../admin/settings'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, saveVersion, sha256 } from '../files/store'
@@ -178,7 +179,7 @@ export class TeamFiles {
   private conflictCopy(user: Principal, rules: RuleSet, r: Authorized, data: Buffer): SaveResult {
     const dir = r.segs.slice(0, -1)
     const dirAbs = path.join(this.root, ...dir)
-    let name = conflictCopyName(r.segs[r.segs.length - 1]!, user.name)
+    let name = conflictCopyName(r.segs[r.segs.length - 1]!, user.name, new Date(), teamDefaultLocale(this.ctx.db))
     if (badSegment(name)) name = `conflict-${Date.now()}-${r.segs[r.segs.length - 1]}`
     name = freeName(dirAbs, name)
     const copy = [...dir, name]
@@ -461,10 +462,10 @@ export class TeamFiles {
     const isDir = t.kind === 'folder'
     const want = segsOf(t.original_path)
     // the original parent may be gone: it is created again (names were valid when the item was deleted).
-    // A taken name (exactly or nearly) gets " (복원됨)".
+    // A taken name (exactly or nearly) gets " (restored)" in the team's default language.
     const parentRel = want.slice(0, -1).join('/')
     const pw = authorize(this.fx, rules, user, parentRel, 'write', { mustExist: false, createDirs: true })
-    const name = pw.exists && pw.st!.isDirectory() ? restoredName(pw.abs, want[want.length - 1]!, isDir) : want[want.length - 1]!
+    const name = pw.exists && pw.st!.isDirectory() ? restoredName(pw.abs, want[want.length - 1]!, isDir, teamDefaultLocale(this.ctx.db)) : want[want.length - 1]!
     // a folder's rules were parked with it (remove) and come back with it, also under a " (복원됨)" name
     const r = authorize(this.fx, rules, user, [...pw.segs, name].join('/'), 'write', { mustExist: false, createDirs: true })
     if (r.exists) fileError('conflict', 'restoreTaken')

@@ -389,3 +389,21 @@ polish/0(보안)·1(정확성)·2(화면·UX)·3(계약·데드 코드)을 이 �
 - **충돌 정리**: 채팅 도구의 파일 문맥은 polish/1의 `livePrincipal()`(도구 호출마다 사람 정보를 다시 읽음)과 polish/0의 `person`(서버 확인 카드)을 함께 쓴다. polish/0의 공개 범위 확인(`confirmWidening`)도 저장할 때의 최신 사람 정보로 판단한다(비활성 계정이면 예외 → 저장하지 않음). polish/3이 옮긴 `tests/lib/stage1-runner.ts`는 polish/1의 UTF-8 줄 읽기(`Utf8Lines`)를 그대로 쓴다. 목 서버와 웹 e2e는 서버 안전 확인 카드(polish/0)와 새로고침 뒤 열린 카드 복구(polish/3)를 모두 가진다.
 - **병합 뒤 고친 것**: polish/0이 더한 감사 action `proxy.refused`에 ko/en/id 문구가 없어 polish/2의 "모든 감사 action에 문구" 시험이 실패했다. 문구를 넣었다.
 - 검증: typecheck, unit 917, web unit 99, relay(Node 25) 17, stage 1 fast, 웹 e2e(목) 56, 데스크톱 e2e 18, 실제 엔진 e2e-ui 14단계(Claude 8회·Codex 1회).
+
+## 언어: 영어가 기본 (feat/english-default, 2026-10-21)
+
+owner 요청("영어 UI도 있어야 할 것 같아. 언어 설정 만들고 기본은 영어로").
+
+- **정하는 순서는 사람의 선택 → 팀 기본 언어 → 영어.** `DEFAULT_LOCALE`(shared)이 `'en'`이고, 팀 설정 `defaultLocale`의 기본값과 첫 설정(`POST /api/setup`의 `locale` 기본값)도 영어다. 이미 저장된 팀 기본 언어는 그대로(데모 팀은 한국어 팀).
+- **브라우저·OS 언어는 정하지 않는다.** 웹은 `navigator.languages`를, 서버는 `Accept-Language`를, 데스크톱 앱은 시스템 언어를, 메뉴바 앱은 `Locale.preferredLanguages`를 더 이상 보지 않는다. 한국어 맥에서 처음 열어도 영어다(owner가 원한 기본값).
+- **"팀 기본값 따르기"는 `users.locale_follows_team`(마이그레이션 102, 기본 0)로 저장한다.** 설계는 "NULL = 고르지 않음"이지만 `users.locale`이 `NOT NULL`이고 이전 빌드가 이 열을 그대로 읽으므로, 열을 바꾸지 않고 표시만 더했다(전방 호환 규칙: 더하기만). 1인 사람의 `users.locale`은 팀 기본 언어와 같게 유지한다: 팀 기본 언어가 바뀔 때(`updateTeamSettings`)와 서버 시작 때(복원한 DB·이전 빌드가 남긴 차이) `syncFollowingLocales()`가 그 사람들 줄만 고친다. 그래서 `users.locale`을 읽는 기존 코드(세션, 턴, 작업, 알림)는 그대로 맞는 언어를 쓴다. 계약에는 `Me.user.localeChoice`·`User.localeChoice`(null = 팀 기본값)가 더해졌고 `locale`은 실제로 보는 언어다. `PATCH /api/me`·`PATCH /api/admin/users/:id`의 `locale: null`은 "팀 기본값 따르기"로 돌아간다.
+- **기존 사람은 바뀌지 않는다.** 마이그레이션은 줄을 고치지 않고(기본 0 = 지금 저장된 언어가 그 사람의 선택), 돌고 있는 데모의 계정도 그대로다. **새 사람은 팀 기본값을 따른다**: 관리자가 만든 사람, 초대로 들어온 사람(초대 화면에서 언어를 고르지 않았으면), 첫 owner(고른 팀 언어를 따름).
+- **로그인 전**: 웹은 로그인·초대·재설정·첫 설정 화면 아래의 언어 선택을 `localStorage`(`mycel.locale`, try/catch)에 기억하고, 없으면 `GET /api/setup`이 새로 주는 `defaultLocale`(공개)을, 그것도 없으면 영어를 쓴다. 웹은 모든 요청에 화면 언어를 `X-Mycel-Locale`로 보내고, 서버는 세션이 없는 요청에만 그것을, 없으면 팀 기본 언어를 쓴다(로그인 실패 문구 등이 화면과 같은 언어). 첫 설정 화면의 "팀 언어"는 화면 언어와 같은 값이다(고르면 화면도 바뀜).
+- **즉시 바뀐다**: 웹은 언어 상태(zustand) 하나로 모든 화면이 다시 그려지고 새로 고침하지 않는다. 관리자가 팀 기본 언어를 바꾸면 그 관리자 화면도 `/api/me`를 다시 읽어 바로 바뀐다(다른 사람은 다음 `/api/me`부터).
+- **데스크톱 앱**: 웹이 언어가 바뀔 때마다 `window.mycelDesktop.setLocale?.()`(브리지에 선택 항목으로 추가, 옛 앱에는 없음)를 부르고, 앱은 그 값을 `<user data>/ui-locale.json`에 저장해 메뉴를 다시 만들고 팀 목록·브라우저 패널 화면에 새 문구를 보내 다시 그린다(새로 고침 없음: 입력 중인 주소·열린 사이트 질문이 남는다). 팀 목록 화면 아래에서도 고를 수 있다. 처음엔 영어.
+- **메뉴바 앱**: 서버가 `status.json`에 팀 기본 언어(`locale`, 선택 항목)를 쓰고, 문제 줄(진단)도 그 언어로 쓴다. 메뉴바는 그 값을, 서버가 꺼져 있으면 마지막으로 본 값을(UserDefaults), 처음엔 영어를 쓴다.
+- **여럿이 같이 보는 이름은 팀 기본 언어**: 충돌 사본 `(conflict copy - 사람 날짜)` / `(충돌 사본 - …)` / `(salinan konflik - …)`, 휴지통 복원 `(restored)` / `(복원됨)` / `(dipulihkan)`, 탈퇴 계정 폴더. 웹의 파일 목록은 세 언어의 충돌 사본을 모두 알아본다. 내보내기 Markdown의 머리글은 내보낸 사람의 언어.
+- **중계 서버 안내 페이지는 예외**: 팀 서버가 꺼져 있을 때 중계가 직접 답하는 페이지는 팀 기본 언어를 알 수 없어 `Accept-Language`를 보고, 맞는 것이 없으면 영어다(전에는 한국어).
+- **빠진 문구는 시험이 막는다**: 웹 ko/en/id 사전은 키가 같고 빈 문구·`{자리}` 차이·en/id 안의 한국어가 없어야 하며, `web/src`의 사전 밖에 한국어 화면 문구가 없어야 한다(`web/test/unit/i18n.test.ts`). 데스크톱 사전도 같은 검사(`tests/unit/e-desktop-common.test.ts`). 서버·중계의 문구표(오류, 인증, 채팅, 진단, 파일)는 세 언어가 다 있고 en/id에 한국어가 없어야 하며, server·desktop·relay·shared 코드에서 한국어가 있는 파일은 이유를 적은 목록에 있는 것뿐이어야 한다. 메뉴바의 한국어 줄은 모두 세 언어 호출이어야 한다(`tests/unit/i18n-languages.test.ts`). 사전에 없는 키는 영어로 보인다(전에는 한국어).
+- 시험 기대값: 한국어 화면을 전제로 쓴 데스크톱 e2e는 사용자 데이터 폴더에 `ui-locale.json`(ko)을 넣어 언어를 명시한다. e2e-ui 시나리오는 첫 설정 화면이 영어인 것을 확인하고 팀 언어로 한국어를 고른다. 데스크톱 앱 단계는 영어 팀 목록에서 시작해 팀 페이지(한국어)를 따라 한국어 질문 카드를 누른다.
+

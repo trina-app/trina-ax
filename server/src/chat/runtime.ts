@@ -4,7 +4,7 @@
 // getChatRuntime(ctx).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Attachment, ChatRunState, EngineId, FileChange, Locale, TurnStarted } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, type Attachment, type ChatRunState, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
@@ -379,7 +379,7 @@ export class ChatRuntime {
     const stale = this.db.query("SELECT id, chat_id FROM messages WHERE status = 'streaming'").all() as { id: string; chat_id: string }[]
     for (const m of stale) if (!queuedIds.has(m.id)) {
       const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(m.chat_id) as { user_id: string } | null)?.user_id
-      this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(engineError('interrupted', owner ? this.userLocale(owner) : 'ko')), now, m.id)
+      this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(engineError('interrupted', owner ? this.userLocale(owner) : DEFAULT_LOCALE)), now, m.id)
     }
     if (running.length || this.queued.length) this.log.info('turn queue recovered', { interrupted: running.length, requeued: this.queued.length })
     this.schedule()
@@ -390,7 +390,7 @@ export class ChatRuntime {
     let answer: unknown
     try { answer = JSON.parse(r?.prefs ?? '{}')?.answerLocale } catch {}
     const l = (answer ?? r?.locale) as string | undefined
-    return l === 'en' || l === 'id' || l === 'ko' ? l : 'ko'
+    return l === 'en' || l === 'id' || l === 'ko' ? l : DEFAULT_LOCALE
   }
 
   /** Delete chats that stayed in the trash past the retention (messages, artifacts, engine session, work folder). */

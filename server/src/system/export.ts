@@ -9,12 +9,15 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { PRODUCT, UserId } from '@mycel/shared'
+import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import { walkTree } from './manifest'
 import { ageEncrypt, writeAtomic, zstdCompress } from './streams'
 import { tarStream, type TarEntryInput } from './tar'
 
 export interface ExportRequest {
   ownerId: string
+  /** language of the Markdown headings (the person exporting) */
+  locale?: Locale
   what: ('chats' | 'memories' | 'files')[]
   password?: string
 }
@@ -42,10 +45,18 @@ export function chatPath(rows: MsgRow[], activeLeaf: string | null): MsgRow[] {
   return [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at))
 }
 
-export function chatMarkdown(chat: ChatRow, msgs: MsgRow[]): string {
-  const lines = [`# ${chat.title || '(제목 없음)'}`, '', `- created: ${chat.created_at}`, `- updated: ${chat.updated_at}`, `- engine: ${chat.engine}`, '']
+const MD_WORDS: Record<Locale, { untitled: string; user: string }> = {
+  ko: { untitled: '(제목 없음)', user: '사용자' },
+  en: { untitled: '(untitled)', user: 'User' },
+  id: { untitled: '(tanpa judul)', user: 'Pengguna' },
+}
+
+/** One chat as Markdown, headings in the language of the person exporting. */
+export function chatMarkdown(chat: ChatRow, msgs: MsgRow[], locale: Locale = DEFAULT_LOCALE): string {
+  const w = MD_WORDS[locale] ?? MD_WORDS.en
+  const lines = [`# ${chat.title || w.untitled}`, '', `- created: ${chat.created_at}`, `- updated: ${chat.updated_at}`, `- engine: ${chat.engine}`, '']
   for (const m of msgs) {
-    lines.push(`## ${m.role === 'user' ? '사용자' : 'AI'} · ${m.created_at}${m.model ? ` · ${m.model}` : ''}${m.status !== 'done' ? ` · (${m.status})` : ''}`, '', m.content, '')
+    lines.push(`## ${m.role === 'user' ? w.user : 'AI'} · ${m.created_at}${m.model ? ` · ${m.model}` : ''}${m.status !== 'done' ? ` · (${m.status})` : ''}`, '', m.content, '')
   }
   return lines.join('\n')
 }
@@ -90,7 +101,7 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
         let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
         if (used.has(base)) base += ` ${c.id.slice(-6)}`
         used.add(base)
-        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id))) }
+        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id), req.locale)) }
       }
     }
     if (req.what.includes('memories')) {

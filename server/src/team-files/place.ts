@@ -6,6 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
+import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import { Denied, ToolError } from '../policy/errors'
 import { verifyChain } from '../policy/resolve'
 import { foldKey } from '../policy/names'
@@ -164,13 +165,15 @@ export function freeName(dirAbs: string, name: string, folder = false): string {
   throw new ToolError('no free name', 'conflict')
 }
 
-/** "보고서 (복원됨).md", then "보고서 (복원됨 2).md" ... */
-export function restoredName(dirAbs: string, name: string, folder = false): string {
+const RESTORED: Record<Locale, string> = { ko: '복원됨', en: 'restored', id: 'dipulihkan' }
+
+/** "report (restored).md", then "report (restored 2).md" ... in the team's default language ("보고서 (복원됨).md"). */
+export function restoredName(dirAbs: string, name: string, folder = false, locale: Locale = DEFAULT_LOCALE): string {
   const existing = new Set(fs.readdirSync(dirAbs).map(foldKey))
   if (!existing.has(foldKey(name))) return name
   const [base, ext] = splitExt(name, folder)
   for (let i = 1; i < 10_000; i++) {
-    const cand = `${base} (복원됨${i > 1 ? ' ' + i : ''})${ext}`
+    const cand = `${base} (${RESTORED[locale] ?? RESTORED.en}${i > 1 ? ' ' + i : ''})${ext}`
     if (!existing.has(foldKey(cand))) return cand
   }
   throw new ToolError('no free name', 'conflict')

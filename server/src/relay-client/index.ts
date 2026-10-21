@@ -51,7 +51,7 @@ function notifyAdmins(ctx: AppContext, code: keyof typeof NOTICES, level: 'info'
     const rows = ctx.db.query(`SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active'`).all() as { id: string; locale: Locale }[]
     for (const u of rows) {
       const msgs = NOTICES[code]
-      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level, code, message: msgs[u.locale] ?? msgs.ko } })
+      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level, code, message: msgs[u.locale] ?? msgs.en } })
     }
   } catch (e) {
     ctx.log.warn('relay notice failed', { err: e })

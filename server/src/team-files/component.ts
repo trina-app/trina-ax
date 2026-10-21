@@ -4,7 +4,7 @@
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Locale } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
 import { transcribe, transcribeConfig, type TranscribeConfig } from '../jobs/transcribe'
@@ -40,7 +40,7 @@ export function componentC(ctx: AppContext): ComponentC {
   const uploads = new UploadSessions(ctx, files, attachments)
   const jobs = new JobServiceImpl(ctx)
   const stt = transcribeConfig(ctx.config.dataDir)
-  const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? 'ko')
+  const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
     files, attachments, uploads, jobs,
     artifacts: new Artifacts(ctx),

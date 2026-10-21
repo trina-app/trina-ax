@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, ReadInput, WriteInput } from '@mycel/shared'
 import type { ServerConfig } from '../config'
+import { teamDefaultLocale } from '../admin/settings'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -212,8 +213,9 @@ export class FileService {
   private conflict(ctx: ToolCtx, segs: string[], data: Buffer, what: string): ToolOutput {
     const rel = segs.join('/')
     const dir = segs.slice(0, -1)
-    let name = conflictCopyName(segs[segs.length - 1], ctx.user.name)
-    for (let i = 2; fs.existsSync(path.join(this.fx.root, ...dir, name)); i++) name = conflictCopyName(segs[segs.length - 1], `${ctx.user.name} ${i}`)
+    const loc = teamDefaultLocale(this.db)
+    let name = conflictCopyName(segs[segs.length - 1], ctx.user.name, new Date(), loc)
+    for (let i = 2; fs.existsSync(path.join(this.fx.root, ...dir, name)); i++) name = conflictCopyName(segs[segs.length - 1], `${ctx.user.name} ${i}`, new Date(), loc)
     if (badSegment(name)) name = `conflict-${Date.now()}-${segs[segs.length - 1]}`
     const copy = [...dir, name]
     atomicWrite(this.fx.root, copy, data)

@@ -22,11 +22,11 @@ describe('relay pages', () => {
     expect(pageMessage('team_offline', 'ko', 5 * 60_000)).toContain('5분째')
   })
 
-  test('language from Accept-Language, Korean by default', () => {
-    expect(pickLang(undefined)).toBe('ko')
+  test('language from Accept-Language, English by default', () => {
+    expect(pickLang(undefined)).toBe('en')
     expect(pickLang('en-US,en;q=0.9')).toBe('en')
     expect(pickLang('id-ID')).toBe('id')
-    expect(pickLang('fr, de')).toBe('ko')
+    expect(pickLang('fr, de')).toBe('en')
   })
 })
 

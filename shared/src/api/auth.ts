@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, IsoTime, Locale, Ok, Role } from './common'
+import { ClientKind, DEFAULT_LOCALE, IsoTime, Locale, Ok, Role } from './common'
 import { endpoint, empty } from './endpoint'
 import { Session, UserPrefs, UserRef } from './entities'
 
@@ -18,7 +18,10 @@ export const Me = z.object({
     name: z.string(),
     email: z.string().nullable(),
     role: Role,
+    /** the language the person sees: their own choice, else the team default */
     locale: Locale,
+    /** their own choice; null = follow the team default (changes when an admin changes the team default) */
+    localeChoice: Locale.nullable(),
     mustChangePassword: z.boolean(),
     prefs: UserPrefs,
   }),
@@ -59,17 +62,24 @@ export const AcceptInviteBody = z.object({
   username: Username,
   name: PersonName,
   password: Password,
+  /** the language the person picked on the invite page; omitted = follow the team default */
   locale: Locale.optional(),
   client: ClientKind.default('web'),
   tokenMode: z.enum(['cookie', 'bearer']).default('cookie'),
 })
 
-export const SetupStatus = z.object({ needed: z.boolean(), teamName: z.string().nullable() })
+export const SetupStatus = z.object({
+  needed: z.boolean(),
+  teamName: z.string().nullable(),
+  /** the team's default language: what the sign-in, invite and reset pages show until the visitor picks one */
+  defaultLocale: Locale.optional(),
+})
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */
   setupToken: z.string().min(16).max(200),
   teamName: z.string().trim().min(1).max(100),
-  locale: Locale.default('ko'),
+  /** the team's default language (the owner follows it until they pick their own) */
+  locale: Locale.default(DEFAULT_LOCALE),
   owner: z.object({ username: Username, name: PersonName, password: Password, email: z.email().optional() }),
 })
 
@@ -90,7 +100,8 @@ export const CompletePasswordResetBody = z.object({
 
 export const UpdateMeBody = z.object({
   name: PersonName.optional(),
-  locale: Locale.optional(),
+  /** a language, or null = follow the team default */
+  locale: Locale.nullable().optional(),
   email: z.email().nullable().optional(),
   prefs: UserPrefs.optional(),
 })

@@ -72,8 +72,10 @@ export const StatusFile = z.object({
   lastBackupAt: z.string().nullable(),
   /** worst diagnostic status, for the menubar icon */
   overall: z.enum(['ok', 'warn', 'fail', 'unknown']),
-  /** short problem lines (Korean by default; the menubar shows them as is) */
+  /** short problem lines in the team's default language (the menubar shows them as is) */
   problems: z.array(z.string()).max(20),
+  /** the team's default language: the menubar app's own words follow it (English when missing) */
+  locale: z.enum(['ko', 'en', 'id']).optional(),
 })
 export type StatusFile = z.infer<typeof StatusFile>
 

@@ -3,7 +3,7 @@
 import type { Locale } from '@mycel/shared/api'
 
 type T = { ko: string; en: string; id: string }
-export const tr = (l: Locale, t: T) => t[l] ?? t.ko
+export const tr = (l: Locale, t: T) => t[l] ?? t.en
 
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
 

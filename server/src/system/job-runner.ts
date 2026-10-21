@@ -1,7 +1,8 @@
 // Minimal JobService over the jobs table, used by component G's long operations (backup, restore, update, export)
 // only while component C's JobService (server/src/jobs/*) is not installed in ctx.services.jobs. Same contract:
 // a jobs row, job.progress / job.done events to the person who started it, result at GET /api/jobs/:id (C).
-import type { ApiErrorBody, Job, JobKind, JobStatus } from '@mycel/shared/api'
+import type { ApiErrorBody, Job, JobKind, JobStatus, Locale } from '@mycel/shared/api'
+import { teamDefaultLocale } from '../admin/settings'
 import { uuidv7 } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
@@ -22,6 +23,12 @@ export function jobFromRow(r: JobRow): Job {
 export class LocalJobService implements JobService {
   private running = new Map<string, AbortController>()
   constructor(private ctx: AppContext) {}
+
+  /** the language of the person who started the job (users.locale already is the team default for those who follow it) */
+  private locale(userId: string | null): Locale {
+    const u = userId ? (this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null) : null
+    return u?.locale ?? teamDefaultLocale(this.ctx.db)
+  }
 
   get(id: string): Job | null {
     const r = this.ctx.db.query('SELECT id, kind, status, progress, message, result, error, created_at, finished_at FROM jobs WHERE id = ?').get(id) as JobRow | null
@@ -55,7 +62,8 @@ export class LocalJobService implements JobService {
         db.query("UPDATE jobs SET status = 'done', progress = 1, result = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(JSON.stringify(result ?? null), id)
       } catch (e) {
         const canceled = ac.signal.aborted
-        const err: ApiErrorBody = e instanceof HttpError ? e.body('ko') : e instanceof JobFailure ? { code: e.code, message: e.messages.ko } : { code: 'internal', message: (e as Error).message }
+        const loc = this.locale(o.userId)
+        const err: ApiErrorBody = e instanceof HttpError ? e.body(loc) : e instanceof JobFailure ? { code: e.code, message: e.messages[loc] ?? e.messages.en } : { code: 'internal', message: (e as Error).message }
         db.query("UPDATE jobs SET status = ?, error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(canceled ? 'canceled' : 'failed', JSON.stringify(err), id)
         log.warn('job failed', { err: e })
       } finally {

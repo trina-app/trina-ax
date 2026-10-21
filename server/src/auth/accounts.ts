@@ -50,9 +50,10 @@ function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
 // ---------------- first-run setup ----------------
 export const userCount = (db: Database) => (db.query('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
 
-export function setupStatus(ctx: AppContext): { needed: boolean; teamName: string | null } {
+export function setupStatus(ctx: AppContext): { needed: boolean; teamName: string | null; defaultLocale: Locale } {
   const needed = userCount(ctx.db) === 0
-  return { needed, teamName: needed ? null : getTeamSettings(ctx.db).teamName }
+  const s = getTeamSettings(ctx.db)
+  return { needed, teamName: needed ? null : s.teamName, defaultLocale: s.defaultLocale }
 }
 
 export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale }
@@ -66,8 +67,9 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
     if (userCount(ctx.db) > 0) return false
-    insertUser(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, passwordHash, role: 'owner', locale: o.locale, mustChangePassword: false })
+    // the owner follows the team language they just picked (null), like everyone who has not chosen their own
     updateTeamSettings(ctx.db, { teamName: o.teamName, defaultLocale: o.locale })
+    insertUser(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, passwordHash, role: 'owner', locale: null, mustChangePassword: false })
     createDefaultFolders(ctx)
     audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName } })
     return true
@@ -197,7 +199,6 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   checkNewPassword(b.password, b.username, locale, 'body.password')
   const passwordHash = await hashPassword(b.password)
   const groups = existingGroups(ctx.db, parseIds(r!.group_ids))
-  const settings = getTeamSettings(ctx.db)
   let id = ''
   const tx = ctx.db.transaction(() => {
     const now = new Date(a.now()).toISOString()
@@ -207,7 +208,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
     // one use only, even with concurrent accepts
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
     if (res.changes !== 1) return 'gone'
-    insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: r!.role, locale: b.locale ?? settings.defaultLocale, mustChangePassword: false, groupIds: groups })
+    insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: r!.role, locale: b.locale ?? null, mustChangePassword: false, groupIds: groups })
     audit(ctx.db, { actor: id, action: 'invite.accept', target: r!.id, detail: { userId: id, role: r!.role, groupIds: groups } })
     return 'ok'
   })

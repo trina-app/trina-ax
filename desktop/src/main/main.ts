@@ -14,7 +14,7 @@ import { app, Menu, protocol, session, type IpcMainEvent, type IpcMainInvokeEven
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
-import { pickLocale, STRINGS, t, type UiKey } from '../common/i18n'
+import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { partitionFor } from '../common/teams'
 import { AppWindow } from './app-window'
@@ -64,7 +64,22 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 if (!app.requestSingleInstanceLock()) app.quit()
 
 let win: AppWindow | undefined
-const locale = () => pickLocale(app.getPreferredSystemLanguages().length ? app.getPreferredSystemLanguages() : [app.getLocale()])
+// Language of the app's own screens, menus and prompts: what the team page last reported (its person's choice, else
+// the team default) or what was picked on the team list; English before either. Not the system language.
+let store: TeamsStore | undefined
+let uiLocale: UiLocale | null = null
+const locale = (): UiLocale => (uiLocale ??= store?.loadLocale() ?? DEFAULT_UI_LOCALE)
+function setUiLocale(next: UiLocale | null) {
+  if (!next || next === locale()) return
+  uiLocale = next
+  try {
+    store?.saveLocale(next)
+  } catch {
+    /* read-only user data: the language lasts until the app quits */
+  }
+  buildMenu()
+  win?.localeChanged({ locale: next, strings: STRINGS[next] })
+}
 
 // ----------------------------------------------------------- own screens
 
@@ -115,6 +130,7 @@ function registerIpc() {
   ipcMain.handle('ui:remove-team', (e, id: string) => (fromShell(e) ? win!.removeTeam(String(id)) : null))
   ipcMain.on('ui:open-team', (e, id: string) => fromShell(e) && void win!.openTeam(String(id)))
   ipcMain.on('ui:back', (e) => fromShell(e) && win!.back())
+  ipcMain.on('ui:set-locale', (e, l: unknown) => fromShell(e) && setUiLocale(asUiLocale(l)))
   ipcMain.on('ui:retry', (e) => fromShell(e) && win!.retry())
   // pane toolbar
   ipcMain.handle('ui:pane-state', (e) => (fromChrome(e) ? (win!.pane?.state() ?? null) : null))
@@ -158,6 +174,7 @@ function registerIpc() {
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
   ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? '') }))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
+  ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
 }
 
 // ------------------------------------------------------------------ menu
@@ -201,10 +218,10 @@ function buildMenu() {
 // ------------------------------------------------------------- lifecycle
 
 async function createWindow() {
-  const store = new TeamsStore(app.getPath('userData'))
+  store = new TeamsStore(app.getPath('userData'))
   win = new AppWindow({
     store,
-    locale: locale(),
+    locale,
     distDir: DIST,
     pageScript: readFileSync(join(DIST, 'page-script.js'), 'utf8'),
     appVersion: app.getVersion(),

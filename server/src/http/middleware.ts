@@ -1,7 +1,8 @@
 // App-wide middleware, in order: request context -> security headers -> session -> CSRF -> (routes) -> access log.
 import type { Context, MiddlewareHandler } from 'hono'
 import { isInAppBrowserUserAgent } from '@mycel/shared'
-import { CSRF_HEADER, localeFromAcceptLanguage, uuidv7 } from '@mycel/shared/api'
+import { CSRF_HEADER, DEFAULT_LOCALE, LOCALE_HEADER, asLocale, uuidv7, type Locale } from '@mycel/shared/api'
+import { teamDefaultLocale } from '../admin/settings'
 import type { AppEnv } from './env'
 import { fail } from './errors'
 import type { AppContext } from '../context'
@@ -25,6 +26,17 @@ function setHeader(c: Context<AppEnv>, name: string, value: string) {
   c.header(name, value)
 }
 
+/**
+ * Language of a request without a session: the one the page shows (X-Mycel-Locale, the visitor picked it on the
+ * sign-in screen), else the team default, else English. The browser's Accept-Language does not decide: the team
+ * default does (docs/DECISIONS.md "언어"). The session middleware replaces it with the person's language.
+ */
+export function anonymousLocale(ctx: AppContext, header: string | undefined): Locale {
+  const picked = header && header.length <= 16 ? asLocale(header) : null
+  if (picked) return picked
+  try { return teamDefaultLocale(ctx.db) } catch { return DEFAULT_LOCALE }
+}
+
 /** request id, transport info, logger, default locale. Client-sent X-Forwarded-For / CF-Connecting-IP / X-Real-IP
  * are never read: the real IP comes only from whoever called app.fetch (socket peer or relay OPEN metadata). */
 export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
@@ -35,7 +47,7 @@ export function requestContext(ctx: AppContext): MiddlewareHandler<AppEnv> {
     c.set('info', info)
     c.set('log', ctx.log.child({ rid: requestId }))
     c.set('auth', null)
-    c.set('locale', localeFromAcceptLanguage(c.req.header('accept-language')))
+    c.set('locale', anonymousLocale(ctx, c.req.header(LOCALE_HEADER)))
     const t0 = performance.now()
     await next()
     setHeader(c, 'X-Request-Id', requestId)

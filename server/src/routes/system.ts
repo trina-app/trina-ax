@@ -177,7 +177,7 @@ export const systemRoutes: RouteModule = {
       const jobId = exclusive('export', locale, () => jobs().start({
         kind: 'export', userId: auth.user.id,
         run: async (h) => {
-          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, what: body.what, password: body.password }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
+          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
       return { jobId }

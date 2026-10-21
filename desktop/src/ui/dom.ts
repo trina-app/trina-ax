@@ -24,6 +24,10 @@ export interface PaneActivity {
 
 export interface MycelUi {
   strings(): { locale: UiLocale; strings: Record<UiKey, string> } | null
+  /** the language changed (the team page reported another one, or it was picked on the team list) */
+  onLocale(cb: (p: { locale: UiLocale; strings: Record<UiKey, string> }) => void): () => void
+  /** pick the language on the team list screen (welcome view only) */
+  setLocale(locale: UiLocale): void
   welcome: {
     state(): Promise<WelcomeState | null>
     onState(cb: (s: WelcomeState) => void): () => void
@@ -57,9 +61,19 @@ export interface MycelUi {
 export const ui = (window as unknown as { mycelUi: MycelUi }).mycelUi
 
 const loaded = ui.strings()
-export const locale: UiLocale = loaded?.locale ?? 'ko'
-const strings = loaded?.strings
+export let locale: UiLocale = loaded?.locale ?? 'en'
+let strings = loaded?.strings
 document.documentElement.lang = locale
+
+/** Redraw with new strings when the language changes (screens call this with their render function). */
+export function onLocaleChange(render: () => void) {
+  ui.onLocale((p) => {
+    locale = p.locale
+    strings = p.strings
+    document.documentElement.lang = locale
+    render()
+  })
+}
 
 export function tr(key: UiKey, params: Record<string, string> = {}): string {
   const s = strings?.[key] ?? key

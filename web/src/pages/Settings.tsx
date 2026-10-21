@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { Brain, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
-import type { Locale, Memory, Session, Theme } from '@mycel/shared/api'
+import type { Memory, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { isStandalone, platform, useInstallPrompt } from '../lib/pwa'
@@ -105,19 +105,24 @@ function Profile() {
       </Section>
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>
-          {LOCALES.map((l) => (
-            <button
-              key={l.id}
-              type="button"
-              role="radio"
-              aria-checked={locale === l.id}
-              onClick={() => void setLocale(l.id as Locale).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))}
-              className={clsx('rounded-lg border px-3 py-2 text-sm', locale === l.id ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}
-              data-testid={`locale-${l.id}`}
-            >
-              {l.label}
-            </button>
-          ))}
+          {[null, ...LOCALES.map((l) => l.id)].map((choice) => {
+            const checked = (me.user.localeChoice ?? null) === choice
+            const label = choice ? LOCALES.find((l) => l.id === choice)!.label : t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale })
+            return (
+              <button
+                key={choice ?? 'team'}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                lang={choice ?? undefined}
+                onClick={() => void setLocale(choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))}
+                className={clsx('rounded-lg border px-3 py-2 text-sm', checked ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}
+                data-testid={`locale-${choice ?? 'team'}`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
       </Section>
       <Section title={t('settings.theme')}>

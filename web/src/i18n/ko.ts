@@ -1,4 +1,5 @@
-// 한국어 (기본, 원본). 키를 더하면 en.ts / id.ts에도 같은 키를 넣어야 타입 검사가 통과한다.
+// 한국어. 키의 원본이다(MessageKey가 여기서 나온다). 키를 더하면 en.ts / id.ts에도 같은 키를 넣어야 타입 검사가 통과한다.
+// 기본 언어는 영어다(shared DEFAULT_LOCALE): 개인 선택도 팀 기본값도 없을 때.
 export const ko = {
   'a11y.skip': '본문으로 건너뛰기',
 
@@ -69,6 +70,8 @@ export const ko = {
   'setup.token': '설치 토큰',
   'setup.tokenHint': '서버 맥의 설치 화면이나 개발 서버 로그에 나온 값이에요.',
   'setup.teamName': '팀 이름',
+  'setup.teamLocale': '팀 언어',
+  'setup.teamLocaleHint': '각자 언어를 고르기 전까지 모두 이 언어로 봐요. 나중에 관리자 > 팀 설정에서 바꿀 수 있어요.',
   'setup.create': '팀 만들고 시작하기',
 
   'invite.title': '초대',
@@ -384,7 +387,8 @@ export const ko = {
   'settings.role': '역할',
   'settings.noGroups': '그룹 없음',
   'settings.language': '언어',
-  'settings.languageHint': '화면과 AI 답변에 쓰는 언어예요.',
+  'settings.languageHint': '화면과 AI 답변에 쓰는 언어예요. 팀 기본값을 고르면 관리자가 정한 팀 언어를 따라가요.',
+  'settings.languageTeam': '팀 기본값 ({language})',
   'settings.theme': '테마',
   'settings.theme.system': '시스템 설정 따르기',
   'settings.theme.light': '밝게',
@@ -562,6 +566,7 @@ export const ko = {
   'teamSettings.nameHint': '화면에 보이는 이름이에요. 바꿔도 팀 주소는 그대로예요.',
   'teamSettings.nameOwnerOnly': '팀 이름은 팀장만 바꿀 수 있어요.',
   'teamSettings.defaultLocale': '팀 기본 언어',
+  'teamSettings.defaultLocaleHint': '자기 언어를 고르지 않은 사람은 모두 이 언어로 봐요.',
   'teamSettings.updateChannel': '업데이트 채널',
   'teamSettings.stable': '안정',
   'teamSettings.beta': '베타',

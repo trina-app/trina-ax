@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react'
 import type { Locale, TeamSettings } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { LOCALES, useT } from '../../i18n'
-import { isOwner, useMeStrict } from '../../store/session'
+import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { Button, Field, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 
 export default function TeamSettingsPage() {
   const t = useT()
   const me = useMeStrict()
+  const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
   const state = useLoad(() => api.call(API.settings))
   const [f, setF] = useState<TeamSettings | null>(null)
@@ -26,6 +27,8 @@ export default function TeamSettingsPage() {
     const r = await act(() => api.call(API.updateSettings, { body: changed }), t('common.saved'))
     setBusy(false)
     if (r) state.setData(r)
+    // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once
+    if (r && changed.defaultLocale) await api.call(API.me).then(signedIn, () => {})
   }
   return (
     <Loadable state={state}>
@@ -36,10 +39,10 @@ export default function TeamSettingsPage() {
               <Field label={t('setup.teamName')} hint={isOwner(me) ? t('teamSettings.nameHint') : t('teamSettings.nameOwnerOnly')}>
                 <input className={inputCls} value={f.teamName} disabled={!isOwner(me)} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />
               </Field>
-              <Field label={t('teamSettings.defaultLocale')}>
-                <select className={inputCls} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })}>
+              <Field label={t('teamSettings.defaultLocale')} hint={t('teamSettings.defaultLocaleHint')}>
+                <select className={inputCls} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
                   {LOCALES.map((l) => (
-                    <option key={l.id} value={l.id}>
+                    <option key={l.id} value={l.id} lang={l.id}>
                       {l.label}
                     </option>
                   ))}

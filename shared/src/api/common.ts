@@ -17,6 +17,9 @@ export const CSRF_HEADER = 'x-mycel-csrf'
 /** Each open window (tab / desktop window) picks a random id once and sends it on REST calls that start a turn and
  * on the WebSocket, so browser.call goes only to the window that sent the turn. */
 export const WINDOW_HEADER = 'x-mycel-window'
+/** The language the page shows before sign-in (the person picked it on the sign-in screen). The server uses it only
+ * for requests without a session; signed-in requests use the person's language. */
+export const LOCALE_HEADER = 'x-mycel-locale'
 /** WebSocket subprotocols. Clients that can't send cookies (mobile shells) add `mycel.bearer.<token>`. */
 export const WS_PROTOCOL = 'mycel.v1'
 export const WS_BEARER_PREFIX = 'mycel.bearer.'
@@ -53,7 +56,18 @@ export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>
 export const Locale = z.enum(['ko', 'en', 'id'])
 export type Locale = z.infer<typeof Locale>
-export const DEFAULT_LOCALE: Locale = 'ko'
+/** Language when nothing else decides: no personal choice and no team default stored (a fresh install). */
+export const DEFAULT_LOCALE: Locale = 'en'
+/** Each language named in its own language (language pickers), in the order pickers list them. */
+export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', ko: '한국어', id: 'Bahasa Indonesia' }
+export const LOCALE_ORDER: readonly Locale[] = ['en', 'ko', 'id']
+/** "ko" / "ko-KR" / "in" -> one of ours, else null. */
+export function asLocale(tag: string | null | undefined): Locale | null {
+  const base = (tag ?? '').trim().toLowerCase().split(/[-_]/)[0]
+  if (base === 'ko' || base === 'en' || base === 'id') return base
+  if (base === 'in') return 'id' // old Java/Android code for Indonesian
+  return null
+}
 export const ClientKind = z.enum(['web', 'desktop', 'mobile'])
 export type ClientKind = z.infer<typeof ClientKind>
 export const Access = z.enum(['none', 'read', 'write'])

@@ -92,7 +92,7 @@ function sessionCookie(req: Request): string | null {
 
 function me(t: Team): Me {
   return {
-    user: { id: 'owner', username: 'owner', name: 'Owner', email: null, role: 'owner', locale: 'ko', mustChangePassword: false, prefs: {} as Me['user']['prefs'] },
+    user: { id: 'owner', username: 'owner', name: 'Owner', email: null, role: 'owner', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} as Me['user']['prefs'] },
     groups: [],
     team: { name: `${t.name} Team`, defaultLocale: 'ko' },
     session: { id: uuidv7(), client: 'desktop', expiresAt: new Date(Date.now() + 86400_000).toISOString() },

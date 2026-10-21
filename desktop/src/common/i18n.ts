@@ -1,9 +1,12 @@
 // Strings of the desktop app's own screens (welcome / team list, browser pane toolbar, permission prompts, menus,
-// dialogs). Korean is the default; English and Indonesian have the same keys (tests/unit/e-i18n.test.ts).
-// The team page itself is translated by the web app.
+// dialogs). ko / en / id have the same keys (tests/unit/e-desktop-common.test.ts). Which one (docs/DECISIONS.md "언어"):
+// the language the open team page shows (its person's choice, else the team default, reported over the bridge),
+// or the one picked on the team list screen, kept in <user data>/ui-locale.json; English before either. The
+// system language does not decide. The team page itself is translated by the web app.
 import { PRODUCT } from '@mycel/shared'
+import { DEFAULT_UI_LOCALE, type UiLocale } from './locales'
 
-export type UiLocale = 'ko' | 'en' | 'id'
+export { asUiLocale, DEFAULT_UI_LOCALE, UI_LOCALES, type UiLocale } from './locales'
 
 const ko = {
   'app.name': PRODUCT.displayName,
@@ -21,6 +24,7 @@ const ko = {
   'welcome.cancel': '취소',
   'welcome.back': '돌아가기',
   'welcome.current': '지금 연 팀',
+  'welcome.language': '언어',
   'err.empty': '팀 주소를 입력하세요.',
   'err.invalid': '주소 형식이 맞지 않아요.',
   'err.insecure': '보안 연결(https) 주소만 쓸 수 있어요.',
@@ -98,6 +102,7 @@ const en: Strings = {
   'welcome.cancel': 'Cancel',
   'welcome.back': 'Back',
   'welcome.current': 'Open now',
+  'welcome.language': 'Language',
   'err.empty': 'Enter the team address.',
   'err.invalid': 'That does not look like an address.',
   'err.insecure': 'Only secure (https) addresses can be used.',
@@ -172,6 +177,7 @@ const id: Strings = {
   'welcome.cancel': 'Batal',
   'welcome.back': 'Kembali',
   'welcome.current': 'Sedang dibuka',
+  'welcome.language': 'Bahasa',
   'err.empty': 'Masukkan alamat tim.',
   'err.invalid': 'Format alamat tidak sesuai.',
   'err.insecure': 'Hanya alamat aman (https) yang bisa dipakai.',
@@ -232,17 +238,7 @@ const id: Strings = {
 
 export const STRINGS: Record<UiLocale, Strings> = { ko, en, id }
 
-/** System locale ("ko-KR", "en-US", "id") -> one of ours; Korean when unknown. */
-export function pickLocale(systemLocales: readonly string[]): UiLocale {
-  for (const l of systemLocales) {
-    const base = l.toLowerCase().split(/[-_]/)[0]
-    if (base === 'ko' || base === 'en' || base === 'id') return base
-    if (base === 'in') return 'id' // old Java/Android code for Indonesian
-  }
-  return 'ko'
-}
-
 export function t(locale: UiLocale, key: UiKey, params: Record<string, string> = {}): string {
-  const s = STRINGS[locale][key] ?? STRINGS.ko[key]
+  const s = STRINGS[locale]?.[key] ?? STRINGS[DEFAULT_UI_LOCALE][key]
   return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? PRODUCT.displayName : (params[k] ?? m)))
 }

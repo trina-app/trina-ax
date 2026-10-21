@@ -1,6 +1,6 @@
 // User-facing error messages per code and language (tab 4: `message` is in the user's language).
 // Handlers may pass their own, more specific message; these are the defaults.
-import type { ErrorCode, Locale } from './common'
+import { DEFAULT_LOCALE, asLocale, type ErrorCode, type Locale } from './common'
 
 export const ERROR_MESSAGES: Record<ErrorCode, Record<Locale, string>> = {
   bad_request: { ko: '요청 형식이 올바르지 않습니다.', en: 'The request is malformed.', id: 'Format permintaan tidak valid.' },
@@ -23,17 +23,15 @@ export const ERROR_MESSAGES: Record<ErrorCode, Record<Locale, string>> = {
 }
 
 export function errorMessage(code: ErrorCode, locale: Locale): string {
-  return ERROR_MESSAGES[code][locale] ?? ERROR_MESSAGES[code].ko
+  return ERROR_MESSAGES[code][locale] ?? ERROR_MESSAGES[code][DEFAULT_LOCALE]
 }
 
-/** Pick ko/en/id from an Accept-Language header (default ko). */
+/** Pick ko/en/id from an Accept-Language header (default en). The team server no longer uses it (the team default
+ * decides before sign-in, not the browser); kept for API clients and the relay pages. */
 export function localeFromAcceptLanguage(h: string | null | undefined): Locale {
-  if (!h) return 'ko'
-  for (const part of h.split(',')) {
-    const tag = part.trim().split(';')[0]!.toLowerCase()
-    const base = tag.split('-')[0]
-    if (base === 'ko' || base === 'en') return base
-    if (base === 'id' || base === 'in') return 'id'
+  for (const part of (h ?? '').split(',')) {
+    const l = asLocale(part.split(';')[0])
+    if (l) return l
   }
-  return 'ko'
+  return DEFAULT_LOCALE
 }

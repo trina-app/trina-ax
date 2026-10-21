@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { Locale, TranscribeResult } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, type Locale, type TranscribeResult } from '@mycel/shared/api'
 import { which } from '../config'
 import type { JobHandle } from '../services'
 import { runIsolated } from '../tools/isolate'
@@ -77,7 +77,7 @@ const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHI
 let downloading: Promise<string> | null = null
 
 /** Path of the model file, downloading it first if needed (one download at a time). */
-export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'progress' | 'signal'>, locale: Locale = 'ko'): Promise<string> {
+export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'progress' | 'signal'>, locale: Locale = DEFAULT_LOCALE): Promise<string> {
   const spec = modelSpec(cfg)
   const file = path.join(cfg.modelDir, spec.file)
   try { if (fs.statSync(file).size === spec.size) return file } catch { /* not there yet */ }
@@ -126,7 +126,7 @@ async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 
 
 /** Run whisper.cpp on one audio file. `input` is a server-owned file; it is not modified. */
 export async function transcribe(cfg: TranscribeConfig, input: string, name: string, o: { language?: string; locale?: Locale }, h: JobHandle): Promise<TranscribeResult> {
-  const loc = o.locale ?? 'ko'
+  const loc = o.locale ?? DEFAULT_LOCALE
   if (!cfg.whisperBin) throw MISSING_WHISPER()
   const x = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? '').toLowerCase()
   if (!cfg.ffmpegBin && !NATIVE.has(x)) {

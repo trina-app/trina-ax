@@ -113,7 +113,7 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const at = new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(periodEnd(hit.budget.period, now))
-  const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].ko
+  const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].en
   const message = {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,

@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ApiErrorBody, Job, JobKind, JobStatus, Locale } from '@mycel/shared/api'
 import { errorMessage, Job as JobSchema } from '@mycel/shared/api'
+import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -164,9 +165,8 @@ export class JobServiceImpl implements JobService {
   }
 
   private locale(userId: string | null): Locale {
-    if (!userId) return 'ko'
-    const u = this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null
-    return u?.locale ?? 'ko'
+    const u = userId ? (this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null) : null
+    return u?.locale ?? teamDefaultLocale(this.ctx.db)
   }
 
   /** Delete finished jobs older than 7 days and stray work folders. */

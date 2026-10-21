@@ -34,7 +34,8 @@ export interface WelcomeState {
 
 export interface AppWindowOptions {
   store: TeamsStore
-  locale: UiLocale
+  /** language of the app's own screens right now (it can change while the window is open) */
+  locale: () => UiLocale
   distDir: string
   pageScript: string
   appVersion: string
@@ -129,7 +130,7 @@ export class AppWindow {
   /** Check an address, remember it, open it. */
   async addTeam(address: string): Promise<{ ok: true; teamId: string } | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer'; message: string }> {
     const p = parseTeamAddress(address)
-    const L = this.o.locale
+    const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
     let health: Response
     try {
@@ -449,7 +450,7 @@ export class AppWindow {
   private onFingerprintMismatch(_host: string) {
     if (this.fingerprintMismatch) return
     this.fingerprintMismatch = true
-    const L = this.o.locale
+    const L = this.o.locale()
     if (Notification.isSupported()) new Notification({ title: t(L, 'cert.changed.title'), body: t(L, 'cert.changed.body') }).show()
     this.sendConnection()
     if (this.directOrigin && this.currentOrigin === this.directOrigin && this.team) void this.switchTo(this.team.origin, null)
@@ -494,8 +495,16 @@ export class AppWindow {
     if (this.win.isDestroyed()) return
     if (!this.team) return this.win.setTitle(PRODUCT.displayName)
     const c = this.connection()
-    const route = c?.route === 'direct' ? ` · ${t(this.o.locale, 'conn.direct')}` : ''
+    const route = c?.route === 'direct' ? ` · ${t(this.o.locale(), 'conn.direct')}` : ''
     this.win.setTitle(`${this.team.label} — ${PRODUCT.displayName}${route}`)
+  }
+
+  /** The language changed: the welcome screen and the pane toolbar redraw with the new strings (no reload, so a
+   * typed address or an open site prompt stays), and the window title follows. */
+  localeChanged(payload: { locale: UiLocale; strings: Record<UiKey, string> }) {
+    this.send(this.shell, 'ui:locale', payload)
+    this.send(this.chrome, 'ui:locale', payload)
+    this.updateTitle()
   }
 
   // ----------------------------------------------------------- messaging

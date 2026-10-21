@@ -1,4 +1,5 @@
-// User-facing texts of the chat runtime (ko default, en, id): answer errors, step labels, confirmation cards.
+// User-facing texts of the chat runtime (ko, en, id; English when a language is missing): answer errors, step labels,
+// confirmation cards.
 import type { ApiErrorBody, ErrorCode, Locale } from '@mycel/shared/api'
 import type { EngineErrorCode } from '@mycel/shared'
 
@@ -51,7 +52,7 @@ export const TEXT = {
 } satisfies Record<string, T>
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
-  let s = TEXT[key][locale] ?? TEXT[key].ko
+  let s = TEXT[key][locale] ?? TEXT[key].en
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }

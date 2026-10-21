@@ -15,6 +15,7 @@ import ExcelJS from 'exceljs'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
 import type { AppContext } from '../context'
+import { teamDefaultLocale } from '../admin/settings'
 import { ext } from '../files/extract'
 import type { ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, sha256 } from '../files/store'
@@ -254,7 +255,7 @@ export class MakeFile {
       } else {
         // never overwrite a file the AI has not read in this turn: keep both
         const dir = segs.slice(0, -1)
-        let name = conflictCopyName(segs[segs.length - 1]!, c.user.name)
+        let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(this.ctx.db))
         if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
         name = freeName(path.join(fx.root, ...dir), name)
         target = authorize(fx, rules, c.user, [...dir, name].join('/'), 'write', { mustExist: false }).segs
