@@ -8,7 +8,7 @@ import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { Memory, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
-import { installSteps, orderDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
+import { archNote, installSteps, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { isStandalone, platform, useInstallPrompt } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
@@ -329,7 +329,7 @@ function Apps() {
         {downloads === null && <Skeleton lines={2} />}
         {downloads === 'none' && (
           <>
-            <p className="text-sm text-muted">{t('apps.noDownloads')}</p>
+            <p className="text-sm text-muted">{t(me.user.role === 'owner' ? 'apps.noDownloadsYet' : 'apps.noDownloads')}</p>
             {me.user.role === 'owner' && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}
           </>
         )}
@@ -342,11 +342,14 @@ function Apps() {
                   {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
                 </a>
                 {d.platform === p && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
-                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-                  {installSteps(d).map((k) => (
-                    <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
-                  ))}
-                </ol>
+                {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
+                {showSteps(downloads, d) && (
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+                    {installSteps(d).map((k) => (
+                      <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
+                    ))}
+                  </ol>
+                )}
               </li>
             ))}
           </ul>

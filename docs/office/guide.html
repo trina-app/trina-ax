@@ -246,6 +246,7 @@ figure.shot.w75{ width:75%; }
     <tr><td>네트워크</td><td>인터넷 연결(유선 권장). 공유기 포트 열기·고정 IP는 필요 없어요. 사무실 안 대체 경로도 쓰려면 맥 미니 주소 <b>고정(DHCP 예약)</b>.</td></tr>
     <tr><td>연결 토큰</td><td>원장님 맥에서 미리 만든 <code>exampleteam.example.com.tunnel-token</code> 파일(2-0). 맥 미니의 <span class="path">다운로드</span> 폴더에.</td></tr>
     <tr><td>zip 파일</td><td><code>TeamAX-office-0.1.0-mac.zip</code>을 USB·AirDrop로 맥 미니의 <span class="path">다운로드</span> 폴더에.</td></tr>
+    <tr><td>데스크톱 앱 (선택)</td><td><code>Team-AX-Setup-0.1.0-x64.exe</code>·<code>Team-AX-0.1.0-mac-universal.dmg</code>를 zip과 같은 <span class="path">다운로드</span> 폴더에(2-5).</td></tr>
     <tr><td>데스크 PC</td><td>윈도우 10/11 + Edge. 직원 윈도우 계정이면 돼요(관리자 암호 필요 없음).</td></tr>
     <tr><td>그 밖에</td><td>프린터(데스크 카드), 외장 디스크(백업), 가능하면 UPS.</td></tr>
   </table>
@@ -305,6 +306,13 @@ rm ~/Downloads/exampleteam.example.com.tunnel-token</pre>
     <div class="warn"><b>지문은 카드와 비교해요</b><p>카드는 맥 미니에서 만든 것이라 네트워크로 바뀔 수 없어요. 인증서 페이지(http)는 일부러 지문을 보여 주지 않아요.</p></div></div>
     <figure class="shot"><div class="frame"><img src="img/card.png" alt="데스크 카드"></div><figcaption>데스크 카드(예시). 주소와 지문은 맥마다 달라요.</figcaption></figure>
   </div>
+
+  <div class="step"><span class="sn">2-5</span><span class="st">데스크톱 앱 올리기 (설정 → 앱에서 내려받게)</span></div>
+  <p>윈도우 설치 파일 <code class="nb">Team-AX-Setup-0.1.0-x64.exe</code>와 맥용 <code class="nb">Team-AX-0.1.0-mac-universal.dmg</code>를 zip과 <b>같은 폴더</b>(<code>~/Downloads</code>)에 두고 2-2를 하면 설치기가 알아서 올려요. 나중에 받은 파일은 이렇게:</p>
+<pre class="cmd">~/TeamAX/teamax desktop add ~/Downloads/Team-AX-Setup-0.1.0-x64.exe
+~/TeamAX/teamax desktop add ~/Downloads/Team-AX-0.1.0-mac-universal.dmg
+~/TeamAX/teamax desktop list</pre>
+  <div class="check"><span class="k">확인</span><span><code>데스크톱 앱을 올렸습니다 / desktop app added: Windows 0.1.0 (… 109.0 MB, 서명 없음 / unsigned)</code>. 로그인한 팀원은 <span class="ui">설정</span> → <span class="ui">앱</span>에서 자기 컴퓨터용을 내려받고, 설치 중 경고(윈도우 <span class="ui">추가 정보 → 실행</span>, 맥 <span class="ui">시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기</span>)도 거기 적혀 있어요. 잘린 파일·다른 파일은 거절돼요. 서버 재시작은 필요 없어요.</span></div>
 </section>
 
 <!-- ============================================================ 3 -->

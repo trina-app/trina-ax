@@ -581,7 +581,8 @@ warns: click **More info → Run anyway**. The same address rules apply.
 **Offer the apps in the product.** Put the installers and an `index.json` in `<data>/downloads/`. Members then see
 them under **Settings → Apps → Desktop app** (signed-in people only: `/downloads/*` needs a session, with Range for
 resumed downloads). In office mode `~/TeamAX/teamax desktop add <installer>` does all of this (docs/OFFICE.md).
-`index.json` looks like this (`size` in bytes: `stat -f %z <file>`):
+Only the files `index.json` lists are served (plain files, not links). Set `"signed": true` only for a signature you
+verified (it hides the SmartScreen / Gatekeeper steps). `index.json` looks like this (`size` in bytes: `stat -f %z <file>`):
 
 ```json
 {"items":[{"platform":"mac","file":"Team-AX-0.1.0-mac-universal.dmg","version":"0.1.0","size":123,"signed":false}]}

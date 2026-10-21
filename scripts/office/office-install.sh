@@ -25,8 +25,10 @@
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
 # for the desks and the first-run setup link. Desktop app installers (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg) in
-# this folder, the folder it was unzipped into (where the zip usually is) or ~/Downloads are offered to the members
-# under Settings → Apps (the newest per platform; later: <prefix>/teamax desktop add <file>).
+# this folder or the folder it was unzipped into (where the zip usually is) are offered to the members under
+# Settings → Apps (the newest per platform). ~/Downloads is looked at only for a platform those have nothing for, and
+# its file is offered only after you answer yes. A bundle built with --with-desktop carries desktop.sha256: then only
+# the installers it lists (same name and SHA-256) are offered. Later: <prefix>/teamax desktop add <file>.
 set -euo pipefail
 umask 022
 
@@ -43,7 +45,7 @@ while [ $# -gt 0 ]; do
     --no-open) OPEN=0; shift ;;
     --no-desktop) DESKTOP=0; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -61,9 +63,13 @@ esac
 [ -f "$SRC/app/VERSION" ] && [ -x "$SRC/app/bin/$ARCH/bun" ] && [ -f "$SRC/app/server/src/office.js" ] || die "$SRC is not an unpacked TeamAX-office bundle for $ARCH"
 VERSION=$(tr -d '[:space:]' < "$SRC/app/VERSION")
 case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
-# where desktop app installers may be: inside this folder, next to it (the zip's folder), ~/Downloads
-DESKTOP_DIRS=("$SRC" "$(dirname "$SRC")")
-[ -d "$HOME/Downloads" ] && DESKTOP_DIRS+=("$HOME/Downloads")
+# where desktop app installers may be: inside this folder and next to it (the zip's folder); ~/Downloads only as a
+# fallback that asks first; desktop.sha256 in the bundle = only the installers built with it
+DESKTOP_ARGS=("$SRC" "$(dirname "$SRC")")
+if [ -d "$HOME/Downloads" ] && [ "$(cd "$HOME/Downloads" && pwd -P)" != "$(cd "$(dirname "$SRC")" && pwd -P)" ]; then
+  DESKTOP_ARGS+=(--fallback "$HOME/Downloads")
+fi
+[ -f "$SRC/desktop.sha256" ] && DESKTOP_ARGS+=(--manifest "$SRC/desktop.sha256")
 [[ "$PREFIX" != *$'\n'* && "$PREFIX" != *:* ]] || die "the install folder may not contain ':' or a line break"
 
 # Claude Code: the engine is this Mac's own login (the owner's subscription)
@@ -96,7 +102,8 @@ if [ "$CHECK_ONLY" = 1 ]; then
     say "ports: free"
   fi
   if [ -d "$PREFIX/app" ]; then say "would update $PREFIX/app (data/, team/, tls/, config/ kept)"; else say "would install into $PREFIX"; fi
-  [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$T" add-from --dry-run "${DESKTOP_DIRS[@]}" | sed 's/^/  /'
+  # read-only: compared with what $PREFIX already offers
+  [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$PREFIX" add-from --dry-run "${DESKTOP_ARGS[@]}" | sed 's/^/  /'
   say "check only: nothing changed"
   exit 0
 fi
@@ -137,8 +144,8 @@ INSTALL_ARGS=(install --home "$PREFIX")
 
 # ---- desktop app installers next to the bundle: offered under Settings → Apps (a failure is reported, not fatal) ----
 if [ "$DESKTOP" = 1 ]; then
-  say "데스크톱 앱 설치 파일 찾는 중 / looking for desktop app installers: ${DESKTOP_DIRS[*]}"
-  "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" desktop --home "$PREFIX" add-from "${DESKTOP_DIRS[@]}" | sed 's/^/  /' || true
+  say "데스크톱 앱 설치 파일 찾는 중 / looking for desktop app installers: $SRC, $(dirname "$SRC")"
+  "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" desktop --home "$PREFIX" add-from "${DESKTOP_ARGS[@]}" | sed -l 's/^/  /' || true
 fi
 
 # ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
