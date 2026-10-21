@@ -65,15 +65,20 @@ describe('engines', () => {
   test('dedicated engine account mode says what the owner must do (claude setup-token)', async () => {
     h.ctx.config.engine.claudeBin = path.join(bins, 'claude-ok')
     h.ctx.config.mode = 'prod'
+    // an installed server's base folder (the installer starts it with this, tab 6); data/ and secrets/ live in it
+    const base = path.resolve(h.ctx.config.dataDir, '..')
+    process.env.MYCEL_INSTALL_BASE = base
     try {
       const r = await check('claude-code')
       expect(r).toMatchObject({ authMode: 'agent-own', status: 'not_logged_in' })
       expect(r.detail).toContain('claude setup-token')
       expect(r.detail).toContain('secrets/claude-oauth-token')
-      fs.mkdirSync(path.join(h.ctx.config.dataDir, 'secrets'), { recursive: true })
-      fs.writeFileSync(path.join(h.ctx.config.dataDir, 'secrets', 'claude-oauth-token'), 'sk-ant-oat-fake', { mode: 0o600 })
+      // the install's secrets folder (<base>/secrets, next to data/), where the diagnostics look too
+      const secrets = path.join(base, 'secrets')
+      fs.mkdirSync(secrets, { recursive: true })
+      fs.writeFileSync(path.join(secrets, 'claude-oauth-token'), 'sk-ant-oat-fake', { mode: 0o600 })
       expect((await check('claude-code')).status).toBe('ok')
-    } finally { h.ctx.config.mode = 'dev' }
+    } finally { h.ctx.config.mode = 'dev'; delete process.env.MYCEL_INSTALL_BASE }
   })
   test('defaults, concurrency, enable / disable', async () => {
     const r = await admin.call('PATCH', '/api/admin/engines', { defaultEngine: 'codex', defaultModel: 'gpt-x', concurrency: 5 })

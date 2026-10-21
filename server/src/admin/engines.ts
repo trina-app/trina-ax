@@ -13,6 +13,7 @@ import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { which } from '../config'
 import { CLAUDE_OAUTH_TOKEN_FILE } from '../system/engines'
+import { resolveLayout } from '../system/layout'
 
 export const ENGINE_LABELS: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
 export const CLAUDE_MODELS = [
@@ -64,6 +65,8 @@ export interface EngineEnv {
   claudeBin: string
   codexBin: string
   dataDir: string
+  /** <install base>/secrets (the installer's 700 folder, kept out of Time Machine); the diagnostics read the same */
+  secretsDir: string
   /** versions.json (pinned engine versions); null = no pin check */
   versionsFile: string | null
   /** Codex model catalog sources, first existing wins */
@@ -82,6 +85,7 @@ export function engineEnv(ctx: AppContext): EngineEnv {
     claudeBin: ctx.config.engine.claudeBin ?? ctx.engineConfig.claudeBin,
     codexBin: ctx.config.engine.codexBin ?? which('codex') ?? 'codex',
     dataDir: ctx.config.dataDir,
+    secretsDir: resolveLayout(ctx.config).secretsDir,
     versionsFile: fs.existsSync(vf) ? vf : null,
     codexCatalogs: [
       path.join(ctx.config.dataDir, 'engine', 'codex-catalog.json'),
@@ -142,7 +146,7 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
     if (!env.hasCompanyKey(id === 'claude-code' ? 'anthropic' : 'openai')) return out('not_logged_in', t('companyKey', locale))
   } else if (id === 'claude-code') {
     if (mode === 'agent-own') {
-      if (!fs.existsSync(path.join(env.dataDir, 'secrets', CLAUDE_OAUTH_TOKEN_FILE))) return out('not_logged_in', t('setupToken', locale))
+      if (!fs.existsSync(path.join(env.secretsDir, CLAUDE_OAUTH_TOKEN_FILE))) return out('not_logged_in', t('setupToken', locale))
     } else {
       const s = await runCli(bin, ['auth', 'status', '--json'], { timeoutMs: 15_000 })
       let logged: boolean | null = null
