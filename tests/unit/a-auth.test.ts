@@ -217,7 +217,7 @@ describe('password change and forced change', () => {
       expect(passwordProblem(pw), pw).toBe('this password is too common')
     expect(passwordProblem('kim2026k', { username: 'KIM2026K' })).toBe('must not be the username')
     // easy is fine now: no character classes, no "different characters" or repeat rules
-    for (const pw of ['tiger427', 'exampleteam2026', 'abcabcab', 'kim20260', 'sunflower', '한국어비밀번호입니다']) expect(passwordProblem(pw, { username: 'kim' }), pw).toBeNull()
+    for (const pw of ['tiger427', 'maple2026', 'abcabcab', 'kim20260', 'sunflower', '한국어비밀번호입니다']) expect(passwordProblem(pw, { username: 'kim' }), pw).toBeNull()
     expect(new Set(Array.from({ length: 50 }, temporaryPassword)).size).toBeGreaterThanOrEqual(49)
     for (let i = 0; i < 200; i++) {
       const t = temporaryPassword()

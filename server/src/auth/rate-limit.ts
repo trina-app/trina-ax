@@ -28,7 +28,7 @@ export interface LimitKey { kind: LimitKind; id: string }
  *             one counter per account (the key it always had), so a botnet still gets ten guesses per 15 minutes
  *   office    straight to this server (office LAN / dev), not a known network: its own counter, which internet
  *             failures never touch
- *   net       the Mac itself (loopback), or a network the person signed in from before (the clinic's public IP for
+ *   net       the Mac itself (loopback), or a network the person signed in from before (the office's public IP for
  *             the desks on the internet address): a counter of its own for that network
  */
 export type AccountScope = { kind: 'internet' } | { kind: 'office' } | { kind: 'net'; net: string }

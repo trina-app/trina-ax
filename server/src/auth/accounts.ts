@@ -175,7 +175,7 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
     fail('unauthorized', msg(voided ? 'badLogin' : 'tempPasswordExpired', locale))
   }
   hold.release()
-  // only this scope's failures: a correct password at the clinic must not hand an internet guesser ten more tries
+  // only this scope's failures: a correct password at the office must not hand an internet guesser ten more tries
   a.limiter.clear(accountKey(b.username, scope))
   const temp = !!u!.must_change_password
   audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client, ...(temp ? { temporaryPassword: true } : {}) } })

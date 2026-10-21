@@ -145,7 +145,7 @@ export class AppWindow {
     } catch {
       return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
     }
-    // a tunnel / relay error page (e.g. Cloudflare 530 while the clinic's Mac is off) is "cannot reach", not "not a team server"
+    // a tunnel / relay error page (e.g. Cloudflare 530 while the office's Mac is off) is "cannot reach", not "not a team server"
     if (isGatewayDown(health.status)) return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
     let body: unknown = null
     try {

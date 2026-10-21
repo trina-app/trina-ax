@@ -25,7 +25,7 @@ const SCOPE = [
 /** Files that may carry the name, each with the reason. Keep this short. */
 const ALLOW: Record<string, string> = {
   'shared/src/product.ts': 'the one place the name is written',
-  // the clinic's "read me first" sheet is a document (docs-neutralization owns its wording), copied into the zip as is
+  // the office's "read me first" sheet is a document (docs-neutralization owns its wording), copied into the zip as is
   'scripts/office/README.txt': 'document copied verbatim into the office zip; reworded with the docs',
 }
 const TEXT = /\.(ts|tsx|js|mjs|cjs|json|webmanifest|html|css|sh|swift|txt|sb|plist)$|^[^.]+$/
