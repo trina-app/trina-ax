@@ -180,13 +180,29 @@ export function revokeInvite(c: Context<AppEnv>, ctx: AppContext, id: string): v
 function inviteByToken(db: Database, token: string): InviteRow | null {
   return db.query(`SELECT ${INVITE_COLS} FROM invites WHERE token_hash = ?`).get(hashToken(token)) as InviteRow | null
 }
-const inviteValid = (r: InviteRow, now: number) => !r.used_at && !r.revoked_at && Date.parse(r.expires_at) > now
+/**
+ * An invite works only while its maker could still make it now: the maker is a
+ * live, active owner (any invite) or admin (member invites only; admin invites are owner-only). Without this, an invite kept past its maker's
+ * demotion still opened an account with the old authority: an owner who handed ownership away (now a mere admin)
+ * still onboarded a new ADMIN through an admin invite made earlier. Revoking on demotion (users.ts) is the first
+ * line; this check closes every path, including a missed revocation. An invite with no maker on record is refused:
+ * nothing makes one (there is no server-Mac invite), so it can only come from a damaged or edited database.
+ */
+function inviteValid(db: Database, r: InviteRow, now: number): boolean {
+  if (r.used_at || r.revoked_at || Date.parse(r.expires_at) <= now) return false
+  if (r.created_by === null) return false
+  const by = getUser(db, r.created_by)
+  if (!by || by.status !== 'active') return false
+  if (by.role === 'owner') return true
+  if (by.role === 'admin') return r.role === 'member'
+  return false
+}
 
 export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): InviteInfo {
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
-  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid: inviteValid(r!, authOf(ctx).now()) }
+  return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid: inviteValid(ctx.db, r!, authOf(ctx).now()) }
 }
 
 export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: string, b: In<typeof AcceptInviteBody>): Promise<LoginResponse> {
@@ -195,7 +211,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = inviteByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
-  if (!inviteValid(r!, a.now())) fail('gone', msg('linkInvalid', locale))
+  if (!inviteValid(ctx.db, r!, a.now())) fail('gone', msg('linkInvalid', locale))
   if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   checkNewPassword(b.password, b.username, locale, 'body.password')
   const passwordHash = await hashPassword(b.password)
@@ -206,6 +222,9 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
     if (usernameTaken(ctx.db, b.username)) throw new UsernameTaken()
     // derived inside the transaction so a concurrent sign-up cannot take the same id
     id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
+    // checked again inside the write: the maker may have been demoted, disabled or deleted during the (slow) hash
+    const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r!.id) as InviteRow | null
+    if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
     // one use only, even with concurrent accepts
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
     if (res.changes !== 1) return 'gone'
