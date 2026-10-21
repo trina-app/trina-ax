@@ -11,7 +11,8 @@
 //                       write config/office.env (merged with what is there)
 //   install [--no-open] write the LaunchAgent, (re)start it, wait until it answers, print the addresses and the
 //                       first-run setup link (and open it on this Mac)
-//   start | stop | restart | status | logs [n] | info | setup-link
+//   start | stop | restart | status | logs [n] | info | card | setup-link
+//   check-ports                    are the app, office and certificate-page ports free? (office-install.sh)
 //   reset-link [--username U]      one-time password reset link (24 h) for the owner or a member
 //   backup                         a backup now (the same as the nightly one, on this Mac's disk)
 //   archive --out FILE             encrypted copy of the database + team folder for an external disk (password on stdin)
@@ -26,9 +27,10 @@ import path from 'node:path'
 import { Database } from 'bun:sqlite'
 import { launchAgent, plist } from '../../../scripts/dev-service'
 import { REPO_ROOT } from '../app-config'
-import { helperFetch, type HelperState } from './helper'
+import { peerAllowed } from '../http/middleware'
+import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, runDirFor, serverConfig, settingsFrom, settingsText, type OfficeSettings } from './settings'
-import { ensureOfficeTls, fingerprints, lanAddresses, localHostName } from './tls'
+import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
 
 const CHECK_MS = 30_000
 const TLS_RECHECK_MS = 6 * 3600_000
@@ -62,20 +64,25 @@ function webDist(): string | null {
 
 // ---- state shared by `run` and the commands -------------------------------------------------------------------
 
-interface Prepared { settings: OfficeSettings; origins: string[]; helper: HelperState; changed: boolean; reason: string | null; left: string[]; key: string }
+interface Prepared { settings: OfficeSettings; origins: string[]; helper: HelperState; peers: string[]; changed: boolean; reason: string | null; left: string[]; key: string }
 
-/** Certificates for the addresses the Mac has now, config/server.json, ADDRESSES.txt. */
-export function prepare(home: string, o: { addrs?: string[]; host?: string | null } = {}): Prepared {
+/** Certificates for the addresses the Mac has now, config/server.json, ADDRESSES.txt, DESK-CARD.html. `changed` =
+ * the running server must restart (a new certificate, or server.json changed: new subnet, settings). Tests pass
+ * `addrs` / `subnets` instead of this Mac's interfaces. */
+export function prepare(home: string, o: { addrs?: string[]; subnets?: [string, string][]; host?: string | null } = {}): Prepared {
   const s = loadSettings(home)
   const p = officePaths(home)
   for (const d of [p.data, p.team, p.tls, p.config]) { fs.mkdirSync(d, { recursive: true, mode: 0o700 }); fs.chmodSync(d, 0o700) }
   fs.mkdirSync(p.serverLogs, { recursive: true, mode: 0o750 })
   const host = o.host === undefined ? localHostName() : o.host
-  const addrs = o.addrs ?? lanAddresses()
-  const t = ensureOfficeTls(p.tls, { host, addrs, constraints: s.caConstraints })
-  const cfg = serverConfig(s, t.names)
+  const lan: LanInfo = o.addrs ? { addrs: o.addrs, subnets: o.subnets ?? [] } : lanInfo({ includeVpn: s.includeVpn })
+  const t = ensureOfficeTls(p.tls, { host, addrs: lan.addrs, subnets: lan.subnets, constraints: s.caConstraints })
+  const cfg = serverConfig(s, t.names, lan.subnets)
+  const json = JSON.stringify(cfg, null, 2) + '\n'
+  let before = ''
+  try { before = fs.readFileSync(p.serverJson, 'utf8') } catch {}
   const tmp = `${p.serverJson}.tmp-${process.pid}`
-  fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
+  fs.writeFileSync(tmp, json, { mode: 0o600 })
   fs.renameSync(tmp, p.serverJson)
   const fp = fingerprints(t.ca)
   const origins = deskOrigins(t.names, s.lanPort, { shown: true })
@@ -84,7 +91,12 @@ export function prepare(home: string, o: { addrs?: string[]; host?: string | nul
     origins, caName: /CN=([^\n]+)/.exec(t.ca.subject)?.[1] ?? 'Team AX office CA',
   }
   fs.writeFileSync(p.info, infoText(s, helper, t.left), { mode: 0o644 })
-  return { settings: s, origins, helper, changed: t.changed, reason: t.reason, left: t.left, key: JSON.stringify([host, addrs]) }
+  fs.writeFileSync(p.card, deskCard(helper, { helper: helperOrigins(s, origins)[0] ?? null, caCer: path.join(p.tls, 'ca.cer'), made: new Date().toISOString().slice(0, 16).replace('T', ' ') }), { mode: 0o644 })
+  const configChanged = !!before && before !== json
+  return {
+    settings: s, origins, helper, peers: cfg.allowedPeers, left: t.left, key: JSON.stringify([host, lan]),
+    changed: t.changed || configChanged, reason: t.reason ?? (configChanged ? 'server.json changed (office subnet or settings)' : null),
+  }
 }
 
 export function helperOrigins(s: OfficeSettings, origins: string[]): string[] {
@@ -94,20 +106,26 @@ export function helperOrigins(s: OfficeSettings, origins: string[]): string[] {
 
 export function infoText(s: OfficeSettings, h: HelperState, left: string[] = []): string {
   const helpers = helperOrigins(s, h.origins)
+  const p = officePaths(s.home)
   return [
     `Team AX 사무실 모드 / office mode — ${new Date().toISOString()}`,
     '',
     '데스크(윈도우 Edge·Chrome)에서 여는 주소 / address for the desks:',
-    ...h.origins.map((o) => `  ${o}`),
+    ...h.origins.slice(0, 1).map((o) => `  ${o}`),
+    ...(h.origins.length > 1 ? [`  (이름으로 / by name: ${h.origins.slice(1).join(', ')})`] : []),
     '',
-    helpers.length ? '처음 한 번, 인증서 설치 페이지 / first time: certificate page' : '인증서 페이지 꺼짐 (TEAMAX_HELPER_PORT=0): ~/TeamAX/tls/ca.cer 를 직접 나눠 주세요',
-    ...helpers.map((o) => `  ${o}`),
+    helpers.length ? '처음 한 번, 인증서 받는 곳 / first time: certificate page (http://)' : '인증서 페이지 꺼짐 (TEAMAX_HELPER_PORT=0): 아래 ca.cer 를 USB로 나눠 주세요',
+    ...helpers.slice(0, 1).map((o) => `  ${o}`),
+    `  또는 USB로 / or on a USB stick: ${path.join(p.tls, 'ca.cer')}`,
     '',
-    `CA SHA-256: ${h.sha256}`,
-    `CA SHA-1 (윈도우 지문 / Windows thumbprint): ${h.sha1}`,
+    '인증서 지문: 데스크에서 설치 전에 이 값과 비교 (인증서 → 자세히 → 지문)',
+    'certificate thumbprint: the desks compare it before installing (certificate → Details → Thumbprint)',
+    `  ${windowsThumbprint(h.sha1)}`,
+    `  SHA-256 ${h.sha256}`,
+    `인쇄용 데스크 카드 / printable desk card: ${p.card}   (${path.join(p.home, 'teamax')} card)`,
     '',
     `이 맥에서 / on this Mac: http://localhost:${s.appPort}`,
-    ...(left.length ? ['', `인증서에 넣지 않은 주소 (공인 주소) / left out (public): ${left.join(', ')}`] : []),
+    ...(left.length ? ['', `인증서에 넣지 않은 주소 (사무실 대역 밖) / left out (outside the office subnet): ${left.join(', ')}`] : []),
     '',
   ].join('\n')
 }
@@ -124,11 +142,18 @@ export async function run(home: string): Promise<never> {
   if (runDirFor(s).length > MAX_RUN_DIR) say(`warning: engine socket folder ${runDirFor(s)} is long; set TEAMAX_RUN_DIR if chats fail with "bind: invalid argument"`)
 
   let helperState = st.helper
+  let helperPeers = st.peers
   let helper: ReturnType<typeof Bun.serve> | null = null
   const startHelper = () => {
     if (!s.helperPort || helper) return
     try {
-      helper = Bun.serve({ hostname: '::', port: s.helperPort, fetch: (req) => helperFetch(req, helperState), maxRequestBodySize: 1024 })
+      // the same peers as the office port (the office subnet): a VPN peer gets nothing here either
+      helper = Bun.serve({
+        hostname: '0.0.0.0', port: s.helperPort, maxRequestBodySize: 1024,
+        fetch: (req, server) => peerAllowed(server.requestIP(req)?.address, helperPeers) // IPv4 listener: plain a.b.c.d
+          ? helperFetch(req, helperState)
+          : new Response('Forbidden\n', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } }),
+      })
       say(`certificate page on port ${s.helperPort}`)
     } catch (e) {
       say(`certificate page not started (port ${s.helperPort}): ${(e as Error).message}; retrying in ${CHECK_MS / 1000} s`)
@@ -172,14 +197,15 @@ export async function run(home: string): Promise<never> {
     if (stopping || restarting) return
     startHelper()
     const host = localHostName()
-    const addrs = lanAddresses()
-    const key = JSON.stringify([host, addrs])
+    const lan = lanInfo({ includeVpn: s.includeVpn })
+    const key = JSON.stringify([host, lan])
     if (key === st.key && Date.now() - lastTls < TLS_RECHECK_MS) return
     try {
-      const next = prepare(home, { addrs, host })
+      const next = prepare(home, { addrs: lan.addrs, subnets: lan.subnets, host })
       lastTls = Date.now()
       st = next
       helperState = next.helper
+      helperPeers = next.peers
       if (!next.changed) return
       say(`new server certificate (${next.reason}); restarting the server. desks: ${next.origins.join('  ')}`)
       restarting = true
@@ -263,16 +289,76 @@ async function waitHealthy(s: OfficeSettings, seconds: number): Promise<boolean>
 }
 
 /** accounts.js / admin.js of this bundle (or the sources in a checkout) with this installation's config */
-function runTool(home: string, tool: 'accounts' | 'admin', args: string[], stdin: 'inherit' | 'ignore' = 'ignore'): number {
+function runTool(home: string, tool: 'accounts' | 'admin', args: string[], stdin: 'inherit' | 'ignore' = 'ignore', onJson?: (j: Record<string, unknown>) => string): number {
   const p = officePaths(home)
   const src = tool === 'accounts' ? ['accounts.js', path.join('..', 'auth', 'cli.ts')] : ['admin.js', path.join('..', 'system', 'cli.ts')]
   const file = src.map((f) => path.join(import.meta.dir, f)).find((f) => fs.existsSync(f))
   if (!file) throw new Error(`${src[0]} missing from this bundle`)
   const r = Bun.spawnSync([process.execPath, file, ...args], {
-    cwd: p.home, stdin, stdout: 'inherit', stderr: 'inherit',
+    cwd: p.home, stdin, stdout: onJson ? 'pipe' : 'inherit', stderr: 'inherit',
     env: { ...(process.env as Record<string, string>), MYCEL_CONFIG: p.serverJson, MYCEL_MODE: 'dev' },
   })
+  if (onJson) {
+    const out = r.stdout?.toString() ?? ''
+    let j: Record<string, unknown> | null = null
+    try { j = JSON.parse(out) } catch {}
+    console.log(j ? onJson(j) : out.trim())
+  }
   return r.exitCode ?? 1
+}
+
+const mb = (n: unknown) => typeof n === 'number' ? `${(n / 1024 / 1024).toFixed(1)} MB` : '?'
+
+/** `teamax backup`: two lines instead of the backup's JSON */
+export function backupSummary(j: Record<string, unknown>): string {
+  const db = j.db as { size?: number } | undefined, team = j.team as { archiveSize?: number } | undefined
+  return `백업을 만들었습니다 / backup made: ${j.id ?? '?'} (${j.createdAt ?? ''}; 데이터베이스 ${mb(db?.size)}, 팀 폴더 ${mb(team?.archiveSize)})\n` +
+    '  관리자 > 시스템 > 백업에 보이고, 이 맥의 디스크에 있습니다. 외장 디스크로는 / to an external disk: teamax archive <파일 / file>'
+}
+
+/** `teamax archive`: three lines instead of the archive's JSON */
+export function archiveSummary(j: Record<string, unknown>): string {
+  return `보관본을 만들었습니다 / archive written: ${j.file ?? '?'} (${mb(j.size)}, 팀 파일 ${j.files ?? '?'}개, ${j.encrypted ? '암호화됨 / encrypted' : '암호 없음 / not encrypted'})\n` +
+    `  SHA-256 ${j.sha256 ?? '?'}\n  암호를 잊으면 복원할 수 없습니다 / without the password it cannot be restored.`
+}
+
+/** Is something listening on 127.0.0.1:port? */
+async function listening(port: number): Promise<boolean> {
+  try {
+    const sock = await Promise.race([
+      Bun.connect({ hostname: '127.0.0.1', port, socket: { data() {} } }),
+      Bun.sleep(800).then(() => null),
+    ])
+    sock?.end()
+    return !!sock
+  } catch { return false }
+}
+
+/** The ports this installation needs that another program holds. office-install.sh runs this after stopping its own
+ * agent, so a port held by the previous version of this installation is free again. */
+export async function portProblems(s: Pick<OfficeSettings, 'appPort' | 'lanPort' | 'helperPort'>): Promise<string[]> {
+  const want: [number, string, string][] = [
+    [s.appPort, '127.0.0.1', '--app-port'], [s.lanPort, '0.0.0.0', '--lan-port'],
+    ...(s.helperPort ? [[s.helperPort, '0.0.0.0', '--helper-port'] as [number, string, string]] : []),
+  ]
+  const out: string[] = []
+  for (const [port, hostname, flag] of want) {
+    let busy = await listening(port)
+    if (!busy) {
+      try { Bun.listen({ hostname, port, socket: { data() {} } }).stop(true) } catch { busy = true }
+    }
+    if (busy) out.push(`port ${port} is in use by another program: choose another with ${flag} <port>`)
+  }
+  return out
+}
+
+/** the newest server log (logs/server/*.log, JSON lines) */
+function newestServerLog(dir: string): string | null {
+  try {
+    const files = fs.readdirSync(dir).filter((f) => !f.startsWith('.')).map((f) => path.join(dir, f)).filter((f) => fs.statSync(f).isFile())
+    files.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+    return files[0] ?? null
+  } catch { return null }
 }
 
 /** Put a restored archive (<dir>/db/app.sqlite, <dir>/team) in place of data/app.db and team/. The previous ones
@@ -326,6 +412,9 @@ export async function main(argv: string[]): Promise<number> {
       if (!(await waitHealthy(s, 90))) { lines(`the server did not answer within 90 s; see ${p.officeLog} and ${p.serverLogs}`); return 1 }
       lines('')
       lines(fs.readFileSync(p.info, 'utf8'))
+      lines('데스크마다 인쇄해 둘 카드 (지문 포함) / print the desk card (with the thumbprint) for every desk:')
+      lines(`  open ${p.card}`)
+      lines('')
       const link = setupLinks(s, st.origins)
       if (link) {
         lines('첫 설정 링크 (한 번만, 소유자 계정 만들기) / first-run setup link (owner account, once):')
@@ -357,10 +446,24 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'logs': {
       const n = Number(args.find((a) => /^\d+$/.test(a)) ?? 60)
-      let text = ''
-      try { text = fs.readFileSync(p.officeLog, 'utf8') } catch {}
-      lines(text.split('\n').slice(-n).join('\n') || '(no log yet)')
+      const tail = (f: string) => { try { return fs.readFileSync(f, 'utf8').trimEnd().split('\n').slice(-n).join('\n') } catch { return '' } }
+      lines(`== ${p.officeLog}`)
+      lines(tail(p.officeLog) || '(no log yet)')
+      // the server's own log (requests, engine turns, errors) is where a failed chat shows up
+      const srv = newestServerLog(p.serverLogs)
+      if (srv) { lines(`\n== ${srv}`); lines(tail(srv)) }
       return 0
+    }
+    case 'card': {
+      if (!fs.existsSync(p.card)) { lines('(not prepared yet: teamax start)'); return 1 }
+      lines(p.card)
+      if (process.platform === 'darwin' && !args.includes('--no-open')) Bun.spawnSync(['/usr/bin/open', p.card])
+      return 0
+    }
+    case 'check-ports': {
+      const bad = await portProblems(s)
+      for (const b of bad) console.error(`teamax: ${b}`)
+      return bad.length ? 1 : 0
     }
     case 'info': {
       try { lines(fs.readFileSync(p.info, 'utf8')) } catch { lines('(not prepared yet: teamax start)') }
@@ -374,11 +477,11 @@ export async function main(argv: string[]): Promise<number> {
       return link ? 0 : 1
     }
     case 'reset-link': return runTool(home, 'accounts', ['reset-link', ...(arg(args, '--username') ? ['--username', arg(args, '--username')!] : [])])
-    case 'backup': return runTool(home, 'admin', ['backup'])
+    case 'backup': return runTool(home, 'admin', ['backup'], 'ignore', backupSummary)
     case 'archive': {
       const out = arg(args, '--out')
       if (!out) throw new Error('archive needs --out <file>')
-      return runTool(home, 'admin', ['archive', '--out', path.resolve(out), '--password-stdin'], 'inherit')
+      return runTool(home, 'admin', ['archive', '--out', path.resolve(out), '--password-stdin'], 'inherit', archiveSummary)
     }
     case 'restore-archive': {
       const src = arg(args, '--in')
@@ -399,7 +502,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|setup-link|reset-link [--username U]|backup|archive --out FILE|restore-archive --in FILE [--replace]|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|check-ports|uninstall-agent')
       return 2
   }
 }

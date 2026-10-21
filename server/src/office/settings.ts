@@ -11,6 +11,8 @@
 //     logs/                    office.log (supervisor + launchd), server/ (the server's JSON logs, 14 days)
 //     status/                  status.json of the running server
 //     teamax                   the control command (link to app/teamax)
+//     ADDRESSES.txt            desk address, certificate page, CA fingerprints (`teamax info`)
+//     DESK-CARD.html           the printable desk card with the fingerprint to compare (`teamax card`)
 import fs from 'node:fs'
 import path from 'node:path'
 import { hostPort, type OfficeNames } from './tls'
@@ -35,11 +37,15 @@ export interface OfficeSettings {
   codexBin: string | null
   /** name constraints on a CA made from now on (an existing CA keeps what it has) */
   caConstraints: boolean
+  /** VPN / tunnel interfaces and 100.64/10 in the certificate and the desk addresses (off: the office network only) */
+  includeVpn: boolean
+  /** who may connect to the office port: 'subnet' (the Mac's own office subnets, the default), 'any', or CIDRs */
+  allowFrom: 'subnet' | 'any' | string[]
 }
 
 export interface OfficePaths {
   home: string; app: string; data: string; team: string; tls: string; config: string; env: string; serverJson: string
-  logs: string; serverLogs: string; officeLog: string; info: string; setupToken: string; agentsDir: string; plist: (label: string) => string
+  logs: string; serverLogs: string; officeLog: string; info: string; card: string; setupToken: string; agentsDir: string; plist: (label: string) => string
 }
 
 export function officePaths(home: string, env: Record<string, string | undefined> = process.env): OfficePaths {
@@ -49,7 +55,7 @@ export function officePaths(home: string, env: Record<string, string | undefined
     home: h, app: path.join(h, 'app'), data: path.join(h, 'data'), team: path.join(h, 'team'), tls: path.join(h, 'tls'),
     config: path.join(h, 'config'), env: path.join(h, 'config', 'office.env'), serverJson: path.join(h, 'config', 'server.json'),
     logs: path.join(h, 'logs'), serverLogs: path.join(h, 'logs', 'server'), officeLog: path.join(h, 'logs', 'office.log'),
-    info: path.join(h, 'ADDRESSES.txt'), setupToken: path.join(h, 'data', 'setup-token'),
+    info: path.join(h, 'ADDRESSES.txt'), card: path.join(h, 'DESK-CARD.html'), setupToken: path.join(h, 'data', 'setup-token'),
     agentsDir, plist: (label) => path.join(agentsDir, `${label}.plist`),
   }
 }
@@ -89,11 +95,34 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     claudeBin: e.TEAMAX_CLAUDE_BIN || null,
     codexBin: e.TEAMAX_CODEX_BIN || null,
     caConstraints: e.TEAMAX_CA_CONSTRAINTS !== '0',
+    includeVpn: e.TEAMAX_INCLUDE_VPN === '1',
+    allowFrom: parseAllowFrom(e.TEAMAX_ALLOW_FROM),
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9.-]{2,100}$/.test(s.label)) throw new Error(`TEAMAX_LABEL ${s.label} is not a launchd label`)
   const ports = [s.appPort, s.lanPort, ...(s.helperPort ? [s.helperPort] : [])]
   if (new Set(ports).size !== ports.length) throw new Error('TEAMAX_APP_PORT, TEAMAX_LAN_PORT and TEAMAX_HELPER_PORT must differ')
   return s
+}
+
+const CIDR = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/
+
+/** TEAMAX_ALLOW_FROM: '' / 'subnet', 'any', or comma-separated IPv4 CIDRs (192.168.1.0/24,10.20.0.0/16). */
+export function parseAllowFrom(v: string | undefined): OfficeSettings['allowFrom'] {
+  const t = (v ?? '').trim()
+  if (!t || t === 'subnet') return 'subnet'
+  if (t === 'any') return 'any'
+  const list = t.split(',').map((x) => x.trim()).filter(Boolean)
+  for (const c of list) {
+    const m = CIDR.exec(c)
+    if (!m || m[1]!.split('.').some((o) => Number(o) > 255) || Number(m[2]) > 32) throw new Error(`TEAMAX_ALLOW_FROM: ${c} is not an IPv4 CIDR (a.b.c.d/n)`)
+  }
+  return list
+}
+
+/** [network, mask] → a.b.c.d/n */
+export function cidr([base, mask]: [string, string]): string {
+  const bits = mask.split('.').reduce((n, o) => n + (Number(o) >>> 0).toString(2).replace(/0/g, '').length, 0)
+  return `${base}/${bits}`
 }
 
 export function loadSettings(home: string): OfficeSettings {
@@ -115,6 +144,8 @@ export function settingsText(s: OfficeSettings): string {
     line('TEAMAX_CLAUDE_BIN', s.claudeBin),
     line('TEAMAX_CODEX_BIN', s.codexBin),
     line('TEAMAX_CA_CONSTRAINTS', s.caConstraints ? 1 : 0),
+    line('TEAMAX_INCLUDE_VPN', s.includeVpn ? 1 : 0),
+    line('TEAMAX_ALLOW_FROM', Array.isArray(s.allowFrom) ? s.allowFrom.join(',') : s.allowFrom),
     '',
   ].join('\n')
 }
@@ -125,37 +156,48 @@ export function runDirFor(s: OfficeSettings): string {
 }
 
 /** Every https origin of the certificate, best first: IPv4 addresses (the clinic sets a DHCP reservation),
- * <host>.local, the bare host name, IPv6. `shown` keeps what a desk can normally type and reach (IPv4, .local). */
+ * <host>.local, the bare host name. `shown` keeps what the desks are told: the main IPv4 address and <host>.local. */
 export function deskOrigins(names: OfficeNames, lanPort: number, o: { shown?: boolean } = {}): string[] {
   const v4 = names.ips.filter((i) => !i.includes(':'))
-  const v6 = names.ips.filter((i) => i.includes(':'))
   const local = names.dns.filter((d) => d.endsWith('.local'))
   const bare = names.dns.filter((d) => !d.endsWith('.local'))
-  const all = [...v4, ...local, ...bare, ...v6].map((n) => `https://${hostPort(n, lanPort)}`)
+  const all = [...v4, ...local, ...bare].map((n) => `https://${hostPort(n, lanPort)}`)
   if (!o.shown) return all
-  const shown = [...v4, ...local].map((n) => `https://${hostPort(n, lanPort)}`)
+  const shown = [...v4.slice(0, 1), ...local].map((n) => `https://${hostPort(n, lanPort)}`)
   return shown.length ? shown : all
 }
 
-/** Host headers the server answers: every certificate name on the office port, localhost names on the app port. */
+/** Host headers the server answers: every certificate name on the office port, localhost names on the app port.
+ * The server also checks that a Host's port is the port of the listener it came in on (http/middleware.ts). */
 export function allowedHosts(names: OfficeNames, s: Pick<OfficeSettings, 'lanPort' | 'appPort'>): string[] {
   const lan = [...names.dns, ...names.ips].map((n) => hostPort(n, s.lanPort))
   const local = ['localhost', '127.0.0.1'].map((n) => hostPort(n, s.appPort))
   return [...new Set([...lan, ...local])]
 }
 
+/** Socket peers the office port answers (allowedPeers): the Mac's office subnets by default (a VPN peer, e.g. on
+ * Tailscale, reaches the listener on 0.0.0.0 but gets 403), every address with 'any', or the listed CIDRs. */
+export function allowedPeers(s: Pick<OfficeSettings, 'allowFrom'>, subnets: [string, string][]): string[] {
+  if (s.allowFrom === 'any') return []
+  if (Array.isArray(s.allowFrom)) return s.allowFrom
+  // no office subnet known (not connected): the private ranges, never "any"
+  return (subnets.length ? subnets : [['10.0.0.0', '255.0.0.0'], ['172.16.0.0', '255.240.0.0'], ['192.168.0.0', '255.255.0.0']] as [string, string][]).map(cidr)
+}
+
 /** config/server.json for this installation: dev mode's engine setup (local-login, engine.sb, lockdown) with
- * office: true, plain HTTP on 127.0.0.1 only, TLS on every interface (IPv4 and IPv6) for the desks. */
-export function serverConfig(s: OfficeSettings, names: OfficeNames) {
+ * office: true, plain HTTP on 127.0.0.1 only, TLS on 0.0.0.0 (IPv4) for the desks of the office subnet. Codex is
+ * off (codexBin ''): the clinic's data goes to one AI provider, Anthropic, as the guide says. */
+export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [string, string][] = []) {
   const p = officePaths(s.home)
   const origins = deskOrigins(names, s.lanPort)
   return {
     mode: 'dev' as const,
     office: true,
     listen: { host: '127.0.0.1', port: s.appPort },
-    tls: { host: '::', port: s.lanPort, certFile: path.join(p.tls, 'server.crt'), keyFile: path.join(p.tls, 'server.key') },
+    tls: { host: '0.0.0.0', port: s.lanPort, certFile: path.join(p.tls, 'server.crt'), keyFile: path.join(p.tls, 'server.key') },
     publicOrigins: [...origins, `http://localhost:${s.appPort}`, `http://127.0.0.1:${s.appPort}`],
     allowedHosts: allowedHosts(names, s),
+    allowedPeers: allowedPeers(s, subnets),
     teamRoot: p.team,
     dataDir: p.data,
     logDir: p.serverLogs,
@@ -164,7 +206,7 @@ export function serverConfig(s: OfficeSettings, names: OfficeNames) {
     engine: {
       authMode: 'local-login' as const,
       ...(s.claudeBin ? { claudeBin: s.claudeBin } : {}),
-      ...(s.codexBin ? { codexBin: s.codexBin } : {}),
+      codexBin: s.codexBin ?? '',
       runDir: runDirFor(s),
     },
     relay: { url: null, teamName: null },

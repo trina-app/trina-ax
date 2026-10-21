@@ -41,6 +41,9 @@ export const AppConfigFile = z.object({
   /** Host headers (host:port, lower case) the direct listeners answer; anything else gets 421. Empty = any (dev, the
    * relay sets its own). Office mode lists the certificate's names and addresses: a DNS-rebinding page never gets in. */
   allowedHosts: z.array(z.string()).default([]),
+  /** IPv4 CIDRs whose socket peers the direct listeners answer (loopback always); anything else gets 403. Empty = any.
+   * Office mode lists the Mac's office subnets so a VPN peer (Tailscale) cannot reach the office port. */
+  allowedPeers: z.array(z.string()).default([]),
   /** office mode (single Mac in a clinic or office, docs/OFFICE.md): mode stays 'dev' for the engine (local-login) */
   office: z.boolean().default(false),
   /** extra allowed Origins for CSRF / WebSocket checks, e.g. https://acme.treesoop.com. Same host is always allowed. */
@@ -101,6 +104,8 @@ export interface AppConfig {
   tls: { host?: string; port: number; certFile: string; keyFile: string; managed?: boolean } | null
   /** see AppConfigFile.allowedHosts; absent or empty = any Host */
   allowedHosts?: string[]
+  /** see AppConfigFile.allowedPeers; absent or empty = any peer */
+  allowedPeers?: string[]
   /** office mode (docs/OFFICE.md) */
   office?: boolean
   publicOrigins: string[]
@@ -162,6 +167,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     listen: { host: env[P + 'HOST'] ?? f.listen.host, port },
     tls: f.tls ? { host: f.tls.host, port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile), managed: f.tls.managed } : null,
     allowedHosts: f.allowedHosts.map((h) => h.toLowerCase()),
+    allowedPeers: f.allowedPeers,
     office: f.office,
     publicOrigins: origins,
     teamRoot: env[P + 'TEAM_ROOT'] ? path.resolve(cwd, env[P + 'TEAM_ROOT']!) : f.teamRoot ? abs(f.teamRoot) : def.teamRoot,

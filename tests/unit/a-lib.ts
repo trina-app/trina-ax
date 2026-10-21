@@ -48,8 +48,10 @@ export interface Harness {
   auth: AuthService
   hub: RecordingHub
   /** raw request through the app with a given real IP (as Bun.serve / the relay client would pass it) */
-  fetch(p: string, init?: RequestInit & { ip?: string | null; via?: 'direct' | 'relay' | 'test'; base?: string }): Promise<Response>
-  client(o?: { ip?: string | null; base?: string; via?: 'direct' | 'relay' | 'test' }): Client
+  /** via 'direct' behaves like Bun.serve: the Host header is the base's host unless given (noHost: none at all) and
+   * `port` (the listener's port) defaults to the base's port */
+  fetch(p: string, init?: RequestInit & { ip?: string | null; via?: 'direct' | 'relay' | 'test'; base?: string; port?: number; noHost?: boolean }): Promise<Response>
+  client(o?: { ip?: string | null; base?: string; via?: 'direct' | 'relay' | 'test'; port?: number }): Client
   /** clock offset in ms added to Date.now() for the auth service */
   advance(ms: number): void
   close(): Promise<void>
@@ -70,7 +72,12 @@ export async function harness(name: string, over: Partial<AppConfig> = {}): Prom
     ctx, app, auth, hub,
     async fetch(p, init = {}) {
       const base = init.base ?? 'http://team.localhost'
-      return app.fetch(new Request(base + p, init), { ip: init.ip === undefined ? '10.0.0.7' : init.ip, via: init.via ?? 'test' })
+      const req = new Request(base + p, init)
+      if (init.via !== 'direct') return app.fetch(req, { ip: init.ip === undefined ? '10.0.0.7' : init.ip, via: init.via ?? 'test' })
+      const u = new URL(base)
+      if (init.noHost) req.headers.delete('host')
+      else if (!req.headers.has('host')) req.headers.set('host', u.host)
+      return app.fetch(req, { ip: init.ip === undefined ? '10.0.0.7' : init.ip, via: 'direct', port: init.port ?? (Number(u.port) || (u.protocol === 'https:' ? 443 : 80)) })
     },
     client(o = {}) { return new Client(h, o) },
     advance(ms) { offset += ms },
@@ -88,7 +95,7 @@ export class Client {
   cookie: string | null = null
   token: string | null = null
   lastHeaders: Headers | null = null
-  constructor(private h: Harness, private o: { ip?: string | null; base?: string; via?: 'direct' | 'relay' | 'test' } = {}) {}
+  constructor(private h: Harness, private o: { ip?: string | null; base?: string; via?: 'direct' | 'relay' | 'test'; port?: number } = {}) {}
 
   async raw(method: string, p: string, body?: unknown, extra: Record<string, string> = {}): Promise<Response> {
     const headers: Record<string, string> = { ...extra }
@@ -96,7 +103,7 @@ export class Client {
     if (method !== 'GET' && !('x-mycel-csrf' in extra)) headers['x-mycel-csrf'] = '1'
     if (this.cookie) headers.cookie = this.cookie
     if (this.token) headers.authorization = `Bearer ${this.token}`
-    const res = await this.h.fetch(p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), ip: this.o.ip, base: this.o.base, via: this.o.via })
+    const res = await this.h.fetch(p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), ip: this.o.ip, base: this.o.base, via: this.o.via, port: this.o.port })
     for (const sc of res.headers.getSetCookie()) {
       const [pair] = sc.split(';')
       const [k, v] = pair!.split('=')

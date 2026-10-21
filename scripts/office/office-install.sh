@@ -14,7 +14,8 @@
 #   --check-only         run the checks, print what would happen, change nothing
 #
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
-# (`claude auth status`). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
+# (`claude auth status`), the ports are free (after stopping this installation's own agent). Codex is not used in
+# office mode (the clinic's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
 # for the desks and the first-run setup link.
@@ -63,20 +64,25 @@ fi
 [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || die "Claude Code is not installed for this user. Install it (curl -fsSL https://claude.ai/install.sh | bash), run 'claude', log in with the subscription account, then run this again."
 AUTH=$("$CLAUDE" auth status 2>/dev/null || true)
 echo "$AUTH" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' || die "Claude Code is installed ($CLAUDE) but not logged in. Run 'claude' in Terminal, log in (/login) with the subscription account, then run this again."
-CODEX=$(command -v codex 2>/dev/null || true)
 CONF_ARGS+=(--claude-bin "$CLAUDE")
-[ -n "$CODEX" ] && CONF_ARGS+=(--codex-bin "$CODEX")
 BUN_SRC="$SRC/app/bin/$ARCH/bun"
 "$BUN_SRC" --version >/dev/null 2>&1 || { xattr -d com.apple.quarantine "$BUN_SRC" 2>/dev/null || true; "$BUN_SRC" --version >/dev/null 2>&1 || die "$BUN_SRC does not run on this Mac"; }
 
 say "Team AX office mode $VERSION ($ARCH) -> $PREFIX"
-say "Claude Code: $CLAUDE (logged in)${CODEX:+; Codex: $CODEX}"
+say "Claude Code: $CLAUDE (logged in)"
 if [ "$CHECK_ONLY" = 1 ]; then
   # settings are validated by the same code the install uses, written into a throwaway folder
   T=$(mktemp -d)
   trap 'rm -rf "$T"' EXIT
   if [ -f "$PREFIX/config/office.env" ]; then mkdir -p "$T/config"; cp "$PREFIX/config/office.env" "$T/config/office.env"; fi
   "$BUN_SRC" "$SRC/app/server/src/office.js" configure --home "$T" --as-home "$PREFIX" "${CONF_ARGS[@]}" | sed 's/^/  /'
+  TL=$(sed -n 's/^TEAMAX_LABEL=//p' "$T/config/office.env")
+  if launchctl print "gui/$(id -u)/$TL" >/dev/null 2>&1; then
+    say "ports: in use by this installation's running agent ($TL), reused by the update"
+  else
+    "$BUN_SRC" "$SRC/app/server/src/office.js" check-ports --home "$T" || die "a port is taken (see above)"
+    say "ports: free"
+  fi
   if [ -d "$PREFIX/app" ]; then say "would update $PREFIX/app (data/, team/, tls/, config/ kept)"; else say "would install into $PREFIX"; fi
   say "check only: nothing changed"
   exit 0
@@ -89,13 +95,16 @@ chmod 755 "$PREFIX"
 LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env")
 
 # ---- stop a running installation before its program is replaced ----
-launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+if launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then sleep 1; fi
+
+# ---- the ports must be free now (another program, e.g. a second installation, would make the server wait forever) ----
+"$BUN_SRC" "$SRC/app/server/src/office.js" check-ports --home "$PREFIX" || die "a port is taken (see above); nothing was changed except config/office.env. If this installation was running, start it again: $PREFIX/teamax start"
 
 # ---- program: this Mac's architecture only ----
 NEW="$PREFIX/app.new"
 rm -rf "$NEW"
 mkdir -p "$NEW/bin" "$NEW/native/bin"
-for p in server scripts web teamax VERSION versions.json; do cp -R "$SRC/app/$p" "$NEW/$p"; done
+for p in server scripts web docs teamax VERSION versions.json; do [ -e "$SRC/app/$p" ] && cp -R "$SRC/app/$p" "$NEW/$p"; done
 cp -R "$SRC/app/bin/$ARCH/." "$NEW/bin/"
 cp -R "$SRC/app/native/bin/$ARCH" "$NEW/native/bin/$ARCH"
 xattr -dr com.apple.quarantine "$NEW" 2>/dev/null || true
@@ -117,7 +126,11 @@ FW=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/nul
 cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
-명령 / command:  $PREFIX/teamax status | info | logs | restart | setup-link | reset-link
+명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup
+설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-치과-설치가이드.pdf)
+
+데스크 카드를 인쇄하세요 / print the desk card:  $PREFIX/teamax card
+  카드의 지문(thumbprint)으로 데스크가 인증서를 확인합니다. 데스크가 많으면 $PREFIX/tls/ca.cer 를 USB로 나눠 주면 더 안전합니다.
 
 이 맥이 계속 켜져 있게 / keep this Mac running (docs/OFFICE.md):
   1. 잠자기 끄기·정전 후 자동 켜짐 (관리자 암호 필요, 한 번만) / never sleep, start after a power cut:

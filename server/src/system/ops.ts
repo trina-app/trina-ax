@@ -8,6 +8,7 @@ import { PfStatus, type StatusFile } from '@mycel/shared/install'
 import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
 import { DEFAULT_PROXY_PORT } from '../app-config'
+import { engineSandboxProfile } from '../config'
 import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
@@ -163,7 +164,8 @@ export class OpsService {
 
     // connection
     const c = this.connection()
-    const relay = c.mode === 'direct-only' || c.state === 'not_registered' || c.state === 'disabled'
+    const relay = this.ctx.config.office ? { s: 'ok' as const, d: t(M.relayOffice) }
+      : c.mode === 'direct-only' || c.state === 'not_registered' || c.state === 'disabled'
       ? { s: 'warn' as const, d: t(M.relayOff) }
       : c.state === 'connected' ? { s: 'ok' as const, d: c.address }
       : c.state === 'connecting' ? { s: 'warn' as const, d: t(M.relayConnecting) }
@@ -185,6 +187,7 @@ export class OpsService {
 
     // engines
     for (const e of await this.engines()) {
+      if (this.ctx.config.office && e.engine === 'codex') continue // office mode: Claude only (engine.codexBin '')
       const label = t(e.engine === 'claude-code' ? M.engineClaude : M.engineCodex)
       const id = `engine.${e.engine}`
       if (e.loggedIn && e.reason === 'setup_token_expiring' && e.expiresAt) add(id, 'engines', label, 'warn', t(M.engineSetupTokenExpiring(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium' }).format(new Date(e.expiresAt)))))
@@ -228,7 +231,12 @@ export class OpsService {
     add('queue', 'queue', t(M.queue), q.queued > 3 * q.concurrency ? 'warn' : 'ok', q.queued > 3 * q.concurrency ? t(M.queueLong(q.queued)) : t(M.queueDetail(q.running, q.queued, q.concurrency)))
 
     // OS controls (tab 2 "기본 ① 방화벽 ② 샌드박스")
-    if (!prod || !L.rootDir) {
+    if (this.ctx.config.office) {
+      // office mode runs every engine turn under engine.sb (context.ts devEngineSandbox refuses to start without it)
+      const sb = fs.existsSync(engineSandboxProfile()) && fs.existsSync('/usr/bin/sandbox-exec')
+      add('pf_anchor', 'pf_anchor', t(M.firewall), 'unknown', t(M.firewallOffice))
+      add('sandbox', 'sandbox', t(M.sandbox), sb ? 'ok' : 'fail', t(sb ? M.sandboxOffice : M.sandboxMissingOffice))
+    } else if (!prod || !L.rootDir) {
       add('pf_anchor', 'pf_anchor', t(M.firewall), 'unknown', t(M.firewallDev))
       add('sandbox', 'sandbox', t(M.sandbox), 'unknown', t(M.sandboxDev))
     } else {
@@ -279,7 +287,8 @@ export class OpsService {
     } catch {}
 
     // updates
-    if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
+    if (this.ctx.config.office) add('update', 'update', t(M.update), 'ok', t(M.updateOffice(this.ctx.version)))
+    else if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
     else {
       const h = this.updates.history().at(-1)
       if (h && h.result !== 'ok' && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000) add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))

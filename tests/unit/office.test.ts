@@ -9,13 +9,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { loadAppConfig } from '../../server/src/app-config'
 import { sessionCookie } from '../../server/src/auth/service'
-import { hostAllowed } from '../../server/src/http/middleware'
+import { ipKeys, limitIp, RateLimiter, tokenIpKeys } from '../../server/src/auth/rate-limit'
+import { hostAllowed, originsFor, peerAllowed } from '../../server/src/http/middleware'
 import { peerIp } from '../../server/src/main'
-import { agentPlist, configure, helperOrigins, prepare, swapInRestore } from '../../server/src/office/cli'
-import { HELPER_PATHS, helperFetch, type HelperState } from '../../server/src/office/helper'
-import { allowedHosts, deskOrigins, officePaths, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
-import { certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanAddresses, normIp, PRIVATE_V4, PRIVATE_V6, serverCertProblem, tlsPaths, unstableV6, wantedNames } from '../../server/src/office/tls'
+import { agentPlist, archiveSummary, backupSummary, configure, helperOrigins, portProblems, prepare, swapInRestore } from '../../server/src/office/cli'
+import { deskCard, HELPER_PATHS, helperFetch, windowsThumbprint, type HelperState } from '../../server/src/office/helper'
+import { allowedHosts, allowedPeers, cidr, deskOrigins, officePaths, parseAllowFrom, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
+import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tlsPaths, wantedNames } from '../../server/src/office/tls'
 import { parseTeamAddress } from '../../desktop/src/common/address'
+import { connectionStatus } from '../../server/src/system/connection'
 import { harness, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -23,33 +25,41 @@ const BASE = path.join(WORK, 'office')
 const REPO = path.resolve(import.meta.dir, '..', '..')
 fs.rmSync(BASE, { recursive: true, force: true })
 fs.mkdirSync(BASE, { recursive: true })
-const C = { dns: ['local', 'mini'], v4: PRIVATE_V4, v6: PRIVATE_V6 }
+const NET: [string, string][] = [['192.168.1.0', '255.255.255.0']]
+const C = caConstraintsFor('mini', NET)
 const mode = (f: string) => fs.statSync(f).mode & 0o777
 const openssl = (args: string[]) => Bun.spawnSync(['/usr/bin/openssl', ...args], { stdout: 'pipe', stderr: 'pipe' })
 
 describe('office addresses and names', () => {
-  const iface = (address: string, family: 'IPv4' | 'IPv6', internal = false) => ({ address, family, internal, netmask: '', mac: '', cidr: null }) as os.NetworkInterfaceInfo
-  test('LAN addresses: no loopback, link-local or rotating IPv6; office ranges before VPN ranges', () => {
+  const iface = (address: string, family: 'IPv4' | 'IPv6', netmask = '255.255.255.0', internal = false) => ({ address, family, internal, netmask, mac: '', cidr: null }) as os.NetworkInterfaceInfo
+  test('LAN addresses: IPv4 only, no loopback, link-local, VPN (utun, 100.64/10) or VM bridges; subnets for the CA', () => {
     const ifaces = {
-      lo0: [iface('127.0.0.1', 'IPv4', true), iface('::1', 'IPv6', true)],
-      en0: [iface('192.168.1.18', 'IPv4'), iface('fe80::1c17:7e97:bb9e:1c27', 'IPv6'), iface('fd00::5', 'IPv6'), iface('fd00::77', 'IPv6')],
-      utun5: [iface('100.125.180.119', 'IPv4')],
-      en7: [iface('169.254.3.4', 'IPv4'), iface('10.0.0.9', 'IPv4')],
+      lo0: [iface('127.0.0.1', 'IPv4', '255.0.0.0', true), iface('::1', 'IPv6', '', true)],
+      en0: [iface('192.168.1.18', 'IPv4'), iface('fe80::1c17:7e97:bb9e:1c27', 'IPv6', 'ffff:ffff:ffff:ffff::'), iface('fd00::5', 'IPv6', 'ffff:ffff:ffff:ffff::')],
+      utun5: [iface('100.125.180.119', 'IPv4', '255.255.255.255'), iface('fd7a:115c:a1e0::d436:b477', 'IPv6', '')],
+      en7: [iface('169.254.3.4', 'IPv4', '255.255.0.0'), iface('10.0.0.9', 'IPv4', '255.255.0.0')],
+      bridge100: [iface('192.168.64.1', 'IPv4')],
+      en9: [iface('100.70.1.2', 'IPv4', '255.192.0.0')],
     }
-    const ifconfig = '\tinet6 fd00::5 prefixlen 64 autoconf secured \n\tinet6 fd00::77 prefixlen 64 autoconf temporary \n'
-    expect(unstableV6(ifconfig)).toEqual(new Set(['fd00::77']))
-    expect(lanAddresses({ ifaces, ifconfig })).toEqual(['192.168.1.18', '10.0.0.9', '100.125.180.119', 'fd00::5'])
+    expect(lanInfo({ ifaces })).toEqual({ addrs: ['192.168.1.18', '10.0.0.9'], subnets: [['192.168.1.0', '255.255.255.0'], ['10.0.0.0', '255.255.0.0']] })
+    // opt-in (TEAMAX_INCLUDE_VPN=1): the VPN addresses come back, still no IPv6
+    expect(lanInfo({ ifaces, includeVpn: true }).addrs).toEqual(['192.168.1.18', '192.168.64.1', '10.0.0.9', '100.70.1.2', '100.125.180.119'])
+    expect(cidr(['192.168.1.0', '255.255.255.0'])).toBe('192.168.1.0/24')
+    expect(cidr(['10.0.0.0', '255.0.0.0'])).toBe('10.0.0.0/8')
   })
 
-  test('the certificate names only what the CA may vouch for (private ranges, .local, the Mac name)', () => {
-    for (const ip of ['192.168.0.1', '10.200.1.1', '172.31.255.1', '100.64.0.1', 'fd7a:115c::1', 'fc00::1']) expect(ipPermitted(ip, C)).toBe(true)
-    for (const ip of ['8.8.8.8', '172.32.0.1', '2001:db8::1', '100.128.0.1']) expect(ipPermitted(ip, C)).toBe(false)
+  test('the certificate names only what the CA may vouch for (this Mac\'s names, its office subnet)', () => {
+    expect(C).toEqual({ dns: ['mini.local', 'mini'], v4: NET, v6: [] })
+    for (const ip of ['192.168.1.1', '192.168.1.254']) expect(ipPermitted(ip, C)).toBe(true)
+    // security review 5: not every private address (the EMR server, NAS or router of another subnet), no IPv6
+    for (const ip of ['192.168.0.1', '10.200.1.1', '172.31.255.1', '100.64.0.1', 'fd7a:115c::1', 'fc00::1', '8.8.8.8', '2001:db8::1']) expect(ipPermitted(ip, C)).toBe(false)
     expect(dnsPermitted('mini.local', C)).toBe(true)
     expect(dnsPermitted('mini', C)).toBe(true)
-    expect(dnsPermitted('evil.com', C)).toBe(false)
-    expect(dnsPermitted('notmini', C)).toBe(false)
-    const w = wantedNames('mini', ['192.168.1.18', '8.8.8.8', 'fd00::5', '2001:db8::1'], C)
-    expect(w).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18', 'fd00::5'], left: ['8.8.8.8', '2001:db8::1'] })
+    for (const d of ['evil.com', 'notmini', 'nas.local', 'printer.local', 'local']) expect(dnsPermitted(d, C)).toBe(false)
+    const w = wantedNames('mini', ['192.168.1.18', '8.8.8.8', '192.168.2.5'], C)
+    expect(w).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18'], left: ['8.8.8.8', '192.168.2.5'] })
+    // never an empty side (that would mean "any name" / "any address"): no host name or no subnet known yet
+    expect(caConstraintsFor(null, [])).toEqual({ dns: ['local'], v4: PRIVATE_V4, v6: [] })
     // a CA without constraints (TEAMAX_CA_CONSTRAINTS=0) names every address
     expect(wantedNames('mini', ['8.8.8.8'], { dns: [], v4: [], v6: [] }).ips).toEqual(['8.8.8.8'])
     expect(normIp('FD00:0:0:0:0:0:0:5')).toBe('fd00::5')
@@ -59,7 +69,7 @@ describe('office addresses and names', () => {
 describe('office CA and server certificate', () => {
   const dir = path.join(BASE, 'tls')
   let first: ReturnType<typeof ensureOfficeTls>
-  beforeAll(() => { first = ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.18', 'fd00::5', '8.8.8.8'] }) })
+  beforeAll(() => { first = ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.18', '8.8.8.8'], subnets: NET }) })
 
   test('made once: CA key 600 in a 700 folder, server certificate for every name and address', () => {
     const p = tlsPaths(dir)
@@ -68,7 +78,7 @@ describe('office CA and server certificate', () => {
     expect(mode(dir)).toBe(0o700)
     expect(mode(p.caKey)).toBe(0o600)
     expect(mode(p.key)).toBe(0o600)
-    expect(certNames(first.cert)).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18', 'fd00::5'] })
+    expect(certNames(first.cert)).toEqual({ dns: ['mini.local', 'mini'], ips: ['192.168.1.18'] })
     expect(first.left).toEqual(['8.8.8.8'])
     expect(first.cert.verify(first.ca.publicKey)).toBe(true)
     expect(first.ca.ca).toBe(true)
@@ -79,8 +89,10 @@ describe('office CA and server certificate', () => {
   test('the CA is name-constrained, the server certificate is a TLS server certificate', () => {
     const ca = openssl(['x509', '-in', tlsPaths(dir).caCrt, '-noout', '-text']).stdout.toString()
     expect(ca).toMatch(/Name Constraints: critical/)
-    expect(ca).toMatch(/DNS:local/)
-    expect(ca).toMatch(/IP:192\.168\.0\.0\/255\.255\.0\.0/)
+    expect(ca).toMatch(/DNS:mini\.local/)
+    expect(ca).toMatch(/IP:192\.168\.1\.0\/255\.255\.255\.0/)
+    expect(ca).not.toMatch(/DNS:local\b(?!\.)/)
+    expect(ca).not.toMatch(/IP:10\.0\.0\.0|IP:192\.168\.0\.0\/255\.255\.0\.0|IP:100\.64|IP:FC00/i)
     expect(ca).toMatch(/CA:TRUE, pathlen:0/)
     const leaf = openssl(['x509', '-in', tlsPaths(dir).crt, '-noout', '-text']).stdout.toString()
     expect(leaf).toMatch(/TLS Web Server Authentication/)
@@ -89,17 +101,24 @@ describe('office CA and server certificate', () => {
     expect(v.stdout.toString()).toContain(': OK')
   })
 
-  test('a certificate for a public name, signed with the same CA key, fails verification (constraints work)', () => {
-    const d = path.join(BASE, 'evil')
-    fs.mkdirSync(d, { recursive: true })
+  test('a certificate for a public name, another .local device or another private subnet, signed with the same CA key, fails verification', () => {
     const p = tlsPaths(dir)
-    openssl(['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', path.join(d, 'k')])
-    openssl(['req', '-new', '-key', path.join(d, 'k'), '-subj', '/CN=bank.example', '-out', path.join(d, 'csr')])
-    fs.writeFileSync(path.join(d, 'ext'), 'subjectAltName=DNS:bank.example,IP:8.8.8.8\nextendedKeyUsage=serverAuth\n')
-    openssl(['x509', '-req', '-in', path.join(d, 'csr'), '-CA', p.caCrt, '-CAkey', p.caKey, '-CAcreateserial', '-CAserial', path.join(d, 'srl'), '-days', '30', '-extfile', path.join(d, 'ext'), '-out', path.join(d, 'crt')])
-    const v = openssl(['verify', '-CAfile', p.caCrt, path.join(d, 'crt')])
-    expect(v.exitCode).not.toBe(0)
-    expect(v.stdout.toString() + v.stderr.toString()).toMatch(/subtree violation/)
+    const forged = (tag: string, san: string) => {
+      const d = path.join(BASE, `evil-${tag}`)
+      fs.mkdirSync(d, { recursive: true })
+      openssl(['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', path.join(d, 'k')])
+      openssl(['req', '-new', '-key', path.join(d, 'k'), '-subj', '/CN=x', '-out', path.join(d, 'csr')])
+      fs.writeFileSync(path.join(d, 'ext'), `subjectAltName=${san}\nextendedKeyUsage=serverAuth\n`)
+      openssl(['x509', '-req', '-in', path.join(d, 'csr'), '-CA', p.caCrt, '-CAkey', p.caKey, '-CAcreateserial', '-CAserial', path.join(d, 'srl'), '-days', '30', '-extfile', path.join(d, 'ext'), '-out', path.join(d, 'crt')])
+      return openssl(['verify', '-CAfile', p.caCrt, path.join(d, 'crt')])
+    }
+    // security review 5: a leaked ca.key could sign these; the desks' browsers refuse them
+    for (const [tag, san] of [['bank', 'DNS:bank.example,IP:8.8.8.8'], ['nas', 'DNS:nas.local'], ['emr', 'IP:192.168.0.10'], ['ten', 'IP:10.1.2.3'], ['v6', 'IP:fd00::1']] as const) {
+      const v = forged(tag, san)
+      expect(v.exitCode, tag).not.toBe(0)
+      expect(v.stdout.toString() + v.stderr.toString(), tag).toMatch(/subtree violation|name constraint/i)
+    }
+    expect(forged('ok', 'DNS:mini.local,IP:192.168.1.77').stdout.toString()).toContain(': OK')
   })
 
   test.if(process.platform === 'darwin')('macOS trust evaluation accepts it for the LAN address and .local, not for another address', () => {
@@ -111,29 +130,33 @@ describe('office CA and server certificate', () => {
   })
 
   test('same addresses: nothing changes; a new address: new server certificate, same CA', () => {
-    const again = ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.18', 'fd00::5'] })
+    const again = ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.18'], subnets: NET })
     expect(again.changed).toBe(false)
     expect(again.caMade).toBe(false)
-    const moved = ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.0.42'] })
+    const moved = ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.42'], subnets: NET })
     expect(moved.changed).toBe(true)
-    expect(moved.reason).toContain('192.168.0.42')
+    expect(moved.reason).toContain('192.168.1.42')
     expect(moved.ca.fingerprint256).toBe(first.ca.fingerprint256)
-    expect(certNames(moved.cert).ips).toEqual(['192.168.0.42'])
-    // an address that went away does not force a new certificate (no churn); a renamed Mac does (.local)
+    expect(certNames(moved.cert).ips).toEqual(['192.168.1.42'])
+    // an address that went away does not force a new certificate (no churn)
     expect(ensureOfficeTls(dir, { host: 'mini', addrs: [] }).changed).toBe(false)
-    expect(ensureOfficeTls(dir, { host: 'front', addrs: ['192.168.0.42'] }).names.dns).toEqual(['front.local'])
+    // another subnet (new router) or a renamed Mac: outside the CA's constraints, left out (docs: new CA)
+    const other = ensureOfficeTls(dir, { host: 'front', addrs: ['192.168.0.42', '192.168.1.42'] })
+    expect(other.left).toEqual(['192.168.0.42'])
+    expect(other.changed).toBe(false) // nothing it may add: the certificate stays as it is
   })
 
   test('renewed 30 days before it ends, and replaced when it is not signed by the current CA', () => {
-    const want = { dns: ['front.local'], ips: ['192.168.0.42'] }
+    ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.42'], subnets: NET })
+    const want = { dns: ['mini.local', 'mini'], ips: ['192.168.1.42'] }
     expect(serverCertProblem(dir, want)).toBeNull()
     expect(serverCertProblem(dir, want, new Date(Date.now() + 380 * 86400_000))).toBe('expires soon')
     const other = path.join(BASE, 'tls-other')
-    ensureOfficeTls(other, { host: 'x', addrs: ['10.0.0.1'] })
+    ensureOfficeTls(other, { host: 'x', addrs: ['10.0.0.1'], subnets: [['10.0.0.0', '255.0.0.0']] })
     fs.copyFileSync(tlsPaths(other).crt, tlsPaths(dir).crt)
     fs.copyFileSync(tlsPaths(other).key, tlsPaths(dir).key)
     expect(serverCertProblem(dir, want)).toBe('not signed by the current CA')
-    expect(ensureOfficeTls(dir, { host: 'front', addrs: ['192.168.0.42'] }).changed).toBe(true)
+    expect(ensureOfficeTls(dir, { host: 'mini', addrs: ['192.168.1.42'] }).changed).toBe(true)
   })
 })
 
@@ -141,7 +164,11 @@ describe('office settings and server.json', () => {
   test('office.env: KEY=VALUE only, defaults, port and label checks', () => {
     expect(parseEnvFile('# c\nTEAMAX_LAN_PORT=9443\nOTHER=1\nTEAMAX_RUN_DIR=/a b/c\n')).toEqual({ TEAMAX_LAN_PORT: '9443', TEAMAX_RUN_DIR: '/a b/c' })
     const s = settingsFrom('/h', {})
-    expect(s).toMatchObject({ label: 'app.team-ax.office', appPort: 47830, lanPort: 8443, helperPort: 8442, caConstraints: true })
+    expect(s).toMatchObject({ label: 'app.team-ax.office', appPort: 47830, lanPort: 8443, helperPort: 8442, caConstraints: true, includeVpn: false, allowFrom: 'subnet' })
+    expect(parseAllowFrom('any')).toBe('any')
+    expect(parseAllowFrom(' 192.168.1.0/24, 10.20.0.0/16 ')).toEqual(['192.168.1.0/24', '10.20.0.0/16'])
+    expect(() => parseAllowFrom('192.168.1.0')).toThrow(/CIDR/)
+    expect(() => parseAllowFrom('300.1.1.0/24')).toThrow(/CIDR/)
     expect(settingsFrom('/h', { TEAMAX_LAN_PORT: '18443' }).helperPort).toBe(18442)
     expect(settingsFrom('/h', { TEAMAX_HELPER_PORT: '0' }).helperPort).toBe(0)
     expect(() => settingsFrom('/h', { TEAMAX_LAN_PORT: '70000' })).toThrow()
@@ -160,15 +187,22 @@ describe('office settings and server.json', () => {
     expect(() => configure(path.join(BASE, 'x'.repeat(120)), ['--run-dir', '/tmp/tx'])).not.toThrow()
   })
 
-  test('server.json: dev engine setup with office on, plain HTTP on loopback only, TLS on every interface', () => {
+  test('server.json: dev engine setup with office on, plain HTTP on loopback only, TLS on IPv4 for the office subnet, no Codex', () => {
     const s = settingsFrom('/Users/x/TeamAX', { TEAMAX_CLAUDE_BIN: '/Users/x/.local/bin/claude' })
-    const names = { dns: ['mini.local', 'mini'], ips: ['192.168.1.18', 'fd00::5'] }
-    const cfg = serverConfig(s, names)
-    expect(cfg).toMatchObject({ mode: 'dev', office: true, listen: { host: '127.0.0.1', port: 47830 }, tls: { host: '::', port: 8443 }, validateResponses: false, relay: { url: null } })
+    const names = { dns: ['mini.local', 'mini'], ips: ['192.168.1.18', '10.0.0.9'] }
+    const cfg = serverConfig(s, names, NET)
+    expect(cfg).toMatchObject({ mode: 'dev', office: true, listen: { host: '127.0.0.1', port: 47830 }, tls: { host: '0.0.0.0', port: 8443 }, validateResponses: false, relay: { url: null } })
     expect(cfg.engine).toMatchObject({ authMode: 'local-login', claudeBin: '/Users/x/.local/bin/claude', runDir: '/Users/x/TeamAX/data/run' })
+    // do-it review 2: Codex is never picked up from PATH in office mode ('' = off)
+    expect(cfg.engine.codexBin).toBe('')
+    // security review 6: only the office subnet reaches the office port (a Tailscale peer does not)
+    expect(cfg.allowedPeers).toEqual(['192.168.1.0/24'])
+    expect(allowedPeers({ allowFrom: 'any' }, NET)).toEqual([])
+    expect(allowedPeers({ allowFrom: 'subnet' }, [])).toEqual(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])
     expect(cfg.publicOrigins[0]).toBe('https://192.168.1.18:8443')
     expect(cfg.dataDir.startsWith('/Users/x/TeamAX/app')).toBe(false)
-    expect(allowedHosts(names, s).sort()).toEqual(['127.0.0.1:47830', '192.168.1.18:8443', '[fd00::5]:8443', 'localhost:47830', 'mini.local:8443', 'mini:8443'].sort())
+    expect(allowedHosts(names, s).sort()).toEqual(['10.0.0.9:8443', '127.0.0.1:47830', '192.168.1.18:8443', 'localhost:47830', 'mini.local:8443', 'mini:8443'].sort())
+    // do-it review 7: the desks see the main address (and the .local name), not every address
     expect(deskOrigins(names, 8443, { shown: true })).toEqual(['https://192.168.1.18:8443', 'https://mini.local:8443'])
     expect(helperOrigins(s, ['https://192.168.1.18:8443'])).toEqual(['http://192.168.1.18:8442'])
     expect(helperOrigins({ ...s, helperPort: 0 }, ['https://192.168.1.18:8443'])).toEqual([])
@@ -177,15 +211,27 @@ describe('office settings and server.json', () => {
   test('the server reads it back: office flag, allowed hosts, TLS host', () => {
     const home = path.join(BASE, 'srv-home')
     configure(home, ['--lan-port', '18443', '--app-port', '18430'])
-    prepare(home, { addrs: ['192.168.1.18'], host: 'mini' })
+    const first = prepare(home, { addrs: ['192.168.1.18'], subnets: NET, host: 'mini' })
     const p = officePaths(home)
     expect(mode(p.serverJson)).toBe(0o600)
     const cfg = loadAppConfig({ argv: ['--config', p.serverJson], env: {} })
-    expect(cfg).toMatchObject({ mode: 'dev', office: true, listen: { host: '127.0.0.1', port: 18430 }, tls: { host: '::', port: 18443 } })
+    expect(cfg).toMatchObject({ mode: 'dev', office: true, listen: { host: '127.0.0.1', port: 18430 }, tls: { host: '0.0.0.0', port: 18443 }, allowedPeers: ['192.168.1.0/24'] })
+    expect(cfg.engine.codexBin).toBe('')
     expect(cfg.allowedHosts).toContain('192.168.1.18:18443')
     expect(cfg.allowedHosts).toContain('mini.local:18443')
-    expect(fs.readFileSync(p.info, 'utf8')).toContain('https://192.168.1.18:18443')
-    expect(fs.readFileSync(p.info, 'utf8')).toContain('http://192.168.1.18:18442')
+    const info = fs.readFileSync(p.info, 'utf8')
+    expect(info).toContain('https://192.168.1.18:18443')
+    expect(info).toContain('http://192.168.1.18:18442')
+    // security review 1: the trusted copy of the thumbprint is on the server Mac, in Windows' own format, and the card
+    expect(info).toContain(windowsThumbprint(first.helper.sha1))
+    expect(info).toContain(p.card)
+    expect(info).toContain(path.join(p.tls, 'ca.cer'))
+    expect(fs.readFileSync(p.card, 'utf8')).toContain(windowsThumbprint(first.helper.sha1))
+    // same addresses: no restart; a new office subnet changes server.json (allowedPeers): restart
+    expect(prepare(home, { addrs: ['192.168.1.18'], subnets: NET, host: 'mini' }).changed).toBe(false)
+    const moved = prepare(home, { addrs: ['192.168.1.18'], subnets: [...NET, ['10.0.0.0', '255.255.0.0']], host: 'mini' })
+    expect(moved.changed).toBe(true)
+    expect(moved.peers).toEqual(['192.168.1.0/24', '10.0.0.0/16'])
   })
 })
 
@@ -193,7 +239,10 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
   let h: Harness
   const LAN = 'https://192.168.1.18:8443'
   beforeAll(async () => {
-    h = await harness('office-http', { office: true, allowedHosts: ['192.168.1.18:8443', 'mini.local:8443', 'localhost:47830', '127.0.0.1:47830'], publicOrigins: [LAN, 'https://mini.local:8443'] })
+    h = await harness('office-http', {
+      office: true, allowedHosts: ['192.168.1.18:8443', 'mini.local:8443', 'localhost:47830', '127.0.0.1:47830'], allowedPeers: ['192.168.1.0/24'],
+      publicOrigins: [LAN, 'https://mini.local:8443', 'http://localhost:47830', 'http://127.0.0.1:47830'],
+    })
   })
   afterAll(async () => { await h.close() })
 
@@ -204,16 +253,63 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     expect(hostAllowed(undefined, ['x:1'])).toBe(false)
     expect(hostAllowed('anything', [])).toBe(true)
     expect(hostAllowed('anything', undefined)).toBe(true)
+    // with the listener's port: the other listener's names are not answered
+    expect(hostAllowed('localhost:47830', ['localhost:47830', '192.168.1.18:8443'], 8443)).toBe(false)
+    expect(hostAllowed('192.168.1.18:8443', ['localhost:47830', '192.168.1.18:8443'], 8443)).toBe(true)
+  })
+
+  test('security review 3: a request without a Host header gets 421, not a 500 with a stack trace', async () => {
+    const r = await h.fetch('/api/health', { base: LAN, via: 'direct', ip: '192.168.1.50', noHost: true })
+    expect(r.status).toBe(421)
+  })
+
+  test('security review 4: the office port does not answer the loopback Host or accept the loopback Origin', async () => {
+    const r = await h.fetch('/api/health', { base: LAN, via: 'direct', ip: '192.168.1.50', port: 8443, headers: { host: 'localhost:47830' } })
+    expect(r.status).toBe(421)
+    const back = await h.fetch('/api/health', { base: 'http://127.0.0.1:47830', via: 'direct', ip: '127.0.0.1', port: 47830, headers: { host: '192.168.1.18:8443' } })
+    expect(back.status).toBe(421)
+    const lanInfo = { via: 'direct', port: 8443 }
+    expect(originsFor(h.ctx.config, lanInfo)).toEqual([LAN, 'https://mini.local:8443'])
+    expect(originsFor(h.ctx.config, { via: 'direct', port: 47830 })).toEqual(['http://localhost:47830', 'http://127.0.0.1:47830'])
+    expect(originsFor(h.ctx.config, { via: 'relay' })).toEqual(h.ctx.config.publicOrigins)
+    // CSRF: a state-changing request on the office port with the loopback Origin is refused
+    const c = h.client({ base: LAN, via: 'direct', ip: '192.168.1.52' })
+    const res = await c.raw('POST', '/api/auth/login', { username: 'x', password: 'y' }, { origin: 'http://localhost:47830' })
+    expect(res.status).toBe(403)
+  })
+
+  test('security review 6: only the office subnet reaches the office port (a VPN peer gets 403); this Mac always does', async () => {
+    expect((await h.fetch('/api/health', { base: LAN, via: 'direct', ip: '100.125.180.119' })).status).toBe(403)
+    expect((await h.fetch('/api/health', { base: LAN, via: 'direct', ip: 'fe80::1' })).status).toBe(403)
+    expect((await h.fetch('/api/health', { base: LAN, via: 'direct', ip: '192.168.1.77' })).status).toBe(200)
+    expect((await h.fetch('/api/health', { base: 'http://localhost:47830', via: 'direct', ip: '127.0.0.1' })).status).toBe(200)
+    expect(peerAllowed('10.0.0.1', [])).toBe(true)
+    expect(peerAllowed('10.0.0.1', ['10.0.0.0/8'])).toBe(true)
+    expect(peerAllowed('11.0.0.1', ['10.0.0.0/8'])).toBe(false)
+    expect(peerAllowed(null, ['10.0.0.0/8'])).toBe(false)
+  })
+
+  test('security review 2: per-IP sign-in limits count an IPv6 client by its /64, so new addresses do not reset them', () => {
+    expect(limitIp('192.168.1.50')).toBe('192.168.1.50')
+    expect(limitIp('fe80::1c17:7e97:bb9e:1c27%en0')).toBe(limitIp('fe80::99'))
+    expect(limitIp('2001:db8:1:2:3:4:5:6')).toBe('2001:db8:1:2::/64')
+    expect(limitIp('2001:db8:1:3::1')).not.toBe(limitIp('2001:db8:1:2::1'))
+    expect(limitIp('::ffff:10.0.0.1')).toBe('10.0.0.1')
+    const rl = new RateLimiter(h.ctx.db)
+    for (let i = 0; i < 30; i++) rl.fail([...tokenIpKeys(`fe80::${(i + 1).toString(16)}`), ...ipKeys(`fe80::${(i + 1).toString(16)}`)])
+    expect(rl.retryAfter(tokenIpKeys('fe80::abcd'))).toBeGreaterThan(0)
+    expect(rl.retryAfter(ipKeys('fe80::abcd'))).toBeGreaterThan(0)
   })
 
   test('a direct request with another Host (DNS rebinding) gets 421, before the API or a cookie is touched', async () => {
-    const bad = await h.fetch('/api/setup', { base: 'https://evil.example:8443', via: 'direct' })
+    const desk = '192.168.1.50'
+    const bad = await h.fetch('/api/setup', { base: 'https://evil.example:8443', via: 'direct', ip: desk })
     expect(bad.status).toBe(421)
     expect(bad.headers.get('set-cookie')).toBeNull()
-    const loop = await h.fetch('/api/health', { base: 'http://127.0.0.1:47830', via: 'direct', headers: { host: 'attacker.test:47830' } })
+    const loop = await h.fetch('/api/health', { base: 'http://127.0.0.1:47830', via: 'direct', ip: '127.0.0.1', headers: { host: 'attacker.test:47830' } })
     expect(loop.status).toBe(421)
-    expect((await h.fetch('/api/health', { base: LAN, via: 'direct' })).status).toBe(200)
-    expect((await h.fetch('/api/health', { base: 'http://localhost:47830', via: 'direct' })).status).toBe(200)
+    expect((await h.fetch('/api/health', { base: LAN, via: 'direct', ip: desk })).status).toBe(200)
+    expect((await h.fetch('/api/health', { base: 'http://localhost:47830', via: 'direct', ip: '127.0.0.1' })).status).toBe(200)
     // relayed requests are the relay's business (its own host routing)
     expect((await h.fetch('/api/health', { base: 'https://evil.example', via: 'relay' })).status).toBe(200)
   })
@@ -248,6 +344,31 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     expect(inv2.url.startsWith('https://mini.local:8443/invite/')).toBe(true)
   })
 
+  test('do-it review 3: Admin > System tells office mode as it is (sandbox on, no relay, updates from a zip, no Codex, CA fingerprint, no mode change)', async () => {
+    fs.mkdirSync(path.join(h.ctx.config.dataDir, 'tls'), { recursive: true })
+    const local = h.client({ base: 'http://localhost:47830', via: 'direct', ip: '127.0.0.1' })
+    await local.call('POST', '/api/auth/login', { username: 'director', password: 'owner horse battery 42' }, { origin: 'http://localhost:47830' })
+    const d = await local.call('GET', '/api/admin/diagnostics?locale=ko')
+    const by = (id: string) => d.checks.find((x: { id: string }) => x.id === id)
+    expect(by('relay')).toMatchObject({ status: 'ok' })
+    expect(by('relay').detail).toContain('사무실 모드')
+    expect(by('pf_anchor').detail).toContain('운영 설치')
+    if (process.platform === 'darwin') expect(by('sandbox')).toMatchObject({ status: 'ok' })
+    expect(by('sandbox').detail).not.toMatch(/샌드박스 프로필을 쓰지 않습니다|without the sandbox profile/)
+    expect(by('update').detail).toMatch(/zip/)
+    expect(d.checks.some((x: { id: string }) => x.id === 'engine.codex')).toBe(false)
+    const conn = await local.call('GET', '/api/admin/connection')
+    expect(conn.availableModes).toEqual(['direct-only'])
+    const put = await local.raw('PUT', '/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example/connect', teamName: 'clinic', password: 'owner horse battery 42' }, { origin: 'http://localhost:47830' })
+    expect(put.status).toBe(409)
+  })
+
+  test('the connection card shows the office CA fingerprint (what the desks compare), not the server certificate', () => {
+    const t = ensureOfficeTls(path.join(BASE, 'conn-tls'), { host: 'mini', addrs: ['192.168.1.18'], subnets: NET })
+    const cfg = { ...h.ctx.config, tls: { host: '0.0.0.0', port: 8443, certFile: path.join(BASE, 'conn-tls', 'server.crt'), keyFile: path.join(BASE, 'conn-tls', 'server.key') } }
+    expect(connectionStatus({ ...h.ctx, config: cfg } as typeof h.ctx).direct.fingerprintSha256).toBe(t.ca.fingerprint256)
+  })
+
   test('cookies: Secure __Host- on https, the dev name on http://localhost; IPv4-mapped peers are written as IPv4', () => {
     expect(sessionCookie('https://192.168.1.18:8443/api/auth/login', 'x'.repeat(30), 60)).toMatch(/^__Host-sid=.*; Secure$/)
     expect(sessionCookie('http://localhost:47830/api/auth/login', 'x'.repeat(30), 60)).not.toMatch(/Secure/)
@@ -265,7 +386,8 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
 
 describe('helper page (plain HTTP on the office network)', () => {
   const der = new Uint8Array(crypto.randomBytes(64))
-  const st: HelperState = { caPem: '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n', caDer: der, sha256: 'AB:CD', sha1: '12:34', origins: ['https://192.168.1.18:8443', 'https://mini.local:8443'], caName: 'Team AX office CA mini' }
+  const SHA1 = 'C8:71:62:D4:D9:B3:BF:5B:00:11:22:33:44:55:66:77:88:99:AA:BB'
+  const st: HelperState = { caPem: '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n', caDer: der, sha256: 'AB:CD:EF:01', sha1: SHA1, origins: ['https://192.168.1.18:8443', 'https://mini.local:8443'], caName: 'Team AX office CA mini' }
   const get = (p: string, init: RequestInit = {}) => helperFetch(new Request('http://192.168.1.18:8442' + p, init), st)
 
   test('serves only /, /ca.cer and /ca.crt', async () => {
@@ -276,8 +398,6 @@ describe('helper page (plain HTTP on the office network)', () => {
     const html = await page.text()
     expect(html).toContain('/ca.cer')
     expect(html).toContain('https://192.168.1.18:8443/')
-    expect(html).toContain('AB:CD')
-    expect(html).toContain('12:34')
     expect(html).toContain('신뢰할 수 있는 루트 인증 기관')
     expect(html).toContain('Trusted Root Certification Authorities')
     expect(html).not.toContain('<script')
@@ -285,6 +405,24 @@ describe('helper page (plain HTTP on the office network)', () => {
     expect(cer.headers.get('content-type')).toBe('application/pkix-cert')
     expect(Buffer.from(await cer.arrayBuffer()).equals(Buffer.from(der))).toBe(true)
     expect(get('/ca.crt').headers.get('content-disposition')).toContain('.crt')
+  })
+
+  test('security review 1: the page shows no fingerprint and sends the desk to the card printed on the server Mac', async () => {
+    const html = await get('/').text()
+    for (const v of [st.sha256, SHA1, windowsThumbprint(SHA1), 'c87162d4']) expect(html).not.toContain(v)
+    expect(html).toContain('데스크 카드')
+    expect(html).toContain('desk card')
+    expect(html).toContain('teamax info')
+    expect(html).toContain('USB')
+    // do-it review 4: compare under 자세히 → 지문 before installing; Current User (the store whose install warns)
+    expect(html.indexOf('<b>지문</b>')).toBeLessThan(html.indexOf('인증서 설치…'))
+    expect(html).toContain('<b>현재 사용자</b>')
+    expect(windowsThumbprint(SHA1)).toBe('c87162d4 d9b3bf5b 00112233 44556677 8899aabb')
+    const card = deskCard(st, { helper: 'http://192.168.1.18:8442', caCer: '/Users/x/TeamAX/tls/ca.cer', made: '2026-10-21 10:00' })
+    expect(card).toContain('c87162d4 d9b3bf5b 00112233 44556677 8899aabb')
+    expect(card).toContain('https://192.168.1.18:8443')
+    expect(card).toContain('http://192.168.1.18:8442')
+    expect(card).not.toContain('<script')
   })
 
   test('no API, no redirect, no key, nothing from the request in the page', async () => {
@@ -297,6 +435,65 @@ describe('helper page (plain HTTP on the office network)', () => {
     const html = await helperFetch(new Request('http://192.168.1.18:8442/?x=<img src=x>', { headers: { host: 'evil"><script>.test' } }), st).text()
     expect(html).not.toContain('evil')
     expect(html).not.toContain('<img src=x>')
+  })
+})
+
+describe('teamax command', () => {
+  test('do-it review 10: backup and archive answer in a sentence, not JSON', () => {
+    const b = backupSummary({ id: '2026-10-21T10-00-00Z-manual', createdAt: '2026-10-21T10:00:00Z', db: { size: 3 * 1024 * 1024 }, team: { archiveSize: 1024 * 1024 } })
+    expect(b).toContain('백업을 만들었습니다')
+    expect(b).toContain('3.0 MB')
+    expect(b).not.toContain('{')
+    const a = archiveSummary({ file: '/Volumes/Backup/teamax.age', size: 2 * 1024 * 1024, sha256: 'ab', encrypted: true, files: 12 })
+    expect(a).toContain('/Volumes/Backup/teamax.age')
+    expect(a).toContain('암호화됨')
+  })
+
+  test('do-it review 1: archive --out FILE and restore-archive --in FILE pass the file, not "--out"', () => {
+    const home = path.join(BASE, 'wrapper-home')
+    fs.mkdirSync(path.join(home, 'app', 'bin'), { recursive: true })
+    fs.mkdirSync(path.join(home, 'app', 'server', 'src'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'app', 'server', 'src', 'office.js'), '')
+    // a stand-in bun that writes its arguments and stdin where the test can read them
+    const log = path.join(home, 'args.txt')
+    fs.writeFileSync(path.join(home, 'app', 'bin', 'bun'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a"; done > ${JSON.stringify(log)}\ncat >> ${JSON.stringify(log)}\n`, { mode: 0o755 })
+    fs.copyFileSync(path.join(REPO, 'scripts', 'office', 'teamax'), path.join(home, 'app', 'teamax'))
+    fs.chmodSync(path.join(home, 'app', 'teamax'), 0o755)
+    const cwd = path.join(home, 'cwd')
+    fs.mkdirSync(cwd, { recursive: true })
+    const run = (args: string[], input: string) => {
+      fs.rmSync(log, { force: true })
+      const p = Bun.spawnSync(['bash', path.join(home, 'app', 'teamax'), ...args], { cwd, stdin: new TextEncoder().encode(input), stdout: 'pipe', stderr: 'pipe' })
+      return { code: p.exitCode, args: fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n') : [], err: p.stderr.toString() }
+    }
+    for (const form of [['archive', '--out', '/Volumes/X/a.age'], ['archive', '/Volumes/X/a.age']]) {
+      const r = run(form, 'password1\npassword1\n')
+      expect(r.code, form.join(' ')).toBe(0)
+      const i = r.args.indexOf('--out')
+      expect(r.args[i + 1]).toBe('/Volumes/X/a.age')
+      expect(r.args.at(-1)).toBe('password1')
+    }
+    for (const form of [['restore-archive', '--in', '/Volumes/X/a.age', '--replace'], ['restore-archive', '/Volumes/X/a.age', '--replace']]) {
+      const r = run(form, 'password1\n')
+      expect(r.code, form.join(' ')).toBe(0)
+      expect(r.args[r.args.indexOf('--in') + 1]).toBe('/Volumes/X/a.age')
+      expect(r.args).toContain('--replace')
+    }
+    expect(fs.readdirSync(cwd)).toEqual([]) // no stray file named --out
+    expect(run(['archive'], '').code).toBe(2)
+  })
+
+  test('do-it review 8: a port another program holds is reported before anything is installed', async () => {
+    const busy = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+    try {
+      const free = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+      const freePort = free.port
+      free.stop(true)
+      const bad = await portProblems({ appPort: busy.port, lanPort: freePort, helperPort: 0 })
+      expect(bad).toHaveLength(1)
+      expect(bad[0]).toContain(`port ${busy.port}`)
+      expect(bad[0]).toContain('--app-port')
+    } finally { busy.stop(true) }
   })
 })
 
@@ -364,13 +561,29 @@ describe('office-install.sh / office-uninstall.sh dry paths', () => {
   }
   const prefix = path.join(BASE, 'inst')
 
-  test('check-only with a logged-in Claude: prints the settings, changes nothing', () => {
-    const r = run('office-install.sh', ['--prefix', prefix, '--lan-port', '18443', '--check-only'], { TEAMAX_CLAUDE_BIN: fakeClaude(true) })
+  test('check-only with a logged-in Claude: prints the settings, changes nothing; Codex on PATH is not used', () => {
+    const bin = path.join(BASE, 'pathbin')
+    fs.mkdirSync(bin, { recursive: true })
+    fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    const r = run('office-install.sh', ['--prefix', prefix, '--lan-port', '18443', '--app-port', '18430', '--check-only'], { TEAMAX_CLAUDE_BIN: fakeClaude(true), PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` })
     expect(r.out).toContain('TEAMAX_LAN_PORT=18443')
     expect(r.out).toContain('TEAMAX_HELPER_PORT=18442')
+    expect(r.out).toContain('ports: free')
     expect(r.out).toContain('check only: nothing changed')
+    // do-it review 2: Codex is not connected in office mode
+    expect(r.out).toMatch(/TEAMAX_CODEX_BIN=\s*\n/)
+    expect(r.out).not.toContain(path.join(bin, 'codex'))
     expect(r.code).toBe(0)
     expect(fs.existsSync(prefix)).toBe(false)
+  })
+
+  test('do-it review 8: check-only refuses a port another program holds', async () => {
+    const busy = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+    try {
+      const r = run('office-install.sh', ['--prefix', prefix, '--app-port', String(busy.port), '--lan-port', '18443', '--check-only'], { TEAMAX_CLAUDE_BIN: fakeClaude(true) })
+      expect(r.code).not.toBe(0)
+      expect(r.out).toContain(`port ${busy.port} is in use`)
+    } finally { busy.stop(true) }
   })
 
   test('refuses: Claude not logged in, Claude missing, old macOS, other OS, unknown processor, bad port, long path', () => {

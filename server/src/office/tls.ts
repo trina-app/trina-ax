@@ -9,11 +9,16 @@
 //   ca.json      the CA's name constraints (what the server certificate may name)
 //   server.key   server private key (600), server.crt server certificate (397 days, renewed 30 days before the end)
 //
-// The CA is name-constrained (critical nameConstraints): it can only vouch for *.local, this Mac's bare host name and
-// private addresses (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7). Ten desks trust it; if its key ever leaked,
-// it still could not impersonate a bank or any public site to them. Chrome / Edge (Windows, Mac), Electron, Safari,
-// Firefox, curl and Node enforce these constraints; Bun's own fetch (BoringSSL) refuses IP constraints altogether,
-// which only matters for tests. TEAMAX_CA_CONSTRAINTS=0 when the CA is first made leaves them out.
+// The CA is name-constrained (critical nameConstraints): it can only vouch for this Mac's own names (<host>.local,
+// <host>) and the office subnet(s) the Mac is on when the CA is made (e.g. 192.168.1.0/24; private ranges only).
+// Ten desks trust it; if its key ever leaked, it still could not impersonate a bank, any public site, another
+// *.local device or another subnet's EMR server / NAS / router to them. Chrome / Edge (Windows, Mac), Electron,
+// Safari, Firefox, curl and Node enforce these constraints; Bun's own fetch (BoringSSL) refuses IP constraints
+// altogether, which only matters for tests. TEAMAX_CA_CONSTRAINTS=0 when the CA is first made leaves them out.
+// A move to another subnet (new router) needs a new CA (docs/OFFICE.md 문제 해결); the .local name keeps working.
+//
+// Office mode is IPv4 only: VPN interfaces (utun: Tailscale and the like) and 100.64/10 are left out, and so is IPv6
+// (desks type the IPv4 address; a LAN client can give itself any number of IPv6 addresses).
 //
 // Keys are ECDSA P-256 written as named-curve SEC1 (`openssl ecparam -noout`), the same way scripts/install-macos.sh
 // makes the production LAN certificate: LibreSSL's `req -newkey ec` writes explicit curve parameters, which Bun's
@@ -27,11 +32,11 @@ export const SERVER_CERT_DAYS = 397
 export const RENEW_BEFORE_DAYS = 30
 export const CA_DAYS = 3650
 
-/** Private ranges the CA may vouch for: [first address, mask] as openssl writes them. */
+/** Private ranges an office subnet must be in: [first address, mask] as openssl writes them. Also the CA's IP
+ * constraint when no office subnet is known when it is made (not connected yet). */
 export const PRIVATE_V4: [string, string][] = [
-  ['10.0.0.0', '255.0.0.0'], ['172.16.0.0', '255.240.0.0'], ['192.168.0.0', '255.255.0.0'], ['100.64.0.0', '255.192.0.0'],
+  ['10.0.0.0', '255.0.0.0'], ['172.16.0.0', '255.240.0.0'], ['192.168.0.0', '255.255.0.0'],
 ]
-export const PRIVATE_V6: [string, string][] = [['fc00:0:0:0:0:0:0:0', 'fe00:0:0:0:0:0:0:0']]
 
 export interface CaConstraints { dns: string[]; v4: [string, string][]; v6: [string, string][] }
 export interface OfficeNames { dns: string[]; ips: string[] }
@@ -54,15 +59,10 @@ function inV4(ip: string, base: string, mask: string): boolean {
   return a !== null && b !== null && m !== null && ((a & m) >>> 0) === ((b & m) >>> 0)
 }
 
-/** Is this IPv6 address in fc00::/7 (unique local: the first byte is fc or fd)? The only IPv6 range the CA names. */
-function inUla(ip: string): boolean {
-  return /^f[cd][0-9a-f]{0,2}:/.test(ip.toLowerCase())
-}
-
 /** May a certificate signed by a CA with these constraints name this address? (no IP constraints = any address) */
 export function ipPermitted(ip: string, c: CaConstraints): boolean {
   if (c.v4.length === 0 && c.v6.length === 0) return true
-  if (ip.includes(':')) return c.v6.length > 0 && inUla(ip)
+  if (ip.includes(':')) return false // office mode names no IPv6 address
   return c.v4.some(([b, m]) => inV4(ip, b, m))
 }
 
@@ -73,50 +73,53 @@ export function dnsPermitted(name: string, c: CaConstraints): boolean {
   return c.dns.some((d) => n === d || n.endsWith(`.${d}`))
 }
 
-/** IPv6 addresses macOS marks temporary / deprecated / detached in `ifconfig`: they rotate (privacy addresses)
- * and would make the certificate change every day. */
-export function unstableV6(ifconfig: string): Set<string> {
-  const out = new Set<string>()
-  for (const line of ifconfig.split('\n')) {
-    const m = /^\s*inet6\s+([0-9a-f:]+)(?:%\S+)?\s.*\b(temporary|deprecated|detached|tentative|duplicated)\b/i.exec(line)
-    if (m) out.add(m[1]!.toLowerCase())
-  }
-  return out
+/** Interfaces that are not the office network: VPNs (utun: Tailscale, WireGuard, the macOS VPN client; ipsec, ppp),
+ * tunnels, AirDrop / peer-to-peer Wi-Fi (awdl, llw), and the bridges macOS makes for virtual machines and Internet
+ * Sharing (bridge100+, vmenet). */
+export const NOT_OFFICE_IFACE = /^(utun|ipsec|ppp|tun|tap|gif|stf|awdl|llw|anpi|vmenet|vmnet|bridge1\d\d)\d*$/
+
+export interface LanInfo {
+  /** IPv4 addresses, office ranges first */
+  addrs: string[]
+  /** their subnets as [network, mask] (private ranges only) */
+  subnets: [string, string][]
 }
 
+const numV4 = (n: number) => [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.')
+
 /**
- * The Mac's office-network addresses: every non-internal IPv4 and IPv6 of every interface, minus link-local
- * (169.254/16, fe80::/10: a browser cannot use them in a URL), loopback and the rotating IPv6 privacy addresses.
- * IPv4 first (office ranges 192.168 / 10 / 172.16 before VPN ranges such as 100.64/10), then IPv6.
+ * The Mac's office-network addresses: the IPv4 address of every interface except loopback, link-local (169.254/16),
+ * VPN / tunnel / VM interfaces and 100.64/10 (carrier-grade NAT, which VPNs use). `includeVpn` keeps those
+ * (TEAMAX_INCLUDE_VPN=1). Office ranges (192.168, 10, 172.16) first, then the rest numerically.
  */
-export function lanAddresses(o: { ifaces?: NodeJS.Dict<os.NetworkInterfaceInfo[]>; ifconfig?: string | null } = {}): string[] {
+export function lanInfo(o: { ifaces?: NodeJS.Dict<os.NetworkInterfaceInfo[]>; includeVpn?: boolean } = {}): LanInfo {
   const ifaces = o.ifaces ?? os.networkInterfaces()
-  const ifconfig = o.ifconfig === undefined ? readIfconfig() : o.ifconfig
-  const skip = ifconfig ? unstableV6(ifconfig) : new Set<string>()
-  const v4: string[] = [], v6: string[] = []
-  for (const list of Object.values(ifaces)) {
+  const v4: string[] = []
+  const subnets: [string, string][] = []
+  for (const [name, list] of Object.entries(ifaces)) {
+    if (!o.includeVpn && NOT_OFFICE_IFACE.test(name)) continue
     for (const a of list ?? []) {
-      if (a.internal) continue
-      const addr = a.address.toLowerCase().replace(/%.*$/, '')
-      if (a.family === 'IPv4') {
-        if (inV4(addr, '169.254.0.0', '255.255.0.0') || inV4(addr, '127.0.0.0', '255.0.0.0')) continue
-        v4.push(addr)
-      } else {
-        if (/^fe[89ab][0-9a-f]:/.test(addr) || addr === '::1' || skip.has(addr)) continue
-        v6.push(addr)
+      if (a.internal || a.family !== 'IPv4') continue
+      const addr = a.address
+      if (inV4(addr, '169.254.0.0', '255.255.0.0') || inV4(addr, '127.0.0.0', '255.0.0.0')) continue
+      if (!o.includeVpn && inV4(addr, '100.64.0.0', '255.192.0.0')) continue
+      v4.push(addr)
+      const n = v4num(addr), m = v4num(a.netmask)
+      // a subnet the CA may name: inside a private range and no wider than it
+      if (n !== null && m !== null && PRIVATE_V4.some(([b, pm]) => inV4(addr, b, pm) && ((m & v4num(pm)!) >>> 0) === v4num(pm)!)) {
+        const net: [string, string] = [numV4((n & m) >>> 0), a.netmask]
+        if (!subnets.some(([b, mm]) => b === net[0] && mm === net[1])) subnets.push(net)
       }
     }
   }
-  // office ranges before VPN / carrier-grade NAT ones (100.64/10: Tailscale and the like), then numeric
-  const rank = (a: string) => ['192.168.0.0/255.255.0.0', '10.0.0.0/255.0.0.0', '172.16.0.0/255.240.0.0'].findIndex((r) => inV4(a, ...(r.split('/') as [string, string])))
-  const r = (a: string) => { const i = rank(a); return i < 0 ? (inV4(a, '100.64.0.0', '255.192.0.0') ? 4 : 3) : i }
-  const byV4 = (a: string, b: string) => r(a) - r(b) || v4num(a)! - v4num(b)!
-  return [...new Set(v4)].sort(byV4).concat([...new Set(v6)].sort())
+  const rank = (a: string) => { const i = PRIVATE_V4.findIndex(([b, m]) => inV4(a, b, m)); return [1, 2, 0][i] ?? 3 }
+  const addrs = [...new Set(v4)].sort((a, b) => rank(a) - rank(b) || v4num(a)! - v4num(b)!)
+  return { addrs, subnets }
 }
 
-function readIfconfig(): string | null {
-  if (process.platform !== 'darwin') return null
-  try { return Bun.spawnSync(['/sbin/ifconfig'], { stdout: 'pipe', stderr: 'ignore' }).stdout.toString() } catch { return null }
+/** Is this IPv4 address in one of these subnets? */
+export function inSubnets(ip: string, subnets: [string, string][]): boolean {
+  return subnets.some(([b, m]) => inV4(ip, b, m))
 }
 
 /** This Mac's Bonjour name (System Settings → General → Sharing → Local hostname), lower case; null if unusable. */
@@ -205,11 +208,17 @@ function mkdirPrivate(dir: string) {
   fs.chmodSync(dir, 0o700)
 }
 
+/** The name constraints of a new CA: this Mac's names and its office subnets. Never empty on either side: a CA
+ * without a DNS (or IP) subtree may vouch for any name (or address) of that kind. */
+export function caConstraintsFor(host: string | null, subnets: [string, string][]): CaConstraints {
+  return { dns: host ? [`${host}.local`, host] : ['local'], v4: subnets.length ? subnets : PRIVATE_V4, v6: [] }
+}
+
 /**
  * The CA: kept when ca.key + ca.crt exist, belong together and the CA is valid for another 30 days; made otherwise.
- * `host` goes into the constraints (the Mac's bare name) and the CA's common name.
+ * `host` and `subnets` become its name constraints (caConstraintsFor) and `host` its common name.
  */
-export function ensureCa(dir: string, o: { host: string | null; constraints?: boolean; now?: Date } = { host: null }): { made: boolean; cert: crypto.X509Certificate; constraints: CaConstraints } {
+export function ensureCa(dir: string, o: { host: string | null; subnets?: [string, string][]; constraints?: boolean; now?: Date } = { host: null }): { made: boolean; cert: crypto.X509Certificate; constraints: CaConstraints } {
   const p = tlsPaths(dir)
   mkdirPrivate(dir)
   const now = o.now ?? new Date()
@@ -226,7 +235,7 @@ export function ensureCa(dir: string, o: { host: string | null; constraints?: bo
   }
   const constraints: CaConstraints = o.constraints === false
     ? { dns: [], v4: [], v6: [] }
-    : { dns: ['local', ...(o.host ? [o.host] : [])], v4: PRIVATE_V4, v6: PRIVATE_V6 }
+    : caConstraintsFor(o.host, o.subnets ?? [])
   const stamp = now.toISOString().slice(0, 10)
   const subj = `/O=Team AX/CN=Team AX office CA ${o.host ?? 'server'} ${stamp}`
   const tmpKey = `ca.key.new-${process.pid}`
@@ -260,7 +269,7 @@ function readConstraints(file: string): CaConstraints {
     const j = JSON.parse(fs.readFileSync(file, 'utf8')).constraints
     if (Array.isArray(j?.dns) && Array.isArray(j?.v4) && Array.isArray(j?.v6)) return j
   } catch {}
-  return { dns: ['local'], v4: PRIVATE_V4, v6: PRIVATE_V6 } // a CA from before ca.json: assume the default
+  return { dns: ['local'], v4: PRIVATE_V4, v6: [] } // a CA from before ca.json: assume the widest it could have
 }
 
 /** Why the current server certificate must be replaced (null = it is fine). */
@@ -310,8 +319,8 @@ export function issueServerCert(dir: string, names: OfficeNames): crypto.X509Cer
 }
 
 /** CA + server certificate for the names the Mac has now. `changed` = a new server certificate was written. */
-export function ensureOfficeTls(dir: string, o: { host: string | null; addrs: string[]; constraints?: boolean; now?: Date }) {
-  const ca = ensureCa(dir, { host: o.host, constraints: o.constraints, now: o.now })
+export function ensureOfficeTls(dir: string, o: { host: string | null; addrs: string[]; subnets?: [string, string][]; constraints?: boolean; now?: Date }) {
+  const ca = ensureCa(dir, { host: o.host, subnets: o.subnets, constraints: o.constraints, now: o.now })
   const want = wantedNames(o.host, o.addrs, ca.constraints)
   const problem = serverCertProblem(dir, want, o.now)
   let cert: crypto.X509Certificate

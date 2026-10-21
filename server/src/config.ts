@@ -40,7 +40,9 @@ export function which(name: string, extra: string[] = []): string | null {
 
 /** The Codex CLI the engine runs (dev / local-login). One lookup for the launcher allow-list (context.ts) and the
  * chat runtime (chat/engines.ts): they must agree, or the launcher refuses the engine ("is not allowed"). */
+/** explicit '' = Codex off (office mode, docs/OFFICE.md): no PATH lookup */
 export function findCodexBin(explicit?: string): string | null {
+  if (explicit === '') return null
   return explicit ?? which('codex', [path.join(os.homedir(), '.local', 'bin')])
 }
 

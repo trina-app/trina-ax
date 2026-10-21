@@ -4,7 +4,8 @@
 //   bun scripts/build-office.ts [--version 0.1.0] [--out dist/office] [--no-pandoc] [--keep-stage]
 //
 // Output: <out>/TeamAX-office-<version>-mac.zip, containing TeamAX-office-<version>/:
-//   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt
+//   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-치과-설치가이드.pdf (docs/office, when built)
+//   app/docs/OFFICE.md (the runbook; the person at the clinic has no copy of the repository)
 //   app/VERSION, app/teamax (control command), app/versions.json
 //   app/bin/darwin-arm64/{bun,rg,pandoc}  app/bin/darwin-amd64/{bun,rg,pandoc}   (the installer keeps this Mac's one)
 //   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher}
@@ -30,6 +31,9 @@ export const DOWNLOADS: Record<string, { url: string; sha256: string }> = {
   'pandoc-3.9.0.2-arm64-macOS.zip': { url: 'https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-arm64-macOS.zip', sha256: '6e9eca844076bcbb599bbeebbba78a70f93b5307782b85c2c272872812c88875' },
   'pandoc-3.9.0.2-x86_64-macOS.zip': { url: 'https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-x86_64-macOS.zip', sha256: 'b9fbceabccbc8f34ac021a50483fc32f8160568d0b4b2c22d81bb29e3054fd82' },
 }
+
+/** the printed clinic guide (docs/office/guide.html → PDF), copied next to office-install.sh */
+export const OFFICE_PDF = 'Team-AX-치과-설치가이드.pdf'
 
 const ENTRIES: [string, string][] = [
   ['server/src/main.ts', 'main.js'],
@@ -148,6 +152,12 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
     fs.chmodSync(path.join(stage, f), 0o755)
   }
   fs.copyFileSync(path.join(scripts, 'README.txt'), path.join(stage, '설치-먼저-읽기.txt'))
+  // the guide travels with the program (the person at the clinic has no copy of the repository)
+  fs.mkdirSync(path.join(app, 'docs'), { recursive: true })
+  fs.copyFileSync(path.join(REPO, 'docs', 'OFFICE.md'), path.join(app, 'docs', 'OFFICE.md'))
+  const pdf = path.join(REPO, 'docs', 'office', OFFICE_PDF)
+  if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, OFFICE_PDF))
+  else console.warn(`warning: ${pdf} not built (bun docs/install/build-pdf.ts --office): the zip has only app/docs/OFFICE.md`)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
 
   const zip = path.join(o.out, `${name}-mac.zip`)

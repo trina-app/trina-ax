@@ -265,9 +265,12 @@ describe('rate limits (per account and per real client IP)', () => {
     }), { ip, via: 'relay' })
     for (let i = 0; i < DEFAULT_LIMITS.perIp; i++) expect((await viaRelay('2001:db8::1', 'bad pw bad pw')).status).toBe(401)
     expect((await viaRelay('2001:db8::1', 'bad pw bad pw')).status).toBe(429)
-    expect((await viaRelay('2001:db8::2', 'bad pw bad pw')).status).toBe(401)
+    // an IPv6 client counts by its /64 (it can take any address in it): another address there is still limited,
+    // another /64 is not
+    expect((await viaRelay('2001:db8::2', 'bad pw bad pw')).status).toBe(429)
+    expect((await viaRelay('2001:db8:0:1::2', 'bad pw bad pw')).status).toBe(401)
     const rows = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1").get() as { detail: string }
-    expect(JSON.parse(rows.detail)).toEqual({ ip: '2001:db8::2', via: 'relay' })
+    expect(JSON.parse(rows.detail)).toEqual({ ip: '2001:db8:0:1::2', via: 'relay' })
   })
   test('unknown client IP: only the account limit applies', async () => {
     h.advance(DEFAULT_LIMITS.windowMs + 1000)

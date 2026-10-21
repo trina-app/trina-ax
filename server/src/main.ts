@@ -81,7 +81,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     ...base,
     hostname: cfg.listen.host,
     port: cfg.listen.port,
-    fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', server }),
+    fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', port: server.port, server }),
   })
   servers.push(http)
   if (cfg.tls) {
@@ -104,7 +104,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
       port: t.port,
       // read now (Bun.file is lazy): a renewed certificate is a new listener with the new files
       tls: { cert: fs.readFileSync(t.certFile, 'utf8'), key: fs.readFileSync(t.keyFile, 'utf8') },
-      fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', server }),
+      fetch: (req, server) => app.fetch(req, { ip: peerIp(server.requestIP(req)?.address), via: 'direct', port: server.port, server }),
     })
     let tls = serveTls()
     let tlsUp = true

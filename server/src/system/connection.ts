@@ -3,6 +3,7 @@
 // the configuration. The mode is stored in config/server.json (relay.url) and applies after a restart.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 import type { ConnectionMode, ConnectionStatus } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 
@@ -33,12 +34,16 @@ export function certFingerprint(certFile: string): string | null {
  * before that it could be picked and never connected). Cloudflare tunnel and Tailscale are not in v1 (tab 6).
  */
 export function availableModes(cfg: AppContext['config']): ConnectionMode[] {
+  // office mode (docs/OFFICE.md): the office network only; its supervisor rewrites server.json at every start
+  if (cfg.office) return ['direct-only']
   return cfg.relay.officialAvailable ? ['relay', 'self-relay', 'direct-only'] : ['self-relay', 'direct-only']
 }
 
 export function connectionStatus(ctx: AppContext): ConnectionStatus {
   const cfg = ctx.config
-  const direct = { enabled: !!cfg.tls, port: cfg.tls?.port ?? 8443, fingerprintSha256: cfg.tls ? certFingerprint(cfg.tls.certFile) : null }
+  // office mode: the fingerprint the desks compare is the office CA's (tls/ca.crt next to the server certificate)
+  const fpFile = cfg.tls ? (cfg.office ? path.join(path.dirname(cfg.tls.certFile), 'ca.crt') : cfg.tls.certFile) : null
+  const direct = { enabled: !!cfg.tls, port: cfg.tls?.port ?? 8443, fingerprintSha256: fpFile ? certFingerprint(fpFile) : null }
   const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg) }
   if (ctx.services.relay) {
     const s = ctx.services.relay.status()
