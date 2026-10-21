@@ -22,7 +22,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { ext } from '../files/extract'
 import type { ToolCtx } from '../files/service'
-import { conflictCopyName, fileEvent, readRegular, sha256 } from '../files/store'
+import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -308,8 +308,9 @@ export class MakeFile {
     c.files.bytesWritten += size
     c.files.filesWritten.add(rel)
     c.files.readHashes.set(rel, sha)
+    // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
+    if (conflictOf) recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool: 'make_file' })
     fileEvent(this.ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool: 'make_file', ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
-    if (conflictOf) fileEvent(this.ctx.db, { turnId: c.turnId, userId: c.user.id, path: conflictOf, action: 'conflict', size, sha256: sha, detail: { tool: 'make_file', copy: rel } })
     this.files.extractText(rel)
     publishChanges(this.ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
     return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }

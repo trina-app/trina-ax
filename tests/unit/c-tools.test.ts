@@ -147,7 +147,8 @@ describe('make_file', () => {
     await A.ctx.files.call('read', { file_path: 'shared/src.docx' }, t)
     const replaced = await call('erin', null, 'make_file', { source: 'shared/src.md', format: 'docx', output: 'shared/src.docx' }, t.files)
     expect(replaced.text).toContain('Saved shared/src.docx')
-    expect((A.ctx.db.query("SELECT COUNT(*) AS n FROM file_versions WHERE path = 'shared/src.docx'").get() as any).n).toBe(1)
+    // one kept version, plus erin's earlier conflict copy recorded in the original's history (security review r2)
+    expect(A.ctx.db.query("SELECT kind FROM file_versions WHERE path = 'shared/src.docx' ORDER BY version").all()).toEqual([{ kind: 'conflict_copy' }, { kind: 'edit' }])
   })
   test('absolute-path and remote images fail the conversion and nothing leaks into the file', async () => {
     const secret = path.join(A.data, 'secret.png')

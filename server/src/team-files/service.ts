@@ -8,7 +8,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
-import { atomicWrite, conflictCopyName, fileEvent, readRegular, saveVersion, sha256 } from '../files/store'
+import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
@@ -181,14 +181,8 @@ export class TeamFiles {
     const copy = [...dir, name]
     atomicWrite(this.root, copy, data)
     const copyRel = copy.join('/')
-    const db = this.ctx.db
-    const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(r.rel) as { v: number }).v
-    db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(newId(), r.rel, v, sha256(data), data.length, user.id, null, 'conflict_copy', copyRel, null)
-    const last = db.query("SELECT e.user_id FROM file_events e WHERE e.path = ? AND e.action IN ('update','create','upload','restore') ORDER BY e.id DESC LIMIT 1").get(r.rel) as { user_id: string } | null
-    fileEvent(db, { turnId: null, userId: user.id, path: r.rel, action: 'conflict', size: data.length, sha256: sha256(data), detail: { copy: copyRel, changedBy: last?.user_id ?? null, tool: 'file-screen' } })
-    fileEvent(db, { turnId: null, userId: user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: r.rel } })
-    this.ctx.files.events.emit('conflict', { path: r.rel, copy: copyRel, by: user.id, users: [user.id, last?.user_id].filter(Boolean) })
+    recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: r.rel, copy: copyRel, userId: user.id, turnId: null, size: data.length, sha256: sha256(data), tool: 'file-screen' })
+    fileEvent(this.ctx.db, { turnId: null, userId: user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: r.rel } })
     this.publish([{ path: copyRel, action: 'create', by: this.by(user.id), turnId: null }])
     return { path: copyRel, conflict: true, entry: this.entry(user, rules, copy) }
   }
@@ -375,6 +369,7 @@ export class TeamFiles {
     if (o.dryRun) return { viewersAdded: added }
     const onExists = o.onExists ?? 'rename'
     let replaced = false
+    let conflictOf: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory() || onExists === 'fail') fileError('conflict', 'exists', { to: r.rel })
       if (r.rel === fr.rel && onExists === 'replace') fileError('conflict', 'exists', { to: r.rel })
@@ -383,8 +378,9 @@ export class TeamFiles {
         const cur = await this.sha(r.abs, checkRegular(r.abs))
         if (o.baseSha256 && o.baseSha256 !== cur) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
-          let cn = conflictCopyName(name, user.name)
+          let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db))
           if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
+          conflictOf = r.rel
           r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })
         } else {
           snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'edit', cur)
@@ -394,7 +390,9 @@ export class TeamFiles {
     }
     const out = copyTeamFile(this.root, fr.abs, r.segs)
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
-    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool: 'file-screen' } })
+    // a conflict copy is told to both people and listed in the original's history, like a conflicting save
+    if (conflictOf) recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: conflictOf, copy: r.rel, userId, turnId: null, size: out.size, sha256: sha, tool: 'file-screen' })
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool: 'file-screen', ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action: replaced ? 'update' : 'create', by: this.by(userId), turnId: null }])
     return { path: r.rel, sha256: sha }
