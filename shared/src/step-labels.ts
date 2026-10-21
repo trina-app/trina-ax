@@ -59,6 +59,10 @@ export const STEP_TEXT = {
   attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}'),
   attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi'),
   refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})'),
+  /** the chat's engine was switched off by an admin: this answer uses the team default */
+  engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})'),
+  /** "Claude 한도에 닿으면 Codex로 넘기기": the subscription limit was hit and the admin allowed the fallback */
+  limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}'),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
@@ -141,6 +145,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   if (step.kind === 'thinking') label = retemplate(['thinking'], step.label, locale)
   else if (step.kind === 'web_search') label = retemplate(['webSearch'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
+  else if (tool === 'engine') label = retemplate(['engineOffDefault', 'limitFallback'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered'], step.label, locale)

@@ -10,6 +10,7 @@
 //                                            the first multi-byte character (the launcher reads them separately)
 //   @fake {"refuseUnless": "sonnet"}         refuse unless --model contains the word
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
+//   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
@@ -232,6 +233,7 @@ for (const d of directives) {
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
+  else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }
   else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }

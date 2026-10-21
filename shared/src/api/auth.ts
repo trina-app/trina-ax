@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, IsoTime, Locale, Ok, Role } from './common'
+import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role } from './common'
 import { endpoint, empty } from './endpoint'
 import { Session, UserPrefs, UserRef } from './entities'
 
@@ -24,6 +24,9 @@ export const Me = z.object({
     localeChoice: Locale.nullable(),
     mustChangePassword: z.boolean(),
     prefs: UserPrefs,
+    /** may pick the engine / model (composer, retry with another model, own default): owner and admins always, others
+     * when Admin > AI engines allows them. Absent (older server) = admins only. */
+    canChooseEngine: z.boolean().optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({ name: z.string(), defaultLocale: Locale }),
@@ -113,7 +116,8 @@ export const UpdateMeBody = z.object({
   /** a language, or null = follow the team default */
   locale: Locale.nullable().optional(),
   email: z.email().nullable().optional(),
-  prefs: UserPrefs.optional(),
+  /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
+  prefs: UserPrefs.extend({ engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
 })
 
 export const AUTH = {
