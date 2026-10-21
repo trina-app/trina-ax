@@ -1,6 +1,10 @@
 // Install test for macOS (component G, design tab 7 "설치": install -> run -> update -> roll back -> back up / restore
 // -> uninstall). Installs a TEST copy (id mycel-test, accounts _axtsrv / _axtagt, ports 19174-19178) with a FAKE engine
 // (tests/lib/g-sbprobe.c) and, when this Mac has Claude Code, the real `claude` binary as the server's engine.
+// Codex in production uses a fake Codex CLI (tests/lib/g-fake-codex.c) installed as --engine codex=...: the
+// codex-login admin command (device auth through the launcher and the model proxy), a Codex chat turn as the engine
+// account (login copy, CONNECT tunnel allow-list, no direct internet, login folder and config.toml out of reach,
+// refreshed login written back), the admin engine status (beta) and codex-logout.
 //
 //   bun run build:native            (as yourself)
 //   sudo bun tests/install/g-macos-install.ts [--keep]      (MYCEL_TEST_CLAUDE=<path> picks the claude binary)
@@ -14,6 +18,7 @@
 // Prints a report and exits 1 if any check failed. Never asks for or stores a password: run it with sudo.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import { API, ApiClient } from '@mycel/shared/api'
 import { buildBundle } from '../../scripts/build-bundle'
@@ -62,7 +67,10 @@ function findClaude(): string | null {
   return null
 }
 const CLAUDE = findClaude()
-const ENGINE_ARGS = (probe: string) => [...(CLAUDE ? ['--engine', `claude=${CLAUDE}`] : []), '--engine', `fake=${probe}`]
+/** engines of every install run: the real claude (if any), the sandbox probe as a fake engine, and the fake Codex with
+ * its models cache (built in main) */
+const ENGINE_ARGS = (probe: string) => [...(CLAUDE ? ['--engine', `claude=${CLAUDE}`] : []), '--engine', `fake=${probe}`,
+  '--engine', `codex=${path.join(W, 'codex-bin', 'codex')}`, '--codex-models', path.join(W, 'models_cache.json')]
 
 async function main() {
   if (process.getuid?.() !== 0) { console.error('run with sudo'); process.exit(2) }
@@ -79,6 +87,12 @@ async function main() {
   await packBundle(v3.dir, v3.archive)
   const probe = path.join(W, 'fake-engine')
   if (sh(['cc', '-O2', '-o', probe, path.join(REPO, 'tests', 'lib', 'g-sbprobe.c')]).code !== 0) throw new Error('cc failed')
+  fs.mkdirSync(path.join(W, 'codex-bin'), { recursive: true })
+  const fakeCodex = path.join(W, 'codex-bin', 'codex')
+  if (sh(['cc', '-O2', '-o', fakeCodex, path.join(REPO, 'tests', 'lib', 'g-fake-codex.c')]).code !== 0) throw new Error('cc g-fake-codex failed')
+  // a models cache like the one Codex fetches: the installer locks it into model_catalog.json (no shell for any model)
+  const modelsCache = path.join(W, 'models_cache.json')
+  fs.writeFileSync(modelsCache, JSON.stringify({ fetched_at: 'test', models: [{ slug: 'gpt-test', display_name: 'GPT Test', shell_type: 'unified_exec', tool_mode: 'code_mode_only', apply_patch_tool_type: 'freeform', visibility: 'list' }] }))
   const lp = await Bun.build({ entrypoints: [path.join(import.meta.dir, 'g-launcher-probe.ts')], target: 'bun', outdir: W, naming: 'launcher-probe.js' })
   if (!lp.success) throw new Error('bundling the launcher probe failed')
   for (const f of fs.readdirSync(W)) fs.chmodSync(path.join(W, f), fs.statSync(path.join(W, f)).isDirectory() ? 0o755 : 0o755)
@@ -116,6 +130,7 @@ async function main() {
     [`/Library/Logs/${ID}/crash`, 'root:wheel 755'], [`/Library/Logs/${ID}/server`, `${SRV}:admin 750`], [`${BASE}/app/state.json`, `${SRV}:${SRV} 640`],
     [`/Library/LaunchDaemons/${LABEL}.server.plist`, 'root:wheel 644'], [`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'root:wheel 644'],
     [`/Library/LaunchDaemons/${LABEL}.pf.plist`, 'root:wheel 644'], [`/etc/newsyslog.d/${ID}.conf`, 'root:wheel 644'],
+    [`${BASE}/agent/codex-auth`, `${AGT}:${AGT} 700`],
   ]
   for (const [p, w] of want) check(`owner/mode ${p.replace(BASE, '<base>')}`, statOf(p) === w, `${statOf(p)} (want ${w})`)
 
@@ -152,10 +167,12 @@ async function main() {
   const rules = sh(['/sbin/pfctl', '-a', `com.apple/250.${ID}`, '-s', 'rules']).out.trim()
   check('pf anchor rules', rules.includes(`user = `) && rules.includes('block drop out quick'), rules.replace(/\n/g, ' | '))
   // echo servers: "talk" checks that data flows, not just connect() (IPv6 loopback: pf drops the engine account's
-  // packets once the connection exists, so a bare connect can succeed while nothing gets through)
+  // packets once the connection exists, so a bare connect can succeed while nothing gets through). The model proxy
+  // port is the server's real proxy (started with the engine core at boot): it answers "ping" with 400, which is data.
+  await until(() => new Promise<boolean>((res) => { const c = net.connect(PROXY, '127.0.0.1'); c.on('connect', () => { c.destroy(); res(true) }); c.on('error', () => res(false)) }), (v) => v, 30_000)
   // in a separate process: sh() is spawnSync, which would block echo servers living in this one
   const echoes = Bun.spawn([process.execPath, '-e', `const n = require('net'); const e = (c) => c.on('data', (d) => c.write(d)).on('error', () => {});
-for (const [h, p] of [['127.0.0.1', ${PROXY}], ['127.0.0.1', ${DECOY}], ['::1', ${DECOY}]]) n.createServer(e).listen(p, h);
+for (const [h, p] of [['127.0.0.1', ${DECOY}], ['::1', ${DECOY}]]) n.createServer(e).listen(p, h);
 console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   { const r = echoes.stdout.getReader(); await r.read(); r.releaseLock() }
   const asAgent = (...a: string[]) => sh([probe, ...a], { user: AGT }).code === 0
@@ -184,6 +201,9 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   check('launcher+sandbox+pf: no other localhost port', turn('c1', 'talk', '127.0.0.1', String(DECOY)).code !== 0 && turn('c1', 'talk', '::1', String(DECOY)).code !== 0)
   check('launcher+sandbox+pf: model proxy port reachable', turn('c1', 'talk', '127.0.0.1', String(PROXY)).code === 0)
   check('launcher+sandbox: no shell', turn('c1', 'exec', '/bin/sh').code !== 0)
+  // a Codex login copy left in a chat folder (launcher crashed mid Codex turn) is removed before another engine's turn
+  sh(['/bin/sh', '-c', `mkdir -p '${BASE}/agent/c3/.codex' && echo '{"tokens":{"account_id":"a","refresh_token":"left-over"}}' > '${BASE}/agent/c3/.codex/auth.json'`], { user: AGT })
+  check('launcher: a left-over Codex login copy is gone before a non-Codex turn in that chat', turn('c3', 'read', '{CHAT_DIR}/.codex/auth.json').code !== 0 && sh(['/bin/test', '-e', `${BASE}/agent/c3/.codex`], { user: AGT }).code !== 0)
   // nc, not the bun client: the launcher answers a refused peer and closes at once, which bun can report as
   // ECONNREFUSED before it reads the answer
   const ask = (user?: string) => sh(['/usr/bin/nc', '-U', `${BASE}/run-launcher/launcher.sock`], { input: '{"op":"run"}\n', user })
@@ -193,6 +213,8 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   check('the launcher refuses root (only the server uid)', /only the server may use the launcher/.test(asRoot.out), (asRoot.out + asRoot.err).trim().slice(0, 160))
   echoes.kill()
   await subscription(asAgent)
+
+  await codexChecks()
 
   // ---- updates: switch, bootstrap roll-back of a crashing version, manual roll-back ----
   const stg = admin(['stage-update', v2.archive])
@@ -224,17 +246,17 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   // the hard link goes into the version folder the installer copies (test.1); the old code chowned it recursively
   sh(['/bin/sh', '-c', `ln '${victim}' '${BASE}/app/versions/0.9.0-test.1/hardlink' ; rm -f '${BASE}/app/state.json' && ln -s '${victim}-new' '${BASE}/app/state.json'`], { user: SRV })
   const rep1 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), ...ENGINE_ARGS(probe), '--allow-unsigned', '--no-power', '--skip-tmutil'])
   check('repair run with planted links and hard links', rep1.code === 0, (rep1.out + rep1.err).trim().split('\n').slice(-2).join(' | '))
   check('repair: a hard link the server made is not chowned by root', statOf(victim) === 'root:wheel 644', statOf(victim))
   check('repair: a planted state.json link is replaced, not followed', !fs.existsSync(`${victim}-new`) && statOf(`${BASE}/app/state.json`) === `${SRV}:${SRV} 640`, statOf(`${BASE}/app/state.json`))
   sh(['/bin/sh', '-c', `rm -rf '${BASE}/app/engines/fake' && ln -s /private/tmp '${BASE}/app/engines/fake'`], { user: SRV })
   const rep2 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), ...ENGINE_ARGS(probe), '--allow-unsigned', '--no-power', '--skip-tmutil'])
   check('repair refuses a symbolic link on the way to a folder it chowns', rep2.code !== 0 && /symbolic link/.test(rep2.err) && statOf('/private/tmp') === 'root:wheel 1777', (rep2.err.trim().split('\n').at(-1) ?? '') + ' /tmp=' + statOf('/private/tmp'))
   sh(['/bin/rm', '-f', `${BASE}/app/engines/fake`])
   const rep3 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), ...ENGINE_ARGS(probe), '--allow-unsigned', '--no-power', '--skip-tmutil'])
   check('repair run after the link is gone', rep3.code === 0, (rep3.out + rep3.err).trim().split('\n').slice(-2).join(' | '))
   fs.rmSync(victim, { force: true })
   await until(health, (h) => !!h?.ok, 30_000)
@@ -377,6 +399,61 @@ async function subscription(asAgent: (...a: string[]) => boolean) {
   } finally {
     upstream.stop(true)
   }
+}
+
+// ---- Codex as the engine account (design tab 2 "Codex 네트워크", tab 3 codex_login) ----
+async function codexChecks() {
+  const cfgJson = readJson(`${BASE}/config/server.json`)
+  const codexBin = `${BASE}/app/engines/codex/current/codex`
+  check('server.json: engine.codexBin is the installed Codex and engine.proxyPort the pf port', cfgJson?.engine?.codexBin === codexBin && cfgJson?.engine?.proxyPort === PROXY, JSON.stringify({ codexBin: cfgJson?.engine?.codexBin, proxyPort: cfgJson?.engine?.proxyPort }))
+  const real = sh(['/usr/bin/readlink', `${BASE}/app/engines/codex/current`]).out.trim()
+  const catalog = `${BASE}/app/engines/codex/${real}/model_catalog.json`
+  check('locked Codex catalog next to the engine (server-owned, engine group can read)', statOf(catalog) === `${SRV}:${AGT} 640`, statOf(catalog))
+  const cat = readJson(catalog)
+  check('catalog: every model has the shell off, direct tools, no apply_patch', !!cat && cat.models.every((m: any) => m.shell_type === 'disabled' && m.tool_mode === 'direct' && m.apply_patch_tool_type === null), JSON.stringify(cat?.models?.map((m: any) => [m.slug, m.shell_type, m.tool_mode])))
+  const plist = fs.readFileSync(`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'utf8')
+  check('launcher: --allow-cmd the installed Codex, --codex-auth-dir agent/codex-auth', plist.includes(`<string>${codexBin}</string>`) && plist.includes(`<string>${BASE}/agent/codex-auth</string>`))
+
+  const st0 = admin(['codex-status'])
+  check('admin codex-status before the login: not signed in (exit 3)', st0.code === 3 && JSON.parse(st0.out || '{}').loggedIn === false, (st0.out + st0.err).trim().slice(0, 200))
+  const login = admin(['codex-login'])
+  check('admin codex-login: prints the URL and the one-time code, ends signed in', login.code === 0 && login.out.includes('https://auth.openai.com/codex/device') && login.out.includes('TEST-INST1') && login.out.includes('signed in'), (login.out + login.err).trim().split('\n').slice(-4).join(' | '))
+  check('the engine account\'s Codex login is agent/codex-auth/auth.json, engine account 600', statOf(`${BASE}/agent/codex-auth/auth.json`) === `${AGT}:${AGT} 600`, statOf(`${BASE}/agent/codex-auth/auth.json`))
+  check('the server account cannot read the Codex login', sh(['/bin/cat', `${BASE}/agent/codex-auth/auth.json`], { user: SRV }).code !== 0)
+  const st1 = admin(['codex-status'])
+  check('admin codex-status after the login: signed in, no token in the output', st1.code === 0 && JSON.parse(st1.out || '{}').accountId === 'acc-install' && !/r-0|access/.test(st1.out), st1.out.trim())
+
+  // a Codex chat turn as the engine account, through the API (the owner: Codex is beta in production)
+  const code = fs.readFileSync(`${BASE}/setup/code`, 'utf8').trim()
+  const base = `http://127.0.0.1:${PORT}`
+  const anon = new ApiClient({ baseUrl: base })
+  const pw = 'install-test-pass-1'
+  try {
+    if ((await anon.call(API.setupStatus)).needed) await anon.call(API.setup, { body: { setupToken: code, teamName: 'Install test', locale: 'en', owner: { username: 'owner', name: 'Owner', password: pw } } })
+    const tok = (await anon.call(API.login, { body: { username: 'owner', password: pw, client: 'web', tokenMode: 'bearer' } })).token!
+    const api = new ApiClient({ baseUrl: base, token: tok })
+    const eng = await api.call(API.engines)
+    const cx = eng.engines.find((e) => e.id === 'codex')
+    check('admin engines: Codex ok (engine account signed in), labelled beta, models from the locked catalog', cx?.status === 'ok' && cx?.beta === true && cx?.models.some((m) => m.id === 'gpt-test'), JSON.stringify({ status: cx?.status, beta: cx?.beta, detail: cx?.detail, models: cx?.models }))
+    const chat = await api.call(API.createChat, { body: { engine: 'codex' } })
+    const sent = await api.call(API.sendMessage, { params: { id: chat.id }, body: { content: 'hello codex', clientMessageId: 'cm-install-codex', attachmentIds: [] } })
+    const done = await until(async () => (await api.call(API.listMessages, { params: { id: chat.id } })).items.find((m) => m.id === sent.assistantMessage.id), (m) => !!m && m.status !== 'streaming', 60_000)
+    const text = done?.content ?? ''
+    check('Codex turn as the engine account answers', done?.status === 'done' && text.startsWith('fakecodex'), JSON.stringify({ status: done?.status, error: done?.error, text }))
+    check('Codex turn: the login copy was in its CODEX_HOME', text.includes('auth=ok'), text)
+    check('Codex turn: tunnel to chatgpt.com:443 through the model proxy (200)', text.includes('tunnel=200'), text)
+    check('Codex turn: tunnel to another host refused (403)', text.includes('other=403'), text)
+    check('Codex turn: no direct internet (sandbox + pf)', text.includes('direct=blocked'), text)
+    check('Codex turn: the login folder itself is out of reach', text.includes('authdir=blocked'), text)
+    check('Codex turn: CODEX_HOME/config.toml cannot be written', text.includes('config=blocked'), text)
+    const after = sh(['/bin/cat', `${BASE}/agent/codex-auth/auth.json`]).out
+    check('Codex turn: the refreshed login (same account) was written back by the launcher', /"refresh_token":"r-\d{6,}"/.test(after) && after.includes('acc-install'), after.replace(/"(id|access)_token":"[^"]*"/g, '').slice(0, 160))
+    check('Codex turn: nothing of the login stays in the chat folder', sh(['/bin/test', '-e', `${BASE}/agent/${chat.id}/.codex`], { user: AGT }).code !== 0)
+  } catch (e) {
+    check('Codex turn through the API', false, (e as Error).stack?.slice(0, 400))
+  }
+  const out = admin(['codex-logout'])
+  check('admin codex-logout removes the login', out.code === 0 && !fs.existsSync(`${BASE}/agent/codex-auth/auth.json`) && admin(['codex-status']).code === 3, out.out.trim())
 }
 
 async function uninstall() {

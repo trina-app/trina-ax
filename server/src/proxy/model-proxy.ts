@@ -6,9 +6,12 @@
 // back without buffering and counts the usage itself (authoritative numbers in `turns`, usage_source 'proxy').
 // Subscription mode (owner 2026-10-21: subscriptions only) runs it in production; company-key mode stays code only.
 import crypto from 'node:crypto'
+import net from 'node:net'
+import type { IncomingMessage } from 'node:http'
 import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
 import { budgetBlock } from '../admin/budgets'
+import { codexConnectHandler, type ConnectOpts } from './connect'
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
@@ -40,14 +43,17 @@ export interface ProxyOpts {
   db: Database
   /** the real credential: a company API key (x-api-key) or the owner's long-lived subscription OAuth token
    * (Authorization: Bearer). A function is asked on every request (the token file can change while the server runs);
-   * null = no credential stored (401 + auth event, nothing goes upstream). */
-  upstream: { baseUrl: string; kind: 'api-key' | 'oauth'; secret: string | (() => string | null) }
+   * null = no credential stored (401 + auth event, nothing goes upstream). upstream null = this proxy has no Claude
+   * path at all (503; Codex tunnels still work). */
+  upstream: { baseUrl: string; kind: 'api-key' | 'oauth'; secret: string | (() => string | null) } | null
   /** return false to refuse (TCP peer not in the turn's engine session; the launcher finds the process) */
   peerCheck?: (clientPort: number, serverPort: number, turnId: string) => Promise<boolean>
   /** a turn's request hit an upstream 401, a used-up budget or the subscription limit */
   onTurnEvent?: (turnId: string, ev: ProxyTurnEvent) => void
   /** the upstream refused the credential itself (401): the owner has to connect the subscription again */
   onAuthRejected?: (secret: string | null) => void
+  /** Codex turns' HTTPS tunnels on the same port (CONNECT, ./connect.ts); absent = CONNECT is refused */
+  connect?: Omit<ConnectOpts, 'db'>
   port?: number
   hostname?: string
 }
@@ -143,17 +149,19 @@ export function retryAfterSeconds(v: string | null, now = Date.now()): number | 
   return Number.isNaN(t) ? null : Math.max(0, Math.round((t - now) / 1000))
 }
 
-export interface ModelProxy { url: string; port: number; stop(): void }
+export interface ModelProxy { url: string; port: number; stop(): Promise<void> }
 
-export function startModelProxy(o: ProxyOpts): ModelProxy {
+/** Listens on 127.0.0.1:<port> (Claude requests and Codex CONNECT tunnels, see below); rejects when the port is taken
+ * (no reusePort). */
+export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   const { db } = o
   const add = db.query("UPDATE turns SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_usd = COALESCE(cost_usd, 0) + ?, usage_source = 'proxy' WHERE id = ?")
   const record = (turnId: string, model: string, u: Record<string, number | undefined>) => {
     if (!Object.keys(u).length) return
     add.run((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), u.output_tokens ?? 0,
-      o.upstream.kind === 'api-key' ? costUsd(model, u) : 0, turnId)
+      o.upstream?.kind === 'api-key' ? costUsd(model, u) : 0, turnId)
   }
-  const secret = () => (typeof o.upstream.secret === 'function' ? o.upstream.secret() : o.upstream.secret)
+  const secret = () => (!o.upstream ? null : typeof o.upstream.secret === 'function' ? o.upstream.secret() : o.upstream.secret)
   /** subscription 5-hour / weekly limit reached: nothing goes upstream until then (design tab 1 "업스트림 오류") */
   let limitedUntil = 0
   const limited = (turnId: string) => {
@@ -162,11 +170,9 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
     return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(Math.max(1, Math.ceil((limitedUntil - Date.now()) / 1000))) })
   }
 
-  const server = Bun.serve({
-    hostname: o.hostname ?? '127.0.0.1', port: o.port ?? 0, reusePort: false,
-    // a long answer can stream for many minutes; Bun's default idle timeout (10 s) would cut a quiet stream
-    idleTimeout: 0,
-    async fetch(req, srv) {
+  let serverPort = 0
+  // the Claude path: `req` carries a signal that fires when the engine hangs up
+  async function handle(req: Request, clientPort: number): Promise<Response> {
       const url = new URL(req.url)
       if (!url.pathname.startsWith('/v1/')) return apiError(404, 'not_found_error', 'not found')
       // the engine sends its per-turn token as x-api-key (company key mode) or as a Bearer (subscription mode)
@@ -174,10 +180,17 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
       if (!tok) return apiError(401, 'authentication_error', 'missing proxy token')
       const row = db.query('SELECT * FROM proxy_tokens WHERE token_hash = ?').get(h(tok)) as { turn_id: string; user_id: string; revoked_at: string | null; expires_at: string; budget_usd: number | null } | null
       if (!row || row.revoked_at || row.expires_at < new Date().toISOString()) return apiError(401, 'authentication_error', 'invalid proxy token')
-      if (o.peerCheck) {
-        const ip = srv.requestIP(req)
-        if (!ip || !(await o.peerCheck(ip.port, server.port!, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
+      // the Claude path is for Claude turns only: a Codex turn's token (its HTTPS_PROXY) or the codex-login token must
+      // not reach the Anthropic API with the owner's Claude credential (the Codex turn's process passes the peer check)
+      if (String(row.turn_id).startsWith('codex-login:') || (db.query('SELECT engine FROM turns WHERE id = ?').get(row.turn_id) as { engine: string } | null)?.engine === 'codex') {
+        audit(db, { actor: row.user_id ?? null, action: 'proxy.refused', target: row.turn_id, detail: { reason: 'not a Claude turn', path: url.pathname.slice(0, 120) } })
+        return apiError(403, 'permission_error', 'this token is not for the Claude API')
       }
+      if (o.peerCheck) {
+        if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
+      }
+      if (!o.upstream) return apiError(503, 'api_error', 'no Claude credential is configured on the team server')
+      const upstream = o.upstream
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
@@ -205,7 +218,7 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
       headers.set('content-type', 'application/json')
       const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
-      if (o.upstream.kind === 'api-key') headers.set('x-api-key', real)
+      if (upstream.kind === 'api-key') headers.set('x-api-key', real)
       else {
         headers.set('authorization', 'Bearer ' + real)
         beta.add('oauth-2025-04-20')
@@ -221,7 +234,7 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
       try {
         // never follow a redirect: it would carry the request (and an x-api-key, which fetch keeps across origins) to
         // another host, or the real credential to a path the rules above do not allow
-        up = await fetch(o.upstream.baseUrl.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
+        up = await fetch(upstream.baseUrl.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
       } catch {
         return apiError(502, 'api_error', 'the model service could not be reached')
       }
@@ -289,7 +302,106 @@ export function startModelProxy(o: ProxyOpts): ModelProxy {
       const text = await up.text()
       if (counts) try { const j = JSON.parse(text); if (j.usage) record(row.turn_id, j.model ?? model, j.usage) } catch {}
       return new Response(text, { status: up.status, headers: outHeaders })
+  }
+
+  // One port, two kinds of callers (design tab 1 '리슨'): Codex tunnels (CONNECT) and Claude's HTTP requests. A small
+  // TCP front reads the first bytes of each connection: CONNECT goes to the tunnel handler (./connect.ts), anything
+  // else is piped to an internal Bun.serve on another loopback port. Not node:http: Bun's node:http server never
+  // reports a caller that hung up (no 'close'), so a stopped turn would keep the upstream request streaming; Bun.serve
+  // aborts req.signal, and the pipe closes it when the engine's connection closes. Bun.serve alone cannot take a
+  // CONNECT. The internal port answers only connections the front opened (it maps them back to the engine's port for
+  // the peer check), so reaching it directly gets a 403; pf and the sandbox do not let the engine reach it anyway.
+  const MAX_HEAD = 16 * 1024
+  const links = new Map<number, number>() // internal client port -> the engine's client port on the front
+  const inner = Bun.serve({
+    hostname: '127.0.0.1', port: 0, reusePort: false,
+    // a long answer can stream for many minutes; Bun's default idle timeout (10 s) would cut a quiet stream
+    idleTimeout: 0,
+    maxRequestBodySize: 32 * 1024 * 1024,
+    async fetch(req, srv) {
+      const ip = srv.requestIP(req)
+      const clientPort = ip ? links.get(ip.port) : undefined
+      if (clientPort === undefined) return apiError(403, 'permission_error', 'not through the model proxy port')
+      try { return await handle(req, clientPort) } catch { return apiError(502, 'api_error', 'the team server could not reach the model API') }
     },
   })
-  return { url: `http://${o.hostname ?? '127.0.0.1'}:${server.port}`, port: server.port!, stop: () => server.stop(true) }
+  const onConnect = o.connect ? codexConnectHandler({ db, ...o.connect }) : null
+  const sockets = new Set<net.Socket>()
+  let closing = false
+
+  function connectRequest(sock: net.Socket, first: Buffer) {
+    let buf = first
+    const go = () => {
+      const end = buf.indexOf('\r\n\r\n')
+      if (end < 0) {
+        if (buf.length > MAX_HEAD) { sock.end('HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'); return }
+        sock.once('data', (d: Buffer) => { buf = Buffer.concat([buf, d]); go() })
+        return
+      }
+      const lines = buf.subarray(0, end).toString('latin1').split('\r\n')
+      const m = /^CONNECT (\S+) HTTP\/1\.[01]$/.exec(lines[0] ?? '')
+      if (!m) { sock.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'); return }
+      const headers: Record<string, string> = {}
+      for (const l of lines.slice(1)) { const i = l.indexOf(':'); if (i > 0) headers[l.slice(0, i).trim().toLowerCase()] = l.slice(i + 1).trim() }
+      const head = buf.subarray(end + 4)
+      sock.pause()
+      if (onConnect) { void onConnect({ url: m[1], headers } as unknown as IncomingMessage, sock, head); return }
+      audit(db, { actor: null, action: 'proxy.connect_refused', target: null, detail: { reason: 'no tunnels on this proxy', host: m[1]!.slice(0, 120) } })
+      sock.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+    }
+    go()
+  }
+  function pipeToInner(sock: net.Socket, first: Buffer) {
+    sock.pause()
+    const up = net.connect(inner.port!, '127.0.0.1')
+    let localPort = 0
+    up.on('error', () => sock.destroy())
+    up.on('connect', () => {
+      if (sock.destroyed) { up.destroy(); return }
+      localPort = up.localPort ?? 0
+      links.set(localPort, sock.remotePort ?? 0)
+      up.write(first)
+      sock.pipe(up)
+      up.pipe(sock)
+    })
+    sock.on('close', () => up.destroy())
+    up.on('close', () => { if (localPort) links.delete(localPort); sock.destroy() })
+  }
+  const front = net.createServer((sock) => {
+    if (closing) { sock.destroy(); return }
+    sockets.add(sock)
+    sock.on('close', () => sockets.delete(sock))
+    sock.on('error', () => {})
+    let buf = Buffer.alloc(0)
+    const onData = (d: Buffer) => {
+      buf = Buffer.concat([buf, d])
+      // "CONNECT " decides; a shorter first chunk that could still become it waits for more
+      if (buf.length < 8 && 'CONNECT '.startsWith(buf.toString('latin1'))) return
+      sock.off('data', onData)
+      if (buf.subarray(0, 8).toString('latin1') === 'CONNECT ') connectRequest(sock, buf)
+      else pipeToInner(sock, buf)
+    }
+    sock.on('data', onData)
+  })
+  try {
+    await new Promise<void>((ok, fail) => {
+      front.once('error', fail)
+      front.listen({ port: o.port ?? 0, host: o.hostname ?? '127.0.0.1', exclusive: true }, () => { front.off('error', fail); ok() })
+    })
+  } catch (e) {
+    inner.stop(true)
+    throw e
+  }
+  serverPort = (front.address() as net.AddressInfo).port
+  return {
+    port: serverPort,
+    url: `http://${o.hostname ?? '127.0.0.1'}:${serverPort}`,
+    stop: () => new Promise<void>((ok) => {
+      closing = true
+      onConnect?.closeAll()
+      for (const s of sockets) s.destroy()
+      inner.stop(true)
+      front.close(() => ok())
+    }),
+  }
 }

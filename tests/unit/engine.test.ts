@@ -145,9 +145,17 @@ describe('codex per-chat state (dev-owner-symlink)', () => {
     expect(lr.env.HOME).toBe(path.join(chat, '.home'))
     expect(lr.args).toContain(`model_catalog_json=${JSON.stringify(path.join(chat, '.codex', 'catalog.json'))}`)
     expect(lr.args.join(' ')).not.toContain(path.join(W, 'data'))
-    // role-account mode keeps its configured folders
-    const own = buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000 }, { ...conf, auth: 'agent-own' })
-    expect(own.env.CODEX_HOME).toBe(conf.codexHome)
+    // role-account mode: the launcher makes <chat>/.codex (login copy) and <chat>/.home; the catalog stays in the
+    // engine folder; HTTPS only through the model proxy
+    const own = buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000, proxy: { port: 47821, token: 'mpx_tok' } }, { ...conf, auth: 'agent-own' })
+    expect(own.env.CODEX_HOME).toBe('{CHAT_DIR}/.codex')
+    expect(own.env.HOME).toBe('{CHAT_DIR}/.home')
+    expect(own.env.HTTPS_PROXY).toBe('http://turn:mpx_tok@127.0.0.1:47821')
+    expect(own.env.SSL_CERT_FILE).toBe('/etc/ssl/cert.pem')
+    expect(own.codexAuth).toBe(true)
+    expect(own.args).toContain(`model_catalog_json=${JSON.stringify(catalog)}`)
+    expect(own.args).toContain('cli_auth_credentials_store="file"')
+    expect(() => buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000 }, { ...conf, auth: 'agent-own' })).toThrow(/model proxy/)
   })
 
   test('links the engine left in its chat folder are removed, not followed', () => {

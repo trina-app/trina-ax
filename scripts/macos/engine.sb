@@ -152,3 +152,18 @@
 ;; it; with LOCAL_LOGIN=1 a session folder that is the chat folder itself). Only the folder itself: the turn's own
 ;; chat folder inside it is a different path and stays allowed.
 (deny file-read-metadata (literal (param "AGENT_ROOT")))
+
+;; --- Codex lockdown files (last: wins over the chat folder and SESSION_DIR allows above) -------------------------
+;; The Codex files that change what the engine may do (design tab 2 "엔진 잠금 (Codex CLI)"): a config.toml,
+;; a models_cache.json (its shell_type decides whether the model gets a shell), skills and plugins written by a turn
+;; would be read by the same CLI; so would a changed catalog.json (dev: the server's per-turn copy of the locked catalog).
+;; Every setting travels as -c and the catalog is written by the server (dev) or lives in the engine folder (production),
+;; so Codex never needs to write them; it only logs that the cache / bundled skills could not be written.
+(deny file-write*
+  (literal (string-append (param "CHAT_DIR") "/.codex/config.toml"))
+  (literal (string-append (param "CHAT_DIR") "/.codex/models_cache.json"))
+  (literal (string-append (param "CHAT_DIR") "/.codex/catalog.json"))
+  (subpath (string-append (param "CHAT_DIR") "/.codex/skills"))
+  (subpath (string-append (param "CHAT_DIR") "/.codex/plugins"))
+  (literal (string-append (param "CHAT_DIR") "/.codex/AGENTS.md"))
+  (literal (string-append (param "CHAT_DIR") "/.codex/hooks.json")))

@@ -80,9 +80,12 @@ export type ProxyState = 'starting' | 'listening' | 'port_in_use' | 'stopped'
 export interface ProxyServiceOptions {
   db: Database
   port: number
-  upstreamUrl: string
+  /** the Anthropic API (or a test upstream); null = no Claude path on this proxy (503), Codex tunnels only */
+  upstreamUrl: string | null
   secretsDir: string
   peerCheck?: ProxyOpts['peerCheck']
+  /** Codex turns' HTTPS tunnels through the same port (production: the engine account's only network path) */
+  connect?: ProxyOpts['connect']
   /** the upstream refused the owner's token (401): tell the admins to connect the subscription again */
   onAuthRejected?: () => void
   log?: { warn(msg: string, f?: Record<string, unknown>): void; info(msg: string, f?: Record<string, unknown>): void }
@@ -107,30 +110,37 @@ export class ModelProxyService {
   }
 
   get ready() { return this.state === 'listening' }
-  get baseUrl() { return `http://127.0.0.1:${this.o.port}` }
-  get port() { return this.o.port }
+  get baseUrl() { return `http://127.0.0.1:${this.port}` }
+  /** the bound port (the configured one; with port 0, the one the OS gave once listening) */
+  get port() { return this.proxy?.port ?? this.o.port }
+
+  /** the first bind attempt (resolves either way; `ready` says whether it is listening) */
+  started: Promise<void> = Promise.resolve()
 
   start(): this {
     if (this.state === 'stopped') return this
-    try {
-      this.proxy = startModelProxy({
-        db: this.o.db, port: this.o.port,
-        upstream: { baseUrl: this.o.upstreamUrl, kind: 'oauth', secret: () => this.tokens.read() },
-        peerCheck: this.o.peerCheck,
-        onTurnEvent: (turnId, ev) => this.listeners.get(turnId)?.(ev),
-        onAuthRejected: (secret) => {
-          if (secret) markTokenRejected(this.o.db, secret)
-          this.o.onAuthRejected?.()
-        },
-      })
+    this.started = startModelProxy({
+      db: this.o.db, port: this.o.port,
+      upstream: this.o.upstreamUrl === null ? null : { baseUrl: this.o.upstreamUrl, kind: 'oauth', secret: () => this.tokens.read() },
+      peerCheck: this.o.peerCheck,
+      ...(this.o.connect ? { connect: this.o.connect } : {}),
+      onTurnEvent: (turnId, ev) => this.listeners.get(turnId)?.(ev),
+      onAuthRejected: (secret) => {
+        if (secret) markTokenRejected(this.o.db, secret)
+        this.o.onAuthRejected?.()
+      },
+    }).then((p) => {
+      if (this.state === 'stopped') { void p.stop(); return }
+      this.proxy = p
       if (this.state !== 'listening') this.o.log?.info('model proxy listening', { port: this.o.port })
       this.state = 'listening'
-    } catch (e) {
+    }, (e) => {
+      if (this.state === 'stopped') return
       if (this.state !== 'port_in_use') this.o.log?.warn('model proxy port in use; Claude turns wait until it is free', { port: this.o.port, err: (e as Error).message })
       this.state = 'port_in_use'
       this.timer = setTimeout(() => { this.timer = null; this.start() }, this.o.retryMs ?? 10_000)
       ;(this.timer as { unref?: () => void }).unref?.()
-    }
+    })
     return this
   }
 
@@ -140,10 +150,11 @@ export class ModelProxyService {
     return () => { if (this.listeners.get(turnId) === fn) this.listeners.delete(turnId) }
   }
 
-  stop() {
+  async stop() {
     this.state = 'stopped'
     if (this.timer) clearTimeout(this.timer)
-    this.proxy?.stop()
+    const p = this.proxy
     this.proxy = null
+    await p?.stop()
   }
 }

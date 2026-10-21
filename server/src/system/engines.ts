@@ -51,6 +51,9 @@ export interface EngineCheckOptions {
   secretsDir: string
   /** the server's database: the model proxy notes there when the upstream refused the token */
   db?: Database | null
+  /** role-account install: the engine account's Codex login as the launcher sees it (server/src/native.ts
+   * codexLoginState; the server account cannot read <agent root>/codex-auth). null = launcher did not answer. */
+  codexLogin?: () => Promise<{ loggedIn: boolean } | null>
 }
 
 export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]> {
@@ -76,8 +79,13 @@ export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]
   // Codex CLI
   if (!exists(o.codexBin)) out.push({ engine: 'codex', installed: false, loggedIn: null, method: null, reason: 'not_installed' })
   else if (o.roleAccount) {
-    // the engine account's own login lives in its folder, which the server account cannot read by design
-    out.push({ engine: 'codex', installed: true, loggedIn: null, method: null, reason: 'engine_login_missing' })
+    // the engine account's own login lives in its folder, which the server account cannot read by design: ask the
+    // launcher (it never returns the token)
+    const s = o.codexLogin ? await o.codexLogin().catch(() => null) : null
+    if (!o.codexLogin) out.push({ engine: 'codex', installed: true, loggedIn: null, method: null, reason: 'engine_login_missing' })
+    else if (s?.loggedIn === false) out.push({ engine: 'codex', installed: true, loggedIn: false, method: null, reason: 'engine_login_missing' })
+    else if (!s) out.push({ engine: 'codex', installed: true, loggedIn: null, method: null, reason: 'check_failed' })
+    else out.push({ engine: 'codex', installed: true, loggedIn: true, method: 'ChatGPT (engine account)', reason: null })
   } else {
     try {
       const r = await run([o.codexBin!, 'login', 'status'], 15_000)

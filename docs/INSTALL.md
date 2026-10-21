@@ -201,7 +201,8 @@ read `/Library/Logs/mycel/crash/server.log`.
 | `--port` | 47820 | HTTP on 127.0.0.1 |
 | `--tls-port` | 8443 | office network (self-signed); 0 = off |
 | `--proxy-port` | 47821 | local model proxy, the only address the engine account may reach |
-| `--engine NAME=FILE` | | repeatable |
+| `--engine NAME=FILE` | | repeatable; `codex=FILE` is the Codex CLI (`engine.codexBin`, file must be named `codex`) |
+| `--codex-models FILE` | `~$SUDO_USER/.codex/models_cache.json` | Codex model list, locked into `app/engines/codex/<sha>/model_catalog.json` |
 | `--allow-unsigned` | | accept an unsigned bundle |
 | `--no-power` | | skip `pmset` (laptops) |
 | `--skip-tmutil` | | skip Time Machine exclusions |
@@ -214,7 +215,8 @@ What it creates:
   - `config/server.json`;
   - `secrets/lan-tls.*`;
   - `setup/code`;
-  - `status/`, `agent/` (`_axagent` 700), `agent/home` (root 555);
+  - `status/`, `agent/` (`_axagent` 700), `agent/home` (root 555), `agent/codex-auth` (`_axagent` 700, the engine
+    account's Codex login);
   - `root/` (bootstrap, launcher, `engine.sb`, `pf-load`).
 - **pf anchor** `com.apple/250.mycel`.
 - **Self-signed TLS certificate** (ECDSA P-256, 10 years). It covers `<LocalHostName>.local`, `127.0.0.1` and the
@@ -243,17 +245,30 @@ pbcopy < /dev/null        # empty the clipboard
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
 - The token expires after a year; replace it with the same commands. `--remove` forgets it.
 
-### 2.5 Codex login for the engine account (command not final)
+### 2.5 Codex login for the engine account (owner, once)
+
+Codex runs as `_axagent` with its own ChatGPT login. Use a ChatGPT account meant for the team's AI, not your
+personal one: the engine can read the login it is given for a turn (design tab 2, "Codex 네트워크").
 
 ```sh
-sudo -u _axagent env HOME="/Library/Application Support/mycel/agent/home" \
-     CODEX_HOME="/Library/Application Support/mycel/agent/codex-home" \
-     "/Library/Application Support/mycel/app/engines/codex/current/codex" login --device-auth
+B="/Library/Application Support/mycel"
+sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" codex-login
 ```
 
-Open `https://auth.openai.com/codex/device` and enter the code. The server does not use this login yet. Three
-different Codex home folders appear in the code (`agent/codex-home`, `data/codex-home`, `data/agent/codex-home`), and
-the installer never writes `engine.codexBin`.
+It prints a link (`https://auth.openai.com/codex/device`) and a one-time code. Open the link in any browser, sign in,
+enter the code (it expires after 15 minutes). The command waits and ends with "Codex is signed in for the engine
+account."
+
+- The server must be running: the login goes through its model proxy. `_axagent` can reach nothing else (pf).
+- The launcher runs `codex login --device-auth` as `_axagent`, under the engine sandbox. The login is stored in
+  `agent/codex-auth/auth.json` (`_axagent` 600). The server account cannot read it.
+- `codex-status` shows whether it is signed in (no token is printed); `codex-logout` removes the login.
+- For each Codex turn the launcher copies the login into the chat folder. If Codex refreshes the token, the launcher
+  writes it back, but only a plain file for the same ChatGPT account. One Codex turn runs at a time.
+- **Codex is beta in production.** Only the owner can use it, plus anyone whose user id is in the setting
+  `codexUsers` (a list of user ids; there is no screen for it yet). It cannot be the team default.
+  - Verified so far: the login and the HTTPS path go through the proxy with the sandbox on.
+  - Not yet verified with a real login: Codex WebSockets, token refresh and web search with pf on.
 
 ### 2.6 First-run setup
 
@@ -269,8 +284,8 @@ port, `https://<host>.local:8443/setup?token=…`. The screen is the same as in 
 
 | Where | What it shows |
 |---|---|
-| Admin → AI engines | Claude Code: "Engine account sign-in"; not signed in until the token is stored (2.4). Codex: not connected yet (2.5). |
-| Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821 after the first question, or "port in use". Codex: a warning, most likely "Not installed", because `_axserver` cannot reach a `codex` under `/Users/<you>`. pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
+| Admin → AI engines | Claude Code: "Engine account sign-in"; not signed in until the token is stored (2.4). Codex (beta): "The engine account has no Codex sign-in yet" until 2.5, then "Connected". |
+| Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | Without the token: "The team's Claude subscription is not connected yet." With it: Claude answers. |
 
 **Known crash.** If the launcher socket is missing (the launcher daemon is down), opening Diagnostics kills the
@@ -494,8 +509,9 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 1. **Production chats are not verified on a real install yet.** Subscription mode works as the current user with the
    real `claude` binary (against a fake model service) and is covered by `sudo bun tests/install/g-macos-install.ts`,
    which has not been run on this Mac. A real answer also needs the owner's `claude setup-token` token.
-2. **Codex is not connected in production.** There is no `engine.codexBin`; the launcher's `--allow-cmd` would not
-   allow a PATH codex; there is no `models_cache.json`; and three different codex-home folders appear in the code.
+2. **Codex in production is beta.** It works through the model proxy: `engine.codexBin`, the locked catalog,
+   `agent/codex-auth` and `admin.js codex-login` (2.5). Only the owner (plus `codexUsers`) can use it, and it cannot
+   be the default. The open checks with a real ChatGPT login and pf on are WebSockets, token refresh and web search.
 3. **Engine names are not checked.** `--engine` is not validated, and the first engine becomes `claudeBin`.
 4. **Diagnostics can crash the production server** when `launcher.sock` is missing (`system/ops.ts`).
 5. **No team-name field for your own relay.** Admin → System has none, so the server stays `team_name_missing`

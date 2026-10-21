@@ -12,6 +12,7 @@ import { DEFAULT_PROXY_PORT } from '../app-config'
 import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
+import { codexLoginState } from '../native'
 import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M, tr, uptimeText } from './messages'
@@ -66,9 +67,11 @@ export class OpsService {
     const v = await checkEngines({
       authMode: cfg.authMode, roleAccount: this.roleAccount,
       claudeBin: cfg.claudeBin ?? this.ctx.engineConfig.claudeBin ?? which('claude'),
-      codexBin: cfg.codexBin ?? which('codex'),
+      // role-account install: only the installer's Codex (the launcher allows nothing else), login asked of the launcher
+      codexBin: this.roleAccount ? cfg.codexBin ?? null : cfg.codexBin ?? which('codex'),
       secretsDir: this.layout.secretsDir,
       db: this.ctx.db,
+      ...(this.roleAccount ? { codexLogin: () => codexLoginState(cfg.launcherSock ?? path.join(this.ctx.engineConfig.runDir, 'launcher.sock')) } : {}),
     })
     this.engineCache = { at: Date.now(), v, stamp }
     return v

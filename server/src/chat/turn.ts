@@ -13,6 +13,7 @@ import { buildCodexLaunch, prepareCodexTurn, type CodexConf } from '../engine/co
 import { ClaudeStreamParser } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
+import { audit } from '../admin/audit'
 import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
@@ -20,7 +21,7 @@ import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
 import { buildTurnContext, buildTurnPrompt, type PromptInput } from './prompt'
-import { safeModel } from './engines'
+import { codexBetaAllowed, codexIsBeta, safeModel } from './engines'
 import { engineError, stepLabel, tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, type MessageRow } from './store'
@@ -155,6 +156,7 @@ export class TurnExec {
     const claude = spec.engine === 'claude-code' ? confs.claude : null
     const codex = spec.engine === 'codex' ? confs.codex : null
     if (problem || (!claude && !codex)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
+    if (codex && codexIsBeta(rt.ctx) && !codexBetaAllowed(rt.db, this.principal)) { this.error = engineError('codex_beta', spec.locale); return }
     const core = await rt.core()
     if (this.stopReason) return
 
@@ -195,9 +197,9 @@ export class TurnExec {
     const chatDir = path.join(core.cfg.agentRoot, spec.chatId)
 
     if (claude) {
-      if (claude.modelProxy && core.proxy) {
+      if (claude.modelProxy) {
         // subscription mode: no turn while the proxy cannot listen (fail closed); its findings end this turn
-        if (!core.proxy.ready) { this.error = engineError('proxy_down', spec.locale); return }
+        if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
         this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
       }
       if (!resume) sid = crypto.randomUUID()
@@ -247,24 +249,40 @@ export class TurnExec {
       }
     } else if (codex) {
       const model = spec.model && rt.engines.get().codexModels.includes(spec.model) ? spec.model : undefined
-      const retried = new Set<string>()
-      for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
-        prepareCodexTurn(codex, chatDir)
-        const parser = new CodexEventParser()
-        const errors: EngineEvent[] = []
-        this.attemptHadOutput = false
-        const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: prompt(true), message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, model }, codex)
-        const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
-        this.closeThinking()
-        try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
-        if (this.stopReason) break
-        const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
-        const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
-        if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
-        if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = engineError(err.code, spec.locale)
-        else if (crashed) this.error = engineError('crash', spec.locale)
-        break
+      // the engine account (production) reaches OpenAI only through the model proxy's CONNECT tunnel, with a proxy
+      // token of this turn (revoked when the turn ends; the proxy also checks the turn is running)
+      let proxy: { port: number; token: string } | undefined
+      if (codex.auth === 'agent-own') {
+        if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
+        proxy = { port: core.proxy.port, token: issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS }) }
+      }
+      try {
+        const retried = new Set<string>()
+        for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
+          prepareCodexTurn(codex, chatDir)
+          const parser = new CodexEventParser()
+          const errors: EngineEvent[] = []
+          this.attemptHadOutput = false
+          const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: prompt(true), message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, model, proxy }, codex)
+          const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
+          this.closeThinking()
+          try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
+          // the launcher did not write a changed Codex login back (link, other account, ...): an engine may have tried
+          // to swap it (design tab 2 "로그인 파일")
+          for (const n of notes) { audit(rt.db, { actor: null, action: 'engine.codex_auth', target: spec.turnId, detail: { note: n.slice(0, 300) } }); rt.log.warn('codex login note', { turn: this.id, note: n }) }
+          if (this.stopReason) break
+          // the engine account has no Codex login yet (the owner runs the codex-login command once)
+          if (exit?.ev === 'error' && /codex_not_signed_in|codex_not_configured/.test(String(exit.message))) { this.error = engineError('auth', spec.locale); rt.log.warn('codex: engine account not signed in', { turn: this.id, message: exit.message }); break }
+          const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
+          const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
+          if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+          if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
+          if (err) this.error = engineError(err.code, spec.locale)
+          else if (crashed) this.error = engineError('crash', spec.locale)
+          break
+        }
+      } finally {
+        if (proxy) revokeProxyTokens(rt.db, spec.turnId)
       }
     }
   }
@@ -292,16 +310,18 @@ export class TurnExec {
     // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
     const out = new Utf8Lines()
     const err = new Utf8Text(20000)
+    const notes: string[] = []
     let exit: any = null
     for await (const e of h.events) {
       if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
       else if (e.ev === 'exit' || e.ev === 'error') exit = e
+      else if (e.ev === 'note') notes.push(e.message)
     }
     for (const l of out.end()) if (l.trim()) onLine(l)
     this.handle = null
-    return { exit, stderr: err.text }
+    return { exit, stderr: err.text, notes }
   }
 
   // ---------------- engine events -> answer ----------------

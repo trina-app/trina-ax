@@ -154,6 +154,9 @@ type request struct {
 		Kind  string `json:"kind"`
 		Value string `json:"value"`
 	} `json:"modelToken"`
+	// Codex turn as the engine account: copy the account's Codex login into <chat>/.codex for this turn and write a
+	// refreshed one back afterwards (codex.go). Needs --codex-auth-dir.
+	CodexAuth bool `json:"codexAuth"`
 }
 
 // credential variables an engine must never get through its environment (other processes of the engine account
@@ -166,6 +169,8 @@ var secretEnv = map[string]bool{
 
 // tokenFdVar is the variable that tells Claude Code which inherited descriptor holds its credential
 var tokenFdVar = map[string]string{"oauth": "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "api-key": "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"}
+
+func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 
 type multi []string
 
@@ -442,6 +447,30 @@ func serve(c *net.UnixConn) {
 		ServerPort int    `json:"serverPort"`
 	}
 	_ = json.Unmarshal(line, &probe)
+	switch probe.Op {
+	case "codex-status":
+		codexStatus(o)
+		return
+	case "codex-logout":
+		codexLogout(o)
+		return
+	case "codex-login":
+		stop := make(chan struct{})
+		go func() { // the server closed the connection or sent kill: stop the login
+			for {
+				l, err := r.ReadBytes('\n')
+				var m map[string]any
+				if err != nil || (json.Unmarshal(l, &m) == nil && m["op"] == "kill") {
+					close(stop)
+					return
+				}
+			}
+		}()
+		if err := codexLogin(line, o, stop); err != nil {
+			o.send(map[string]any{"ev": "error", "message": err.Error()})
+		}
+		return
+	}
 	if probe.Op == "tcp-peer" { // model proxy: which engine process owns this loopback connection? (only this uid can see it)
 		pid, err := peer.TCPOwner(probe.ClientPort, probe.ServerPort)
 		if err != nil {
@@ -489,11 +518,22 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if !inside(*agentRoot, chat) || filepath.Dir(chat) != filepath.Clean(*agentRoot) {
 		return fmt.Errorf("chat folder must be directly under the agent root")
 	}
+	if isCodexAuthDir(chat) {
+		return fmt.Errorf("the Codex login folder is not a chat folder")
+	}
 	if err := os.MkdirAll(chat, 0o700); err != nil {
 		return err
 	}
 	if st, err := os.Lstat(chat); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("bad chat folder")
+	}
+	if *codexAuthDir != "" && !req.CodexAuth {
+		// a Codex turn's copy of the engine account's login (<chat>/.codex/auth.json, the ChatGPT refresh token) is
+		// removed when that turn ends; after a launcher crash or kill it stays. A later turn of another engine in the
+		// same chat (Claude with its tools) must not find it: remove the folder before any other turn starts here.
+		if err := os.RemoveAll(filepath.Join(chat, ".codex")); err != nil {
+			return fmt.Errorf("could not clear a left-over Codex folder: %v", err)
+		}
 	}
 	_ = os.MkdirAll(filepath.Join(chat, ".tmp"), 0o700)  // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
 	_ = os.MkdirAll(filepath.Join(chat, ".home"), 0o700) // HOME of the engine in proxy modes (inside the sandbox)
@@ -556,6 +596,43 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	}
 	if s := req.SessionCollect; s != nil && (!allowedSessionDir(chat, s.Dir) || strings.ContainsAny(s.Name, "/\\")) {
 		return fmt.Errorf("bad session collect path")
+	}
+
+	stopping := make(chan struct{}, 1)
+	stop := func() {
+		select {
+		case stopping <- struct{}{}:
+		default:
+		}
+	}
+	go func() { // control messages from the server
+		for {
+			l, err := r.ReadBytes('\n')
+			if err != nil {
+				// the server's end of this connection is gone (crash, kill -9, restart): nobody can read the answer
+				// or stop the turn any more, and the turn's token died with the server. Stop the engine now instead
+				// of letting it run (and spend the subscription) until the backstop timeout.
+				stop()
+				return
+			}
+			var m map[string]any
+			if json.Unmarshal(l, &m) == nil && m["op"] == "kill" {
+				stop()
+			}
+		}
+	}()
+	var ct *codexTurn
+	codexEnded := false
+	if req.CodexAuth {
+		var err error
+		if ct, err = codexBegin(chat, stopping); err != nil {
+			return err
+		}
+		defer func() { // early-error paths; the normal path ends it before reporting "exit" (below)
+			if !codexEnded {
+				ct.end()
+			}
+		}()
 	}
 
 	// nothing of the chat folder in argv or env (see the top of this file): relative to the working folder
@@ -675,29 +752,6 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	go pump("stdout", stdout)
 	go pump("stderr", stderr)
 
-	stopping := make(chan struct{}, 1)
-	stop := func() {
-		select {
-		case stopping <- struct{}{}:
-		default:
-		}
-	}
-	go func() { // control messages from the server
-		for {
-			l, err := r.ReadBytes('\n')
-			if err != nil {
-				// the server's end of this connection is gone (crash, kill -9, restart): nobody can read the answer
-				// or stop the turn any more, and the turn's token died with the server. Stop the engine now instead
-				// of letting it run (and spend the subscription) until the backstop timeout.
-				stop()
-				return
-			}
-			var m map[string]any
-			if json.Unmarshal(l, &m) == nil && m["op"] == "kill" {
-				stop()
-			}
-		}
-	}()
 	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 	waitDone := make(chan error, 1)
 	go func() { wg.Wait(); waitDone <- cmd.Wait() }()
@@ -754,6 +808,12 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		}
 		if s.RemoveDir {
 			_ = os.RemoveAll(s.Dir)
+		}
+	}
+	if ct != nil {
+		codexEnded = true
+		for _, n := range ct.end() {
+			o.send(map[string]any{"ev": "note", "message": n})
 		}
 	}
 	// Remove the per-turn files BEFORE reporting the exit: the server treats "exit" as "turn over" and may start

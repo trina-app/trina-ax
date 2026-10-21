@@ -77,7 +77,11 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   const modelProxy = subscriptionProxy(ctx)
   if (ctx.config.mode === 'prod') {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect
-    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660', ...(modelProxy ? { modelProxy } : {}) })
+    // The model proxy is the engine account's only network path (pf + engine sandbox allow just this port): Claude
+    // requests get the owner's subscription token swapped in, Codex turns tunnel HTTPS through it (CONNECT). It runs
+    // whatever the auth mode (without subscription mode it has no Claude path), so the codex-login CLI works too.
+    const proxy = modelProxy ?? { ...prodProxyBase(ctx), upstreamUrl: null }
+    return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660', modelProxy: proxy })
   }
   const codex = findCodexBin(ctx.config.engine.codexBin)
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
@@ -93,15 +97,17 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
 }
 
 
+function prodProxyBase(ctx: AppContext) {
+  return { port: ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT, secretsDir: resolveLayout(ctx.config).secretsDir, log: ctx.log.child({ c: 'model-proxy' }) }
+}
+
 /** subscription mode: the model proxy settings (port, upstream, where the owner's token is); null in other modes */
 export function subscriptionProxy(ctx: AppContext) {
   if (ctx.config.engine.authMode !== 'subscription') return null
   let lastNotice = 0
   return {
-    port: ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT,
+    ...prodProxyBase(ctx),
     upstreamUrl: ctx.config.engine.modelUpstream ?? ANTHROPIC_API,
-    secretsDir: resolveLayout(ctx.config).secretsDir,
-    log: ctx.log.child({ c: 'model-proxy' }),
     onAuthRejected() {
       // the upstream refused the owner's token: every admin is told (at most once an hour), and the audit log keeps it
       if (Date.now() - lastNotice < 3600_000) return

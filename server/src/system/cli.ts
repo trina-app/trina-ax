@@ -17,6 +17,8 @@
 //   switch <version> [--restart] | rollback [--restart]
 //                                                point app/current at a staged version; --restart stops the running
 //                                                server (pid from status/status.json) so root/bootstrap starts it
+//   codex-login | codex-status | codex-logout   the engine account's own Codex (ChatGPT) sign-in, through the launcher:
+//                                                codex-login prints a URL and a one-time code (device auth)
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -30,6 +32,7 @@ import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { UpdateManager } from './update'
+import { codexCommand } from './codex-login'
 
 function arg(args: string[], name: string): string | null {
   const i = args.indexOf(name)
@@ -142,8 +145,13 @@ export async function main(argv: string[]): Promise<number> {
       }
       return 0
     }
+    // the engine account's Codex login (server/src/system/codex-login.ts)
+    case 'codex-login':
+    case 'codex-status':
+    case 'codex-logout':
+      return codexCommand(cmd, cfg)
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-update|switch|rollback (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-update|switch|rollback|codex-login|codex-status|codex-logout (see server/src/system/cli.ts)')
       return 2
   }
 }

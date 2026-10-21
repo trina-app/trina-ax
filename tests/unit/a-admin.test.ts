@@ -31,8 +31,9 @@ describe('engines', () => {
     const claudeOk = fakeBin(bins, 'claude-ok', `case "$1" in --version) echo "2.1.305 (Claude Code)";; auth) echo '{"loggedIn": true, "authMethod": "claude.ai"}';; *) exit 2;; esac`)
     const codexOk = fakeBin(bins, 'codex-ok', `case "$1" in --version) echo "codex-cli 0.163.0";; login) echo "Logged in using ChatGPT";; *) exit 2;; esac`)
     h.ctx.config.engine = { authMode: 'local-login', claudeBin: claudeOk, codexBin: codexOk }
-    fs.mkdirSync(path.join(h.ctx.config.dataDir, 'engine'), { recursive: true })
-    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'engine', 'codex-catalog.json'), JSON.stringify({ models: [{ slug: 'gpt-x', display_name: 'GPT-X', visibility: 'list' }, { slug: 'hidden', visibility: 'hide' }] }))
+    fs.mkdirSync(path.join(h.ctx.config.dataDir, 'engine'), { recursive: true }) // lockdown results
+    // the dev catalog chat/engines.ts locks from the owner's models cache (one place: <data>/codex-catalog.json)
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'codex-catalog.json'), JSON.stringify({ models: [{ slug: 'gpt-x', display_name: 'GPT-X', visibility: 'list' }, { slug: 'hidden', visibility: 'hide' }] }))
   })
   afterAll(() => h.close())
   const check = (id: string) => admin.call('POST', `/api/admin/engines/${id}/check`)

@@ -11,7 +11,8 @@ import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { createLogger, silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
-import { startServer } from '../../server/src/server'
+import { startEngineProxy, startServer } from '../../server/src/server'
+import { codexAuthDir } from '../../server/src/engine/codex'
 import type { AuthInfo, SessionService } from '../../server/src/services'
 import { configureChat, getChatRuntime, type ChatRuntimeOptions } from '../../server/src/chat/runtime'
 import { LocalEngines, StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
@@ -119,7 +120,12 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   /** the production engine path instead of the fake wiring: the real core (startLocalCore: sandboxed launcher, model
    * proxy in subscription mode) and LocalEngines on this engine config */
   realCore?: { engine: AppConfig['engine'] }
+  /** where the model proxy's Codex tunnels go (default: a refused local port) */
+  proxyDial?: (host: string, port: number) => import('node:net').Socket
 }
+
+/** the engine account's Codex login in the harness (fake tokens) */
+export const FAKE_CODEX_AUTH = { auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: 'x', access_token: 'at', refresh_token: 'rt-0', account_id: 'acc-team' }, last_refresh: '2026-10-21T00:00:00Z' }
 
 export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const base = path.join(WORK, o.name)
@@ -137,7 +143,19 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const bin = fakeEngineBin(path.join(base, 'bin'))
   const ctx = createContext({
     config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,
-    ...(o.realCore ? {} : { startCore: (c: AppContext) => startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [] } }) }),
+    ...(o.realCore ? {} : {
+    // the fake Codex runs the production path ("agent-own"): the launcher copies the engine account's login from
+    // <agent root>/codex-auth into the turn and the turn talks through the model proxy (tunnels to a local echo
+    // server instead of the internet)
+    startCore: async (c: AppContext) => {
+      const authDir = codexAuthDir(c.engineConfig.agentRoot)
+      fs.mkdirSync(authDir, { recursive: true, mode: 0o700 })
+      if (!fs.existsSync(path.join(authDir, 'auth.json'))) fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify(FAKE_CODEX_AUTH), { mode: 0o600 })
+      const srv = await startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [], codexAuthDir: authDir } })
+      await startEngineProxy(srv, { upstreamUrl: null, dial: o.proxyDial })
+      return srv
+    },
+    }),
   })
   // unix socket paths must stay short (macOS: 104 bytes); the real core keeps them under the data folder, which the
   // engine sandbox can reach (it refuses /tmp)

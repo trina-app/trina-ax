@@ -14,6 +14,10 @@
 #   --engine NAME=FILE    install an engine executable into app/engines/NAME/<sha>/ (repeatable); the first one is the
 #                         server's engine. Claude Code answers once the owner stored a subscription token:
 #                         claude setup-token, then pbpaste | sudo "<install>/root/set-claude-token" (docs/INSTALL.md 2.4).
+#                         NAME codex is the Codex CLI: written to engine.codexBin, with a locked model catalog next to it
+#                         (app/engines/codex/<sha>/model_catalog.json) and the engine account's login folder agent/codex-auth
+#   --codex-models FILE   models_cache.json of the same Codex version to lock into that catalog (default: the invoking
+#                         user's ~/.codex/models_cache.json, i.e. $SUDO_USER's)
 #   --allow-unsigned      accept bundles without a release signature (development and test builds)
 #   --no-power            do not change sleep / power-failure settings (pmset); for test installs on a laptop
 #   --skip-tmutil         do not add Time Machine exclusions
@@ -35,7 +39,7 @@ umask 022
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 ID=mycel SRV_USER=_axserver AGT_USER=_axagent PORT=47820 TLS_PORT=8443 PROXY_PORT=47821
-FROM="" ALLOW_UNSIGNED=0 POWER=1 TMUTIL=1
+FROM="" ALLOW_UNSIGNED=0 POWER=1 TMUTIL=1 CODEX_MODELS=""
 ENGINES=()
 WARNINGS=()
 die() { echo "install: $*" >&2; exit 1; }
@@ -64,6 +68,7 @@ while [ $# -gt 0 ]; do
     --tls-port) TLS_PORT=$2; shift 2 ;;
     --proxy-port) PROXY_PORT=$2; shift 2 ;;
     --engine) ENGINES+=("$2"); shift 2 ;;
+    --codex-models) CODEX_MODELS=$2; shift 2 ;;
     --allow-unsigned) ALLOW_UNSIGNED=1; shift ;;
     --no-power) POWER=0; shift ;;
     --skip-tmutil) TMUTIL=0; shift ;;
@@ -184,6 +189,9 @@ mk "$SRV_USER" admin 750 "$BASE/setup"
 mk "$SRV_USER" admin 750 "$BASE/status"
 mk "$AGT_USER" "$AGT_GRP" 700 "$BASE/agent"
 mk root wheel 555 "$BASE/agent/home"
+# the engine account's own Codex login (auth.json, written by `admin.js codex-login` through the launcher); one place
+# for the launcher (--codex-auth-dir), the server CLI and the diagnostics. A reinstall keeps the login.
+mk "$AGT_USER" "$AGT_GRP" 700 "$BASE/agent/codex-auth"
 mk root wheel 755 "$BASE/run"
 mk "$SRV_USER" "$AGT_GRP" 750 "$BASE/run/tools"
 # the launcher (engine account) creates launcher.sock itself; group = server group, so only the server can connect.
@@ -223,6 +231,7 @@ install -o root -g wheel -m 644 "$TMPF" "$BASE/root/pf.anchor"; rm -f "$TMPF"
 
 # ---- engines (app/engines/<name>/<sha12>/<file>, current -> <sha12>) ----
 ENGINE_CMDS=()
+CLAUDE_CMD="" CODEX_CMD=""
 for spec in "${ENGINES[@]}"; do
   name=${spec%%=*}; file=${spec#*=}
   [[ "$name" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "bad engine name $name"
@@ -236,7 +245,29 @@ for spec in "${ENGINES[@]}"; do
   ln -s "$sha" "$BASE/app/engines/$name/current"
   chown -h "$SRV_USER:$AGT_GRP" "$BASE/app/engines/$name/current"
   ENGINE_CMDS+=("$BASE/app/engines/$name/current/$(basename "$file")")
+  if [ "$name" = codex ]; then
+    [ "$(basename "$file")" = codex ] || die "the Codex engine file must be named codex (got $(basename "$file"))"
+    CODEX_CMD="$BASE/app/engines/$name/current/codex"
+    # locked model catalog next to it (server account owns it, the engine account only reads it): no shell, no
+    # code mode, no apply_patch for any model (design tab 2). Codex refuses turns without it (diagnostics say so).
+    src=$CODEX_MODELS
+    if [ -z "$src" ] && [[ "${SUDO_USER:-}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      h=$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+      [ -n "$h" ] && src="$h/.codex/models_cache.json"
+    fi
+    if [ -n "$src" ] && [ -f "$src" ] && [ ! -L "$src" ]; then
+      rm -f "$ITMP/model_catalog.json"
+      "$BUNDLE/bin/bun" "$(cd "$(dirname "$0")" && pwd)/macos/codex-catalog.mjs" "$src" "$ITMP/model_catalog.json" >/dev/null || die "could not lock the Codex model catalog from $src"
+      put "$ITMP/model_catalog.json" "$SRV_USER" "$AGT_GRP" 640 "$dir/model_catalog.json"
+      rm -f "$ITMP/model_catalog.json"
+    elif [ ! -f "$dir/model_catalog.json" ]; then
+      warn "no Codex model catalog (pass --codex-models <models_cache.json of Codex $(basename "$dir")>); Codex turns stay off until there is one"
+    fi
+  elif [ -z "$CLAUDE_CMD" ]; then
+    CLAUDE_CMD="$BASE/app/engines/$name/current/$(basename "$file")"
+  fi
 done
+[ -n "$CLAUDE_CMD" ] || CLAUDE_CMD=${ENGINE_CMDS[0]}
 
 # ---- server version ----
 DEST="$BASE/app/versions/$VERSION"
@@ -289,7 +320,7 @@ CFG="$BASE/config/server.json"
 OLD_CFG="$ITMP/server.old.json"
 if [ -f "$CFG" ] && [ ! -L "$CFG" ]; then cp "$CFG" "$OLD_CFG"; else echo '{}' > "$OLD_CFG"; fi
 MYCEL_I_OLD="$OLD_CFG" MYCEL_I_OUT="$ITMP/server.json" MYCEL_I_BASE="$BASE" MYCEL_I_LOGS="$LOGS/server" MYCEL_I_PORT="$PORT" MYCEL_I_TLS="$TLS_PORT" \
-MYCEL_I_AGT_UID="$AGT_UID" MYCEL_I_ENGINE="${ENGINE_CMDS[0]}" MYCEL_I_PROXY_PORT="$PROXY_PORT" "$BUN" -e '
+MYCEL_I_AGT_UID="$AGT_UID" MYCEL_I_ENGINE="$CLAUDE_CMD" MYCEL_I_CODEX="$CODEX_CMD" MYCEL_I_PROXY_PORT="$PROXY_PORT" "$BUN" -e '
 const fs = require("fs"), e = process.env, b = e.MYCEL_I_BASE
 let old = {}; try { old = JSON.parse(fs.readFileSync(e.MYCEL_I_OLD, "utf8")) } catch {}
 if (!old || typeof old !== "object" || Array.isArray(old)) old = {}
@@ -300,9 +331,10 @@ const cfg = {
   tls: e.MYCEL_I_TLS === "0" ? null : { port: Number(e.MYCEL_I_TLS), certFile: b + "/secrets/lan-tls.crt", keyFile: b + "/secrets/lan-tls.key" },
   teamRoot: b + "/team", dataDir: b + "/data", logDir: e.MYCEL_I_LOGS,
   // subscription: the engine account talks to the model proxy (127.0.0.1:proxyPort, the only address pf allows it),
-  // which adds the owner token from secrets/claude-oauth-token. Earlier installers wrote "proxy" (company key, which
-  // the server refuses), so that value is replaced too; a hand-set "local-login" is kept.
+  // which adds the owner token from secrets/claude-oauth-token and tunnels Codex HTTPS. Earlier installers wrote
+  // "proxy" (company key, which the server refuses), so that value is replaced too; a hand-set "local-login" is kept.
   engine: { ...(old.engine ?? {}), authMode: old.engine?.authMode === "local-login" ? "local-login" : "subscription", claudeBin: e.MYCEL_I_ENGINE,
+    codexBin: e.MYCEL_I_CODEX || undefined, // no --engine codex this time: no Codex (the launcher would refuse it)
     proxyPort: Number(e.MYCEL_I_PROXY_PORT),
     runDir: b + "/run/tools", agentRoot: b + "/agent", launcherSock: b + "/run-launcher/launcher.sock", agentUid: Number(e.MYCEL_I_AGT_UID) },
   relay: old.relay ?? { url: null, teamName: null },
@@ -329,7 +361,8 @@ BOOT_ARGS=("$BASE/root/mycel-bootstrap" --app "$BASE/app" --config "$CFG" --upda
 [ "$ALLOW_UNSIGNED" = 1 ] && BOOT_ARGS+=(--allow-unsigned)
 LAUNCH_ARGS=("$BASE/root/mycel-launcher" --listen "$BASE/run-launcher/launcher.sock" --mode 0660 --agent-root "$BASE/agent"
   --bridge "$BASE/app/current/native/mycel-bridge" --tools-sock "$BASE/run/tools/tools.sock" --server-uid "$SRV_UID"
-  --dedicated-account --sandbox-profile "$BASE/root/engine.sb" --proxy-port "$PROXY_PORT")
+  --dedicated-account --sandbox-profile "$BASE/root/engine.sb" --proxy-port "$PROXY_PORT"
+  --codex-auth-dir "$BASE/agent/codex-auth")
 for c in "${ENGINE_CMDS[@]}"; do LAUNCH_ARGS+=(--allow-cmd "$c"); done
 
 write_plist() {  # label user group throttle keepalive(true/false) interval umask log env-xml args...

@@ -49,7 +49,7 @@ env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?, 'c', '
 const events: ProxyTurnEvent[] = []
 const rejected: (string | null)[] = []
 let secret: string | null = REAL
-const proxy = startModelProxy({
+const proxy = await startModelProxy({
   db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: () => secret },
   onTurnEvent: (t, ev) => { if (t === turnId) events.push(ev) }, onAuthRejected: (s) => rejected.push(s),
 })
@@ -145,7 +145,7 @@ describe('subscription proxy', () => {
   })
 
   test('upstream unreachable: 502', async () => {
-    const dead = startModelProxy({ db: env.db, upstream: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth', secret: REAL } })
+    const dead = await startModelProxy({ db: env.db, upstream: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth', secret: REAL } })
     const t2 = issueProxyToken(env.db, turnId, 'alice')
     const r = await fetch(dead.url + '/v1/messages', { method: 'POST', headers: { authorization: 'Bearer ' + t2, 'content-type': 'application/json' }, body: body() })
     expect(r.status).toBe(502)
@@ -197,6 +197,7 @@ describe('proxy port', () => {
     const squatter = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('squat') })
     const port = squatter.port!
     const svc = new ModelProxyService({ db: env.db, port, upstreamUrl: 'http://127.0.0.1:9', secretsDir: env.fx.data, retryMs: 100 }).start()
+    await svc.started
     expect(svc.state).toBe('port_in_use'); expect(svc.ready).toBe(false)
     squatter.stop(true)
     expect(await waitFor(() => svc.ready, { timeoutMs: 3000 })).toBe(true)

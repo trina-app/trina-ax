@@ -20,6 +20,8 @@ export const DEV_PORT = 19100
 /** model proxy port when server.json names none (the installer's default --proxy-port) */
 export const DEFAULT_PROXY_PORT = 47821
 export const ANTHROPIC_API = 'https://api.anthropic.com'
+/** same port under its production name (installer --proxy-port; pf and the engine sandbox allow the engine account only this) */
+export const PROD_PROXY_PORT = DEFAULT_PROXY_PORT
 
 export const AppConfigFile = z.object({
   mode: z.enum(['dev', 'prod']).optional(),
@@ -41,8 +43,9 @@ export const AppConfigFile = z.object({
      * `claude setup-token` token in <install>/secrets/claude-oauth-token behind the model proxy (production, written
      * by scripts/install-macos.sh). proxy: company key (code only, refused). */
     authMode: AuthMode.default('local-login'),
-    /** subscription mode: the model proxy's port on 127.0.0.1 (the installer's --proxy-port; pf and the launcher's
-     * sandbox allow the engine account only this port, so another value here only makes the engine fail closed) */
+    /** the model proxy's port on 127.0.0.1 (the installer's --proxy-port), the engine account's only network path:
+     * Claude requests and Codex tunnels. pf and the launcher's sandbox allow the engine account only this port, so
+     * another value here only makes the engine fail closed. */
     proxyPort: z.number().int().min(1).max(65535).optional(),
     /** where the model proxy sends requests (tests point it at a fake upstream). The owner's token goes there, so
      * HTTPS only; plain HTTP only to this Mac (a fake upstream in tests); no user:password in the address. */

@@ -27,6 +27,7 @@ export const AUTH_MESSAGES = {
   folderExists: { ko: '이미 규칙이 있는 폴더입니다.', en: 'This folder already carries rules.', id: 'Folder ini sudah memiliki aturan.' },
   duplicateRule: { ko: '같은 대상에 규칙이 두 번 있습니다.', en: 'The same subject appears twice.', id: 'Subjek yang sama muncul dua kali.' },
   engineDisabled: { ko: '꺼진 엔진은 기본 엔진으로 정할 수 없습니다.', en: 'A disabled engine cannot be the default.', id: 'Mesin yang dimatikan tidak dapat menjadi bawaan.' },
+  codexBetaDefault: { ko: 'Codex는 이 설치에서 아직 시험 중(베타)이라 기본 엔진으로 정할 수 없습니다.', en: 'Codex is still in beta on this installation, so it cannot be the default engine.', id: 'Codex masih beta di instalasi ini, jadi tidak dapat menjadi mesin bawaan.' },
   budgetSubject: { ko: '예산 대상이 올바르지 않습니다.', en: 'The budget subject is not valid.', id: 'Subjek anggaran tidak valid.' },
 } satisfies Record<string, Record<Locale, string>>
 

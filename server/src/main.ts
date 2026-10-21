@@ -61,6 +61,10 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   }
   const url = `http://${cfg.listen.host === '0.0.0.0' ? 'localhost' : cfg.listen.host}:${http.port}`
   log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })
+  // production: bring the engine core up now (tools gate, launcher connection, model proxy) so the engine account's
+  // network path exists before the first turn (the codex-login CLI tunnels through the proxy). A failure is logged
+  // and retried on first use.
+  if (cfg.mode === 'prod') void ctx.core().catch(() => {})
   if (cfg.setupToken) {
     if (cfg.mode === 'dev') log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)
     else log.info('first-run setup pending', { tokenFile: path.join(cfg.dataDir, 'setup-token') })

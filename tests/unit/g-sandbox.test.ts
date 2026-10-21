@@ -133,6 +133,15 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
   // other turns' engines included. (Reading one pid's argv and environment, KERN_PROCARGS2, is not a sandbox
   // operation at all: the kernel only checks the uid. So no argv or environment names a chat: see the launcher test
   // "another turn cannot learn a chat folder from any argv" below and docs/DECISIONS.md.)
+  test('Codex: files that change what the engine may do cannot be written in CODEX_HOME; its state files can (design tab 2)', () => {
+    const cx = path.join(CHAT, '.codex')
+    fs.mkdirSync(path.join(cx, 'sessions'), { recursive: true })
+    for (const ll of [false, true]) {
+      for (const f of ['config.toml', 'models_cache.json', 'catalog.json', 'AGENTS.md', 'hooks.json', 'skills/x/SKILL.md', 'skills/.system/marker', 'plugins/p.json']) expect(probe(ll, 'write', path.join(cx, f)), f).toBe(false)
+      for (const f of ['auth.json', 'logs_2.sqlite', 'state_5.sqlite', 'sessions/rollout.jsonl', 'installation_id']) expect(probe(ll, 'write', path.join(cx, f)), f).toBe(true)
+    }
+  })
+
   test('no process list', () => {
     for (const ll of [false, true]) expect(probe(ll, 'procs')).toBe(false)
   })
