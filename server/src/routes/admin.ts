@@ -21,6 +21,7 @@ import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, trans
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
+import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
@@ -76,6 +77,38 @@ export const adminRoutes: RouteModule = {
       })()
       afterAccessChange(ctx, before, { actor: auth.user.id, target: p, created: created ? [p] : [] })
       return toFolder(ctx, f)
+    })
+
+    // ---------------- connected folders (team-files/connected.ts) ----------------
+    const connectedOut = (r: ConnectedRow, syncing = false) => ({ id: r.id, name: r.name, path: `connected/${r.name}`, source: r.source, lastSyncAt: r.last_sync_at,
+      lastStatus: r.last_status, lastError: r.last_error ? msg(`connected_${r.last_error}` as never, 'en') : null, files: r.files, bytes: r.bytes, syncing })
+    const connectedFail = (e: unknown, locale: Locale): never => {
+      if (e instanceof ConnectedError) {
+        const key = `connected_${e.message}`
+        return fail(e.message === 'name_taken' ? 'conflict' : 'validation', msg(key as never, locale) ?? e.message)
+      }
+      throw e
+    }
+    kit.handle(API.listConnected, ({ c }) => {
+      const cf = connectedFolders(ctx)
+      return { items: cf.list().map((r) => ({ ...connectedOut(r, cf.isSyncing(r.id)), lastError: r.last_error ? msg(`connected_${r.last_error}` as never, c.get('locale')) : null })) }
+    })
+    kit.handle(API.addConnected, ({ c, body, auth }) => {
+      const cf = connectedFolders(ctx)
+      let row: ConnectedRow
+      try { row = cf.add({ name: body.name, source: body.source, actor: auth.user.id }) } catch (e) { return connectedFail(e, c.get('locale')) }
+      void cf.sync(row.id).catch(() => {})
+      return connectedOut(row, true)
+    })
+    kit.handle(API.syncConnected, ({ params }) => {
+      const cf = connectedFolders(ctx)
+      const row = cf.get(params.id)
+      if (!row) return fail('not_found')
+      void cf.sync(row.id).catch(() => {})
+      return connectedOut(row, true)
+    })
+    kit.handle(API.removeConnected, ({ params, auth }) => {
+      if (!connectedFolders(ctx).remove(params.id, auth.user.id)) fail('not_found')
     })
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
