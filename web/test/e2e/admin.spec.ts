@@ -47,7 +47,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await page.getByTestId('add-member-submit').click()
   await expect(page.getByTestId('temp-password-error')).toContainText('너무 흔한 비밀번호')
   await expect(page.getByRole('status').filter({ hasText: '너무 흔한' })).toHaveCount(0)
-  await temp.fill('exampleteam2026')
+  await temp.fill('maple2026')
   await expect(page.getByTestId('temp-password-error')).toHaveCount(0)
   // another refusal (username taken) shows at the bottom of the dialog
   await page.getByRole('dialog').getByLabel('아이디').fill('bob')
@@ -56,15 +56,15 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await page.getByRole('dialog').getByLabel('아이디').fill('carol')
   await page.getByTestId('add-member-submit').click()
   // hand-over: the address, username and password (large) and the date it stops working
-  await expect(page.getByTestId('handover-url')).toHaveText('https://exampleteam.example.com')
+  await expect(page.getByTestId('handover-url')).toHaveText('https://team.example.com')
   await expect(page.getByTestId('handover-username')).toHaveText('carol')
-  await expect(page.getByTestId('handover-password')).toHaveText('exampleteam2026')
+  await expect(page.getByTestId('handover-password')).toHaveText('maple2026')
   await expect(page.getByTestId('handover-password')).toHaveClass(/text-xl/)
   await expect(page.getByTestId('handover-note')).toContainText('까지')
   await expect(page.getByTestId('dialog-error')).toHaveCount(0)
   await page.getByRole('button', { name: '주소·아이디·비밀번호 복사' }).click()
   const copied = await page.evaluate(() => navigator.clipboard.readText())
-  expect(copied).toMatch(/^주소: https:\/\/exampleteam\.dentist-almanac\.com\n아이디: carol\n임시 비밀번호: exampleteam2026\n.+까지 로그인해서 새 비밀번호로 바꿔 주세요\.$/)
+  expect(copied).toMatch(/^주소: https:\/\/team\.example\.com\n아이디: carol\n임시 비밀번호: maple2026\n.+까지 로그인해서 새 비밀번호로 바꿔 주세요\.$/)
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('members-table')).toContainText('비밀번호 변경 필요')
   // reset is a labelled button in the row, not an icon only

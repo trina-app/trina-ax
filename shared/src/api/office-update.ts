@@ -39,7 +39,7 @@ export const OfficeUpdateStatus = z.object({
 })
 export type OfficeUpdateStatus = z.infer<typeof OfficeUpdateStatus>
 
-/** "now" re-asks the caller's password (like the owner's update and restore): it restarts the clinic's server */
+/** "now" re-asks the caller's password (like the owner's update and restore): it restarts the office's server */
 export const OfficeUpdateAction = z.object({ action: z.enum(['now', 'pause', 'resume']), password: z.string().min(1).max(256).optional() })
 export type OfficeUpdateAction = z.infer<typeof OfficeUpdateAction>
 

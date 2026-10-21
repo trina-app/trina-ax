@@ -72,14 +72,14 @@ test('the team page reports its language: menus, pane toolbar and team list foll
 
 test('a kit build (dist/kit.json): Korean first-run screen with the team address filled in, until a team is remembered', async () => {
   const kitFile = join(ROOT, 'dist', 'kit.json')
-  writeFileSync(kitFile, JSON.stringify({ team: 'exampleteam.example.com', locale: 'ko' }))
+  writeFileSync(kitFile, JSON.stringify({ team: 'team.example.com', locale: 'ko' }))
   const data = newUserData(null)
   try {
     let app = await launch(data)
     try {
       const w = await welcome(app)
       await expect(w.getByRole('heading', { name: '팀 주소를 입력하세요' })).toBeVisible()
-      await expect(w.locator('#address')).toHaveValue('exampleteam.example.com')
+      await expect(w.locator('#address')).toHaveValue('team.example.com')
       // the person's own edit wins over the suggestion; a team that answers is remembered as usual
       await w.locator('#address').fill('acme.localhost:19151')
       await w.getByRole('button', { name: '연결' }).click()

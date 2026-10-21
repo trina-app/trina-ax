@@ -1,13 +1,15 @@
-// `bun run build:office`: the office-mode bundle (docs/OFFICE.md) — one zip a clinic's Mac mini installs without
+// `bun run build:office`: the office-mode bundle (docs/OFFICE.md) — one zip an office's Mac mini installs without
 // git, Go, Node, Homebrew or GitHub access.
 //
-//   bun scripts/build-office.ts [--version 0.1.0] [--out dist/office] [--no-pandoc] [--keep-stage]
+//   bun scripts/build-office.ts [--version x.y.z] [--out dist/office] [--no-pandoc] [--keep-stage]
 //                               [--with-desktop | --desktop-prebuilt]
+//                               [--guide <pdf>] [--desk-guide <pdf>] [--team-host <host>]
 //
 // Output: <out>/<officeBundle>-<version>-mac.zip, containing <officeBundle>-<version>/ (PRODUCT, shared/src/product.ts):
-//   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-치과-설치가이드.pdf and the desks' guide
-//   Team-AX-윈도우-데스크-가이드.pdf (docs/office, when built)
-//   app/docs/OFFICE.md (the runbook; the person at the clinic has no copy of the repository)
+//   office-install.sh, office-uninstall.sh, 설치-먼저-읽기.txt, Team-AX-사무실모드-설치가이드.pdf and the desks' guide
+//   Team-AX-윈도우-데스크-가이드.pdf (<artifactBase>-…; docs/office, when built; --guide / --desk-guide put one team's
+//   copies in instead, built by docs/install/build-pdf.ts --team-host … --out …, under their own file names)
+//   app/docs/OFFICE.md (the runbook; the person at the office has no copy of the repository)
 //   app/VERSION, app/teamax (control command), app/versions.json, app/product.env (the product's names for the
 //   shell scripts: scripts/product-env.ts)
 //   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
@@ -16,11 +18,12 @@
 //   app/scripts/macos/engine.sb, app/web/dist/
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
 // The desktop app installers are NOT in the zip (110–200 MB each). --with-desktop builds them (desktop: dist:win and
-// dist:mac, the universal dmg; TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE make a clinic's kit build) and copies them next to
+// dist:mac, the universal dmg; TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE make one team's kit build) and copies them next to
 // the zip as <artifactBase>-Setup-<v>-x64.exe and <artifactBase>-<v>-mac-universal.dmg; --desktop-prebuilt copies what
 // desktop/release already has. Either way the installers are made first and the zip carries desktop.sha256 (their
 // names and SHA-256), so office-install.sh offers exactly those under Settings → Apps and nothing else it finds;
-// the clinic gets the zip and the installers in the same folder.
+// the office gets the zip and the installers in the same folder. --team-host (default TEAMAX_KIT_TEAM) puts that team's
+// address into 설치-먼저-읽기.txt instead of team.example.com.
 // bun, ripgrep, pandoc and cloudflared (the connector of the office internet address, docs/OFFICE.md "인터넷 주소") come
 // from their GitHub releases, pinned by version and SHA-256 below, cached in dist/cache/ so a rebuild works offline.
 import crypto from 'node:crypto'
@@ -55,10 +58,12 @@ export const DOWNLOADS: Record<string, { url: string; sha256: string }> = {
   'pandoc-3.9.0.2-x86_64-macOS.zip': { url: 'https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-x86_64-macOS.zip', sha256: 'b9fbceabccbc8f34ac021a50483fc32f8160568d0b4b2c22d81bb29e3054fd82' },
 }
 
-/** the printed clinic guide (docs/office/guide.html → PDF), copied next to office-install.sh */
-export const OFFICE_PDF = 'Team-AX-치과-설치가이드.pdf'
+/** the guides' file names start like the installers' (PRODUCT.artifactBase) */
+export const FILE_NAME = PRODUCT.artifactBase
+/** the printed office-mode guide (docs/office/guide.html → PDF, `build-pdf.ts --office`), copied next to office-install.sh */
+export const OFFICE_PDF = `${FILE_NAME}-사무실모드-설치가이드.pdf`
 /** the desks' guide (docs/office/windows-guide.html → PDF, `build-pdf.ts --windows`), copied next to it */
-export const DESK_PDF = 'Team-AX-윈도우-데스크-가이드.pdf'
+export const DESK_PDF = `${FILE_NAME}-윈도우-데스크-가이드.pdf`
 
 const ENTRIES: [string, string][] = [
   ['server/src/main.ts', 'main.js'],
@@ -121,7 +126,13 @@ function walk(d: string): string[] {
   return out
 }
 
-export async function buildOffice(o: { version: string; out: string; pandoc: boolean; keepStage?: boolean; desktop?: { file: string; sha256: string }[] }) {
+export async function buildOffice(o: {
+  version: string; out: string; pandoc: boolean; keepStage?: boolean; desktop?: { file: string; sha256: string }[]
+  /** one team's guide PDFs (default docs/office/OFFICE_PDF and DESK_PDF), copied under their own names */
+  guide?: string; deskGuide?: string
+  /** that team's internet address for 설치-먼저-읽기.txt (default: the team.example.com example) */
+  teamHost?: string
+}) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
   if (process.platform !== 'darwin') throw new Error('build the office bundle on a Mac (ditto, codesign)')
   for (const a of ARCHS) for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']) {
@@ -182,19 +193,26 @@ export async function buildOffice(o: { version: string; out: string; pandoc: boo
     fs.copyFileSync(path.join(scripts, f), path.join(stage, f))
     fs.chmodSync(path.join(stage, f), 0o755)
   }
-  fs.copyFileSync(path.join(scripts, 'README.txt'), path.join(stage, '설치-먼저-읽기.txt'))
-  // the guide travels with the program (the person at the clinic has no copy of the repository)
+  // the guide travels with the program (the person at the office has no copy of the repository)
   fs.mkdirSync(path.join(app, 'docs'), { recursive: true })
   fs.copyFileSync(path.join(REPO, 'docs', 'OFFICE.md'), path.join(app, 'docs', 'OFFICE.md'))
-  const pdf = path.join(REPO, 'docs', 'office', OFFICE_PDF)
-  if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, OFFICE_PDF))
+  const pdf = o.guide ?? path.join(REPO, 'docs', 'office', OFFICE_PDF)
+  if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, path.basename(pdf)))
+  else if (o.guide) throw new Error(`--guide ${pdf}: not found`)
   else console.warn(`warning: ${pdf} not built (bun docs/install/build-pdf.ts --office): the zip has only app/docs/OFFICE.md`)
-  const deskPdf = path.join(REPO, 'docs', 'office', DESK_PDF)
-  if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, DESK_PDF))
+  const deskPdf = o.deskGuide ?? path.join(REPO, 'docs', 'office', DESK_PDF)
+  if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, path.basename(deskPdf)))
+  else if (o.deskGuide) throw new Error(`--desk-guide ${deskPdf}: not found`)
   else console.warn(`warning: ${deskPdf} not built (bun docs/install/build-pdf.ts --windows)`)
+  // the first thing the office reads: the guides' real file names and (for one team's kit) its address
+  if (o.teamHost !== undefined && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(o.teamHost)) throw new Error(`--team-host ${o.teamHost}: not a host name`)
+  const readme = fs.readFileSync(path.join(scripts, 'README.txt'), 'utf8')
+    .split(OFFICE_PDF).join(path.basename(pdf)).split(DESK_PDF).join(path.basename(deskPdf))
+    .split('team.example.com').join(o.teamHost ?? 'team.example.com')
+  fs.writeFileSync(path.join(stage, '설치-먼저-읽기.txt'), readme)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
   // the product's names for office-install.sh / office-uninstall.sh (they print them; nothing is run from it)
-  fs.writeFileSync(path.join(app, 'product.env'), productEnv({ PRODUCT_OFFICE_PDF: OFFICE_PDF }))
+  fs.writeFileSync(path.join(app, 'product.env'), productEnv({ PRODUCT_OFFICE_PDF: fs.existsSync(pdf) ? path.basename(pdf) : '' }))
   // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
@@ -240,6 +258,11 @@ if (import.meta.main) {
   const withDesktop = process.argv.includes('--with-desktop'), prebuilt = process.argv.includes('--desktop-prebuilt')
   // the installers first: the zip lists them (desktop.sha256)
   const desktop = withDesktop || prebuilt ? desktopInstallers({ out, build: withDesktop }) : null
-  const r = await buildOffice({ version, out, pandoc: !process.argv.includes('--no-pandoc'), keepStage: process.argv.includes('--keep-stage'), desktop: desktop ?? undefined })
+  const guide = arg('--guide'), deskGuide = arg('--desk-guide')
+  const teamHost = (arg('--team-host') ?? process.env.TEAMAX_KIT_TEAM ?? '').trim().toLowerCase() || undefined
+  const r = await buildOffice({
+    version, out, pandoc: !process.argv.includes('--no-pandoc'), keepStage: process.argv.includes('--keep-stage'), desktop: desktop ?? undefined,
+    guide: guide ? path.resolve(guide) : undefined, deskGuide: deskGuide ? path.resolve(deskGuide) : undefined, teamHost,
+  })
   console.log(JSON.stringify({ ...r, ...(desktop ? { desktop } : {}) }, null, 1))
 }

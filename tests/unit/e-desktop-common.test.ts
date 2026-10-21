@@ -37,23 +37,23 @@ describe('team addresses', () => {
     expect(parseTeamAddress('https://')).toEqual({ ok: false, error: 'invalid' })
   })
 
-  test('an office internet address works typed as is or with https:// (the clinic pilot: exampleteam.example.com)', () => {
-    const want = { ok: true as const, origin: 'https://exampleteam.example.com', host: 'exampleteam.example.com', dev: false }
-    for (const typed of ['exampleteam.example.com', 'https://exampleteam.example.com', ' https://Exampleteam.Dentist-Almanac.com/ ', 'exampleteam.example.com/invite/abc']) expect(parseTeamAddress(typed)).toEqual(want)
-    expect(parseTeamAddress('http://exampleteam.example.com')).toEqual({ ok: false, error: 'insecure' })
-    // the clinic's Mac off: Cloudflare answers 530 (error 1033); the address is right, the server is just not reachable
+  test('an office internet address works typed as is or with https://', () => {
+    const want = { ok: true as const, origin: 'https://team.example.com', host: 'team.example.com', dev: false }
+    for (const typed of ['team.example.com', 'https://team.example.com', ' https://Team.Example.com/ ', 'team.example.com/invite/abc']) expect(parseTeamAddress(typed)).toEqual(want)
+    expect(parseTeamAddress('http://team.example.com')).toEqual({ ok: false, error: 'insecure' })
+    // the office's Mac off: Cloudflare answers 530 (error 1033); the address is right, the server is just not reachable
     for (const s of [502, 503, 504, 520, 522, 524, 530]) expect(isGatewayDown(s)).toBe(true)
     for (const s of [200, 401, 404, 500, 501, 505, 519, 531]) expect(isGatewayDown(s)).toBe(false)
   })
 
   test('a kit build suggests one real team address and a language; anything else is dropped', () => {
-    expect(parseKit({ team: 'exampleteam.example.com', locale: 'ko' })).toEqual({ team: 'exampleteam.example.com', locale: 'ko' })
-    expect(parseKit({ team: 'https://Exampleteam.Dentist-Almanac.com/x' })).toEqual({ team: 'exampleteam.example.com', locale: null })
+    expect(parseKit({ team: 'team.example.com', locale: 'ko' })).toEqual({ team: 'team.example.com', locale: 'ko' })
+    expect(parseKit({ team: 'https://Team.Example.com/x' })).toEqual({ team: 'team.example.com', locale: null })
     expect(parseKit({ team: 'acme' }).team).toBe(`acme.${TEAM_DOMAIN}`)
     expect(parseKit({ locale: 'ko-KR' })).toEqual({ team: null, locale: 'ko' })
-    for (const team of ['http://exampleteam.example.com', 'localhost:19100', 'acme.localhost:19151', 'a b', 'https://u:p@x.com', 'x'.repeat(300), 42]) expect(parseKit({ team }).team).toBeNull()
+    for (const team of ['http://team.example.com', 'localhost:19100', 'acme.localhost:19151', 'a b', 'https://u:p@x.com', 'x'.repeat(300), 42]) expect(parseKit({ team }).team).toBeNull()
     expect(parseKit({ locale: 'fr' }).locale).toBeNull()
-    for (const v of [null, 'exampleteam.example.com', [], 1]) expect(parseKit(v)).toEqual(NO_KIT)
+    for (const v of [null, 'team.example.com', [], 1]) expect(parseKit(v)).toEqual(NO_KIT)
   })
 
   test('helpers', () => {

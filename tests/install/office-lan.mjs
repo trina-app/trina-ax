@@ -22,7 +22,7 @@ if (!BASE || !TOKEN) { console.error('usage: --base https://<lan>:<port> --token
 
 const checks = []
 const check = (name, ok, detail = '') => { checks.push({ name, ok, detail: String(detail).slice(0, 400) }); console.error(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : ` — ${String(detail).slice(0, 400)}`}`) }
-const PW_OWNER = 'Clinic-owner-pw-2026!'
+const PW_OWNER = 'Office-owner-pw-2026!'
 const PW_DESK = 'Desk-member-pw-2026!'
 
 function jar() {
@@ -67,7 +67,7 @@ try {
 
   const st = await owner.call('GET', '/api/setup')
   check('setup needed on a fresh install', st.json?.needed === true, st.text)
-  const setup = await owner.call('POST', '/api/setup', { setupToken: TOKEN, teamName: 'Office Clinic Test', locale: 'ko', owner: { username: 'director', name: 'Director', password: PW_OWNER } })
+  const setup = await owner.call('POST', '/api/setup', { setupToken: TOKEN, teamName: 'Office Test', locale: 'ko', owner: { username: 'director', name: 'Director', password: PW_OWNER } })
   check('first-run setup over the LAN address', setup.status === 201, setup.text)
   check('session cookie is __Host-, Secure, HttpOnly on https', /^__Host-/.test(owner.get()) && /;\s*Secure/i.test(owner.lastSetCookie) && /HttpOnly/i.test(owner.lastSetCookie), owner.lastSetCookie)
 

@@ -18,7 +18,7 @@ import { checkRecords, ingressFor, ingressWithout, main as publicAddressMain, no
 import { harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
-const HOST = 'app.clinic-test.example'
+const HOST = 'app.office-test.example'
 const PUB = `https://${HOST}`
 const LAN = 'https://192.168.1.18:8443'
 const BASE = path.join(WORK, 'office-tunnel')
@@ -121,7 +121,7 @@ describe('the app through the tunnel path', () => {
   })
 
   test('the first-run setup is refused from the internet, even with the right token; it works on the Mac', async () => {
-    const body = { setupToken: SETUP_TOKEN, teamName: 'Clinic', locale: 'ko', owner: { username: 'director', name: 'Dr', password: OWNER_PW } }
+    const body = { setupToken: SETUP_TOKEN, teamName: 'Office', locale: 'ko', owner: { username: 'director', name: 'Dr', password: OWNER_PW } }
     const r = await send('/api/setup', { method: 'POST', ip: '203.0.113.5', origin: PUB, body })
     expect(r.status).toBe(403)
     expect(JSON.stringify(await r.json())).toContain('internet address')
@@ -239,7 +239,7 @@ describe('the app through the tunnel path', () => {
 describe('office settings with an internet address', () => {
   test('TEAMAX_PUBLIC_HOST and the allow-lists: parsed, checked, written back', () => {
     expect(parsePublicHost('')).toBeNull()
-    expect(parsePublicHost(' https://App.Dentist-Almanac.com/ ')).toBe('app.example.com')
+    expect(parsePublicHost(' https://App.Example.com/ ')).toBe('app.example.com')
     for (const bad of ['192.168.1.1', 'localhost', 'a b.com', 'http://x', '-x.com', 'x.com:443']) expect(() => parsePublicHost(bad)).toThrow()
     expect(parseCountries('kr, jp')).toEqual(['KR', 'JP'])
     expect(() => parseCountries('KOR')).toThrow()
@@ -333,9 +333,9 @@ function fakeCloudflare(): FakeCf {
   const f: FakeCf = {
     calls: [],
     dns: [
-      { id: 'r-apex', type: 'AAAA', name: 'clinic-test.example', content: '100::', proxied: true },
-      { id: 'r-www', type: 'CNAME', name: 'www.clinic-test.example', content: 'clinic-test.example', proxied: true },
-      { id: 'r-mx', type: 'MX', name: 'mail.clinic-test.example', content: 'mx.example', proxied: false },
+      { id: 'r-apex', type: 'AAAA', name: 'office-test.example', content: '100::', proxied: true },
+      { id: 'r-www', type: 'CNAME', name: 'www.office-test.example', content: 'office-test.example', proxied: true },
+      { id: 'r-mx', type: 'MX', name: 'mail.office-test.example', content: 'mx.example', proxied: false },
     ],
     tunnels: [],
     api: null as unknown as Api,
@@ -345,8 +345,8 @@ function fakeCloudflare(): FakeCf {
     f.calls.push(`${method} ${p}`)
     const u = new URL('https://x' + p)
     let m: RegExpExecArray | null
-    if (method === 'GET' && (m = /^\/zones\/(\w+)$/.exec(u.pathname))) return { id: m[1], name: 'clinic-test.example', account: { id: 'acc1' } }
-    if (method === 'GET' && u.pathname === '/zones') return u.searchParams.get('name') === 'clinic-test.example' ? [{ id: 'z1', name: 'clinic-test.example', account: { id: 'acc1' } }] : []
+    if (method === 'GET' && (m = /^\/zones\/(\w+)$/.exec(u.pathname))) return { id: m[1], name: 'office-test.example', account: { id: 'acc1' } }
+    if (method === 'GET' && u.pathname === '/zones') return u.searchParams.get('name') === 'office-test.example' ? [{ id: 'z1', name: 'office-test.example', account: { id: 'acc1' } }] : []
     if ((m = /^\/zones\/z1\/dns_records(?:\/([\w-]+))?$/.exec(u.pathname))) {
       if (method === 'GET') return f.dns.filter((r) => r.name === u.searchParams.get('name'))
       if (method === 'POST') { const r = { id: `r${++n}`, ...body }; f.dns.push(r); return r }
@@ -380,16 +380,16 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
 
   test('refusal rules: the apex, any non-tunnel record, a CNAME to somewhere else, a name outside the zone', async () => {
     const f = fakeCloudflare()
-    await expect(setAddress(f.api, cred, { host: 'clinic-test.example', tokenOut })).rejects.toThrow(/zone apex/)
-    await expect(setAddress(f.api, cred, { host: 'www.clinic-test.example', tokenOut })).rejects.toThrow(/already has CNAME/)
-    await expect(setAddress(f.api, cred, { host: 'mail.clinic-test.example', tokenOut })).rejects.toThrow(/already has MX/)
-    await expect(setAddress(f.api, cred, { host: 'app.other.example', tokenOut })).rejects.toThrow(/not in clinic-test.example/)
+    await expect(setAddress(f.api, cred, { host: 'office-test.example', tokenOut })).rejects.toThrow(/zone apex/)
+    await expect(setAddress(f.api, cred, { host: 'www.office-test.example', tokenOut })).rejects.toThrow(/already has CNAME/)
+    await expect(setAddress(f.api, cred, { host: 'mail.office-test.example', tokenOut })).rejects.toThrow(/already has MX/)
+    await expect(setAddress(f.api, cred, { host: 'app.other.example', tokenOut })).rejects.toThrow(/not in office-test.example/)
     await expect(setAddress(f.api, cred, { host: 'not a name', tokenOut })).rejects.toBeInstanceOf(Refused)
-    await expect(removeAddress(f.api, cred, { host: 'www.clinic-test.example' })).rejects.toThrow(/already has CNAME/)
-    await expect(removeAddress(f.api, cred, { host: 'clinic-test.example' })).rejects.toThrow(/zone apex/)
+    await expect(removeAddress(f.api, cred, { host: 'www.office-test.example' })).rejects.toThrow(/already has CNAME/)
+    await expect(removeAddress(f.api, cred, { host: 'office-test.example' })).rejects.toThrow(/zone apex/)
     expect(writes(f)).toEqual([]) // nothing was changed by any refusal
-    expect(() => checkRecords('x.clinic-test.example', { name: 'clinic-test.example' }, [{ id: '1', type: 'A', name: 'x.clinic-test.example', content: '1.2.3.4' }], {})).toThrow(Refused)
-    expect(normHost('https://App.Clinic-Test.Example/')).toBe('app.clinic-test.example')
+    expect(() => checkRecords('x.office-test.example', { name: 'office-test.example' }, [{ id: '1', type: 'A', name: 'x.office-test.example', content: '1.2.3.4' }], {})).toThrow(Refused)
+    expect(normHost('https://App.Office-Test.Example/')).toBe('app.office-test.example')
   })
 
   test('set: creates the tunnel, its ingress (app port, Host, 404 last) and ONLY that name\'s proxied CNAME; token file 600', async () => {
@@ -399,7 +399,7 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     expect(r.created).toBe(true)
     expect(r.dns).toBe('created')
     const t = f.tunnels[0]!
-    expect(t.name).toBe('teamax-app-clinic-test-example')
+    expect(t.name).toBe('teamax-app-office-test-example')
     expect(t.config_src).toBe('cloudflare')
     expect(t.config.ingress).toEqual([{ hostname: HOST, service: 'http://127.0.0.1:47830', originRequest: { httpHostHeader: HOST } }, { service: 'http_status:404' }])
     const rec = f.dns.find((x) => x.name === HOST)!
@@ -425,19 +425,19 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
   test('set reuses the tunnel an existing CNAME points to (repointing a placeholder), and keeps other names\' rules', async () => {
     const f = fakeCloudflare()
     const id = 'abcdabcd-1111-4222-8333-944455556666'
-    f.tunnels.push({ id, name: 'teamax-office-app', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://127.0.0.1:19100', originRequest: {} }, { hostname: 'other.clinic-test.example', service: 'http://127.0.0.1:9000' }, { service: 'http_status:404' }], 'warp-routing': { enabled: false } } })
+    f.tunnels.push({ id, name: 'teamax-office-app', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://127.0.0.1:19100', originRequest: {} }, { hostname: 'other.office-test.example', service: 'http://127.0.0.1:9000' }, { service: 'http_status:404' }], 'warp-routing': { enabled: false } } })
     f.dns.push({ id: 'r-app', type: 'CNAME', name: HOST, content: `${id}.cfargotunnel.com`, proxied: true })
     // the tunnel also serves another name: its token is that name's token too (round 4): refused without the flag
-    await expect(setAddress(f.api, cred, { host: HOST, tokenOut })).rejects.toThrow(/already serves other\.clinic-test\.example; its connector token is the same/)
+    await expect(setAddress(f.api, cred, { host: HOST, tokenOut })).rejects.toThrow(/already serves other\.office-test\.example; its connector token is the same/)
     expect(writes(f)).toEqual([])
     const r = await setAddress(f.api, cred, { host: HOST, tokenOut, shareTunnel: true })
-    expect(r.sharedWith).toEqual(['other.clinic-test.example'])
+    expect(r.sharedWith).toEqual(['other.office-test.example'])
     expect(r.created).toBe(false)
     expect(r.dns).toBe('unchanged')
     expect(r.tunnelName).toBe('teamax-office-app')
     const cfg = f.tunnels[0]!.config
     expect(cfg.ingress[0]).toEqual({ hostname: HOST, service: 'http://127.0.0.1:47830', originRequest: { httpHostHeader: HOST } })
-    expect(cfg.ingress[1].hostname).toBe('other.clinic-test.example')
+    expect(cfg.ingress[1].hostname).toBe('other.office-test.example')
     expect(cfg.ingress.at(-1)).toEqual({ service: 'http_status:404' })
     expect(cfg['warp-routing']).toEqual({ enabled: false })
     await expect(setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'someone-else', shareTunnel: true })).rejects.toThrow(/already points to the tunnel/)
@@ -463,56 +463,56 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     // a tunnel another name still uses is kept, without this name
     const g = fakeCloudflare()
     await setAddress(g.api, cred, { host: HOST, tokenOut, tunnel: 'shared' })
-    await setAddress(g.api, cred, { host: 'b.clinic-test.example', tokenOut: tokenOut + '2', tunnel: 'shared', shareTunnel: true })
+    await setAddress(g.api, cred, { host: 'b.office-test.example', tokenOut: tokenOut + '2', tunnel: 'shared', shareTunnel: true })
     const rm = await removeAddress(g.api, cred, { host: HOST, tokenOut, newTokenOut: tokenOut + '3' })
     expect(g.tunnels[0]!.deleted_at).toBeNull()
-    expect(g.tunnels[0]!.config.ingress.map((x: { hostname?: string }) => x.hostname ?? '*')).toEqual(['b.clinic-test.example', '*'])
+    expect(g.tunnels[0]!.config.ingress.map((x: { hostname?: string }) => x.hostname ?? '*')).toEqual(['b.office-test.example', '*'])
     // the kept tunnel's secret is rotated: the token handed out for the removed name no longer matches
-    expect(rm.rotated).toEqual({ tunnelName: 'shared', names: ['b.clinic-test.example'], tokenFile: path.resolve(tokenOut + '3') })
+    expect(rm.rotated).toEqual({ tunnelName: 'shared', names: ['b.office-test.example'], tokenFile: path.resolve(tokenOut + '3') })
     expect(fs.readFileSync(tokenOut + '3', 'utf8')).not.toBe(fs.readFileSync(tokenOut + '2', 'utf8'))
   })
 
   test('remove --keep-tunnel drops the name\'s rule; set and remove clear a rule a name left in another tunnel', async () => {
     const hosts = (f: FakeCf, i: number) => (f.tunnels[i]!.config?.ingress ?? []).map((x: { hostname?: string }) => x.hostname ?? '*')
-    // the exampleteam case: app and exampleteam on one kept tunnel; app removed with --keep-tunnel
+    // the first pilot's case: two names on one kept tunnel; app removed with --keep-tunnel
     const f = fakeCloudflare()
-    const EXAMPLETEAM = 'exampleteam.clinic-test.example'
+    const KEPT = 'team.office-test.example'
     await setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'teamax-office-app' })
-    await setAddress(f.api, cred, { host: EXAMPLETEAM, tokenOut: tokenOut + '2', tunnel: 'teamax-office-app', shareTunnel: true })
-    expect(hosts(f, 0)).toEqual([EXAMPLETEAM, HOST, '*'])
+    await setAddress(f.api, cred, { host: KEPT, tokenOut: tokenOut + '2', tunnel: 'teamax-office-app', shareTunnel: true })
+    expect(hosts(f, 0)).toEqual([KEPT, HOST, '*'])
     const r = await removeAddress(f.api, cred, { host: HOST, tokenOut, keepTunnel: true, newTokenOut: tokenOut + '2' })
-    expect(r.actions.join('\n')).toMatch(/drop app\.clinic-test\.example, kept \(--keep-tunnel\) for exampleteam/)
-    expect(hosts(f, 0)).toEqual([EXAMPLETEAM, '*'])
+    expect(r.actions.join('\n')).toMatch(/drop app\.office-test\.example, kept \(--keep-tunnel\) for team/)
+    expect(hosts(f, 0)).toEqual([KEPT, '*'])
     expect(f.tunnels[0]!.deleted_at).toBeNull()
     expect(f.dns.find((x) => x.name === HOST)).toBeUndefined()
     // --keep-tunnel on the last name: the tunnel stays with the 404 rule only
-    await removeAddress(f.api, cred, { host: EXAMPLETEAM, tokenOut: tokenOut + '2', keepTunnel: true })
+    await removeAddress(f.api, cred, { host: KEPT, tokenOut: tokenOut + '2', keepTunnel: true })
     expect(f.tunnels[0]!.deleted_at).toBeNull()
     expect(hosts(f, 0)).toEqual(['*'])
 
     // a stale rule (DNS already gone, e.g. by an older remove --keep-tunnel): remove finds it by scanning the tunnels
     const g = fakeCloudflare()
     const keep = 'abcdabcd-1111-4222-8333-944455556666'
-    g.tunnels.push({ id: keep, name: 'teamax-office-app', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: EXAMPLETEAM, service: 'http://127.0.0.1:47830' }, { hostname: HOST, service: 'http://127.0.0.1:47830' }, { service: 'http_status:404' }] } })
+    g.tunnels.push({ id: keep, name: 'teamax-office-app', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: KEPT, service: 'http://127.0.0.1:47830' }, { hostname: HOST, service: 'http://127.0.0.1:47830' }, { service: 'http_status:404' }] } })
     g.tunnels.push({ id: 'local000-1111-4222-8333-944455556666', name: 'someone-local', config_src: 'local', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://x' }] } })
     const dry = await removeAddress(g.api, cred, { host: HOST, keepTunnel: true, dryRun: true, tokenOut })
-    expect(dry.actions.join('\n')).toMatch(/tunnel teamax-office-app: drop app\.clinic-test\.example \(removed\)/)
+    expect(dry.actions.join('\n')).toMatch(/tunnel teamax-office-app: drop app\.office-test\.example \(removed\)/)
     expect(writes(g)).toEqual([])
     await removeAddress(g.api, cred, { host: HOST, keepTunnel: true, tokenOut })
-    expect(hosts(g, 0)).toEqual([EXAMPLETEAM, '*'])
+    expect(hosts(g, 0)).toEqual([KEPT, '*'])
     expect(g.tunnels[0]!.deleted_at).toBeNull() // a tunnel found only by the scan is never deleted
     expect(hosts(g, 1)).toEqual([HOST]) // a locally managed tunnel is not touched
     expect(writes(g).every((c) => c.includes(`/cfd_tunnel/${keep}/configurations`))).toBe(true)
 
     // set moves a name to another tunnel: its old rule elsewhere is dropped, the other names there stay
     const h = fakeCloudflare()
-    h.tunnels.push({ id: keep, name: 'old-tunnel', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://127.0.0.1:47830' }, { hostname: EXAMPLETEAM, service: 'http://127.0.0.1:47830' }, { service: 'http_status:404' }] } })
+    h.tunnels.push({ id: keep, name: 'old-tunnel', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://127.0.0.1:47830' }, { hostname: KEPT, service: 'http://127.0.0.1:47830' }, { service: 'http_status:404' }] } })
     const s = await setAddress(h.api, cred, { host: HOST, tokenOut, tunnel: 'new-tunnel' })
-    expect(s.actions.join('\n')).toMatch(/tunnel old-tunnel: drop app\.clinic-test\.example \(now served by new-tunnel\)/)
-    expect(hosts(h, 0)).toEqual([EXAMPLETEAM, '*'])
+    expect(s.actions.join('\n')).toMatch(/tunnel old-tunnel: drop app\.office-test\.example \(now served by new-tunnel\)/)
+    expect(hosts(h, 0)).toEqual([KEPT, '*'])
     expect(hosts(h, 1)).toEqual([HOST, '*'])
     expect((await setAddress(h.api, cred, { host: HOST, tokenOut })).actions).toEqual([]) // stable afterwards
-    expect(ingressWithout(HOST, [{ hostname: 'APP.clinic-test.example', service: 'x' }, { service: 'http_status:404' }])).toEqual([{ service: 'http_status:404' }])
+    expect(ingressWithout(HOST, [{ hostname: 'APP.office-test.example', service: 'x' }, { service: 'http_status:404' }])).toEqual([{ service: 'http_status:404' }])
   })
 
   test('command line: one credential, never printed; a refusal exits 3 with nothing changed', async () => {
@@ -527,7 +527,7 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     console.error = (...a: unknown[]) => { out.push(a.join(' ')) }
     try {
       let seen = ''
-      expect(await publicAddressMain(['set', 'clinic-test.example', '--cert', certFile], (c) => { seen = c.apiToken; return f.api })).toBe(3)
+      expect(await publicAddressMain(['set', 'office-test.example', '--cert', certFile], (c) => { seen = c.apiToken; return f.api })).toBe(3)
       expect(seen).toBe(secret)
       expect(await publicAddressMain(['set', HOST, '--cert', certFile, '--token-out', path.join(BASE, 'cli.token')], () => f.api)).toBe(0)
       expect(await publicAddressMain(['set', HOST], () => f.api)).toBe(2)
@@ -535,7 +535,7 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     const text = out.join('\n')
     expect(text).not.toContain(secret)
     expect(text).not.toContain(fakeToken(f.tunnels[0]!.id))
-    expect(text).toContain('teamax public-address set app.clinic-test.example')
+    expect(text).toContain('teamax public-address set app.office-test.example')
     expect(mode(path.join(BASE, 'cli.token'))).toBe(0o600)
   })
 })
