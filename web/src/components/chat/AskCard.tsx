@@ -87,39 +87,42 @@ export default function AskCard({ req }: { req: OpenRequest }) {
           <MessageCircleQuestion size={16} className="text-accent-text" aria-hidden /> {t('ask.title')}
         </div>
       )}
-      <fieldset className="space-y-2 px-4 py-3">
-        <legend className="mb-2 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
-        {fromServer && r.preview && <SkillPreview p={r.preview} />}
-        {options.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            {options.map((o) => (
-              <label key={o.value} className={clsx('flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm', picked.includes(o.value) ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}>
-                <input type={r.multiple ? 'checkbox' : 'radio'} name={name} value={o.value} checked={picked.includes(o.value)} onChange={() => toggle(o.value)} className="accent-[var(--c-accent)]" />
-                {o.label}
-              </label>
-            ))}
-          </div>
-        )}
-        {allowText && (
-          <textarea
-            aria-label={t('ask.ownAnswer')}
-            aria-describedby={`${name}-secrets`}
-            className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2')}
-            placeholder={options.length ? t('ask.orType') : t('ask.typeAnswer')}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value)
-              if (!r.multiple && e.target.value) setPicked([])
-            }}
-          />
-        )}
-        {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
-        {allowText && (
-          <p id={`${name}-secrets`} className="text-xs text-faint" data-testid="ask-no-secrets">
-            {t('ask.noSecrets')}
-          </p>
-        )}
-      </fieldset>
+      {/* the padding sits on a wrapper: a <legend> ignores its fieldset's top padding and would touch the header */}
+      <div className="px-4 pt-3.5 pb-3">
+        <fieldset className="space-y-2">
+          <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
+          {fromServer && r.preview && <SkillPreview p={r.preview} />}
+          {options.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {options.map((o) => (
+                <label key={o.value} className={clsx('flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm', picked.includes(o.value) ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}>
+                  <input type={r.multiple ? 'checkbox' : 'radio'} name={name} value={o.value} checked={picked.includes(o.value)} onChange={() => toggle(o.value)} className="accent-[var(--c-accent)]" />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          )}
+          {allowText && (
+            <textarea
+              aria-label={t('ask.ownAnswer')}
+              aria-describedby={`${name}-secrets`}
+              className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2')}
+              placeholder={options.length ? t('ask.orType') : t('ask.typeAnswer')}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value)
+                if (!r.multiple && e.target.value) setPicked([])
+              }}
+            />
+          )}
+          {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
+          {allowText && (
+            <p id={`${name}-secrets`} className="text-xs text-faint" data-testid="ask-no-secrets">
+              {t('ask.noSecrets')}
+            </p>
+          )}
+        </fieldset>
+      </div>
       <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
         {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: null })}>

@@ -88,6 +88,9 @@
 html, body { height: 100%; }
 #root { height: var(--app-h, 100dvh); }
 body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased; }
+/* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
+   overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
+:lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 ::selection { background: var(--c-accent-soft); }
 
 /* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields. */
