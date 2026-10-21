@@ -1,11 +1,11 @@
-// Personal settings: profile, language and theme, password, signed-in devices, what the AI remembers, apps
+// Personal settings: profile, language and theme, password, signed-in devices, what the AI remembers, scheduled tasks, apps
 // (install as an app / desktop app download). There is no screen for connecting a personal AI account: the owner
 // connects the engines once in the admin screens.
 import clsx from 'clsx'
-import { Brain, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
+import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
-import type { EngineId, Memory, Session, Theme } from '@mycel/shared/api'
+import type { EngineId, Memory, Schedule, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
@@ -23,6 +23,7 @@ const TABS: { id: string; label: MessageKey; icon: typeof User }[] = [
   { id: 'profile', label: 'settings.profile', icon: User },
   { id: 'security', label: 'settings.security', icon: Laptop },
   { id: 'memory', label: 'settings.memory', icon: Brain },
+  { id: 'schedules', label: 'settings.schedules', icon: CalendarClock },
   { id: 'apps', label: 'settings.apps', icon: Download },
 ]
 
@@ -46,6 +47,7 @@ export default function Settings() {
           {tab === 'profile' && <Profile />}
           {tab === 'security' && <Security />}
           {tab === 'memory' && <Memories />}
+          {tab === 'schedules' && <Schedules />}
           {tab === 'apps' && <Apps />}
         </div>
       </div>
@@ -263,6 +265,86 @@ function Security() {
         </ul>
       </Section>
     </>
+  )
+}
+
+function Schedules() {
+  const t = useT()
+  const locale = useLocale()
+  const [items, setItems] = useState<Schedule[] | null>(null)
+  const [tz, setTz] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const load = async () => {
+    try {
+      const r = await api.call(API.listSchedules)
+      setItems(r.items)
+      setTz(r.timeZone)
+      setError(null)
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    }
+  }
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
+  const when = (s: Schedule) => t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekday(s.weekday ?? 0) })
+  const toggle = async (s: Schedule) => {
+    try {
+      const u = await api.call(API.updateSchedule, { params: { id: s.id }, body: { enabled: !s.enabled } })
+      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  const remove = async (s: Schedule) => {
+    if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
+    try {
+      await api.call(API.deleteSchedule, { params: { id: s.id } })
+      setItems((cur) => cur?.filter((x) => x.id !== s.id) ?? null)
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  return (
+    <Section title={t('settings.schedules')} desc={t('schedules.desc')}>
+      {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
+      {!items && !error && <Skeleton lines={3} />}
+      {items && !items.length && <EmptyState icon={<CalendarClock size={26} />} title={t('schedules.empty')} />}
+      {items && items.length > 0 && (
+        <>
+          <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
+            {items.map((s) => (
+              <li key={s.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2 font-medium">
+                    {s.title}
+                    {!s.enabled && <Badge>{t('schedules.paused')}</Badge>}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted">{when(s)}</span>
+                  <span className="mt-1 line-clamp-2 block text-xs text-faint">{s.prompt}</span>
+                  <span className="mt-1 block text-xs text-faint">
+                    {s.enabled && s.nextRunAt && t('schedules.next', { time: formatDateTime(s.nextRunAt, locale) })}
+                    {s.lastChatId && (
+                      <>
+                        {s.enabled && s.nextRunAt && ' · '}
+                        <Link to={`/c/${s.lastChatId}`} className="text-accent-text hover:underline">{t('schedules.lastRun')}</Link>
+                      </>
+                    )}
+                  </span>
+                </span>
+                <Button size="sm" onClick={() => void toggle(s)}>{s.enabled ? t('schedules.pause') : t('schedules.resume')}</Button>
+                <button type="button" aria-label={t('schedules.delete')} title={t('schedules.delete')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => void remove(s)}>
+                  <Trash2 size={15} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
+        </>
+      )}
+    </Section>
   )
 }
 

@@ -64,7 +64,7 @@ export function teamRules(files: FileService, user: Principal): string {
   return out
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill']
+const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'scheduled_run']
 const BLOCK_TAG_RE = new RegExp(`<(/?)\\s*(${BLOCK_TAGS.join('|')})\\b`, 'gi')
 /** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
 export function neutralizeTags(s: string): string {

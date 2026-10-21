@@ -23,6 +23,7 @@ import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
 import { buildTurnContext, buildTurnPrompt, skillBlock, type PromptInput } from './prompt'
 import { invokedSkill, listSkills, skillFolder } from './skills'
+import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { codexBetaAllowed, codexIsBeta, safeModel } from './engines'
 import { engineError, stepLabel, tr } from './i18n'
 import type { ChatRuntime } from './runtime'
@@ -208,7 +209,13 @@ export class TurnExec {
     // read scope like a file the AI read
     const invoked = invokedSkill(listSkills(rt.files, this.principal), userMsg.content)
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
-    const message = (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
+    // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
+    let scheduled = ''
+    if (spec.clientKind === 'schedule') {
+      const s = rt.db.query('SELECT * FROM schedules WHERE last_chat_id = ?').get(spec.chatId) as ScheduleRow | null
+      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task') + '\n\n'
+    }
+    const message = scheduled + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message
     const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, spec.model, spec.turnId)
@@ -614,6 +621,8 @@ export class TurnExec {
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
     if (this.stopReason || this.abort.signal.aborted) return Promise.resolve(null)
+    // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
+    if (this.spec.clientKind === 'schedule') return Promise.resolve(null)
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.closeRequest(request.requestId, null, 'timeout'), o.timeoutMs)
       this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null })
