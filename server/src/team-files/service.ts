@@ -260,7 +260,13 @@ export class TeamFiles {
       re('folders', 'path')
       re('projects', 'folder_path')
       re('file_versions', 'path')
+      re('file_versions', 'conflict_path')
       re('attachments', 'path')
+      // items trashed from inside the moved folder: their place to go back to moves with it. Otherwise the trash checks
+      // write access on the old path (no rule there any more: the group stops seeing its own trash), and a restore
+      // recreates the old name, or lands in whatever folder took that name since (another group's)
+      db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND ${under('original_path')}`)
+        .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
       fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
       fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen' } })
       fs.renameSync(fr.abs, path.join(this.root, ...target))
