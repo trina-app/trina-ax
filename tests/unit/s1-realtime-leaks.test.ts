@@ -96,3 +96,30 @@ describe('files.changed for a restricted folder', () => {
     expect(mal.text()).not.toContain('Board-room')
   })
 })
+
+describe('access_changed notice', () => {
+  test('creating a restricted folder does not tell members it is hidden from what it is called', async () => {
+    mal.clear()
+    await owner.call('POST', '/api/admin/folders', { path: 'shared/Acquisition-Target-X', create: true, rules: restricted() })
+    expect(mal.text()).not.toContain('Acquisition')
+    // hrlead gained access: told about it
+    expect(mal.of('notice')).toEqual([])
+  })
+
+  test('putting rules on a hidden folder never names it to people who could not see it', async () => {
+    const f = (await owner.call('GET', '/api/admin/folders')).items.find((x: any) => x.path === 'shared/Acquisition-Target-X')
+    mal.clear()
+    await owner.call('PUT', `/api/admin/folders/${f.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'user', subjectId: hr.id, access: 'read' }] })
+    expect(mal.text()).not.toContain('Acquisition')
+  })
+
+  test('control: losing a folder she could see, or gaining one, still names it', async () => {
+    await owner.call('POST', '/api/files/mkdir', { path: 'shared/Design' })
+    mal.clear()
+    const created = await owner.call('POST', '/api/admin/folders', { path: 'shared/Design', create: false, rules: restricted() })
+    expect(mal.of('notice').map((n) => [n.data.code, n.data.message])).toEqual([['access_changed', 'shared/Design']])
+    mal.clear()
+    await owner.call('PUT', `/api/admin/folders/${created.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] })
+    expect(mal.of('notice').map((n) => [n.data.code, n.data.message])).toEqual([['access_changed', 'shared/Design']])
+  })
+})

@@ -187,8 +187,9 @@ export function chatsWithEngineSession(db: Database, userId: string): number {
 /**
  * After any change that can narrow access (rules, group membership, role): reset the engine sessions of people who
  * lost read access somewhere, tell their open windows, and return who lost what (for the audit record).
+ * `created`: folders made on disk by this same request (a new rule folder): nobody knew them before the change.
  */
-export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null }): { userId: string; paths: string[]; chatsReset: number }[] {
+export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[] }): { userId: string; paths: string[]; chatsReset: number }[] {
   const after = captureState(ctx.db)
   const losses = readLosses(before, after)
   const out: { userId: string; paths: string[]; chatsReset: number }[] = []
@@ -196,17 +197,33 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
     const chatsReset = resetEngineSessions(ctx, userId)
     out.push({ userId, paths, chatsReset })
   }
-  // every person whose access changed in any way re-reads open folders (tab 5 "권한 회수")
+  // every person whose access changed in a way they can tell re-reads open folders (tab 5 "권한 회수")
   const paths = decidingPaths(before, after)
+  const created = new Set(by.created ?? [])
+  const onDisk = (p: string) => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ...segsOf(p))).isDirectory() } catch { return false } }
   for (const pb of before.principals) {
     const pa = after.principals.find((p) => p.id === pb.id)
     if (!pa) continue
     const changed = paths.filter((p) => before.rules.access(pb, segsOf(p)) !== after.rules.access(pa, segsOf(p)))
-    if (changed.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: changed.map((p) => p || '/').join(', ') } })
+    const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
+    if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
-  // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion)
+  // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out } })
   return out
+}
+
+/**
+ * The access_changed notice goes to one person and names folders: only folders that person can see now, or could see
+ * before the change. A restricted folder created in this request (or a rule folder that is not on disk) changes the
+ * INHERITED access of everyone it is hidden from (shared/ everyone write -> none at that path), but they never saw it:
+ * naming it would tell every member what the folder they may not see is called.
+ */
+export function noticeMayName(p: string, pb: Principal, pa: Principal, before: AccessState, after: AccessState, created: ReadonlySet<string>, onDisk: (p: string) => boolean): boolean {
+  if (p === '') return true
+  if (!onDisk(p)) return false
+  if (atLeast(after.rules.access(pa, segsOf(p)), 'read')) return true
+  return !created.has(p) && atLeast(before.rules.access(pb, segsOf(p)), 'read')
 }
 
 /** "Who sees what" for proposed rule sets, before saving. */

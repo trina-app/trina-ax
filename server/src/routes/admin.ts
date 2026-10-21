@@ -73,7 +73,7 @@ export const adminRoutes: RouteModule = {
         audit(ctx.db, { actor: auth.user.id, action: 'folder.create', target: p, detail: { created, rules: body.rules } })
         return row
       })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: p })
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: p, created: created ? [p] : [] })
       return toFolder(ctx, f)
     })
 
