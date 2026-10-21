@@ -53,7 +53,8 @@ export class LocalEngines implements EngineProvider {
       else claude = { bin: engineConfig.claudeBin, authMode: 'subscription', agentHome: path.join(config.dataDir, 'agent-home'),
         modelProxy: { baseUrl: `http://127.0.0.1:${config.engine.proxyPort ?? DEFAULT_PROXY_PORT}`, kind: 'oauth' } }
     } else if (fs.existsSync(engineConfig.claudeBin)) {
-      claude = { bin: engineConfig.claudeBin, authMode: 'local-login', agentHome: path.join(config.dataDir, 'agent-home') }
+      // office mode: through the CONNECT tunnel of the local proxy (startLocalCore starts it, security round 4b)
+      claude = { bin: engineConfig.claudeBin, authMode: 'local-login', agentHome: path.join(config.dataDir, 'agent-home'), ...(config.office ? { connectProxy: true } : {}) }
     } else problems['claude-code'] = 'engine_missing'
 
     let codex: CodexConf | null = null

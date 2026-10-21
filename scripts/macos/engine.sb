@@ -15,7 +15,9 @@
 ;; only an exactly guessed name can be tested for existence.
 ;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the few login files
 ;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the login keychain
-;; (Security framework) and direct HTTPS to the vendor (there is no model proxy in this mode).
+;; (Security framework) and, with PROXY_PORT=0 (dev), direct HTTPS to the vendor. Office mode passes PROXY_PORT with
+;; LOCAL_LOGIN=1: the engine's only network is then the local proxy, whose CONNECT allow-list names the vendor hosts
+;; (security round 4b, server/src/proxy/connect.ts); no :443 anywhere and no DNS.
 ;; SBPL applies the LAST matching rule, so the broad denies come first and the narrow allows after them.
 (version 1)
 (deny default)
@@ -96,7 +98,8 @@
 
 ;; --- network -----------------------------------------------------------------------------------------------------
 (allow network-outbound (literal (param "TOOLS_SOCK")))
-;; PROXY_PORT=0: no model proxy (dev / local login talks to the vendor directly, see below)
+;; PROXY_PORT=0: no model proxy (dev / local login talks to the vendor directly, see below). Office mode with the Mac
+;; user's login sets it too: Claude Code then reaches the vendor through the proxy's CONNECT tunnel (HTTPS_PROXY).
 (if (not (equal? (param "PROXY_PORT") "0"))
   (allow network-outbound (remote tcp (string-append "localhost:" (param "PROXY_PORT")))))
 
@@ -110,19 +113,28 @@
 ;; paths open only with LOCAL_CODEX=1 (a Codex binary is configured: office mode turns Codex off, security round 4).
 (if (equal? (param "LOCAL_LOGIN") "1")
   (let* ((home (param "USER_HOME"))
-         (in-home (lambda (p) (string-append home p))))
+         (in-home (lambda (p) (string-append home p)))
+         (claude-json-names (lambda ()
+           (require-any
+             (regex (string-append "^" (regex-quote home) "/\\.claude\\.json(\\.lock|\\.tmp\\.[0-9]+\\.[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|\\.backup)?$"))
+             (regex (string-append "^" (regex-quote home) "/\\.claude/backups(/\\.claude\\.json\\.backup\\.[0-9]+)?$"))))))
     (apply allow file-read-metadata
       (map literal (append (path-and-ancestors (in-home "/.claude"))
                            (ancestors (in-home "/.local/share/claude")) (ancestors (in-home "/Library/Keychains/-"))
                            (ancestors (in-home "/Library/Preferences/-")) (ancestors (param "SESSION_DIR")))))
-    ;; Claude Code: ~/.claude.json and only its real siblings (.lock, .tmp.<pid>.<time> of its atomic write, .backup*),
-    ;; its backups, this turn's session folder, read-only settings.json (it reads it even with --setting-sources "")
-    ;; and the model catalog cache. The name is anchored at both ends: an open prefix let a turn create any
-    ;; ~/.claude.json<anything> file, a store every other chat's turn could read (security round 4).
-    (allow file-read* file-write*
-      (regex (string-append "^" (regex-quote home) "/\\.claude\\.json(\\.lock|\\.tmp\\.[^/]+|\\.backup[^/]*)?$"))
-      (subpath (in-home "/.claude/backups"))
-      (subpath (param "SESSION_DIR")))
+    ;; Claude Code: ~/.claude.json and exactly the siblings Claude Code 2.1.306 was seen to write in a real turn
+    ;; (security round 4b): the .lock folder of its file lock, .tmp.<pid>.<12 hex> of its atomic write, the older
+    ;; .backup, and the ~/.claude/backups folder with .claude.json.backup.<milliseconds> in it. Then this turn's session
+    ;; folder, read-only settings.json (it reads it even with --setting-sources "") and the model catalog cache. Anchored
+    ;; at both ends: an open name let a turn create any ~/.claude.json<anything> file, a store every other chat's turn
+    ;; could read (security round 4). A copy of a corrupted config (.corrupted.<time>) is refused: the CLI logs it and
+    ;; continues. (SBPL regexes have no {n}: the 12 hex digits are spelled out.)
+    (allow file-read* file-write* (claude-json-names) (subpath (param "SESSION_DIR")))
+    ;; never a link at those names (security round 4b): the server's MCP cleanup would not write through one, and a link
+    ;; to a file the turn controls would carry a planted MCP server to the Mac user's next interactive `claude`. A
+    ;; symbolic link cannot be created there (nor renamed onto them), a hard link cannot be made to them.
+    (deny file-write-create (require-all (vnode-type SYMLINK) (claude-json-names)))
+    (deny file-link (claude-json-names))
     (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
     ;; Claude Code's login when it is not in the keychain: some Macs keep it in ~/.claude/.credentials.json, and
     ;; without it every turn ends "Not logged in". Read-write so a refreshed token is saved.
@@ -146,18 +158,25 @@
     (allow process-exec (literal "/usr/bin/security"))
     (allow mach-lookup
       (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc")
-      (global-name "com.apple.security.agent") (global-name "com.apple.secd") (global-name "com.apple.trustd")
-      (global-name "com.apple.trustd.agent") (global-name "com.apple.ocspd")
-      (global-name "com.apple.system.opendirectoryd.membership") (global-name "com.apple.mDNSResponder")
-      (global-name "com.apple.dnssd.service") (global-name "com.apple.SystemConfiguration.configd")
+      (global-name "com.apple.security.agent") (global-name "com.apple.secd")
+      (global-name "com.apple.system.opendirectoryd.membership") (global-name "com.apple.SystemConfiguration.configd")
       (global-name "com.apple.SystemConfiguration.DNSConfiguration") (global-name "com.apple.networkd")
       (global-name "com.apple.nehelper") (global-name "com.apple.nesessionmanager.content-filter")
       (global-name "com.apple.cfprefsd.daemon") (global-name "com.apple.cfprefsd.agent")
       (global-name "com.apple.CoreServices.coreservicesd") (global-name "com.apple.lsd.mapdb"))
     (allow ipc-posix-shm-read* (ipc-posix-name "com.apple.AppleDatabaseChanged"))
     (allow ipc-posix-shm (ipc-posix-name-prefix "apple.shm."))
-    (allow network-outbound (remote tcp "*:443") (remote udp "*:53") (literal "/private/var/run/mDNSResponder"))
-    (allow system-socket)))
+    (allow system-socket)
+    ;; direct network only without the proxy (dev). With PROXY_PORT (office) nothing here: no :443 to any address (the
+    ;; internet, the office LAN's chart server or NAS), no DNS (udp 53, mDNSResponder: names are a channel out too) and
+    ;; no trustd / ocspd (they fetch certificate URLs on the caller's behalf). The engine's TLS runs end to end through
+    ;; the proxy's CONNECT tunnel to the allowed vendor hosts only (security round 4b).
+    (if (equal? (param "PROXY_PORT") "0")
+      (begin
+        (allow mach-lookup
+          (global-name "com.apple.mDNSResponder") (global-name "com.apple.dnssd.service")
+          (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent") (global-name "com.apple.ocspd"))
+        (allow network-outbound (remote tcp "*:443") (remote udp "*:53") (literal "/private/var/run/mDNSResponder"))))))
 
 ;; --- last: the agent root ---------------------------------------------------------------------------------------
 ;; Its metadata stays closed whatever an ancestor rule above opened (an engine, bridge or tools socket placed under

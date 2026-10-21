@@ -15,12 +15,19 @@
 #                        Mac through a Cloudflare Tunnel whose connector token is in FILE (made on the owner's Mac by
 #                        scripts/office/public-address.ts). The token is copied to <prefix>/config/tunnel-token (600)
 #                        and the bundled cloudflared runs as a second LaunchAgent. Later: <prefix>/teamax public-address
+#   --claude-token-file FILE
+#                        recommended (security round 4b): FILE holds the owner's long-lived Claude token, the output of
+#                        `claude setup-token` (one sk-ant-oat01-... line). It is copied to <prefix>/config/claude-oauth-token
+#                        (600) and Claude runs through the model proxy with a per-turn token and a HOME without this
+#                        Mac's login: the AI engine can no longer read the Mac's Claude login. Without it the engine uses
+#                        this Mac's own Claude login (it must be logged in). Later: <prefix>/teamax configure
+#                        --claude-token-file FILE && <prefix>/teamax restart (back: --claude-auth local-login)
 #   --no-open            do not open the setup page in the browser
 #   --no-desktop         do not offer the desktop app installers found next to the bundle (below)
 #   --check-only         run the checks, print what would happen, change nothing
 #
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
-# (`claude auth status`), the ports are free (after stopping this installation's own agent). Codex is not used in
+# (`claude auth status`; not needed with --claude-token-file), the ports are free (after stopping this installation's own agent). Codex is not used in
 # office mode (the clinic's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
@@ -35,17 +42,18 @@ umask 022
 SRC=$(cd "$(dirname "$0")" && pwd)
 PREFIX="$HOME/TeamAX"
 CONF_ARGS=()
-OPEN=1 CHECK_ONLY=0 DESKTOP=1
+OPEN=1 CHECK_ONLY=0 DESKTOP=1 TOKEN_FILE=
 die() { echo "office-install: $*" >&2; exit 1; }
 say() { echo "office-install: $*"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) PREFIX=$2; shift 2 ;;
     --lan-port|--helper-port|--app-port|--label|--run-dir|--public-host|--tunnel-token-file) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
+    --claude-token-file) [ $# -ge 2 ] || die "$1 needs a value"; [ -f "$2" ] || die "$2: no such file (the output of 'claude setup-token')"; TOKEN_FILE=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); CONF_ARGS+=("$1" "$TOKEN_FILE"); shift 2 ;;
     --no-open) OPEN=0; shift ;;
     --no-desktop) DESKTOP=0; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -80,17 +88,27 @@ if [ -z "$CLAUDE" ]; then
   done
 fi
 [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || die "Claude Code is not installed for this user. Install it (curl -fsSL https://claude.ai/install.sh | bash), run 'claude', log in with the subscription account, then run this again."
-AUTH=$("$CLAUDE" auth status 2>/dev/null || true)
-echo "$AUTH" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' || die "Claude Code is installed ($CLAUDE) but not logged in. Run 'claude' in Terminal, log in (/login) with the subscription account, then run this again."
+# subscription mode (a setup-token now or from an earlier install): the Mac's own login is not used
+SUBSCRIPTION=0
+if [ -n "$TOKEN_FILE" ]; then SUBSCRIPTION=1
+elif [ -f "$PREFIX/config/office.env" ] && grep -q '^TEAMAX_CLAUDE_AUTH=subscription$' "$PREFIX/config/office.env"; then SUBSCRIPTION=1; fi
+if [ "$SUBSCRIPTION" = 0 ]; then
+  AUTH=$("$CLAUDE" auth status 2>/dev/null || true)
+  echo "$AUTH" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' || die "Claude Code is installed ($CLAUDE) but not logged in. Run 'claude' in Terminal, log in (/login) with the subscription account, then run this again (or pass --claude-token-file with the output of 'claude setup-token')."
+fi
 CONF_ARGS+=(--claude-bin "$CLAUDE")
 BUN_SRC="$SRC/app/bin/$ARCH/bun"
 "$BUN_SRC" --version >/dev/null 2>&1 || { xattr -d com.apple.quarantine "$BUN_SRC" 2>/dev/null || true; "$BUN_SRC" --version >/dev/null 2>&1 || die "$BUN_SRC does not run on this Mac"; }
 
 say "Team AX office mode $VERSION ($ARCH) -> $PREFIX"
-say "Claude Code: $CLAUDE (logged in)"
-# the engine can write ~/.claude.json (the CLI keeps its login there); the server removes MCP servers from it, and this
-# account should run `claude` only to log in again (an MCP server planted there would run outside the sandbox)
-say "Use 'claude' on this Mac account only to log in again (/login); check 'claude mcp list' shows no servers first."
+if [ "$SUBSCRIPTION" = 1 ]; then
+  say "Claude Code: $CLAUDE with the owner's setup-token (subscription mode: the AI engine does not use or see this Mac's Claude login)"
+else
+  say "Claude Code: $CLAUDE (logged in; the AI engine uses this Mac's Claude login. Safer: --claude-token-file, see --help)"
+  # the engine can write ~/.claude.json (the CLI keeps its login there); the server removes MCP servers from it, and this
+  # account should run `claude` only to log in again (an MCP server planted there would run outside the sandbox)
+  say "Use 'claude' on this Mac account only to log in again (/login); check 'claude mcp list' shows no servers first."
+fi
 if [ "$CHECK_ONLY" = 1 ]; then
   # settings are validated by the same code the install uses, written into a throwaway folder
   T=$(mktemp -d)
