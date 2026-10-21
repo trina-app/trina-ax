@@ -20,7 +20,7 @@ import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, tokenIpKeys } from './rate-limit'
 import { authOf } from './service'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 
 export const RESET_TTL_MS = 24 * 3600_000
 
@@ -242,12 +242,29 @@ function resetByToken(db: Database, token: string): ResetRow | null {
   return db.query('SELECT id, user_id, created_by, expires_at, used_at FROM password_resets WHERE token_hash = ?').get(hashToken(token)) as ResetRow | null
 }
 
+/**
+ * A reset link works only while its maker could still make it now: the maker is a live, active owner or admin,
+ * and the person it is for is still within their reach (an admin acts on members only; nobody acts on the owner
+ * through these links, tab 5). A link made by nobody (server-Mac recovery CLI) only needs a live, active target.
+ * Without this, a link kept by an admin who was later disabled, demoted or deleted, or minted for a member who
+ * was later made admin or owner, still signed its holder in as that person.
+ */
+function resetUsable(db: Database, r: ResetRow, u: UserRow | null, now: number): u is UserRow {
+  if (!u || u.status !== 'active' || r.used_at || Date.parse(r.expires_at) <= now) return false
+  if (r.created_by === null) return true
+  const by = getUser(db, r.created_by)
+  if (!by || by.status !== 'active' || by.id === u.id) return false
+  if (by.role === 'owner') return u.role !== 'owner'
+  if (by.role === 'admin') return u.role === 'member'
+  return false
+}
+
 export function resetInfo(c: Context<AppEnv>, ctx: AppContext, token: string): PasswordResetInfo {
   const guard = tokenGuard(ctx, c.get('info').ip)
   const r = resetByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
   const u = getUser(ctx.db, r!.user_id)
-  const valid = !!u && u.status === 'active' && !r!.used_at && Date.parse(r!.expires_at) > authOf(ctx).now()
+  const valid = resetUsable(ctx.db, r!, u, authOf(ctx).now())
   return valid ? { valid, username: u!.username, name: u!.name, expiresAt: r!.expires_at } : { valid: false, username: null, name: null, expiresAt: null }
 }
 
@@ -258,11 +275,14 @@ export async function completeReset(c: Context<AppEnv>, ctx: AppContext, token: 
   const r = resetByToken(ctx.db, token)
   if (!r) { guard.fail(); fail('not_found') }
   const u = getUser(ctx.db, r!.user_id)
-  if (!u || u.status !== 'active' || r!.used_at || Date.parse(r!.expires_at) <= a.now()) fail('gone', msg('linkInvalid', locale))
+  if (!resetUsable(ctx.db, r!, u, a.now())) fail('gone', msg('linkInvalid', locale))
   checkNewPassword(b.newPassword, u!.username, locale, 'body.newPassword')
   const hash = await hashPassword(b.newPassword)
   const used = ctx.db.transaction(() => {
     const now = new Date(a.now()).toISOString()
+    // checked again inside the write: the maker or the person may have changed during the (slow) password hash
+    const fresh = ctx.db.query('SELECT id, user_id, created_by, expires_at, used_at FROM password_resets WHERE id = ?').get(r!.id) as ResetRow | null
+    if (!fresh || !resetUsable(ctx.db, fresh, getUser(ctx.db, u!.id), a.now())) return false
     if (ctx.db.query('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now, r!.id).changes !== 1) return false
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, r!.created_by, now, u!.id)
     audit(ctx.db, { actor: u!.id, action: 'auth.password_reset', target: u!.id, detail: { by: r!.created_by, ip: c.get('info').ip } })

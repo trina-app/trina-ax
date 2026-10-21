@@ -110,7 +110,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
   }
-  if (changed.status === 'disabled' || changed.role === 'member') revokeInvitesBy(ctx, id)
+  if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id) }
   if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   return toUser(ctx.db, getUser(ctx.db, id)!)
 }
@@ -122,6 +122,16 @@ export const isUniqueViolation = (e: unknown) => e instanceof Error && /UNIQUE c
 /** Open invites made by someone who can no longer invite (deleted, disabled, no longer admin) stop working. */
 export function revokeInvitesBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE invites SET revoked_at = ? WHERE created_by = ? AND used_at IS NULL AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes
+}
+
+/**
+ * Open password reset links made by someone who can no longer make them (deleted, disabled, no longer admin) stop
+ * working, like their invites: such a link signs its holder in as the member, so an ex-admin who kept one could
+ * otherwise take the account over. Links made by nobody (server-Mac recovery, created_by NULL) are not touched.
+ * Marked used rather than deleted, so re-enabling the maker does not bring them back.
+ */
+export function revokeResetLinksBy(ctx: AppContext, userId: string): number {
+  return ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by = ? AND used_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
 const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
@@ -171,6 +181,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
   revokeInvitesBy(ctx, id)
+  revokeResetLinksBy(ctx, id)
   // the account is gone either way; a folder that could not be handled stays where it is (only nobody sees it now)
   let movedTo: string | null = null
   let folderError: string | null = null
