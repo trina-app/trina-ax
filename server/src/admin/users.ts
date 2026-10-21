@@ -13,7 +13,6 @@ import { fail } from '../http/errors'
 import { linkBase, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
-import { accountKey } from '../auth/rate-limit'
 import { authOf } from '../auth/service'
 import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
@@ -233,7 +232,7 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
     audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
   })()
   authOf(ctx).endUserSessions(id, 'password_changed')
-  authOf(ctx).limiter.clear(accountKey(target.username))
+  authOf(ctx).limiter.clearAccount(target.username)
   return { temporaryPassword: temp, expiresAt, signInUrl: linkBase(c, ctx) }
 }
 

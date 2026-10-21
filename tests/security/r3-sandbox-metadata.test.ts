@@ -37,7 +37,7 @@ afterAll(() => { if (B) fs.rmSync(B, { recursive: true, force: true }) })
 function turn(o: { localLogin?: boolean; sessionDir?: string }, ...args: string[]) {
   const p = Bun.spawnSync(['/usr/bin/sandbox-exec', '-f', PROFILE,
     '-D', `CHAT_DIR=${A}`, '-D', `AGENT_ROOT=${AGENT}`, '-D', `ENGINE_DIR=${ENG}`, '-D', `BRIDGE=${path.join(ENG, 'bridge')}`,
-    '-D', `TOOLS_SOCK=${path.join(B, 'run', 'tools.sock')}`, '-D', 'PROXY_PORT=0', '-D', `LOCAL_LOGIN=${o.localLogin ? 1 : 0}`,
+    '-D', `TOOLS_SOCK=${path.join(B, 'run', 'tools.sock')}`, '-D', 'PROXY_PORT=0', '-D', `LOCAL_LOGIN=${o.localLogin ? 1 : 0}`, '-D', 'LOCAL_CODEX=0',
     '-D', `USER_HOME=${fs.realpathSync(os.homedir())}`, '-D', `SESSION_DIR=${o.sessionDir ?? A}`,
     PROBE, ...args], { cwd: A, stdout: 'pipe', stderr: 'ignore' })
   return { code: p.exitCode, out: p.stdout.toString() }

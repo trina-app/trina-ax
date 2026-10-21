@@ -87,6 +87,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en and id)' },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en and id)' },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en and id)' },
+  'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en and id)' },
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en and id)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en and id)' },

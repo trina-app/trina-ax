@@ -26,7 +26,7 @@ fs.rmSync(BASE, { recursive: true, force: true })
 fs.mkdirSync(BASE, { recursive: true })
 const mode = (f: string) => fs.statSync(f).mode & 0o777
 const TUNNEL_ID = '6f1c1a8e-1111-4222-8333-944455556666'
-const fakeToken = (t = TUNNEL_ID) => Buffer.from(JSON.stringify({ a: 'acc0123456789', t, s: 'c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0' })).toString('base64')
+const fakeToken = (t = TUNNEL_ID, s = 'c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0') => Buffer.from(JSON.stringify({ a: 'acc0123456789', t, s })).toString('base64')
 
 describe('which requests came through the tunnel (CF-Connecting-IP trust)', () => {
   const cfg = { tunnel: { host: HOST, allowFrom: [], countries: [] }, listen: { host: '127.0.0.1', port: 47830 } }
@@ -328,7 +328,7 @@ describe('office settings with an internet address', () => {
 
 // ---- scripts/office/public-address.ts against a mocked Cloudflare API ----------------------------------------------
 
-interface FakeCf { api: Api; calls: string[]; dns: { id: string; type: string; name: string; content: string; proxied: boolean }[]; tunnels: { id: string; name: string; config_src: string; deleted_at: string | null; config: any }[] }
+interface FakeCf { api: Api; calls: string[]; dns: { id: string; type: string; name: string; content: string; proxied: boolean }[]; tunnels: { id: string; name: string; config_src: string; deleted_at: string | null; config: any; secret?: string }[] }
 function fakeCloudflare(): FakeCf {
   const f: FakeCf = {
     calls: [],
@@ -362,8 +362,9 @@ function fakeCloudflare(): FakeCf {
       if (!t) throw new Error('tunnel not found')
       if (m[2] === 'configurations' && method === 'GET') return { config: t.config }
       if (m[2] === 'configurations' && method === 'PUT') { t.config = body.config; return { config: t.config } }
-      if (m[2] === 'token') return fakeToken(t.id)
+      if (m[2] === 'token') return fakeToken(t.id, t.secret)
       if (m[2] === 'connections') return null
+      if (!m[2] && method === 'PATCH') { if (typeof body.tunnel_secret !== 'string' || Buffer.from(body.tunnel_secret, 'base64').length < 32) throw new Error('bad secret'); t.secret = body.tunnel_secret; return t }
       if (!m[2] && method === 'GET') return t
       if (!m[2] && method === 'DELETE') { t.deleted_at = 'now'; return t }
     }
@@ -426,7 +427,11 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     const id = 'abcdabcd-1111-4222-8333-944455556666'
     f.tunnels.push({ id, name: 'teamax-office-app', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://127.0.0.1:19100', originRequest: {} }, { hostname: 'other.clinic-test.example', service: 'http://127.0.0.1:9000' }, { service: 'http_status:404' }], 'warp-routing': { enabled: false } } })
     f.dns.push({ id: 'r-app', type: 'CNAME', name: HOST, content: `${id}.cfargotunnel.com`, proxied: true })
-    const r = await setAddress(f.api, cred, { host: HOST, tokenOut })
+    // the tunnel also serves another name: its token is that name's token too (round 4): refused without the flag
+    await expect(setAddress(f.api, cred, { host: HOST, tokenOut })).rejects.toThrow(/already serves other\.clinic-test\.example; its connector token is the same/)
+    expect(writes(f)).toEqual([])
+    const r = await setAddress(f.api, cred, { host: HOST, tokenOut, shareTunnel: true })
+    expect(r.sharedWith).toEqual(['other.clinic-test.example'])
     expect(r.created).toBe(false)
     expect(r.dns).toBe('unchanged')
     expect(r.tunnelName).toBe('teamax-office-app')
@@ -435,11 +440,11 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     expect(cfg.ingress[1].hostname).toBe('other.clinic-test.example')
     expect(cfg.ingress.at(-1)).toEqual({ service: 'http_status:404' })
     expect(cfg['warp-routing']).toEqual({ enabled: false })
-    await expect(setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'someone-else' })).rejects.toThrow(/already points to the tunnel/)
+    await expect(setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'someone-else', shareTunnel: true })).rejects.toThrow(/already points to the tunnel/)
     expect(ingressFor(HOST, 47830, []).length).toBe(2)
     // Cloudflare hands the rules back with their keys reordered (service first): a second run changes nothing
     f.tunnels[0]!.config.ingress = f.tunnels[0]!.config.ingress.map((r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).reverse()))
-    const again = await setAddress(f.api, cred, { host: HOST, tokenOut, dryRun: true })
+    const again = await setAddress(f.api, cred, { host: HOST, tokenOut, dryRun: true, shareTunnel: true })
     expect(again.actions).toEqual([])
     expect(sameJson({ a: 1, b: [{ c: 2, d: 3 }] }, { b: [{ d: 3, c: 2 }], a: 1 })).toBe(true)
     expect(sameJson([{ a: 1 }, { b: 2 }], [{ b: 2 }, { a: 1 }])).toBe(false)
@@ -458,10 +463,13 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     // a tunnel another name still uses is kept, without this name
     const g = fakeCloudflare()
     await setAddress(g.api, cred, { host: HOST, tokenOut, tunnel: 'shared' })
-    await setAddress(g.api, cred, { host: 'b.clinic-test.example', tokenOut: tokenOut + '2', tunnel: 'shared' })
-    await removeAddress(g.api, cred, { host: HOST, tokenOut })
+    await setAddress(g.api, cred, { host: 'b.clinic-test.example', tokenOut: tokenOut + '2', tunnel: 'shared', shareTunnel: true })
+    const rm = await removeAddress(g.api, cred, { host: HOST, tokenOut, newTokenOut: tokenOut + '3' })
     expect(g.tunnels[0]!.deleted_at).toBeNull()
     expect(g.tunnels[0]!.config.ingress.map((x: { hostname?: string }) => x.hostname ?? '*')).toEqual(['b.clinic-test.example', '*'])
+    // the kept tunnel's secret is rotated: the token handed out for the removed name no longer matches
+    expect(rm.rotated).toEqual({ tunnelName: 'shared', names: ['b.clinic-test.example'], tokenFile: path.resolve(tokenOut + '3') })
+    expect(fs.readFileSync(tokenOut + '3', 'utf8')).not.toBe(fs.readFileSync(tokenOut + '2', 'utf8'))
   })
 
   test('remove --keep-tunnel drops the name\'s rule; set and remove clear a rule a name left in another tunnel', async () => {
@@ -470,9 +478,9 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     const f = fakeCloudflare()
     const EXAMPLETEAM = 'exampleteam.clinic-test.example'
     await setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'teamax-office-app' })
-    await setAddress(f.api, cred, { host: EXAMPLETEAM, tokenOut: tokenOut + '2', tunnel: 'teamax-office-app' })
+    await setAddress(f.api, cred, { host: EXAMPLETEAM, tokenOut: tokenOut + '2', tunnel: 'teamax-office-app', shareTunnel: true })
     expect(hosts(f, 0)).toEqual([EXAMPLETEAM, HOST, '*'])
-    const r = await removeAddress(f.api, cred, { host: HOST, tokenOut, keepTunnel: true })
+    const r = await removeAddress(f.api, cred, { host: HOST, tokenOut, keepTunnel: true, newTokenOut: tokenOut + '2' })
     expect(r.actions.join('\n')).toMatch(/drop app\.clinic-test\.example, kept \(--keep-tunnel\) for exampleteam/)
     expect(hosts(f, 0)).toEqual([EXAMPLETEAM, '*'])
     expect(f.tunnels[0]!.deleted_at).toBeNull()
