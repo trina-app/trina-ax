@@ -12,7 +12,7 @@ import { z } from 'zod'
 import {
   ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
+  MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -91,6 +91,12 @@ export class MockServer {
   settings: TeamSettings = defaultSettings()
   /** every request the client made (method + path), for assertions */
   log: string[] = []
+  /** engine / model named in chat requests (tests check people who may not pick never send one) */
+  engineRequests: { name: string; user: string; engine?: unknown; model?: unknown }[] = []
+  /** Admin > AI engines: "팀원이 엔진 고르기 허용" and the Claude-limit fallback (like the server: off by default) */
+  memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
+  limitFallback = false
+  codexEnabled = true
 
   constructor(o: { setup?: boolean } = {}) {
     this.reset(o)
@@ -130,6 +136,10 @@ export class MockServer {
     this.jobs.clear()
     this.files.clear()
     this.log = []
+    this.engineRequests = []
+    this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
+    this.limitFallback = false
+    this.codexEnabled = true
     this.settings = defaultSettings()
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
@@ -216,9 +226,26 @@ export class MockServer {
   }
 
   // ---------------- helpers ----------------
+  /** like server/src/admin/engine-choice.ts: owner / admins always, others as the admin allows */
+  canChoose(u: User): boolean {
+    if (u.role === 'owner' || u.role === 'admin') return true
+    const c = this.memberChoice
+    return c.mode === 'everyone' || (c.mode === 'selected' && (c.userIds.includes(u.id) || u.groupIds.some((g) => c.groupIds.includes(g))))
+  }
+  /** like the server: someone who may not pick naming another engine or model than they get anyway -> 403 */
+  guardEngine(name: string, u: User, body: { engine?: unknown; model?: unknown }, current: { engine: string; model: string | null }) {
+    if (body.engine === undefined && body.model === undefined) return
+    this.engineRequests.push({ name, user: u.id, engine: body.engine, model: body.model })
+    if (this.canChoose(u)) return
+    if ((body.engine !== undefined && body.engine !== current.engine) || (body.model !== undefined && (body.model ?? null) !== current.model))
+      fail('forbidden', 403, 'AI 엔진과 모델은 관리자가 정합니다. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답합니다.')
+  }
   me(u: User, sid: string): Me {
+    const prefs = { ...((u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {}) }
+    const choose = this.canChoose(u)
+    if (!choose) { delete prefs.engine; delete prefs.model }
     return {
-      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs: (u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {} },
+      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
@@ -409,7 +436,12 @@ export class MockServer {
       this.syncLocales()
       if (c.body.locale !== undefined) this.publish(LOCALE_CHANGED)
       if (c.body.email !== undefined) u.email = c.body.email
-      if (c.body.prefs) u.prefs = c.body.prefs
+      if (c.body.prefs) {
+        const next: Record<string, unknown> = { ...u.prefs, ...c.body.prefs }
+        if (!this.canChoose(u)) { delete next.engine; delete next.model }
+        for (const [k, v] of Object.entries(next)) if (v === undefined || v === null) delete next[k]
+        u.prefs = next as Me['user']['prefs']
+      }
       return this.me(u, '')
     },
     changePassword: (c) => {
@@ -445,7 +477,16 @@ export class MockServer {
       if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || this.messages.some((m) => m.chatId === x.id && m.content.toLowerCase().includes(q)))
       return { items: [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)), nextCursor: null }
     },
+    chatEngines: (c) => {
+      const e = this.enginesResponse()
+      const canChoose = this.canChoose(c.user)
+      return {
+        canChoose, defaultEngine: this.settings.defaultEngine, defaultModel: this.settings.defaultModel,
+        engines: canChoose ? e.engines.filter((x) => x.enabled).map((x) => ({ id: x.id, label: x.label, models: x.models })) : [],
+      }
+    },
     createChat: (c) => {
+      this.guardEngine('createChat', c.user, c.body, { engine: this.settings.defaultEngine, model: this.settings.defaultModel })
       const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
       this.chats.push(chat)
       return { status: 201, body: chat }
@@ -453,6 +494,7 @@ export class MockServer {
     getChat: (c) => this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404),
     updateChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      this.guardEngine('updateChat', c.user, c.body, chat)
       Object.assign(chat, Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined)))
       return chat
     },
@@ -472,6 +514,9 @@ export class MockServer {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const dup = this.messages.find((m) => (m as Message & { cmid?: string }).cmid === c.body.clientMessageId)
       if (dup) fail('conflict', 409)
+      this.guardEngine('sendMessage', c.user, c.body, chat)
+      if (c.body.engine) chat.engine = c.body.engine
+      if (c.body.model !== undefined) chat.model = c.body.model ?? null
       // like the server when the person's "block" usage limit is used up (refused before anything is queued)
       if (String(c.body.content).includes('over my limit')) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 10월 22일 오전 12:00부터 다시 쓸 수 있어요.')
       const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
@@ -490,11 +535,16 @@ export class MockServer {
     regenerate: (c) => {
       const old = this.messages.find((m) => m.id === c.params.messageId) ?? fail('not_found', 404)
       const userMsg = this.messages.find((m) => m.id === old.parentId)!
+      const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      this.guardEngine('regenerate', c.user, c.body, chat)
+      if (c.body.engine) chat.engine = c.body.engine
+      if (c.body.model !== undefined) chat.model = c.body.model ?? null
       const assistant = this.startTurn(c.params.id!, c.user, userMsg.content, userMsg.id)
       return { status: 202, body: { userMessage: null, assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0 } }
     },
     editMessage: (c) => {
       const old = this.messages.find((m) => m.id === c.params.messageId) ?? fail('not_found', 404)
+      this.guardEngine('editMessage', c.user, c.body, this.chats.find((x) => x.id === old.chatId)!)
       const user = this.message({ chatId: old.chatId, role: 'user', parentId: old.parentId, content: c.body.content, author: { id: c.user.id, name: c.user.name } })
       const assistant = this.startTurn(old.chatId, c.user, c.body.content, user.id)
       return { status: 202, body: { userMessage: this.view(user), assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0 } }
@@ -787,6 +837,12 @@ export class MockServer {
     updateEngines: (c) => {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
+      if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
+      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, 'Codex가 꺼져 있어 한도 대체를 켤 수 없습니다.')
+      if (c.body.limitFallback !== undefined) this.limitFallback = c.body.limitFallback
+      if (!this.codexEnabled) this.limitFallback = false
+      if (c.body.memberChoice) this.memberChoice = c.body.memberChoice
+      this.publish({ type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } })
       return this.enginesResponse()
     },
     checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
@@ -834,6 +890,11 @@ export class MockServer {
       this.connection = { ...this.connection, mode: c.body.mode, teamName: c.body.teamName ?? this.connection.teamName, state: c.body.mode === 'direct-only' ? 'disabled' : 'connecting', detail: 'Applies after the server restarts.' }
       return this.connection
     },
+    // like a server outside office mode (no automatic office updates)
+    officeUpdateStatus: () => null,
+    // nothing connected, no scheduled tasks yet
+    listConnected: () => ({ items: [] }),
+    listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
   }
 
@@ -841,12 +902,15 @@ export class MockServer {
     return {
       engines: [
         { id: 'claude-code' as const, label: 'Claude Code', enabled: true, authMode: 'local-login' as const, installed: true, version: '2.1.305', status: 'ok' as const, detail: null, models: [{ id: 'claude-sonnet', label: 'Sonnet' }, { id: 'claude-opus', label: 'Opus' }], checkedAt: now() },
-        { id: 'codex' as const, label: 'Codex', enabled: true, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
+        { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
       ],
       defaultEngine: this.settings.defaultEngine,
       defaultModel: this.settings.defaultModel,
       concurrency: this.settings.concurrency,
       accounts: [],
+      memberChoice: this.memberChoice,
+      limitFallback: this.limitFallback,
+      limitFallbackAvailable: this.codexEnabled,
     }
   }
 
@@ -938,6 +1002,8 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/log') return Response.json(this.log)
+    else if (p === '/__test/engine-requests') return Response.json(this.engineRequests)
+    else if (p === '/__test/member-choice') this.memberChoice = MemberEngineChoice.parse(body)
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))

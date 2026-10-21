@@ -26,6 +26,17 @@ export const UpdateChatBody = z.object({
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
 })
+/** What the composer may offer this person (GET /api/engines). */
+export const ChatEngines = z.object({
+  /** owner / admins always; others when Admin > AI engines allows them */
+  canChoose: z.boolean(),
+  /** the team default (new chats of people who may not pick, and of people without their own default) */
+  defaultEngine: EngineId,
+  defaultModel: z.string().nullable(),
+  /** engines this person may pick, with their models; empty when canChoose is false */
+  engines: z.array(z.object({ id: EngineId, label: z.string(), models: z.array(z.object({ id: z.string(), label: z.string() })) })),
+})
+export type ChatEngines = z.infer<typeof ChatEngines>
 export const DeletedChat = z.object({ id: Uuid7, deletedAt: IsoTime, purgeAt: IsoTime })
 
 // ---------------- messages ----------------
@@ -42,6 +53,8 @@ export const SendMessageBody = z.object({
   attachmentIds: z.array(Uuid7).max(20).default([]),
   /** message to answer under; default: the chat's active leaf */
   parentId: Uuid7.nullable().optional(),
+  /** only for people who may pick the engine (Me.user.canChooseEngine); anyone else naming another engine or model
+   * than the chat's gets 403 */
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
@@ -131,6 +144,7 @@ export const UpdateProjectBody = z.object({
 export const CHATS = {
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats, newest first (search with q, trash with trash=1).' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project).' }),
+  chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat.' }),
   updateChat: endpoint({ method: 'PATCH', path: '/api/chats/:id', auth: 'user', owner: 'B', body: UpdateChatBody, response: Chat, summary: 'Rename, move to a project, change engine/model.' }),
   deleteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id', auth: 'user', owner: 'B', response: DeletedChat, summary: 'Move to chat trash (purged after 7 days). Stops a running turn.' }),

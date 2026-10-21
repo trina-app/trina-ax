@@ -13,7 +13,7 @@ export const UserPrefs = z.object({
   theme: Theme.optional(),
   /** language for AI answers if different from the UI language */
   answerLocale: Locale.optional(),
-  /** last used engine/model in the composer */
+  /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */
   engine: EngineId.optional(),
   model: z.string().max(100).optional(),
 })
