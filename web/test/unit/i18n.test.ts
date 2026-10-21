@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LOCALE } from '@mycel/shared/api'
-import { localizeStep } from '@mycel/shared'
+import { localizeStep, PRODUCT } from '@mycel/shared'
 import { browserLocale, DICTS, format, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
 import { ko } from '../../src/i18n/ko'
 
@@ -30,6 +30,16 @@ describe('translations', () => {
       const text = fs.readFileSync(path.join(src, f), 'utf8')
       expect({ f, saram: /\bSaram\b/.test(text.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')) }).toEqual({ f, saram: false })
     }
+  })
+  test('the product name is never written in a text: {product} / {productFile} fill it from PRODUCT', () => {
+    for (const [loc, d] of Object.entries(DICTS)) {
+      for (const [k, v] of Object.entries(d)) {
+        for (const n of [PRODUCT.displayName, PRODUCT.shortName, PRODUCT.artifactBase]) expect({ loc, k, hardCoded: v.includes(n) }).toEqual({ loc, k, hardCoded: false })
+      }
+    }
+    expect(translate('en', 'browser.desktopOnly')).toBe(`The in-app browser is only available in the ${PRODUCT.displayName} desktop app.`)
+    expect(translate('ko', 'apps.winHow')).toContain(`${PRODUCT.artifactBase}-Setup-`)
+    expect(format('{product}', { product: 'X' })).toBe('X') // a caller's own value wins
   })
   test('every audit action the server writes has words on the audit screen', () => {
     const server = path.resolve(import.meta.dir, '../../../server/src')

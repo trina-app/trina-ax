@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { PRODUCT } from '@mycel/shared'
 
 test('a dropped WebSocket shows "reconnecting", resumes, and the answer continues', async ({ page }) => {
   await reset(page)
@@ -99,7 +100,7 @@ test('PWA: manifest and service worker', async ({ page }) => {
   await reset(page)
   await page.goto('/login')
   const manifest = await (await page.request.get('/manifest.webmanifest')).json()
-  expect(manifest).toMatchObject({ name: 'Team AX', display: 'standalone', start_url: '/' })
+  expect(manifest).toMatchObject({ name: PRODUCT.displayName, short_name: PRODUCT.shortName, display: 'standalone', start_url: '/' })
   expect(manifest.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true)
   for (const i of manifest.icons as { src: string }[]) expect((await page.request.get(i.src)).status()).toBe(200)
   // http://127.0.0.1 counts as a secure context, so the worker registers

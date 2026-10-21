@@ -1,7 +1,8 @@
 // Bundle the desktop app into dist/: main process, the two preloads, the desktop's own screens and the injected
 // page script. `bun run build` (desktop/). Shared code (@mycel/shared, zod) is bundled; only electron is external.
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { PRODUCT } from '@mycel/shared'
 import { parseKit } from './src/common/kit'
 import { ensureElectron } from './scripts/ensure-electron'
 
@@ -28,7 +29,10 @@ await Promise.all([
   one('src/ui/welcome.ts', 'ui/welcome.js', { target: 'browser', format: 'esm', minify: prod }),
   one('src/ui/pane.ts', 'ui/pane.js', { target: 'browser', format: 'esm', minify: prod }),
 ])
-for (const f of ['welcome.html', 'pane.html', 'ui.css']) cpSync(join(root, 'src/ui', f), join(out, 'ui', f))
+// the screens' <title>: the product name from shared/src/product.ts (the one place it is written)
+const html = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+for (const f of ['welcome.html', 'pane.html']) writeFileSync(join(out, 'ui', f), readFileSync(join(root, 'src/ui', f), 'utf8').replace(/__PRODUCT_NAME_HTML__/g, () => html(PRODUCT.displayName)))
+cpSync(join(root, 'src/ui/ui.css'), join(out, 'ui', 'ui.css'))
 cpSync(join(root, 'src/main/pane/page-script.js'), join(out, 'page-script.js'))
 // a kit build for one team (src/common/kit.ts): TEAMAX_KIT_TEAM=<team address> [TEAMAX_KIT_LOCALE=ko|en|id]
 const kitEnv = { team: process.env.TEAMAX_KIT_TEAM || undefined, locale: process.env.TEAMAX_KIT_LOCALE || undefined }

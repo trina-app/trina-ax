@@ -4,7 +4,7 @@
 // (b) socket paths too long for a Unix socket address are named at start, in Diagnostics and when the engine starts;
 // (c) `bun run dev` names the process that holds a dev port (scripts/dev-checks.ts);
 // (d) GET /api/connect-info + POST /api/connect-info/lan-failure (desktop pinning, failures in Diagnostics);
-// (e) the connection change asks for the relay team name and does not offer the Team AX relay while it is not running.
+// (e) the connection change asks for the relay team name and does not offer the official relay while it is not running.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -30,6 +30,7 @@ import { SocketLauncher } from '../../server/src/native'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from '../../server/src/system/sockets'
 import { checkDataDir, checkPorts, portHolders } from '../../scripts/dev-checks'
 import { WORK } from '../lib/env'
+import { PRODUCT } from '@mycel/shared'
 
 const BASE = path.join(WORK, 'g-prod-ops')
 fs.rmSync(BASE, { recursive: true, force: true })
@@ -387,7 +388,7 @@ describe('connect-info and LAN failure reports', () => {
 
 // ------------------------------------------------------------------------------------------------ (e)
 
-describe('connection change: relay team name, Team AX relay only when it runs', () => {
+describe('connection change: relay team name, official relay only when it runs', () => {
   let ctx: AppContext
   let app: Hono<AppEnv>
   let cfgFile = ''
@@ -409,10 +410,10 @@ describe('connection change: relay team name, Team AX relay only when it runs', 
     expect(availableModes({ ...ctx.config, relay: { ...ctx.config.relay, officialAvailable: true } })).toEqual(['relay', 'self-relay', 'direct-only'])
   })
 
-  test('the Team AX relay is refused while it is not running', async () => {
+  test('the official relay is refused while it is not running', async () => {
     const r = await put({ mode: 'relay' })
     expect(r.status).toBe(409)
-    expect(((await r.json()) as any).error.message).toContain('Team AX relay is not running')
+    expect(((await r.json()) as any).error.message).toContain(`${PRODUCT.displayName} relay is not running`)
     expect(JSON.parse(fs.readFileSync(cfgFile, 'utf8')).relay).toBeUndefined()
   })
 

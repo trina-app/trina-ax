@@ -1,5 +1,5 @@
 #!/bin/bash
-# Team AX: store the owner's long-lived Claude subscription token (design tab 6 "AI 구독 연결", subscription mode).
+# Store the owner's long-lived Claude subscription token (design tab 6 "AI 구독 연결", subscription mode).
 # Installed as <install>/root/set-claude-token (root-owned) by scripts/install-macos.sh. Run it with admin rights; the
 # token is read from standard input, never from the command line (argv is visible to every process on the Mac):
 #
@@ -35,12 +35,12 @@ done
 [ -n "$BASE" ] || BASE=$(dirname "$HERE")
 BASE=$(cd "$BASE" 2>/dev/null && pwd -P) || die "install folder not found"
 SECRETS="$BASE/secrets"
-[ -d "$SECRETS" ] && [ ! -L "$SECRETS" ] || die "$SECRETS is missing; is Team AX installed here?"
+[ -d "$SECRETS" ] && [ ! -L "$SECRETS" ] || die "$SECRETS is missing; is the team server installed here?"
 # the server account owns the secrets folder (installer: mk <server> <server group> 700 secrets)
 SRV_USER=$(stat -f %Su "$SECRETS")
 SRV_GRP=$(stat -f %Sg "$SECRETS")
 if [ "$(id -u)" = 0 ]; then
-  [[ "$SRV_USER" =~ ^_[a-z][a-z0-9]{2,30}$ ]] || die "$SECRETS is owned by $SRV_USER, not a Team AX role account; refusing"
+  [[ "$SRV_USER" =~ ^_[a-z][a-z0-9]{2,30}$ ]] || die "$SECRETS is owned by $SRV_USER, not a team server role account; refusing"
 fi
 [ "$(stat -f %Lp "$SECRETS")" = 700 ] || die "$SECRETS must be mode 700"
 DEST="$SECRETS/claude-oauth-token"

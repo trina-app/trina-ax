@@ -1,5 +1,5 @@
 #!/bin/sh
-# Team AX: load the engine firewall (design tab 2 "기본 ① 방화벽", tab 6). Installed as <base>/root/pf-load
+# Load the engine firewall (design tab 2 "기본 ① 방화벽", tab 6). Installed as <base>/root/pf-load
 # (root:wheel 755) and run by the root LaunchDaemon <label>.pf at boot and every 5 minutes:
 #
 #   pf-load <base> <anchor>        e.g. pf-load "/Library/Application Support/mycel" com.apple/250.mycel
