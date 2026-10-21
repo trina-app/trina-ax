@@ -687,7 +687,9 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
           if (hit) break
         }
         if (hit && hit.version) picks.push({ ...hit, ask: false })
-        for (const f of listed) if (!hit || fs.realpathSync(f.file) !== fs.realpathSync(hit.file)) notes.push(`목록(${MANIFEST})과 다른 파일이라 건너뜀 / not in the bundle's ${MANIFEST}, skipped: ${f.file} (to offer it anyway: ${teamax} desktop add "${f.file}")`)
+        // another copy of a listed file (same name and hash, e.g. the exe both next to the zip and in ~/Downloads) is no news
+        const isListed = (f: Found) => { try { return manifest.get(path.basename(f.file)) === sha256File(f.file) } catch { return false } }
+        for (const f of listed) if ((!hit || fs.realpathSync(f.file) !== fs.realpathSync(hit.file)) && !isListed(f)) notes.push(`목록(${MANIFEST})과 다른 파일이라 건너뜀 / not in the bundle's ${MANIFEST}, skipped: ${f.file} (to offer it anyway: ${teamax} desktop add "${f.file}")`)
         continue
       }
       const near = findInstallers(main).find((f) => f.platform === platform)

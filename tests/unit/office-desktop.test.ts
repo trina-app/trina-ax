@@ -252,13 +252,17 @@ describe('add-from: which files office-install.sh may offer (security review: ~/
     const b2 = path.join(BASE, 'zip2', 'TeamAX-office-0.2.0'), z2 = path.dirname(b2), dl2 = path.join(BASE, 'dl2')
     fs.mkdirSync(b2, { recursive: true })
     const good = put(dl2, 'Team-AX-Setup-0.2.0-x64.exe', fakeExe({ size: 68 * 1024 }))
+    const copy = path.join(BASE, 'dl2-other', 'Team-AX-Setup-0.2.0-x64.exe')
+    fs.mkdirSync(path.dirname(copy), { recursive: true })
+    fs.copyFileSync(good, copy) // the same listed file in a third folder: not reported as "skipped"
     put(z2, 'Team-AX-Setup-0.3.0-x64.exe', fakeExe({ size: 69 * 1024 })) // not built with this zip
     put(z2, 'Team-AX-0.2.0-mac-universal.dmg', fakeDmg(50 * 1024)) // listed name, other content
     fs.writeFileSync(path.join(b2, MANIFEST), `${sha256File(good)}  Team-AX-Setup-0.2.0-x64.exe\n${'0'.repeat(64)}  Team-AX-0.2.0-mac-universal.dmg\n`)
     expect(readManifest(path.join(b2, MANIFEST))!.size).toBe(2)
     expect(readManifest(path.join(b2, 'missing'))).toBeNull()
     const out: string[] = []
-    expect(desktopCommand(h2, ['add-from', b2, z2, '--fallback', dl2, '--manifest', path.join(b2, MANIFEST)], (x) => out.push(x), { ask: () => { throw new Error('listed files need no question') } })).toBe(0)
+    expect(desktopCommand(h2, ['add-from', b2, z2, path.dirname(copy), '--fallback', dl2, '--manifest', path.join(b2, MANIFEST)], (x) => out.push(x), { ask: () => { throw new Error('listed files need no question') } })).toBe(0)
+    expect(out.join('\n')).not.toMatch(/skipped: [^\n]*Team-AX-Setup-0\.2\.0-x64\.exe/)
     expect(readIndex(d2).map((i) => `${i.platform} ${i.version}`)).toEqual(['windows 0.2.0'])
     expect(out.join('\n')).toContain(`skipped: ${path.join(z2, 'Team-AX-Setup-0.3.0-x64.exe')}`)
     expect(out.join('\n')).toContain(`skipped: ${path.join(z2, 'Team-AX-0.2.0-mac-universal.dmg')}`)
