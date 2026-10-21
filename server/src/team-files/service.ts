@@ -613,6 +613,10 @@ export class TeamFiles {
   private trashVisible(user: Principal, rules: RuleSet, t: TrashRow): boolean {
     const home = this.trashHome(t)
     if (home === null) return false
+    // a trashed group / project / rule folder went there by an admin or the owner (assertMayChangeManaged) and comes
+    // back only the same way: listing it to members, whose restore then failed (they cannot write groups/ or
+    // projects/), offered what could not be done (design tab 4 move/delete; security review r2)
+    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home)) return false
     // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
     // since belong to that other folder and do not
     const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'

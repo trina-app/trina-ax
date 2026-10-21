@@ -1,9 +1,11 @@
-// Security round 2 (sharing-works #1): what the trash shows and where a restore lands follow the folder an item
+// Security round 2 (sharing-works #1 and #5): what the trash shows and where a restore lands follow the folder an item
 // was trashed from, not only the path it had.
 // #1 (fix incomplete after r1): files trashed from a group / project folder that an admin then trashed kept their old
 // path. A new group (or an admin rule folder) that took the old name saw those files in its trash and restored them
 // into its own folder, contents and all. They are now hidden while their folder is in the trash, come back into the
 // trash of the folder wherever it is restored (" (restored)" name included), and go for good when it is purged.
+// #5: a trashed group / project / rule folder was listed in its members' trash, but their restore failed with 404
+// (they cannot write groups/ or projects/). Trashing those folders is admin-only, and so is seeing and restoring them.
 // Fixture: alice, erin = marketing (groups/marketing write); bob = finance (groups/finance, projects/atlas write);
 // carol = admin; dana = owner; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -88,5 +90,42 @@ describe('#1 trash items follow the folder they were trashed from', () => {
     const r = await restore('bob', file)
     expect(r.status).toBe(200)
     expect(r.body.entry.path).toBe('shared/board/agenda.md')
+  })
+})
+
+describe('#5 a trashed group / project / rule folder: listed and restored by admins and the owner only', () => {
+  test('team project folder: participants do not see it, the admin restores it, the participants have it back', async () => {
+    const p = await A.json('/api/projects', { as: 'carol', ...jsonBody({ name: 'Launch', folderPath: 'projects/launch', participants: [{ subjectType: 'group', subjectId: 'marketing' }] }) })
+    expect(p.status).toBe(201)
+    expect((await save('alice', 'projects/launch/memo.md', 'memo\n')).status).toBe(200)
+    const folder = await del('carol', 'projects/launch')
+    for (const who of ['alice', 'erin'] as const) {
+      expect(await ids(who)).not.toContain(folder)
+      expect((await restore(who, folder)).status).toBe(404)
+    }
+    expect(await ids('carol')).toContain(folder)
+    expect(await ids('dana')).toContain(folder)
+    const r = await restore('carol', folder)
+    expect(r.status).toBe(200)
+    expect((await read('alice', 'projects/launch/memo.md')).status).toBe(200)
+    expect((await A.json(`/api/projects/${p.body.id}`, { as: 'alice' })).status).toBe(200)
+  })
+
+  test('group folder and shared/ rule folder: same; an ordinary folder a member trashed stays theirs to restore', async () => {
+    const g = await del('carol', 'groups/finance')
+    ruleFolder('shared/경영', 'marketing')
+    const s = await del('carol', 'shared/경영')
+    expect((await A.json('/api/files/mkdir', { as: 'alice', ...jsonBody({ path: 'shared/plain' }) })).status).toBe(201)
+    expect((await save('alice', 'shared/plain/a.md', 'a\n')).status).toBe(200)
+    const plain = await del('alice', 'shared/plain')
+    expect(await ids('bob')).not.toContain(g)
+    expect((await restore('bob', g)).status).toBe(404)
+    expect(await ids('alice')).not.toContain(s)
+    expect((await restore('alice', s)).status).toBe(404)
+    expect(await ids('alice')).toContain(plain)
+    expect((await restore('alice', plain)).status).toBe(200)
+    expect((await restore('carol', g)).status).toBe(200)
+    expect((await restore('carol', s)).status).toBe(200)
+    expect((await read('bob', 'groups/finance/budget.md')).status).toBe(200)
   })
 })

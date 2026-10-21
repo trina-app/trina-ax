@@ -140,7 +140,11 @@ describe('trashed folders take their rules with them', () => {
     const bobTrash = await A.json('/api/files/trash', { as: 'bob' })
     expect(bobTrash.body.items.map((i: any) => i.id)).not.toContain(del.body.trashId)
     expect((await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'bob' })).status).toBe(404)
-    const back = await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'alice' })
+    // trashed by an admin, a rule folder comes back by an admin or the owner (security review r2: members were shown
+    // group / project folders they could not restore)
+    expect((await A.json('/api/files/trash', { as: 'alice' })).body.items.map((i: any) => i.id)).not.toContain(del.body.trashId)
+    expect((await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'alice' })).status).toBe(404)
+    const back = await A.json(`/api/files/trash/${del.body.trashId}/restore`, { method: 'POST', as: 'carol' })
     expect(back.status).toBe(200)
     expect(back.body.entry.path).toBe('shared/hr (restored)')
     expect((await A.json('/api/files/content?path=' + encodeURIComponent('shared/hr (restored)/secret.md'), { as: 'alice' })).body.content).toBe('v2 SECRET')
