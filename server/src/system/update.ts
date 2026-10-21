@@ -139,6 +139,8 @@ export class UpdateManager {
   constructor(private o: UpdateManagerOptions) {}
 
   get installed() { return this.o.appDir !== null }
+  /** a release feed is configured and this build can verify it (else checkFeed() only records why not) */
+  get feedUsable() { return !!this.o.feedUrl && this.keys.length > 0 }
   private get keys() { return this.o.keys ?? RELEASE_PUBLIC_KEYS }
   private get allowUnsigned() { return this.o.allowUnsigned ?? this.keys.length === 0 }
   private versionsDir() { return path.join(this.o.appDir!, 'versions') }
@@ -188,7 +190,7 @@ export class UpdateManager {
       available = { version: chk.feed.version, notes: chk.feed.notes, publishedAt: chk.feed.publishedAt, needsBackupRestoreToRollBack: false }
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
-    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev }
+    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, feed: this.feedUsable }
   }
 
   /** Unpack a bundle archive (.tar.zst) into app/versions/<version> after verifying it. */

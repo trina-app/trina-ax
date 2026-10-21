@@ -168,7 +168,12 @@ cannot answer chats yet (the installer's `engine.authMode` "proxy" is refused), 
 bun run build:bundle                                    # native helpers, web/dist, then scripts/build-bundle.ts
 sudo scripts/install-macos.sh --from dist/release --allow-unsigned --engine claude=<path to claude>
 sudo scripts/uninstall-macos.sh [--delete-data]
+sudo "/Library/Application Support/mycel/root/mycel-account" reset-link   # owner password recovery (no email)
 ```
+
+`--engine` takes `claude=` and/or `codex=`; `scripts/install-macos.sh --check …` checks everything without root.
+Re-running the installer with a newer bundle switches to it and keeps the old version for roll-back;
+`bun run build:bundle:universal` builds one bundle for Apple silicon and Intel.
 
 The installer (what the signed setup package will run) creates the hidden role accounts `_axserver` (server) and
 `_axagent` (engine), the LaunchDaemons, the sandbox profile and pf rules, `config/server.json` and a one-time setup

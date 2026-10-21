@@ -12,6 +12,11 @@ import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
 import { applyPendingRestore } from './system/backup'
+import { ensureLanCert } from './system/lan-cert'
+import { resolveLayout } from './system/layout'
+
+/** how often the installed server checks that its office TLS certificate still names every LAN address */
+const LAN_CERT_CHECK_MS = 60_000
 
 /** Exit codes the menubar app / launchd wrapper understand. */
 export const EXIT = { ok: 0, config: 78, schemaTooNew: 75, startFailed: 1 } as const
@@ -50,14 +55,48 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   })
   servers.push(http)
   if (cfg.tls) {
-    const tls = Bun.serve({
+    const t = cfg.tls
+    const fingerprintFile = cfg.mode === 'prod' ? path.join(resolveLayout(cfg).setupDir, 'lan-cert.sha256') : null
+    const certCheck = () => {
+      try {
+        const r = ensureLanCert({ certFile: t.certFile, keyFile: t.keyFile, fingerprintFile })
+        if (r.changed) log.info('office TLS certificate renewed', { reason: r.reason, fingerprint: r.fingerprint, names: r.names })
+        return r.changed
+      } catch (e) {
+        log.warn('office TLS certificate check failed', { err: e })
+        return false
+      }
+    }
+    if (t.managed) certCheck()
+    const serveTls = () => Bun.serve({
       ...base,
       hostname: '0.0.0.0',
-      port: cfg.tls.port,
-      tls: { cert: Bun.file(cfg.tls.certFile), key: Bun.file(cfg.tls.keyFile) },
+      port: t.port,
+      // read now (Bun.file is lazy): a renewed certificate is a new listener with the new files
+      tls: { cert: fs.readFileSync(t.certFile, 'utf8'), key: fs.readFileSync(t.keyFile, 'utf8') },
       fetch: (req, server) => app.fetch(req, { ip: server.requestIP(req)?.address ?? null, via: 'direct', server }),
     })
+    let tls = serveTls()
+    let tlsUp = true
     servers.push(tls)
+    if (t.managed) {
+      // a new Wi-Fi, DHCP lease or network port: the certificate must name the new address (system/lan-cert.ts);
+      // a listener that could not come back is tried again on the next tick instead of taking the server down
+      const timer = setInterval(() => {
+        if (!certCheck() && tlsUp) return
+        const i = servers.indexOf(tls)
+        if (tlsUp) { tls.stop(true); tlsUp = false }
+        try {
+          tls = serveTls()
+          servers[i] = tls
+          tlsUp = true
+        } catch (e) {
+          log.warn('office TLS listener restart failed; trying again in a minute', { err: e })
+        }
+      }, LAN_CERT_CHECK_MS)
+      timer.unref?.()
+      ctx.onClose(() => clearInterval(timer))
+    }
   }
   const url = `http://${cfg.listen.host === '0.0.0.0' ? 'localhost' : cfg.listen.host}:${http.port}`
   log.info('server started', { version: ctx.version, mode: cfg.mode, url, tlsPort: cfg.tls?.port ?? null, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir, config: cfg.configFile })

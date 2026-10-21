@@ -25,8 +25,9 @@ export const AppConfigFile = z.object({
     host: z.string().default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(DEV_PORT),
   }).default({ host: '127.0.0.1', port: DEV_PORT }),
-  /** office-network direct connection (TLS, tab 4: 8443); null = off */
-  tls: z.object({ port: z.number().int().default(8443), certFile: z.string(), keyFile: z.string() }).nullable().default(null),
+  /** office-network direct connection (TLS, tab 4: 8443); null = off. managed: the server keeps the self-signed
+   * certificate naming every LAN address of this Mac (system/lan-cert.ts; the installer sets it) */
+  tls: z.object({ port: z.number().int().default(8443), certFile: z.string(), keyFile: z.string(), managed: z.boolean().default(false) }).nullable().default(null),
   /** extra allowed Origins for CSRF / WebSocket checks, e.g. https://acme.treesoop.com. Same host is always allowed. */
   publicOrigins: z.array(z.string()).default([]),
   teamRoot: z.string().optional(),
@@ -63,7 +64,7 @@ export interface AppConfig {
   mode: 'dev' | 'prod'
   configFile: string | null
   listen: { host: string; port: number }
-  tls: { port: number; certFile: string; keyFile: string } | null
+  tls: { port: number; certFile: string; keyFile: string; managed?: boolean } | null
   publicOrigins: string[]
   teamRoot: string
   dataDir: string
@@ -121,7 +122,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     mode,
     configFile: file,
     listen: { host: env[P + 'HOST'] ?? f.listen.host, port },
-    tls: f.tls ? { port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile) } : null,
+    tls: f.tls ? { port: f.tls.port, certFile: abs(f.tls.certFile), keyFile: abs(f.tls.keyFile), managed: f.tls.managed } : null,
     publicOrigins: origins,
     teamRoot: env[P + 'TEAM_ROOT'] ? path.resolve(cwd, env[P + 'TEAM_ROOT']!) : f.teamRoot ? abs(f.teamRoot) : def.teamRoot,
     dataDir: env[P + 'DATA_DIR'] ? path.resolve(cwd, env[P + 'DATA_DIR']!) : f.dataDir ? abs(f.dataDir) : def.dataDir,

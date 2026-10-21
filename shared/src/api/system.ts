@@ -43,6 +43,9 @@ export const UpdateStatus = z.object({
   lastCheckedAt: IsoTime.nullable(),
   /** previous version kept for roll-back */
   previous: z.string().nullable(),
+  /** false: this server has no release feed (update.feedUrl null) or no release key, so it never looks for new
+   * versions online; a new version comes from re-running the installer. Absent from older servers. */
+  feed: z.boolean().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 export const ReauthBody = z.object({ password: z.string().min(1).max(256) })

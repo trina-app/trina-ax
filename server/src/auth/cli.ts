@@ -3,8 +3,11 @@
 //   bun server/src/auth/cli.ts status
 //   bun server/src/auth/cli.ts create-owner --username kim --name "Kim" --team "Acme" [--locale en|ko|id] < password
 //   bun server/src/auth/cli.ts reset-link [--username kim]      one-time link (24 h) for the owner or the named member
+//   bun server/src/auth/cli.ts list-owners                      the owner account(s): username, name, status
 //
 // Uses the same config as the server (--config / MYCEL_* env). The password is read from stdin, never from argv.
+// Installed server: bundled as server/src/account.js and run through root/mycel-account (scripts/macos/account.sh), so a
+// Mac administrator (sudo) can recover the owner without email: the local admin password is the proof.
 import { PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, Locale, PersonName, Username } from '@mycel/shared/api'
 import { loadAppConfig, type AppConfig } from '../app-config'
@@ -63,7 +66,7 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         const u = arg(argv, 'username')
         const row = u
           ? getUserByUsername(ctx.db, u)
-          : (ctx.db.query("SELECT username FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1").get() as { username: string } | null)
+          : (ctx.db.query("SELECT username FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1").get() as { username: string } | null)
         const user = row ? getUserByUsername(ctx.db, row.username) : null
         if (!user) throw new CliError(u ? `no account "${u}"` : 'no owner yet (run create-owner)')
         if (user.status !== 'active') throw new CliError(`account "${user.username}" is disabled`)
@@ -71,8 +74,13 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         const link = createResetLink(ctx, user.id, null, base)
         return `one-time password reset link for "${user.username}" (valid until ${link.expiresAt}):\n${link.url}`
       }
+      case 'list-owners': {
+        const rows = ctx.db.query("SELECT username, name, status FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at").all() as { username: string; name: string; status: string }[]
+        if (!rows.length) return 'no owner yet (run create-owner, or open the setup page)'
+        return rows.map((r) => `${r.username}\t${r.name}\t${r.status}`).join('\n')
+      }
       default:
-        throw new CliError(`usage: ${PRODUCT.id}-admin status | create-owner --username U --name N --team T [--locale en|ko|id] < password | reset-link [--username U]`)
+        throw new CliError(`usage: ${PRODUCT.id}-account status | list-owners | create-owner --username U --name N --team T [--locale en|ko|id] < password | reset-link [--username U]`)
     }
   } finally {
     await ctx.close()

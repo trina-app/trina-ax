@@ -713,6 +713,7 @@ export const en: Record<MessageKey, string> = {
   'system.oneWay': 'After this update, going back to the earlier version needs a backup restore.',
   'system.installUpdate': 'Install update',
   'system.upToDate': 'You are on the latest version.',
+  'system.noFeed': 'This server does not look for new versions online. To update, run the installer again with the new release on the server Mac; it switches to the new version and keeps this one for roll-back.',
   'system.rollback': 'Go back to the previous version ({version})',
   'system.updateNote': 'The database is backed up first and the server restarts. If answers are running, it installs after they finish.',
   'system.updateDone': 'Update finished.',

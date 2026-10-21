@@ -14,7 +14,9 @@
     "app": "bun build.ts && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:e2e": "bun build.ts && playwright test -c e2e/playwright.config.ts",
-    "dist:mac": "NODE_ENV=production bun build.ts && electron-builder --mac dmg --arm64 --publish never",
+    "dist:mac": "NODE_ENV=production bun build.ts && electron-builder --mac dmg --universal --publish never",
+    "dist:mac:arm64": "NODE_ENV=production bun build.ts && electron-builder --mac dmg --arm64 --publish never",
+    "dist:mac:x64": "NODE_ENV=production bun build.ts && electron-builder --mac dmg --x64 --publish never",
     "dist:win": "NODE_ENV=production bun build.ts && electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
@@ -53,7 +55,7 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "universal"
           ]
         }
       ],

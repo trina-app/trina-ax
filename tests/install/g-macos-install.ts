@@ -6,13 +6,17 @@
 //   sudo bun tests/install/g-macos-install.ts [--keep]
 //
 // Verifies accounts, owners and modes, LaunchDaemons, the pf firewall (as the engine account), the sandbox through the
-// installed launcher, update swap / bootstrap roll-back / manual roll-back, backup + encrypted archive + restore, and
-// that the uninstaller removes everything. Prints a report and exits 1 if any check failed. Never asks for or stores
-// a password: run it with sudo.
+// installed launcher, engine names (claude -> engine.claudeBin, codex -> engine.codexBin), the office TLS certificate
+// (every LAN address, served on the TLS port), the account tool (root/mycel-account: create-owner, list-owners, a
+// reset link that works), update swap / bootstrap roll-back / manual roll-back, re-running the installer with a
+// newer bundle (switch, previous kept) and with a crashing one (rolled back, installer exits 1), backup + encrypted
+// archive + restore, an uninstall that keeps the data followed by a reinstall on it, and that the uninstaller removes
+// everything. Prints a report and exits 1 if any check failed. Never asks for or stores a password: run it with sudo.
 import fs from 'node:fs'
 import path from 'node:path'
 import { buildBundle } from '../../scripts/build-bundle'
 import { packBundle, writeManifest } from '../../server/src/system/bundle'
+import { certNames, missingNames, wantedNames } from '../../server/src/system/lan-cert'
 
 const REPO = path.resolve(import.meta.dir, '..', '..')
 // account names can be overridden (MYCEL_TEST_SRV / MYCEL_TEST_AGT) when a record from an earlier run cannot be
@@ -50,6 +54,11 @@ const BUN = `${BASE}/app/current/bin/bun`
 const ADMIN_ENV = { MYCEL_MODE: 'prod', MYCEL_CONFIG: `${BASE}/config/server.json`, MYCEL_INSTALL_BASE: BASE, HOME: `${BASE}/data` }
 const admin = (args: string[], input?: string) => sh([BUN, `${BASE}/app/current/server/src/admin.js`, ...args], { user: SRV, env: ADMIN_ENV, input })
 const readJson = (f: string) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null } }
+/** the account tool as the Mac administrator (root): it drops to the server account itself */
+const account = (args: string[], input?: string) => sh([`${BASE}/root/mycel-account`, ...args], { input })
+const installer = (rel: string, ...extra: string[]) => sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, rel), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
+  '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--allow-unsigned', '--no-power', '--skip-tmutil', ...extra])
+const OWNER_PW = 'install test owner pw 1'
 
 async function main() {
   if (process.getuid?.() !== 0) { console.error('run with sudo'); process.exit(2) }
@@ -64,8 +73,16 @@ async function main() {
   fs.writeFileSync(path.join(v3.dir, 'server', 'src', 'main.js'), 'process.exit(3)\n')
   await writeManifest(v3.dir, '0.9.0-test.3')
   await packBundle(v3.dir, v3.archive)
+  // for re-running the installer itself with newer bundles: a good one and one that crashes at start
+  await buildBundle({ version: '0.9.0-test.4', out: path.join(W, 'rel4') })
+  const v5 = await buildBundle({ version: '0.9.0-test.5', out: path.join(W, 'rel5') })
+  fs.writeFileSync(path.join(v5.dir, 'server', 'src', 'main.js'), 'process.exit(3)\n')
+  await writeManifest(v5.dir, '0.9.0-test.5')
+  // fake engines (the probe) under both engine names; the real CLIs need the owner's subscription login
   const probe = path.join(W, 'fake-engine')
   if (sh(['cc', '-O2', '-o', probe, path.join(REPO, 'tests', 'lib', 'g-sbprobe.c')]).code !== 0) throw new Error('cc failed')
+  const probe2 = path.join(W, 'fake-codex-2.0')
+  fs.copyFileSync(probe, probe2)
   const lp = await Bun.build({ entrypoints: [path.join(import.meta.dir, 'g-launcher-probe.ts')], target: 'bun', outdir: W, naming: 'launcher-probe.js' })
   if (!lp.success) throw new Error('bundling the launcher probe failed')
   for (const f of fs.readdirSync(W)) fs.chmodSync(path.join(W, f), fs.statSync(path.join(W, f)).isDirectory() ? 0o755 : 0o755)
@@ -73,8 +90,10 @@ async function main() {
   fs.writeFileSync('/private/tmp/mycel-test-secret', 'left in /tmp by a person\n', { mode: 0o644 })
 
   // ---- install ----
+  const badName = installer('rel1', '--engine', `fake=${probe}`)
+  check('installer refuses an engine name other than claude / codex, before changing anything', badName.code !== 0 && /unknown engine "fake"/.test(badName.err) && !fs.existsSync(BASE), badName.err.trim())
   const inst = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `claude=${probe}`, '--engine', `codex=${probe2}`, '--allow-unsigned', '--no-power'])
   check('install script', inst.code === 0, (inst.out + inst.err).trim().split('\n').slice(-3).join(' | '))
   if (inst.code !== 0) return
 
@@ -102,8 +121,17 @@ async function main() {
     [`/Library/Logs/${ID}/crash`, 'root:wheel 755'], [`/Library/Logs/${ID}/server`, `${SRV}:admin 750`], [`${BASE}/app/state.json`, `${SRV}:${SRV} 640`],
     [`/Library/LaunchDaemons/${LABEL}.server.plist`, 'root:wheel 644'], [`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'root:wheel 644'],
     [`/Library/LaunchDaemons/${LABEL}.pf.plist`, 'root:wheel 644'], [`/etc/newsyslog.d/${ID}.conf`, 'root:wheel 644'],
+    [`${BASE}/root/mycel-account`, 'root:wheel 755'], [`${BASE}/secrets/lan-tls.crt`, `${SRV}:${SRV} 644`],
+    [`${BASE}/app/engines/claude/current/claude`, `${SRV}:${AGT} 750`], [`${BASE}/app/engines/codex/current/codex`, `${SRV}:${AGT} 750`],
   ]
   for (const [p, w] of want) check(`owner/mode ${p.replace(BASE, '<base>')}`, statOf(p) === w, `${statOf(p)} (want ${w})`)
+
+  // ---- engines: each name to its own key, files named after the engine, both allowed by the launcher ----
+  const cfg0 = readJson(`${BASE}/config/server.json`)
+  check('config: engine.claudeBin and engine.codexBin are the installed engines', cfg0?.engine?.claudeBin === `${BASE}/app/engines/claude/current/claude` && cfg0?.engine?.codexBin === `${BASE}/app/engines/codex/current/codex`, JSON.stringify(cfg0?.engine))
+  const lplist = fs.readFileSync(`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'utf8')
+  check('launcher allows exactly the two installed engines', lplist.includes(`${BASE}/app/engines/claude/current/claude`) && lplist.includes(`${BASE}/app/engines/codex/current/codex`) && (lplist.match(/--allow-cmd/g) ?? []).length === 2)
+  check('config: the office TLS certificate is managed by the server', cfg0?.tls?.managed === true && cfg0?.tls?.port === TLS, JSON.stringify(cfg0?.tls))
 
   // ---- daemons and server ----
   for (const d of ['server', 'launcher']) {
@@ -157,7 +185,7 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   check('files: engine account cannot list the team folder / data / secrets', !asAgent('list', `${BASE}/team`) && !asAgent('list', `${BASE}/data`) && !asAgent('read', `${BASE}/secrets/lan-tls.key`))
 
   // ---- sandbox through the installed launcher ----
-  const engine = `${BASE}/app/engines/fake/current/fake-engine`
+  const engine = `${BASE}/app/engines/claude/current/claude`
   const turn = (chat: string, ...a: string[]) => {
     const r = sh([BUN, path.join(W, 'launcher-probe.js'), `${BASE}/run-launcher/launcher.sock`, `${BASE}/agent`, engine, chat, ...a], { user: SRV })
     try { return JSON.parse(r.out.trim().split('\n').at(-1)!) as { code?: number; error?: string } } catch { return { error: r.err || r.out } }
@@ -178,6 +206,38 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   const asRoot = ask()
   check('the launcher refuses root (only the server uid)', /only the server may use the launcher/.test(asRoot.out), (asRoot.out + asRoot.err).trim().slice(0, 160))
   echoes.kill()
+
+  // ---- office TLS certificate: every LAN address + <LocalHostName>.local, the fingerprint the admin can read ----
+  const crt = fs.readFileSync(`${BASE}/secrets/lan-tls.crt`)
+  const miss = missingNames(crt, wantedNames())
+  check('TLS certificate names <LocalHostName>.local, localhost, 127.0.0.1, ::1 and every LAN address of this Mac', miss.length === 0, miss.length ? `missing ${miss.join(', ')}` : certNames(crt).ips.join(' '))
+  const fpFile = fs.readFileSync(`${BASE}/setup/lan-cert.sha256`, 'utf8').trim()
+  check('setup/lan-cert.sha256 is the certificate\'s fingerprint', fpFile === certNames(crt).fingerprint, fpFile)
+  const served = sh(['/bin/sh', '-c', `/usr/bin/openssl s_client -connect 127.0.0.1:${TLS} -servername localhost </dev/null 2>/dev/null | /usr/bin/openssl x509 -noout -fingerprint -sha256`]).out.replace(/.*=/, '').trim()
+  check('the TLS port serves that certificate', served === fpFile, served)
+  // a repair run keeps a certificate that still names everything (desktop apps pinned its fingerprint)
+  const keepCert = installer('rel1')
+  check('repair run without --engine keeps the installed engines and the certificate', keepCert.code === 0 && /keeping the one installed earlier/.test(keepCert.out) && fs.readFileSync(`${BASE}/setup/lan-cert.sha256`, 'utf8').trim() === fpFile, (keepCert.out + keepCert.err).trim().split('\n').slice(-2).join(' | '))
+  await until(health, (h) => !!h?.ok, 30_000)
+
+  // ---- account tool (root/mycel-account): what a Mac administrator runs to recover the owner, no email ----
+  check('account tool: status before setup', /setup needed/.test(account(['status']).out))
+  check('account tool: list-owners with no owner', /no owner yet/.test(account(['list-owners']).out))
+  const co = account(['create-owner', '--username', 'kim', '--name', 'Kim', '--team', 'Install Test', '--locale', 'en'], OWNER_PW + '\n')
+  check('account tool: create-owner (password on stdin)', co.code === 0 && /owner "kim" created/.test(co.out), (co.out + co.err).trim())
+  check('account tool: create-owner refused once the team exists', /already set up/.test(account(['create-owner', '--username', 'lee', '--name', 'Lee', '--team', 'X'], OWNER_PW + '\n').err))
+  check('account tool: list-owners', account(['list-owners']).out.trim() === 'kim\tKim\tactive', account(['list-owners']).out.trim())
+  check('account tool ran as the server account (the database is still the server\'s)', ['app.db', 'app.db-wal'].filter((f) => fs.existsSync(`${BASE}/data/${f}`)).every((f) => statOf(`${BASE}/data/${f}`).startsWith(`${SRV}:`)), statOf(`${BASE}/data/app.db`))
+  const rl = account(['reset-link'])
+  const tok = /\/reset-password\/([A-Za-z0-9_-]+)/.exec(rl.out)?.[1]
+  check('account tool: reset-link prints a one-time link on this Mac', !!tok && rl.out.includes(`http://localhost:${PORT}/reset-password/`), rl.out.trim() || rl.err.trim())
+  const api = (p: string, body: unknown) => fetch(`http://127.0.0.1:${PORT}${p}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1', origin: `http://127.0.0.1:${PORT}` }, body: JSON.stringify(body) })
+  const reset = tok ? await api(`/api/password-resets/${tok}`, { newPassword: 'recovered by the admin 1' }) : null
+  check('the reset link sets a new owner password', reset?.status === 200, String(reset?.status))
+  check('the owner signs in with it', (await api('/api/auth/login', { username: 'kim', password: 'recovered by the admin 1' })).status === 200)
+  check('the link works once', tok ? (await api(`/api/password-resets/${tok}`, { newPassword: 'another password 22' })).status !== 200 : false)
+  const nobody = sh([`${BASE}/root/mycel-account`, 'reset-link'], { user: AGT })
+  check('account tool refuses anyone but root (sudo)', nobody.code !== 0 && !/reset-password/.test(nobody.out), (nobody.out + nobody.err).trim().slice(0, 120))
 
   // ---- updates: switch, bootstrap roll-back of a crashing version, manual roll-back ----
   const stg = admin(['stage-update', v2.archive])
@@ -209,20 +269,34 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   // the hard link goes into the version folder the installer copies (test.1); the old code chowned it recursively
   sh(['/bin/sh', '-c', `ln '${victim}' '${BASE}/app/versions/0.9.0-test.1/hardlink' ; rm -f '${BASE}/app/state.json' && ln -s '${victim}-new' '${BASE}/app/state.json'`], { user: SRV })
   const rep1 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `claude=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
   check('repair run with planted links and hard links', rep1.code === 0, (rep1.out + rep1.err).trim().split('\n').slice(-2).join(' | '))
   check('repair: a hard link the server made is not chowned by root', statOf(victim) === 'root:wheel 644', statOf(victim))
   check('repair: a planted state.json link is replaced, not followed', !fs.existsSync(`${victim}-new`) && statOf(`${BASE}/app/state.json`) === `${SRV}:${SRV} 640`, statOf(`${BASE}/app/state.json`))
-  sh(['/bin/sh', '-c', `rm -rf '${BASE}/app/engines/fake' && ln -s /private/tmp '${BASE}/app/engines/fake'`], { user: SRV })
+  sh(['/bin/sh', '-c', `rm -rf '${BASE}/app/engines/claude' && ln -s /private/tmp '${BASE}/app/engines/claude'`], { user: SRV })
   const rep2 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `claude=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
   check('repair refuses a symbolic link on the way to a folder it chowns', rep2.code !== 0 && /symbolic link/.test(rep2.err) && statOf('/private/tmp') === 'root:wheel 1777', (rep2.err.trim().split('\n').at(-1) ?? '') + ' /tmp=' + statOf('/private/tmp'))
-  sh(['/bin/rm', '-f', `${BASE}/app/engines/fake`])
+  sh(['/bin/rm', '-f', `${BASE}/app/engines/claude`])
   const rep3 = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `claude=${probe}`, '--allow-unsigned', '--no-power', '--skip-tmutil'])
   check('repair run after the link is gone', rep3.code === 0, (rep3.out + rep3.err).trim().split('\n').slice(-2).join(' | '))
   fs.rmSync(victim, { force: true })
   await until(health, (h) => !!h?.ok, 30_000)
+  check('repair with an OLDER bundle keeps the running version and says so', /older than the installed 0\.9\.0-test\.2/.test(rep3.err) && fs.readlinkSync(`${BASE}/app/current`) === 'versions/0.9.0-test.2', rep3.err.trim().split('\n').at(-1))
+
+  // ---- re-running the installer with a newer bundle switches app/current; the previous version stays ----
+  const up = installer('rel4')
+  check('installer with a newer bundle: switches and waits for it', up.code === 0 && /switching 0\.9\.0-test\.2 -> 0\.9\.0-test\.4/.test(up.out) && /installed mycel-test 0\.9\.0-test\.4/.test(up.out), (up.out + up.err).trim().split('\n').slice(-2).join(' | '))
+  check('newer bundle answers /api/health', (await until(health, (h) => h?.version === '0.9.0-test.4', 30_000))?.version === '0.9.0-test.4')
+  const s4 = await until(() => readJson(`${BASE}/app/state.json`), (s) => s?.pending === null, 20_000)
+  check('state.json after the installer switch: current test.4, previous test.2 (kept for Roll back)', s4?.current === '0.9.0-test.4' && s4?.previous === '0.9.0-test.2' && fs.existsSync(`${BASE}/app/versions/0.9.0-test.2/manifest.json`) && s4?.history?.at(-1)?.result === 'ok', JSON.stringify({ c: s4?.current, p: s4?.previous, h: s4?.history?.at(-1) }))
+  const down = installer('rel5')
+  check('installer with a newer bundle that crashes: the bootstrap goes back, the installer exits 1 and says so', down.code !== 0 && /0\.9\.0-test\.5 did not become healthy, so the server went back to 0\.9\.0-test\.4/.test(down.err), down.err.trim().split('\n').at(-1))
+  check('after the failed switch test.4 answers and app/current points to it', (await until(health, (h) => h?.version === '0.9.0-test.4', 30_000))?.version === '0.9.0-test.4' && fs.readlinkSync(`${BASE}/app/current`) === 'versions/0.9.0-test.4')
+  const same = installer('rel4')
+  check('installer with the same bundle again: repair, no switch', same.code === 0 && !/switching/.test(same.out), (same.out + same.err).trim().split('\n').slice(-1).join(''))
+  await until(health, (h) => h?.version === '0.9.0-test.4', 30_000)
 
   // ---- backups and restore ----
   sh(['/bin/sh', '-c', `mkdir -p '${BASE}/team/shared/한글 폴더' && printf 'plan v1\\n' > '${BASE}/team/shared/한글 폴더/plan.md' && head -c 3000000 /dev/urandom > '${BASE}/team/shared/big.bin'`], { user: SRV })
@@ -263,6 +337,13 @@ async function uninstall() {
   const onlyAccounts = (r: { code: number; out: string }) => r.code === 0 || (r.out.split('\n').filter((l) => /^\s{2}\S/.test(l)).every((l) => /^\s+user _/.test(l)))
   check('uninstall (keeping data) removes everything but the accounts', onlyAccounts(u1), (u1.out + u1.err).trim().replace(/\n/g, ' | '))
   check('kept data is now root-owned (no orphaned uid)', statOf(`${BASE}/team`).startsWith('root:wheel'), statOf(`${BASE}/team`))
+  // ---- reinstall on the kept data: the server account gets it back and the team is still there ----
+  const re = installer('rel4', '--engine', `claude=${path.join(W, 'fake-engine')}`)
+  check('reinstall on data kept by the uninstaller', re.code === 0 && /gave the kept data\/ folder back/.test(re.out), (re.out + re.err).trim().split('\n').slice(-2).join(' | '))
+  check('kept database and team folder belong to the server account again', statOf(`${BASE}/data/app.db`).startsWith(`${SRV}:`) && statOf(`${BASE}/team/shared`).startsWith(`${SRV}:`), `${statOf(`${BASE}/data/app.db`)} ${statOf(`${BASE}/team/shared`)}`)
+  check('the reinstalled server answers', (await until(health, (h) => h?.version === '0.9.0-test.4', 60_000))?.ok === true)
+  check('the team survived (the owner made with the account tool is there)', /^kim\t/.test(account(['list-owners']).out), account(['list-owners']).out.trim() || account(['list-owners']).err.trim())
+  check('no new setup code for a team that is already set up', !fs.existsSync(`${BASE}/setup/code`))
   const u2 = sh([path.join(REPO, 'scripts', 'uninstall-macos.sh'), '--id', ID, '--server-user', SRV, '--agent-user', AGT, '--delete-data'], { env })
   check('uninstall --delete-data removes the data too', onlyAccounts(u2) && !fs.existsSync(BASE), (u2.out + u2.err).trim().replace(/\n/g, ' | '))
   // independent leftover scan

@@ -17,6 +17,11 @@
 //   switch <version> [--restart] | rollback [--restart]
 //                                                point app/current at a staged version; --restart stops the running
 //                                                server (pid from status/status.json) so root/bootstrap starts it
+//
+// Run by scripts/install-macos.sh as root with the admin.js of the bundle it installs (no config, explicit paths only):
+//   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
+//   install-state --current V|'' --version V --state F --out F
+//                                                plan app/current + state.json for this install (system/install-plan.ts)
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -25,6 +30,8 @@ import { SERVER_VERSION } from '../context'
 import { openDb } from '../db'
 import { createLogger } from '../log'
 import { BackupManager, inspectDbCopy, vacuumInto } from './backup'
+import { planInstallState } from './install-plan'
+import { ensureLanCert } from './lan-cert'
 import { resolveLayout } from './layout'
 import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
@@ -46,6 +53,23 @@ async function readPassword(args: string[]): Promise<string | null> {
 
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = argv
+  if (cmd === 'lan-cert') {
+    const cert = arg(args, '--cert'), key = arg(args, '--key')
+    if (!cert || !key) throw new Error('lan-cert needs --cert <file> --key <file>')
+    const r = ensureLanCert({ certFile: path.resolve(cert), keyFile: path.resolve(key), fingerprintFile: arg(args, '--fingerprint') })
+    console.log(JSON.stringify(r))
+    return 0
+  }
+  if (cmd === 'install-state') {
+    const version = arg(args, '--version'), stateFile = arg(args, '--state'), outFile = arg(args, '--out')
+    if (!version || !stateFile || !outFile || !args.includes('--current')) throw new Error('install-state needs --current V --version V --state F --out F')
+    let state: unknown = null
+    try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) } catch {}
+    const plan = planInstallState({ current: arg(args, '--current') || null, version, state })
+    fs.writeFileSync(outFile, JSON.stringify(plan.state, null, 2) + '\n', { mode: 0o640 })
+    console.log(plan.action)
+    return 0
+  }
   const cfg = loadAppConfig({ argv: [] })
   const log = createLogger({ level: 'warn' })
   const layout = resolveLayout(cfg)
@@ -143,7 +167,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-update|switch|rollback (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|lan-cert|install-state (see server/src/system/cli.ts)')
       return 2
   }
 }
