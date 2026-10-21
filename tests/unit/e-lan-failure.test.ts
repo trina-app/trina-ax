@@ -1,18 +1,19 @@
 // Desktop app, office direct connection (fix/prod-ops): the pinned probe tells a timeout from an unreachable address,
 // and a failed office connection is reported to the team server (POST /api/connect-info/lan-failure through the
-// team address) — a different certificate always, an address that does not answer only when the server Mac's
-// Bonjour name answers on this network (the person is in the office).
+// team address) only when the server Mac's Bonjour name answers on this network (the person is in the office): away
+// from it, an unreachable address is expected and a different certificate is another device at the same address.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { lanFailureCode, officeNameAnswers, probeDirect, probePinned, reportLanFailure } from '../../desktop/src/main/direct'
+import { lanFailureCode, lanFailureToReport, officeNameAnswers, probeDirect, probePinned, reportLanFailure } from '../../desktop/src/main/direct'
 import { WORK } from '../lib/env'
 
 const DIR = path.join(WORK, 'e-lan-failure')
-const TLS_PORT = 19768, SILENT_PORT = 19769, CLOSED_PORT = 19770
+// ports the OS hands out (other suites and worktrees run beside this one)
+let TLS_PORT = 0, SILENT_PORT = 0, CLOSED_PORT = 0
 let tls: ReturnType<typeof Bun.serve>
 let silent: net.Server
 let fp = ''
@@ -25,12 +26,19 @@ beforeAll(async () => {
   if (r.exitCode !== 0) throw new Error(r.stderr.toString())
   fp = new crypto.X509Certificate(fs.readFileSync(cert)).fingerprint256
   tls = Bun.serve({
-    hostname: '127.0.0.1', port: TLS_PORT, tls: { cert: Bun.file(cert), key: Bun.file(key) },
+    hostname: '127.0.0.1', port: 0, tls: { cert: Bun.file(cert), key: Bun.file(key) },
     fetch: () => Response.json({ ok: true, version: '0.1.0', schema: { applied: 1, readerLevel: 1 }, uptimeSec: 1, time: new Date().toISOString() }),
   })
+  TLS_PORT = tls.port!
   // accepts TCP and never answers: the probe gives up (timeout)
-  silent = net.createServer(() => {}).listen(SILENT_PORT, '127.0.0.1')
+  silent = net.createServer(() => {}).listen(0, '127.0.0.1')
   await new Promise((r) => silent.once('listening', r))
+  SILENT_PORT = (silent.address() as net.AddressInfo).port
+  // a port that was free a moment ago: nothing listens there
+  const probe = net.createServer().listen(0, '127.0.0.1')
+  await new Promise((r) => probe.once('listening', r))
+  CLOSED_PORT = (probe.address() as net.AddressInfo).port
+  await new Promise((r) => probe.close(r))
 })
 afterAll(() => { tls.stop(true); silent.close() })
 
@@ -65,6 +73,22 @@ describe('is the server Mac on this network?', () => {
     expect(await officeNameAnswers(['192.168.0.20', '10.0.0.5'], 500, ok)).toBe(false)
     // an mDNS query that hangs counts as "not here"
     expect(await officeNameAnswers(['Acme-Mac.local'], 100, () => new Promise(() => {}))).toBe(false)
+    // a loopback address is this Mac itself
+    expect(await officeNameAnswers(['127.0.0.1'], 100, fail)).toBe(true)
+  })
+  test('nothing is reported away from the office, a different certificate included', async () => {
+    const ok = () => Promise.resolve({ address: '192.168.0.20' })
+    const fail = () => Promise.reject(new Error('ENOTFOUND'))
+    const hosts = ['Acme-Mac.local', '192.168.0.20']
+    // at home: 192.168.0.20 is some other device (a router or NAS serving TLS on the same port)
+    expect(await lanFailureToReport('mismatch', hosts, fail)).toBeNull()
+    expect(await lanFailureToReport('unreachable', hosts, fail)).toBeNull()
+    expect(await lanFailureToReport('timeout', hosts, fail)).toBeNull()
+    // in the office
+    expect(await lanFailureToReport('mismatch', hosts, ok)).toBe('cert_mismatch')
+    expect(await lanFailureToReport('unreachable', hosts, ok)).toBe('unreachable')
+    expect(await lanFailureToReport('timeout', hosts, ok)).toBe('timeout')
+    expect(await lanFailureToReport('ok', hosts, ok)).toBeNull()
   })
 })
 

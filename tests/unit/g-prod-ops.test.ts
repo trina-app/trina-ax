@@ -140,7 +140,7 @@ describe('the launcher client inside a request (Bun throws a failed Unix connect
   test('a chat started while the launcher daemon is down ends with an error event, not a dead server', async () => {
     const missing = path.join(SHORT, 'down', 'launcher.sock')
     const srv = Bun.serve({
-      hostname: '127.0.0.1', port: 19766, idleTimeout: 10,
+      hostname: '127.0.0.1', port: 0, idleTimeout: 10,
       async fetch(req) {
         const l = new SocketLauncher(missing)
         if (new URL(req.url).pathname === '/peer') return Response.json(await l.tcpPeer(1, 2))
@@ -152,11 +152,11 @@ describe('the launcher client inside a request (Bun throws a failed Unix connect
       },
     })
     try {
-      const evs = (await (await fetch('http://127.0.0.1:19766/launch')).json()) as { ev: string; message: string }[]
+      const evs = (await (await fetch(`http://127.0.0.1:${srv.port}/launch`)).json()) as { ev: string; message: string }[]
       expect(evs).toHaveLength(1)
       expect(evs[0]!.ev).toBe('error')
       expect(evs[0]!.message).toContain('launcher:')
-      expect(await (await fetch('http://127.0.0.1:19766/peer')).json()).toBeNull()
+      expect(await (await fetch(`http://127.0.0.1:${srv.port}/peer`)).json()).toBeNull()
       expect(await probeSocket(missing)).toBe('missing')
       await Bun.sleep(100)
       expect(uncaught).toEqual([])
@@ -185,9 +185,10 @@ describe('diagnostics in an installed layout with the launcher down', () => {
       const made = await makeApp(cfg)
       ctx = made.ctx
       const app = made.app
-      server = Bun.serve({ hostname: '127.0.0.1', port: 19763, fetch: (req, s) => app.fetch(req, { ip: s.requestIP(req)?.address ?? null, via: 'direct', server: s }) })
+      server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req, s) => app.fetch(req, { ip: s.requestIP(req)?.address ?? null, via: 'direct', server: s }) })
+      const origin = `http://127.0.0.1:${server.port}`
       for (let i = 0; i < 3; i++) {
-        const r = await fetch('http://127.0.0.1:19763/api/admin/diagnostics', { headers: { 'x-test-user': 'owner' } })
+        const r = await fetch(`${origin}/api/admin/diagnostics`, { headers: { 'x-test-user': 'owner' } })
         expect(r.status).toBe(200)
         const d = (await r.json()) as Diagnostics
         const l = d.checks.find((c) => c.id === 'launcher')!
@@ -195,19 +196,33 @@ describe('diagnostics in an installed layout with the launcher down', () => {
         expect(l.detail).toContain('not running')
         expect(l.detail).toContain('sudo launchctl kickstart -k system/app.treesoop.mycel-po.launcher')
         expect(l.detail).toContain('/Library/Logs/mycel-po/crash/launcher.log')
+        // a launcher job that was booted out is not reached by kickstart: the load command is named too
+        expect(l.detail).toContain(`sudo launchctl bootstrap system ${path.join(base, 'ld')}/app.treesoop.mycel-po.launcher.plist`)
       }
       await Bun.sleep(200)
       expect(uncaught).toEqual([])
-      expect((await fetch('http://127.0.0.1:19763/api/health')).status).toBe(200)
+      expect((await fetch(`${origin}/api/health`)).status).toBe(200)
       // a stale socket file from a launcher that ended reads the same
       const child = Bun.spawn(['bun', '-e', `require('node:net').createServer().listen(${JSON.stringify(sock)}, () => console.log('up'))`], { stdout: 'pipe' })
       await child.stdout.getReader().read()
       child.kill('SIGKILL')
       await child.exited
-      const d2 = (await (await fetch('http://127.0.0.1:19763/api/admin/diagnostics', { headers: { 'x-test-user': 'owner' } })).json()) as Diagnostics
+      const d2 = (await (await fetch(`${origin}/api/admin/diagnostics`, { headers: { 'x-test-user': 'owner' } })).json()) as Diagnostics
       expect(d2.checks.find((c) => c.id === 'launcher')!.detail).toContain('not running')
       expect(d2.checks.find((c) => c.id === 'sockets')!.status).toBe('ok')
       expect(uncaught).toEqual([])
+      // the launcher running again: exactly one launcher check, "Connected" (a running launcher used to get a
+      // second "Cannot reach the engine launcher" fail next to it)
+      fs.rmSync(sock, { force: true })
+      const live = net.createServer((c) => c.end()).listen(sock)
+      await new Promise((r) => live.once('listening', r))
+      try {
+        const d3 = (await (await fetch(`${origin}/api/admin/diagnostics`, { headers: { 'x-test-user': 'owner' } })).json()) as Diagnostics
+        const ls = d3.checks.filter((c) => c.id === 'launcher')
+        expect(ls.map((c) => [c.status, c.detail])).toEqual([['ok', 'Connected']])
+      } finally {
+        live.close()
+      }
     } finally {
       systemTestHooks.opsOptions = null
       server?.stop(true)
@@ -259,9 +274,10 @@ describe('socket paths too long', () => {
 
 describe('dev runner preflight (scripts/dev-checks.ts)', () => {
   test('a taken port names the process that holds it; a free port passes', async () => {
-    const port = 19764
-    const srv = net.createServer().listen(port, '127.0.0.1')
+    // a port nobody else uses (other suites and worktrees run beside this one)
+    const srv = net.createServer().listen(0, '127.0.0.1')
     await new Promise((r) => srv.once('listening', r))
+    const port = (srv.address() as net.AddressInfo).port
     try {
       const holders = portHolders(port)
       if (holders.length) expect(holders.map((h) => h.pid)).toContain(process.pid)

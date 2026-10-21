@@ -216,10 +216,11 @@ export class OpsService {
       if (sock) {
         // never throws (a failed connect used to end the whole server here, see system/sockets.ts)
         const r = await probeSocket(sock).catch(() => 'error' as const)
-        if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
         // the installer logs the server to /Library/Logs/<id>/server and launchd's launcher output to .../crash
         const logsRoot = L.logDir ? (path.basename(L.logDir) === 'server' ? path.dirname(L.logDir) : L.logDir) : null
-        if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, logsRoot)))
+        // one check per outcome: a running launcher used to get both "Connected" and "Cannot reach" (the else below)
+        if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
+        else if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, logsRoot, L.launchDaemonsDir)))
         else if (r === 'denied') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDenied))
         else if (r === 'timeout') add('launcher', 'launcher', t(M.launcher), 'warn', t(M.launcherTimeout))
         else if (r !== 'too_long') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDown)) // too_long: the sockets check says it

@@ -273,7 +273,8 @@ port, `https://<host>.local:8443/setup?token=…`. The screen is the same as in 
 | A chat | "Company API key mode cannot be turned on in this version yet. Use the subscription login mode." |
 
 **Launcher daemon down.** Diagnostics shows "AI engine launcher: The AI launcher is not running" with the command that
-starts it again (`sudo launchctl kickstart -k system/app.treesoop.mycel.launcher`) and the log to read if it stops
+starts it again (`sudo launchctl kickstart -k system/app.treesoop.mycel.launcher`, or, when launchd says the service
+could not be found, `sudo launchctl bootstrap system /Library/LaunchDaemons/app.treesoop.mycel.launcher.plist`) and the log to read if it stops
 again (`/Library/Logs/mycel/crash/launcher.log`). Until 2026-10-21 opening Diagnostics (or sending a chat) while the
 launcher was down ended the server with `connect ENOENT …/launcher.sock`; that is fixed.
 

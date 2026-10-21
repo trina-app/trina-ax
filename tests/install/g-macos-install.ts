@@ -284,7 +284,9 @@ async function opsChecks() {
   const lf = await api('/api/connect-info/lan-failure', { method: 'POST', body: JSON.stringify({ code: 'unreachable' }) }).catch(() => null)
   const d0 = await getJson('/api/admin/diagnostics')
   check('lan-failure report shows in Diagnostics', lf?.status === 204 && d0.body?.checks?.find((c: any) => c.id === 'lan_direct')?.status === 'warn', JSON.stringify(d0.body?.checks?.find((c: any) => c.id === 'lan_direct')))
-  check('Diagnostics: launcher connected, socket paths fit', d0.body?.checks?.find((c: any) => c.id === 'launcher')?.status === 'ok' && d0.body?.checks?.find((c: any) => c.id === 'sockets')?.status === 'ok', JSON.stringify(d0.body?.checks?.filter((c: any) => ['launcher', 'sockets'].includes(c.id))))
+  // exactly one launcher check (a running launcher used to get a second, failing one beside "Connected")
+  const launcherChecks = (d: { body?: any }) => (d.body?.checks ?? []).filter((c: any) => c.id === 'launcher') as { status: string; detail: string }[]
+  check('Diagnostics: launcher connected (one check), socket paths fit', launcherChecks(d0).map((c) => c.status).join() === 'ok' && d0.body?.checks?.find((c: any) => c.id === 'sockets')?.status === 'ok', JSON.stringify(d0.body?.checks?.filter((c: any) => ['launcher', 'sockets'].includes(c.id))))
 
   // the launcher daemon stopped: Diagnostics must answer "not running" and the server must keep running
   const before = await health()
@@ -295,7 +297,7 @@ async function opsChecks() {
   for (let i = 0; i < 3; i++) {
     const d = await getJson('/api/admin/diagnostics')
     const l = d.body?.checks?.find((c: any) => c.id === 'launcher')
-    if (i === 0) check('Diagnostics with the launcher stopped: "not running" and the command that starts it', d.status === 200 && l?.status === 'fail' && String(l?.detail).includes(`launchctl kickstart -k system/${LABEL}.launcher`) && String(l?.detail).includes(`/Library/Logs/${ID}/crash/launcher.log`), JSON.stringify(l))
+    if (i === 0) check('Diagnostics with the launcher stopped: "not running" and the command that starts it', d.status === 200 && l?.status === 'fail' && String(l?.detail).includes(`launchctl kickstart -k system/${LABEL}.launcher`) && String(l?.detail).includes(`launchctl bootstrap system /Library/LaunchDaemons/${LABEL}.launcher.plist`) && String(l?.detail).includes(`/Library/Logs/${ID}/crash/launcher.log`), JSON.stringify(l))
   }
   // a chat turn would connect to the launcher too: the server must survive that as well (SocketLauncher)
   await Bun.sleep(1000)
@@ -303,8 +305,8 @@ async function opsChecks() {
   check('the server kept running (no restart: uptime grew)', !!before && !!h && h.uptimeSec >= up0, `before=${up0}s after=${h?.uptimeSec}s`)
   const start = sh(['/bin/launchctl', 'bootstrap', 'system', `/Library/LaunchDaemons/${LABEL}.launcher.plist`])
   check('launcher daemon started again', start.code === 0, start.err.trim())
-  const back = await until(() => getJson('/api/admin/diagnostics'), (d) => d.body?.checks?.find((c: any) => c.id === 'launcher')?.status === 'ok', 30_000)
-  check('Diagnostics: launcher connected again', back.body?.checks?.find((c: any) => c.id === 'launcher')?.status === 'ok', JSON.stringify(back.body?.checks?.find((c: any) => c.id === 'launcher')))
+  const back = await until(() => getJson('/api/admin/diagnostics'), (d) => launcherChecks(d).map((c) => c.status).join() === 'ok', 30_000)
+  check('Diagnostics: launcher connected again (one check)', launcherChecks(back).map((c) => c.status).join() === 'ok', JSON.stringify(launcherChecks(back)))
 }
 
 async function uninstall() {

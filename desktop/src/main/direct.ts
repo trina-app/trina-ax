@@ -102,16 +102,31 @@ export function lanFailureCode(r: ProbeResult): LanFailureCode | null {
   return r === 'ok' ? null : r === 'mismatch' ? 'cert_mismatch' : r === 'timeout' ? 'timeout' : 'unreachable'
 }
 
+const isLoopback = (h: string) => /^127\./.test(h) || h === '::1' || /^localhost$/i.test(h)
+
 /**
  * Is the team's server Mac on this network? Its Bonjour name (<name>.local) answers only on the same link (mDNS),
- * which stands in for the design's Bonjour discovery of the same teamId: an unreachable office address is worth
- * reporting only then (from home it is expected).
+ * which stands in for the design's Bonjour discovery of the same teamId (tab 4: a failure is reported only when the
+ * app found the team on the network). A loopback address is this Mac itself. Private IP addresses alone prove
+ * nothing: at home the same 192.168.x.y can be another device.
  */
 export async function officeNameAnswers(hosts: string[], timeoutMs = 1000, lookup: (h: string) => Promise<unknown> = (h) => dns.lookup(h)): Promise<boolean> {
+  if (hosts.some(isLoopback)) return true
   const local = hosts.filter((h) => /\.local$/i.test(h))
   if (!local.length) return false
   const one = (h: string) => Promise.race([lookup(h).then(() => true, () => false), new Promise<boolean>((r) => setTimeout(() => r(false), timeoutMs))])
   return (await Promise.all(local.map(one))).some(Boolean)
+}
+
+/**
+ * The code to report for a probe result, or null: nothing failed, or the server Mac is not on this network. That
+ * holds for a different certificate too: away from the office another device can sit at the office server's private
+ * address (a router or NAS on 8443 at home), and Diagnostics would tell the owner someone pretended to be the server.
+ */
+export async function lanFailureToReport(r: ProbeResult, hosts: string[], lookup?: (h: string) => Promise<unknown>): Promise<LanFailureCode | null> {
+  const code = lanFailureCode(r)
+  if (!code) return null
+  return (await officeNameAnswers(hosts, 1000, lookup)) ? code : null
 }
 
 /** Tell the team server (through the team address) why the office address could not be used. */

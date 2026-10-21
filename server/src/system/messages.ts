@@ -90,16 +90,19 @@ export const M = {
   launcherOk: { ko: '연결됨', en: 'Connected', id: 'Terhubung' },
   launcherDown: { ko: '실행기에 연결할 수 없습니다. 맥을 다시 시작하거나 메뉴바 앱의 \'설치 다시 하기\'를 실행해 주세요.', en: 'Cannot reach the engine launcher. Restart the Mac or run "Reinstall" from the menubar app.', id: 'Tidak dapat menjangkau peluncur mesin. Mulai ulang Mac atau jalankan "Pasang ulang" dari aplikasi menubar.' },
   /** the launcher daemon is not running (no socket, or a socket left over from a launcher that ended) */
-  launcherNotRunning: (label: string | null, logs: string | null): T => {
-    const cmd = `sudo launchctl kickstart -k system/${label ?? '<label>'}.launcher`
+  launcherNotRunning: (label: string | null, logs: string | null, launchDaemonsDir = '/Library/LaunchDaemons'): T => {
+    const l = `${label ?? '<label>'}.launcher`
+    const cmd = `sudo launchctl kickstart -k system/${l}`
+    // kickstart only reaches a loaded job; one that was booted out (or never loaded) needs bootstrap
+    const load = `sudo launchctl bootstrap system ${launchDaemonsDir}/${l}.plist`
     const log = logs ? `${logs}/crash/launcher.log` : ''
     const tail: T = log
       ? { ko: ` 다시 멈추면 ${log}를 확인해 주세요.`, en: ` If it stops again, look at ${log}.`, id: ` Jika berhenti lagi, lihat ${log}.` }
       : { ko: '', en: '', id: '' }
     return {
-      ko: `AI 실행기가 실행 중이 아니어서 채팅이 시작되지 않습니다. 서버 맥의 터미널에서 \`${cmd}\`를 실행해 다시 띄워 주세요(관리자 비밀번호).${tail.ko}`,
-      en: `The AI launcher is not running, so chats cannot start. Start it again in Terminal on the server Mac: \`${cmd}\` (asks for an admin password).${tail.en}`,
-      id: `Peluncur AI tidak berjalan, jadi chat tidak bisa dimulai. Jalankan lagi di Terminal Mac server: \`${cmd}\` (meminta kata sandi admin).${tail.id}`,
+      ko: `AI 실행기가 실행 중이 아니어서 채팅이 시작되지 않습니다. 서버 맥의 터미널에서 \`${cmd}\`를 실행해 다시 띄워 주세요(관리자 비밀번호). 서비스를 찾을 수 없다고 나오면 \`${load}\`를 실행해 주세요.${tail.ko}`,
+      en: `The AI launcher is not running, so chats cannot start. Start it again in Terminal on the server Mac: \`${cmd}\` (asks for an admin password). If that says the service could not be found, run \`${load}\`.${tail.en}`,
+      id: `Peluncur AI tidak berjalan, jadi chat tidak bisa dimulai. Jalankan lagi di Terminal Mac server: \`${cmd}\` (meminta kata sandi admin). Jika muncul layanan tidak ditemukan, jalankan \`${load}\`.${tail.id}`,
     }
   },
   launcherDenied: { ko: '서버 계정이 AI 실행기 소켓을 열 수 없습니다(권한). 설치 스크립트를 다시 실행해 폴더 권한을 고쳐 주세요.', en: 'The server account may not open the AI launcher socket (permissions). Run the installer again to repair the folder permissions.', id: 'Akun server tidak boleh membuka soket peluncur AI (izin). Jalankan pemasang lagi untuk memperbaiki izin folder.' },

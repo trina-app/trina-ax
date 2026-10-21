@@ -15,7 +15,7 @@ import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { UI_ORIGIN } from '../common/trust'
-import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, mirrorSessionCookie, officeNameAnswers, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
+import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
@@ -453,17 +453,16 @@ export class AppWindow {
 
   /**
    * Report a failed office connection to the team server through the team address (design tab 4 / 6: Diagnostics
-   * shows "office direct connection failed"). A different certificate is always reported; an address that does not
-   * answer only when the server Mac's Bonjour name answers on this network (otherwise the person is simply not in
-   * the office).
+   * shows "office direct connection failed"), only when the server Mac's Bonjour name answers on this network
+   * (otherwise the person is simply not in the office, and a different certificate there is another device).
    */
   private async reportLan(result: ProbeResult, d: DirectInfo) {
     const team = this.team
-    const code = lanFailureCode(result)
-    if (!team || !this.app || !code) return
-    const key = `${team.id}:${code}`
-    if (Date.now() - (this.lanReported.get(key) ?? 0) < 3600_000) return
-    if (code !== 'cert_mismatch' && !(await officeNameAnswers(d.hosts))) return
+    if (!team || !this.app) return
+    const key = `${team.id}:${lanFailureCode(result)}`
+    if (!lanFailureCode(result) || Date.now() - (this.lanReported.get(key) ?? 0) < 3600_000) return
+    const code = await lanFailureToReport(result, d.hosts)
+    if (!code) return
     this.lanReported.set(key, Date.now())
     const ok = await reportLanFailure(this.app.webContents.session, team.origin, code)
     debug('lan failure report', code, ok ? 'sent' : 'not sent')
