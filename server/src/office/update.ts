@@ -269,6 +269,8 @@ export const defaultDeps = (): UpdateDeps => ({
 })
 
 export class UpdateFailure extends Error { name = 'UpdateFailure' }
+/** the channel has no release yet (404): nothing to install, not a failure */
+export class NotPublished extends UpdateFailure { name = 'NotPublished' }
 
 const MANIFEST_MAX = 256 * 1024
 /** health after the switch: the new version must answer within this, then still answer STABLE_MS later */
@@ -296,7 +298,7 @@ export async function fetchRelease(home: string, d: Pick<UpdateDeps, 'fetch'>, k
   const url = manifestUrl(feed, set.channel)
   let res: Response
   try { res = await d.fetch(`${url}?t=${Date.now()}`, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'cache-control': 'no-cache' } }) } catch (e) { throw new UpdateFailure(`cannot reach ${feed}: ${(e as Error).message}`) }
-  if (res.status === 404) throw new UpdateFailure(`no ${set.channel} release published yet (${url}: 404)`)
+  if (res.status === 404) throw new NotPublished(`no ${set.channel} release published yet`)
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)
@@ -490,6 +492,7 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
     let r: OfficeRelease
     try { r = await fetchRelease(home, d, o.keys) } catch (e) {
       patchUpdateState(home, (s) => { s.lastCheckAt = d.now().toISOString() })
+      if (e instanceof NotPublished) return finish({ kind: 'up-to-date', version: current, message: e.message })
       return finish({ kind: e instanceof ReleaseError ? 'refused' : 'failed', version: null, message: (e as Error).message })
     }
     const dec = decide(current, r)
