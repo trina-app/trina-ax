@@ -9,6 +9,7 @@ import { filesRoutes } from './files'
 import { jobsRoutes } from './jobs'
 import { memoriesRoutes } from './memories'
 import type { RouteModule } from './module'
+import { officeUpdateRoutes } from './office-update'
 import { relayRoutes } from './relay'
 import { systemRoutes } from './system'
 import { webRoutes } from './web'
@@ -18,6 +19,7 @@ export type { RouteModule } from './module'
 
 export const ROUTE_MODULES: readonly RouteModule[] = [
   systemRoutes, // G
+  officeUpdateRoutes, // G (office mode automatic updates)
   authRoutes, // A
   adminRoutes, // A
   chatsRoutes, // B

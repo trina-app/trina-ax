@@ -25,6 +25,7 @@
     "@types/node": "24.13.3",
     "electron": "44.7.2",
     "electron-builder": "26.0.12",
+    "electron-updater": "6.8.10",
     "zod": "4.6.7"
   },
   "build": {
@@ -100,6 +101,12 @@
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "artifactName": "Team-AX-Setup-${version}-win-${arch}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://localhost.invalid/downloads/"
+      }
+    ]
   }
 }
