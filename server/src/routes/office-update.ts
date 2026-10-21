@@ -1,12 +1,14 @@
 // Route module "office-update" — owner: component G. Office mode automatic updates in Admin > System
 // (docs/OFFICE.md "자동 업데이트"): the state the installation's update LaunchAgent keeps in <home>/update/, and
 // two actions for owners and admins: "update now" (a request file + launchctl kickstart of <label>.update; the agent
-// stops and restarts this server, so the work never runs inside it) and automatic updates off / on.
+// stops and restarts this server, so the work never runs inside it: the server only writes update/request.json and
+// asks launchd to start the agent, and never touches app/) and automatic updates off / on. "now" re-asks the password.
 // Contract: shared/src/api/office-update.ts. Outside office mode the status is null and the actions are refused.
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, type Locale, type OfficeUpdateStatus } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
+import { msg } from '../auth/messages'
 import type { AppConfig } from '../app-config'
 import { fail } from '../http/errors'
 import { loadSettings } from '../office/settings'
@@ -47,12 +49,16 @@ export const officeUpdateRoutes: RouteModule = {
       return home ? view(home) : null
     })
 
-    kit.handle(API.officeUpdateAction, ({ c, body, auth }) => {
+    kit.handle(API.officeUpdateAction, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       const home = officeHomeOf(ctx.config)
       if (!home) fail('conflict', tr(locale, T.notOffice))
       const v = view(home!)
       if (body.action === 'now') {
+        // the password again, like the owner's update and restore: this restarts the clinic's server
+        if (!body.password || !(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
+          fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
+        }
         if (!v.agentInstalled) fail('conflict', tr(locale, T.noAgent))
         if (readUpdateState(home!).running) fail('busy', tr(locale, T.running))
         requestUpdate(home!, auth.user.username)

@@ -1,13 +1,17 @@
 // Admin > System in office mode (docs/OFFICE.md "자동 업데이트"): the installation's automatic updates. The server
 // Mac's update agent does the work (it restarts this server); this card shows its state, polls while it runs, and has
-// two buttons: update now and automatic updates off / on.
+// two buttons: update now (the password again) and automatic updates off / on. When the run it watched ends it says how
+// and, after an update, loads the new version's page (the page also reconnects and reloads by itself once the server
+// answers with a new version).
 import { Download, PauseCircle, PlayCircle } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { OfficeUpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { Button, Modal } from '../../components/ui'
+import { Button, Field, Modal, inputCls } from '../../components/ui'
+import { finishedRun } from '../../lib/officeUpdate'
+import { toast } from '../../store/ui'
 import { Card, useAction } from './common'
 
 export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateStatus; reload: () => Promise<void> }) {
@@ -16,8 +20,19 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
   const act = useAction()
   const [ask, setAsk] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [pw, setPw] = useState('')
   const u = status
   const active = !!u.running || u.requested
+  // the run this page watched has ended: say how, and after an update load the new version's page
+  const before = useRef<OfficeUpdateStatus | null>(null)
+  useEffect(() => {
+    const done = finishedRun(before.current, u)
+    before.current = u
+    if (done === 'updated') {
+      toast({ level: 'success', text: t('officeUpdate.result.updated', { version: u.current }), sticky: true })
+      setTimeout(() => location.reload(), 2500)
+    } else if (done) toast({ level: 'error', text: t(`officeUpdate.result.${done}` as MessageKey, { version: u.last?.version ?? '' }), sticky: true })
+  }, [u, t])
   // while an update runs (and the server restarts under it) look again every few seconds
   useEffect(() => {
     if (!active) return
@@ -97,9 +112,15 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
               </Button>
               <Button
                 variant="primary"
+                busy={busy}
+                disabled={!pw}
                 onClick={async () => {
+                  setBusy(true)
+                  const r = await act(() => api.call(API.officeUpdateAction, { body: { action: 'now', password: pw } }))
+                  setBusy(false)
+                  if (!r) return
                   setAsk(false)
-                  await act(() => api.call(API.officeUpdateAction, { body: { action: 'now' } }))
+                  setPw('')
                   await reload()
                 }}
               >
@@ -108,7 +129,10 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
             </>
           }
         >
-          <p className="text-sm text-muted">{t('officeUpdate.confirmBody')}</p>
+          <p className="mb-3 text-sm text-muted">{t('officeUpdate.confirmBody')}</p>
+          <Field label={t('system.passwordAgain')}>
+            <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+          </Field>
         </Modal>
       )}
     </Card>

@@ -803,6 +803,8 @@ export const en: Record<MessageKey, string> = {
   'system.updateNote': 'The database is backed up first and the server restarts. If answers are running, it installs after they finish.',
   'system.updateDone': 'Update finished.',
   'officeUpdate.title': 'Automatic updates',
+  'officeUpdate.banner': 'Version {version} is available',
+  'officeUpdate.bannerNightly': 'installs by itself tonight at {time}',
   'officeUpdate.current': 'Version {version}',
   'officeUpdate.schedule': 'Checks for a new version every day at {time} · next check {date}',
   'officeUpdate.paused': 'Automatic updates are off. A new version is installed only with Update now.',

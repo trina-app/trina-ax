@@ -803,6 +803,8 @@ export const id: Record<MessageKey, string> = {
   'system.updateNote': 'Database di-backup dulu lalu server dimulai ulang. Kalau ada jawaban yang berjalan, update dipasang setelah selesai.',
   'system.updateDone': 'Update selesai.',
   'officeUpdate.title': 'Pembaruan otomatis',
+  'officeUpdate.banner': 'Versi {version} tersedia',
+  'officeUpdate.bannerNightly': 'terpasang sendiri malam ini pukul {time}',
   'officeUpdate.current': 'Versi {version}',
   'officeUpdate.schedule': 'Memeriksa versi baru setiap hari pukul {time} · pemeriksaan berikutnya {date}',
   'officeUpdate.paused': 'Pembaruan otomatis mati. Versi baru hanya dipasang lewat Perbarui sekarang.',
