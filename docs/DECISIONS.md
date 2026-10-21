@@ -326,7 +326,7 @@
 - **데스크톱 자체 화면은 `mycel-ui://app/`(표준·보안 스킴, CSP `script-src 'self'`)로 제공**하고 메모리 전용 partition을 쓴다. IPC는 채널마다 보낸 view를 확인한다(환영 화면 채널은 환영 view에서만, 패널 채널은 패널 view에서만, 다리 채널은 팀 화면 최상위 프레임 + 팀 출처에서만).
 - **빌드는 Bun 번들러**(esbuild 의존성 없이). Bun이 Electron의 postinstall을 돌리지 않으므로(신뢰 목록 밖) 데스크톱의 build·test 스크립트가 처음 쓸 때 Electron 바이너리를 받는다. 저장소 전체 `bun install`은 Electron을 내려받지 않는다.
 - **패키징된 앱은 Electron 퓨즈를 켠다**(`build.electronFuses`): `ELECTRON_RUN_AS_NODE`·`NODE_OPTIONS`·`--inspect` 무시, 쿠키 디스크 암호화, `app.asar`에서만 코드 읽기, file:// 특권 없음. 같은 사용자 권한의 다른 프로그램이 이 앱(마이크 권한을 가진)을 Node로 띄우거나 디버거를 붙이는 길을 막는다. 그래서 패키징 앱 시험은 Playwright 대신 프로세스로 띄우고 가짜 서버로 확인한다. Info.plist에 `NSLocalNetworkUsageDescription`(macOS 15+ 로컬 네트워크 권한, 사무실 직접 연결용)을 넣는다.
-- **맥 빌드는 서명 없는 arm64 dmg**(`identity: null`). 서명·공증은 owner의 Apple 인증서가 필요하다. 껍데기 자동 업데이트(electron-updater)도 맥에서는 서명된 빌드가 필요해서 이번에는 넣지 않았다. 윈도우는 NSIS x64 설정만(서명 없음, `signAndEditExecutable: false`로 rcedit·wine 불필요).
+- **맥 빌드는 서명 없는 arm64 dmg**(`identity: null`). 서명·공증은 owner의 Apple 인증서가 필요하다. 껍데기 자동 업데이트(electron-updater)도 맥에서는 서명된 빌드가 필요해서 이번에는 넣지 않았다. 윈도우는 서명 없는 NSIS x64(맥에서 교차 빌드; 2026-10-21 exampleteam 키트부터 사용자별 원클릭 설치와 exe 이름·아이콘·버전 정보 넣기, 아래 "exampleteam 키트").
 
 ## 통합 (main, 2026-10-21)
 
@@ -737,3 +737,31 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `--port`를 안 준 경우)와 530(연결 없음)을 나눠 고칠 명령을 보여 주고, `set`은 답이 없으면 1로 끝난다. `off`는 지울 이름을
   넣어 `remove` 명령을 보여 준다. 가이드: 2-0(주인 맥 준비·cert.pem·API 토큰), 주소를 바꾼 뒤 데스크 할 일(옛 앱 제거·새
   앱·다시 로그인, 카드 재인쇄, 안 쓴 초대 링크), 502와 530/1033 구분, zip 크기 170 MB.
+
+## exampleteam 키트: 첫 치과의 데스크 준비 (feat/exampleteam-kit, 2026-10-21)
+
+첫 시범 치과 "exampleteam"은 `https://exampleteam.example.com`(터널 `teamax-office-app`)으로 열고, 데스크 PC 10대 정도가 쓴다.
+
+- **`public-address.ts remove --keep-tunnel`이 그 이름의 인그레스 규칙을 남기던 버그**: 예전 `remove`는 `--keep-tunnel`이면
+  터널을 아예 건드리지 않아, 지운 이름(`app.example.com`)의 규칙이 `teamax-office-app`에 남았다. 이제 `remove`는 남기는
+  터널에서도 그 이름의 규칙을 빼고, 계정의 다른 원격 관리 터널에 그 이름 규칙이 남아 있으면 함께 뺀다(CNAME이 이미 없어
+  터널을 찾을 수 없던 경우도: 터널 목록을 한 번 읽고 터널마다 설정을 읽음). `set`도 이름을 다른 터널로 옮길 때 다른 터널의 그
+  이름 규칙을 뺀다. 이렇게 찾은 터널은 절대 지우지 않고(그 이름 규칙만), 로컬 설정 터널(`config_src` ≠ cloudflare)은 건드리지
+  않는다. 실제 터널에서 `remove app.example.com --keep-tunnel`을 실행해 exampleteam + 404만 남겼다. 시험: 가짜 API로
+  `--keep-tunnel`, 남은 규칙 정리, 이름 옮기기(`tests/unit/office-tunnel.test.ts`), 실제 API로 테스트 이름 두 개(만들고 다 지움).
+- **키트 빌드**(`desktop/src/common/kit.ts`): `TEAMAX_KIT_TEAM`·`TEAMAX_KIT_LOCALE`로 빌드하면 `dist/kit.json`이 앱에 들어가고,
+  저장된 팀이 없을 때 첫 화면에 그 주소를 **채워 두기만** 한다(사람이 `연결`, 같은 https·`/api/health` 검사, 개발 주소는 거부).
+  언어는 팀 화면이 알려 주기 전까지의 기본값일 뿐이고 "시스템 언어를 따르지 않는다" 원칙은 그대로(빌드한 사람이 정한 값).
+  설치 파일 이름에 주소를 넣는 방식은 NSIS 스크립트가 필요하고 내려받을 때 이름이 바뀌기 쉬워 쓰지 않았다.
+- **윈도우 설치 파일**: 사용자별 원클릭 NSIS(`oneClick: true`, `perMachine: false`: `%LOCALAPPDATA%\Programs`, 매니페스트
+  `asInvoker`라 UAC 없음, 설치 뒤 바로 실행, 바탕 화면·시작 메뉴 바로 가기, 설치기 언어는 윈도우 언어로 en/ko/id).
+  `signAndEditExecutable: true`: electron-builder 26은 wine 없이 exe의 아이콘·버전 정보(TreeSoop / Team AX)를 넣고, 인증서가
+  없으면 서명은 건너뛴다. 서명이 없어 SmartScreen "추가 정보 → 실행"이 필요하다.
+- **데스크톱 앱이 터널 오류를 "팀 서버가 아님"으로 보이던 것**: 맥 미니가 꺼져 Cloudflare가 530(1033)을 내면 주소가 맞는데도
+  "이 주소는 Team AX 팀 서버가 아니에요"였다. 502~504·520~530은 "팀 서버에 연결할 수 없어요"로(`isGatewayDown`).
+- **웹의 단축키 표시**: 사이드바가 윈도우에서도 `⌘K`·`⇧⌘O`를 보여 줬다. 맥·iOS가 아니면 `Ctrl+K`·`Ctrl+Shift+O`(처리는 원래
+  ⌘·Ctrl 둘 다).
+- **데스크 가이드**: `docs/office/windows-guide.html` → `Team-AX-윈도우-데스크-가이드.pdf`(`build-pdf.ts --windows`, 치과
+  가이드와 같은 모양), office zip에 함께 넣는다. 화면은 실제 앱(사무실 모드 시험 설치의 웹 앱, 데스크톱 앱, exampleteam 주소의 실제
+  530 페이지)에서 찍었고, 윈도우에만 있는 화면(Edge 앱 설치, SmartScreen, 설치 창)은 글로만 썼다. 치과 가이드·OFFICE.md의 예시
+  주소는 exampleteam으로 바꿨다(일반 설명의 자리표시는 그대로).

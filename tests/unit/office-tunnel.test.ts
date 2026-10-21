@@ -14,7 +14,7 @@ import { peerIp } from '../../server/src/main'
 import { classifyPublic, configure, portProblems, publicProblem, readTunnelToken, tunnelIdOf, tunnelPlist } from '../../server/src/office/cli'
 import { deskCard } from '../../server/src/office/helper'
 import { loadSettings, officePaths, parseCountries, parsePublicHost, serverConfig, settingsFrom, settingsText, tunnelLabel } from '../../server/src/office/settings'
-import { checkRecords, ingressFor, main as publicAddressMain, normHost, readCert, Refused, removeAddress, sameJson, setAddress, type Api } from '../../scripts/office/public-address'
+import { checkRecords, ingressFor, ingressWithout, main as publicAddressMain, normHost, readCert, Refused, removeAddress, sameJson, setAddress, type Api } from '../../scripts/office/public-address'
 import { harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -357,7 +357,7 @@ function fakeCloudflare(): FakeCf {
     }
     if ((m = /^\/accounts\/acc1\/cfd_tunnel(?:\/([\w-]+))?(?:\/(configurations|token|connections))?$/.exec(u.pathname))) {
       const t = m[1] ? f.tunnels.find((x) => x.id === m![1] && !x.deleted_at) : undefined
-      if (!m[1] && method === 'GET') return f.tunnels.filter((x) => !x.deleted_at && x.name === u.searchParams.get('name'))
+      if (!m[1] && method === 'GET') return f.tunnels.filter((x) => !x.deleted_at && (!u.searchParams.has('name') || x.name === u.searchParams.get('name')))
       if (!m[1] && method === 'POST') { const id = `aaaaaaaa-bbbb-4ccc-8ddd-${String(++n).padStart(12, '0')}`; const x = { id, name: body.name, config_src: body.config_src, deleted_at: null, config: null }; f.tunnels.push(x); return x }
       if (!t) throw new Error('tunnel not found')
       if (m[2] === 'configurations' && method === 'GET') return { config: t.config }
@@ -462,6 +462,49 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     await removeAddress(g.api, cred, { host: HOST, tokenOut })
     expect(g.tunnels[0]!.deleted_at).toBeNull()
     expect(g.tunnels[0]!.config.ingress.map((x: { hostname?: string }) => x.hostname ?? '*')).toEqual(['b.clinic-test.example', '*'])
+  })
+
+  test('remove --keep-tunnel drops the name\'s rule; set and remove clear a rule a name left in another tunnel', async () => {
+    const hosts = (f: FakeCf, i: number) => (f.tunnels[i]!.config?.ingress ?? []).map((x: { hostname?: string }) => x.hostname ?? '*')
+    // the exampleteam case: app and exampleteam on one kept tunnel; app removed with --keep-tunnel
+    const f = fakeCloudflare()
+    const EXAMPLETEAM = 'exampleteam.clinic-test.example'
+    await setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'teamax-office-app' })
+    await setAddress(f.api, cred, { host: EXAMPLETEAM, tokenOut: tokenOut + '2', tunnel: 'teamax-office-app' })
+    expect(hosts(f, 0)).toEqual([EXAMPLETEAM, HOST, '*'])
+    const r = await removeAddress(f.api, cred, { host: HOST, tokenOut, keepTunnel: true })
+    expect(r.actions.join('\n')).toMatch(/drop app\.clinic-test\.example, kept \(--keep-tunnel\) for exampleteam/)
+    expect(hosts(f, 0)).toEqual([EXAMPLETEAM, '*'])
+    expect(f.tunnels[0]!.deleted_at).toBeNull()
+    expect(f.dns.find((x) => x.name === HOST)).toBeUndefined()
+    // --keep-tunnel on the last name: the tunnel stays with the 404 rule only
+    await removeAddress(f.api, cred, { host: EXAMPLETEAM, tokenOut: tokenOut + '2', keepTunnel: true })
+    expect(f.tunnels[0]!.deleted_at).toBeNull()
+    expect(hosts(f, 0)).toEqual(['*'])
+
+    // a stale rule (DNS already gone, e.g. by an older remove --keep-tunnel): remove finds it by scanning the tunnels
+    const g = fakeCloudflare()
+    const keep = 'abcdabcd-1111-4222-8333-944455556666'
+    g.tunnels.push({ id: keep, name: 'teamax-office-app', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: EXAMPLETEAM, service: 'http://127.0.0.1:47830' }, { hostname: HOST, service: 'http://127.0.0.1:47830' }, { service: 'http_status:404' }] } })
+    g.tunnels.push({ id: 'local000-1111-4222-8333-944455556666', name: 'someone-local', config_src: 'local', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://x' }] } })
+    const dry = await removeAddress(g.api, cred, { host: HOST, keepTunnel: true, dryRun: true, tokenOut })
+    expect(dry.actions.join('\n')).toMatch(/tunnel teamax-office-app: drop app\.clinic-test\.example \(removed\)/)
+    expect(writes(g)).toEqual([])
+    await removeAddress(g.api, cred, { host: HOST, keepTunnel: true, tokenOut })
+    expect(hosts(g, 0)).toEqual([EXAMPLETEAM, '*'])
+    expect(g.tunnels[0]!.deleted_at).toBeNull() // a tunnel found only by the scan is never deleted
+    expect(hosts(g, 1)).toEqual([HOST]) // a locally managed tunnel is not touched
+    expect(writes(g).every((c) => c.includes(`/cfd_tunnel/${keep}/configurations`))).toBe(true)
+
+    // set moves a name to another tunnel: its old rule elsewhere is dropped, the other names there stay
+    const h = fakeCloudflare()
+    h.tunnels.push({ id: keep, name: 'old-tunnel', config_src: 'cloudflare', deleted_at: null, config: { ingress: [{ hostname: HOST, service: 'http://127.0.0.1:47830' }, { hostname: EXAMPLETEAM, service: 'http://127.0.0.1:47830' }, { service: 'http_status:404' }] } })
+    const s = await setAddress(h.api, cred, { host: HOST, tokenOut, tunnel: 'new-tunnel' })
+    expect(s.actions.join('\n')).toMatch(/tunnel old-tunnel: drop app\.clinic-test\.example \(now served by new-tunnel\)/)
+    expect(hosts(h, 0)).toEqual([EXAMPLETEAM, '*'])
+    expect(hosts(h, 1)).toEqual([HOST, '*'])
+    expect((await setAddress(h.api, cred, { host: HOST, tokenOut })).actions).toEqual([]) // stable afterwards
+    expect(ingressWithout(HOST, [{ hostname: 'APP.clinic-test.example', service: 'x' }, { service: 'http_status:404' }])).toEqual([{ service: 'http_status:404' }])
   })
 
   test('command line: one credential, never printed; a refusal exits 3 with nothing changed', async () => {

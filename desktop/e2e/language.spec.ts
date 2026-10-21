@@ -1,8 +1,10 @@
 // The desktop app's own language: English on a fresh install whatever the system language, a pick on the team list
 // applies at once and is remembered, and the team page's language (reported over the bridge) moves the menus, the
 // pane toolbar and the team list along without a reload.
+import { rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { ACME, bindWindow, chrome, close, launch, newUserData, teamPage, welcome } from './helpers'
+import { ACME, bindWindow, chrome, close, launch, newUserData, ROOT, teamPage, welcome } from './helpers'
 
 const menuLabels = (app: Awaited<ReturnType<typeof launch>>) =>
   app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.map((i) => i.label) ?? [])
@@ -65,5 +67,38 @@ test('the team page reports its language: menus, pane toolbar and team list foll
     await expect(c.getByRole('button', { name: 'New tab' })).toHaveCount(1)
   } finally {
     await close(app)
+  }
+})
+
+test('a kit build (dist/kit.json): Korean first-run screen with the team address filled in, until a team is remembered', async () => {
+  const kitFile = join(ROOT, 'dist', 'kit.json')
+  writeFileSync(kitFile, JSON.stringify({ team: 'exampleteam.example.com', locale: 'ko' }))
+  const data = newUserData(null)
+  try {
+    let app = await launch(data)
+    try {
+      const w = await welcome(app)
+      await expect(w.getByRole('heading', { name: '팀 주소를 입력하세요' })).toBeVisible()
+      await expect(w.locator('#address')).toHaveValue('exampleteam.example.com')
+      // the person's own edit wins over the suggestion; a team that answers is remembered as usual
+      await w.locator('#address').fill('acme.localhost:19151')
+      await w.getByRole('button', { name: '연결' }).click()
+      await teamPage(app, ACME)
+    } finally {
+      await close(app)
+    }
+    // a remembered team: no suggestion any more (the team list is the first screen)
+    app = await launch(data)
+    try {
+      const page = await teamPage(app, ACME)
+      await page.evaluate(() => (window as any).mycelDesktop.openTeams())
+      const w = await welcome(app)
+      await expect(w.getByTestId('team-list')).toBeVisible()
+      await expect(w.locator('#address')).toHaveValue('')
+    } finally {
+      await close(app)
+    }
+  } finally {
+    rmSync(kitFile, { force: true })
   }
 })

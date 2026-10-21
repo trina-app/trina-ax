@@ -8,6 +8,8 @@ export interface WelcomeState {
   teams: { id: string; label: string; origin: string; current: boolean }[]
   canGoBack: boolean
   offline: { address: string } | null
+  /** a kit build's team address to fill in on the first run */
+  suggested?: string | null
 }
 export interface PanePrompt {
   id: string

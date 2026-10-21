@@ -19,6 +19,7 @@ import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { partitionFor } from '../common/teams'
+import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { AppWindow } from './app-window'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
@@ -32,6 +33,14 @@ const DIST =
     existsSync(join(d, 'page-script.js')),
   ) ?? join(app.getAppPath(), 'dist')
 const dev = !app.isPackaged
+// a kit build for one team (common/kit.ts): the first-run screen's suggested address and language
+const kit: Kit = (() => {
+  try {
+    return parseKit(JSON.parse(readFileSync(join(DIST, 'kit.json'), 'utf8')))
+  } catch {
+    return NO_KIT
+  }
+})()
 
 app.setName(PRODUCT.displayName)
 if (process.env.MYCEL_DESKTOP_USER_DATA) app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA)
@@ -77,10 +86,11 @@ if (!app.requestSingleInstanceLock()) app.quit()
 
 let win: AppWindow | undefined
 // Language of the app's own screens, menus and prompts: what the team page last reported (its person's choice, else
-// the team default) or what was picked on the team list; English before either. Not the system language.
+// the team default) or what was picked on the team list; before either, a kit build's language, else English. Not the
+// system language.
 let store: TeamsStore | undefined
 let uiLocale: UiLocale | null = null
-const locale = (): UiLocale => (uiLocale ??= store?.loadLocale() ?? DEFAULT_UI_LOCALE)
+const locale = (): UiLocale => (uiLocale ??= store?.loadLocale() ?? kit.locale ?? DEFAULT_UI_LOCALE)
 function setUiLocale(next: UiLocale | null) {
   if (!next || next === locale()) return
   uiLocale = next
@@ -251,6 +261,7 @@ async function createWindow() {
     pageScript: readFileSync(join(DIST, 'page-script.js'), 'utf8'),
     appVersion: app.getVersion(),
     classifier: new HostClassifier(testPublic, testMapped),
+    suggestedTeam: kit.team,
     onTeamsChanged: () => buildMenu(),
   })
   win.win.on('closed', () => {
