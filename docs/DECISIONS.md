@@ -899,3 +899,11 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
   클라이언트가 없음, 필드는 옛 클라이언트를 위해 남김). 기본 언어(`defaultLocale`)는 설정 때 고른 언어로 바뀌므로 약한 신호가
   남지만, 로그인 화면의 언어라서 받아들였다(영어를 고르면 신호 없음). 시험: `tests/security/r4-setup-state-oracle.test.ts`.
+## 뜻으로 찾기: 로컬 임베딩 (feat/semantic-search, 2026-10-21)
+
+- **AI 도구 `search`**(`server/src/tools/search.ts`): 정확한 낱말·파일 이름을 모를 때 뜻으로 찾는다. 결과는 그 사람이 읽을 수 있는 파일의 구절과 경로(grep과 같은 `visiblePath`), 읽은 범위(readPaths)에 더해진다. 정확한 낱말은 계속 grep.
+- **모델**: `Xenova/multilingual-e5-small`(q8, 약 120 MB, 한국어·영어), 서버 안에서 transformers.js + onnxruntime으로 돈다. 문서 내용은 서버 밖으로 나가지 않는다. 처음 쓸 때 `<data>/models`에 **고정 리비전**(`761b726d…`)의 파일 4개를 내려받고 SHA-256을 확인한 뒤에만 불러온다(라이브러리의 자체 다운로드는 끔). 못 받으면 10분 뒤 다시.
+- **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
+- **끄기·없는 곳**: `MYCEL_SEMANTIC=off`. onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
+- **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
+
