@@ -17,6 +17,9 @@
 #                        and the bundled cloudflared runs as a second LaunchAgent. Later: <prefix>/teamax public-address
 #   --no-open            do not open the setup page in the browser
 #   --no-desktop         do not offer the desktop app installers found next to the bundle (below)
+#   --update             run by the automatic updater (docs/OFFICE.md "자동 업데이트", server/src/office/update.ts):
+#                        nothing interactive, no browser, the Claude Code found earlier is kept when the login check
+#                        cannot run here, and the closing instructions are left out
 #   --check-only         run the checks, print what would happen, change nothing
 #
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
@@ -35,7 +38,7 @@ umask 022
 SRC=$(cd "$(dirname "$0")" && pwd)
 PREFIX="$HOME/TeamAX"
 CONF_ARGS=()
-OPEN=1 CHECK_ONLY=0 DESKTOP=1
+OPEN=1 CHECK_ONLY=0 DESKTOP=1 UPDATE=0
 die() { echo "office-install: $*" >&2; exit 1; }
 say() { echo "office-install: $*"; }
 while [ $# -gt 0 ]; do
@@ -44,8 +47,9 @@ while [ $# -gt 0 ]; do
     --lan-port|--helper-port|--app-port|--label|--run-dir|--public-host|--tunnel-token-file) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
     --no-open) OPEN=0; shift ;;
     --no-desktop) DESKTOP=0; shift ;;
+    --update) UPDATE=1; OPEN=0; DESKTOP=0; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -79,18 +83,26 @@ if [ -z "$CLAUDE" ]; then
     if [ -n "$c" ] && [ -x "$c" ]; then CLAUDE=$c; break; fi
   done
 fi
+if [ "$UPDATE" = 1 ]; then
+  # an automatic update keeps the installation's Claude Code; a login that lapsed is the owner's to fix, not a reason
+  # to leave the clinic on the old version (the server reports it in Admin > System)
+  if [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ]; then CONF_ARGS+=(--claude-bin "$CLAUDE"); fi
+else
 [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || die "Claude Code is not installed for this user. Install it (curl -fsSL https://claude.ai/install.sh | bash), run 'claude', log in with the subscription account, then run this again."
 AUTH=$("$CLAUDE" auth status 2>/dev/null || true)
 echo "$AUTH" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true' || die "Claude Code is installed ($CLAUDE) but not logged in. Run 'claude' in Terminal, log in (/login) with the subscription account, then run this again."
 CONF_ARGS+=(--claude-bin "$CLAUDE")
+fi
 BUN_SRC="$SRC/app/bin/$ARCH/bun"
 "$BUN_SRC" --version >/dev/null 2>&1 || { xattr -d com.apple.quarantine "$BUN_SRC" 2>/dev/null || true; "$BUN_SRC" --version >/dev/null 2>&1 || die "$BUN_SRC does not run on this Mac"; }
 
 say "Team AX office mode $VERSION ($ARCH) -> $PREFIX"
+if [ "$UPDATE" != 1 ]; then
 say "Claude Code: $CLAUDE (logged in)"
 # the engine can write ~/.claude.json (the CLI keeps its login there); the server removes MCP servers from it, and this
 # account should run `claude` only to log in again (an MCP server planted there would run outside the sandbox)
 say "Use 'claude' on this Mac account only to log in again (/login); check 'claude mcp list' shows no servers first."
+fi
 if [ "$CHECK_ONLY" = 1 ]; then
   # settings are validated by the same code the install uses, written into a throwaway folder
   T=$(mktemp -d)
@@ -150,6 +162,8 @@ if [ "$DESKTOP" = 1 ]; then
   say "데스크톱 앱 설치 파일 찾는 중 / looking for desktop app installers: $SRC, $(dirname "$SRC")"
   "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" desktop --home "$PREFIX" add-from "${DESKTOP_ARGS[@]}" | sed -l 's/^/  /' || true
 fi
+
+if [ "$UPDATE" = 1 ]; then say "updated to $VERSION"; exit 0; fi
 
 # ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
 FW=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true)

@@ -212,6 +212,9 @@ export const SPECS: Record<string, Spec> = {
   diagnostics: { build: (c) => c.get('/api/admin/diagnostics'), scope: 'byLevel' },
   updateStatus: { build: (c) => c.get('/api/admin/update'), scope: 'byLevel' },
   startUpdate: { skipPositive: true, build: (c) => c.post('/api/admin/update', { password: 'wrong-pass' }), scope: 'byLevel' },
+  // office mode automatic updates (admin and owner): status is null outside office mode; "now" re-asks the password
+  officeUpdateStatus: { build: (c) => c.get('/api/admin/office-update'), scope: 'byLevel' },
+  officeUpdateAction: { skipPositive: true, build: (c) => c.post('/api/admin/office-update', { action: 'now', password: 'wrong-pass' }), scope: 'byLevel' },
   listBackups: { build: (c) => c.get('/api/admin/backups'), scope: 'byLevel' },
   startBackup: { build: (c) => c.post('/api/admin/backup', { scope: 'db' }), scope: 'byLevel' },
   startRestore: { skipPositive: true, build: (c) => c.post('/api/admin/restore', { backupId: 'nope', password: 'wrong' }), scope: 'byLevel' },
