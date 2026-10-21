@@ -2,16 +2,18 @@
 ;; The launcher starts every engine turn as:
 ;;   sandbox-exec -f engine.sb -D CHAT_DIR=<agent>/<chatId> -D AGENT_ROOT=<agent> -D ENGINE_DIR=<dir of engine>
 ;;                -D BRIDGE=<mycel-bridge> -D TOOLS_SOCK=<run/tools/tools.sock> -D PROXY_PORT=<port>
-;;                -D LOCAL_LOGIN=0|1 -D USER_HOME=<home of the account running the engine> <engine> ...
+;;                -D LOCAL_LOGIN=0|1 -D USER_HOME=<home of the account running the engine>
+;;                -D SESSION_DIR=<folder of this turn's session transcript: the chat folder, or with LOCAL_LOGIN=1
+;;                   ~/.claude/projects/<chat folder slug>> <engine> ...
 ;; Allowed: the turn's chat folder (HOME, TMPDIR, CLAUDE_CONFIG_DIR, CODEX_HOME live in it), the engine and bridge
 ;; executables, system libraries, our tools socket, the local model proxy port.
 ;; Denied: everything else, in particular /tmp, /private/var/tmp, /Users, /Volumes, other chat folders. That includes
 ;; METADATA (stat/lstat/readlink: existence, size, mtime, mode): only the turn's own paths and the folders above them can
 ;; be stat()ed (security audit r1, os-layer #1). The kernel resolves a path before the sandbox sees it, so a name that
 ;; does not exist still answers ENOENT rather than EPERM: only an exactly guessed name can be tested for existence.
-;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the owner's
-;; ~/.claude, ~/.claude.json, the installed Claude Code / Codex, the login keychain (Security framework) and direct
-;; HTTPS to the vendor (there is no model proxy in this mode).
+;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the few login files
+;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the login keychain
+;; (Security framework) and direct HTTPS to the vendor (there is no model proxy in this mode).
 ;; SBPL applies the LAST matching rule, so the broad denies come first and the narrow allows after them.
 (version 1)
 (deny default)
@@ -75,24 +77,42 @@
 (allow file-read* file-write* (subpath (param "CHAT_DIR")))
 
 ;; --- network -----------------------------------------------------------------------------------------------------
-(allow network-outbound
-  (literal (param "TOOLS_SOCK"))
-  (remote tcp (string-append "localhost:" (param "PROXY_PORT"))))
+(allow network-outbound (literal (param "TOOLS_SOCK")))
+;; PROXY_PORT=0: no model proxy (dev / local login talks to the vendor directly, see below)
+(if (not (equal? (param "PROXY_PORT") "0"))
+  (allow network-outbound (remote tcp (string-append "localhost:" (param "PROXY_PORT")))))
 
 ;; --- local-login (dev): the owner's own CLI login ---------------------------------------------------------------
+;; Only what the two CLIs were seen to need (security audit r1, os-layer #2), NOT the owner's whole ~/.claude and
+;; ~/.codex: those hold the owner's other Claude Code / Codex sessions (transcripts of every project, history.jsonl,
+;; file-history), the live-session registry with its messaging keys (~/.claude/sessions), and settings, hooks,
+;; skills, plugins and config.toml that the owner's own unsandboxed CLIs load (writing them = escaping the sandbox).
+;; SESSION_DIR: this turn's ~/.claude/projects/<chat folder slug>/ (the launcher passes it; Claude keeps the session
+;; transcript there in this mode). Codex's CODEX_HOME is in the chat folder and links to ~/.codex/auth.json.
 (if (equal? (param "LOCAL_LOGIN") "1")
-  (begin
+  (let* ((home (param "USER_HOME"))
+         (in-home (lambda (p) (string-append home p))))
+    (apply allow file-read-metadata
+      (map literal (append (path-and-ancestors (in-home "/.claude")) (path-and-ancestors (in-home "/.codex"))
+                           (ancestors (in-home "/.local/share/claude")) (ancestors (in-home "/Library/Keychains/-"))
+                           (ancestors (in-home "/Library/Preferences/-")) (ancestors (param "SESSION_DIR")))))
+    ;; Claude Code: ~/.claude.json and its .lock / .tmp.* siblings, its backups, this turn's session folder,
+    ;; read-only settings.json (it reads it even with --setting-sources "") and the model catalog cache
     (allow file-read* file-write*
-      (subpath (string-append (param "USER_HOME") "/.claude"))
-      (regex (string-append "^" (regex-quote (param "USER_HOME")) "/\\.claude\\.json"))
-      (subpath (string-append (param "USER_HOME") "/.codex")))
+      (regex (string-append "^" (regex-quote home) "/\\.claude\\.json"))
+      (subpath (in-home "/.claude/backups"))
+      (subpath (param "SESSION_DIR")))
+    (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
+    ;; Codex: the login only
+    (allow file-read* file-write* (literal (in-home "/.codex/auth.json")))
+    ;; the installed CLIs (no secrets) and the login keychain (Security framework reads it in-process)
     (allow file-read*
-      (subpath (string-append (param "USER_HOME") "/.local/share/claude"))
-      (subpath (string-append (param "USER_HOME") "/.local/bin"))
-      (subpath (string-append (param "USER_HOME") "/Library/Keychains"))
-      (literal (string-append (param "USER_HOME") "/Library/Preferences/com.apple.security.plist"))
+      (subpath (in-home "/.local/share/claude"))
+      (subpath (in-home "/.codex/packages"))
+      (subpath (in-home "/Library/Keychains"))
+      (literal (in-home "/Library/Preferences/com.apple.security.plist"))
       (subpath "/Library/Keychains") (subpath "/private/var/db/mds"))
-    (allow file-write* (subpath (string-append (param "USER_HOME") "/Library/Keychains")))
+    (allow file-write* (subpath (in-home "/Library/Keychains")))
     (allow process-exec (literal "/usr/bin/security"))
     (allow mach-lookup
       (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc")

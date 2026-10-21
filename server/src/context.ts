@@ -6,11 +6,12 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
 import type { AppConfig } from './app-config'
-import { defaultConfig, findCodexBin, type ServerConfig } from './config'
+import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
 import { FileService } from './files/service'
 import type { Logger } from './log'
 import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
+import type { LauncherSandbox } from './native'
 import { noSessions, nullRealtime, type Services } from './services'
 import pkg from '../package.json'
 
@@ -52,6 +53,18 @@ export interface ContextOptions {
 
 export class CoreUnavailableError extends Error { name = 'CoreUnavailableError' }
 
+/** The OS sandbox dev engine turns run under. macOS: scripts/macos/engine.sb with the owner's login opened (LOCAL_LOGIN=1)
+ * and no model proxy. Before security audit r1 (os-layer #2) dev ran engines with no OS layer at all: the CLI's own
+ * tool lockdown was the only thing between a turn (of any team member, through the relay) and everything the owner
+ * can read and write. Missing profile or sandbox-exec = no engine (fail closed). Other platforms: none (no bwrap
+ * profile for engines yet; the DEV banner says so). */
+export function devEngineSandbox(platform: NodeJS.Platform = process.platform, profile = engineSandboxProfile()): LauncherSandbox | null {
+  if (platform !== 'darwin') return null
+  if (!fs.existsSync(profile)) throw new CoreUnavailableError(`engine sandbox profile missing (${profile}): engines will not run without it`)
+  if (!fs.existsSync('/usr/bin/sandbox-exec')) throw new CoreUnavailableError('/usr/bin/sandbox-exec missing: engines will not run without the OS sandbox')
+  return { profile, localLogin: true }
+}
+
 /** Dev / local-login: launcher runs as the current user; claude / codex from PATH (or config.engine.*Bin). */
 export async function startLocalCore(ctx: AppContext): Promise<Running> {
   const cfg = ctx.engineConfig
@@ -63,7 +76,8 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   }
   const codex = findCodexBin(ctx.config.engine.codexBin)
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
-  return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')] } })
+  const sandbox = devEngineSandbox()
+  return startServer(cfg, { db: ctx.db, files: ctx.files, launcher: { allowCmds, sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox } : {}) } })
 }
 
 export function createContext(o: ContextOptions): AppContext {

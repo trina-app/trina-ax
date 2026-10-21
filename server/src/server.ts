@@ -9,7 +9,7 @@ import type { ServerConfig } from './config'
 import { FileService } from './files/service'
 import { TurnRegistry } from './turns'
 import { startMcpSocket } from './mcp/socket'
-import { SocketLauncher, startGate, startLauncher, type Launcher } from './native'
+import { SocketLauncher, startGate, startLauncher, type Launcher, type LauncherSandbox } from './native'
 
 export interface Running {
   cfg: ServerConfig
@@ -35,7 +35,7 @@ export function proxyPeerCheck(srv: Running) {
 }
 
 export interface StartOptions {
-  launcher?: { allowCmds: string[]; sessionRoots?: string[] }
+  launcher?: { allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox }
   externalLauncher?: string
   toolsSockMode?: string
   /** reuse an open DB / file service (the HTTP server owns them); otherwise opened here and closed by close() */
@@ -57,7 +57,7 @@ export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Prom
   const launcherSock = path.join(cfg.runDir, 'private', 'launcher.sock')
   let launcher: Launcher | null = o.externalLauncher ? new SocketLauncher(o.externalLauncher) : null
   if (o.launcher) {
-    procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots }))
+    procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots, sandbox: o.launcher.sandbox }))
     launcher = new SocketLauncher(launcherSock)
   }
   return {

@@ -18,14 +18,14 @@ export const CODEX_DISABLED_FEATURES = ['shell_tool', 'unified_exec', 'unified_e
 
 export interface CodexConf {
   bin: string
-  /** engine's CODEX_HOME (no config.toml, no AGENTS.md, no skills) */
+  /** engine's CODEX_HOME (no config.toml, no AGENTS.md, no skills). dev-owner-symlink: <chat>/.codex instead. */
   codexHome: string
   /** agent-own: the engine account logged in itself (`codex login --device-auth`, stage 3) and auth.json lives in
-   * codexHome. dev-owner-symlink: stage 1 tests only — auth.json is a symlink to the owner's login. */
+   * codexHome. dev-owner-symlink: dev / stage 1 — auth.json is a symlink to the owner's login. */
   auth: 'agent-own' | 'dev-owner-symlink'
-  /** engine's HOME (empty) so ~/.agents/skills etc. are not found */
+  /** engine's HOME (empty) so ~/.agents/skills etc. are not found. dev-owner-symlink: <chat>/.home instead. */
   agentHome: string
-  /** locked model catalog written by writeLockedCatalog() */
+  /** locked model catalog written by writeLockedCatalog(). dev-owner-symlink: copied to <chat>/.codex/ every turn. */
   catalog: string
   model: string
 }
@@ -55,6 +55,43 @@ export function prepareCodexHome(codexHome: string, auth: CodexConf['auth'], rea
   if (!st || !st.isSymbolicLink()) fs.symlinkSync(realAuth, link)
 }
 
+/** Where this turn's Codex keeps its state. dev-owner-symlink (dev, the engine runs as the owner under the engine
+ * sandbox): in the chat folder, the only place the sandbox lets a turn read and write (security audit r1, os-layer
+ * #2). The shared <data>/codex-home would need the server's data folder opened to every turn, and it mixed the
+ * state (logs, sqlite) of every chat. */
+export function codexTurnPaths(conf: CodexConf, chatDir: string): { codexHome: string; agentHome: string; catalog: string } {
+  if (conf.auth !== 'dev-owner-symlink') return { codexHome: conf.codexHome, agentHome: conf.agentHome, catalog: conf.catalog }
+  const codexHome = path.join(chatDir, '.codex')
+  return { codexHome, agentHome: path.join(chatDir, '.home'), catalog: path.join(codexHome, 'catalog.json') }
+}
+
+/** A folder the server prepares inside a chat folder: the engine can write there, so a link (or file) it left in
+ * place of the folder is removed (never followed) before the server writes into it. */
+function realDir(p: string) {
+  let st: fs.Stats | null = null
+  try { st = fs.lstatSync(p) } catch {}
+  if (st && !st.isDirectory()) fs.rmSync(p, { force: true }) // a link is unlinked, not followed
+  fs.mkdirSync(p, { recursive: true, mode: 0o700 })
+}
+
+/** Before (and after) every Codex turn: prepare its CODEX_HOME (see prepareCodexHome); dev-owner-symlink also gets an
+ * empty HOME and a fresh copy of the locked catalog in the chat folder. */
+export function prepareCodexTurn(conf: CodexConf, chatDir: string, realAuth?: string) {
+  const p = codexTurnPaths(conf, chatDir)
+  if (conf.auth === 'dev-owner-symlink') {
+    realDir(chatDir)
+    realDir(p.codexHome)
+    fs.rmSync(p.agentHome, { recursive: true, force: true })
+    fs.mkdirSync(p.agentHome, { mode: 0o700 })
+  }
+  prepareCodexHome(p.codexHome, conf.auth, realAuth)
+  if (p.catalog !== conf.catalog) {
+    fs.rmSync(p.catalog, { recursive: true, force: true })
+    fs.copyFileSync(conf.catalog, p.catalog, fs.constants.COPYFILE_EXCL)
+    fs.chmodSync(p.catalog, 0o600)
+  }
+}
+
 /** seconds codex waits for one MCP tool call (ask_user waits for a person; codex's default is about 60 s) */
 export const CODEX_TOOL_TIMEOUT_SEC = 1800
 
@@ -78,14 +115,15 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
 }
 
 export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string }, conf: CodexConf): LaunchRequest {
-  fs.mkdirSync(conf.agentHome, { recursive: true, mode: 0o700 })
+  const p = codexTurnPaths(conf, i.chatDir)
+  if (p.agentHome === conf.agentHome) fs.mkdirSync(conf.agentHome, { recursive: true, mode: 0o700 }) // per-chat: prepareCodexTurn
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   // codex has no system-prompt file option that keeps its tool instructions; the instructions travel on stdin
   // (never argv/env) ahead of the user's message.
   const stdin = `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`
   return {
-    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args: codexArgs(conf, { extraTools: i.extraTools, model: i.model }),
-    env: { PATH: '/usr/bin:/bin', HOME: conf.agentHome, CODEX_HOME: conf.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8' },
+    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args: codexArgs({ ...conf, catalog: p.catalog }, { extraTools: i.extraTools, model: i.model }),
+    env: { PATH: '/usr/bin:/bin', HOME: p.agentHome, CODEX_HOME: p.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8' },
     token: i.token, systemPrompt: '', stdin, timeoutMs: i.timeoutMs,
   }
 }

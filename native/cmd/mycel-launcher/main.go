@@ -21,8 +21,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -184,9 +186,27 @@ func stopAllAndExit() {
 
 const sandboxExec = "/usr/bin/sandbox-exec"
 
+// accountHome is the home folder of the account the launcher runs as (USER_HOME of the profile). Looked up in the
+// account database, not $HOME: the server starts the launcher with an empty environment, where os.UserHomeDir()
+// was "" and every LOCAL_LOGIN rule of the profile pointed at "/.claude" (no login, found in security audit r1).
+var accountHome string
+
+func lookupHome() string {
+	if u, err := user.LookupId(strconv.Itoa(os.Getuid())); err == nil && filepath.IsAbs(u.HomeDir) {
+		return u.HomeDir
+	}
+	if h, err := os.UserHomeDir(); err == nil && filepath.IsAbs(h) {
+		return h
+	}
+	return ""
+}
+
 // engineCommand wraps the engine in sandbox-exec when a profile is configured. sandbox-exec applies the profile and
 // then exec()s the engine, so the pid (= session id = process group the server checks) stays the same.
-func engineCommand(cmdPath string, args []string, chat string) (*exec.Cmd, error) {
+// sessDir is the folder the engine keeps this turn's session transcript in: the chat folder itself, or (local login)
+// the already validated --session-root folder of this chat; with --local-login the profile opens it and nothing
+// else of the CLI's projects folder.
+func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, error) {
 	if *sandboxProfile == "" {
 		return exec.Command(cmdPath, args...), nil
 	}
@@ -204,7 +224,6 @@ func engineCommand(cmdPath string, args []string, chat string) (*exec.Cmd, error
 		}
 		return p
 	}
-	home, _ := os.UserHomeDir()
 	ll := "0"
 	if *localLogin {
 		ll = "1"
@@ -217,7 +236,8 @@ func engineCommand(cmdPath string, args []string, chat string) (*exec.Cmd, error
 		"-D", "TOOLS_SOCK=" + resolve(*toolsSock),
 		"-D", fmt.Sprintf("PROXY_PORT=%d", *proxyPort),
 		"-D", "LOCAL_LOGIN=" + ll,
-		"-D", "USER_HOME=" + resolve(home),
+		"-D", "USER_HOME=" + resolve(accountHome),
+		"-D", "SESSION_DIR=" + resolve(filepath.Clean(sessDir)),
 		real}
 	return exec.Command(sandboxExec, append(sargs, args...)...), nil
 }
@@ -243,6 +263,10 @@ func main() {
 		}
 		if _, err := os.Stat(sandboxExec); err != nil {
 			fmt.Fprintln(os.Stderr, "mycel-launcher: sandbox-exec missing:", err)
+			os.Exit(2)
+		}
+		if accountHome = lookupHome(); accountHome == "" && *localLogin {
+			fmt.Fprintln(os.Stderr, "mycel-launcher: --local-login: no home folder for this account")
 			os.Exit(2)
 		}
 	}
@@ -435,7 +459,13 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	for k, v := range req.Env {
 		env = append(env, k+"="+subst.Replace(v))
 	}
-	cmd, err := engineCommand(req.Cmd, args, chat)
+	sessDir := chat
+	if s := req.SessionCollect; s != nil { // validated above (allowedSessionDir)
+		sessDir = s.Dir
+	} else if s := req.SessionRestore; s != nil {
+		sessDir = s.Dir
+	}
+	cmd, err := engineCommand(req.Cmd, args, chat, sessDir)
 	if err != nil {
 		return err
 	}
