@@ -80,8 +80,11 @@ meant to hold on its own:
 3. **OS backstop (role-account mode):** the engine runs as the hidden account `_axagent` under `sandbox-exec`
    (`scripts/macos/engine.sb`) with a pf anchor (only the local model proxy is reachable), in per-chat folders the
    launcher creates; the server account never runs anything from those folders, and root never trusts files the
-   role accounts can change. In DEV mode (`bun run dev`) this layer is missing: the engine runs as you and only
-   layers 1 and 2 apply, which every screen says in a banner. In this mode Claude Code also puts your Claude
+   role accounts can change. The profile also hides metadata: a turn can stat() only its own paths and the folders
+   above them. In DEV mode (`bun run dev`) this layer is only partly there: on macOS every turn still runs under
+   `engine.sb` (its chat folder plus the few login files Claude Code / Codex need, not the rest of your home, the
+   data folder or the team folder; engines do not start without it), but it runs as you, with direct HTTPS and no
+   pf, which every screen says in a banner. In this mode Claude Code also puts your Claude
    account's email into every turn's context (no switch for it).
 
 Around them:

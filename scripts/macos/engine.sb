@@ -2,13 +2,18 @@
 ;; The launcher starts every engine turn as:
 ;;   sandbox-exec -f engine.sb -D CHAT_DIR=<agent>/<chatId> -D AGENT_ROOT=<agent> -D ENGINE_DIR=<dir of engine>
 ;;                -D BRIDGE=<mycel-bridge> -D TOOLS_SOCK=<run/tools/tools.sock> -D PROXY_PORT=<port>
-;;                -D LOCAL_LOGIN=0|1 -D USER_HOME=<home of the account running the engine> <engine> ...
+;;                -D LOCAL_LOGIN=0|1 -D USER_HOME=<home of the account running the engine>
+;;                -D SESSION_DIR=<folder of this turn's session transcript: the chat folder, or with LOCAL_LOGIN=1
+;;                   ~/.claude/projects/<chat folder slug>> <engine> ...
 ;; Allowed: the turn's chat folder (HOME, TMPDIR, CLAUDE_CONFIG_DIR, CODEX_HOME live in it), the engine and bridge
 ;; executables, system libraries, our tools socket, the local model proxy port.
-;; Denied: everything else, in particular /tmp, /private/var/tmp, /Users, /Volumes, other chat folders.
-;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the owner's
-;; ~/.claude, ~/.claude.json, the installed Claude Code / Codex, the login keychain (Security framework) and direct
-;; HTTPS to the vendor (there is no model proxy in this mode).
+;; Denied: everything else, in particular /tmp, /private/var/tmp, /Users, /Volumes, other chat folders. That includes
+;; METADATA (stat/lstat/readlink: existence, size, mtime, mode): only the turn's own paths and the folders above them can
+;; be stat()ed (security audit r1, os-layer #1). The kernel resolves a path before the sandbox sees it, so a name that
+;; does not exist still answers ENOENT rather than EPERM: only an exactly guessed name can be tested for existence.
+;; LOCAL_LOGIN=1 (dev / owner's own subscription login, engine runs as the owner): additionally the few login files
+;; of Claude Code / Codex in the owner's home (see the block at the end), the installed CLIs, the login keychain
+;; (Security framework) and direct HTTPS to the vendor (there is no model proxy in this mode).
 ;; SBPL applies the LAST matching rule, so the broad denies come first and the narrow allows after them.
 (version 1)
 (deny default)
@@ -22,11 +27,16 @@
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
 (allow process-info-pidinfo process-info-setcontrol (target self))
+;; system information (CPU count, OS version, memory ...) yes; the list of every process on the Mac no: it showed
+;; other turns' engines (and with their pids, KERN_PROCARGS2 their argv, which the sandbox cannot filter: the kernel
+;; only checks the uid). Single pids (kern.proc.pid) stay: runtimes ask about themselves.
 (allow sysctl-read)
+(deny sysctl-read
+  (sysctl-name "kern.proc.all") (sysctl-name "kern.proc.pgrp") (sysctl-name "kern.proc.session")
+  (sysctl-name "kern.proc.tty") (sysctl-name "kern.proc.uid") (sysctl-name "kern.proc.ruid")
+  (sysctl-name "kern.proc.lcid"))
 
 ;; --- files -------------------------------------------------------------------------------------------------------
-;; path traversal / realpath needs metadata (no contents) of parent folders
-(allow file-read-metadata)
 ;; system libraries, frameworks, dyld cache, certificates, time zones, locale
 (allow file-read*
   (subpath "/usr/lib") (subpath "/usr/share") (subpath "/System") (subpath "/Library/Apple")
@@ -38,37 +48,71 @@
   (literal "/") (literal "/private") (literal "/private/var") (literal "/private/etc"))
 (allow file-write-data (literal "/dev/null") (literal "/dev/tty"))
 (allow file-ioctl (literal "/dev/tty") (literal "/dev/null"))
-;; the engine and the MCP bridge
-(allow file-read* (subpath (param "ENGINE_DIR")) (literal (param "BRIDGE")))
-
 ;; explicit denies (documentation of intent; deny default already covers them)
 (deny file-read* file-write*
   (subpath "/tmp") (subpath "/private/tmp") (subpath "/private/var/tmp") (subpath "/var/tmp")
   (subpath "/Users") (subpath "/Volumes") (subpath "/private/var/folders")
   (subpath (param "AGENT_ROOT")))
 
+;; metadata (no contents) of the folders above the turn's own paths: path traversal and realpath() lstat each of
+;; them. Never a bare (allow file-read-metadata): that let a turn stat() any path on the Mac (other chats' files, the
+;; server's data folder, the owner's home). SBPL cannot split a parameter into its parent folders, so the profile
+;; computes them: (ancestors "/a/b/c") = ("/a/b" "/a" "/"). After the explicit denies, so it wins over them.
+(define (ancestors p)
+  (let loop ((i 1) (acc (list "/")))
+    (cond ((>= i (string-length p)) acc)
+          ((char=? (string-ref p i) #\/) (loop (+ i 1) (cons (substring p 0 i) acc)))
+          (else (loop (+ i 1) acc)))))
+(define (path-and-ancestors p) (cons p (ancestors p)))
+(apply allow file-read-metadata
+  (map literal (append (ancestors (param "CHAT_DIR")) (path-and-ancestors (param "ENGINE_DIR"))
+                       (path-and-ancestors (param "BRIDGE")) (path-and-ancestors (param "TOOLS_SOCK")))))
+;; the entries of / itself (/etc, /var, /tmp are links into /private; listing / is allowed above anyway)
+(allow file-read-metadata (regex #"^/[^/]+$"))
+
+;; the engine and the MCP bridge (after the denies: in dev the engine lives under /Users)
+(allow file-read* (subpath (param "ENGINE_DIR")) (literal (param "BRIDGE")))
+
 ;; this turn's chat folder only (HOME, TMPDIR, .claude/, .codex/, .turn/ are inside it)
 (allow file-read* file-write* (subpath (param "CHAT_DIR")))
 
 ;; --- network -----------------------------------------------------------------------------------------------------
-(allow network-outbound
-  (literal (param "TOOLS_SOCK"))
-  (remote tcp (string-append "localhost:" (param "PROXY_PORT"))))
+(allow network-outbound (literal (param "TOOLS_SOCK")))
+;; PROXY_PORT=0: no model proxy (dev / local login talks to the vendor directly, see below)
+(if (not (equal? (param "PROXY_PORT") "0"))
+  (allow network-outbound (remote tcp (string-append "localhost:" (param "PROXY_PORT")))))
 
 ;; --- local-login (dev): the owner's own CLI login ---------------------------------------------------------------
+;; Only what the two CLIs were seen to need (security audit r1, os-layer #2), NOT the owner's whole ~/.claude and
+;; ~/.codex: those hold the owner's other Claude Code / Codex sessions (transcripts of every project, history.jsonl,
+;; file-history), the live-session registry with its messaging keys (~/.claude/sessions), and settings, hooks,
+;; skills, plugins and config.toml that the owner's own unsandboxed CLIs load (writing them = escaping the sandbox).
+;; SESSION_DIR: this turn's ~/.claude/projects/<chat folder slug>/ (the launcher passes it; Claude keeps the session
+;; transcript there in this mode). Codex's CODEX_HOME is in the chat folder and links to ~/.codex/auth.json.
 (if (equal? (param "LOCAL_LOGIN") "1")
-  (begin
+  (let* ((home (param "USER_HOME"))
+         (in-home (lambda (p) (string-append home p))))
+    (apply allow file-read-metadata
+      (map literal (append (path-and-ancestors (in-home "/.claude")) (path-and-ancestors (in-home "/.codex"))
+                           (ancestors (in-home "/.local/share/claude")) (ancestors (in-home "/Library/Keychains/-"))
+                           (ancestors (in-home "/Library/Preferences/-")) (ancestors (param "SESSION_DIR")))))
+    ;; Claude Code: ~/.claude.json and its .lock / .tmp.* siblings, its backups, this turn's session folder,
+    ;; read-only settings.json (it reads it even with --setting-sources "") and the model catalog cache
     (allow file-read* file-write*
-      (subpath (string-append (param "USER_HOME") "/.claude"))
-      (regex (string-append "^" (regex-quote (param "USER_HOME")) "/\\.claude\\.json"))
-      (subpath (string-append (param "USER_HOME") "/.codex")))
+      (regex (string-append "^" (regex-quote home) "/\\.claude\\.json"))
+      (subpath (in-home "/.claude/backups"))
+      (subpath (param "SESSION_DIR")))
+    (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
+    ;; Codex: the login only
+    (allow file-read* file-write* (literal (in-home "/.codex/auth.json")))
+    ;; the installed CLIs (no secrets) and the login keychain (Security framework reads it in-process)
     (allow file-read*
-      (subpath (string-append (param "USER_HOME") "/.local/share/claude"))
-      (subpath (string-append (param "USER_HOME") "/.local/bin"))
-      (subpath (string-append (param "USER_HOME") "/Library/Keychains"))
-      (literal (string-append (param "USER_HOME") "/Library/Preferences/com.apple.security.plist"))
+      (subpath (in-home "/.local/share/claude"))
+      (subpath (in-home "/.codex/packages"))
+      (subpath (in-home "/Library/Keychains"))
+      (literal (in-home "/Library/Preferences/com.apple.security.plist"))
       (subpath "/Library/Keychains") (subpath "/private/var/db/mds"))
-    (allow file-write* (subpath (string-append (param "USER_HOME") "/Library/Keychains")))
+    (allow file-write* (subpath (in-home "/Library/Keychains")))
     (allow process-exec (literal "/usr/bin/security"))
     (allow mach-lookup
       (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc")

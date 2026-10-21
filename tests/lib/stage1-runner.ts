@@ -10,7 +10,7 @@ import type { EngineEvent, LaunchRequest } from '@mycel/shared'
 import type { Running } from '../../server/src/server'
 import { buildTurnPrompt } from '../../server/src/chat/prompt'
 import { buildClaudeLaunch, type ClaudeConf } from '../../server/src/engine/claude'
-import { buildCodexLaunch, prepareCodexHome, type CodexConf } from '../../server/src/engine/codex'
+import { buildCodexLaunch, prepareCodexTurn, type CodexConf } from '../../server/src/engine/codex'
 import { ClaudeStreamParser } from '../../server/src/engine/claude-parse'
 import { CodexEventParser } from '../../server/src/engine/codex-parse'
 import { newId } from '../../server/src/db'
@@ -143,11 +143,11 @@ export class TurnRunner {
 
   private async codexTurn(req: TurnRequest, res: TurnResult, t: { turnId: string; token: string; chatDir: string; systemPrompt: string }) {
     const conf = this.engines.codex!
-    prepareCodexHome(conf.codexHome, conf.auth)
+    prepareCodexTurn(conf, t.chatDir)
     const parser = new CodexEventParser()
     const lr = buildCodexLaunch({ turnId: t.turnId, chatDir: t.chatDir, token: t.token, systemPrompt: t.systemPrompt, message: req.message, timeoutMs: req.timeoutMs ?? 20 * 60_000 }, conf)
     const { exit, stderr } = await this.launch(t.turnId, lr, (l) => { for (const e of parser.push(l)) { res.events.push(e); req.onEvent?.(e) } })
-    prepareCodexHome(conf.codexHome, conf.auth) // move a refreshed auth.json back to the real login
+    prepareCodexTurn(conf, t.chatDir) // move a refreshed auth.json back to the real login
     res.exitCode = exit?.code ?? null; res.stderr = stderr; res.codexItems = parser.itemTypes
     res.text = parser.text; res.sessionId = parser.sessionId
     const err = res.events.find((e) => e.type === 'error') as any

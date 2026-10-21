@@ -1,5 +1,6 @@
 // Start / talk to the native helpers (native/): gate (peer credentials) and launcher (runs engine turns).
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import net from 'node:net'
 import crypto from 'node:crypto'
@@ -29,14 +30,23 @@ export async function startGate(bin: string, listen: string, upstream: string, s
   return p
 }
 
+/** macOS: run every engine turn under sandbox-exec with this profile (scripts/macos/engine.sb). localLogin opens the
+ * account's own CLI login files and direct HTTPS (dev: the engine runs as the owner with the owner's login). */
+export interface LauncherSandbox { profile: string; localLogin: boolean; proxyPort?: number }
+
 /** Stage 1 convenience: start the launcher as the current user. Production: LaunchDaemon as _axagent (stage 3). */
-export async function startLauncher(bin: string, o: { listen: string; agentRoot: string; toolsSock: string; allowCmds: string[]; sessionRoots?: string[] }) {
+export async function startLauncher(bin: string, o: { listen: string; agentRoot: string; toolsSock: string; allowCmds: string[]; sessionRoots?: string[]; sandbox?: LauncherSandbox }) {
   const args = [path.join(bin, 'mycel-launcher'), '--listen', o.listen, '--agent-root', o.agentRoot, '--bridge', path.join(bin, 'mycel-bridge'), '--tools-sock', o.toolsSock, '--exit-with-parent']
   for (const c of o.allowCmds) args.push('--allow-cmd', c)
   for (const s of o.sessionRoots ?? []) args.push('--session-root', s)
+  if (o.sandbox) {
+    args.push('--sandbox-profile', o.sandbox.profile, '--proxy-port', String(o.sandbox.proxyPort ?? 0))
+    if (o.sandbox.localLogin) args.push('--local-login')
+  }
   fs.mkdirSync(o.agentRoot, { recursive: true, mode: 0o700 })
-  // stdin is a pipe we keep open (see startGate): the launcher stops its turns and exits when it closes
-  const p = Bun.spawn(args, { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit', env: {} })
+  // stdin is a pipe we keep open (see startGate): the launcher stops its turns and exits when it closes. Engines get
+  // only the environment of their launch request, never the launcher's.
+  const p = Bun.spawn(args, { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit', env: { HOME: os.homedir() } })
   await waitReady(p, 'launcher')
   return p
 }

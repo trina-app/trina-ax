@@ -9,7 +9,7 @@ import crypto from 'node:crypto'
 import { TEAM_TOOL_PREFIX, type EngineEvent } from '@mycel/shared'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest } from '@mycel/shared/api'
 import { buildClaudeLaunch, type ClaudeConf } from '../engine/claude'
-import { buildCodexLaunch, prepareCodexHome, type CodexConf } from '../engine/codex'
+import { buildCodexLaunch, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
@@ -232,14 +232,14 @@ export class TurnExec {
       const model = spec.model && rt.engines.get().codexModels.includes(spec.model) ? spec.model : undefined
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
-        prepareCodexHome(codex.codexHome, codex.auth)
+        prepareCodexTurn(codex, chatDir)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
         const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: prompt(true), message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, model }, codex)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
-        try { prepareCodexHome(codex.codexHome, codex.auth) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
+        try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
         if (this.stopReason) break
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)

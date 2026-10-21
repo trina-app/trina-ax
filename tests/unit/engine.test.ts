@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { ClaudeStreamParser } from '../../server/src/engine/claude-parse'
 import { CodexEventParser } from '../../server/src/engine/codex-parse'
 import { buildClaudeLaunch, CLAUDE_ALLOWED_TOOLS } from '../../server/src/engine/claude'
-import { codexArgs } from '../../server/src/engine/codex'
+import { buildCodexLaunch, codexArgs, prepareCodexTurn, type CodexConf } from '../../server/src/engine/codex'
 import { WORK } from '../lib/env'
 
 const L = (o: any) => JSON.stringify(o)
@@ -112,5 +113,55 @@ describe('locked engine invocations', () => {
     expect(a).toContain('mcp_servers.team.default_tools_approval_mode="approve"')
     expect(a).toContain('mcp_servers.team.enabled_tools=["list","glob","grep","read","write","edit"]')
     expect(a.some((x) => x.startsWith('--disable'))).toBe(false)
+  })
+})
+
+// security audit r1 (os-layer #2): dev engines now run in the sandbox, which only opens the turn's chat folder, so a
+// dev Codex turn keeps CODEX_HOME, HOME and the locked catalog there instead of the shared <data>/codex-home (that
+// shared folder also mixed every chat's Codex state). The server prepares those files outside the sandbox, so links
+// the engine may have left in its chat folder must never be followed.
+describe('codex per-chat state (dev-owner-symlink)', () => {
+  const W = path.join(WORK, 'engine-codex-chat')
+  fs.rmSync(W, { recursive: true, force: true })
+  const chat = path.join(W, 'agent', 'c_1')
+  const catalog = path.join(W, 'data', 'codex-catalog.json')
+  const realAuth = path.join(W, 'owner', '.codex', 'auth.json')
+  const owner = path.join(W, 'owner', '.claude')
+  const conf: CodexConf = { bin: '/x/codex', codexHome: path.join(W, 'data', 'codex-home'), agentHome: path.join(W, 'data', 'codex-agent-home'), catalog, model: 'm', auth: 'dev-owner-symlink' }
+
+  test('CODEX_HOME, HOME and the catalog are in the chat folder', () => {
+    for (const d of [path.dirname(catalog), path.dirname(realAuth), owner]) fs.mkdirSync(d, { recursive: true })
+    fs.writeFileSync(catalog, '{"models":[]}'); fs.writeFileSync(realAuth, '{}')
+    prepareCodexTurn(conf, chat, realAuth)
+    expect(fs.readlinkSync(path.join(chat, '.codex', 'auth.json'))).toBe(realAuth)
+    expect(fs.readFileSync(path.join(chat, '.codex', 'catalog.json'), 'utf8')).toBe('{"models":[]}')
+    const lr = buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000 }, conf)
+    expect(lr.env.CODEX_HOME).toBe(path.join(chat, '.codex'))
+    expect(lr.env.HOME).toBe(path.join(chat, '.home'))
+    expect(lr.args).toContain(`model_catalog_json=${JSON.stringify(path.join(chat, '.codex', 'catalog.json'))}`)
+    expect(lr.args.join(' ')).not.toContain(path.join(W, 'data'))
+    // role-account mode keeps its configured folders
+    const own = buildCodexLaunch({ turnId: 't', chatDir: chat, token: 'k', systemPrompt: 's', message: 'm', timeoutMs: 1000 }, { ...conf, auth: 'agent-own' })
+    expect(own.env.CODEX_HOME).toBe(conf.codexHome)
+  })
+
+  test('links the engine left in its chat folder are removed, not followed', () => {
+    fs.writeFileSync(path.join(owner, 'config.toml'), 'owner'); fs.mkdirSync(path.join(owner, 'skills'), { recursive: true })
+    fs.writeFileSync(path.join(owner, 'skills', 'keep.md'), 'owner skill')
+    // .codex -> the owner's config folder, .home -> the owner's config folder, catalog.json -> an owner file
+    fs.rmSync(path.join(chat, '.codex'), { recursive: true, force: true }); fs.symlinkSync(owner, path.join(chat, '.codex'))
+    fs.rmSync(path.join(chat, '.home'), { recursive: true, force: true }); fs.symlinkSync(owner, path.join(chat, '.home'))
+    prepareCodexTurn(conf, chat, realAuth)
+    expect(fs.readFileSync(path.join(owner, 'config.toml'), 'utf8')).toBe('owner')
+    expect(fs.readFileSync(path.join(owner, 'skills', 'keep.md'), 'utf8')).toBe('owner skill')
+    expect(fs.existsSync(path.join(owner, 'catalog.json'))).toBe(false)
+    expect(fs.existsSync(path.join(owner, 'auth.json'))).toBe(false)
+    expect(fs.lstatSync(path.join(chat, '.codex')).isDirectory()).toBe(true)
+    expect(fs.lstatSync(path.join(chat, '.home')).isDirectory()).toBe(true)
+    const victim = path.join(W, 'owner', 'victim.txt'); fs.writeFileSync(victim, 'owner data')
+    fs.rmSync(path.join(chat, '.codex', 'catalog.json')); fs.symlinkSync(victim, path.join(chat, '.codex', 'catalog.json'))
+    prepareCodexTurn(conf, chat, realAuth)
+    expect(fs.readFileSync(victim, 'utf8')).toBe('owner data')
+    expect(fs.lstatSync(path.join(chat, '.codex', 'catalog.json')).isFile()).toBe(true)
   })
 })

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { which } from '../../server/src/config'
 import { startServer } from '../../server/src/server'
+import { devEngineSandbox } from '../../server/src/context'
 import { TurnRunner } from './stage1-runner'
 import { writeLockedCatalog, type CodexConf } from '../../server/src/engine/codex'
 import type { ClaudeConf } from '../../server/src/engine/claude'
@@ -24,7 +25,9 @@ export async function engineEnv(name: string) {
     const models = writeLockedCatalog(src, catalog)
     codex = { bin: CODEX_BIN, codexHome, agentHome: path.join(env.fx.data, 'codex-agent-home'), catalog, model: process.env.MYCEL_CODEX_MODEL ?? models[0], auth: 'dev-owner-symlink' }
   }
-  const srv = await startServer(env.cfg, { launcher: { allowCmds: [CLAUDE_BIN, ...(CODEX_BIN ? [CODEX_BIN] : [])], sessionRoots: [path.join(os.homedir(), '.claude', 'projects')] } })
+  // the same OS sandbox as the dev server (macOS: engine.sb with the owner's login opened)
+  const sandbox = devEngineSandbox()
+  const srv = await startServer(env.cfg, { launcher: { allowCmds: [CLAUDE_BIN, ...(CODEX_BIN ? [CODEX_BIN] : [])], sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox } : {}) } })
   const runner = new TurnRunner(srv, { claude, codex })
   return { env, srv, runner, claude, codex }
 }

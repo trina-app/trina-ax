@@ -44,6 +44,11 @@ export function findCodexBin(explicit?: string): string | null {
   return explicit ?? which('codex', [path.join(os.homedir(), '.local', 'bin')])
 }
 
+/** The macOS engine sandbox profile (design tab 2 "기본 ② 샌드박스"). Dev runs every engine turn under it too. */
+export function engineSandboxProfile(): string {
+  return path.resolve(import.meta.dir, '..', '..', 'scripts', 'macos', 'engine.sb')
+}
+
 export function nativeBinDir(): string {
   const plat = process.platform === 'darwin' ? 'darwin' : 'linux'
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
