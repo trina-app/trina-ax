@@ -81,7 +81,9 @@ export function frameCsp(host: string): string {
 /**
  * The receiver: a fixed document with no content of its own. It says "ready" to its parent, takes one document from
  * the parent (event.source === parent only) and writes it over itself; the document keeps this response's CSP.
- * Everything the AI or a file wrote arrives only through postMessage, never through the URL.
+ * Everything the AI or a file wrote arrives only through postMessage, never through the URL. A "ping" from the parent
+ * gets "ready" again: a parent that missed the first one (its listener came after a fast, cached load) showed an empty
+ * frame for good.
  */
 export const SANDBOX_RECEIVER = `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>
 (function () {
@@ -89,6 +91,7 @@ export const SANDBOX_RECEIVER = `<!doctype html><html><head><meta charset="utf-8
   window.addEventListener("message", function (e) {
     if (done || e.source !== window.parent) return;
     var d = e.data;
+    if (d && d.source === "mycel-host" && d.type === "ping") { window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*"); return; }
     if (!d || d.source !== "mycel-host" || d.type !== "render" || typeof d.html !== "string") return;
     done = true;
     document.open();

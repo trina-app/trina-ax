@@ -107,6 +107,31 @@ test('the receiver document: sandbox CSP header, framable only by this server, n
   expect(app).not.toMatch(/script-src[^;]*('unsafe-inline'|data:|blob:)/)
 })
 
+test('a parent that missed the receiver\'s "ready" gets it again with a ping (no empty frame)', async ({ page }) => {
+  await reset(page)
+  await page.goto('/')
+  const got = await page.evaluate(async () => {
+    const f = document.createElement('iframe')
+    f.setAttribute('sandbox', 'allow-scripts')
+    f.src = '/sandbox/frame?v=late'
+    // the receiver loads and says "ready" while nobody listens yet
+    await new Promise((r) => { f.onload = r; document.body.appendChild(f) })
+    await new Promise((r) => setTimeout(r, 200))
+    const ready = new Promise<string>((resolve) => window.addEventListener('message', (e) => {
+      if (e.source === f.contentWindow && (e.data as { type?: string })?.type === 'ready') resolve('ready')
+    }))
+    f.contentWindow!.postMessage({ source: 'mycel-host', type: 'ping' }, '*')
+    const r = await Promise.race([ready, new Promise<string>((res) => setTimeout(() => res('timeout'), 3000))])
+    // and the document still renders after the late handshake
+    const rendered = new Promise<string>((resolve) => window.addEventListener('message', (e) => {
+      if (e.source === f.contentWindow && (e.data as { type?: string })?.type === 'rendered') resolve('rendered')
+    }))
+    f.contentWindow!.postMessage({ source: 'mycel-host', type: 'render', html: '<script>parent.postMessage({ type: "rendered" }, "*")</script>' }, '*')
+    return [r, await Promise.race([rendered, new Promise<string>((res) => setTimeout(() => res('timeout'), 3000))])]
+  })
+  expect(got).toEqual(['ready', 'rendered'])
+})
+
 test('the app CSP blocks inline script even if markup got into the page', async ({ page }) => {
   await reset(page)
   await signIn(page)
