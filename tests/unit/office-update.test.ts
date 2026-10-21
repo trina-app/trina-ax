@@ -472,7 +472,8 @@ describe('desktop updater configuration', () => {
   })
   test('electron-builder: generic publish (latest.yml + app-update.yml), no publisherName, electron-updater bundled', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'desktop', 'package.json'), 'utf8'))
-    expect(pkg.build.publish).toEqual([{ provider: 'generic', url: 'https://localhost.invalid/downloads/' }])
+    // channel latest: a pre-release build (0.2.0-beta.2) also writes latest.yml, the file the app asks the team for
+    expect(pkg.build.publish).toEqual([{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }])
     expect(pkg.build.win.publisherName).toBeUndefined()
     expect(pkg.build.nsis.oneClick).toBe(true)
     expect(pkg.devDependencies['electron-updater']).toMatch(/^\d+\.\d+\.\d+$/)

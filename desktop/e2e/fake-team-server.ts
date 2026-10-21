@@ -59,8 +59,10 @@ interface Team {
   skewMs: number
   /** POST /api/connect-info/lan-failure bodies the app sent */
   lanFailures: { code: string; csrf: boolean }[]
+  /** GET /downloads/index.json requests: whether they carried the team session (update.spec.ts) */
+  downloadHits: ('session' | 'none')[]
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [] })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [] })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
@@ -137,6 +139,13 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     return new Response(null, { status: 204 })
   }
   if (p === '/test/lan-failures') return json({ items: t.lanFailures })
+  // the desktop apps the team offers (signed-in people only, like the real /downloads/): a newer Mac app
+  if (p === '/downloads/index.json') {
+    t.downloadHits.push(sessionCookie(req) ? 'session' : 'none')
+    if (!sessionCookie(req)) return new Response('Sign in first\n', { status: 401 })
+    return json({ items: [{ platform: 'windows', file: 'Team-AX-Setup-99.0.0-win-x64.exe', version: '99.0.0', size: 1, signed: false }, { platform: 'mac', file: 'Team-AX-99.0.0-mac-universal.dmg', version: '99.0.0', size: 1, signed: false }] })
+  }
+  if (p === '/test/downloads-hits') return json({ hits: t.downloadHits })
   if (p === '/test/login') {
     const v = crypto.randomUUID()
     return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax` })

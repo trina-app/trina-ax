@@ -3,7 +3,7 @@
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
 //       [--office dist/office/TeamAX-office-X-mac.zip]
 //       [--windows desktop/release/Team-AX-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
-//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--out DIR] [--dry-run]
+//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
 //
 // --build first builds both (bun run build:office with --version X; the Windows app with version X): otherwise the
 // files are taken as given (default: dist/office/TeamAX-office-<version>-mac.zip and, when it exists,
@@ -15,7 +15,8 @@
 //   3. uploads office/<version>/<files> to the R2 bucket, then signs (~/.config/teamax-release/release-key.pem) and
 //      uploads office/<channel>.json last, so the manifest never names a file that is not there
 //   4. reads the manifest back through https://updates.treesoop.com and verifies it like an office does
-// --out DIR writes the feed into a folder instead (tests, a local feed); --dry-run checks and signs, uploads nothing.
+// --out DIR writes the feed into a folder instead (tests: a feed on this Mac, whose address --feed names, served to an
+// install switched to it with `teamax update feed`); --dry-run checks and signs, uploads nothing.
 // The API token (CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env) and the release key are never printed.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -81,7 +82,8 @@ async function main() {
   const notes = arg('--notes-file') ? fs.readFileSync(arg('--notes-file')!, 'utf8') : arg('--notes') ?? ''
   const out = arg('--out')
   const dry = process.argv.includes('--dry-run')
-  const feed = DEFAULT_FEED
+  const feed = arg('--feed') ?? DEFAULT_FEED
+  if (feed !== DEFAULT_FEED && (!out || !/^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/.test(feed))) throw new Error('--feed is only for --out with a feed on this Mac (http://127.0.0.1:<port>)')
 
   if (process.argv.includes('--build')) {
     run(['bun', 'run', 'build:office', '--', '--version', version])
