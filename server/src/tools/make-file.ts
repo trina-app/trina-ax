@@ -9,6 +9,10 @@
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
 // The output goes through the policy function; an existing file is never overwritten silently: it gets a conflict
 // copy ("name (충돌 사본 - 사람 날짜 HH.mm).docx"), unless this turn read that exact version first.
+// Every file whose bytes end up in the output (the source, each embedded image, the template) is a source of the new
+// file (design tab 7 "공용 폴더를 거친 유출"): they join the chat's read scope, and before the output is placed the
+// chat turn asks the person when more people can read the output folder than those files (ToolCtx.confirmWidening).
+// Without a chat turn there is nobody to ask: such a save is refused.
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -18,8 +22,9 @@ import type { AppContext } from '../context'
 import { ext } from '../files/extract'
 import type { ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, sha256 } from '../files/store'
+import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
-import { ToolError } from '../policy/errors'
+import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { which } from '../config'
 import { publishChanges } from '../team-files/changes'
@@ -52,6 +57,8 @@ export class MakeFile {
     let text: string
     let kind: 'markdown' | 'csv' | 'tsv'
     let baseDir: string[] = []
+    /** team-folder files whose bytes go into the output */
+    const sources: string[] = []
     if (a.source !== undefined) {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
@@ -61,6 +68,7 @@ export class MakeFile {
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
       baseDir = r.segs.slice(0, -1)
+      sources.push(r.rel)
     } else {
       text = a.content!
       if (Buffer.byteLength(text) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
@@ -80,7 +88,7 @@ export class MakeFile {
         if (!this.conv.pandoc) throw new ToolError('pandoc is not installed on the server; ask the owner to run `brew install pandoc`')
         let input: string
         let from: 'json' | 'csv'
-        let images = 0
+        let images: string[] = []
         if (kind === 'markdown') {
           if (/<(img|image|object|embed|iframe|video|audio|source|picture)\b/i.test(text)) throw new ToolError('HTML image tags are not supported; use Markdown images ![alt](path) with team-folder paths')
           // Markdown -> pandoc's document tree first (pandoc --sandbox reads nothing but in.md). Every image of the
@@ -94,6 +102,7 @@ export class MakeFile {
           if (fs.statSync(astFile).size > MAX_AST) throw new ToolError('the document is too large to convert')
           const ast = JSON.parse(fs.readFileSync(astFile, 'utf8'))
           images = this.copyImages(c, ast, baseDir, work)
+          sources.push(...images)
           fs.writeFileSync(astFile, JSON.stringify(ast))
           input = 'ast.json'
           from = 'json'
@@ -107,13 +116,19 @@ export class MakeFile {
           // without images pandoc reads only the files on its command line (--sandbox); with images it must read
           // the copies, which are the only image paths left in the tree (and the OS sandbox, when there is one,
           // keeps it inside the work folder anyway)
-          const args = [...(images === 0 ? ['--sandbox'] : []), '--fail-if-warnings', '--resource-path=.', '-f', from, '-t', a.format, '-o', path.basename(produced), input]
-          if (a.template) args.push('--reference-doc', this.template(c, a.template, a.format, work))
+          const args = [...(images.length === 0 ? ['--sandbox'] : []), '--fail-if-warnings', '--resource-path=.', '-f', from, '-t', a.format, '-o', path.basename(produced), input]
+          if (a.template) {
+            const tpl = this.template(c, a.template, a.format, work)
+            sources.push(tpl.rel)
+            args.push('--reference-doc', tpl.local)
+          }
           const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
           if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
+      // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
+      await this.checkWidening(c, out.rel, out.segs, sources)
       return await this.place(c, out.segs, produced)
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -123,8 +138,9 @@ export class MakeFile {
    * team root), are copied into the work folder; the Image nodes of the document tree then point at the copies.
    * Anything else (web addresses, data: URLs, absolute paths, hidden or missing files) stops the conversion.
    */
-  private copyImages(c: ToolCtx, ast: unknown, baseDir: string[], work: string): number {
+  private copyImages(c: ToolCtx, ast: unknown, baseDir: string[], work: string): string[] {
     let n = 0
+    const rels: string[] = []
     let bytes = 0
     const fx = this.files.fx
     const rules = this.files.rules()
@@ -140,16 +156,18 @@ export class MakeFile {
       const candidates = [path.posix.normalize([...baseDir, decoded].join('/')), path.posix.normalize(decoded)]
       for (const rel of candidates) {
         if (rel.startsWith('..')) continue
-        let abs: string, size: number
+        let abs: string, size: number, found: string
         try {
           const r = authorize(fx, rules, c.user, rel, 'read')
           abs = r.abs
           size = checkRegular(abs).size
+          found = r.rel
         } catch { continue }
         if (size > MAX_IMAGE) bad(target, 'larger than 20 MB')
         if ((bytes += size) > MAX_IMAGES_BYTES) bad(target, 'the images together are larger than 100 MB')
         const name = `img-${n}.${x}`
         fs.copyFileSync(abs, path.join(work, name))
+        rels.push(found)
         return name
       }
       return bad(target, 'not found or no access')
@@ -166,10 +184,29 @@ export class MakeFile {
       }
       for (const x of Object.values(node)) if (x && typeof x === 'object') stack.push(x)
     }
-    return n
+    return rels
   }
 
-  private template(c: ToolCtx, tpl: string, format: string, work: string): string {
+  /**
+   * The output carries the bytes of `sources`: they join the chat's read scope (later saves in the chat take them
+   * into account), and when more people can read the output than those files (or what the chat read), the chat turn
+   * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
+   */
+  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[]) {
+    for (const p of sources) c.files.readPaths.add(p)
+    if (c.confirmWidening) {
+      const refusal = await c.confirmWidening(target, sources)
+      if (refusal) throw new Denied(refusal)
+      return
+    }
+    const db = this.ctx.db
+    const rules = this.files.rules()
+    const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+    const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
+    if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+  }
+
+  private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
     if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
     if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
@@ -177,7 +214,7 @@ export class MakeFile {
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
     const local = `template.${format}`
     fs.copyFileSync(r.abs, path.join(work, local))
-    return local
+    return { local, rel: r.rel }
   }
 
   private async pdf(work: string, input: string, from: 'json' | 'csv') {

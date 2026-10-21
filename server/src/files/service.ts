@@ -32,6 +32,14 @@ export interface ToolCtx {
   files: TurnFiles
   /** the person of a chat turn (component B): confirmation cards the server raises inside a tool call (web_fetch) */
   person?: import('../tools/url-gate').TurnPerson
+  /**
+   * The chat turn's "wider audience" check (design tab 7 "공용 폴더를 거친 유출"): before a tool places a new file at
+   * `target` that carries content of `sources` (team-folder paths it copied bytes from) or of what the chat read,
+   * the server asks the person when more people can read the target. Returns the refusal text, or null to go ahead.
+   * Tools that copy file bytes into a new file (make_file) must call it; without it (no chat turn: nobody to ask)
+   * they refuse whenever the target is wider than the sources.
+   */
+  confirmWidening?: (target: string, sources: string[]) => Promise<string | null>
 }
 export interface ToolOutput { text: string; isError?: boolean; summary: string }
 

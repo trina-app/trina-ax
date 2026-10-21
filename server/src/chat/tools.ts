@@ -51,7 +51,9 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
       const t = tools.get(name)!
       exec.noteTaint(name, args)
       if (name === 'make_file' && args && typeof args === 'object') {
-        // the new file carries what the chat read, and the `source` file it is made from
+        // the new file carries what the chat read, and the `source` file it is made from: asked before converting.
+        // The images it embeds and its template are only known after parsing; make_file asks again for those
+        // (ToolCtx.confirmWidening) before the file is placed.
         const a = args as { output?: unknown; source?: unknown }
         const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
@@ -87,7 +89,12 @@ export function turnPerson(exec: TurnExec): TurnPerson {
 function toolContext(exec: TurnExec): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
-    signal: exec.abort.signal, files: { user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec) },
+    signal: exec.abort.signal,
+    files: {
+      user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec),
+      // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
+      confirmWidening: (target, sources) => exec.confirmWidening(target, sources),
+    },
   }
 }
 

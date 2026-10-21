@@ -13,7 +13,9 @@ import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/acces
 
 export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' }
 
-const key = (s: ReadSource) => (s.type === 'root' ? 'root' : `${s.type}:${s.id}`)
+/** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
+export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : `${s.type}:${s.id}`)
+const key = sourceKey
 
 /** The source of a team-folder file (relative path with actual names). */
 export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource {
@@ -80,10 +82,10 @@ export interface Widening {
 
 /**
  * Would saving at `targetSegs` let more people see what this chat read (plus `extra` sources, e.g. make_file's
- * source file)? null = no.
+ * source file, embedded images and template)? null = no. chatId null: only `extra` (a tool call outside a chat).
  */
-export function widening(db: Database, chatId: string, targetSegs: string[], extra: ReadSource[] = []): Widening | null {
-  const sources = [...(readScope(db, chatId) ?? []), ...extra]
+export function widening(db: Database, chatId: string | null, targetSegs: string[], extra: ReadSource[] = []): Widening | null {
+  const sources = [...((chatId ? readScope(db, chatId) : null) ?? []), ...extra]
   if (!sources.length) return null
   const rules = RuleSet.load(db)
   const people = activePeople(db)
