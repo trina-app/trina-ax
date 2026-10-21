@@ -32,7 +32,7 @@ describe('registry', () => {
     const h = makeHandler(A.ctx.files, A.ctx.db, A.toolCtx('alice'))
     const r = await h({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
     const names = r.result.tools.map((t: any) => t.name)
-    expect(names).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'share_file', 'artifact', 'web_fetch', 'search'])
+    expect(names).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'share_file', 'artifact', 'web_fetch', 'search', 'schedule_create', 'schedule_list', 'schedule_delete'])
     const mf = r.result.tools.find((t: any) => t.name === 'make_file')
     expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf'])
     expect(() => toolRegistry(A.ctx.files).register({ name: 'make_file', description: '', input: mf as any, run: () => ({ text: '', summary: '' }) })).toThrow('registered twice')
