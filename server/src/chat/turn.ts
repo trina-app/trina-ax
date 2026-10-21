@@ -32,6 +32,13 @@ import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet } from './tools'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { readRegular, sha256 } from '../files/store'
+import { audit as auditLog } from '../admin/audit'
+import { ANY_CONTENT, editedText, inSkills } from '../skills/guard'
+import { lineDiff } from '../skills/diff'
+import { st } from '../skills/text'
+import { parseSkill as parseSkillHeader } from './skills'
+import type { SkillWritePreview } from '@mycel/shared/api'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { budgetBlock } from '../admin/budgets'
 
@@ -570,6 +577,68 @@ export class TurnExec {
       return null
     }
     return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${from}). Do not save it anywhere else that more people can see; ask the user where to put it.`
+  }
+
+  // ---------------- team skills (skills/guard.ts) ----------------
+  /**
+   * Before write / edit / make_file saves under skills/ (team skills and team rules every teammate's AI follows): the
+   * server's card with what changes, for everyone (admins too). Yes = an approval for exactly those bytes (the file
+   * layer refuses the save without it); no, no answer, a scheduled run or anything that goes wrong = nothing written,
+   * and the refusal is audited. Returns the refusal for the tool, or null to go ahead (also when the target is not
+   * under skills/, or the tool itself will refuse the call: the tool reports that).
+   */
+  async confirmSkillWrite(tool: string, args: unknown): Promise<{ refusal: string; summary: string } | null> {
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file') return null
+    const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+    const target = tool === 'make_file' ? a.output : a.file_path
+    if (typeof target !== 'string') return null
+    const fs_ = this.rt.files
+    const me = this.livePrincipal()
+    let r
+    try { r = authorize(fs_.fx, fs_.rules(), me, target, 'write', { createDirs: true, mustExist: tool === 'edit' }) } catch { return null }
+    if (!inSkills(r.rel)) return null
+    const L = this.spec.locale
+    let before: string | null = ''
+    let after: string | null = null
+    if (r.exists) {
+      // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
+      if (r.st!.isDirectory() || (tool !== 'make_file' && !this.files.readHashes.has(r.rel))) return null
+      try {
+        const cur = readRegular(r.abs).bytes
+        before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
+      } catch { return null }
+    }
+    if (tool === 'write') {
+      if (typeof a.content !== 'string') return null
+      after = a.content
+    } else if (tool === 'edit') {
+      if (before === null || typeof a.old_string !== 'string' || typeof a.new_string !== 'string' || !a.old_string) return null
+      const n = before.split(a.old_string).length - 1
+      if (n === 0 || (n > 1 && a.replace_all !== true)) return null // the tool explains
+      after = editedText(before, a.old_string, a.new_string, a.replace_all === true)
+    }
+    const approval = after === null ? ANY_CONTENT : sha256(Buffer.from(after, 'utf8'))
+    if (this.files.skillApprovals.get(r.rel) === approval) return null // already confirmed (a retried call)
+    const skill = after !== null && r.rel.toLowerCase().endsWith('.md') ? parseSkillHeader(after) : null
+    const isMd = r.rel.toLowerCase().endsWith('.md')
+    const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
+    const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? '').toUpperCase() }) : st('whatFile', L)
+    const what = skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : isMd ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
+    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
+    const answer = await this.waitForPerson({
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: st('confirm', L, { path: r.rel, what }),
+      options: [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }], multiple: false, allowText: false, preview,
+      expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
+      this.files.skillApprovals.set(r.rel, approval)
+      return null
+    }
+    auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
+    return {
+      refusal: `The user did not allow saving '${r.rel}' under skills/ (team skills and team rules every teammate's AI follows), so nothing was saved. Do not save it there or anywhere else in skills/ unless the user asks again; you may offer to save it in their personal folder instead.`,
+      summary: `${tool} -> not allowed by the user (team skills)`,
+    }
   }
 
   // ---------------- people answering (ask_user, browser site) ----------------

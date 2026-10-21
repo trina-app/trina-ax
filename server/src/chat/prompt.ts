@@ -173,7 +173,12 @@ const SKILL_LIST_MAX = 50
 /** Item 5b: the team skills the person may use (name, what it does, file), and how to make one. */
 export function skillsSection(files: FileService, user: Principal): string {
   const skills = listSkills(files, user).slice(0, SKILL_LIST_MAX)
-  const canWrite = files.rules().access(user, ['skills']) === 'write'
+  // skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders
+  const rules = files.rules()
+  const writable = ['skills', ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith('skills/') && f.split('/').length <= 3)]
+    .filter((f) => rules.access(user, f.split('/')) === 'write')
+  const top = writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
+  const canWrite = top.length > 0
   if (!skills.length && !canWrite) return ''
   const lines = ['## Team skills', 'Reusable workflows the team saved under skills/. Each is a Markdown file of steps.']
   if (skills.length) {
@@ -182,7 +187,12 @@ export function skillsSection(files: FileService, user: Principal): string {
       ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${s.description ? ': ' + neutralizeTags(s.description) : ''}`),
     )
   }
-  if (canWrite) lines.push('To save a workflow as a skill when the user asks, write skills/<short-name>.md starting with a header: a line "---", "name: <name>", "description: <one sentence>", "---", then the steps.')
+  if (canWrite) {
+    lines.push(`To save a workflow as a skill when the user asks, write ${top.map((f) => f + '/<short-name>.md').join(' or ')} starting with a header: a line "---", "name: <name>", "description: <one sentence>", "---", then the steps. ` +
+      'Everything under skills/ is followed by every teammate\'s AI, so the server shows the user a confirmation card with the change before anything there is saved; if they decline, do not try again.')
+  } else {
+    lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use "Suggest as skill" ("스킬로 제안", "Usulkan sebagai skill") under your answer: someone who manages team skills reviews it.')
+  }
   return lines.join('\n')
 }
 

@@ -48,6 +48,7 @@ export const C = {
   mktInstr: 'SEC-MKT-INSTR-0b1',
   falconPlan: 'SEC-FALCON-PLAN-1aa',        // projects/falcon (alice write, finance read)
   falconInstr: 'SEC-FALCON-INSTR-7c3',
+  aliceSuggestion: 'SEC-ALICE-SKILLSUGGEST-3f8', // a skill alice suggested: alice + the managers of skills/ (owner, admin)
 } as const
 
 export type Who = 'owner' | 'admin' | 'memberIn' | 'other' | 'memberOut' | 'pwchange' | 'anon'
@@ -66,7 +67,7 @@ export interface World {
     artifact: string; memory: string; attachment: string; projAlice: string; projFalcon: string; projMkt: string; projShared: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
-    budget: string; bobChat: string
+    budget: string; bobChat: string; suggestion: string
   }
   sockets: Record<'alice' | 'bob' | 'carol' | 'dana' | 'erin', Socket>
 }
@@ -195,6 +196,8 @@ export async function buildWorld(inst: Instance): Promise<World> {
   const inv = await owner.ok('POST', '/api/admin/invites', { role: 'member', groupIds: [] })
   const reset = await owner.ok('POST', '/api/admin/users/frank/reset-link')
   const budget = (await owner.ok('POST', '/api/admin/budgets', { subjectType: 'user', subjectId: 'alice', period: 'month', limitUsd: 100, action: 'warn' })).id
+  // a skill alice suggested from her own file ("스킬로 제안"): only alice and the managers of skills/ may see it
+  const suggestion = (await alice.ok('POST', '/api/skills/suggestions', { source: { kind: 'file', path: 'users/alice/todo.md' }, targetFolder: 'skills', name: 'alice skill', content: `${C.aliceSuggestion}\n` })).id
 
   const desktop = { alice: inst.client('alice-desktop', { client: 'desktop', window: 'win-alice-desk' }), bob: inst.client('bob-desktop', { client: 'desktop', window: 'win-bob-desk' }) }
   await desktop.alice.login('alice', PW.alice, 'desktop')
@@ -207,7 +210,7 @@ export async function buildWorld(inst: Instance): Promise<World> {
       chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId,
       artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
-      resetToken: reset.token, budget, bobChat,
+      resetToken: reset.token, budget, bobChat, suggestion,
     },
   }
 }

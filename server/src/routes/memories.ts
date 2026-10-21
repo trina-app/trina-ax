@@ -1,6 +1,7 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
 // Implements: MEMORIES (own memories only; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
-// Also SKILLS (the team skills the caller can read, for the composer's "/" list). Contract: shared/src/api/skills.ts
+// Also SKILLS (the team skills the caller can read, for the composer's "/" list; skill suggestions). Contract:
+// shared/src/api/skills.ts (the admin side of it, skill managers and changes, is in routes/admin.ts)
 // And SCHEDULES (the caller's own scheduled tasks, Settings). Contract: shared/src/api/schedules.ts
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
@@ -9,6 +10,7 @@ import { getChatRuntime } from '../chat/runtime'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { listSkills } from '../chat/skills'
 import type { ScheduleRow } from '../chat/schedules'
+import { approveSuggestion, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview } from '../skills/suggestions'
 
 type Row = { id: string; text: string; source_chat_id: string | null; created_at: string }
 
@@ -53,5 +55,12 @@ export const memoriesRoutes: RouteModule = {
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       return { items: listSkills(ctx.files, p).map(({ path, name, description }) => ({ path, name, description })) }
     })
+    // "스킬로 제안" → [등록] / [거절] (skills/suggestions.ts): the suggester and the managers of the target folder only
+    kit.handle(API.skillsOverview, ({ auth }) => skillsOverview(ctx, auth.user.id))
+    kit.handle(API.listSkillSuggestions, ({ query, auth }) => listSuggestions(ctx, auth.user.id, query))
+    kit.handle(API.getSkillSuggestion, ({ params, auth }) => getSuggestion(ctx, auth.user.id, params.id))
+    kit.handle(API.createSkillSuggestion, ({ c, body, auth }) => createSuggestion(ctx, auth.user.id, body, c.get('locale')))
+    kit.handle(API.approveSkillSuggestion, ({ c, params, body, auth }) => approveSuggestion(ctx, auth.user.id, params.id, body, c.get('locale')))
+    kit.handle(API.rejectSkillSuggestion, ({ c, params, body, auth }) => rejectSuggestion(ctx, auth.user.id, params.id, body.note, c.get('locale')))
   },
 }

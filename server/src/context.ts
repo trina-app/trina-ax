@@ -12,6 +12,7 @@ import { M, tr } from './system/messages'
 import type { Locale } from '@mycel/shared/api'
 import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
 import { FileService } from './files/service'
+import { trackSkillChanges } from './skills/changes'
 import type { Logger } from './log'
 import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
@@ -188,5 +189,7 @@ export function createContext(o: ContextOptions): AppContext {
       }
     },
   }
+  // every change under skills/ is audited and announced to the owner and admins (skills/changes.ts)
+  trackSkillChanges(ctx)
   return ctx
 }
