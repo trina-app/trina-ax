@@ -8,6 +8,7 @@ import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { Memory, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
+import { installSteps, orderDownloads, parseDownloads, type DownloadItem } from '../lib/downloads'
 import { isStandalone, platform, useInstallPrompt } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
@@ -294,19 +295,19 @@ function Memories() {
   )
 }
 
-interface DownloadItem { platform: 'mac' | 'windows'; file: string; version: string; size?: number; signed?: boolean }
-
 function Apps() {
   const t = useT()
   const locale = useLocale()
   const install = useInstallPrompt()
   const p = platform()
+  const me = useMeStrict()
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
     let live = true
-    fetch('/downloads/index.json', { credentials: 'same-origin' })
-      .then(async (r) => (r.ok ? ((await r.json()) as { items?: DownloadItem[] }).items ?? [] : 'none'))
-      .then((d) => live && setDownloads(d === 'none' || !d.length ? 'none' : d), () => live && setDownloads('none'))
+    // signed-in people only (the session cookie goes along); a server with no installers answers 404
+    fetch('/downloads/index.json', { credentials: 'same-origin', cache: 'no-cache' })
+      .then(async (r) => (r.ok ? parseDownloads(await r.json()) : []))
+      .then((d) => live && setDownloads(d.length ? orderDownloads(d, p) : 'none'), () => live && setDownloads('none'))
     return () => {
       live = false
     }
@@ -326,16 +327,26 @@ function Apps() {
       </Section>
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         {downloads === null && <Skeleton lines={2} />}
-        {downloads === 'none' && <p className="text-sm text-muted">{t('apps.noDownloads')}</p>}
+        {downloads === 'none' && (
+          <>
+            <p className="text-sm text-muted">{t('apps.noDownloads')}</p>
+            {me.user.role === 'owner' && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}
+          </>
+        )}
         {Array.isArray(downloads) && (
-          <ul className="space-y-2">
+          <ul className="space-y-4">
             {downloads.map((d) => (
               <li key={d.file}>
                 <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-hover">
                   <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
                   {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
                 </a>
-                {d.platform === 'windows' && d.signed === false && <p className="mt-1 text-xs text-warn">{t('apps.unsigned')}</p>}
+                {d.platform === p && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+                  {installSteps(d).map((k) => (
+                    <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
+                  ))}
+                </ol>
               </li>
             ))}
           </ul>

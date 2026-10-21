@@ -26,6 +26,10 @@
 //                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
 //                                  (<label>.tunnel), the server answers https://HOST. The tunnel itself (DNS, ingress)
 //                                  is made on the owner's Mac with scripts/office/public-address.ts
+//   desktop list | add FILE [--version V] [--keep] | remove FILE | add-from DIR... [--dry-run]
+//                                  the desktop app installers members download under Settings → Apps (data/downloads,
+//                                  ./desktop.ts); add-from offers the newest Team-AX-Setup-*-x64.exe / Team-AX-*-mac*.dmg
+//                                  found in the folders (office-install.sh runs it). No restart needed.
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'
@@ -35,6 +39,7 @@ import { Database } from 'bun:sqlite'
 import { launchAgent, plist } from '../../../scripts/dev-service'
 import { REPO_ROOT } from '../app-config'
 import { peerAllowed } from '../http/middleware'
+import { addInstaller, findInstallers, listInstallers, platformWord, removeInstaller, sizeText, type AddResult } from './desktop'
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
@@ -583,6 +588,60 @@ async function applyPublicChange(s: OfficeSettings, serverToo: boolean): Promise
   return false
 }
 
+// ---- desktop app installers (Settings → Apps) ---------------------------------------------------------------
+
+export const downloadsDir = (home: string) => path.join(officePaths(home).data, 'downloads')
+
+function addedLine(r: AddResult): string {
+  const i = r.item
+  const what = `${platformWord(i.platform)} ${i.version} (${i.file}, ${sizeText(i.size)}, ${i.signed ? '서명됨 / signed' : '서명 없음 / unsigned'})`
+  return (r.unchanged ? `이미 올라가 있습니다 / already offered: ${what}` : `데스크톱 앱을 올렸습니다 / desktop app added: ${what}`) +
+    (r.removed.filter((f) => f !== i.file).length ? `\n  이전 파일 지움 / older one removed: ${r.removed.filter((f) => f !== i.file).join(', ')}` : '')
+}
+
+/** `teamax desktop …` (exit code) */
+export function desktopCommand(home: string, argv: string[], out: (s: string) => void = console.log): number {
+  const args = argv.filter((a, i) => !(a === '--home' || argv[i - 1] === '--home'))
+  const flag = (n: string) => { const i = args.indexOf(n); if (i < 0) return undefined; const v = args[i + 1]; args.splice(i, 2); return v }
+  const version = flag('--version')
+  const keep = args.includes('--keep'), dry = args.includes('--dry-run')
+  const [sub = 'list', ...rest] = args.filter((a) => a !== '--keep' && a !== '--dry-run')
+  const dir = downloadsDir(home)
+  const where = '팀원은 설정 → 앱에서 내려받습니다 / members download it under Settings → Apps'
+  if (sub === 'list') {
+    const { items, stray } = listInstallers(dir)
+    if (!items.length) out(`올라간 데스크톱 앱 없음 / no desktop app offered (${dir}). 올리기 / add: ${path.join(home, 'teamax')} desktop add <Team-AX-Setup-…-x64.exe | Team-AX-…-mac….dmg>`)
+    for (const i of items) out(`${platformWord(i.platform).padEnd(8)} ${i.version.padEnd(10)} ${sizeText(i.size).padStart(9)}  ${i.signed ? 'signed  ' : 'unsigned'}  ${i.file}${i.sha256 ? `  sha256 ${i.sha256.slice(0, 16)}…` : ''}`)
+    if (stray.length) out(`목록에 없는 파일 (안 보임) / files not in the list (not shown): ${stray.join(', ')}`)
+    return 0
+  }
+  if (sub === 'add') {
+    if (rest.length !== 1) { console.error('usage: teamax desktop add <installer.exe|.dmg> [--version x.y.z] [--keep]'); return 2 }
+    out(addedLine(addInstaller(dir, path.resolve(rest[0]!), { version, keep })))
+    out(where)
+    return 0
+  }
+  if (sub === 'remove') {
+    if (rest.length !== 1) { console.error('usage: teamax desktop remove <file name>'); return 2 }
+    if (!removeInstaller(dir, rest[0]!)) { console.error(`teamax: ${path.basename(rest[0]!)} is not offered (teamax desktop list)`); return 1 }
+    out(`내렸습니다 / removed: ${path.basename(rest[0]!)}`)
+    return 0
+  }
+  if (sub === 'add-from') {
+    const found = findInstallers(rest.map((d) => path.resolve(d)))
+    if (!found.length) { out('데스크톱 앱 설치 파일 없음 / no desktop installer found (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg)'); return 0 }
+    let bad = 0
+    for (const f of found) {
+      if (dry) { out(`올릴 파일 / would add: ${f.file} (${platformWord(f.platform)} ${f.version})`); continue }
+      try { out(`${addedLine(addInstaller(dir, f.file, { keep }))}\n  ← ${f.file}`) } catch (e) { bad++; out(`올리지 못함 / not added: ${f.file}: ${(e as Error).message}`) }
+    }
+    if (!dry) out(where)
+    return bad ? 1 : 0
+  }
+  console.error('usage: teamax desktop list | add <file> [--version x.y.z] [--keep] | remove <file> | add-from <folder>... [--dry-run]')
+  return 2
+}
+
 function teamIsSetUp(home: string): boolean {
   const db = path.join(officePaths(home).data, 'app.db')
   if (!fs.existsSync(db)) return false
@@ -651,6 +710,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'public-address': return await publicAddress(home, args)
+    case 'desktop': return desktopCommand(home, args)
     case 'uninstall-agent': {
       lines(fs.existsSync(p.plist(s.label)) || agent.loaded() ? agent.stop() : 'not installed')
       fs.rmSync(p.plist(s.label), { force: true })
@@ -735,7 +795,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|check-ports|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE|remove FILE|check-ports|uninstall-agent')
       return 2
   }
 }

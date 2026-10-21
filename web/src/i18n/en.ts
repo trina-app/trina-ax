@@ -479,7 +479,12 @@ export const en: Record<MessageKey, string> = {
   'apps.noDownloads': 'No desktop app has been put on the team server yet. Ask the team owner.',
   'apps.mac': 'Download for macOS',
   'apps.windows': 'Download for Windows',
-  'apps.unsigned': 'This build is unsigned. If Windows warns you while installing, choose "More info → Run anyway".',
+  'apps.noDownloadsOwner': 'On the team server Mac, run ~/TeamAX/teamax desktop add <installer> in Terminal and it appears here. Or put the installers in the same folder as the office zip and run the installer again.',
+  'apps.thisComputer': 'For this computer',
+  'apps.winHow': 'Open the downloaded file (Team-AX-Setup-….exe). It installs right away without an administrator password and opens Team AX.',
+  'apps.winSmartScreen': 'If a blue "Windows protected your PC" window appears, click More info → Run anyway. This build is unsigned, so Windows warns once.',
+  'apps.macHow': 'Open the downloaded .dmg, drag Team AX into the Applications folder, then open Team AX from Applications.',
+  'apps.macGatekeeper': 'If macOS says it cannot open the app, click Done, go to System Settings → Privacy & Security, click Open Anyway near the bottom, then Open Anyway once more.',
 
   'admin.title': 'Admin',
   'admin.desc': "Members, permissions, AI engines and the server. Admins can't see other people's chats or memories either.",
