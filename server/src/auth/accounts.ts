@@ -18,7 +18,8 @@ import { createDefaultFolders } from '../admin/folders'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
-import { accountKey, ipKeys, tokenIpKeys } from './rate-limit'
+import { accountKey, ipKeys, limitIp, tokenIpKeys, type AccountScope } from './rate-limit'
+import { isLoopback } from '../http/tunnel'
 import { authOf } from './service'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 
@@ -107,8 +108,16 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
 export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof LoginBody>): Promise<LoginResponse> {
   const a = authOf(ctx)
   const locale = c.get('locale')
-  const ip = c.get('info').ip
-  const keys = [accountKey(b.username), ...ipKeys(ip)]
+  const info = c.get('info')
+  const ip = info.ip
+  // which counter of the account this attempt uses (rate-limit.ts AccountScope): failures from the internet must not
+  // lock the person out at the Mac, on the office network, or on a network they signed in from before
+  const known = getUserByUsername(ctx.db, b.username)
+  const net = ip ? limitIp(ip) : null
+  const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
+    ? { kind: 'net', net }
+    : info.tunnel || info.via === 'relay' ? { kind: 'internet' } : { kind: 'office' }
+  const keys = [accountKey(b.username, scope), ...ipKeys(ip)]
   // counted before the (slow) password check, so parallel guesses cannot slip past the limit
   const hold = a.limiter.hold(keys)
   if (hold.wait > 0) {
@@ -129,7 +138,8 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
     fail('unauthorized', msg('badLogin', locale))
   }
   hold.release()
-  a.limiter.clear(accountKey(b.username))
+  // only this scope's failures: a correct password at the clinic must not hand an internet guesser ten more tries
+  a.limiter.clear(accountKey(b.username, scope))
   audit(ctx.db, { actor: u!.id, action: 'auth.login', target: u!.id, detail: { ip, via: viaOf(c.get('info')), client: b.client } })
   return a.signIn(c, u!.id, b.client, b.tokenMode)
 }
@@ -321,6 +331,6 @@ export async function completeReset(c: Context<AppEnv>, ctx: AppContext, token: 
   })()
   if (!used) fail('gone', msg('linkInvalid', locale))
   a.endUserSessions(u!.id, 'password_changed')
-  a.limiter.clear(accountKey(u!.username))
+  a.limiter.clearAccount(u!.username)
   return a.signIn(c, u!.id, b.client, b.tokenMode)
 }
