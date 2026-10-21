@@ -14,7 +14,7 @@ import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { verifyChain } from '../policy/resolve'
+import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
@@ -506,15 +506,32 @@ export class TeamFiles {
     return !row.path_at_save || atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')
   }
 
+  /**
+   * Versions of one path. An existing entry the caller may read answers 200 with its rows (maybe none). Any other path
+   * gets one answer whatever the reason (never existed, deleted, a missing folder above it, an entry hidden from the
+   * caller under its exact name, a case variant or a look-alike): the version rows of that path the caller may read,
+   * and the plain 404 of content/download when there are none. So the history of a deleted file the caller may read
+   * still shows, and a hidden entry cannot be told from a missing one (security r2: 404 for a hidden entry or a
+   * hidden look-alike vs 200 {items:[]} for a missing name was an existence oracle).
+   */
   history(userId: string, rel: string): { path: string; items: FileVersion[] } {
     const user = this.principal(userId)
     const rules = this.rules()
-    const r = authorize(this.fx, rules, user, rel, 'read', { mustExist: false })
-    const rows = (this.ctx.db.query('SELECT id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(r.rel) as VersionRow[])
+    let at = parseInput(rel).join('/') // malformed input is refused the same way for everyone
+    let exists = false
+    try {
+      const r = authorize(this.fx, rules, user, rel, 'read', { mustExist: false })
+      at = r.rel
+      exists = r.exists
+    } catch (e) {
+      if (!(e instanceof Denied) && !(e instanceof ToolError && e.code === 'not_found')) throw e
+    }
+    const rows = (this.ctx.db.query('SELECT id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(at) as VersionRow[])
       .filter((v) => this.versionVisible(user, rules, v))
+    if (!exists && rows.length === 0) throw new HttpError('not_found')
     const refs = this.userRefs(rows.map((v) => v.author_id))
     return {
-      path: r.rel,
+      path: at,
       items: rows.map((v) => ({
         id: v.id, path: v.path, version: v.version, sha256: v.sha256, size: v.size, author: v.author_id ? refs.get(v.author_id) ?? { id: v.author_id, name: v.author_id } : null,
         turnId: v.turn_id, kind: v.kind, conflictPath: v.conflict_path, createdAt: normIso(v.created_at),
