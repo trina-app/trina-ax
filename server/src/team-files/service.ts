@@ -527,6 +527,13 @@ export class TeamFiles {
   // ---------------- history ----------------
   private versionVisible(user: Principal, rules: RuleSet, row: Pick<VersionRow, 'path' | 'folder_id' | 'path_at_save'>): boolean {
     if (!atLeast(rules.access(user, segsOf(row.path)), 'read')) return false
+    // the file's folder is in the trash (its rules parked under .system/trash): judge the version as if that folder,
+    // and every folder that held it and went to the trash after it, were still in place. The live rules alone no
+    // longer have them, so the path fell back to shared/ and every member read old versions of a restricted folder's
+    // files (security round 3).
+    const parked = row.folder_id ? this.parkedView(row.folder_id) : null
+    if (parked === 'unknown') return user.role === 'owner' || user.role === 'admin'
+    if (parked) return atLeast(parked.rules.access(user, segsOf(parked.path)), 'read') && atLeast(parked.rules.access(user, segsOf(row.path)), 'read')
     const f = row.folder_id ? this.folderLivePath(row.folder_id) : null
     if (f !== null) return atLeast(rules.access(user, segsOf(f)), 'read')
     return !row.path_at_save || atLeast(rules.access(user, segsOf(row.path_at_save)), 'read')
@@ -618,6 +625,42 @@ export class TeamFiles {
     const storage = segs.slice(0, 4).join('/')
     const t = this.ctx.db.query('SELECT original_path FROM trash_items WHERE storage_path = ?').get(storage) as { original_path: string } | null
     return t ? t.original_path + f.path.slice(storage.length) : f.path
+  }
+  /**
+   * For a folders row parked with a trashed folder: the path it stands for and the rules as they would be if that
+   * trashed folder were back in place, together with every folder that held it and was trashed after it (the first
+   * one trashed after it at each step: the folder it was in then). Live rules at or below those paths belong to
+   * folders that took the names since and do not count. null: the row is not parked (the live rules apply as they
+   * are). 'unknown': parked, but the trash item holding it is gone; nobody below admin.
+   */
+  private parkedView(folderId: string): { path: string; rules: RuleSet } | 'unknown' | null {
+    const db = this.ctx.db
+    const f = db.query('SELECT path FROM folders WHERE id = ?').get(folderId) as { path: string } | null
+    if (!f) return null
+    const segs = segsOf(f.path)
+    if (segs[0] !== PRODUCT.systemDir) return null
+    const storage = segs.slice(0, 4).join('/')
+    type Held = { id: string; original_path: string; storage_path: string }
+    const own = db.query("SELECT id, original_path, storage_path FROM trash_items WHERE storage_path = ? AND kind = 'folder' AND restored_at IS NULL").get(storage) as Held | null
+    if (!own) return 'unknown'
+    const chain: Held[] = [own]
+    for (let cur = own; chain.length < 64;) {
+      const up = db.query(`SELECT id, original_path, storage_path FROM trash_items
+        WHERE kind = 'folder' AND restored_at IS NULL AND id > ?1 AND (original_path = '' OR substr(?2, 1, length(original_path) + 1) = original_path || '/')
+        ORDER BY id ASC LIMIT 1`).get(cur.id, cur.original_path) as Held | null
+      if (!up) break
+      chain.push(up)
+      cur = up
+    }
+    const rows = db.query('SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id').all() as { path: string; subject_type: string; subject_id: string | null; access: string }[]
+    const at = (p: string, base: string) => base === '' || p === base || p.startsWith(base + '/')
+    const out: typeof rows = []
+    for (const r of rows) {
+      const held = chain.find((c) => at(r.path, c.storage_path))
+      if (held) out.push({ ...r, path: held.original_path + r.path.slice(held.storage_path.length) })
+      else if (!chain.some((c) => at(r.path, c.original_path))) out.push(r)
+    }
+    return { path: own.original_path + f.path.slice(storage.length), rules: new RuleSet(out as any) }
   }
   /**
    * Where a trash item goes back to now: its original path (move() keeps it up to date), held against the folder it
@@ -738,11 +781,17 @@ export class TeamFiles {
       this.ctx.db.transaction(() => {
         rebaseFolders(this.ctx.db, t.storage_path, r.rel)
         // items trashed from inside this folder before it went to the trash (hidden meanwhile, trashHome) come back
-        // into the trash of the folder where it now is, " (restored)" name included
-        this.ctx.db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1)
-          WHERE restored_at IS NULL AND id <> ? AND (original_path = ? OR substr(original_path, 1, length(?) + 1) = ? || '/')
-            AND folder_id IN (SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/')`)
-          .run(r.rel, t.original_path, t.id, t.original_path, t.original_path, t.original_path, r.rel, r.rel, r.rel)
+        // into the trash of the folder where it now is, " (restored)" name included. So does a rule folder trashed from
+        // inside it before (its folder_id is its own parked row): it was in this folder, the first one above it trashed
+        // after it, and is judged under this folder's rules wherever it comes back (security round 3: left at the old
+        // path, it fell under whatever took that name, and its versions under shared/)
+        this.ctx.db.query(`UPDATE trash_items SET original_path = ?1 || substr(original_path, length(?2) + 1)
+          WHERE restored_at IS NULL AND id <> ?3 AND (original_path = ?2 OR substr(original_path, 1, length(?2) + 1) = ?2 || '/')
+            AND (folder_id IN (SELECT id FROM folders WHERE path = ?1 OR substr(path, 1, length(?1) + 1) = ?1 || '/')
+              OR (kind = 'folder' AND id < ?3 AND folder_id IN (SELECT id FROM folders WHERE path = trash_items.storage_path)
+                AND NOT EXISTS (SELECT 1 FROM trash_items p WHERE p.kind = 'folder' AND p.id > trash_items.id AND p.id < ?3
+                  AND substr(trash_items.original_path, 1, length(p.original_path) + 1) = p.original_path || '/')))`)
+          .run(r.rel, t.original_path, t.id)
         fs.renameSync(src, r.abs)
       })()
     } else {
