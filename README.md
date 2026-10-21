@@ -163,13 +163,15 @@ failed or your spending limit needs to be increased"), so every red run on `main
 
 ## Office mode: one Mac for a clinic or small office
 
-[docs/OFFICE.md](docs/OFFICE.md) (Korean, with an English summary). `bun run build:office` makes one zip
+[docs/OFFICE.md](docs/OFFICE.md) (Korean clinic runbook, with an English summary; printable PDF:
+[docs/office/Team-AX-치과-설치가이드.pdf](docs/office/Team-AX-치과-설치가이드.pdf)). `bun run build:office` makes one zip
 (`dist/office/TeamAX-office-<version>-mac.zip`: bun, ripgrep, pandoc and the native helpers for arm64 and x64, the
 built server and web app); `bash office-install.sh` installs it into `~/TeamAX` without sudo, as the signed-in user
 with that Mac's own Claude Code login (dev mode's engine setup: permission function, lockdown, `engine.sb`; no DEV
 banner), as the LaunchAgent `app.team-ax.office`. Desks use `https://<LAN IP>:8443` with a certificate from a
-name-constrained office CA made on that Mac (helper page with the CA on `http://<LAN IP>:8442`); plain HTTP stays on
-127.0.0.1. Code: `server/src/office/`, `scripts/office/`, `scripts/build-office.ts`.
+office CA made on that Mac and constrained to its own names and office subnet (CA download page on
+`http://<LAN IP>:8442`; desks compare the thumbprint with the desk card printed on the Mac, `teamax card`). Plain HTTP
+stays on 127.0.0.1, the office port answers only peers on the Mac's office subnet, and Codex is off. Code: `server/src/office/`, `scripts/office/`, `scripts/build-office.ts`.
 
 ## Install on a Mac (role-account mode)
 
