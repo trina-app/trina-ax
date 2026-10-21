@@ -1,12 +1,12 @@
 // Server-side account CLI (run on the server Mac; access to the Mac is the trust anchor, tab 4 "비밀번호 재설정").
 //
 //   bun server/src/auth/cli.ts status
-//   bun server/src/auth/cli.ts create-owner --username kim --name "Kim" --team "Acme" [--locale ko] < password
+//   bun server/src/auth/cli.ts create-owner --username kim --name "Kim" --team "Acme" [--locale en|ko|id] < password
 //   bun server/src/auth/cli.ts reset-link [--username kim]      one-time link (24 h) for the owner or the named member
 //
 // Uses the same config as the server (--config / MYCEL_* env). The password is read from stdin, never from argv.
 import { PRODUCT } from '@mycel/shared'
-import { Locale, PersonName, Username } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, Locale, PersonName, Username } from '@mycel/shared/api'
 import { loadAppConfig, type AppConfig } from '../app-config'
 import { createContext, type AppContext } from '../context'
 import { openDb } from '../db'
@@ -47,7 +47,7 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         const username = Username.safeParse(arg(argv, 'username'))
         const name = PersonName.safeParse(arg(argv, 'name'))
         const team = arg(argv, 'team')?.trim()
-        const locale = Locale.safeParse(arg(argv, 'locale') ?? 'ko')
+        const locale = Locale.safeParse(arg(argv, 'locale') ?? DEFAULT_LOCALE)
         if (!username.success) throw new CliError('--username: letters, digits, ".", "_", "@", "-" (2-64)')
         if (!name.success) throw new CliError('--name is required')
         if (!team) throw new CliError('--team is required')
@@ -72,7 +72,7 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         return `one-time password reset link for "${user.username}" (valid until ${link.expiresAt}):\n${link.url}`
       }
       default:
-        throw new CliError(`usage: ${PRODUCT.id}-admin status | create-owner --username U --name N --team T [--locale ko] < password | reset-link [--username U]`)
+        throw new CliError(`usage: ${PRODUCT.id}-admin status | create-owner --username U --name N --team T [--locale en|ko|id] < password | reset-link [--username U]`)
     }
   } finally {
     await ctx.close()

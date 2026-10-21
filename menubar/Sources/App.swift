@@ -25,6 +25,8 @@ struct Settings {
 @MainActor
 final class Monitor: ObservableObject {
     @Published var state = MenuState(icon: .off, headline: "Team AX", lines: [], alert: nil, offerLoginItems: false, webUrl: nil)
+    /// the team's default language from status.json, remembered for when the server is off
+    @Published var lang: Lang = Lang.forTeam(nil, lastSeen: UserDefaults.standard.string(forKey: "teamLocale"))
     let settings = Settings.load()
     private var timer: Timer?
     private var notifiedReplaced = false
@@ -49,7 +51,9 @@ final class Monitor: ObservableObject {
             let health = await Self.fetchHealth(local)
             let daemon: DaemonState = health?.ok == true ? .running : Self.launchd(label)
             await MainActor.run {
-                self.state = menuState(status: status, statusAge: age, health: health, daemon: daemon, lang: Lang.current(), product: self.settings.displayName)
+                if let l = Lang.of(status?.locale) { UserDefaults.standard.set(l.rawValue, forKey: "teamLocale") }
+                self.lang = Lang.forTeam(status?.locale, lastSeen: UserDefaults.standard.string(forKey: "teamLocale"))
+                self.state = menuState(status: status, statusAge: age, health: health, daemon: daemon, lang: self.lang, product: self.settings.displayName)
                 if self.state.icon == .replaced && !self.notifiedReplaced { self.notifiedReplaced = true; self.notify(self.state.alert ?? "") }
                 if self.state.icon != .replaced { self.notifiedReplaced = false }
             }
@@ -116,7 +120,7 @@ struct TeamAXMenubar: App {
         }
     }
 
-    func label(_ ko: String, _ en: String, _ id: String) -> String { let l = Lang.current(); return l == .ko ? ko : l == .en ? en : id }
+    func label(_ ko: String, _ en: String, _ id: String) -> String { let l = monitor.lang; return l == .ko ? ko : l == .en ? en : id }
     func symbol(_ i: MenuState.Icon) -> String {
         switch i {
         case .ok: return "checkmark.circle"

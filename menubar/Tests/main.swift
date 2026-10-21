@@ -47,7 +47,10 @@ expect(m.icon == .off && !m.offerLoginItems && m.headline.contains("mati"), "unh
 expect(daemonState(launchctlExit: 113, output: "Could not find service") == .disabled, "launchctl: not loaded")
 expect(daemonState(launchctlExit: 0, output: "state = running") == .running, "launchctl: running")
 expect(daemonState(launchctlExit: 0, output: "state = waiting") == .notRunning, "launchctl: waiting")
-expect(Lang.current(["en-US"]) == .en && Lang.current(["id-ID"]) == .id && Lang.current(["fr"]) == .ko, "language choice")
+expect(Lang.forTeam("ko") == .ko && Lang.forTeam("id") == .id && Lang.forTeam(nil) == .en && Lang.forTeam("fr") == .en, "language: the team default, else English")
+expect(Lang.forTeam(nil, lastSeen: "ko") == .ko && Lang.forTeam("en", lastSeen: "ko") == .en, "language: the last team default seen while the server is off")
+let withLocale = parseStatus(json.replacingOccurrences(of: "\"extra\"", with: "\"locale\":\"id\",\"extra\"").data(using: .utf8)!)
+expect(withLocale?.locale == "id" && s?.locale == nil, "status.json carries the team's default language (optional)")
 expect(parseHealth("{\"ok\":true,\"version\":\"1\",\"uptimeSec\":3}".data(using: .utf8)!) == Health(ok: true, version: "1"), "health parses")
 
 // status.json is written by the server account: nothing in it may make the admin's app open a non-web URL

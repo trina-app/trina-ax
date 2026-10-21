@@ -2,11 +2,12 @@
 // Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links)
 // Contract: shared/src/api/auth.ts
 import { API } from '@mycel/shared/api'
+import { LOCALE_CHANGED } from '../admin/settings'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { startSweeper } from '../auth/sweeper'
-import { getUser } from '../auth/users'
+import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
 
 export const authRoutes: RouteModule = {
@@ -41,7 +42,6 @@ export const authRoutes: RouteModule = {
       const sets: string[] = []
       const args: (string | null)[] = []
       if (body.name !== undefined) { sets.push('name = ?'); args.push(body.name) }
-      if (body.locale !== undefined) { sets.push('locale = ?'); args.push(body.locale) }
       if (body.email !== undefined) { sets.push('email = ?'); args.push(body.email) }
       if (body.prefs !== undefined) {
         // merge: a PATCH carrying only { theme } keeps the other preferences
@@ -51,7 +51,13 @@ export const authRoutes: RouteModule = {
         for (const [k, v] of Object.entries(next)) if (v === undefined) delete next[k]
         sets.push('prefs = ?'); args.push(JSON.stringify(next))
       }
-      if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, auth.user.id)
+      ctx.db.transaction(() => {
+        if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, auth.user.id)
+        // null = follow the team default again
+        if (body.locale !== undefined) setUserLocale(ctx.db, auth.user.id, body.locale)
+      })()
+      // the person's other windows and devices switch too
+      if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)
       return a().me(auth.user.id, auth.session.id)
     })
 

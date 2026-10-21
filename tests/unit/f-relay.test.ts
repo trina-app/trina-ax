@@ -131,11 +131,11 @@ describe('HTTP through the relay', () => {
     expect(((await res.json()) as { error: { code: string; reason: string } }).error).toMatchObject({ code: 'unavailable', reason: 'team_timeout' })
   })
 
-  test('unknown team: 404, HTML for browsers, JSON for the API, in the visitor language', async () => {
-    const j = await fetch(teamUrl(PORT, 'nobody', '/api/me'), { headers: { 'accept-language': 'en' } })
+  test("unknown team: 404, HTML for browsers, JSON for the API, in the page's language (not the browser's)", async () => {
+    const j = await fetch(teamUrl(PORT, 'nobody', '/api/me'), { headers: { 'accept-language': 'ko' } })
     expect(j.status).toBe(404)
     expect(((await j.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: 'not_found', message: 'This team address is not registered' })
-    const h = await fetch(teamUrl(PORT, 'nobody', '/'), { headers: { accept: 'text/html', 'accept-language': 'ko' } })
+    const h = await fetch(teamUrl(PORT, 'nobody', '/'), { headers: { accept: 'text/html', 'accept-language': 'en', cookie: 'mycel_locale=ko' } })
     expect(h.headers.get('content-type')).toContain('text/html')
     expect(await h.text()).toContain('등록되지 않은 팀 주소입니다')
   })
@@ -143,7 +143,7 @@ describe('HTTP through the relay', () => {
   test('registered but offline: 503 team_offline after the hold, Retry-After', async () => {
     await registerTeam(R.base, 'sleepy')
     const t0 = Date.now()
-    const res = await fetch(teamUrl(PORT, 'sleepy', '/api/x'), { headers: { 'accept-language': 'id' } })
+    const res = await fetch(teamUrl(PORT, 'sleepy', '/api/x'), { headers: { 'x-mycel-locale': 'id' } })
     expect(res.status).toBe(503)
     expect(res.headers.get('retry-after')).toBe('5')
     const e = ((await res.json()) as { error: { code: string; reason: string; message: string } }).error

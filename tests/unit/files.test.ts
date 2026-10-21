@@ -64,8 +64,8 @@ describe('concurrent edits: no lost writes', () => {
     expect(r.text).toContain('Alice Kim')
     const orig = read('groups/marketing/campaign-brief.md')
     expect(orig).toContain('by 15%'); expect(orig).toContain('2026-11-03')
-    const copy = fs.readdirSync(path.join(T, 'groups/marketing')).find((n) => n.includes('충돌 사본 - Erin Yoo'))!
-    expect(copy).toMatch(/^campaign-brief \(충돌 사본 - Erin Yoo \d{4}-\d\d-\d\d \d\d\.\d\d\)\.md$/)
+    const copy = fs.readdirSync(path.join(T, 'groups/marketing')).find((n) => n.includes('conflict copy - Erin Yoo'))!
+    expect(copy).toMatch(/^campaign-brief \(conflict copy - Erin Yoo \d{4}-\d\d-\d\d \d\d\.\d\d\)\.md$/)
     const c = read('groups/marketing/' + copy)
     expect(c).toContain('2026-11-10'); expect(c).toContain('by 15%')
     expect((env.db.query("SELECT kind FROM file_versions WHERE conflict_path IS NOT NULL").all() as any[]).length).toBe(1)
@@ -90,7 +90,7 @@ describe('concurrent edits: no lost writes', () => {
     await Promise.all(ctxs.map((c) => env.files.call('read', { file_path: 'shared/race.md' }, c)))
     const res = await Promise.all(ctxs.map((c, i) => env.files.call('edit', { file_path: 'shared/race.md', old_string: 'line0', new_string: `line0\nMARK-${i}` }, c)))
     const final = read('shared/race.md')
-    const copies = fs.readdirSync(path.join(T, 'shared')).filter((n) => n.startsWith('race (충돌 사본')).map((n) => read('shared/' + n))
+    const copies = fs.readdirSync(path.join(T, 'shared')).filter((n) => n.startsWith('race (conflict copy')).map((n) => read('shared/' + n))
     for (let i = 0; i < 30; i++) {
       const inFinal = final.includes(`MARK-${i}\n`) || final.endsWith(`MARK-${i}`)
       const inCopies = copies.filter((c) => c.includes(`MARK-${i}`)).length

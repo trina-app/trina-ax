@@ -12,6 +12,8 @@ const on = (channel: string) => (cb: (payload: any) => void) => {
 
 contextBridge.exposeInMainWorld('mycelUi', {
   strings: () => ipcRenderer.sendSync('ui:strings'),
+  onLocale: on('ui:locale'),
+  setLocale: (locale: string) => ipcRenderer.send('ui:set-locale', String(locale)),
   welcome: {
     state: () => ipcRenderer.invoke('ui:welcome-state'),
     onState: on('ui:welcome-state'),

@@ -4,7 +4,9 @@ A self-hosted team AI workspace for small, non-technical teams (up to about 20 p
 a Claude-like chat app on top of a shared team folder, where **every member's AI sees only the folders that member
 may see**. People use it from the web, the Mac desktop app (with an in-app browser the AI can drive) or a phone
 (PWA); the AI engines are Claude Code and the Codex CLI on the team's own subscriptions. Licensed AGPL-3.0
-(`ee/` is reserved for enterprise features). Languages: Korean (default), English, Indonesian.
+(`ee/` is reserved for enterprise features). Languages: English (default), Korean, Indonesian. Each person picks
+their language in Settings > Language (or follows the team default), an admin sets the team default in Admin > Team
+settings, and the sign-in, invite, reset and setup screens have a language switcher; see docs/DECISIONS.md "언어".
 
 **Try it now:** [docs/TRY-IT.md](docs/TRY-IT.md) (demo team, accounts, checklist). **What only the owner can
 unblock:** [docs/OWNER-TODO.md](docs/OWNER-TODO.md). Decisions and deviations from the design:

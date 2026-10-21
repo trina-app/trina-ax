@@ -1,11 +1,11 @@
 // Team settings (tab 1 `settings`: key -> JSON value). One key per TeamSettings field; internal keys use a dot
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
-import { TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
 
 export const DEFAULT_SETTINGS: TeamSettingsT = {
   teamName: 'Team AX',
-  defaultLocale: 'ko',
+  defaultLocale: DEFAULT_LOCALE,
   defaultEngine: 'claude-code',
   defaultModel: null,
   concurrency: 3,
@@ -46,8 +46,31 @@ export function getTeamSettings(db: Database): TeamSettingsT {
 export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>): TeamSettingsT {
   db.transaction(() => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined && (FIELDS as string[]).includes(k)) setSetting(db, k, v)
+    if (patch.defaultLocale !== undefined) syncFollowingLocales(db)
   })()
   return getTeamSettings(db)
+}
+
+/**
+ * Realtime notice: the language someone sees may have changed (team default, an admin's edit, the person in another
+ * window). Open windows ask GET /api/me again and switch without a reload; the message carries nothing.
+ */
+export const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
+
+/** The team default language alone (cheap: read for every request without a session). */
+export function teamDefaultLocale(db: Database): Locale {
+  const v = Locale.safeParse(getSetting(db, 'defaultLocale'))
+  return v.success ? v.data : DEFAULT_LOCALE
+}
+
+/**
+ * People without their own language (users.locale_follows_team = 1) see the team default: users.locale is kept equal
+ * to it, so every reader of users.locale (sessions, turns, jobs, notices) gets the right language without knowing
+ * about the flag. Runs when the default changes and at server start (a restored DB or an older build may have left
+ * it behind). Rows of people with their own choice are never touched.
+ */
+export function syncFollowingLocales(db: Database): void {
+  db.query('UPDATE users SET locale = ? WHERE locale_follows_team = 1 AND locale <> ?').run(teamDefaultLocale(db), teamDefaultLocale(db))
 }
 
 /** Which engines the admin turned on (default: both). */

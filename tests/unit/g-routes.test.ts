@@ -14,6 +14,7 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
+import { setSetting } from '../../server/src/admin/settings'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
 import type { AuthInfo, SessionService } from '../../server/src/services'
 import { jobFromRow } from '../../server/src/system/job-runner'
@@ -268,7 +269,13 @@ describe('diagnostics in an installed layout', () => {
     const s = await ops.statusFile()
     expect(s.overall).toBe('fail')
     expect(s.firewall).toBe('fail')
-    expect(s.problems.some((p) => p.includes('샌드박스'))).toBe(true)
+    // in the team's default language: English until a team default is set, then that one
+    expect(s.locale).toBe('en')
+    expect(s.problems.some((p) => p.includes('sandbox'))).toBe(true)
+    setSetting(db, 'defaultLocale', 'ko')
+    const ko = await ops.statusFile()
+    expect(ko.locale).toBe('ko')
+    expect(ko.problems.some((p) => p.includes('샌드박스'))).toBe(true)
     await c2.close()
     db.close()
   })

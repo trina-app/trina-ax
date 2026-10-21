@@ -40,8 +40,10 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   const errors = watch(page)
 
   // first owner
+  // a fresh install shows English; the team language picked here (Korean) is what everyone sees until they choose
   await page.goto(`${DIRECT}/setup?token=${st.setupToken}`)
-  await page.getByRole('combobox', { name: '언어' }).selectOption('ko')
+  await expect(page.getByRole('heading', { name: 'Create your team' })).toBeVisible()
+  await page.getByTestId('setup-locale').selectOption('ko')
   await page.getByTestId('setup-team').fill('Demo Team')
   await page.getByRole('textbox', { name: '이름', exact: true }).fill(st.owner.name)
   await page.getByRole('textbox', { name: '아이디' }).fill(st.owner.username)
@@ -56,13 +58,14 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   await expect(page.getByTestId('login-username')).toBeVisible()
   await signIn(page, DIRECT, st.owner)
 
-  // language: English, then back to Korean (saved on the account)
+  // language: English (saved on the account), then back to the team default (Korean)
   await page.goto(`${DIRECT}/settings`)
+  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
   await page.getByTestId('locale-en').click()
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
-  await page.getByTestId('locale-ko').click()
+  await page.getByTestId('locale-team').click()
   await expect(page.getByRole('heading', { name: '설정', exact: true })).toBeVisible()
 
   // groups
@@ -688,9 +691,10 @@ test('step 9: the desktop app on the team address: Alice signs in and Claude rea
   const userData = fs.mkdtempSync(path.join(WORK, 'desktop-'))
   const app = await launchDesktop(userData)
   try {
+    // a fresh desktop app is in English (the Korean system language does not decide) until the team page says otherwise
     const w = await desktopView(app, (u) => u.endsWith('/welcome.html'))
-    await w.getByRole('textbox', { name: '팀 주소' }).fill('demo.localhost:19161')
-    await w.getByRole('button', { name: '연결' }).click()
+    await w.getByRole('textbox', { name: 'Team address' }).fill('demo.localhost:19161')
+    await w.getByRole('button', { name: 'Connect' }).click()
     const page = await desktopView(app, (u) => u.startsWith(RELAYED))
     await page.getByTestId('login-username').fill(st.alice.username)
     await page.getByTestId('login-password').fill(st.alice.password)
@@ -710,6 +714,7 @@ test('step 9: the desktop app on the team address: Alice signs in and Claude rea
     const prompt = pane.getByTestId('permission-prompt').first()
     await expect(prompt).toBeVisible({ timeout: 120_000 })
     await expect(prompt).toHaveAttribute('data-scope', 'site')
+    // the team page (Alice follows the team's Korean) told the desktop app its language: the prompt is in Korean
     await prompt.getByRole('button', { name: '이번만 허용' }).click()
     const answer = page.getByTestId('assistant-message').last()
     await expect(answer).not.toHaveAttribute('data-status', 'streaming', { timeout: 240_000 })

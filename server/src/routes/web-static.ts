@@ -113,7 +113,7 @@ function serveSandboxFrame(host: string | null): Response {
   })
 }
 
-const devPage = (port: number) => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+const devPage = (port: number) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${PRODUCT.displayName}</title></head><body style="font-family:system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem;line-height:1.6">
 <h1>${PRODUCT.displayName} — dev server</h1>
 <p>The API is running on port ${port}. The web app is not built yet.</p>

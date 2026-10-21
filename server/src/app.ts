@@ -2,6 +2,7 @@
 // Callers: main.ts (Bun.serve / TLS listener), the relay client (in-process app.fetch with the real client IP),
 // tests (app.fetch with via 'test').
 import { Hono } from 'hono'
+import { DEFAULT_LOCALE } from '@mycel/shared/api'
 import type { AppContext } from './context'
 import type { AppEnv } from './http/env'
 import { HttpError } from './http/errors'
@@ -18,7 +19,7 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
   app.use('*', csrf(ctx))
 
   app.onError((err, c) => {
-    const locale = c.get('locale') ?? 'ko'
+    const locale = c.get('locale') ?? DEFAULT_LOCALE
     const rid = c.get('requestId')
     if (err instanceof HttpError) {
       if (err.retryAfter !== undefined) c.header('Retry-After', String(err.retryAfter))
@@ -28,7 +29,7 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
     return c.json({ error: new HttpError('internal').body(locale, rid) }, 500)
   })
   app.notFound((c) => {
-    const locale = c.get('locale') ?? 'ko'
+    const locale = c.get('locale') ?? DEFAULT_LOCALE
     if (c.req.path.startsWith('/api/') || c.req.path === '/api') return c.json({ error: new HttpError('not_found').body(locale, c.get('requestId')) }, 404)
     return c.text('Not found', 404)
   })

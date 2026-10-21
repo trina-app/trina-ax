@@ -20,7 +20,7 @@ export { RelayWebSocket } from './virtual-ws'
 export const DEV_TEAM_NAME = 'myteam'
 const HEARTBEAT_MS = 24 * 3600_000
 
-const NOTICES: Record<string, Record<Locale, string>> = {
+export const NOTICES: Record<string, Record<Locale, string>> = {
   relay_took_over: {
     ko: '이 서버가 다른 서버를 대신해 팀 주소에 연결되었습니다. 예전 서버를 쓰고 있지 않다면 팀 키가 복사되었는지 확인하세요.',
     en: 'This server took over the team address from another server. If you did not move the server, check whether the team key was copied.',
@@ -51,7 +51,7 @@ function notifyAdmins(ctx: AppContext, code: keyof typeof NOTICES, level: 'info'
     const rows = ctx.db.query(`SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active'`).all() as { id: string; locale: Locale }[]
     for (const u of rows) {
       const msgs = NOTICES[code]
-      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level, code, message: msgs[u.locale] ?? msgs.ko } })
+      ctx.services.realtime.publish(u.id, { type: 'notice', data: { level, code, message: msgs[u.locale] ?? msgs.en } })
     }
   } catch (e) {
     ctx.log.warn('relay notice failed', { err: e })

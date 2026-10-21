@@ -89,7 +89,7 @@ describe('content + save', () => {
     // erin edits with the stale hash -> conflict copy, original untouched
     const s2 = await A.json('/api/files/content', { ...jsonBody({ path: p, content: 'erin\n', baseSha256: first.body.sha256 }, 'PUT'), as: 'erin' })
     expect(s2.body.conflict).toBe(true)
-    expect(s2.body.path).toMatch(/^shared\/save-me \(충돌 사본 - Erin Yoo \d{4}-\d\d-\d\d \d\d\.\d\d\)\.md$/)
+    expect(s2.body.path).toMatch(/^shared\/save-me \(conflict copy - Erin Yoo \d{4}-\d\d-\d\d \d\d\.\d\d\)\.md$/)
     expect(read(p)).toBe('two\n')
     expect(read(s2.body.path)).toBe('erin\n')
     const h = await A.json('/api/files/history' + q({ path: p }), { as: 'alice' })
@@ -205,8 +205,8 @@ describe('trash', () => {
     write('shared/t/doc.md', 'a new file with the same name')
     const r = await A.json(`/api/files/trash/${d.body.trashId}/restore`, { method: 'POST', as: 'erin' })
     expect(r.status).toBe(200)
-    expect(r.body.entry.path).toBe('shared/t/doc (복원됨).md')
-    expect(read('shared/t/doc (복원됨).md')).toBe('keep me')
+    expect(r.body.entry.path).toBe('shared/t/doc (restored).md')
+    expect(read('shared/t/doc (restored).md')).toBe('keep me')
     expect((await A.json(`/api/files/trash/${d.body.trashId}/restore`, { method: 'POST', as: 'erin' })).status).toBe(404)
   })
   test('delete a folder as one item and restore it whole', async () => {

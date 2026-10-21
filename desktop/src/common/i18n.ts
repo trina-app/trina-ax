@@ -1,9 +1,12 @@
 // Strings of the desktop app's own screens (welcome / team list, browser pane toolbar, permission prompts, menus,
-// dialogs). Korean is the default; English and Indonesian have the same keys (tests/unit/e-i18n.test.ts).
-// The team page itself is translated by the web app.
+// dialogs). ko / en / id have the same keys (tests/unit/e-desktop-common.test.ts). Which one (docs/DECISIONS.md "언어"):
+// the language the open team page shows (its person's choice, else the team default, reported over the bridge),
+// or the one picked on the team list screen, kept in <user data>/ui-locale.json; English before either. The
+// system language does not decide. The team page itself is translated by the web app.
 import { PRODUCT } from '@mycel/shared'
+import { DEFAULT_UI_LOCALE, type UiLocale } from './locales'
 
-export type UiLocale = 'ko' | 'en' | 'id'
+export { asUiLocale, DEFAULT_UI_LOCALE, UI_LOCALES, type UiLocale } from './locales'
 
 const ko = {
   'app.name': PRODUCT.displayName,
@@ -21,6 +24,7 @@ const ko = {
   'welcome.cancel': '취소',
   'welcome.back': '돌아가기',
   'welcome.current': '지금 연 팀',
+  'welcome.language': '언어',
   'err.empty': '팀 주소를 입력하세요.',
   'err.invalid': '주소 형식이 맞지 않아요.',
   'err.insecure': '보안 연결(https) 주소만 쓸 수 있어요.',
@@ -77,6 +81,23 @@ const ko = {
   'menu.view': '보기',
   'menu.window': '윈도우',
   'menu.devtools': '개발자 도구',
+  'menu.hide': '{app} 가리기',
+  'menu.hideOthers': '기타 가리기',
+  'menu.showAll': '모두 보기',
+  'menu.undo': '실행 취소',
+  'menu.redo': '실행 복귀',
+  'menu.cut': '오려두기',
+  'menu.copy': '복사하기',
+  'menu.paste': '붙여넣기',
+  'menu.selectAll': '전체 선택',
+  'menu.actualSize': '실제 크기',
+  'menu.zoomIn': '확대',
+  'menu.zoomOut': '축소',
+  'menu.fullScreen': '전체 화면 켜기/끄기',
+  'menu.minimize': '최소화',
+  'menu.zoom': '확대/축소',
+  'menu.front': '모두 앞으로 가져오기',
+  'menu.close': '닫기',
 } as const
 
 export type UiKey = keyof typeof ko
@@ -85,7 +106,7 @@ type Strings = Record<UiKey, string>
 const en: Strings = {
   'app.name': PRODUCT.displayName,
   'welcome.title': 'Enter your team address',
-  'welcome.subtitle': 'Your team lead gave you this address. Example: acme.treesoop.com',
+  'welcome.subtitle': 'Your team owner gave you this address. Example: acme.treesoop.com',
   'welcome.placeholder': 'acme.treesoop.com',
   'welcome.label': 'Team address',
   'welcome.connect': 'Connect',
@@ -98,6 +119,7 @@ const en: Strings = {
   'welcome.cancel': 'Cancel',
   'welcome.back': 'Back',
   'welcome.current': 'Open now',
+  'welcome.language': 'Language',
   'err.empty': 'Enter the team address.',
   'err.invalid': 'That does not look like an address.',
   'err.insecure': 'Only secure (https) addresses can be used.',
@@ -106,7 +128,7 @@ const en: Strings = {
   'err.unreachable': 'Cannot reach the team server. Check the address and your internet connection.',
   'err.notTeamServer': 'This address is not a {app} team server.',
   'offline.title': 'Cannot reach the team server',
-  'offline.body': 'Could not connect to {address}. Check your internet connection, or ask your team lead whether the server is on.',
+  'offline.body': 'Could not connect to {address}. Check your internet connection, or ask the team owner whether the server is on.',
   'offline.retry': 'Try again',
   'offline.teams': 'Other teams',
   'pane.title': 'Browser',
@@ -142,7 +164,7 @@ const en: Strings = {
   'conn.direct': 'Office direct connection',
   'conn.remote': 'Remote connection',
   'cert.changed.title': "The team server's certificate changed",
-  'cert.changed.body': 'The office direct connection was stopped and the app switched to the remote connection. Tell your team lead unless the server was reinstalled.',
+  'cert.changed.body': 'The office direct connection was stopped and the app switched to the remote connection. Tell the team owner unless the server was reinstalled.',
   'menu.team': 'Team',
   'menu.addTeam': 'Add team…',
   'menu.teams': 'Teams…',
@@ -154,6 +176,23 @@ const en: Strings = {
   'menu.view': 'View',
   'menu.window': 'Window',
   'menu.devtools': 'Developer tools',
+  'menu.hide': 'Hide {app}',
+  'menu.hideOthers': 'Hide Others',
+  'menu.showAll': 'Show All',
+  'menu.undo': 'Undo',
+  'menu.redo': 'Redo',
+  'menu.cut': 'Cut',
+  'menu.copy': 'Copy',
+  'menu.paste': 'Paste',
+  'menu.selectAll': 'Select All',
+  'menu.actualSize': 'Actual Size',
+  'menu.zoomIn': 'Zoom In',
+  'menu.zoomOut': 'Zoom Out',
+  'menu.fullScreen': 'Toggle Full Screen',
+  'menu.minimize': 'Minimize',
+  'menu.zoom': 'Zoom',
+  'menu.front': 'Bring All to Front',
+  'menu.close': 'Close',
 }
 
 const id: Strings = {
@@ -172,6 +211,7 @@ const id: Strings = {
   'welcome.cancel': 'Batal',
   'welcome.back': 'Kembali',
   'welcome.current': 'Sedang dibuka',
+  'welcome.language': 'Bahasa',
   'err.empty': 'Masukkan alamat tim.',
   'err.invalid': 'Format alamat tidak sesuai.',
   'err.insecure': 'Hanya alamat aman (https) yang bisa dipakai.',
@@ -228,21 +268,28 @@ const id: Strings = {
   'menu.view': 'Tampilan',
   'menu.window': 'Jendela',
   'menu.devtools': 'Alat pengembang',
+  'menu.hide': 'Sembunyikan {app}',
+  'menu.hideOthers': 'Sembunyikan Lainnya',
+  'menu.showAll': 'Tampilkan Semua',
+  'menu.undo': 'Urungkan',
+  'menu.redo': 'Ulangi',
+  'menu.cut': 'Potong',
+  'menu.copy': 'Salin',
+  'menu.paste': 'Tempel',
+  'menu.selectAll': 'Pilih Semua',
+  'menu.actualSize': 'Ukuran Sebenarnya',
+  'menu.zoomIn': 'Perbesar',
+  'menu.zoomOut': 'Perkecil',
+  'menu.fullScreen': 'Layar Penuh Hidup/Mati',
+  'menu.minimize': 'Minimalkan',
+  'menu.zoom': 'Zoom',
+  'menu.front': 'Bawa Semua ke Depan',
+  'menu.close': 'Tutup',
 }
 
 export const STRINGS: Record<UiLocale, Strings> = { ko, en, id }
 
-/** System locale ("ko-KR", "en-US", "id") -> one of ours; Korean when unknown. */
-export function pickLocale(systemLocales: readonly string[]): UiLocale {
-  for (const l of systemLocales) {
-    const base = l.toLowerCase().split(/[-_]/)[0]
-    if (base === 'ko' || base === 'en' || base === 'id') return base
-    if (base === 'in') return 'id' // old Java/Android code for Indonesian
-  }
-  return 'ko'
-}
-
 export function t(locale: UiLocale, key: UiKey, params: Record<string, string> = {}): string {
-  const s = STRINGS[locale][key] ?? STRINGS.ko[key]
+  const s = STRINGS[locale]?.[key] ?? STRINGS[DEFAULT_UI_LOCALE][key]
   return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? PRODUCT.displayName : (params[k] ?? m)))
 }

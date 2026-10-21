@@ -6,6 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
+import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import { Denied, ToolError } from '../policy/errors'
 import { verifyChain } from '../policy/resolve'
 import { newId } from '../db'
@@ -87,13 +88,17 @@ export function fileEvent(db: Database, e: { turnId: string | null; userId: stri
     .run(e.turnId, e.userId, e.path, e.action, e.size ?? null, e.sha256 ?? null, e.detail === undefined ? null : JSON.stringify(e.detail))
 }
 
-/** "name (충돌 사본 - 사람 날짜 시각).ext" next to the original (design tab 2 "동시 수정"). */
-export function conflictCopyName(original: string, person: string, d = new Date()): string {
+/** Words of the conflict copy name per language (the web's file list recognises all three: web/src/lib/paths.ts). */
+export const CONFLICT_COPY: Record<Locale, string> = { ko: '충돌 사본', en: 'conflict copy', id: 'salinan konflik' }
+
+/** "name (conflict copy - person date time).ext" next to the original (design tab 2 "동시 수정"), in the team's
+ * default language (the file is shared, so not in one person's language). */
+export function conflictCopyName(original: string, person: string, d = new Date(), locale: Locale = DEFAULT_LOCALE): string {
   const m = /^(.*?)(\.[^.]+)?$/.exec(original)!
   const pad = (n: number) => String(n).padStart(2, '0')
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}`
   const safePerson = person.replace(/[<>:"|?*\\/\u0000-\u001f]/g, '').trim() || 'unknown'
-  return `${m[1]} (충돌 사본 - ${safePerson} ${stamp})${m[2] ?? ''}`
+  return `${m[1]} (${CONFLICT_COPY[locale] ?? CONFLICT_COPY.en} - ${safePerson} ${stamp})${m[2] ?? ''}`
 }
 
 /** Move a file to .system/trash (30 days) and record it. */

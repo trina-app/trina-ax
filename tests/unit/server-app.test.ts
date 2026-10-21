@@ -165,7 +165,8 @@ describe('validation and errors', () => {
     const c = await req('/api/test/conflict')
     expect(c.status).toBe(409)
     expect(((await c.json()) as any).error).toMatchObject({ code: 'conflict', message: 'Someone else saved first.' })
-    const b = await req('/api/test/boom', { headers: { 'accept-language': 'id' } })
+    // before sign-in the page's own language header decides (Accept-Language does not: docs/DECISIONS.md "언어")
+    const b = await req('/api/test/boom', { headers: { 'x-mycel-locale': 'id', 'accept-language': 'ko' } })
     expect(b.status).toBe(500)
     const e = ((await b.json()) as any).error
     expect(e).toMatchObject({ code: 'internal', message: 'Terjadi kesalahan pada server.' })

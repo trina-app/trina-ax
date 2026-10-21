@@ -192,6 +192,24 @@ h1 {
   flex-wrap: wrap;
 }
 
+.language {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.language select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+
 /* ---------------- browser pane toolbar ---------------- */
 body.pane {
   background: var(--chrome);

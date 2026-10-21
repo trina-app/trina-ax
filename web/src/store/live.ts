@@ -58,6 +58,11 @@ export function dispatch(ev: ServerEvent) {
       memoryChanged.emit(ev.data)
       return
     case 'notice':
+      if (ev.data.code === 'locale_changed') {
+        // the team default or this person's language changed (admin, another window): switch without a reload
+        void useSession.getState().refreshMe()
+        return
+      }
       if (ev.data.code === 'access_changed') {
         // the server sends the folders whose access changed as data ("groups/finance, shared"), not a sentence
         toast({ level: 'info', text: t('notice.accessChanged', { paths: ev.data.message }) })
@@ -89,6 +94,7 @@ export function startLive() {
     onEvent: dispatch,
     onReload: (reason) => {
       void useChats.getState().reloadAll()
+      void useSession.getState().refreshMe() // a language change may have happened while we were away
       reloadAsked.emit(reason)
     },
     onState: (s: ConnState) => {

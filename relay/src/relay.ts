@@ -290,7 +290,7 @@ export class RelayServer {
 
   sendPage(req: http.IncomingMessage, res: http.ServerResponse, kind: PageKind, offlineForMs: number | null = null): void {
     if (res.headersSent) { res.destroy(); return }
-    const lang = pickLang(req.headers['accept-language'])
+    const lang = pickLang(req.headers)
     const status = PAGE_STATUS[kind]
     const wantsHtml = !(req.url ?? '').startsWith('/api/') && /text\/html/.test(req.headers.accept ?? '')
     const extra: Record<string, string> = { 'cache-control': 'no-store', 'x-relay-error': kind }

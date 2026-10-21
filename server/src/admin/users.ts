@@ -13,11 +13,11 @@ import { msg } from '../auth/messages'
 import { hashPassword, temporaryPassword } from '../auth/passwords'
 import { accountKey } from '../auth/rate-limit'
 import { authOf } from '../auth/service'
-import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, toUser, usernameTaken, type UserRow } from '../auth/users'
+import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
 import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
-import { getTeamSettings } from './settings'
+import { getTeamSettings, LOCALE_CHANGED } from './settings'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -66,7 +66,7 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     ctx.db.transaction(() => {
       if (usernameTaken(ctx.db, b.username)) throw new UniqueTaken('body.username')
       id = b.id ?? deriveUserId(ctx.db, b.username, ctx.files.fx.root)
-      insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? getTeamSettings(ctx.db).defaultLocale, mustChangePassword: true, groupIds: groups })
+      insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? null, mustChangePassword: true, groupIds: groups })
       audit(ctx.db, { actor: auth.user.id, action: 'user.create', target: id, detail: { role: b.role, groupIds: groups } })
     }).immediate()
   } catch (e) {
@@ -93,10 +93,11 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     const set = (col: string, v: string | null, key: string) => { sets.push(`${col} = ?`); args.push(v); changed[key] = v }
     if (b.name !== undefined) set('name', b.name, 'name')
     if (b.email !== undefined) set('email', b.email, 'email')
-    if (b.locale !== undefined) set('locale', b.locale, 'locale')
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
+    // null = follow the team default again
+    if (b.locale !== undefined) { setUserLocale(ctx.db, id, b.locale); changed.locale = b.locale }
     if (groups) {
       ctx.db.query('DELETE FROM group_members WHERE user_id = ?').run(id)
       const add = ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
@@ -105,6 +106,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     }
     if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'user.update', target: id, detail: changed })
   })()
+  // the person's open windows ask for their language again (GET /api/me) and switch without a reload
+  if (changed.locale !== undefined) ctx.services.realtime.publish(id, LOCALE_CHANGED)
   if (changed.status === 'disabled') {
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
@@ -134,7 +137,7 @@ export function revokeResetLinksBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by = ? AND used_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
-const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
+export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the

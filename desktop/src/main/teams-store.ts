@@ -2,10 +2,12 @@
 //   <userData>/teams.json                       remembered teams (common/teams.ts)
 //   <userData>/teams/<teamId>/permissions.json  the team's in-app browser "allowed sites"
 //   <userData>/window.json                      window size and browser pane width
+//   <userData>/ui-locale.json                   language of the app's own screens (common/i18n.ts)
 // Writes go to a temp file first, then rename (no half-written file after a crash).
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { asUiLocale, type UiLocale } from '../common/i18n'
 import { readTeams, type TeamsFile } from '../common/teams'
 import type { SavedPermissions } from '../common/site-permissions'
 
@@ -73,5 +75,18 @@ export class TeamsStore {
 
   saveWindow(v: { width: number; height: number; paneFraction: number }) {
     writeAtomic(join(this.dir, 'window.json'), JSON.stringify(v))
+  }
+
+  /** the last language the team page reported or the person picked on the team list; null = never (English) */
+  loadLocale(): UiLocale | null {
+    try {
+      return asUiLocale((JSON.parse(readText(join(this.dir, 'ui-locale.json')) ?? '{}') as { locale?: unknown }).locale)
+    } catch {
+      return null
+    }
+  }
+
+  saveLocale(locale: UiLocale) {
+    writeAtomic(join(this.dir, 'ui-locale.json'), JSON.stringify({ locale }))
   }
 }

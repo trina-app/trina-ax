@@ -4,8 +4,9 @@
 import clsx from 'clsx'
 import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, FileSearch, Globe, Loader2, MessageCircleQuestion, Monitor, Shapes, Wrench } from 'lucide-react'
 import { useState } from 'react'
+import { localizeStep } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
 import { TeamImage } from '../Markdown'
 
@@ -14,6 +15,8 @@ const FILE_TOOLS = new Set(['read', 'grep', 'glob', 'list', 'write', 'edit'])
 
 function StepRow({ step, live }: { step: Step; live: boolean }) {
   const t = useT()
+  // the label was written in the language the answer ran in: redraw its words in the language on screen
+  const words = localizeStep(step, useLocale())
   const [open, setOpen] = useState(false)
   const Icon = step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind]
   const expandable = !!(step.detail || step.sources?.length || step.images?.length)
@@ -23,13 +26,13 @@ function StepRow({ step, live }: { step: Step; live: boolean }) {
       <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
         {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.status === 'error' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
         <Icon size={13} className="shrink-0 text-faint" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">{step.label}</span>
+        <span className="min-w-0 flex-1 truncate">{words.label}</span>
         {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
         {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
       </button>
       {open && (
         <div className="mt-1 mb-2 ml-6 space-y-1.5 border-l border-line pl-3">
-          {step.detail && <p className="text-xs whitespace-pre-wrap text-muted">{step.detail}</p>}
+          {words.detail && <p className="text-xs whitespace-pre-wrap text-muted">{words.detail}</p>}
           {step.sources && (
             <ul className="space-y-1" data-testid="search-sources">
               {step.sources.map((s, i) => (

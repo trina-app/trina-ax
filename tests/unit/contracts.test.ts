@@ -109,7 +109,7 @@ describe('schemas', () => {
     expect(localeFromAcceptLanguage('en-US,en;q=0.9')).toBe('en')
     expect(localeFromAcceptLanguage('id-ID')).toBe('id')
     expect(localeFromAcceptLanguage('fr-FR, ko;q=0.5')).toBe('ko')
-    expect(localeFromAcceptLanguage(undefined)).toBe('ko')
+    expect(localeFromAcceptLanguage(undefined)).toBe('en')
   })
   test('send message: content or attachment, idempotency key required', () => {
     expect(SendMessageBody.safeParse({ content: 'hello', clientMessageId: 'abcdefgh' }).success).toBe(true)

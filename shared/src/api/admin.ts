@@ -15,7 +15,8 @@ export const CreateUserBody = z.object({
   email: z.email().nullable().optional(),
   role: Role.exclude(['owner']),
   groupIds: z.array(Uuid7).default([]),
-  locale: Locale.optional(),
+  /** omitted or null = follows the team default */
+  locale: Locale.nullable().optional(),
   /** user id = personal folder name; derived from username when omitted */
   id: UserId.optional(),
 })
@@ -27,7 +28,8 @@ export const UpdateUserBody = z.object({
   role: Role.exclude(['owner']).optional(),
   status: UserStatus.optional(),
   groupIds: z.array(Uuid7).optional(),
-  locale: Locale.optional(),
+  /** a language, or null = follow the team default */
+  locale: Locale.nullable().optional(),
 })
 export const ResetPasswordResult = z.object({ temporaryPassword: z.string() })
 /** One-time reset link (24 h, no mail in v1: the admin hands it over). The token is shown only here. */

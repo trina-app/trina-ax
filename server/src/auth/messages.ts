@@ -1,7 +1,7 @@
 // User-facing messages of component A that are more specific than the default per-code messages (ko / en / id).
 import type { Locale } from '@mycel/shared/api'
 
-const M = {
+export const AUTH_MESSAGES = {
   badLogin: { ko: '아이디 또는 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.' },
   accountDisabled: { ko: '사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.', en: 'This account is disabled. Please contact your admin.', id: 'Akun ini dinonaktifkan. Hubungi admin Anda.' },
   tooManyAttempts: { ko: '로그인 시도가 너무 많습니다. 잠시 뒤 다시 시도해 주세요.', en: 'Too many sign-in attempts. Please try again later.', id: 'Terlalu banyak percobaan masuk. Coba lagi nanti.' },
@@ -30,8 +30,8 @@ const M = {
   budgetSubject: { ko: '예산 대상이 올바르지 않습니다.', en: 'The budget subject is not valid.', id: 'Subjek anggaran tidak valid.' },
 } satisfies Record<string, Record<Locale, string>>
 
-export type MessageKey = keyof typeof M
-export const msg = (key: MessageKey, locale: Locale): string => M[key][locale] ?? M[key].ko
+export type MessageKey = keyof typeof AUTH_MESSAGES
+export const msg = (key: MessageKey, locale: Locale): string => AUTH_MESSAGES[key][locale] ?? AUTH_MESSAGES[key].en
 
 /** Localized reasons of passwordProblem() (its English strings stay the API's `fields` detail). */
 const PASSWORD_REASONS: Record<string, Record<Locale, string>> = {
@@ -46,5 +46,5 @@ const PASSWORD_REASONS: Record<string, Record<Locale, string>> = {
 /** "Please choose a stronger password. <why>" in the person's language. */
 export function weakPasswordMessage(reason: string, locale: Locale): string {
   const why = PASSWORD_REASONS[reason]
-  return why ? `${msg('weakPassword', locale)} ${why[locale] ?? why.ko}` : msg('weakPassword', locale)
+  return why ? `${msg('weakPassword', locale)} ${why[locale] ?? why.en}` : msg('weakPassword', locale)
 }

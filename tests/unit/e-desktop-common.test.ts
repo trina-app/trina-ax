@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { isLoopbackHost, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
-import { pickLocale, STRINGS, t } from '../../desktop/src/common/i18n'
+import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
 import { siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
 import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
@@ -201,11 +201,15 @@ describe('UI strings', () => {
     }
   })
 
-  test('locale choice and formatting', () => {
-    expect(pickLocale(['ko-KR'])).toBe('ko')
-    expect(pickLocale(['fr-FR', 'en-US'])).toBe('en')
-    expect(pickLocale(['in-ID'])).toBe('id')
-    expect(pickLocale(['ja-JP'])).toBe('ko')
+  test('locale choice and formatting: English unless the team page or the person said otherwise', () => {
+    expect(DEFAULT_UI_LOCALE).toBe('en')
+    expect(asUiLocale('ko-KR')).toBe('ko')
+    expect(asUiLocale('in')).toBe('id')
+    expect(asUiLocale('ja-JP')).toBeNull()
+    expect(asUiLocale({ locale: 'ko' })).toBeNull()
+    expect(asUiLocale('ko'.padEnd(40, 'x'))).toBeNull()
+    expect(UI_LOCALES.map((l) => l.label)).toEqual(['English', '한국어', 'Bahasa Indonesia'])
+    for (const l of ['en', 'id'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
     expect(t('en', 'perm.site.title', { host: 'shop.test' })).toBe('The AI wants to use shop.test')
     expect(t('ko', 'err.notTeamServer')).toBe('이 주소는 Team AX 팀 서버가 아니에요.')
   })

@@ -3,7 +3,7 @@
 // blocked office requests, refused password fields), and the allowed-sites list. The page itself is a separate
 // view placed under this toolbar by the main process.
 import type { DesktopPaneState } from '@mycel/shared'
-import { h, tr, ui, type PaneActivity, type PanePrompt } from './dom'
+import { h, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt } from './dom'
 
 const root = document.getElementById('root')!
 let state: DesktopPaneState = { open: false, tabs: [], driving: false }
@@ -230,4 +230,5 @@ void ui.pane.state().then((s) => {
   if (s) state = s
   render()
 })
+onLocaleChange(render)
 render()

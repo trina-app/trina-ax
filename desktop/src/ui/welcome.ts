@@ -1,5 +1,6 @@
 // First-run "team address" screen, the remembered team list, and the "cannot reach the team server" screen.
-import { h, tr, ui, type WelcomeState } from './dom'
+import { UI_LOCALES } from '../common/locales'
+import { h, locale, onLocaleChange, tr, ui, type WelcomeState } from './dom'
 
 const root = document.getElementById('root')!
 let state: WelcomeState = { mode: 'welcome', teams: [], canGoBack: false, offline: null }
@@ -91,7 +92,18 @@ function welcome() {
     form,
     state.teams.length ? teamList() : null,
     state.canGoBack ? h('div', { class: 'actions' }, h('button', { type: 'button', onclick: () => ui.welcome.back() }, tr('welcome.back'))) : null,
+    languagePicker(),
   )
+}
+
+/** The app's own language (before a team page reports its person's language, or to change it here). */
+function languagePicker() {
+  const select = h(
+    'select',
+    { id: 'ui-locale', 'data-testid': 'ui-locale', onchange: (e: Event) => ui.setLocale((e.target as HTMLSelectElement).value as typeof locale) },
+    ...UI_LOCALES.map((l) => h('option', { value: l.id, lang: l.id, selected: l.id === locale }, l.label)),
+  )
+  return h('label', { class: 'language', for: 'ui-locale' }, tr('welcome.language'), select)
 }
 
 function teamList() {
@@ -170,6 +182,7 @@ function confirmBox(id: string) {
   )
 }
 
+onLocaleChange(render)
 ui.welcome.onState((s) => {
   state = s
   render()

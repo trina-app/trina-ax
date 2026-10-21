@@ -16,7 +16,7 @@ import { getTeamSettings } from '../admin/settings'
 import { audit } from '../admin/audit'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { RateLimiter, reauthKey } from './rate-limit'
-import { USER_COLS, getUser, parsePrefs, userRef, type UserRow } from './users'
+import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** last_seen_at is written at most this often per session */
@@ -201,7 +201,7 @@ export class AuthService implements SessionService {
     const settings = getTeamSettings(this.db)
     return {
       user: {
-        id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale,
+        id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs: parsePrefs(u.prefs),
       },
       groups,

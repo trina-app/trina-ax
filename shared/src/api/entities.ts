@@ -28,7 +28,10 @@ export const User = z.object({
   role: Role,
   status: UserStatus,
   mustChangePassword: z.boolean(),
+  /** the language the person sees: their own choice, else the team default */
   locale: Locale,
+  /** their own choice; null = follows the team default */
+  localeChoice: Locale.nullable(),
   groupIds: z.array(Uuid7),
   createdAt: IsoTime,
   lastSeenAt: IsoTime.nullable(),

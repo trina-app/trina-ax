@@ -78,7 +78,8 @@ export default function Audit() {
               <button type="button" className="flex w-full flex-wrap items-center gap-2 text-left" aria-expanded={open === e.id} onClick={() => setOpen(open === e.id ? null : e.id)} disabled={!e.detail}>
                 <span className="w-36 shrink-0 text-xs text-faint tabular-nums">{formatDateTime(e.at, locale)}</span>
                 <Badge>{t(`audit.source.${e.source}`)}</Badge>
-                <span className="font-medium">{e.actor?.name ?? t('files.byAi')}</span>
+                {/* no person: the AI for file and tool events, else the server itself (failed sign-ins, a reset link made on the server Mac) */}
+                <span className="font-medium">{e.actor?.name ?? t(e.source === 'file' || e.source === 'tool' ? 'files.byAi' : 'audit.system')}</span>
                 <span className="text-muted" title={e.action}>
                   {actionLabel(t, e)}
                 </span>

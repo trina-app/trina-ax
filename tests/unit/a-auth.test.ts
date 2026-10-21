@@ -17,14 +17,17 @@ describe('first-run setup', () => {
   afterAll(() => h.close())
 
   test('status says setup is needed while no user exists', async () => {
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: true, teamName: null })
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: true, teamName: null, defaultLocale: 'en' })
   })
   test('wrong token and weak passwords are refused', async () => {
     const c = h.client()
     const owner = { username: 'olga', name: 'Olga', password: OWNER_PW }
     const bad = await c.try('POST', '/api/setup', { setupToken: 'x'.repeat(32), teamName: 'Acme', owner })
     expect(bad.status).toBe(403)
-    expect(bad.body.error.message).toContain('설정 토큰')
+    // before setup there is no team default yet: English (a Korean page sends its language and gets Korean)
+    expect(bad.body.error.message).toContain('setup token')
+    const badKo = await c.try('POST', '/api/setup', { setupToken: 'x'.repeat(32), teamName: 'Acme', owner }, { 'x-mycel-locale': 'ko' })
+    expect(badKo.body.error.message).toContain('설정 토큰')
     const weak = await c.try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', owner: { ...owner, password: 'password123' } })
     expect(weak.status).toBe(400)
     expect(weak.body.error.fields['body.owner.password']).toContain('common')
@@ -53,7 +56,7 @@ describe('first-run setup', () => {
   test('cannot run twice; status now shows the team', async () => {
     const r = await h.client().try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Evil', owner: { username: 'mallory', name: 'M', password: OWNER_PW } })
     expect(r.status).toBe(409)
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: 'Acme' })
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: 'Acme', defaultLocale: 'en' })
   })
 })
 

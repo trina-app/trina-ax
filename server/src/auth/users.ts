@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { UserPrefs, type Locale, type Role, type User, type UserRef } from '@mycel/shared/api'
+import { teamDefaultLocale } from '../admin/settings'
 
 export interface UserRow {
   id: string
@@ -14,6 +15,8 @@ export interface UserRow {
   status: 'active' | 'disabled'
   must_change_password: number
   locale: Locale
+  /** 1 = no own choice: locale mirrors the team default (migration 102) */
+  locale_follows_team: number
   prefs: string
   created_at: string
   last_seen_at: string | null
@@ -22,7 +25,7 @@ export interface UserRow {
   password_reset_at: string | null
 }
 
-export const USER_COLS = 'id, username, name, email, password_hash, role, status, must_change_password, locale, prefs, created_at, last_seen_at, deleted_at, password_reset_by, password_reset_at'
+export const USER_COLS = 'id, username, name, email, password_hash, role, status, must_change_password, locale, locale_follows_team, prefs, created_at, last_seen_at, deleted_at, password_reset_by, password_reset_at'
 
 /** Live (not deleted) user by id. */
 export function getUser(db: Database, id: string): UserRow | null {
@@ -54,10 +57,19 @@ export function toUser(db: Database, r: UserRow): User {
     status: r.status,
     mustChangePassword: !!r.must_change_password,
     locale: r.locale,
+    localeChoice: localeChoice(r),
     groupIds: userGroupIds(db, r.id),
     createdAt: r.created_at,
     lastSeenAt: r.last_seen_at,
   }
+}
+
+/** The person's own language, or null when they follow the team default. */
+export const localeChoice = (r: Pick<UserRow, 'locale' | 'locale_follows_team'>): Locale | null => (r.locale_follows_team ? null : r.locale)
+
+/** Set a person's language: a language of their own, or null = follow the team default from now on. */
+export function setUserLocale(db: Database, id: string, choice: Locale | null): void {
+  db.query('UPDATE users SET locale = ?, locale_follows_team = ? WHERE id = ?').run(choice ?? teamDefaultLocale(db), choice ? 0 : 1, id)
 }
 
 export function userRef(db: Database, id: string | null): UserRef | null {
@@ -88,15 +100,16 @@ export interface NewUser {
   email?: string | null
   passwordHash: string
   role: Role
-  locale: Locale
+  /** own language, or null = follow the team default */
+  locale: Locale | null
   mustChangePassword: boolean
   groupIds?: string[]
 }
 
 /** Insert a user (+ group memberships). Call inside a transaction when combined with other writes. */
 export function insertUser(db: Database, u: NewUser, now = new Date().toISOString()): void {
-  db.query(`INSERT INTO users (id, username, name, email, password_hash, role, status, must_change_password, locale, prefs, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, '{}', ?)`).run(u.id, u.username, u.name, u.email ?? null, u.passwordHash, u.role, u.mustChangePassword ? 1 : 0, u.locale, now)
+  db.query(`INSERT INTO users (id, username, name, email, password_hash, role, status, must_change_password, locale, locale_follows_team, prefs, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, '{}', ?)`).run(u.id, u.username, u.name, u.email ?? null, u.passwordHash, u.role, u.mustChangePassword ? 1 : 0, u.locale ?? teamDefaultLocale(db), u.locale ? 0 : 1, now)
   const add = db.query('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)')
   for (const g of u.groupIds ?? []) add.run(g, u.id)
 }

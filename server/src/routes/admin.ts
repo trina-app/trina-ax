@@ -16,7 +16,7 @@ import {
   resolveFolderPath, rulesOf, toFolder, validateRules,
 } from '../admin/folders'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
-import { enginesEnabled, getTeamSettings, setEnginesEnabled, updateTeamSettings } from '../admin/settings'
+import { enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, updateTeamSettings } from '../admin/settings'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
@@ -169,6 +169,8 @@ export const adminRoutes: RouteModule = {
       const next = updateTeamSettings(ctx.db, body)
       const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })
+      // everyone's screen shows "Team default (…)", and people without their own language switch with it
+      if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
       return next
     })
 

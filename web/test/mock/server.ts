@@ -5,11 +5,12 @@
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search";
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/reset {setup?: boolean}, POST /__test/drop-ws, POST /__test/server-version,
+// Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
 import { z } from 'zod'
 import {
-  ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   type Project, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
 } from '@mycel/shared/api'
@@ -39,6 +40,9 @@ const enc = new TextEncoder()
 const dec = new TextDecoder()
 
 const OWNER_PASSWORD = 'correct horse battery'
+
+/** like server/src/admin/settings.ts LOCALE_CHANGED */
+const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
 
 export class MockServer {
   setupNeeded = false
@@ -81,9 +85,13 @@ export class MockServer {
 
   generation = 0
 
-  reset(o: { setup?: boolean } = {}) {
+  /** seeded people (olga, bob) have no language of their own */
+  usersFollowTeam = false
+
+  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string } = {}) {
     this.generation++
     this.setupNeeded = !!o.setup
+    this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
     this.epoch = uuidv7()
     this.seq = 0
@@ -109,19 +117,22 @@ export class MockServer {
     this.files.clear()
     this.log = []
     this.settings = defaultSettings()
+    if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
     this.openAsks.clear()
     this.stopped.clear()
     this.revoked.clear()
     if (!this.setupNeeded) this.seed()
+    for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
   }
 
   seed() {
     const g: Group = { id: uuidv7(), name: '재무팀', description: '재무 자료', memberIds: ['olga'] }
     this.groups = [g]
-    this.addUser({ id: 'olga', username: 'olga', name: 'Olga', role: 'owner', groupIds: [g.id] }, OWNER_PASSWORD)
-    this.addUser({ id: 'bob', username: 'bob', name: 'Bob', role: 'member', groupIds: [] }, 'bob password 1')
+    const own = this.usersFollowTeam ? null : 'ko'
+    this.addUser({ id: 'olga', username: 'olga', name: 'Olga', role: 'owner', groupIds: [g.id], localeChoice: own }, OWNER_PASSWORD)
+    this.addUser({ id: 'bob', username: 'bob', name: 'Bob', role: 'member', groupIds: [], localeChoice: own }, 'bob password 1')
     for (const p of ['docs', 'finance', 'finance/2026', 'marketing', 'secret', 'users', 'users/olga']) this.files.set(p, { type: 'folder', mtime: now() })
     this.putFile('marketing/plan.md', '# Plan\n\n- launch\n- grow\n')
     this.putFile('marketing/data.csv', 'name,value\nalpha,1\nbeta,2\n')
@@ -138,8 +149,14 @@ export class MockServer {
     this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 2, sha256: 'b'.repeat(64), size: 26, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now() })
   }
 
-  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean }, password: string) {
-    const user: User = { email: null, status: 'active', mustChangePassword: false, locale: 'ko', createdAt: now(), lastSeenAt: null, ...u }
+  /** like the server: people without their own language see the team default */
+  syncLocales() {
+    for (const u of this.users) u.locale = u.localeChoice ?? this.settings.defaultLocale
+  }
+
+  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null }, password: string) {
+    const user: User = { email: null, status: 'active', mustChangePassword: false, locale: 'ko', localeChoice: null, createdAt: now(), lastSeenAt: null, ...u }
+    user.locale = user.localeChoice ?? this.settings.defaultLocale
     this.users.push(user)
     this.passwords.set(user.username, password)
     return user
@@ -182,7 +199,7 @@ export class MockServer {
   // ---------------- helpers ----------------
   me(u: User, sid: string): Me {
     return {
-      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, mustChangePassword: u.mustChangePassword, prefs: (u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {} },
+      user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs: (u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {} },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() },
@@ -343,19 +360,23 @@ export class MockServer {
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
-    setupStatus: () => ({ needed: this.setupNeeded, teamName: null }),
+    setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {
       if (!this.setupNeeded) fail('conflict', 409)
       if (c.body.setupToken !== 'setup-token-0123456789') fail('forbidden', 403, 'wrong setup token')
       this.setupNeeded = false
       this.settings.teamName = c.body.teamName
+      this.settings.defaultLocale = c.body.locale
       const u = this.addUser({ id: c.body.owner.username.toLowerCase().replace(/[^a-z0-9_-]/g, ''), username: c.body.owner.username, name: c.body.owner.name, role: 'owner', groupIds: [] }, c.body.owner.password)
       this.files.set('users', { type: 'folder', mtime: now() })
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
     },
     login: (c) => {
       const u = this.users.find((x) => x.username === c.body.username)
-      if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, '아이디나 비밀번호가 맞지 않습니다.')
+      // like the server: before sign-in, the page's language header, else the team default
+      const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
+      const wrong = { ko: '아이디나 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.' }[loc]
+      if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
@@ -363,7 +384,9 @@ export class MockServer {
     updateMe: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
       if (c.body.name) u.name = c.body.name
-      if (c.body.locale) u.locale = c.body.locale
+      if (c.body.locale !== undefined) u.localeChoice = c.body.locale
+      this.syncLocales()
+      if (c.body.locale !== undefined) this.publish(LOCALE_CHANGED)
       if (c.body.email !== undefined) u.email = c.body.email
       if (c.body.prefs) u.prefs = c.body.prefs
       return this.me(u, '')
@@ -383,7 +406,7 @@ export class MockServer {
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
       if (!i) fail('gone', 410)
-      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: i!.role, groupIds: i!.groupIds }, c.body.password)
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: i!.role, groupIds: i!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       i!.usedAt = now()
       i!.usedBy = { id: u.id, name: u.name }
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
@@ -629,10 +652,16 @@ export class MockServer {
 
     listUsers: () => ({ items: this.users }),
     createUser: (c) => {
-      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true }, 'temp-password-1')
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, 'temp-password-1')
       return { status: 201, body: { user: u, temporaryPassword: 'temp-password-1' } }
     },
-    updateUser: (c) => Object.assign(this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined))),
+    updateUser: (c) => {
+      const { locale, ...rest } = c.body
+      const u = Object.assign(this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)))
+      if (locale !== undefined) u.localeChoice = locale
+      this.syncLocales()
+      return u
+    },
     deleteUser: (c) => {
       this.users = this.users.filter((u) => u.id !== c.params.id)
       return undefined
@@ -706,7 +735,13 @@ export class MockServer {
       return undefined
     },
     settings: () => this.settings,
-    updateSettings: (c) => Object.assign(this.settings, c.body),
+    updateSettings: (c) => {
+      const before = this.settings.defaultLocale
+      Object.assign(this.settings, c.body)
+      this.syncLocales()
+      if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)
+      return this.settings
+    },
     usage: () => ({ from: now(), to: now(), rows: [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }], totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
     audit: () => ({ items: [{ id: 'a1', source: 'admin', at: now(), actor: { id: 'olga', name: 'Olga' }, action: 'invite.create', target: 'member', turnId: null, detail: { role: 'member' } } satisfies AuditEntry], nextCursor: null }),
     diagnostics: () => ({ version: this.serverVersion, host: { os: 'darwin', arch: 'arm64', hostname: 'mac-mini' }, disk: { teamFolderFreeBytes: 500e9, dataFreeBytes: 500e9 }, queue: { running: 0, queued: 0, concurrency: 2 }, checks: [{ id: 'relay', group: 'relay', label: 'Relay connection', status: 'warn', detail: 'Relay not configured (dev)' }, { id: 'disk', group: 'disk', label: 'Disk space', status: 'ok', detail: null }], generatedAt: now() }),
@@ -780,6 +815,8 @@ export class MockServer {
       if (ep.auth !== 'public') {
         if (!user) fail('unauthorized', 401)
         if ((ep.auth === 'admin' && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
+        // like the server: a temporary password reaches only the endpoints that change it
+        if (user!.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required', 403)
       }
       const params = Object.fromEntries(Object.entries(route.re.exec(p)!.groups ?? {}).map(([k, v]) => [k, decodeURIComponent(v)]))
       const query = Object.fromEntries(url.searchParams.entries())
@@ -821,7 +858,7 @@ export class MockServer {
 
   async testControl(p: string, req: Request): Promise<Response> {
     const body = (await req.json().catch(() => ({}))) as Json
-    if (p === '/__test/reset') this.reset({ setup: !!body.setup })
+    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })

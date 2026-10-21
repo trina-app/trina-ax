@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ApiErrorBody, Job, JobKind, JobStatus, Locale } from '@mycel/shared/api'
 import { errorMessage, Job as JobSchema } from '@mycel/shared/api'
+import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -25,7 +26,7 @@ export class JobFailure extends Error {
 const SINGLE: ReadonlySet<JobKind> = new Set(['transcribe', 'backup', 'restore', 'update', 'export'])
 export const JOB_KEEP_MS = 7 * 86_400_000
 const PROGRESS_EVERY_MS = 500
-const INTERRUPTED: Record<Locale, string> = {
+export const INTERRUPTED: Record<Locale, string> = {
   ko: '서버가 다시 시작되어 작업이 중단되었습니다. 다시 시도해 주세요.',
   en: 'The server restarted and the job was interrupted. Please try again.',
   id: 'Server dimulai ulang dan pekerjaan terhenti. Silakan coba lagi.',
@@ -164,9 +165,8 @@ export class JobServiceImpl implements JobService {
   }
 
   private locale(userId: string | null): Locale {
-    if (!userId) return 'ko'
-    const u = this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null
-    return u?.locale ?? 'ko'
+    const u = userId ? (this.ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null) : null
+    return u?.locale ?? teamDefaultLocale(this.ctx.db)
   }
 
   /** Delete finished jobs older than 7 days and stray work folders. */

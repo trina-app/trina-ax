@@ -1,16 +1,18 @@
-// Diagnostics wording in the three UI languages (ko default). Component G. "What to do about it" lines are written
+// Diagnostics wording in the three UI languages (English when one is missing). Component G. "What to do about it" lines are written
 // for a non-technical owner: what is wrong, then what to try.
 import type { Locale } from '@mycel/shared/api'
 
 type T = { ko: string; en: string; id: string }
-export const tr = (l: Locale, t: T) => t[l] ?? t.ko
+export const tr = (l: Locale, t: T) => t[l] ?? t.en
 
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
+/** English singular / plural ("1 rule", "3 rules"); Korean and Indonesian have one form. */
+export const enPlural = (n: number, one: string, other: string) => `${n} ${n === 1 ? one : other}`
 
 /** How long the server has been up, in the reader's words ("2일 3시간", "5 menit"). */
 export function uptimeText(sec: number, l: Locale): string {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
-  const u = { ko: { d: '일', h: '시간', m: '분' }, en: { d: ' d', h: ' h', m: ' min' }, id: { d: ' hari', h: ' jam', m: ' menit' } }[l] ?? { d: '일', h: '시간', m: '분' }
+  const u = { ko: { d: '일', h: '시간', m: '분' }, en: { d: ' d', h: ' h', m: ' min' }, id: { d: ' hari', h: ' jam', m: ' menit' } }[l] ?? { d: ' d', h: ' h', m: ' min' }
   return d ? `${d}${u.d} ${h}${u.h}` : h ? `${h}${u.h} ${m}${u.m}` : `${m}${u.m}`
 }
 
@@ -67,10 +69,10 @@ export const M = {
 
   queue: { ko: '대기열', en: 'Queue', id: 'Antrean' },
   queueDetail: (r: number, q: number, c: number): T => ({ ko: `실행 중 ${r}개, 대기 ${q}개 (동시 실행 ${c}개까지)`, en: `${r} running, ${q} waiting (up to ${c} at once)`, id: `${r} berjalan, ${q} menunggu (maks ${c} sekaligus)` }),
-  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 관리자 > AI 엔진에서 동시 실행 수를 늘려 보세요.`, en: `${q} questions are waiting. If this lasts, raise "Answers at the same time" in Admin > AI engines.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan "Jawaban bersamaan" di Admin > Mesin AI.` }),
+  queueLong: (q: number): T => ({ ko: `대기 중인 질문이 ${q}개입니다. 오래 걸리면 관리자 > AI 엔진에서 동시 실행 수를 늘려 보세요.`, en: `${enPlural(q, 'question is', 'questions are')} waiting. If this lasts, raise "Answers at the same time" in Admin > AI engines.`, id: `${q} pertanyaan menunggu. Jika berlanjut, naikkan "Jawaban bersamaan" di Admin > Mesin AI.` }),
 
   firewall: { ko: 'AI 엔진 방화벽(pf)', en: 'AI engine firewall (pf)', id: 'Firewall mesin AI (pf)' },
-  firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${n} rules`, id: `Aktif, ${n} aturan` }),
+  firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${enPlural(n, 'rule', 'rules')}`, id: `Aktif, ${n} aturan` }),
   firewallDev: { ko: '개발 모드: AI 엔진이 현재 사용자로 실행되어 엔진 계정 방화벽을 쓰지 않습니다.', en: 'Development mode: the AI engine runs as the current user, so the engine-account firewall is not used.', id: 'Mode pengembangan: mesin AI berjalan sebagai pengguna saat ini, firewall akun mesin tidak dipakai.' },
   firewallMissing: { ko: '방화벽 규칙 파일이 없습니다. 메뉴바 앱의 \'방화벽 복구\'(관리자 비밀번호)를 실행해 주세요.', en: 'The firewall rule file is missing. Run "Repair firewall" in the menubar app (admin password).', id: 'Berkas aturan firewall hilang. Jalankan "Perbaiki firewall" di aplikasi menubar (kata sandi admin).' },
   firewallStale: { ko: '방화벽 상태가 15분 넘게 갱신되지 않았습니다. 메뉴바 앱의 \'방화벽 복구\'를 실행해 주세요.', en: 'The firewall status has not been refreshed for over 15 minutes. Run "Repair firewall" in the menubar app.', id: 'Status firewall tidak diperbarui lebih dari 15 menit. Jalankan "Perbaiki firewall" di aplikasi menubar.' },
@@ -90,7 +92,7 @@ export const M = {
 
   backups: { ko: '백업', en: 'Backups', id: 'Cadangan' },
   backupNone: { ko: '아직 백업이 없습니다. 매일 새벽 3시에 자동으로 만들어집니다. 지금 만들려면 \'지금 백업\'을 누르세요.', en: 'No backup yet. One is made every night at 03:00; use "Back up now" to make one now.', id: 'Belum ada cadangan. Dibuat otomatis setiap pukul 03:00; gunakan "Cadangkan sekarang".' },
-  backupOld: (h: number): T => ({ ko: `마지막 백업이 ${h}시간 전입니다. 서버가 새벽에 꺼져 있었는지 확인하고 '지금 백업'을 눌러 주세요.`, en: `The last backup is ${h} hours old. Check that the server was on overnight and use "Back up now".`, id: `Cadangan terakhir ${h} jam yang lalu. Pastikan server menyala semalam dan gunakan "Cadangkan sekarang".` }),
+  backupOld: (h: number): T => ({ ko: `마지막 백업이 ${h}시간 전입니다. 서버가 새벽에 꺼져 있었는지 확인하고 '지금 백업'을 눌러 주세요.`, en: `The last backup is ${enPlural(h, 'hour', 'hours')} old. Check that the server was on overnight and use "Back up now".`, id: `Cadangan terakhir ${h} jam yang lalu. Pastikan server menyala semalam dan gunakan "Cadangkan sekarang".` }),
   backupOk: (when: string, scope: string): T => ({ ko: `마지막 백업 ${when} (${scope})`, en: `Last backup ${when} (${scope})`, id: `Cadangan terakhir ${when} (${scope})` }),
   backupFailed: (msg: string): T => ({ ko: `마지막 백업이 실패했습니다: ${msg}`, en: `The last backup failed: ${msg}`, id: `Cadangan terakhir gagal: ${msg}` }),
   backupNoSpace: { ko: '디스크 공간이 부족해 백업하지 못했습니다(2GB 필요). 휴지통 비우기·오래된 버전 정리로 공간을 늘린 뒤 다시 해 주세요.', en: 'Not enough disk space for a backup (2 GB needed). Free up space (empty the trash, clean up old versions) and try again.', id: 'Ruang disk tidak cukup untuk cadangan (perlu 2 GB). Kosongkan ruang (tempat sampah, versi lama) lalu coba lagi.' },

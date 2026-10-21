@@ -1,7 +1,8 @@
 // The one API client of the web app: same-origin (served by the team server), cookie session, CSRF + window headers
 // added by ApiClient. Every call goes through the shared contract (`API.x`), so request and response shapes are the
 // server's own zod schemas.
-import { API, ApiClient, ApiError, ERROR_MESSAGES, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
+import { currentLocale } from '../i18n'
 
 const WINDOW_KEY = 'mycel.windowId'
 
@@ -34,10 +35,12 @@ export function renewWindowId(): string {
 let windowIdValue = typeof window === 'undefined' ? randomId() : loadWindowId()
 export const windowId = () => windowIdValue
 
-/** fetch that always carries the current window id (ApiClient reads it once, so wrap). */
+/** fetch that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
+ * (the server uses it only without a session, so messages before sign-in match the page). */
 const fetchWithWindow = ((input: RequestInfo | URL, init?: RequestInit) => {
   const headers = new Headers(init?.headers)
   headers.set('x-mycel-window', windowIdValue)
+  headers.set(LOCALE_HEADER, currentLocale())
   return fetch(input, { ...init, headers, credentials: 'same-origin' })
 }) as typeof fetch
 
@@ -51,7 +54,7 @@ export const isApiError = (e: unknown, code?: ErrorCode): e is ApiError => e ins
 
 /**
  * Text for an error, in the UI language. Server messages are already in the user's language (tab 4), but before
- * sign-in the server only knows Accept-Language, so codes are re-translated here; network failures get our own text.
+ * sign-in the server only knows the page's language header, so codes are re-translated here; network failures get our own text.
  */
 export function errorText(e: unknown, locale: Locale, networkText: string): string {
   if (e instanceof ApiError) {

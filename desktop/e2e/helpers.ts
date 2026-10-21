@@ -1,6 +1,6 @@
 // Helpers for the desktop e2e tests: launch the built app with a throw-away user data folder, find its views
 // (welcome / pane toolbar / team page / browser tabs are separate web contents), and drive the fake team server.
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
@@ -14,8 +14,15 @@ export const SHOP = 'http://shop.test:19153'
 /** an office-network name (mapped to 127.0.0.1 by the test build): asks the person */
 export const OFFICE_SITE = 'http://nas.lan:19153'
 
-export function newUserData(): string {
-  return mkdtempSync(join(tmpdir(), 'teamax-desktop-'))
+/**
+ * A throw-away user data folder. The app's own screens start in English (not the system language); these tests were
+ * written against the Korean screens, so they set Korean explicitly, the way a team page in Korean would leave it.
+ * Pass null for a fresh install (English).
+ */
+export function newUserData(locale: 'ko' | 'en' | 'id' | null = 'ko'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'teamax-desktop-'))
+  if (locale) writeFileSync(join(dir, 'ui-locale.json'), JSON.stringify({ locale }))
+  return dir
 }
 
 export async function launch(userData: string, env: Record<string, string> = {}): Promise<ElectronApplication> {
@@ -27,6 +34,7 @@ export async function launch(userData: string, env: Record<string, string> = {})
       MYCEL_DESKTOP_USER_DATA: userData,
       MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test',
       MYCEL_DESKTOP_TEST_PRIVATE_HOSTS: 'nas.lan',
+      // a Korean system: the app's own language must not follow it (docs/DECISIONS.md "언어")
       LANG: 'ko_KR.UTF-8',
       ...env,
     },

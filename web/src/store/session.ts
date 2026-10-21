@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import type { Locale, Me, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
-import { pickLocale, useLocaleStore } from '../i18n'
+import { pickLocale, storedLocale, storeLocale, useLocaleStore } from '../i18n'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -15,19 +15,37 @@ export type AuthStatus =
 interface SessionState {
   status: AuthStatus
   load: () => Promise<void>
-  signedIn: (me: Me) => void
+  /** after sign-in; `adoptPick`: a language picked on the sign-in screen becomes the account's own when it has none */
+  signedIn: (me: Me, opts?: { adoptPick?: boolean }) => void
   signedOut: (reason?: 'expired' | 'ended') => void
+  /** the team default or the person's language may have changed elsewhere (admin, another window): ask again */
+  refreshMe: () => Promise<void>
+  /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
+  pickLocale: (l: Locale) => void
   updatePrefs: (prefs: Partial<UserPrefs>) => Promise<void>
-  setLocale: (l: Locale) => Promise<void>
+  /** the person's language: one of their own, or null = follow the team default */
+  setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
 }
 
 function applyMe(me: Me) {
-  useLocaleStore.getState().setLocale(pickLocale(me.user.locale, me.team.defaultLocale))
+  // the server sends the language the person sees (own choice, else the team default)
+  useLocaleStore.getState().setLocale(pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale))
   const theme = me.user.prefs.theme ?? storedTheme()
   storeTheme(theme)
   applyTheme(theme)
 }
+
+/**
+ * A language picked on a sign-in style screen that is still to be saved to the account: picked before signing in
+ * by a person without a language of their own, or picked on the forced password change screen (the account can only
+ * be changed once the password is). Saved by the first applyMe that can; shown meanwhile.
+ */
+let pendingPick: Locale | null = null
+/** the visitor used the switcher on this page before signing in (an older pick on this browser may be someone else's) */
+let pickedBeforeSignIn = false
+/** team default as last seen, for the sign-in screen after a sign-out */
+let lastTeamDefault: Locale | null = null
 
 export const useSession = create<SessionState>((set, get) => ({
   status: { kind: 'loading' },
@@ -35,12 +53,14 @@ export const useSession = create<SessionState>((set, get) => ({
   async load() {
     try {
       const me = await api.call(API.me)
-      applyMe(me)
-      set({ status: { kind: 'signed-in', me } })
+      get().signedIn(me)
     } catch (e) {
       if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
         try {
           const s = await api.call(API.setupStatus)
+          lastTeamDefault = s.defaultLocale ?? null
+          // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
+          useLocaleStore.getState().setLocale(pickLocale(storedLocale(), s.defaultLocale))
           set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out' } })
         } catch {
           set({ status: { kind: 'signed-out' } })
@@ -51,13 +71,56 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  signedIn(me) {
+  signedIn(me, opts) {
+    lastTeamDefault = me.team.defaultLocale
+    const picked = storedLocale()
+    if (opts?.adoptPick && pickedBeforeSignIn && picked && me.user.localeChoice === null && picked !== me.user.locale) pendingPick = picked
+    pickedBeforeSignIn = false
     applyMe(me)
     set({ status: { kind: 'signed-in', me } })
+    if (pendingPick && !me.user.mustChangePassword) {
+      const l = pendingPick
+      pendingPick = null
+      void get().setLocale(l).catch(() => {
+        /* kept on screen; Settings > Language can save it again */
+      })
+    }
   },
 
   signedOut(reason) {
+    pendingPick = null
+    pickedBeforeSignIn = false
+    // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
+    // (requests before sign-in carry the screen's language, so their errors follow too)
+    useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
     set({ status: { kind: 'signed-out', reason } })
+  },
+
+  async refreshMe() {
+    if (get().status.kind !== 'signed-in') return
+    try {
+      const me = await api.call(API.me)
+      if (get().status.kind === 'signed-in') get().signedIn(me)
+    } catch {
+      /* signed out or offline: the realtime connection reports that */
+    }
+  },
+
+  pickLocale(l) {
+    storeLocale(l)
+    const st = get().status
+    if (st.kind !== 'signed-in') {
+      pickedBeforeSignIn = true
+      useLocaleStore.getState().setLocale(l)
+      return
+    }
+    if (st.me.user.mustChangePassword) {
+      // the account cannot be changed before the password is: show it now, save it right after
+      pendingPick = l
+      useLocaleStore.getState().setLocale(l)
+      return
+    }
+    void get().setLocale(l).catch(() => {})
   },
 
   async updatePrefs(prefs) {
@@ -67,12 +130,23 @@ export const useSession = create<SessionState>((set, get) => ({
     set({ status: { kind: 'signed-in', me } })
   },
 
-  async setLocale(locale) {
-    useLocaleStore.getState().setLocale(locale)
+  async setLocale(choice) {
     const st = get().status
-    if (st.kind !== 'signed-in') return
-    const me = await api.call(API.updateMe, { body: { locale } })
-    set({ status: { kind: 'signed-in', me } })
+    if (st.kind !== 'signed-in') {
+      if (choice) useLocaleStore.getState().setLocale(choice)
+      return
+    }
+    // show it at once; the server's answer (the language it will use for this person) settles it
+    const before = useLocaleStore.getState().locale
+    useLocaleStore.getState().setLocale(choice ?? st.me.team.defaultLocale)
+    try {
+      const me = await api.call(API.updateMe, { body: { locale: choice } })
+      applyMe(me)
+      set({ status: { kind: 'signed-in', me } })
+    } catch (e) {
+      useLocaleStore.getState().setLocale(before)
+      throw e
+    }
   },
 
   async setTheme(theme) {
