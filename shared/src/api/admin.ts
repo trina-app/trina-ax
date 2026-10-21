@@ -6,7 +6,7 @@ import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, Locale, Ok, PageQuery, RelPath, Role, UserStatus, page } from './common'
 import { endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, TeamSettings, User, UserRef } from './entities'
-import { PersonName, Username } from './auth'
+import { Password, PersonName, Username } from './auth'
 
 // ---------------- users ----------------
 export const CreateUserBody = z.object({
@@ -19,8 +19,10 @@ export const CreateUserBody = z.object({
   locale: Locale.nullable().optional(),
   /** user id = personal folder name; derived from username when omitted */
   id: UserId.optional(),
+  /** the temporary password the admin hands over (the form pre-fills a memorable one); omitted = the server makes one */
+  temporaryPassword: Password.optional(),
 })
-/** The temporary password is shown once; the person must change it at first sign-in. */
+/** The temporary password is shown once; the person must change it at first sign-in (valid 7 days). */
 export const CreatedUser = z.object({ user: User, temporaryPassword: z.string() })
 export const UpdateUserBody = z.object({
   name: PersonName.optional(),
@@ -31,6 +33,8 @@ export const UpdateUserBody = z.object({
   /** a language, or null = follow the team default */
   locale: Locale.nullable().optional(),
 })
+/** omitted temporaryPassword = the server makes a memorable one */
+export const ResetPasswordBody = z.object({ temporaryPassword: Password.optional() })
 export const ResetPasswordResult = z.object({ temporaryPassword: z.string() })
 /** One-time reset link (24 h, no mail in v1: the admin hands it over). The token is shown only here. */
 export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), expiresAt: IsoTime })
@@ -145,7 +149,7 @@ export const ADMIN = {
   createUser: endpoint({ method: 'POST', path: '/api/admin/users', auth: 'admin', owner: 'A', status: 201, body: CreateUserBody, response: CreatedUser, summary: 'Add a member with a temporary password (alternative to an invite).' }),
   updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins.' }),
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'owner', owner: 'A', query: DeleteUserQuery, response: empty, status: 204, summary: 'Owner only. Remove a member: sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
-  resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', response: ResetPasswordResult, summary: 'Temporary password; the person is notified and must change it; audited.' }),
+  resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
   transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: Ok, summary: 'Make another member the owner (password re-entry); the old owner becomes admin.' }),
 

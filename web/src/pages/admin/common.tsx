@@ -63,16 +63,16 @@ export function Card({ title, actions, children, desc }: { title: ReactNode; act
 }
 
 /** Shown once (temporary passwords, invite links): copy it now, it is not shown again. */
-export function SecretBox({ label, value, note }: { label: string; value: string; note: string }) {
+export function SecretBox({ label, value, note, testId = 'secret-value' }: { label: string; value: string; note?: string; testId?: string }) {
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-medium text-muted">{label}</p>
       <div className="flex items-center gap-2 rounded-lg border border-line bg-subtle px-3 py-2">
-        <code className="min-w-0 flex-1 font-mono text-sm break-all select-all" data-testid="secret-value">
+        <code className="min-w-0 flex-1 font-mono text-sm break-all select-all" data-testid={testId}>
           {value}
         </code>
       </div>
-      <p className="text-xs text-warn">{note}</p>
+      {note && <p className="text-xs text-warn">{note}</p>}
     </div>
   )
 }

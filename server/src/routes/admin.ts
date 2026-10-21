@@ -40,7 +40,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))
     kit.handle(API.deleteUser, ({ c, params, query }) => deleteUser(c, ctx, params.id, query.personalFolder))
-    kit.handle(API.resetPassword, ({ c, params }) => resetPassword(c, ctx, params.id))
+    kit.handle(API.resetPassword, ({ c, params, body }) => resetPassword(c, ctx, params.id, body))
     kit.handle(API.createResetLink, ({ c, params, auth }) => {
       guardResetLink(c, ctx, params.id)
       return createResetLink(ctx, params.id, auth.user.id, linkBase(c, ctx))

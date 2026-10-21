@@ -1,5 +1,6 @@
 // Passwords: argon2id via Bun.password, the password policy, temporary passwords, opaque tokens.
 import crypto from 'node:crypto'
+import { memorablePassword } from '@mycel/shared'
 import { fail } from '../http/errors'
 
 /** argon2id, 64 MiB, 2 passes (Bun's defaults; OWASP minimum is 19 MiB / 2). */
@@ -41,48 +42,66 @@ export function dummyHash(): Promise<string> {
   return dummy
 }
 
-// The most common passwords of at least 10 characters (breach corpora), lower-cased. Short ones are already
-// refused by the length rule.
+// Password rule (owner decision 2026-10-21, clinic pilot): at least 8 and at most 128 characters, not the username,
+// not one of the most common passwords. No character-class or "different characters" rules: they made passwords hard
+// to choose and remember at the desks. The same rule everywhere (setup, invite, forced and settings change, reset
+// link, a temporary password an admin types, the server CLI).
+export const PASSWORD_MIN = 8
+export const PASSWORD_MAX = 128
+
+// The most common passwords of at least 8 characters (breach corpora; ko / en / id favourites), lower-cased. Shorter
+// ones are already refused by the length rule; one character repeated and plain digit runs are refused below.
 const COMMON = new Set([
-  '1234567890', '0123456789', '12345678910', '123456789a', 'a123456789', '1q2w3e4r5t', '1q2w3e4r5t6y', 'qwertyuiop',
-  'qwerty1234', 'qwerty12345', 'qwerty123456', '1qaz2wsx3edc', 'zaq12wsxcde3', 'asdfghjkl1', 'asdfghjkl;', 'password12',
-  'password123', 'password1234', 'password!', 'password1!', 'passw0rd123', 'p@ssw0rd123', 'p@ssword123', 'iloveyou12',
-  'iloveyou123', 'football123', 'baseball123', 'welcome123', 'welcome1234', 'letmein123', 'admin12345', 'admin123456',
-  'administrator', 'changeme123', 'trustno1234', 'sunshine123', 'princess123', 'monkey12345', 'dragon12345',
-  'superman123', 'starwars123', 'computer123', 'whatever123', 'abcdefghij', 'abcd123456', 'abc1234567', 'aaaaaaaaaa',
-  '1111111111', '0000000000', '1234512345', '1212121212', '9876543210', '1029384756', 'qwer1234!@', 'qwer1234!@#$',
-  'q1w2e3r4t5', 'q1w2e3r4t5y6', 'asdf1234!@', 'zxcvbnm123', 'zxcvbnm,./', 'samsung123', 'naver12345', 'kakao12345',
-  'sarang1234', 'saranghae1', 'saranghae12', 'indonesia1', 'indonesia123', 'bismillah1', 'bismillah123', 'jakarta123',
-  'teamax1234', 'teamax12345', 'mycel12345', 'treesoop123', 'company123', 'secret1234', 'default123', 'test123456',
+  'password', 'password1', 'password12', 'password123', 'password1234', 'password!', 'password1!', 'passw0rd', 'p@ssw0rd',
+  'p@ssword', 'passw0rd1', 'passw0rd123', 'p@ssw0rd123', 'p@ssword123', 'qwertyui', 'qwertyuiop', 'qwerty12', 'qwerty123',
+  'qwerty1234', 'qwerty12345', 'qwerty123456', 'qwer1234', 'qwer1234!', 'qwer1234!@', 'qwer1234!@#$', 'q1w2e3r4', 'q1w2e3r4t5',
+  'q1w2e3r4t5y6', '1q2w3e4r', '1q2w3e4r!', '1q2w3e4r5t', '1q2w3e4r5t6y', '1qaz2wsx', '1qaz2wsx3edc', 'zaq12wsx', 'zaq12wsxcde3',
+  'asdfghjk', 'asdfghjkl', 'asdfghjkl1', 'asdfghjkl;', 'asdf1234', 'asdf1234!', 'asdf1234!@', 'zxcvbnm1', 'zxcvbnm123',
+  'zxcvbnm,./', 'abcd1234', 'abcd12345', 'abcd123456', 'abc12345', 'abc123456', 'abc1234567', 'abcdefgh', 'abcdefghi',
+  'abcdefghij', 'a1234567', 'a12345678', 'a123456789', '1234567a', '12345678a', '123456789a', '1234qwer', '1234asdf',
+  'iloveyou', 'iloveyou1', 'iloveyou12', 'iloveyou123', 'sunshine', 'sunshine1', 'sunshine123', 'princess', 'princess1',
+  'princess123', 'football', 'football1', 'football123', 'baseball', 'baseball1', 'baseball123', 'welcome1', 'welcome12',
+  'welcome123', 'welcome1234', 'letmein1', 'letmein12', 'letmein123', 'admin123', 'admin1234', 'admin12345', 'admin123456',
+  'administrator', 'changeme', 'changeme1', 'changeme123', 'trustno1', 'trustno1234', 'monkey123', 'monkey12345',
+  'dragon123', 'dragon12345', 'superman', 'superman1', 'superman123', 'starwars', 'starwars1', 'starwars123', 'computer',
+  'computer1', 'computer123', 'whatever', 'whatever1', 'whatever123', 'michael1', 'jennifer', 'charlie1', 'internet',
+  'samsung1', 'samsung123', 'naver123', 'naver1234', 'naver12345', 'kakao123', 'kakao1234', 'kakao12345', 'sarang12',
+  'sarang123', 'sarang1234', 'saranghae', 'saranghae1', 'saranghae12', 'indonesia', 'indonesia1', 'indonesia123',
+  'bismillah', 'bismillah1', 'bismillah123', 'jakarta1', 'jakarta123', 'teamax12', 'teamax123', 'teamax1234',
+  'teamax12345', 'mycel123', 'mycel12345', 'treesoop', 'treesoop1', 'treesoop123', 'company1', 'company123', 'secret12',
+  'secret123', 'secret1234', 'default1', 'default123', 'test1234', 'test12345', 'test123456', 'dentist1', 'dentist123',
+  'clinic123', 'exampleteam123', 'exampleteam1234', '12341234', '11223344', '12121212', '1212121212', '1234512345', '1029384756',
+  '147258369', '159753456', '123123123', '123321123', '12344321', '123qweasd', 'qweasdzxc', 'qweasd123', 'q1w2e3r4!',
 ])
+
+/** Digits counting up or down (12345678, 98765432, 23456789, 0123456789...). */
+function digitRun(pw: string): boolean {
+  if (!/^\d+$/.test(pw)) return false
+  let up = true
+  let down = true
+  for (let i = 1; i < pw.length; i++) {
+    const d = (Number(pw[i]) - Number(pw[i - 1]) + 10) % 10
+    if (d !== 1) up = false
+    if (d !== 9) down = false
+  }
+  return up || down
+}
 
 export interface PolicyContext { username?: string | null; name?: string | null }
 
 /** null when acceptable; otherwise a short English reason (shown in `fields`, the message is localized). */
 export function passwordProblem(pw: string, ctx: PolicyContext = {}): string | null {
-  if (pw.length < 10) return 'at least 10 characters'
-  if (pw.length > 256) return 'at most 256 characters'
+  if ([...pw].length < PASSWORD_MIN) return 'at least 8 characters'
+  if (pw.length > PASSWORD_MAX) return 'at most 128 characters'
   const lower = pw.toLowerCase()
-  if (COMMON.has(lower)) return 'this password is too common'
-  if (new Set(pw).size < 4) return 'use more different characters'
-  if (/^(.{1,4})\1+$/.test(pw)) return 'avoid repeated patterns'
-  const u = ctx.username?.toLowerCase()
-  if (u && u.length >= 3 && lower.includes(u)) return 'must not contain the username'
+  if (COMMON.has(lower) || new Set(pw).size === 1 || digitRun(pw)) return 'this password is too common'
+  const u = ctx.username?.trim().toLowerCase()
+  if (u && lower === u) return 'must not be the username'
   return null
 }
 
-// No 0/O, 1/l/I: readable when handed over by voice or on paper.
-const ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-/** e.g. "Hk7q-mW3x-Pz9a-T4cb" (4 x 4 characters, ~22 bits each group). */
-export function temporaryPassword(): string {
-  const groups: string[] = []
-  for (let g = 0; g < 4; g++) {
-    let s = ''
-    for (let i = 0; i < 4; i++) s += ALPHABET[crypto.randomInt(ALPHABET.length)]
-    groups.push(s)
-  }
-  return groups.join('-')
-}
+/** A memorable temporary password, e.g. "tiger427" (shared/src/temp-password.ts: word + digits, ~20 bits). */
+export const temporaryPassword = (): string => memorablePassword(crypto.randomInt)
 
 /** Opaque bearer secret (session, invite, reset): 32 random bytes, base64url. Only its hash is stored. */
 export const newToken = (): string => crypto.randomBytes(32).toString('base64url')

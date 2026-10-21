@@ -137,7 +137,7 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 hidden when the token is in the URL. "Create your team" asks for:
 - Team name.
 - **Team language**: English (default), 한국어 or Bahasa Indonesia. Picking one also switches the screen.
-- The owner's name, username (letters, digits and `. _ @ -`, 2–64 characters), password (at least 10
+- The owner's name, username (letters, digits and `. _ @ -`, 2–64 characters), password (at least 8
   characters) and **Confirm password**.
 
 Click **Create team and start**. `127.0.0.1` and `localhost` are separate cookie origins, so keep using
@@ -534,8 +534,8 @@ another office computer), clicking through the certificate warning, and signing 
 different origin from `127.0.0.1:47820`. Check: the member shows up in Admin → Members & invites once they join.
 
 Alternatives:
-- **Add directly**: set a temporary password, which the member must change at first sign-in.
-- **Reset password** (key icon): a temporary password the member must change at their next sign-in.
+- **Add directly**: the temporary password field comes pre-filled with an easy one (a word and digits, e.g. `tiger427`); keep it or type your own (8+ characters). At first sign-in the member only chooses a new password (the temporary one is not asked again); a temporary password stops working after 7 days.
+- **Reset password** (key icon): a new temporary password (pre-filled, editable) the member must change at their next sign-in.
 - **Reset link** (person-with-key icon): a one-time link, valid for 24 hours, that you copy and hand over (no email).
   The member opens it and picks a new password, which signs them out everywhere else. A new link cancels the old
   one. The owner's own password is reset only on the server Mac (`bun run dev admin reset-link` in dev).
