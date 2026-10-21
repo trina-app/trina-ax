@@ -95,7 +95,7 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
 }
 
 type T3 = Record<Locale, string>
-const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini' }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini' } }
+export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini' }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini' } }
 
 /** When the period of a budget starts again (server-local midnight / the 1st). */
 export function periodEnd(period: Budget['period'], now = new Date()): Date {

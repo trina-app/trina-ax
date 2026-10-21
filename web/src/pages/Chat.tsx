@@ -68,12 +68,16 @@ function ChatView({ chatId }: { chatId: string }) {
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
 
   // screen readers: "answer in progress" → "answer done", never the streaming text itself
-  const wasRunning = useRef(false)
+  const wasRunning = useRef<string | null>(null)
   useEffect(() => {
     if (running && !wasRunning.current) announce(t('chat.answering'))
-    if (!running && wasRunning.current) announce(t('chat.answerDone'))
-    wasRunning.current = !!running
-  }, [running, announce, t])
+    if (!running && wasRunning.current) {
+      // how the answer ended: a failed or stopped answer is not "complete"
+      const ended = messages.find((m) => m.id === wasRunning.current)?.status
+      announce(t(ended === 'error' ? 'chat.answerFailed' : ended === 'stopped' ? 'chat.stopped' : 'chat.answerDone'))
+    }
+    wasRunning.current = running?.id ?? null
+  }, [running, messages, announce, t])
 
   // keep following the answer while the reader is at the bottom
   const last = messages.at(-1)

@@ -1,10 +1,11 @@
 // Team AX service worker (tab 5 PWA): caches only hashed static files (/assets/*, /vendor/chunk-*). index.html, /api
-// and the WebSocket always go to the network; when the network is down, page loads get a small offline page.
+// and the WebSocket always go to the network; when the network is down, page loads get a small offline page (English:
+// the worker cannot know the person's language, and English is the default, docs/DECISIONS.md "언어").
 const CACHE = 'mycel-static-v1'
-const OFFLINE_HTML = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Team AX</title>
+const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Team AX</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",system-ui,sans-serif;background:#faf9f6;color:#1f1d1a;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}
 @media (prefers-color-scheme:dark){body{background:#1b1a18;color:#ece9e3}}button{margin-top:16px;padding:8px 16px;border-radius:8px;border:0;background:#2c6a59;color:#fff;font-size:15px}</style></head>
-<body><main><h1 style="font-size:20px">팀 서버에 연결할 수 없어요</h1><p>Can't reach the team server · Server tim tidak bisa dihubungi</p><button onclick="location.reload()">다시 시도 · Retry · Coba lagi</button></main></body></html>`
+<body><main><h1 style="font-size:20px">Can't reach the team server</h1><p>Check your internet connection and try again.</p><button onclick="location.reload()">Retry</button></main></body></html>`
 
 self.addEventListener('install', () => self.skipWaiting())
 

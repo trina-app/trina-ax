@@ -26,7 +26,7 @@ export class JobFailure extends Error {
 const SINGLE: ReadonlySet<JobKind> = new Set(['transcribe', 'backup', 'restore', 'update', 'export'])
 export const JOB_KEEP_MS = 7 * 86_400_000
 const PROGRESS_EVERY_MS = 500
-const INTERRUPTED: Record<Locale, string> = {
+export const INTERRUPTED: Record<Locale, string> = {
   ko: '서버가 다시 시작되어 작업이 중단되었습니다. 다시 시도해 주세요.',
   en: 'The server restarted and the job was interrupted. Please try again.',
   id: 'Server dimulai ulang dan pekerjaan terhenti. Silakan coba lagi.',

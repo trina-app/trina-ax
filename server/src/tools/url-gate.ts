@@ -95,7 +95,7 @@ export function rememberUrls(db: Database, chatId: string, urls: Iterable<string
   })()
 }
 
-const TEXT = {
+export const TEXT = {
   unseen: {
     ko: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The AI wants to open an address that did not appear in this conversation. An address can carry data out, so check the whole address:\n\n{url}',

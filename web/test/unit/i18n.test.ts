@@ -4,10 +4,11 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LOCALE } from '@mycel/shared/api'
-import { DICTS, format, LOCALES, pickLocale, translate } from '../../src/i18n'
+import { localizeStep } from '@mycel/shared'
+import { DICTS, format, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
 import { ko } from '../../src/i18n/ko'
 
-const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort()
+const placeholders = (s: string) => placeholdersOf(s)
 
 describe('translations', () => {
   test('every language has exactly the Korean keys', () => {
@@ -52,9 +53,37 @@ describe('translations', () => {
     // pickers: English first, each language in its own language
     expect(LOCALES).toEqual([{ id: 'en', label: 'English' }, { id: 'ko', label: '한국어' }, { id: 'id', label: 'Bahasa Indonesia' }])
   })
+  test('English counts take the singular or the plural form', () => {
+    expect(translate('en', 'steps.summary', { n: 1 })).toBe('1 step')
+    expect(translate('en', 'steps.summary', { n: 3 })).toBe('3 steps')
+    expect(translate('en', 'files.summary.conflicts', { n: 1 })).toBe('1 conflict copy')
+    expect(translate('en', 'members.days', { n: 1 })).toBe('1 day')
+    expect(translate('en', 'rules.losingLine', { name: 'Lee', paths: 'a/', n: 1 })).toBe('Lee: a/ (1 chat continues without what the AI read there before)')
+    expect(translate('ko', 'steps.summary', { n: 1 })).toContain('1')
+    expect(placeholdersOf('{n, plural, one {# day} other {# days}} {x}')).toEqual(['n', 'x'])
+    // "1 steps" style texts: a count right before an English plural noun must use the plural form
+    for (const [k, v] of Object.entries(DICTS.en)) expect({ k, bare: /\{n\} \w+s\b/.test(v) }).toEqual({ k, bare: false })
+  })
+  test('steps of older answers follow the language on screen', () => {
+    expect(localizeStep({ kind: 'tool', tool: 'read', label: 'Read · shared/fruit.md' }, 'ko').label).toBe('파일 읽기 · shared/fruit.md')
+    expect(localizeStep({ kind: 'tool', tool: 'remember', label: '기억함: I prefer short answers.' }, 'en').label).toBe('Remembered: I prefer short answers.')
+    expect(localizeStep({ kind: 'ask_user', tool: 'ask_user', label: 'Question: Which fruit?', detail: 'Not answered' }, 'ko')).toEqual({ label: '질문: Which fruit?', detail: '답하지 않음' })
+    expect(localizeStep({ kind: 'thinking', label: '생각하는 중' }, 'id').label).toBe('Berpikir')
+    expect(localizeStep({ kind: 'browser', tool: 'navigate', label: '페이지 열기 · https://a.example' }, 'en').label).toBe('Open page · https://a.example')
+    expect(localizeStep({ kind: 'web_search', tool: 'WebSearch', label: 'Cari di web: durian' }, 'en').label).toBe('Web search: durian')
+    // a label that is not ours stays as it is
+    expect(localizeStep({ kind: 'tool', tool: 'mystery', label: 'Something else' }, 'ko').label).toBe('Something else')
+  })
   test('English and Indonesian texts have no Korean left in them', () => {
     for (const loc of ['en', 'id'] as const) {
       for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, korean: HANGUL.test(v) }).toEqual({ loc, k, korean: false })
+    }
+  })
+  test('pages outside src (index.html, the offline page of the service worker) are English', () => {
+    const root = path.resolve(import.meta.dir, '../..')
+    for (const f of ['index.html', ...fs.readdirSync(path.join(root, 'public')).filter((x) => /\.(js|html)$/.test(x)).map((x) => `public/${x}`)]) {
+      const text = stripComments(fs.readFileSync(path.join(root, f), 'utf8'))
+      expect({ f, korean: HANGUL.test(text), lang: /<html lang="(?!en")/.test(text) }).toEqual({ f, korean: false, lang: false })
     }
   })
   test('no Korean screen text outside the Korean dictionary (comments aside)', () => {

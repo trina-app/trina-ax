@@ -89,7 +89,7 @@ export function fileEvent(db: Database, e: { turnId: string | null; userId: stri
 }
 
 /** Words of the conflict copy name per language (the web's file list recognises all three: web/src/lib/paths.ts). */
-const CONFLICT_COPY: Record<Locale, string> = { ko: '충돌 사본', en: 'conflict copy', id: 'salinan konflik' }
+export const CONFLICT_COPY: Record<Locale, string> = { ko: '충돌 사본', en: 'conflict copy', id: 'salinan konflik' }
 
 /** "name (conflict copy - person date time).ext" next to the original (design tab 2 "동시 수정"), in the team's
  * default language (the file is shared, so not in one person's language). */

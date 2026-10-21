@@ -165,7 +165,7 @@ export function freeName(dirAbs: string, name: string, folder = false): string {
   throw new ToolError('no free name', 'conflict')
 }
 
-const RESTORED: Record<Locale, string> = { ko: '복원됨', en: 'restored', id: 'dipulihkan' }
+export const RESTORED: Record<Locale, string> = { ko: '복원됨', en: 'restored', id: 'dipulihkan' }
 
 /** "report (restored).md", then "report (restored 2).md" ... in the team's default language ("보고서 (복원됨).md"). */
 export function restoredName(dirAbs: string, name: string, folder = false, locale: Locale = DEFAULT_LOCALE): string {

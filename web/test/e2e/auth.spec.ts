@@ -148,3 +148,62 @@ test('personal setting: team default, an own language, back to the team default;
   await page.goto('/settings/profile')
   await expect(page.getByTestId('locale-team')).toHaveText('Bawaan tim (Bahasa Indonesia)')
 })
+
+test('a language picked before sign-in becomes the account’s own, also through the forced password change', async ({ page }) => {
+  // bob follows the English team default and signs in with a temporary password
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, mustChange: 'bob' })
+  await page.goto('/login')
+  await page.getByTestId('auth-locale').selectOption('ko')
+  await page.getByTestId('login-username').fill('bob')
+  await page.getByTestId('login-password').fill('bob password 1')
+  await page.getByTestId('login-submit').click()
+  // the next screen keeps the pick (the account can only be changed once the password is)
+  await expect(page).toHaveURL(/\/password/)
+  await expect(page.getByRole('heading', { name: '비밀번호 바꾸기' })).toBeVisible()
+  await expect(page.getByTestId('auth-locale')).toHaveValue('ko')
+  await page.getByLabel('임시 비밀번호').fill('bob password 1')
+  await page.getByLabel('새 비밀번호').fill('a brand new password 2')
+  await page.getByLabel('비밀번호 확인').fill('a brand new password 2')
+  await page.getByRole('button', { name: '비밀번호 바꾸기' }).click()
+  await expect(page.getByRole('heading', { name: 'Bob님, 무엇을 도와드릴까요?' })).toBeVisible()
+  // saved to the account: it survives a reload and shows as bob's own choice
+  await page.goto('/settings/profile')
+  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+})
+
+test('an error on the sign-in page follows a language switch; signing out shows the team default again', async ({ page }) => {
+  // olga has her own language (Korean); the team default is English
+  await reset(page, { teamLocale: 'en' })
+  await page.goto('/login')
+  await page.getByTestId('login-username').fill(OWNER.username)
+  await page.getByTestId('login-password').fill('nope')
+  await page.getByTestId('login-submit').click()
+  await expect(page.getByRole('alert')).toHaveText('Wrong username or password.')
+  // the server's sentence can't be redrawn in Korean: it goes instead of staying in English
+  await page.getByTestId('auth-locale').selectOption('ko')
+  await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  // back to English for this browser, then sign in: olga's own Korean wins
+  await page.getByTestId('auth-locale').selectOption('en')
+  await page.getByTestId('login-password').fill(OWNER.password)
+  await page.getByTestId('login-submit').click()
+  await expect(page.getByRole('button', { name: '새 채팅' })).toBeVisible()
+  // signed out, the sign-in page is in this browser's pick (English), not olga's language
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('logout').click()
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+})
+
+test('open windows of people who follow the team switch when an admin changes the team default', async ({ page, context }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  const other = await context.newPage()
+  await other.goto('/settings/profile')
+  await expect(other.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  await page.goto('/admin/settings')
+  await page.getByTestId('team-default-locale').selectOption('ko')
+  await page.getByRole('button', { name: 'Save' }).click()
+  // the other window was not reloaded
+  await expect(other.getByRole('heading', { name: '설정' })).toBeVisible()
+  await expect(other.getByTestId('locale-team')).toHaveText('팀 기본값 (한국어)')
+})

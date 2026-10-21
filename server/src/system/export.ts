@@ -45,7 +45,7 @@ export function chatPath(rows: MsgRow[], activeLeaf: string | null): MsgRow[] {
   return [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at))
 }
 
-const MD_WORDS: Record<Locale, { untitled: string; user: string }> = {
+export const MD_WORDS: Record<Locale, { untitled: string; user: string }> = {
   ko: { untitled: '(제목 없음)', user: '사용자' },
   en: { untitled: '(untitled)', user: 'User' },
   id: { untitled: '(tanpa judul)', user: 'Pengguna' },

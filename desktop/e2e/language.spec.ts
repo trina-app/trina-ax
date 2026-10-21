@@ -6,6 +6,9 @@ import { ACME, bindWindow, chrome, close, launch, newUserData, teamPage, welcome
 
 const menuLabels = (app: Awaited<ReturnType<typeof launch>>) =>
   app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.map((i) => i.label) ?? [])
+/** every item of every menu (the standard Undo / Copy / Minimize ones too) */
+const allMenuItems = (app: Awaited<ReturnType<typeof launch>>) =>
+  app.evaluate(({ Menu }) => (Menu.getApplicationMenu()?.items ?? []).flatMap((m) => (m.submenu?.items ?? []).filter((i) => i.type !== 'separator').map((i) => i.label)))
 
 test('fresh install on a Korean system: English; a pick on the team list applies at once and survives a restart', async () => {
   const data = newUserData(null)
@@ -23,6 +26,11 @@ test('fresh install on a Korean system: English; a pick on the team list applies
     await expect(w.getByRole('heading', { name: 'Masukkan alamat tim' })).toBeVisible()
     await expect(w.locator('#address')).toHaveValue('acme.local')
     await expect.poll(() => menuLabels(app)).toContain('Tampilan')
+    // the standard items carry the app's language, not the system's (no "Undo" next to "Tampilan")
+    const items = await allMenuItems(app)
+    expect(items).toEqual(expect.arrayContaining(['Urungkan', 'Salin', 'Tempel', 'Minimalkan', 'Perbesar']))
+    expect(items).not.toContain('Undo')
+    expect(items).not.toContain('Copy')
   } finally {
     await close(app)
   }
@@ -47,6 +55,7 @@ test('the team page reports its language: menus, pane toolbar and team list foll
     // what the web app does whenever its language changes (web/src/i18n/index.ts)
     await page.evaluate(() => (window as any).mycelDesktop.setLocale('ko'))
     await expect.poll(() => menuLabels(app)).toContain('팀')
+    expect(await allMenuItems(app)).toEqual(expect.arrayContaining(['실행 취소', '복사하기', '붙여넣기', '최소화']))
     await expect(c.locator('html')).toHaveAttribute('lang', 'ko')
     await expect(c.getByRole('button', { name: '새 탭' })).toHaveCount(1)
     // nonsense is ignored

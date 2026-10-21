@@ -1,7 +1,7 @@
-// User-facing texts of the chat runtime (ko, en, id; English when a language is missing): answer errors, step labels,
-// confirmation cards.
+// User-facing texts of the chat runtime (ko, en, id; English when a language is missing): answer errors, step labels
+// (shared with the web app: shared/src/step-labels.ts), confirmation cards.
 import type { ApiErrorBody, ErrorCode, Locale } from '@mycel/shared/api'
-import type { EngineErrorCode } from '@mycel/shared'
+import { STEP_TEXT, type EngineErrorCode } from '@mycel/shared'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string): T => ({ ko, en, id })
@@ -30,15 +30,15 @@ export const TEXT = {
   errUserDisabled: t('계정을 사용할 수 없습니다.', 'This account is not active.', 'Akun ini tidak aktif.'),
 
   // steps
-  refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})'),
+  refusedRetry: STEP_TEXT.refusedRetry,
   rememberConfirm: t('AI가 다음 내용을 기억하려고 합니다. 기억할까요?\n\n{text}', 'The AI wants to remember this about you. OK?\n\n{text}', 'AI ingin mengingat hal ini tentang Anda. Boleh?\n\n{text}'),
   yes: t('기억하기', 'Remember', 'Ingat'),
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat'),
-  remembered: t('기억함: {text}', 'Remembered: {text}', 'Diingat: {text}'),
-  notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}'),
-  forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus'),
-  asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}'),
-  notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab'),
+  remembered: STEP_TEXT.remembered,
+  notRemembered: STEP_TEXT.notRemembered,
+  forgot: STEP_TEXT.forgot,
+  asked: STEP_TEXT.asked,
+  notAnswered: STEP_TEXT.notAnswered,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?'),
   widenConfirm: t('AI가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 합니다. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
     'The AI read content fewer people can see ({sources}) and now wants to save to {target}, which {n} people can see. Save it?',
@@ -47,8 +47,8 @@ export const TEXT = {
   widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan'),
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi'),
   scopeRoot: t('팀 폴더 맨 위', 'the top of the team folder', 'bagian atas folder tim'),
-  webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}'),
-  thinking: t('생각하는 중', 'Thinking', 'Berpikir'),
+  webSearch: STEP_TEXT.webSearch,
+  thinking: STEP_TEXT.thinking,
 } satisfies Record<string, T>
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
@@ -75,63 +75,6 @@ export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_miss
   return { code: c, message: tr(k, locale), ...(retryAfter !== undefined ? { retryAfter } : {}) }
 }
 
-/** Short human label of a tool step ("grep "invoice" · finance/"). Never the raw input. */
-const FILE_VERB: Record<string, T> = {
-  list: t('폴더 보기', 'List', 'Lihat folder'),
-  glob: t('파일 찾기', 'Find files', 'Cari berkas'),
-  grep: t('내용 검색', 'Search', 'Cari isi'),
-  read: t('파일 읽기', 'Read', 'Baca berkas'),
-  write: t('파일 저장', 'Save', 'Simpan berkas'),
-  edit: t('파일 수정', 'Edit', 'Ubah berkas'),
-  make_file: t('파일 만들기', 'Make file', 'Buat berkas'),
-  share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas'),
-  artifact: t('아티팩트', 'Artifact', 'Artefak'),
-  web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman'),
-  ask_user: t('질문', 'Question', 'Pertanyaan'),
-  remember: t('기억하기', 'Remember', 'Ingat'),
-  forget: t('기억 지우기', 'Forget', 'Lupakan'),
-}
-const BROWSER_VERB: Record<string, T> = {
-  preview_start: t('브라우저 열기', 'Open browser', 'Buka browser'),
-  navigate: t('페이지 열기', 'Open page', 'Buka halaman'),
-  read_page: t('페이지 읽기', 'Read page', 'Baca halaman'),
-  get_page_text: t('페이지 읽기', 'Read page', 'Baca halaman'),
-  find: t('페이지에서 찾기', 'Find on page', 'Cari di halaman'),
-  computer: t('브라우저 조작', 'Use browser', 'Operasikan browser'),
-  form_input: t('양식 채우기', 'Fill form', 'Isi formulir'),
-  javascript_tool: t('페이지 스크립트 실행', 'Run page script', 'Jalankan skrip halaman'),
-  browser_batch: t('브라우저 여러 단계', 'Browser steps', 'Beberapa langkah browser'),
-  resize_window: t('화면 크기 바꾸기', 'Resize', 'Ubah ukuran'),
-  read_console_messages: t('콘솔 보기', 'Read console', 'Baca konsol'),
-  read_network_requests: t('네트워크 보기', 'Read network', 'Baca jaringan'),
-  tabs_context: t('탭 보기', 'List tabs', 'Lihat tab'),
-  tabs_create: t('새 탭', 'New tab', 'Tab baru'),
-  tabs_select: t('탭 바꾸기', 'Switch tab', 'Ganti tab'),
-  tabs_close: t('탭 닫기', 'Close tab', 'Tutup tab'),
-}
-
-const clip = (s: unknown, n = 80) => { const v = String(s ?? '').replace(/\s+/g, ' ').trim(); return v.length > n ? v.slice(0, n - 1) + '…' : v }
-
-export function stepLabel(tool: string, input: unknown, locale: Locale, browserTools: ReadonlySet<string>): string {
-  const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
-  if (browserTools.has(tool)) {
-    const verb = (BROWSER_VERB[tool] ?? t('브라우저', 'Browser', 'Browser'))[locale]
-    const url = typeof a.url === 'string' ? ` · ${clip(a.url, 60)}` : ''
-    return verb + url
-  }
-  const verb = FILE_VERB[tool]?.[locale]
-  switch (tool) {
-    case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
-    case 'glob': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
-    case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
-    case 'read': case 'write': case 'edit': return `${verb} · ${clip(a.file_path, 90)}`
-    case 'make_file': return `${verb} · ${clip(a.output, 90)}`
-    case 'share_file': return `${verb} · ${clip(a.path, 90)}`
-    case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
-    case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
-    case 'ask_user': return tr('asked', locale, { q: clip(a.question, 120) })
-    case 'remember': return tr('remembered', locale, { text: clip(a.text, 120) })
-    case 'forget': return tr('forgot', locale)
-    default: return verb ?? tool
-  }
-}
+/** Short human label of a tool step ("Search "invoice" · finance/"). Never the raw input. The words live in
+ * shared/src/step-labels.ts, where the web app reads them to redraw old steps in the language on screen. */
+export { stepLabel } from '@mycel/shared'

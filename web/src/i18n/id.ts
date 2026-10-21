@@ -600,6 +600,7 @@ export const id: Record<MessageKey, string> = {
   'audit.kind': 'Jenis',
   'audit.all': 'Semua',
   'audit.actor': 'Siapa',
+  'audit.system': 'Sistem',
   'audit.everyone': 'Semua orang',
   'audit.path': 'Path',
   'audit.none': 'Tidak ada yang cocok.',

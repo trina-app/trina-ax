@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test'
 
 export const OWNER = { username: 'olga', password: 'correct horse battery' }
 
-export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' | 'en' | 'id'; usersFollowTeam?: boolean } = {}) {
+export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' | 'en' | 'id'; usersFollowTeam?: boolean; mustChange?: string } = {}) {
   const r = await page.request.post('/__test/reset', { data: o })
   expect(r.ok()).toBeTruthy()
 }

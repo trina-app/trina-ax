@@ -46,7 +46,7 @@ export async function runCli(cmd: string, args: string[], o: { timeoutMs?: numbe
   return { code: timedOut ? null : code, stdout, stderr, timedOut }
 }
 
-const T: Record<string, Record<Locale, string>> = {
+export const T: Record<string, Record<Locale, string>> = {
   notInstalled: { ko: '서버 맥에 설치되어 있지 않습니다.', en: 'Not installed on the server Mac.', id: 'Belum terpasang di Mac server.' },
   claudeLogin: { ko: '서버 맥에서 owner가 `claude`를 실행해 로그인해야 합니다.', en: 'The owner must sign in by running `claude` on the server Mac.', id: 'Owner harus masuk dengan menjalankan `claude` di Mac server.' },
   codexLogin: { ko: '서버 맥에서 owner가 `codex login`으로 로그인해야 합니다.', en: 'The owner must sign in with `codex login` on the server Mac.', id: 'Owner harus masuk dengan `codex login` di Mac server.' },

@@ -4,10 +4,10 @@
 import { KeyRound, Link2, Plus, QrCode as QrIcon, Trash2, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import type { z } from 'zod'
-import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Role, User } from '@mycel/shared/api'
+import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
-import { useLocale, useT } from '../../i18n'
+import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
@@ -363,6 +363,9 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
   const [name, setName] = useState(user.name)
   const [role, setRole] = useState<MemberRole>(user.role === 'owner' ? 'admin' : user.role)
   const [groupIds, setGroupIds] = useState(user.groupIds)
+  // '' = follows the team default (null on the wire)
+  const [language, setLanguage] = useState<Locale | ''>(user.localeChoice ?? '')
+  const teamDefault = useMeStrict().team.defaultLocale
   const [busy, setBusy] = useState(false)
   return (
     <Modal
@@ -379,7 +382,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
             busy={busy}
             onClick={async () => {
               setBusy(true)
-              const r = await act(() => api.call(API.updateUser, { params: { id: user.id }, body: { name: name.trim(), groupIds, ...(canChangeRole ? { role } : {}) } }))
+              const r = await act(() => api.call(API.updateUser, { params: { id: user.id }, body: { name: name.trim(), groupIds, ...(canChangeRole ? { role } : {}), ...(language !== (user.localeChoice ?? '') ? { locale: language || null } : {}) } }))
               setBusy(false)
               if (r) onSaved()
             }}
@@ -395,6 +398,16 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
         </Field>
         <Field label={t('members.role')} hint={canChangeRole ? undefined : t('members.ownerChangesAdmins')}>
           <RoleSelect value={role} onChange={setRole} disabled={!canChangeRole} />
+        </Field>
+        <Field label={t('settings.language')}>
+          <select className={inputCls} value={language} onChange={(e) => setLanguage(e.target.value as Locale | '')} data-testid="member-locale">
+            <option value="">{t('settings.languageTeam', { language: LOCALES.find((l) => l.id === teamDefault)?.label ?? teamDefault })}</option>
+            {LOCALES.map((l) => (
+              <option key={l.id} value={l.id} lang={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
         </Field>
         <div>
           <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>

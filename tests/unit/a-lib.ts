@@ -32,7 +32,8 @@ export interface RecordedEvent { kind: 'publish' | 'disconnectUser' | 'disconnec
 export class RecordingHub implements RealtimeHub {
   events: RecordedEvent[] = []
   publish(userId: string, ev: unknown) { this.events.push({ kind: 'publish', target: userId, data: ev }) }
-  publishEach() {}
+  /** recorded once, as sent to everyone ('*') */
+  publishEach(build: (userId: string) => unknown) { const ev = build('*'); if (ev) this.events.push({ kind: 'publish', target: '*', data: ev }) }
   disconnectUser(userId: string, reason: string) { this.events.push({ kind: 'disconnectUser', target: userId, data: reason }) }
   disconnectSession(sessionId: string, reason: string) { this.events.push({ kind: 'disconnectSession', target: sessionId, data: reason }) }
   async attach(conn: RealtimeConn) { conn.close(1012, 'not in tests') }

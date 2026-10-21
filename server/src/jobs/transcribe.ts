@@ -59,7 +59,7 @@ export function transcribeConfig(dataDir: string, env: Record<string, string | u
   }
 }
 
-const LABELS = {
+export const LABELS = {
   model: { ko: (mb: number) => `음성 인식 모델 내려받는 중 (${mb} MB, 처음 한 번만)`, en: (mb: number) => `Downloading the speech model (${mb} MB, first time only)`, id: (mb: number) => `Mengunduh model suara (${mb} MB, hanya sekali)` },
   convert: { ko: '오디오 변환 중', en: 'Converting audio', id: 'Mengonversi audio' },
   run: { ko: '받아쓰는 중', en: 'Transcribing', id: 'Mentranskripsi' },

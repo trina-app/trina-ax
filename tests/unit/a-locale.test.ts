@@ -81,8 +81,12 @@ describe('own choice, team default and followers', () => {
     expect((await ben.call('GET', '/api/me')).user).toMatchObject({ locale: 'ko', localeChoice: null })
 
     // the owner (follower) changes the team default: followers move, people with a choice stay
+    h.hub.events = []
     const s = await o.call('PATCH', '/api/admin/settings', { defaultLocale: 'id' })
     expect(s.defaultLocale).toBe('id')
+    // every open window asks for its language again (no reload)
+    const changed = (target: string) => h.hub.events.some((e) => e.kind === 'publish' && e.target === target && (e.data as any).data.code === 'locale_changed')
+    expect(changed('*')).toBe(true)
     expect((await o.call('GET', '/api/me')).user).toMatchObject({ locale: 'id', localeChoice: null })
     expect((await bob.client.call('GET', '/api/me')).user.locale).toBe('id')
     expect((await ben.call('GET', '/api/me')).user.locale).toBe('id')
@@ -99,9 +103,15 @@ describe('own choice, team default and followers', () => {
     await o.call('PATCH', '/api/admin/settings', { defaultLocale: 'ko' })
     expect((await bob.client.call('GET', '/api/me')).user.locale).toBe('en')
     expect((await bob.client.call('PATCH', '/api/me', { locale: null })).user).toMatchObject({ locale: 'ko', localeChoice: null })
-    // an admin can set or clear someone's language too
+    // an admin can set or clear someone's language too (their open windows switch)
     const erin = users.find((u: any) => u.username === 'erin')
+    h.hub.events = []
     expect(await o.call('PATCH', `/api/admin/users/${erin.id}`, { locale: null })).toMatchObject({ locale: 'ko', localeChoice: null })
+    expect(changed(erin.id)).toBe(true)
+    // other settings do not ask anyone to reload their language
+    h.hub.events = []
+    await o.call('PATCH', '/api/admin/settings', { concurrency: 2 })
+    expect(changed('*')).toBe(false)
     expect(await o.call('PATCH', `/api/admin/users/${erin.id}`, { locale: 'en' })).toMatchObject({ locale: 'en', localeChoice: 'en' })
     // the stored rows: flag and the mirrored language
     const rows = h.ctx.db.query('SELECT username, locale, locale_follows_team AS f FROM users ORDER BY username').all()

@@ -17,7 +17,7 @@ import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser,
 import { audit } from './audit'
 import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
-import { getTeamSettings } from './settings'
+import { getTeamSettings, LOCALE_CHANGED } from './settings'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -106,6 +106,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     }
     if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'user.update', target: id, detail: changed })
   })()
+  // the person's open windows ask for their language again (GET /api/me) and switch without a reload
+  if (changed.locale !== undefined) ctx.services.realtime.publish(id, LOCALE_CHANGED)
   if (changed.status === 'disabled') {
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
@@ -125,7 +127,7 @@ export function revokeInvitesBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE invites SET revoked_at = ? WHERE created_by = ? AND used_at IS NULL AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
-const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
+export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the

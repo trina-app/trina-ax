@@ -50,6 +50,12 @@ export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>):
   return getTeamSettings(db)
 }
 
+/**
+ * Realtime notice: the language someone sees may have changed (team default, an admin's edit, the person in another
+ * window). Open windows ask GET /api/me again and switch without a reload; the message carries nothing.
+ */
+export const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
+
 /** The team default language alone (cheap: read for every request without a session). */
 export function teamDefaultLocale(db: Database): Locale {
   const v = Locale.safeParse(getSetting(db, 'defaultLocale'))

@@ -192,25 +192,36 @@ function buildMenu() {
   }))
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin'
-      ? [{ label: PRODUCT.displayName, submenu: [{ role: 'about' as const, label: tr('menu.about') }, { type: 'separator' as const }, { role: 'hide' as const }, { role: 'hideOthers' as const }, { role: 'unhide' as const }, { type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit') }] }]
+      ? [{ label: PRODUCT.displayName, submenu: [{ role: 'about' as const, label: tr('menu.about') }, { type: 'separator' as const }, { role: 'hide' as const, label: tr('menu.hide') }, { role: 'hideOthers' as const, label: tr('menu.hideOthers') }, { role: 'unhide' as const, label: tr('menu.showAll') }, { type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit') }] }]
       : []),
-    { label: tr('menu.edit'), submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    // every item carries its label from the app's own strings: a role's default label follows the OS language,
+    // which would mix two languages in one menu (docs/DECISIONS.md "언어")
+    { label: tr('menu.edit'), submenu: [{ role: 'undo', label: tr('menu.undo') }, { role: 'redo', label: tr('menu.redo') }, { type: 'separator' }, { role: 'cut', label: tr('menu.cut') }, { role: 'copy', label: tr('menu.copy') }, { role: 'paste', label: tr('menu.paste') }, { role: 'selectAll', label: tr('menu.selectAll') }] },
     {
       label: tr('menu.view'),
       submenu: [
         { label: tr('menu.reload'), accelerator: 'CmdOrCtrl+R', click: () => win?.app?.webContents.reload() },
         { label: tr('menu.browser'), accelerator: 'CmdOrCtrl+Shift+B', click: () => win?.pane?.toggle() },
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        { role: 'resetZoom', label: tr('menu.actualSize') },
+        { role: 'zoomIn', label: tr('menu.zoomIn') },
+        { role: 'zoomOut', label: tr('menu.zoomOut') },
         { type: 'separator' },
-        { role: 'togglefullscreen' },
+        { role: 'togglefullscreen', label: tr('menu.fullScreen') },
         ...(dev ? [{ label: tr('menu.devtools'), accelerator: 'Alt+CmdOrCtrl+I', click: () => win?.app?.webContents.toggleDevTools() } as MenuItemConstructorOptions] : []),
       ],
     },
     { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.addTeam'), click: () => win?.showWelcome() }, { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
-    { label: tr('menu.window'), role: 'windowMenu' },
+    {
+      label: tr('menu.window'),
+      role: 'windowMenu',
+      submenu: [
+        { role: 'minimize', label: tr('menu.minimize') },
+        ...(process.platform === 'darwin'
+          ? [{ role: 'zoom' as const, label: tr('menu.zoom') }, { type: 'separator' as const }, { role: 'front' as const, label: tr('menu.front') }]
+          : [{ role: 'close' as const, label: tr('menu.close') }]),
+      ],
+    },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

@@ -1,19 +1,27 @@
 // What a visitor sees when the relay itself answers: the team server is offline, the address is not registered, or
 // the address is suspended. HTML for browsers, the usual { error: { code, message } } JSON for API calls.
-// Languages ko / en / id from Accept-Language, English when it names none of them. (The relay cannot know a team's
-// default language, which the team server uses, while that server is offline; docs/DECISIONS.md "언어".)
+// Languages ko / en / id: the language the team's page last showed in this browser (the web app keeps it in the
+// mycel_locale cookie of the team address; API calls carry it in X-Mycel-Locale), else English. The browser's own
+// language does not decide, as on the team server (docs/DECISIONS.md "언어"); the relay cannot ask an offline team
+// server for its default language.
 
 export type PageKind =
   | 'team_offline' | 'team_unknown' | 'team_suspended' | 'team_busy' | 'team_timeout' | 'team_connection_lost' | 'bad_gateway'
   | 'not_found' | 'bad_request' | 'request_timeout'
 type Lang = 'ko' | 'en' | 'id'
 
-export function pickLang(acceptLanguage: string | undefined): Lang {
-  const prefs = (acceptLanguage ?? '').toLowerCase().split(',').map((p) => p.trim().split(';')[0])
-  for (const p of prefs) {
-    if (p.startsWith('ko')) return 'ko'
-    if (p.startsWith('en')) return 'en'
-    if (p.startsWith('id') || p.startsWith('in')) return 'id'
+/** Name of the cookie the web app writes with the language on screen (web/src/i18n/index.ts). */
+export const LOCALE_COOKIE = 'mycel_locale'
+
+const asLang = (v: string | undefined | null): Lang | null => (v === 'ko' || v === 'en' || v === 'id' ? v : null)
+
+export function pickLang(headers: { cookie?: string; 'x-mycel-locale'?: string | string[] }): Lang {
+  const header = headers['x-mycel-locale']
+  const fromHeader = asLang(Array.isArray(header) ? header[0] : header)
+  if (fromHeader) return fromHeader
+  for (const part of (headers.cookie ?? '').split(';')) {
+    const [k, v] = part.trim().split('=')
+    if (k === LOCALE_COOKIE) { const l = asLang(v?.trim()); if (l) return l }
   }
   return 'en'
 }

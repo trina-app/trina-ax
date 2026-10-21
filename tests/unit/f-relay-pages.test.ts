@@ -22,11 +22,12 @@ describe('relay pages', () => {
     expect(pageMessage('team_offline', 'ko', 5 * 60_000)).toContain('5분째')
   })
 
-  test('language from Accept-Language, English by default', () => {
-    expect(pickLang(undefined)).toBe('en')
-    expect(pickLang('en-US,en;q=0.9')).toBe('en')
-    expect(pickLang('id-ID')).toBe('id')
-    expect(pickLang('fr, de')).toBe('en')
+  test("language the team's page last showed (cookie / X-Mycel-Locale), English by default; never the browser's", () => {
+    expect(pickLang({})).toBe('en')
+    expect(pickLang({ 'accept-language': 'ko-KR,ko;q=0.9' } as never)).toBe('en')
+    expect(pickLang({ cookie: 'a=b; mycel_locale=ko; c=d' })).toBe('ko')
+    expect(pickLang({ cookie: 'mycel_locale=fr' })).toBe('en')
+    expect(pickLang({ 'x-mycel-locale': 'id', cookie: 'mycel_locale=ko' })).toBe('id')
   })
 })
 

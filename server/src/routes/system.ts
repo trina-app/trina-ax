@@ -12,7 +12,7 @@ import { BackupError } from '../system/backup'
 import { ConnectionChangeError, connectionStatus, modeOf, saveConnectionMode } from '../system/connection'
 import { runExport } from '../system/export'
 import { LocalJobService } from '../system/job-runner'
-import { M, stepText, tr } from '../system/messages'
+import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { UpdateError } from '../system/update'
 import type { RouteModule } from './module'
@@ -31,12 +31,12 @@ function scheduleRestart(ctx: AppContext, why: string) {
   setTimeout(() => process.kill(process.pid, 'SIGTERM'), 1500)
 }
 
-const T = {
+export const T = {
   devOnly: { ko: '업데이트는 설치된 서버에서만 할 수 있습니다(개발 모드).', en: 'Updates are only possible on an installed server (development mode).', id: 'Pembaruan hanya bisa di server yang terpasang (mode pengembangan).' },
   noUpdate: { ko: '설치할 새 버전이 없습니다.', en: 'There is no new version to install.', id: 'Tidak ada versi baru untuk dipasang.' },
   noPrevious: { ko: '되돌릴 이전 버전이 없습니다.', en: 'There is no previous version to go back to.', id: 'Tidak ada versi sebelumnya.' },
   busy: { ko: '이미 진행 중인 작업이 있습니다.', en: 'Another operation is already running.', id: 'Operasi lain sedang berjalan.' },
-  waitingTurns: (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${n} running answers to finish`, id: `Menunggu ${n} jawaban selesai` }),
+  waitingTurns: (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai` }),
   restartNeeded: { ko: '복원할 데이터를 준비했습니다. 서버를 다시 시작하면 적용됩니다.', en: 'The restore is prepared and applies when the server restarts.', id: 'Pemulihan disiapkan dan berlaku saat server dimulai ulang.' },
   restarting: { ko: '서버를 다시 시작합니다.', en: 'Restarting the server.', id: 'Memulai ulang server.' },
   afterRestart: { ko: '서버를 다시 시작한 뒤 적용됩니다.', en: 'Applies after the server restarts.', id: 'Berlaku setelah server dimulai ulang.' },

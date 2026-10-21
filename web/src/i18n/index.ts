@@ -17,13 +17,46 @@ export const LOCALES: { id: Locale; label: string }[] = LOCALE_ORDER.map((l) => 
 
 export type Params = Record<string, string | number>
 
-export function format(template: string, params?: Params): string {
+/** "{n, plural, one {# step} other {# steps}}": the form Intl.PluralRules picks for the number, # = the number. */
+const PLURAL = /\{(\w+), plural,((?:\s*(?:zero|one|two|few|many|other)\s*\{[^{}]*\})+)\s*\}/g
+const FORM = /(zero|one|two|few|many|other)\s*\{([^{}]*)\}/g
+const pluralRules = new Map<string, Intl.PluralRules>()
+function pluralForm(locale: string, n: number): string {
+  let r = pluralRules.get(locale)
+  if (!r) {
+    try {
+      r = new Intl.PluralRules(locale)
+    } catch {
+      r = new Intl.PluralRules('en')
+    }
+    pluralRules.set(locale, r)
+  }
+  return r.select(n)
+}
+
+/** The placeholders of a text, plural ones included (the same in every language). */
+export function placeholdersOf(template: string): string[] {
+  const names = new Set<string>()
+  for (const m of template.matchAll(PLURAL)) names.add(m[1]!)
+  for (const m of template.replace(PLURAL, '').matchAll(/\{(\w+)\}/g)) names.add(m[1]!)
+  return [...names].sort()
+}
+
+export function format(template: string, params?: Params, locale: string = DEFAULT_LOCALE): string {
   if (!params) return template
-  return template.replace(/\{(\w+)\}/g, (all, k: string) => (params[k] !== undefined ? String(params[k]) : all))
+  const withPlurals = template.replace(PLURAL, (all, k: string, forms: string) => {
+    const v = params[k]
+    const n = typeof v === 'number' ? v : Number(v)
+    if (v === undefined || !Number.isFinite(n)) return all
+    const byForm = new Map([...forms.matchAll(FORM)].map((m) => [m[1]!, m[2]!]))
+    const text = byForm.get(pluralForm(locale, n)) ?? byForm.get('other') ?? ''
+    return text.replace(/#/g, String(v))
+  })
+  return withPlurals.replace(/\{(\w+)\}/g, (all, k: string) => (params[k] !== undefined ? String(params[k]) : all))
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {
-  return format(DICTS[locale]?.[key] ?? DICTS[DEFAULT_LOCALE][key] ?? key, params)
+  return format(DICTS[locale]?.[key] ?? DICTS[DEFAULT_LOCALE][key] ?? key, params, locale)
 }
 
 /** The person's own choice (signed in), else the team default, else English. */
@@ -58,7 +91,15 @@ interface LocaleState {
 export const useLocaleStore = create<LocaleState>((set) => ({
   locale: storedLocale() ?? DEFAULT_LOCALE,
   setLocale: (locale) => {
-    if (typeof document !== 'undefined') document.documentElement.lang = locale
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = locale
+      // the relay's own pages (team server offline) read it: relay/src/pages.ts LOCALE_COOKIE
+      try {
+        document.cookie = `mycel_locale=${locale}; Path=/; Max-Age=31536000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`
+      } catch {
+        /* cookies blocked: relay pages fall back to English */
+      }
+    }
     // the desktop app's own screens, menus and prompts follow the page (older desktop apps lack setLocale)
     try {
       getDesktopBridge()?.setLocale?.(locale)

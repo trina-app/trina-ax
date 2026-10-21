@@ -2,6 +2,7 @@
 // Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links)
 // Contract: shared/src/api/auth.ts
 import { API } from '@mycel/shared/api'
+import { LOCALE_CHANGED } from '../admin/settings'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
@@ -55,6 +56,8 @@ export const authRoutes: RouteModule = {
         // null = follow the team default again
         if (body.locale !== undefined) setUserLocale(ctx.db, auth.user.id, body.locale)
       })()
+      // the person's other windows and devices switch too
+      if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)
       return a().me(auth.user.id, auth.session.id)
     })
 

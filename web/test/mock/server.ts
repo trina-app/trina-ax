@@ -6,7 +6,7 @@
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search";
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language)}, POST /__test/drop-ws, POST /__test/server-version,
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
 import { z } from 'zod'
 import {
@@ -40,6 +40,9 @@ const enc = new TextEncoder()
 const dec = new TextDecoder()
 
 const OWNER_PASSWORD = 'correct horse battery'
+
+/** like server/src/admin/settings.ts LOCALE_CHANGED */
+const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
 
 export class MockServer {
   setupNeeded = false
@@ -85,7 +88,7 @@ export class MockServer {
   /** seeded people (olga, bob) have no language of their own */
   usersFollowTeam = false
 
-  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean } = {}) {
+  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string } = {}) {
     this.generation++
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
@@ -121,6 +124,7 @@ export class MockServer {
     this.stopped.clear()
     this.revoked.clear()
     if (!this.setupNeeded) this.seed()
+    for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
   }
 
   seed() {
@@ -382,6 +386,7 @@ export class MockServer {
       if (c.body.name) u.name = c.body.name
       if (c.body.locale !== undefined) u.localeChoice = c.body.locale
       this.syncLocales()
+      if (c.body.locale !== undefined) this.publish(LOCALE_CHANGED)
       if (c.body.email !== undefined) u.email = c.body.email
       if (c.body.prefs) u.prefs = c.body.prefs
       return this.me(u, '')
@@ -731,8 +736,10 @@ export class MockServer {
     },
     settings: () => this.settings,
     updateSettings: (c) => {
+      const before = this.settings.defaultLocale
       Object.assign(this.settings, c.body)
       this.syncLocales()
+      if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)
       return this.settings
     },
     usage: () => ({ from: now(), to: now(), rows: [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }], totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
@@ -808,6 +815,8 @@ export class MockServer {
       if (ep.auth !== 'public') {
         if (!user) fail('unauthorized', 401)
         if ((ep.auth === 'admin' && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
+        // like the server: a temporary password reaches only the endpoints that change it
+        if (user!.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required', 403)
       }
       const params = Object.fromEntries(Object.entries(route.re.exec(p)!.groups ?? {}).map(([k, v]) => [k, decodeURIComponent(v)]))
       const query = Object.fromEntries(url.searchParams.entries())
@@ -849,7 +858,7 @@ export class MockServer {
 
   async testControl(p: string, req: Request): Promise<Response> {
     const body = (await req.json().catch(() => ({}))) as Json
-    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam })
+    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
