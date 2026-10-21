@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { toolRegistry } from '../../server/src/tools/registry'
+import { sha256 } from '../../server/src/files/store'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 
 let A: CApp
@@ -200,6 +201,9 @@ describe('the people it is meant for still work there', () => {
     const c = A.toolCtx('carol', A.turn('carol', A.chat('carol')))
     expect((await A.ctx.files.call('read', { file_path: 'skills/performance-reviews/q3.md' }, c)).text).toContain('secret review')
     expect((await A.ctx.files.call('list', { path: 'skills/performance-reviews' }, c)).text).toContain('q3.md')
+    // the AI saves under skills/ only after the person confirmed that exact content on the server's card (skills/guard.ts)
+    expect((await A.ctx.files.call('write', { file_path: 'skills/performance-reviews/q4.md', content: '# q4\n' }, c)).text).toContain('needs the user\'s confirmation')
+    c.files.skillApprovals.set('skills/performance-reviews/q4.md', sha256('# q4\n'))
     expect((await A.ctx.files.call('write', { file_path: 'skills/performance-reviews/q4.md', content: '# q4\n' }, c)).isError).toBeFalsy()
     expect((await A.json('/api/files/history?path=' + encodeURIComponent('skills/performance-reviews/q4.md'), { as: 'carol' })).status).toBe(200)
   })

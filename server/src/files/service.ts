@@ -15,6 +15,7 @@ import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
+import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
 
 void ENGINE_BUILTIN_ALLOWED
 
@@ -25,6 +26,9 @@ export class TurnFiles {
   readPaths = new Set<string>()
   bytesWritten = 0
   filesWritten = new Set<string>()
+  /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
+   * bytes, or '*' for a produced file (skills/guard.ts) */
+  skillApprovals = new Map<string, string>()
 }
 
 export interface ToolCtx {
@@ -162,15 +166,18 @@ export class FileService {
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
       if (sha256(cur) === sha256(data)) return { text: `No change: ${r.rel} already has this content`, summary: `${tool} ${r.rel} -> unchanged` }
+      requireSkillApproval(ctx, r.rel, data)
       saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
       atomicWrite(this.fx.root, r.segs, data)
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'update', size: data.length, sha256: sha256(data), detail: { tool } })
       this.changed(ctx, r.rel, 'update')
     } else {
+      requireSkillApproval(ctx, r.rel, data)
       atomicWrite(this.fx.root, r.segs, data, { createDirs: true })
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'create', size: data.length, sha256: sha256(data), detail: { tool } })
       this.changed(ctx, r.rel, 'create')
     }
+    consumeSkillApproval(ctx, r.rel)
     seen.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     ctx.files.filesWritten.add(r.rel)
@@ -188,7 +195,7 @@ export class FileService {
     if (!before) throw new ToolError(`read '${r.rel}' first (with read) before editing it`, 'not_read')
     const text = cur.toString('utf8')
     const n = text.split(a.old_string).length - 1
-    const apply = () => (a.replace_all ? text.split(a.old_string).join(a.new_string) : text.replace(a.old_string, () => a.new_string))
+    const apply = () => editedText(text, a.old_string, a.new_string, a.replace_all)
     if (sha256(cur) !== before) {
       if (n === 1 || (n > 1 && a.replace_all)) return this.conflict(ctx, r.segs, Buffer.from(apply(), 'utf8'), `edit ${r.rel}`)
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'conflict', detail: { tool: 'edit', copy: null } })
@@ -198,8 +205,10 @@ export class FileService {
     if (n > 1 && !a.replace_all) throw new ToolError(`old_string appears ${n} times; add more surrounding text to make it unique, or set replace_all`)
     const data = Buffer.from(apply(), 'utf8')
     this.limits(ctx, r.rel, data.length)
+    requireSkillApproval(ctx, r.rel, data)
     saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
     atomicWrite(this.fx.root, r.segs, data)
+    consumeSkillApproval(ctx, r.rel)
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'update', size: data.length, sha256: sha256(data), detail: { tool: 'edit' } })
     this.changed(ctx, r.rel, 'update')
     ctx.files.readHashes.set(r.rel, sha256(data))
@@ -226,7 +235,10 @@ export class FileService {
     for (let i = 2; fs.existsSync(path.join(this.fx.root, ...dir, name)); i++) name = conflictCopyName(segs[segs.length - 1], `${ctx.user.name} ${i}`, new Date(), loc)
     if (badSegment(name)) name = `conflict-${Date.now()}-${segs[segs.length - 1]}`
     const copy = [...dir, name]
+    // the card showed the save at `rel`: its conflict copy right next to it is that same save
+    requireSkillApproval(ctx, copy.join('/'), data, rel)
     atomicWrite(this.fx.root, copy, data)
+    consumeSkillApproval(ctx, rel)
     const copyRel = copy.join('/')
     const last = recordConflictCopy(this.db, this.events, { original: rel, copy: copyRel, userId: ctx.user.id, turnId: ctx.turnId, size: data.length, sha256: sha256(data), tool: what.split(' ')[0]! }).changedBy
     fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: copyRel, action: 'create', size: data.length, sha256: sha256(data), detail: { conflictCopyOf: rel } })

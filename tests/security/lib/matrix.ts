@@ -26,11 +26,12 @@ export interface Case {
 const ALICE_OWN = [C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
   C.aliceMemory, C.aliceQuestion, C.aliceAttName, C.aliceProjInstr, C.aliceUploadName, C.aliceTranscript]
 const FIN = [C.finFile, C.finFileOld, C.finTrashName, C.finName]
-const ALL = [...ALICE_OWN, ...FIN, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr]
+const ALL = [...ALICE_OWN, ...FIN, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion]
 export const VISIBLE: Record<Who, string[]> = {
-  owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr],
-  admin: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr],
-  memberIn: [...ALICE_OWN, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr],
+  // a skill alice suggested reaches the managers of its target folder (skills/: owner and admins), nobody else
+  owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
+  admin: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
+  memberIn: [...ALICE_OWN, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
   other: [C.mktBrief, C.mktInstr],
   memberOut: [...FIN, C.bobFile, C.falconPlan, C.falconInstr],
   pwchange: [],
