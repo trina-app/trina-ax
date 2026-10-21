@@ -11,11 +11,12 @@ import { formatDate } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
-import { isAdmin, useMeStrict, useSession } from '../store/session'
+import { canChooseEngine, useMeStrict } from '../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
 import { toast } from '../store/ui'
 import Composer, { type EngineChoice } from '../components/chat/Composer'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
+import type { EnginePick } from '../components/chat/EngineMenu'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 
 export default function ChatPage() {
@@ -40,15 +41,18 @@ function ChatView({ chatId }: { chatId: string }) {
   const stick = useRef(true)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
+  const engines = useEngines((s) => s.engines)
   const loadEngines = useEngines((s) => s.load)
+  // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
+  const choose = canChooseEngine(me)
 
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])
 
   useEffect(() => {
-    if (isAdmin(me)) void loadEngines()
-  }, [me, loadEngines])
+    if (choose) void loadEngines()
+  }, [choose, loadEngines])
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -130,12 +134,13 @@ function ChatView({ chatId }: { chatId: string }) {
     if (running) await stop(chatId).catch(() => {})
   }
 
-  const onRegenerate = async (m: ViewMessage) => {
+  /** with: another engine / model ("retry with another model", people allowed to pick only) */
+  const onRegenerate = async (m: ViewMessage, with_?: EnginePick) => {
     if (!(await confirmBranch(m.id))) return
     stick.current = true
     try {
       await stopIfRunning()
-      await regenerate(chatId, m.id)
+      await regenerate(chatId, m.id, choose && with_ ? with_ : undefined)
     } catch (e) {
       fail(e)
     }
@@ -162,7 +167,6 @@ function ChatView({ chatId }: { chatId: string }) {
       const c = await api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } })
       setChat(c)
       upsertChat(c)
-      void useSession.getState().updatePrefs({ engine: e.engine, model: e.model ?? undefined }).catch(() => {})
     } catch (err) {
       fail(err)
     }
@@ -203,7 +207,7 @@ function ChatView({ chatId }: { chatId: string }) {
             if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
             const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
             const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} />
+            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} />
           })}
         </div>
       </div>
@@ -218,7 +222,8 @@ function ChatView({ chatId }: { chatId: string }) {
             onSend={onSend}
             onStop={() => stop(chatId)}
             engine={{ engine: chat?.engine, model: chat?.model }}
-            onEngine={onEngine}
+            onEngine={choose ? onEngine : undefined}
+            engines={engines}
             models={models}
             autoFocus
           />

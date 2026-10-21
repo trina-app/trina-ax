@@ -122,6 +122,8 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   realCore?: { engine: AppConfig['engine']; office?: boolean }
   /** where the model proxy's Codex tunnels go (default: a refused local port) */
   proxyDial?: (host: string, port: number) => import('node:net').Socket
+  /** "팀원이 엔진 고르기 허용" (default here: everyone; the product default is off) */
+  memberChoice?: import('@mycel/shared/api').MemberEngineChoice
 }
 
 /** the engine account's Codex login in the harness (fake tokens) */
@@ -141,6 +143,9 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   seed(db)
   for (const [id, p] of Object.entries(people)) db.query('UPDATE users SET locale = ? WHERE id = ?').run(p.locale, id)
   if (o.concurrency) db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('concurrency', ?)").run(JSON.stringify(o.concurrency))
+  // most chat tests pick engines as members (they predate the admin-only engine choice, admin/engine-choice.ts): the
+  // harness lets everyone pick unless a test asks for the shipped default ({ mode: 'off' })
+  db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.memberChoice', ?)").run(JSON.stringify(o.memberChoice ?? { mode: 'everyone', groupIds: [], userIds: [] }))
   const bin = fakeEngineBin(path.join(base, 'bin'))
   const ctx = createContext({
     config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,

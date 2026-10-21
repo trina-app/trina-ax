@@ -32,6 +32,7 @@ export const AUTH_MESSAGES = {
   duplicateRule: { ko: '같은 대상에 규칙이 두 번 있습니다.', en: 'The same subject appears twice.', id: 'Subjek yang sama muncul dua kali.' },
   engineDisabled: { ko: '꺼진 엔진은 기본 엔진으로 정할 수 없습니다.', en: 'A disabled engine cannot be the default.', id: 'Mesin yang dimatikan tidak dapat menjadi bawaan.' },
   codexBetaDefault: { ko: 'Codex는 이 설치에서 아직 시험 중(베타)이라 기본 엔진으로 정할 수 없습니다.', en: 'Codex is still in beta on this installation, so it cannot be the default engine.', id: 'Codex masih beta di instalasi ini, jadi tidak dapat menjadi mesin bawaan.' },
+  limitFallbackNeedsCodex: { ko: 'Codex가 꺼져 있어 한도 대체를 켤 수 없습니다(사무실 모드에서는 Codex를 쓰지 않습니다).', en: 'Codex is off, so the limit fallback cannot be turned on (office mode does not use Codex).', id: 'Codex dimatikan, jadi pengalihan batas tidak dapat diaktifkan (mode kantor tidak memakai Codex).' },
   budgetSubject: { ko: '예산 대상이 올바르지 않습니다.', en: 'The budget subject is not valid.', id: 'Subjek anggaran tidak valid.' },
   connected_bad_name: { ko: '폴더 이름으로 쓸 수 없는 이름입니다.', en: 'That name can\'t be used for a folder.', id: 'Nama itu tidak bisa dipakai untuk folder.' },
   connected_not_absolute: { ko: '맥의 전체 경로를 입력해 주세요(예: /Volumes/공유).', en: 'Enter the full path on the Mac (e.g. /Volumes/Share).', id: 'Masukkan path lengkap di Mac (mis. /Volumes/Share).' },

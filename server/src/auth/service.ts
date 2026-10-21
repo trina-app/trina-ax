@@ -18,6 +18,7 @@ import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
+import { canChooseEngine } from '../admin/engine-choice'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -218,10 +219,15 @@ export class AuthService implements SessionService {
     if (!s) return fail('unauthorized')
     const groups = this.db.query('SELECT g.id, g.name FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY g.name').all(userId) as { id: string; name: string }[]
     const settings = getTeamSettings(this.db)
+    // an own default engine / model counts only while the person may pick (Admin > AI engines)
+    const choose = canChooseEngine(this.ctx, { id: u.id, role: u.role })
+    const prefs = parsePrefs(u.prefs)
+    if (!choose) { delete prefs.engine; delete prefs.model }
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
-        mustChangePassword: !!u.must_change_password, prefs: parsePrefs(u.prefs),
+        mustChangePassword: !!u.must_change_password, prefs,
+        canChooseEngine: choose,
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale },

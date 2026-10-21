@@ -333,7 +333,7 @@ dl.kv dd{ color:var(--ink-2);}
     <li><span class="n">1</span><span class="ui">새 채팅</span>(<kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd>, 윈도우는 Ctrl+Shift+O) — 새 대화를 시작해요. 지난 대화는 그 아래 <b>최근 채팅</b>에 남고, <span class="ui">검색</span>(<kbd>⌘</kbd><kbd>K</kbd>)으로 찾을 수 있어요.</li>
     <li><span class="n">2</span><b>입력창</b> — 하고 싶은 말을 쓰고 <kbd>Enter</kbd>. 줄을 바꾸려면 <kbd>Shift</kbd>+<kbd>Enter</kbd>.</li>
     <li><span class="n">3</span><b>파일 첨부</b> — 클립을 누르면 <span class="ui">내 컴퓨터에서 올리기</span>와 <span class="ui">팀 파일에서 추가</span>를 고를 수 있어요. 파일을 입력창에 끌어다 놓거나, 복사한 이미지를 붙여 넣어도 돼요.</li>
-    <li><span class="n">4</span><b>AI 고르기</b> — 보통은 그대로 두세요(화면에는 ‘기본 엔진’이라고 보여요). Claude와 Codex 중에 고를 수도 있어요.</li>
+    <li><span class="n">4</span><b>AI 고르기</b> — AI 엔진과 모델은 관리자가 정해요. 그래서 보통은 이 버튼이 없고, 팀 기본 엔진이 답해요. 관리자와, 관리자가 허용한 사람에게만 보여요(Claude·Codex와 모델). 허용된 사람은 <span class="ui">설정</span> › <span class="ui">내 기본 엔진/모델</span>에서 새 채팅이 쓸 엔진을 정해 둘 수 있어요.</li>
     <li><span class="n">5</span><b>음성 입력</b> — 마이크를 누르고 말하면 글로 받아 적어요. 처음 한 번은 준비하느라 시간이 좀 걸려요.</li>
     <li><span class="n">6</span><b>내 AI가 볼 수 있는 폴더</b> — 새 채팅을 열면 입력창 아래에 보여요. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. 대화를 시작한 뒤에는 <span class="ui">파일</span> 화면에서 확인할 수 있어요.</li>
   </ol>
@@ -390,6 +390,7 @@ dl.kv dd{ color:var(--ink-2);}
   </div>
   <ul>
     <li><b>답변 복사 · 다시 생성</b>: 답변 바로 아래 작은 버튼이에요(6장 그림의 4번).</li>
+    <li><b>답변이 실패했을 때</b>: 빨간 안내 옆의 <span class="ui">다시 시도</span>를 눌러요. 엔진을 고를 수 있는 사람에게는 <span class="ui">다른 모델로 다시 시도</span>도 보여요.</li>
     <li><b>채팅 이름 바꾸기·삭제</b>: 왼쪽 목록에서 채팅에 마우스를 올리고 ⋯ 를 눌러요. 지운 직후 뜨는 알림의 <span class="ui">실행 취소</span>로 바로 되살릴 수 있고, 7일 동안은 왼쪽 아래 <span class="ui">삭제한 채팅</span>에서 <span class="ui">되돌리기</span>할 수 있어요.</li>
   </ul>
   <div class="warn"><b>다시 생성해도 파일은 그대로</b><p>AI가 이미 팀 폴더 파일을 바꿨다면, 다시 생성해도 파일은 되돌아가지 않아요. 바뀌기 전 내용은 파일의 <b>버전 기록</b>(5장)에 남아요.</p></div>
@@ -399,7 +400,9 @@ dl.kv dd{ color:var(--ink-2);}
     <dt>AI가 확인하고 싶어 해요</dt><dd>AI가 답하다가 확인할 게 생기면 이 카드를 띄워요. 보기를 고르거나 직접 답하면 이어서 일해요. 이때 왼쪽 채팅 목록에는 <b>답변 필요</b> 표시가 붙어요. 비밀번호나 인증 코드는 AI에게 알려 주지 마세요.</dd>
     <dt>대기 중 (앞에 N개)</dt><dd>팀 전체가 한 번에 받을 수 있는 답변 수(기본 3개)를 넘으면 순서를 기다려요. 그대로 두면 차례가 와요.</dd>
     <dt>AI 사용 한도를 다 썼어요</dt><dd>팀이 정한 하루·한 달 한도를 넘었어요. 안내에 나온 시각부터 다시 쓸 수 있고, 더 필요하면 관리자에게 말해요.</dd>
-    <dt>…로 바뀌었어요</dt><dd>대화 중에 AI를 Claude ↔ Codex로 바꾸면 나와요. 새 AI는 이전 대화를 기록으로 넘겨받아 이어서 답해요.</dd>
+    <dt>…로 바뀌었어요</dt><dd>대화 중에 AI가 Claude ↔ Codex로 바뀌면 나와요. 새 AI는 이전 대화를 기록으로 넘겨받아 이어서 답해요.</dd>
+    <dt>… 엔진이 꺼져 있어 팀 기본 엔진으로 답합니다</dt><dd>이 채팅이 쓰던 엔진을 관리자가 껐어요. 이번 답부터 팀 기본 엔진이 이어서 답해요.</dd>
+    <dt>Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다</dt><dd>관리자가 한도 대체를 켜 둔 팀에서, Claude 구독 한도에 닿은 답을 Codex가 마저 답했어요. 다음 질문은 다시 Claude가 받아요.</dd>
   </dl>
   <div class="tip"><b>잘 묻는 법</b><p>“무엇을(어느 파일) + 어떻게(표·요약·초안) + 어디에(저장 위치)”를 같이 말해요. 예: “<span class="path">groups/마케팅</span> 회의록으로 이번 주 보고서 초안을 써서 내 폴더에 워드로 저장해 줘”.</p></div>
 </section>
@@ -606,6 +609,12 @@ dl.kv dd{ color:var(--ink-2);}
 <section id="c9b">
   <h3>그룹</h3>
   <p><span class="ui">그룹</span> › <span class="ui">새 그룹</span>에서 이름과 멤버를 정해요. 그룹을 만들면 <span class="path">groups/그룹 이름</span> 폴더가 생기고, 그 그룹은 이 폴더를 읽고 쓸 수 있어요. 멤버는 <span class="ui">수정</span>에서 바꿔요. 그룹을 지우면 그 그룹에 걸린 폴더 권한도 함께 지워져요.</p>
+  <h3>AI 엔진 고르기 — 누가, 무엇으로</h3>
+  <p><span class="ui">AI 엔진</span> 화면의 <b>팀 기본값</b>이 모든 답의 엔진과 모델이에요(처음에는 Claude Code, 기본 모델). 팀원은 채팅에서 엔진을 고르지 않고 이 기본값으로 답을 받아요. 같은 화면의 <b>엔진 선택 권한</b>에서 바꿀 수 있어요.</p>
+  <ul>
+    <li><b>팀원이 엔진 고르기 허용</b> — 기본은 <span class="ui">허용 안 함</span>이에요. <span class="ui">모든 팀원</span> 또는 <span class="ui">고른 그룹·사람만</span>으로 바꾸면 그 사람들의 입력창에 엔진 고르기와 <span class="ui">다른 모델로 다시 시도</span>, 설정의 <span class="ui">내 기본 엔진/모델</span>이 생겨요. owner와 관리자는 언제나 고를 수 있어요. 이미 있는 채팅은 쓰던 엔진을 그대로 쓰고, 그 엔진을 끄면 팀 기본 엔진으로 이어서 답해요(답변에 표시돼요).</li>
+    <li><b>Claude 한도에 닿으면 Codex로 넘기기</b> — 기본은 꺼져 있어요. 켜면 Claude 구독 한도에 닿은 답을 Codex가 이어서 답하고, 답변과 <span class="ui">기록</span>에 남아요. <b>이때 그 대화가 OpenAI로도 보내져요.</b> 켜기 전에 팀 데이터를 OpenAI로 보내도 되는지 확인하세요. Codex를 끄면(사무실 모드는 처음부터 꺼져 있어요) 켤 수 없고, 켜져 있던 것도 꺼져요.</li>
+  </ul>
   <h3>AI 사용 한도</h3>
   <figure class="shot"><div class="frame"><img src="img/admin-limits.png" alt=""></div></figure>
   <p><span class="ui">AI 엔진</span> › <span class="ui">사용 한도</span> › <span class="ui">한도 추가</span>에서 사람·그룹·팀 단위로 하루·한 달 한도를 정해요. 넘으면 <b>경고만</b> 하거나 <b>사용을 막을</b> 수 있어요. 기본은 한도 없음이에요. 같은 화면의 <b>동시 실행 수</b>(기본 3)는 팀 전체가 한 번에 받을 수 있는 답변 수예요.</p>
