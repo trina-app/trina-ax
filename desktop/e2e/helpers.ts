@@ -34,8 +34,10 @@ export async function launch(userData: string, env: Record<string, string> = {})
     env: {
       ...(process.env as Record<string, string>),
       MYCEL_DESKTOP_USER_DATA: userData,
-      MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test,attacker.test',
+      MYCEL_DESKTOP_TEST_PUBLIC_HOSTS: 'shop.test,cdn.shop.test,attacker.test',
       MYCEL_DESKTOP_TEST_PRIVATE_HOSTS: 'nas.lan',
+      // resolved by the pane session's own resolver to 127.0.0.1, with no test exemption (quiet.spec.ts)
+      MYCEL_DESKTOP_TEST_DNS_HOSTS: 'rebind.test',
       // a Korean system: the app's own language must not follow it (docs/DECISIONS.md "언어")
       LANG: 'ko_KR.UTF-8',
       ...env,
@@ -150,6 +152,14 @@ export async function answer(app: ElectronApplication, button: '이번만 허용
   await expect(prompt).toBeVisible()
   if (scope) await expect(prompt).toHaveAttribute('data-scope', scope)
   await prompt.getByRole('button', { name: button }).click()
+}
+
+/** The pane's activity log (opened from the toolbar when it is closed): routine events only show up here. */
+export async function activityLog(app: ElectronApplication) {
+  const c = await chrome(app)
+  const button = c.getByTestId('activity-button')
+  if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click()
+  return c.getByTestId('activity')
 }
 
 /** The browser tab view (web contents of the pane's active tab) whose URL matches. */

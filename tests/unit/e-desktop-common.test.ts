@@ -107,7 +107,7 @@ describe('site permissions', () => {
     p.forgetTurn('turn-1')
     expect(p.isAllowed('site', 'shop.test', 'turn-1')).toBe(false)
     p.grant('private', '192.168.0.10', 'always')
-    expect(p.toJSON()).toEqual({ always: ['news.test'], privateAlways: ['192.168.0.10'] })
+    expect(p.toJSON()).toEqual({ always: ['news.test'], privateAlways: ['192.168.0.10'], siteAccess: 'ask' })
     expect(p.revoke('192.168.0.10')).toBe(true)
     expect(new SitePermissions(p.toJSON()).list()).toEqual({ always: ['news.test'], privateAlways: [] })
   })
