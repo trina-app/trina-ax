@@ -74,20 +74,27 @@ const BRIDGE = `<script>(function(){
   document.addEventListener("securitypolicyviolation", function (e) { report("Blocked by the sandbox: " + e.violatedDirective + " " + (e.blockedURI || "")); });
 })();</script>`
 
-const BASE_STYLE = `<style>html,body{margin:0}body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",sans-serif;color:#1f1d1a;background:#fff}</style>`
+const BASE_STYLE = `<style>html{margin:0}:where(body){margin:0}body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",sans-serif;color:#1f1d1a;background:#fff}</style>`
 
 function head(origin: string, extra = '') {
   return `<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escAttr(artifactCsp(origin))}"><meta name="viewport" content="width=device-width,initial-scale=1">${BRIDGE}${BASE_STYLE}${extra}</head>`
 }
 
 /**
+ * A page's text does not touch the panel edge: 16px around the body, like a browser's own default margin but a little
+ * roomier. Zero specificity (:where) and placed before the page's own styles, so any page that sets its body margin
+ * (or resets everything with `* { margin: 0 }`) for a full-bleed layout still gets exactly that.
+ */
+const PAGE_GUTTER = `<style>:where(body){margin:16px}</style>`
+
+/**
  * Wrap any HTML so our <head> (CSP first) comes before anything the AI or the file wrote. If the content is a full
  * document, its own <html>/<head> tags end up inside our body, where the parser ignores them (its styles and scripts
- * still work, its CSP / base meta tags do not).
+ * still work, its CSP / base meta tags do not). `gutter`: an HTML page (artifact or .html file) gets PAGE_GUTTER.
  */
-export function wrapHtml(content: string, origin: string): string {
+export function wrapHtml(content: string, origin: string, o: { gutter?: boolean } = {}): string {
   const body = content.replace(/^\s*<!doctype[^>]*>/i, '')
-  return `<!doctype html><html>${head(origin)}<body>${body}</body></html>`
+  return `<!doctype html><html>${head(origin, o.gutter ? PAGE_GUTTER : '')}<body>${body}</body></html>`
 }
 
 export type FrameDoc = { ok: true; html: string } | { ok: false; error: string }
@@ -123,7 +130,7 @@ export function buildArtifactDocument(type: ArtifactType, content: string, origi
   const v = vendorBase(origin)
   switch (type) {
     case 'html':
-      return { ok: true, html: wrapHtml(content, origin) }
+      return { ok: true, html: wrapHtml(content, origin, { gutter: true }) }
     case 'svg':
       return { ok: true, html: `<!doctype html><html>${head(origin, '<style>html,body{height:100%}body{display:grid;place-items:center}svg{max-width:100%;max-height:100vh}</style>')}<body>${content}</body></html>` }
     case 'mermaid':

@@ -269,23 +269,23 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
   if (kind === 'markdown')
     return (
-      <div className="mx-auto max-w-3xl bg-surface p-6">
+      <div className="mx-auto min-h-full max-w-3xl bg-surface p-6">
         <Markdown text={text} />
         {cut}
       </div>
     )
-  if (kind === 'html') return <SandboxFrame html={wrapHtml(text, location.origin)} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+  if (kind === 'html') return <SandboxFrame html={wrapHtml(text, location.origin, { gutter: true })} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
   if (kind === 'svg') return <SandboxFrame html={wrapHtml(`<div style="display:grid;place-items:center;min-height:100vh">${text}</div>`, location.origin)} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
   if (kind === 'csv') {
     const rows = Papa.parse<string[]>(text, { skipEmptyLines: true, delimiter: name.toLowerCase().endsWith('.tsv') ? '\t' : '' }).data.slice(0, 2000)
     return (
-      <div className="overflow-auto p-3">
+      <div className="overflow-auto p-4">
         <table className="border-collapse bg-surface text-xs">
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className={i === 0 ? 'bg-subtle font-semibold' : ''}>
                 {r.map((c, j) => (
-                  <td key={j} className="border border-line px-2 py-1 whitespace-nowrap">
+                  <td key={j} className="border border-line px-2.5 py-1.5 whitespace-nowrap">
                     {c}
                   </td>
                 ))}
@@ -300,7 +300,7 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
   if (kind === 'text' && /\.(txt|log)$/i.test(name))
     return (
       <>
-        <pre className="m-0 overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-ink">{text}</pre>
+        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-ink">{text}</pre>
         {cut}
       </>
     )
