@@ -107,6 +107,10 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} shared alice's private project`) } },
 
   // ---- memories (own only) ----
+  // scheduled tasks: own only (a schedule id of nobody: 404 for everyone, never another person's)
+  listSchedules: { build: (c) => c.get('/api/schedules'), scope: 'self' },
+  updateSchedule: { build: (c) => c.patch('/api/schedules/00000000-0000-7000-8000-000000000000', { enabled: false }), scope: 'self' },
+  deleteSchedule: { build: (c) => c.del('/api/schedules/00000000-0000-7000-8000-000000000000'), scope: 'self' },
   listMemories: { build: (c) => c.get('/api/memories'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceMemory)) throw new Error(`${who} sees alice's memory`) } },
   deleteMemory: { build: (c, w) => c.del(`/api/memories/${w.ids.memory}`), scope: 'own-alice',
@@ -224,6 +228,11 @@ export const SPECS: Record<string, Spec> = {
   startRestore: { skipPositive: true, build: (c) => c.post('/api/admin/restore', { backupId: 'nope', password: 'wrong' }), scope: 'byLevel' },
   startExport: { build: (c) => c.post('/api/admin/export', { what: ['memories'], password: '' }), scope: 'byLevel' },
   connection: { build: (c) => c.get('/api/admin/connection'), scope: 'byLevel' },
+  // connected folders (owner only; adding one asks for the password again)
+  listConnected: { build: (c) => c.get('/api/admin/connected'), scope: 'byLevel' },
+  addConnected: { skipPositive: true, build: (c) => c.post('/api/admin/connected', { name: 'nas', source: '/Volumes/none', password: 'wrong-pass' }), scope: 'byLevel' },
+  syncConnected: { build: (c) => c.post('/api/admin/connected/00000000-0000-7000-8000-000000000000/sync'), scope: 'byLevel' },
+  removeConnected: { build: (c) => c.del('/api/admin/connected/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
   updateConnection: { skipPositive: true, build: (c) => c.put('/api/admin/connection', { mode: 'direct', password: 'wrong' }), scope: 'byLevel' },
 }
 
