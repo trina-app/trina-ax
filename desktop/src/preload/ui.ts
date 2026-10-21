@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('mycelUi', {
     onState: on('ui:pane-state'),
     onPrompts: on('ui:pane-prompts'),
     onActivity: on('ui:pane-activity'),
+    onActivityReset: on('ui:pane-activity-reset'),
+    onSites: on('ui:pane-sites'),
     navigate: (url: string) => ipcRenderer.send('ui:pane-navigate', String(url)),
     history: (dir: 'back' | 'forward' | 'reload') => ipcRenderer.send('ui:pane-history', dir),
     newTab: () => ipcRenderer.send('ui:pane-new-tab'),
@@ -41,5 +43,6 @@ contextBridge.exposeInMainWorld('mycelUi', {
     sites: () => ipcRenderer.invoke('ui:pane-sites'),
     removeSite: (host: string) => ipcRenderer.send('ui:pane-site-remove', String(host)),
     clearSites: () => ipcRenderer.send('ui:pane-sites-clear'),
+    setSiteAccess: (v: 'ask' | 'all') => ipcRenderer.send('ui:pane-site-access', v === 'all' ? 'all' : 'ask'),
   },
 })

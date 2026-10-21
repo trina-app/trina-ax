@@ -1,14 +1,38 @@
 // Public or office-network? IP literals and local names decide alone; other names are resolved (cached briefly).
 // Residual risk (documented in docs/DECISIONS.md): Chromium resolves again when it connects, so a name that
 // changes its answer in between (DNS rebinding) can slip past this check; net-guard.ts re-checks the address a
-// main-frame response actually came from.
+// response actually came from (stopIfRebound).
+//
+// A lookup that fails, times out or answers nothing says nothing about where the name points: the request goes on
+// to Chromium's own resolution (which fails the same way, or connects) and the address it connected to is checked
+// afterwards. Treating "no answer" as office network blocked public sites whenever the system resolver was slow
+// (split DNS such as Tailscale MagicDNS, VPNs, captive portals).
 import { lookup } from 'node:dns/promises'
 import { classifyHostStatic, classifyResolved, isLoopbackIp, isLoopbackName, type AddressClass } from '../../common/netaddr'
 
 const TTL_MS = 30_000
+/** a lookup that gave no usable answer is tried again this soon */
+const UNKNOWN_TTL_MS = 5_000
+/** longest the browser waits for the system resolver before letting Chromium resolve it itself */
+export const LOOKUP_TIMEOUT_MS = 3_000
+
+/** Resolve a name to its addresses (node's getaddrinfo by default; tests inject slow or failing ones). */
+export type Resolver = (hostname: string) => Promise<string[]>
+
+const systemResolver: Resolver = async (h) => (await lookup(h, { all: true, verbatim: true })).map((a) => a.address)
+
+interface Entry {
+  cls: AddressClass
+  loopback: boolean
+  /** DNS answered with addresses (false: failed, timed out or empty, let through to Chromium) */
+  answered: boolean
+  at: number
+}
 
 export class HostClassifier {
-  private cache = new Map<string, { cls: AddressClass; loopback: boolean; at: number }>()
+  private cache = new Map<string, Entry>()
+  /** one lookup per name at a time (a page asks for the same CDN name dozens of times at once) */
+  private pending = new Map<string, Promise<Entry>>()
 
   /**
    * testPublic: names the e2e tests map to 127.0.0.1 but want treated as public sites; testMapped: every name the
@@ -17,6 +41,8 @@ export class HostClassifier {
   constructor(
     private testPublic: ReadonlySet<string> = new Set(),
     private testMapped: ReadonlySet<string> = testPublic,
+    private resolve: Resolver = systemResolver,
+    private timeoutMs = LOOKUP_TIMEOUT_MS,
   ) {}
 
   async classify(hostname: string): Promise<AddressClass> {
@@ -36,22 +62,40 @@ export class HostClassifier {
     const s = classifyHostStatic(h)
     if (s !== 'resolve') return { cls: s, loopback: isLoopbackName(h) }
     const hit = this.cache.get(h)
-    if (hit && Date.now() - hit.at < TTL_MS) return hit
-    let entry: { cls: AddressClass; loopback: boolean; at: number }
-    try {
-      const addrs = (await lookup(h, { all: true, verbatim: true })).map((a) => a.address)
-      entry = { cls: classifyResolved(addrs), loopback: addrs.some(isLoopbackIp), at: Date.now() }
-    } catch {
-      // no answer: the browser cannot connect either; let it fail with its own error page
-      entry = { cls: 'public', loopback: false, at: Date.now() }
+    if (hit && Date.now() - hit.at < (hit.answered ? TTL_MS : UNKNOWN_TTL_MS)) return hit
+    let p = this.pending.get(h)
+    if (!p) {
+      p = this.resolveOnce(h).finally(() => this.pending.delete(h))
+      this.pending.set(h, p)
     }
+    return p
+  }
+
+  private async resolveOnce(h: string): Promise<Entry> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<null>((r) => {
+      timer = setTimeout(() => r(null), this.timeoutMs)
+    })
+    let addrs: string[] | null
+    try {
+      addrs = await Promise.race([this.resolve(h), timeout])
+    } catch {
+      addrs = null
+    } finally {
+      clearTimeout(timer)
+    }
+    const entry: Entry =
+      addrs && addrs.length
+        ? { cls: classifyResolved(addrs), loopback: addrs.some(isLoopbackIp), answered: true, at: Date.now() }
+        : // no answer (error, timeout, nothing): Chromium resolves it itself; where it connected is checked afterwards
+          { cls: 'public', loopback: false, answered: false, at: Date.now() }
     this.cache.delete(h)
     this.cache.set(h, entry)
     if (this.cache.size > 1000) this.cache.delete(this.cache.keys().next().value as string)
     return entry
   }
 
-  /** The name was let through as public (by DNS) — a private answer for it now means rebinding. */
+  /** The name was let through as public (by DNS, or without an answer) — a private answer for it now means rebinding. */
   wasResolvedPublic(hostname: string): boolean {
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
     return !this.testPublic.has(h) && classifyHostStatic(h) === 'resolve' && this.cache.get(h)?.cls === 'public'

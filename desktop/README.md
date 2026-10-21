@@ -9,7 +9,9 @@ desktop/
   src/common/              pure, unit-tested in tests/unit/e-*.test.ts
     address.ts             team address input -> origin (bare name -> <name>.treesoop.com, http only for *.localhost)
     netaddr.ts             public vs office-network (private) addresses, IPv4/IPv6 incl. mapped/NAT64/6to4/Teredo
-    site-permissions.ts    "allowed sites": once (this turn) / always (saved per team) / deny; separate office scope
+    site-permissions.ts    "allowed sites": once (this turn) / always (saved per team) / deny; separate office scope;
+                           site access "ask" (default) / "all" (every public website, office addresses still ask)
+    pane-activity.ts       what goes to the activity log and the one line over the page
     browser-result.ts      pane result -> BrowserResult on the wire (<= 20 items, size caps)
     teams.ts               teams.json, partitions per team, fingerprints
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
@@ -40,10 +42,13 @@ desktop/
    is used (once / always / deny) and always before office-network addresses, runs the tool over CDP, and returns
    a `BrowserResult` (screenshots the AI wants to show carry `shareToChat`).
 
-The permission prompts, the "AI is using the browser" bar (with a stop button and an accent frame around the
-page) and the always-shown notes (script runs, network bodies, blocked office requests, refused password fields)
-live in the desktop's own UI, not in the team page: a page served through the relay can send browser commands
-but cannot answer the person's prompts.
+The permission prompts (one at a time), the "AI is using the browser" bar (with a stop button, the AI's latest
+action and an accent frame around the page), the activity log (☰ in the toolbar: script runs, network bodies,
+requests held back or refused) with at most one dismissible line over the page for what needs the person now (a
+page load stopped at an office or this-computer address, a refused password field), and the settings panel (⚙:
+site access "ask for each new site" / "allow all websites", the sites allowed always) live in the desktop's own UI,
+not in the team page: a page served through the relay can send browser commands but cannot answer the person's
+prompts or change the setting.
 
 The pane never opens the team's own addresses (relay and office), this computer (localhost, 127.0.0.0/8, ::1) or
 non-web schemes, whatever anyone answers; its User-Agent ends with `MycelBrowser/1` (`IN_APP_BROWSER_UA_MARK`)

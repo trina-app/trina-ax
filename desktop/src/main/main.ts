@@ -20,6 +20,7 @@ import { partitionFor } from '../common/teams'
 import { AppWindow } from './app-window'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
+import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
@@ -147,7 +148,9 @@ function registerIpc() {
   })
   ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
   ipcMain.on('ui:pane-resize', (e, screenX: number) => fromChrome(e) && Number.isFinite(screenX) && win!.setPaneFromScreenX(screenX))
-  ipcMain.handle('ui:pane-sites', (e) => (fromChrome(e) ? (win!.pane?.perms.list() ?? { always: [], privateAlways: [] }) : null))
+  ipcMain.handle('ui:pane-sites', (e) => (fromChrome(e) ? (win!.pane?.siteSettings() ?? { always: [], privateAlways: [], siteAccess: 'ask' }) : null))
+  // the person's own setting: only the pane toolbar (the desktop's own screen) can change it, never a team page or a site
+  ipcMain.on('ui:pane-site-access', (e, v: unknown) => fromChrome(e) && win!.pane?.setSiteAccess(asSiteAccess(v)))
   ipcMain.on('ui:pane-site-remove', (e, host: string) => fromChrome(e) && win!.pane?.revokeSite(String(host)))
   ipcMain.on('ui:pane-sites-clear', (e) => fromChrome(e) && win!.pane?.revokeAllSites())
 

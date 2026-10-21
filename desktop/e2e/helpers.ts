@@ -152,6 +152,14 @@ export async function answer(app: ElectronApplication, button: '이번만 허용
   await prompt.getByRole('button', { name: button }).click()
 }
 
+/** The pane's activity log (opened from the toolbar when it is closed): routine events only show up here. */
+export async function activityLog(app: ElectronApplication) {
+  const c = await chrome(app)
+  const button = c.getByTestId('activity-button')
+  if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click()
+  return c.getByTestId('activity')
+}
+
 /** The browser tab view (web contents of the pane's active tab) whose URL matches. */
 export const tabPage = (app: ElectronApplication, match: (url: string) => boolean) => view(app, match)
 

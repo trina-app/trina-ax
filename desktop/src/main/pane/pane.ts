@@ -9,7 +9,9 @@
  *    not in the team page (a page served through the relay cannot answer the person's prompts)
  *  - office-network (private) addresses always need the person's approval, also for redirects and
  *    sub-requests (net-guard.ts)
- *  - password fields refuse clicks and typing; script runs and network-body reads are shown every time
+ *  - password fields refuse clicks and typing; script runs and network-body reads are logged every time (the
+ *    pane's activity log; only what needs the person now is shown over the page: common/pane-activity.ts)
+ *  - site access "all" (the person's setting): public websites need no question; office addresses still do
  *  - "AI is using" state, a stop button (cancels the running call), and turn cancellation (browser.cancel)
  *
  * Each team has its own pane and its own session partition.
@@ -20,7 +22,8 @@ import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared'
 import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
-import { siteKey, SitePermissions, type PermissionDecision, type SiteScope } from '../../common/site-permissions'
+import { siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope } from '../../common/site-permissions'
+import { isNotice, type PaneActivity } from '../../common/pane-activity'
 import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
@@ -35,12 +38,7 @@ export interface PanePrompt {
   url: string
   tool: string
 }
-export interface PaneActivity {
-  id: number
-  kind: 'script' | 'network' | 'blocked' | 'forbidden' | 'password'
-  host: string
-  at: number
-}
+export type { PaneActivity } from '../../common/pane-activity'
 
 /** What the pane needs from the window around it. */
 export interface PaneHost {
@@ -257,8 +255,9 @@ export class BrowserPane {
     this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool }) => ({ id, scope, host, url, tool })))
   }
 
-  activity(kind: PaneActivity['kind'], host: string) {
-    this.host.onActivity({ id: this.nextActivity++, kind, host, at: Date.now() })
+  /** Log what happened; `topLevel`: it stopped a whole page load (decides whether it is shown over the page). */
+  activity(kind: PaneActivity['kind'], host: string, topLevel = false) {
+    this.host.onActivity({ id: this.nextActivity++, kind, host, at: Date.now(), notice: isNotice(kind, topLevel) })
   }
 
   show() {
@@ -388,9 +387,11 @@ export class BrowserPane {
         case 'Network.responseReceived': {
           const e = tab.network.get(params.requestId)
           if (e) e.status = params.response.status
-          if (params.type === 'Document' && stopIfRebound(this, tab.wc, params.response.url, params.response.remoteIPAddress)) {
-            push(tab.console, { level: 'error', text: `[blocked] ${redactUrl(params.response.url)} answered from an office-network address (${params.response.remoteIPAddress}); the page was stopped.`, host: tab.host })
-          }
+          const resUrl = String(params.response.url)
+          const ip = params.response.remoteIPAddress as string | undefined
+          void stopIfRebound(this, tab.wc, resUrl, ip, String(params.type)).then((stopped) => {
+            if (stopped) push(tab.console, { level: 'error', text: `[blocked] ${redactUrl(resUrl)} answered from an office-network address (${ip}); the page was stopped.`, host: tab.host })
+          }, () => {})
           break
         }
         case 'Network.loadingFailed': {
@@ -455,7 +456,7 @@ export class BrowserPane {
     const blocked = await this.forbidden(url)
     if (blocked) {
       this.show()
-      this.activity('forbidden', blocked.host || raw.trim().slice(0, 100))
+      this.activity('forbidden', blocked.host || raw.trim().slice(0, 100), true)
       return
     }
     const key = siteKey(url)
@@ -611,6 +612,16 @@ export class BrowserPane {
 
   revokeSite(host: string) {
     if (this.perms.revoke(host)) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
+  /** The person's site-access setting (pane settings): 'all' lets the AI open public websites without asking. */
+  setSiteAccess(v: SiteAccess) {
+    if (this.perms.setSiteAccess(v)) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
+  /** What the pane's settings panel shows. */
+  siteSettings() {
+    return { ...this.perms.list(), siteAccess: this.perms.siteAccess }
   }
 
   /** "Clear all" in the allowed-sites list: every saved site and office address of this team. */
@@ -894,7 +905,8 @@ export class BrowserPane {
       }
       case 'javascript_tool': {
         const t = need()
-        // shown every time, also on always-allowed sites (design tab 5)
+        // logged every time, also on always-allowed sites (design tab 5): the pane's activity log, and the
+        // "AI is using the browser" bar shows it while the AI drives
         this.activity('script', t.host)
         // from now on this document's requests to sites the person has not allowed are held back (net-guard.ts)
         t.scripted = true

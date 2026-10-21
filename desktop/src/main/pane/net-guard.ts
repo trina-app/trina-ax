@@ -7,12 +7,16 @@
 //    already allowed, the person typed it, or the tab is already on an allowed office page (intranet browsing)
 //  - sub-requests (images, fetch, WebSocket, iframes) to private addresses are blocked unless the page itself is
 //    an allowed office page
-//  - a document response that came from a private IP although its name looked public (DNS rebinding) stops
-//    the tab (stopIfRebound, fed from the tab's CDP network events)
+//  - a document or script-readable response that came from a private IP although its name looked public (DNS
+//    rebinding, or DNS gave no answer before the request) stops the tab (stopIfRebound, fed from the tab's CDP
+//    network events)
+// What it refused goes to the pane's activity log; only a stopped page load (main frame) to the office network or
+// this computer is shown over the page (common/pane-activity.ts).
 import type { OnBeforeRequestListenerDetails, WebContents } from 'electron'
 import { redactUrl } from '../../common/input'
 import { isLoopbackIp } from '../../common/netaddr'
-import { publicRequestVerdict } from '../../common/net-policy'
+import { publicRequestVerdict, REBIND_CHECKED_TYPES, responseSourceVerdict } from '../../common/net-policy'
+import type { ActivityKind } from '../../common/pane-activity'
 import type { BrowserPane } from './pane'
 
 const FILTER = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }
@@ -30,12 +34,15 @@ function keyOf(url: string): { key: string; hostname: string } | null {
 export function installNetGuard(pane: BrowserPane) {
   const ses = pane.session
   const lastBlocked = new Map<string, number>()
-  const noteBlocked = (host: string, kind: 'blocked' | 'forbidden' = 'blocked') => {
+  /** log a refusal (a page asks for the same host many times: once per 5 s per host and kind) */
+  const noteBlocked = (host: string, kind: ActivityKind, d: OnBeforeRequestListenerDetails) => {
+    const topLevel = d.resourceType === 'mainFrame'
+    const k = `${kind} ${topLevel ? 'top' : 'sub'} ${host}`
     const now = Date.now()
-    if ((lastBlocked.get(host) ?? 0) > now - 5000) return
-    lastBlocked.set(host, now)
+    if ((lastBlocked.get(k) ?? 0) > now - 5000) return
+    lastBlocked.set(k, now)
     if (lastBlocked.size > 200) lastBlocked.delete(lastBlocked.keys().next().value as string)
-    pane.activity(kind, host)
+    pane.activity(kind, host, topLevel)
   }
 
   const approved = (key: string, turnId?: string) => pane.perms.isAllowed('private', key, turnId) || pane.userHosts.has(key)
@@ -50,7 +57,7 @@ export function installNetGuard(pane: BrowserPane) {
     const k = keyOf(d.url)
     if (!k) return { cancel: true }
     if (await pane.forbidden(d.url)) {
-      noteBlocked(k.key, 'forbidden')
+      noteBlocked(k.key, 'forbidden', d)
       return { cancel: true }
     }
     const ctx = pane.currentCall()
@@ -63,14 +70,14 @@ export function installNetGuard(pane: BrowserPane) {
       if (topOk && !pane.isDriving && !pane.anyScripted) return {}
       const decision = await pane.ask({ scope: 'private', host: k.key, url: redactUrl(d.url), tool: ctx?.tool ?? 'navigate' }, ctx)
       if (decision === 'deny') {
-        noteBlocked(k.key)
+        noteBlocked(k.key, 'denied', d)
         return { cancel: true }
       }
       pane.grant(['site', 'private'], k.key, decision, ctx?.turnId)
       return {}
     }
     if (topOk) return {}
-    noteBlocked(k.key)
+    noteBlocked(k.key, 'blocked', d)
     return { cancel: true }
   }
 
@@ -94,13 +101,15 @@ export function installNetGuard(pane: BrowserPane) {
       siteAllowed: pane.perms.isAllowed('site', key, ctx?.turnId) || pane.userHosts.has(key),
     })
     if (verdict === 'allow') return {}
+    // a public site, not the office network: this is the hold on pages the AI ran script in (net-policy.ts). It used
+    // to be logged as an office-network block ("사내망 요청을 막았어요: static.licdn.com" over LinkedIn)
     if (verdict === 'block') {
-      noteBlocked(key)
+      noteBlocked(key, 'offsite', d)
       return { cancel: true }
     }
     const decision = await pane.ask({ scope: 'site', host: key, url: redactUrl(d.url), tool: ctx?.tool ?? 'navigate' }, ctx)
     if (decision === 'deny') {
-      noteBlocked(key)
+      noteBlocked(key, 'denied', d)
       return { cancel: true }
     }
     pane.grant(['site'], key, decision, ctx?.turnId)
@@ -113,26 +122,36 @@ export function installNetGuard(pane: BrowserPane) {
 }
 
 /**
- * A document response that came from an office address although its name was classified public (DNS answered
- * differently when Chromium connected: rebinding). Called from the tab's CDP Network.responseReceived.
- * Returns true when the tab was stopped.
+ * A response that came from an office address although its name was let through as public (DNS answered differently
+ * when Chromium connected: rebinding; or gave no answer before the request), or from this computer. Called from the
+ * tab's CDP Network.responseReceived with the address Chromium connected to. Resolves true when the tab was stopped.
  */
-export function stopIfRebound(pane: BrowserPane, wc: WebContents, url: string, ip: string | undefined): boolean {
-  if (!ip) return false
+export async function stopIfRebound(pane: BrowserPane, wc: WebContents, url: string, ip: string | undefined, type: string): Promise<boolean> {
+  if (!ip || !REBIND_CHECKED_TYPES.has(type)) return false
   const k = keyOf(url)
   if (!k) return false
-  // answered from this computer: never allowed (unless it is a test name mapped there on purpose)
-  if (isLoopbackIp(ip) && !pane.classifier.isTestMapped(k.hostname)) return stopTab(pane, wc, k.key, 'forbidden')
-  if (!pane.classifier.wasResolvedPublic(k.hostname)) return false
-  if (pane.classifier.classifyIpNow(ip) !== 'private') return false
-  if (pane.perms.isAllowed('private', k.key, pane.currentCall()?.turnId) || pane.userHosts.has(k.key)) return false
-  return stopTab(pane, wc, k.key)
+  const loopback = isLoopbackIp(ip)
+  const privateIp = pane.classifier.classifyIpNow(ip) === 'private'
+  if (!loopback && !privateIp) return false
+  // through a proxy the address is the proxy's (often 127.0.0.1 or an office address): nothing to learn from it
+  const proxied = !/^DIRECT\b/.test((await pane.session.resolveProxy(url).catch(() => 'DIRECT')).trim() || 'DIRECT')
+  const verdict = responseSourceVerdict({
+    ip,
+    proxied,
+    loopback,
+    privateIp,
+    testMapped: pane.classifier.isTestMapped(k.hostname),
+    resolvedPublic: pane.classifier.wasResolvedPublic(k.hostname),
+    privateAllowed: pane.perms.isAllowed('private', k.key, pane.currentCall()?.turnId) || pane.userHosts.has(k.key),
+  })
+  return verdict === 'ok' ? false : stopTab(pane, wc, k.key, verdict)
 }
 
-function stopTab(pane: BrowserPane, wc: WebContents, key: string, kind: 'blocked' | 'forbidden' = 'blocked'): boolean {
+function stopTab(pane: BrowserPane, wc: WebContents, key: string, kind: 'blocked' | 'forbidden'): boolean {
   if (wc.isDestroyed()) return false
   wc.stop()
   void wc.loadURL('about:blank').catch(() => {})
-  pane.activity(kind, key)
+  // the whole page stopped: shown over the page, not only in the log
+  pane.activity(kind, key, true)
   return true
 }

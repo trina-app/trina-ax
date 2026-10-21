@@ -1,17 +1,25 @@
 // "Allowed sites" of the in-app browser (design tab 5 "브라우저 안전장치"): before the AI acts on a site the person
 // allows it for this turn ("once"), always (saved per team), or denies. Office-network (private) addresses have
 // their own grants: allowing example.com as a public site doesn't allow it once its DNS points into the office.
+// Site access "all" (the person's choice in the pane's settings): every public site counts as allowed, so the AI
+// opens public websites without asking. It never touches the office-network scope: those addresses still ask.
 // Pure: persistence is the caller's (load / toJSON). Unit-tested in tests/unit/e-desktop-common.test.ts.
 
 export type PermissionDecision = 'once' | 'always' | 'deny'
 export type SiteScope = 'site' | 'private'
+/** ask: the person answers for each new site (default); all: every public website is allowed */
+export type SiteAccess = 'ask' | 'all'
 
 export interface SavedPermissions {
   /** hosts allowed always (host[:port], "www." dropped) */
   always: string[]
   /** office-network hosts allowed always */
   privateAlways: string[]
+  /** absent in files written before the setting existed: 'ask' */
+  siteAccess?: SiteAccess
 }
+
+export const asSiteAccess = (v: unknown): SiteAccess => (v === 'all' ? 'all' : 'ask')
 
 /** Keep "once" grants for this many recent turns. */
 const MAX_TURNS = 32
@@ -31,14 +39,29 @@ export class SitePermissions {
   private always: Record<SiteScope, Set<string>>
   /** turnId -> scope -> hosts allowed for that turn */
   private once = new Map<string, Record<SiteScope, Set<string>>>()
+  private access: SiteAccess
 
   constructor(saved?: Partial<SavedPermissions>) {
     const clean = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 300) : [])
     this.always = { site: new Set(clean(saved?.always)), private: new Set(clean(saved?.privateAlways)) }
+    this.access = asSiteAccess(saved?.siteAccess)
+  }
+
+  get siteAccess(): SiteAccess {
+    return this.access
+  }
+
+  /** The person's site-access choice. Returns true when it changed (caller persists). */
+  setSiteAccess(v: SiteAccess): boolean {
+    const next = asSiteAccess(v)
+    if (next === this.access) return false
+    this.access = next
+    return true
   }
 
   isAllowed(scope: SiteScope, host: string, turnId?: string): boolean {
     if (!host) return false
+    if (scope === 'site' && this.access === 'all') return true
     if (this.always[scope].has(host)) return true
     return Boolean(turnId && this.once.get(turnId)?.[scope].has(host))
   }
@@ -86,6 +109,6 @@ export class SitePermissions {
   }
 
   toJSON(): SavedPermissions {
-    return this.list()
+    return { ...this.list(), siteAccess: this.access }
   }
 }

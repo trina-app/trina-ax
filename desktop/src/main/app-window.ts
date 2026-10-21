@@ -252,7 +252,10 @@ export class AppWindow {
         onState: (s) => this.sendPaneState(s),
         onPrompts: (p) => this.send(this.chrome, 'ui:pane-prompts', p),
         onActivity: (a) => this.send(this.chrome, 'ui:pane-activity', a),
-        onSavePermissions: (p) => this.o.store.savePermissions(id, p),
+        onSavePermissions: (p) => {
+          this.o.store.savePermissions(id, p)
+          if (this.pane) this.send(this.chrome, 'ui:pane-sites', this.pane.siteSettings())
+        },
         teamHosts: () => teamHostnames(this.teams.teams),
       },
       browserSes,
@@ -261,6 +264,9 @@ export class AppWindow {
       this.o.classifier,
     )
     this.send(this.chrome, 'ui:pane-prompts', [])
+    // this team's settings and a fresh activity log in the toolbar
+    this.send(this.chrome, 'ui:pane-sites', this.pane.siteSettings())
+    this.send(this.chrome, 'ui:pane-activity-reset', null)
     this.sendPaneState(this.pane.state())
 
     this.mode = 'team'
