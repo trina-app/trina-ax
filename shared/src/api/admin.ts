@@ -23,7 +23,11 @@ export const CreateUserBody = z.object({
   temporaryPassword: Password.optional(),
 })
 /** The temporary password is shown once; the person must change it at first sign-in (valid 7 days). */
-export const CreatedUser = z.object({ user: User, temporaryPassword: z.string() })
+export const CreatedUser = z.object({
+  user: User, temporaryPassword: z.string(),
+  /** until when the temporary password works, and the address the person signs in at (for the hand-over) */
+  expiresAt: IsoTime.optional(), signInUrl: z.string().optional(),
+})
 export const UpdateUserBody = z.object({
   name: PersonName.optional(),
   email: z.email().nullable().optional(),
@@ -35,7 +39,7 @@ export const UpdateUserBody = z.object({
 })
 /** omitted temporaryPassword = the server makes a memorable one */
 export const ResetPasswordBody = z.object({ temporaryPassword: Password.optional() })
-export const ResetPasswordResult = z.object({ temporaryPassword: z.string() })
+export const ResetPasswordResult = z.object({ temporaryPassword: z.string(), expiresAt: IsoTime.optional(), signInUrl: z.string().optional() })
 /** One-time reset link (24 h, no mail in v1: the admin hands it over). The token is shown only here. */
 export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), expiresAt: IsoTime })
 /** What happens to the personal folder users/<id>/ of a deleted member (tab 5): moved into the owner's personal

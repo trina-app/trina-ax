@@ -100,7 +100,7 @@ export function passwordProblem(pw: string, ctx: PolicyContext = {}): string | n
   return null
 }
 
-/** A memorable temporary password, e.g. "tiger427" (shared/src/temp-password.ts: word + digits, ~20 bits). */
+/** A memorable temporary password, e.g. "tiger4271" (shared/src/temp-password.ts: word + 4 digits, ~23 bits). */
 export const temporaryPassword = (): string => memorablePassword(crypto.randomInt)
 
 /** Opaque bearer secret (session, invite, reset): 32 random bytes, base64url. Only its hash is stored. */

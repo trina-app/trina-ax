@@ -534,7 +534,7 @@ another office computer), clicking through the certificate warning, and signing 
 different origin from `127.0.0.1:47820`. Check: the member shows up in Admin → Members & invites once they join.
 
 Alternatives:
-- **Add directly**: the temporary password field comes pre-filled with an easy one (a word and digits, e.g. `tiger427`); keep it or type your own (8+ characters). At first sign-in the member only chooses a new password (the temporary one is not asked again); a temporary password stops working after 7 days.
+- **Add directly**: the temporary password field comes pre-filled with an easy one (a word and digits, e.g. `tiger4271`); keep it or type your own (8+ characters). At first sign-in the member only chooses a new password (the temporary one is not asked again); a temporary password stops working after 7 days.
 - **Reset password** (key icon): a new temporary password (pre-filled, editable) the member must change at their next sign-in.
 - **Reset link** (person-with-key icon): a one-time link, valid for 24 hours, that you copy and hand over (no email).
   The member opens it and picks a new password, which signs them out everywhere else. A new link cancels the old

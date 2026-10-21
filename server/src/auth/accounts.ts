@@ -35,8 +35,9 @@ const tempExpired = (u: UserRow, now: number) => !!u.must_change_password && !!u
 
 /**
  * A wrong try against a temporary password: counted, and after TEMP_PASSWORD_MAX_FAILURES the temporary password is
- * void (expires now) and the admin must give a new one. With ~20 bits per memorable temporary password this bounds an
- * online guesser to about 20 / 2^20 (shared/src/temp-password.ts), whatever the per-account rate limit allows.
+ * void (expires now) and the admin must give a new one (Admin > Members shows it). With ~23 bits per memorable
+ * temporary password this bounds an online guesser to about 50 / 10^7 (shared/src/temp-password.ts), whatever the
+ * per-account rate limit allows.
  */
 function countTempFailure(ctx: AppContext, u: UserRow, now: number, ip: string | null): void {
   if (!u.must_change_password || !u.temp_password_expires_at || tempExpired(u, now)) return
@@ -152,11 +153,14 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
     audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ip, via: viaOf(c.get('info')), ...(u && ok ? { disabled: true } : {}) } })
     fail('unauthorized', msg('badLogin', locale))
   }
-  // the right temporary password, but too late (or voided after wrong tries): saying so tells nothing useful to anyone
-  // else (it no longer opens the account), and the person knows to ask for a new one. Still counted as a failure.
+  // the right temporary password, but too late: saying so tells nothing useful to anyone else (it no longer opens the
+  // account), and the person knows to ask for a new one. Still counted as a failure. A temporary password voided after
+  // TEMP_PASSWORD_MAX_FAILURES wrong tries answers like any wrong password: otherwise a guesser who caused the void
+  // could keep guessing (no longer counted) and be told when the guess is right.
   if (tempExpired(u!, a.now())) {
-    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u!.id, detail: { ip, via: viaOf(c.get('info')), tempPasswordExpired: true } })
-    fail('unauthorized', msg('tempPasswordExpired', locale))
+    const voided = u!.temp_password_failures >= TEMP_PASSWORD_MAX_FAILURES
+    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u!.id, detail: { ip, via: viaOf(c.get('info')), ...(voided ? { tempPasswordVoided: true } : { tempPasswordExpired: true }) } })
+    fail('unauthorized', msg(voided ? 'badLogin' : 'tempPasswordExpired', locale))
   }
   hold.release()
   a.limiter.clear(accountKey(b.username))
@@ -177,7 +181,10 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
   if (forced) {
     if (!auth.session.tempLogin || !auth.user.mustChangePassword) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
     const u = getUser(ctx.db, auth.user.id)
-    if (u && (await verifyPassword(b.newPassword, u.password_hash))) fail('validation', msg('samePassword', locale), { fields: { 'body.newPassword': 'same as current' } })
+    // the temporary password ran out (7 days) or was voided after this session was made: the session no longer
+    // stands for it, so it may not set a new password without it (sign in again with a new one from the admin)
+    if (!u || tempExpired(u, a.now())) fail('validation', msg('currentPasswordRequired', locale), { fields: { 'body.currentPassword': 'required' } })
+    if (await verifyPassword(b.newPassword, u!.password_hash)) fail('validation', msg('samePassword', locale), { fields: { 'body.newPassword': 'same as current' } })
   } else {
     if (!(await a.verifyPassword(auth.user.id, b.currentPassword!, c.get('info')))) fail('forbidden', msg('wrongCurrentPassword', locale), { fields: { 'body.currentPassword': 'wrong password' } })
     if (b.newPassword === b.currentPassword) fail('validation', msg('samePassword', locale), { fields: { 'body.newPassword': 'same as current' } })

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { UserPrefs, type Locale, type Role, type User, type UserRef } from '@mycel/shared/api'
+import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { teamDefaultLocale } from '../admin/settings'
 
 export interface UserRow {
@@ -59,6 +60,7 @@ export function toUser(db: Database, r: UserRow): User {
     role: r.role,
     status: r.status,
     mustChangePassword: !!r.must_change_password,
+    tempPassword: r.must_change_password && r.temp_password_expires_at ? { expiresAt: r.temp_password_expires_at, voided: r.temp_password_failures >= TEMP_PASSWORD_MAX_FAILURES } : null,
     locale: r.locale,
     localeChoice: localeChoice(r),
     groupIds: userGroupIds(db, r.id),

@@ -1,46 +1,52 @@
 import { expect, test } from '@playwright/test'
 import { OWNER, reset, signIn, watchConsole } from './helpers'
 
-test('first-run setup is in English; the owner picks the team language and follows it', async ({ page }) => {
-  // a fresh install: no team default stored yet, so English (the browser's Korean does not decide)
-  await reset(page, { setup: true, teamLocale: 'en' })
-  await page.goto('/')
-  await expect(page).toHaveURL(/\/setup/)
-  await expect(page.getByRole('heading', { name: 'Create your team' })).toBeVisible()
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
-  await expect(page.getByTestId('setup-locale')).toHaveValue('en')
-  // the team language is the language on screen: picking Korean switches the page at once
-  await page.getByTestId('setup-locale').selectOption('ko')
-  await expect(page.getByRole('heading', { name: '팀 만들기' })).toBeVisible()
-  await page.getByLabel('설치 토큰').fill('setup-token-0123456789')
-  await page.getByTestId('setup-team').fill('Acme Korea')
-  await page.getByLabel('이름', { exact: true }).fill('Kim Owner')
-  await page.getByLabel('아이디').fill('kim')
-  await page.getByLabel('비밀번호', { exact: true }).fill('a long password 1')
-  await page.getByLabel('비밀번호 확인').fill('a long password 1')
-  await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
-  await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
-  await expect(page.getByTestId('owner-checklist')).toBeVisible()
-  // the starting folder rules come with every team: "set folder permissions" is still to do
-  await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
-  // the owner has no language of their own: "team default (한국어)" is the chosen one
-  await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('locale-team')).toContainText('팀 기본값 (한국어)')
-})
+// first-run setup starts in the browser's language when none was picked (89e32d5, the clinic's own Mac): these two
+// run in an English browser
+test.describe('first-run setup in an English browser', () => {
+  test.use({ locale: 'en-US' })
 
-test('first-run setup left in English makes an English team', async ({ page }) => {
-  await reset(page, { setup: true, teamLocale: 'en' })
-  await page.goto('/')
-  await page.getByLabel('Setup token').fill('setup-token-0123456789')
-  await page.getByTestId('setup-team').fill('Acme')
-  await page.getByLabel('Name', { exact: true }).fill('Kim Owner')
-  await page.getByLabel('Username').fill('kim')
-  await page.getByLabel('Password', { exact: true }).fill('a long password 1')
-  await page.getByLabel('Confirm password').fill('a long password 1')
-  await page.getByRole('button', { name: 'Create team and start' }).click()
-  await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
+  test('first-run setup is in English; the owner picks the team language and follows it', async ({ page }) => {
+    // a fresh install: no team default stored yet and an English browser, so English
+    await reset(page, { setup: true, teamLocale: 'en' })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/setup/)
+    await expect(page.getByRole('heading', { name: 'Create your team' })).toBeVisible()
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.getByTestId('setup-locale')).toHaveValue('en')
+    // the team language is the language on screen: picking Korean switches the page at once
+    await page.getByTestId('setup-locale').selectOption('ko')
+    await expect(page.getByRole('heading', { name: '팀 만들기' })).toBeVisible()
+    await page.getByLabel('설치 토큰').fill('setup-token-0123456789')
+    await page.getByTestId('setup-team').fill('Acme Korea')
+    await page.getByLabel('이름', { exact: true }).fill('Kim Owner')
+    await page.getByLabel('아이디').fill('kim')
+    await page.getByLabel('비밀번호', { exact: true }).fill('a long password 1')
+    await page.getByLabel('비밀번호 확인').fill('a long password 1')
+    await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
+    await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
+    await expect(page.getByTestId('owner-checklist')).toBeVisible()
+    // the starting folder rules come with every team: "set folder permissions" is still to do
+    await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
+    // the owner has no language of their own: "team default (한국어)" is the chosen one
+    await page.goto('/settings/profile')
+    await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTestId('locale-team')).toContainText('팀 기본값 (한국어)')
+  })
+
+  test('first-run setup left in English makes an English team', async ({ page }) => {
+    await reset(page, { setup: true, teamLocale: 'en' })
+    await page.goto('/')
+    await page.getByLabel('Setup token').fill('setup-token-0123456789')
+    await page.getByTestId('setup-team').fill('Acme')
+    await page.getByLabel('Name', { exact: true }).fill('Kim Owner')
+    await page.getByLabel('Username').fill('kim')
+    await page.getByLabel('Password', { exact: true }).fill('a long password 1')
+    await page.getByLabel('Confirm password').fill('a long password 1')
+    await page.getByRole('button', { name: 'Create team and start' }).click()
+    await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
+  })
 })
 
 test('wrong password shows the error; sign out returns to the sign-in page', async ({ page }) => {

@@ -3,14 +3,15 @@
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
 // Mac), remove.
 import { KeyRound, Link2, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
+import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
-import { LOCALES, useLocale, useT } from '../../i18n'
+import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
@@ -30,8 +31,8 @@ export default function Members() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
-  /** a temporary password to hand over, shown once with the username */
-  const [secret, setSecret] = useState<{ name: string; username: string; password: string } | null>(null)
+  /** a temporary password to hand over, shown once with the sign-in address and the username */
+  const [secret, setSecret] = useState<HandoverInfo | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
@@ -100,7 +101,7 @@ export default function Members() {
                       <td className="py-2 pr-3">
                         <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
                         {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
-                        {u.mustChangePassword && <Badge tone="warn" className="ml-1">{t('members.mustChange')}</Badge>}
+                        {u.mustChangePassword && <TempPasswordBadge user={u} />}
                       </td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
@@ -110,9 +111,9 @@ export default function Members() {
                             <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
                               {t('common.edit')}
                             </Button>
-                            <IconButton label={t('members.reset')} onClick={() => resetPassword(u)}>
-                              <KeyRound size={15} />
-                            </IconButton>
+                            <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} data-testid={`reset-password-${u.username}`}>
+                              <KeyRound size={14} aria-hidden /> {t('members.reset')}
+                            </Button>
                             <IconButton label={t('members.resetLinkButton')} onClick={() => createResetLink(u)} data-testid={`reset-link-${u.username}`}>
                               <UserRoundKey size={15} />
                             </IconButton>
@@ -181,9 +182,9 @@ export default function Members() {
         <AddMember
           groups={groups.data ?? []}
           onClose={() => setAddOpen(false)}
-          onCreated={(u, password) => {
+          onCreated={(u, r) => {
             setAddOpen(false)
-            setSecret({ name: u.name, username: u.username, password })
+            setSecret({ name: u.name, username: u.username, ...r })
             void users.reload()
           }}
         />
@@ -212,8 +213,8 @@ export default function Members() {
         <ResetPasswordDialog
           user={resetting}
           onClose={() => setResetting(null)}
-          onDone={(password) => {
-            setSecret({ name: resetting.name, username: resetting.username, password })
+          onDone={(r) => {
+            setSecret({ name: resetting.name, username: resetting.username, ...r })
             setResetting(null)
             void users.reload()
           }}
@@ -329,46 +330,142 @@ function InviteCreated({ invite, onClose }: { invite: CreatedInvite; onClose: ()
 }
 
 /**
- * The temporary password an admin hands over: pre-filled with a memorable one ("tiger427"), editable, ↻ for another,
- * copy. The server checks it like any new password (8+ characters, not the username, not a common one).
+ * "Must change password", or why the member cannot sign in with the temporary password any more: voided after too
+ * many wrong tries (anyone can try a guessable desk username) or past its 7 days. Either way: reset the password.
  */
-function TempPasswordField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TempPasswordBadge({ user }: { user: User }) {
   const t = useT()
-  const short = value.length > 0 && [...value].length < PASSWORD_MIN
+  const locale = useLocale()
+  const tp = user.tempPassword
+  const [tone, text, help, testId] = tp?.voided
+    ? (['danger', t('members.tempVoided'), t('members.tempVoidedHelp'), 'temp-voided'] as const)
+    : tp && Date.parse(tp.expiresAt) <= Date.now()
+      ? (['danger', t('members.tempExpired'), t('members.tempExpiredHelp'), 'temp-expired'] as const)
+      : (['warn', t('members.mustChange'), tp ? t('members.tempUntil', { date: formatDateTime(tp.expiresAt, locale) }) : undefined, 'must-change'] as const)
   return (
-    <Field label={t('members.tempPassword')} hint={t('members.tempPasswordHint')} error={short ? t('auth.passwordRule') : null}>
+    <span className="ml-1" title={help} data-testid={testId}>
+      <Badge tone={tone}>{text}</Badge>
+    </span>
+  )
+}
+
+/** A problem with the temporary password the admin typed (empty, too short, spaces or Hangul), or null. */
+function tempPasswordProblem(v: string): MessageKey | null {
+  if (!v) return 'members.tempPasswordEmpty'
+  if (!tempPasswordCharsOk(v)) return 'members.tempPasswordChars'
+  if ([...v].length < PASSWORD_MIN) return 'auth.passwordRule'
+  if (v.length > 128) return 'members.tempPasswordLong'
+  return null
+}
+
+/**
+ * A server refusal shown inside the dialog (under the temporary password field when it is about that field), not as a
+ * toast far from the field that stays up after the dialog succeeds. Cleared on the next try and on success.
+ */
+function useDialogError() {
+  const t = useT()
+  const locale = useLocale()
+  const [error, setError] = useState<{ text: string; tempPassword: boolean } | null>(null)
+  const run = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    setError(null)
+    try {
+      return await fn()
+    } catch (e) {
+      setError({ text: errorText(e, locale, t('error.network')), tempPassword: isApiError(e, 'validation') && !!e.body.fields?.['body.temporaryPassword'] })
+      return undefined
+    }
+  }
+  return { error, clear: () => setError(null), run }
+}
+
+/**
+ * The temporary password an admin hands over: pre-filled with a memorable one ("tiger4271"), editable, ↻ for another,
+ * copy. Spaces are dropped as typed (they would be invisible on the hand-over screen); Hangul and other non-ASCII
+ * characters are refused with a hint about the 한/영 key. The server checks it like any new password (8+ characters,
+ * not the username, not a common one) and the same characters rule.
+ */
+function TempPasswordField({ value, onChange, serverError, hint }: { value: string; onChange: (v: string) => void; serverError?: string | null; hint: string }) {
+  const t = useT()
+  const id = useId()
+  const problem = tempPasswordProblem(value)
+  const error = problem ? t(problem) : serverError ?? null
+  return (
+    <div>
+      <label htmlFor={`${id}-input`} className="mb-1.5 block text-[13px] font-medium text-ink">
+        {t('members.tempPassword')}
+      </label>
       <div className="flex items-center gap-1">
-        <input className={`${inputCls} font-mono`} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={128} data-testid="temp-password" />
+        <input
+          id={`${id}-input`}
+          className={`${inputCls} font-mono`}
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/\s+/g, ''))}
+          autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          maxLength={128}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={`${id}-note`}
+          data-testid="temp-password"
+        />
         <IconButton label={t('members.tempPasswordAnother')} onClick={() => onChange(newTemporaryPassword())} data-testid="temp-password-new">
           <RefreshCw size={15} />
         </IconButton>
         <CopyButton text={value} className="p-2" />
       </div>
-    </Field>
+      {error ? (
+        <span id={`${id}-note`} role="alert" className="mt-1 block text-xs text-danger" data-testid="temp-password-error">
+          {error}
+        </span>
+      ) : (
+        <span id={`${id}-note`} className="mt-1 block text-xs text-faint">
+          {hint}
+        </span>
+      )}
+    </div>
   )
 }
 
-const tempPasswordOk = (v: string) => [...v].length >= PASSWORD_MIN && v.length <= 128
+/** A refusal that is not about the temporary password (e.g. the username is taken), at the bottom of the dialog. */
+function DialogError({ error }: { error: { text: string; tempPassword: boolean } | null }) {
+  if (!error || error.tempPassword) return null
+  return (
+    <p role="alert" className="text-sm text-danger" data-testid="dialog-error">
+      {error.text}
+    </p>
+  )
+}
 
-/** Shown once after "add member" / "reset password": the username and temporary password to hand over. */
-function Handover({ name, username, password, onClose }: { name: string; username: string; password: string; onClose: () => void }) {
+/** What the admin hands over once: where to sign in, the username, the temporary password and until when it works. */
+export interface HandoverInfo { name: string; username: string; password: string; expiresAt: string; signInUrl: string }
+
+/** Shown once after "add member" / "reset password": the sign-in address, username and temporary password. */
+function Handover({ name, username, password, expiresAt, signInUrl, onClose }: HandoverInfo & { onClose: () => void }) {
   const t = useT()
+  const locale = useLocale()
+  const date = formatDateTime(expiresAt, locale)
+  const text = t('members.handoverText', { url: signInUrl, username, password, date })
   return (
     <Modal open onClose={onClose} title={t('members.handoverFor', { name })} footer={<Button variant="primary" onClick={onClose}>{t('common.done')}</Button>}>
       <div className="space-y-3" data-testid="handover">
-        <SecretBox label={t('auth.username')} value={username} testId="handover-username" />
-        <SecretBox label={t('members.tempPassword')} value={password} note={t('members.tempPasswordNote')} />
+        <SecretBox label={t('members.handoverUrl')} value={signInUrl} testId="handover-url" />
+        <SecretBox label={t('auth.username')} value={username} testId="handover-username" large />
+        <SecretBox label={t('members.tempPassword')} value={password} testId="handover-password" large />
+        <p className="text-xs text-warn" data-testid="handover-note">
+          {t('members.tempPasswordNote', { date })}
+        </p>
       </div>
       <div className="mt-3">
-        <CopyButton text={t('members.handoverText', { username, password })} label={t('members.handoverCopy')} showLabel className="border border-line" />
+        <CopyButton text={text} label={t('members.handoverCopy')} showLabel className="border border-line" />
       </div>
     </Modal>
   )
 }
 
-function ResetPasswordDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: (password: string) => void }) {
+function ResetPasswordDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: (r: { password: string; expiresAt: string; signInUrl: string }) => void }) {
   const t = useT()
-  const act = useAction()
+  const { error, clear, run } = useDialogError()
   const [pw, setPw] = useState(newTemporaryPassword)
   const [busy, setBusy] = useState(false)
   return (
@@ -384,13 +481,13 @@ function ResetPasswordDialog({ user, onClose, onDone }: { user: User; onClose: (
           <Button
             variant="primary"
             busy={busy}
-            disabled={!tempPasswordOk(pw)}
+            disabled={!!tempPasswordProblem(pw)}
             data-testid="reset-temp-submit"
             onClick={async () => {
               setBusy(true)
-              const r = await act(() => api.call(API.resetPassword, { params: { id: user.id }, body: { temporaryPassword: pw } }))
+              const r = await run(() => api.call(API.resetPassword, { params: { id: user.id }, body: { temporaryPassword: pw } }))
               setBusy(false)
-              if (r) onDone(r.temporaryPassword)
+              if (r) onDone({ password: r.temporaryPassword, expiresAt: r.expiresAt ?? inTempTtl(), signInUrl: r.signInUrl ?? location.origin })
             }}
           >
             {t('members.resetSave')}
@@ -399,19 +496,35 @@ function ResetPasswordDialog({ user, onClose, onDone }: { user: User; onClose: (
       }
     >
       <div className="space-y-3">
-        <p className="text-sm text-muted">{t('members.resetBody')}</p>
-        <TempPasswordField value={pw} onChange={setPw} />
+        <p className="text-sm text-muted">{t('members.resetBody', { name: user.name })}</p>
+        <TempPasswordField
+          value={pw}
+          onChange={(v) => {
+            setPw(v)
+            clear()
+          }}
+          serverError={error?.tempPassword ? error.text : null}
+          hint={t('members.resetHint')}
+        />
+        <DialogError error={error} />
       </div>
     </Modal>
   )
 }
 
-function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: () => void; onCreated: (user: User, pw: string) => void }) {
+/** When a temporary password set now stops working (the server's answer is used when it gives one). */
+const inTempTtl = () => new Date(Date.now() + TEMP_PASSWORD_TTL_DAYS * 24 * 3600_000).toISOString()
+
+function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: () => void; onCreated: (user: User, r: { password: string; expiresAt: string; signInUrl: string }) => void }) {
   const t = useT()
-  const act = useAction()
+  const { error, clear, run } = useDialogError()
   const me = useMeStrict()
   const [f, setF] = useState(() => ({ name: '', username: '', email: '', role: 'member' as MemberRole, groupIds: [] as string[], password: newTemporaryPassword() }))
   const [busy, setBusy] = useState(false)
+  const set = (patch: Partial<typeof f>) => {
+    setF({ ...f, ...patch })
+    clear()
+  }
   return (
     <Modal
       open
@@ -425,13 +538,13 @@ function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: (
           <Button
             variant="primary"
             busy={busy}
-            disabled={!f.name.trim() || !f.username.trim() || !tempPasswordOk(f.password)}
+            disabled={!f.name.trim() || !f.username.trim() || !!tempPasswordProblem(f.password)}
             data-testid="add-member-submit"
             onClick={async () => {
               setBusy(true)
-              const r = await act(() => api.call(API.createUser, { body: { name: f.name.trim(), username: f.username.trim(), email: f.email.trim() || null, role: f.role, groupIds: f.groupIds, temporaryPassword: f.password } }))
+              const r = await run(() => api.call(API.createUser, { body: { name: f.name.trim(), username: f.username.trim(), email: f.email.trim() || null, role: f.role, groupIds: f.groupIds, temporaryPassword: f.password } }))
               setBusy(false)
-              if (r) onCreated(r.user, r.temporaryPassword)
+              if (r) onCreated(r.user, { password: r.temporaryPassword, expiresAt: r.expiresAt ?? inTempTtl(), signInUrl: r.signInUrl ?? location.origin })
             }}
           >
             {t('common.create')}
@@ -441,22 +554,23 @@ function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: (
     >
       <div className="space-y-3">
         <Field label={t('auth.name')}>
-          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-autofocus data-testid="add-member-name" />
+          <input className={inputCls} value={f.name} onChange={(e) => set({ name: e.target.value })} data-autofocus data-testid="add-member-name" />
         </Field>
         <Field label={t('auth.username')} hint={t('auth.usernameHint')}>
-          <input className={inputCls} value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} autoCapitalize="none" data-testid="add-member-username" />
+          <input className={inputCls} value={f.username} onChange={(e) => set({ username: e.target.value })} autoCapitalize="none" data-testid="add-member-username" />
         </Field>
-        <TempPasswordField value={f.password} onChange={(password) => setF({ ...f, password })} />
+        <TempPasswordField value={f.password} onChange={(password) => set({ password })} serverError={error?.tempPassword ? error.text : null} hint={t('members.tempPasswordHint')} />
         <Field label={t('settings.email')}>
-          <input className={inputCls} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+          <input className={inputCls} type="email" value={f.email} onChange={(e) => set({ email: e.target.value })} />
         </Field>
         <Field label={t('members.role')}>
-          <RoleSelect value={f.role} onChange={(role) => setF({ ...f, role })} disabled={!isOwner(me)} />
+          <RoleSelect value={f.role} onChange={(role) => set({ role })} disabled={!isOwner(me)} />
         </Field>
         <div>
           <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
-          <GroupChecks groups={groups} value={f.groupIds} onChange={(groupIds) => setF({ ...f, groupIds })} />
+          <GroupChecks groups={groups} value={f.groupIds} onChange={(groupIds) => set({ groupIds })} />
         </div>
+        <DialogError error={error} />
       </div>
     </Modal>
   )

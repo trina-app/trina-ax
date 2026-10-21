@@ -1,160 +1,115 @@
-// Memorable temporary passwords: one easy English word + digits, e.g. "tiger427", "maple385", "lake4827".
+// Memorable temporary passwords: one easy English word + four digits, e.g. "tiger4271", "maple0385", "piano7712".
 //
-// Used wherever the system makes a temporary password (admin "add member" and "new temporary password", the admin
-// form that pre-fills one to hand over). A temporary password is one-time: the person must change it at first
+// Used wherever the system makes a temporary password (admin "add member" and "reset password", the admin form that
+// pre-fills one to hand over, the server CLI). A temporary password is one-time: the person must change it at first
 // sign-in, it stops working TEMP_PASSWORD_TTL_DAYS days after it was set, and the server voids it after
 // TEMP_PASSWORD_MAX_FAILURES wrong tries (server/src/auth/accounts.ts). So it trades length for being easy to read out
 // and type at a clinic desk.
 //
-// Format: a word of 4-7 lower-case letters from TEMP_WORDS, then digits 2-9 (no 0/1, which read as O/l): three of
-// them, four after a 4-letter word, so every password has 8-10 characters and passes the 8-character rule.
+// Format: a word of 4-7 lower-case letters from TEMP_WORDS, then 4 digits 0-9, so 8-11 characters (passes the
+// 8-character rule). The digits always come after the letters, so 0/O and 1/l cannot be mixed up.
 //
-// Entropy (min-entropy = the chance of the single most likely password): log2(2114) + 3 x log2(8) = 20.0 bits, about
-// one in a million. That is weak against offline cracking and is only acceptable because guessing is online only:
-// argon2id hashes, 10 failed sign-ins / 15 min per account (30 per IP), voided after 20 wrong tries (so a guesser
-// wins with at most 20 / 2^20 = 0.002%), valid for 7 days, replaced by the person's own password at first sign-in.
-// (Reaching ~30 bits would need two words or six digits, which is no longer "about 8 characters".)
+// Entropy (min-entropy = the chance of the single most likely password): log2(1007 words) + 4 x log2(10) = 23.3 bits,
+// about one in ten million. ~30 bits would need two words or seven digits, which is no longer "about 8 characters".
+// That is weak against offline cracking (a stolen database: about ten CPU-days against argon2id) and acceptable only
+// because guessing is online: argon2id hashes, 10 failed sign-ins / 15 min per account and 30 per real IP (also
+// through the Cloudflare tunnel), voided after TEMP_PASSWORD_MAX_FAILURES wrong tries (a guesser wins with at most
+// 50 / 10^7 = 0.0005%), valid 7 days, replaced by the person's own password at the first sign-in.
 //
-// TEMP_WORDS: common words, mostly from the BIP-0039 English list (unique 4-letter prefixes, so no two words look
-// alike), without unpleasant, violent, medical-worry, gendered or slangy words, plus easy nature / food / animal /
-// object words. Lower-case a-z only, 4-7 letters, no duplicates (tests/unit/a-auth.test.ts checks this).
+// TEMP_WORDS (owner decision 2026-10-21, reviewed for the exampleteam clinic pilot with Korean and Indonesian staff): basic,
+// concrete words that are easy to spell when read aloud (food, animals, places, things, colours, months, a few
+// cities) - no hard spellings (rhythm, yacht, khaki...), no silent letters (knee, climb, island...), nothing
+// unpleasant, violent, medical-worry, religious or slangy (knife, needle, ghost, snake, wine...), and no two words
+// that differ by one letter, one added or dropped letter, or two swapped letters (bean/bear, star/start, quiet/quite)
+// or that sound the same (peace/piece, medal/metal). Lower-case a-z only, 4-7 letters, no duplicates
+// (tests/unit/a-temp-passwords.test.ts checks all of this).
 
 export const TEMP_PASSWORD_TTL_DAYS = 7
-export const TEMP_PASSWORD_MAX_FAILURES = 20
+/** Wrong sign-in tries that void a temporary password. High enough that a stranger guessing a desk's username cannot
+ * easily lock a new member out (the per-account limit makes 50 tries take over an hour), low enough to bound a guesser. */
+export const TEMP_PASSWORD_MAX_FAILURES = 50
 
 export const TEMP_WORDS: readonly string[] = `
-ability able about above absorb access account achieve acid acorn acquire across action actor actual adapt address
-adjust admit advance advice aerobic afford again agent agree ahead airport aisle alarm album alert alley allow almond
-almost alone alpaca alpha already also alter always amateur amazing amber among amount amused analyst anchor ancient
-angle animal ankle annual another answer antenna antique apart appear apple approve apricot april apron arch arctic
-area arena argue armor around arrange arrive arrow artist artwork aspect aspen asset assist assume athlete atom
-attend attic attract auction audit august aunt aurora author auto autumn average avocado avoid awake aware away
-awesome axis azure baby badge badger bagel baker bakery balance balcony ball ballet balloon bamboo banana banjo
-banner barely bargain barn barrel base basic basil basket beach beacon beagle bean bear beauty beaver because become
-beet beetle before begin behave behind beige believe bell below belt bench benefit berry best better between beyond
-bicycle bike bind biology birch bird birth biscuit bison black blanket bloom blossom blouse blue blur blush board
-boat body boil bold bone bonus book boost border borrow boss bottle bottom boulder bounce bowling bracket brain
-branch brand brass brave bread breeze breezy brick bridge brief bright bring brisk bronze brook broom brother brown
-brownie brush bubble bucket buddy budget buffalo build bulb bulk bundle bunny burger burst busy butter button buzz
-cabbage cabin cable cactus cafe cake calf call calm camel camera camp canal candle candy canoe canvas canyon capable
-capital captain caramel carbon card cargo carpet carrot carry cart case cash cashew castle casual catalog catch
-cattle caught cause caution cave cedar ceiling celery cello cement century cereal certain chair chalk change chapter
-charge chase chat cheap check cheddar cheer cheery cheese cheetah chef cherry chess chest chicken chief child chili
-chimney chips choice choose chorus chuckle chunk churn cinema circle circus citizen citrus city civil claim clap
-clarify clay clean clerk clever click client cliff climb clinic clip clock close cloth cloud clove clover club clump
-cluster clutch coach coast cobalt cocoa coconut code coffee coil coin collect collie color column combine come comet
-comfort comic common company compass concert condor conduct confirm connect control cook cookie cool copper copy
-coral core corn correct cosmos cost cottage cotton couch country couple course cousin cover coyote cozy crab crack
-cracker cradle craft cram crane crater crawl crayon cream credit creek crepe crew cricket crimson crisp crop cross
-crouch crow crowd crown crucial cruise crumble crunch crystal cube culture cumin curious curly current curry curtain
-curve cushion custom cute cyan cycle cypress dahlia dairy daisy damp dance dancer dandy daring dash dawn deal debate
-decade decide deer defense define defy degree delay deliver delta demand denim dentist depart depend deposit depth
-deputy derive desert design desk detail detect develop device devote diagram dial diamond diary dice diesel diet
-differ digital dignity dilemma dingo dinner direct disco dish display divide doctor doll dolphin domain domino donate
-donkey donor donut door double dove draft dragon drama draw dream dreamy dress drift drill drink drip drive drop drum
-drummer duck dune during dust duty dynamic eager eagle early earn earth easel easily east easy echo ecology economy
-edge edit educate effort eight either elbow elder elegant element elite else embark ember embody embrace emerald
-emerge emotion employ empower empty enable enact endless endorse energy enforce engage engine enhance enjoy enlist
-enough enrich enroll ensure enter entire entry episode equal equip erase erupt escape essay essence estate eternal
-ethics evening evoke evolve exact example excess excite exclude execute exhibit exist exit exotic expand expect
-explain express extend extra eyebrow fable fabric face faculty fade faint faith falcon fall fame family famous fancy
-fantasy farm farmer fashion father fawn feather feature feed feel fence fern ferret ferry fetch fiber fiction fiddle
-field fiesta figure file film filter final finch find fine finger finish fire firefly firm first fish fitness fjord
-flag flame flash flat flavor flight flint flip float flock floor flora flower fluffy fluid flush flute foal foam
-focus foil fold follow food foot force forest forget fork fortune forum forward fossil foster found fragile frame
-fresh friday friend fringe frog front frost frozen fruit fudge fuel funny furnace future gadget gain galaxy gallery
-game garage garden garlic garment garnet gate gather gauge gaze gazebo gecko general genius genre gentle genuine
-gesture geyser ghost giant gibbon gift giggle ginger giraffe give glacier glad glade glance glare glass glide glider
-glimpse globe glory glossy glove glow glue goat gold golden golf good goose gorilla govern gown grab grace grain
-grand granola grant grape grass gravel gravity gravy great green grid grit grocery group grove grow guard guava guess
-guest guide guitar gust habit hair half hamlet hammer hammock hamster hand handy happy harbor hard hare harmony harp
-harsh harvest hatch have hawk hazel head health heart heath heather heavy hedge height hello helmet help helper hero
-heron hidden high hiker hiking hill hint hippo hire history hobby hockey hold hole holiday hollow home honest honey
-hood hoop hope horizon horn horror horse host hotel hour hover huge human humble humor hundred hungry hurdle hurry
-husky hybrid ibis iceberg icon idea igloo ignore iguana image imitate immense immune impact impala impose improve
-impulse inch include income index indigo indoor infant inform inhale inherit initial inlet inner input inquiry insect
-inside inspire install intact into invest invite involve iris iron island issue item ivory jacket jade jaguar jasmine
-jazz jeans jelly jewel jigsaw join joke jolly journey joyful judge juice july jump june jungle junior juniper just
-kale karate kayak keen keep kernel ketchup kettle khaki kick kind kingdom kiosk kitchen kite kitten kiwi knee knife
-knock knot know koala label labor ladder ladybug lagoon lake lamb lamp lantern laptop large lark latch later latin
-laugh laundry laurel lava lawn layer leader leaf learn leave lecture ledge leek left legal legend leisure lemon lemur
-lend length lens lentil leopard lesson letter level lever liberty library license life lift light like lilac lily
-limb lime limit linen link lion liquid list little live lively lizard llama load loan lobster local lock locket lodge
-loft logic long loop lotus loud lounge love loyal lucky luggage lumber lumen lunar lunch luxury lychee lynx lyric
-macaw machine magenta magic magnet magpie mail main major make mammal manage mango manor mansion mantle manual maple
-marble march margin marina marine market marmot maroon marsh mask mass master match math matrix matter mauve maximum
-maze meadow mean measure medal media meerkat mellow melody melon melt member memory mention menu mercy merge merit
-merry mesh message metal meteor method middle mighty milk mill million mimic mind minimum mink minor mint minute
-miracle mirror miss mist mitten mixed mixture mobile mocha model modest modify moment monday monitor monkey month
-moon moose moral more morning mosaic moss motel moth mother motion motor mouse move movie much muffin mule mural
-muscle museum music must mutual myrtle myself mystery myth nacho name napkin narrow nation nature navy near neat
-nebula neck nectar need needle neither nephew nerve nest network neutral never news newt next nice night nimble noble
-noise noodle noon normal north nose notable note nothing notice novel nugget number nurse nutmeg oasis oatmeal oats
-obey object oblige observe obtain obvious occur ocean ocelot ochre october offer office often okapi okay olive
-olympic omit once onion online only opal open opera opinion oppose option orange orbit orca orchard orchid order
-organ orient ostrich other otter outdoor outer outpost output outside oval oven over owner oxygen oyster ozone pact
-paddle page pagoda painter pair palace palette palm pancake panda panel panther pantry papaya paper parade parcel
-parent park parka parrot party pass pasta pastel patch path patient patio patrol pattern pause pave payment peace
-peach peanut pear pearl pebble pecan pelican pencil penguin peony people pepper perch perfect permit person pesto
-petal phone photo phrase pianist piano pickle picnic picture piece pier pigeon piglet pillar pillow pilot pine pink
-pinto pioneer pipe pitch pixel pixie pizza place planet plank plastic plate play player plaza please pledge pluck
-plucky plug plum plunge pocket poem poet point polar pole police polite polka pollen pond pony poodle pool popcorn
-poppy popular porch portion post potato potter pottery powder power prairie praise predict prefer prepare present
-pretty pretzel prevent price pride primary print prism private prize process produce profit program project promote
-proof prosper protect proud provide public pudding puffin pull pulley pulse puma pumpkin pupil puppy purity purpose
-purse push puzzle pyramid quail quality quantum quarter quartz quest quick quiet quilt quinoa quit quiver quiz quote
-rabbit raccoon race rack radar radio radish raft rail rain rainbow raise raisin rally ramen ramp ranch random range
-ranger rapid rare rate rather raven razor ready real reason rebuild recall receive recipe record recycle reduce reed
-reef reflect reform refuse region regular relax relay release relief rely remain remind remove render renew rent
-reopen repair repeat replace report require rescue resist result retire return reunion reveal review reward rhythm
-ribbon rice rich riddle ride ridge right rigid ring ripple risk ritual rival river road roast robin robot robust
-rocket rodeo romance roof rooftop rookie room rose rosy rotate rough round route rover rowing royal rubber ruby rule
-runway rural rust saddle safe saffron saga sage sail sailing sailor salad salmon salon salsa salt salute samba same
-sample sand sandal sandbox sapling satin satisfy sauce savanna save scale scan scarf scarlet scatter scene scheme
-school science scone scooter scout scrap screen script scroll scrub seal search season seat second secret section
-seed seek segment select seminar senior sense sepia series service sesame session settle setup seven shadow shaft
-shallow share shed shelf shell sheriff shield shift exampleteam shiny ship shiver shock shoe shop shore short shovel shrimp
-shrug shuffle sibling side sierra sight sign signal silent silk silky silly silver similar simple since sing singer
-siren sister situate size skate sketch skiing skill skin skirt skylark slab sled sleek sleep slender slice slide
-slight slim slipper slogan slope slot sloth slow slush small smart smile smooth snack snail snake snap sniff snow
-snowy soap soccer social sock soda sofa soft solar solid solve someone song sonic sonnet soon sorbet sorry sort soul
-sound soup source south space spare spark sparrow spatial spawn speak special speed spell spend sphere spice spider
-spike spin spinach spindle spirit splash split sponsor spool spoon sport spot spray spread spring sprint sprout
-spruce square squeeze squid stable stadium staff stage stairs stamp stand star start state statue stay steady steel
-stem stencil step stereo stick still stitch stock stone stool stork storm story stove straw stream street strong
-student studio stuff sturdy style subject submit subway success such sudden sugar suggest suit summer summit sunday
-sundial sunlit sunny sunrise sunset super supply supreme sure surface surfing surge survey sushi sustain swallow
-swamp swan swap swarm sweet swift swim swing switch symbol syrup system table tablet tackle taco tadpole tail tailor
-talent talk tango tank tape tapir target task tassel taste taxi teach teacher teacup teal team teapot tell tempo
-tender tennis tent term terrier test text thank that theater theme then theory there they thimble thing this thistle
-thought thread three thrive throw thumb thunder thyme tiara ticket tide tidy tiger tilt timber time tiny tissue title
-toast today toddler toffee tofu token tomato tone tonight tool tooth topaz topic topple torch tornado toss total
-toucan tourist toward towel tower town track tractor trade traffic trail train tram travel tray treat tree trellis
-trend trial tribe trick trim trip tripod trophy trout truck true truly trumpet trust truth tube tuesday tuition tulip
-tumble tuna tundra tunnel turkey turn turtle tuxedo twelve twenty twice twig twin twist type typical umber unaware
-uncle uncover under undo unfold uniform unique unit unknown unlock until unusual unveil upbeat update upgrade uphold
-uplift upon upper urban urge usage used useful usual utility vacuum valid valley valve vanilla vanish vapor various
-vase vast vault vehicle velvet vendor venture venue verb verify version very vessel veteran viable vibrant victory
-video view village vintage violet violin virtual visa visit vista visual vital vivid vocal voice volcano volume vote
-voyage wafer waffle wagon wait walk wall wallet walnut walrus waltz wand want warm wash wasp water wave wealth wear
-weasel weather weave wedding weekend welcome west whale what wheat wheel when where whip whisper whistle wicker wide
-widget width wild will willow wind window wine wing wink winner winter wire wisdom wise wish witness witty wolf
-wombat wonder wood wool word work world worth wrap wren wrist write writer yacht yard yarn year yellow yodel yoga
-yogurt young youth zebra zenith zephyr zero zesty zigzag zipper zone`.trim().split(/\s+/)
+above action active agree airport alarm album almond alpaca alpha always amazing amber anchor angle animal answer
+apple apricot april apron aqua arcade arrive arrow artist athlete atlas attic august aunt author avenue avocado award
+awesome baby bacon badge bagel bakery baking balcony ball balloon bamboo banana banjo bank banner barber barley barn
+barrel basil basket bathtub battery beach bean beanie beaver bedroom bedtime beehive begin belt bento berlin berry
+bicycle bike binder bingo bird black blanket blender bloom blossom blue board boat bonsai bonus book border bottle
+bottom bounce bowl bowling boxing branch brave brazil bread breeze brick bright bring bronze brother brownie brush
+bubble bucket buddy buffalo build bulgogi bundle burger busan busy butter button cabbage cabin cabinet cable cactus
+cafe camel camera camping campus canada canal candle candy canoe canopy canvas canyon captain caramel card careful
+cargo carpet carrot cartoon cashew catfish celery center cereal chain chalk channel charm chat cheddar cheer cheese
+chef cherry chess chick chicken child chilly chimney choice cinema circle circus citrus city clam classic clean cliff
+clock close cloudy clover coach cocoa coconut coffee cold collar color comedy comet comfort comic compass concert
+contest cookie cooking cool copper coral corn corner cosmos costume cottage cotton cousin cowboy cozy crab cracker
+crane crayon creek cricket crisp crown crystal cupcake curry curtain cushion cute daisy dance dancing darts dawn
+daytime deer denim dentist design desk desktop diamond diary dinner disco diving doll dolphin domino donkey donut door
+doorway dozen dragon drama draw drawer drawing dream dress drink drive drum drummer dubai duck duet durian eagle early
+earth easel easy edge eighty elbow eleven email emerald emoji empty energy engine enjoy eraser evening exam extra
+fairy falcon family famous fantasy farmer fast father fence fern field fiesta fifty figure film final firefly first
+fish fishing five flag flame flash flight float floor florist flower fluffy flute focus foggy folder forest fork
+fortune forty fossil four freezer fresh friday fridge friend fries frog frost fruit fudge future fuzzy gadget galaxy
+gallery game garage garden garlic gecko gelato gentle giant gift giggle ginger giraffe glacier glad glass glider
+glitter glove goal golden golf golfer good goose gorilla grand grandma granola grape gravity gray great green grill
+grocery group grow guide guitar gummy haircut hammer hammock hamster handbag hanger happy harbor harmony harp harvest
+hawk headset heart heater heavy hello helmet helpful hero high highway hiking hill hilltop hippo history hobby hockey
+holiday home hoodie hotdog hotel house huge human hundred iceberg icon idea igloo image inbox indigo inside invite
+iris jacket jade january jasmine jazz jeans jeep jeju jersey jewel jigsaw jogging jolly journey judo juice july jumbo
+jump jumper june jungle karate kebab ketchup kettle kimbap kimchi kimono king kingdom kitchen kite kitty kiwi koala
+label ladder lagoon lake lamp lantern laptop large latte laundry leaf learn left legend lemon leopard lesson letter
+lettuce level library lilac lily lime linen lion little lively lizard lobster locker london long lotus loud lucky
+luggage lunch madrid magic magical magnet mailbox mandu mango maple marble march marker maroon mascot mask math mayo
+meadow medal melody melon memo memory mermaid meteor metro mexico middle minivan mint minute mirror misty mitten
+mobile mocha modern moment monday money monitor month morning moss mother motor movie muffin mural museum music
+musical mustard nacho napkin natural nature navy neat nickel night nine ninety ninja noon north notepad nugget number
+oasis oatmeal ocean october octopus office olive omelet onion online opera option orange orbit orca orchard orchid
+organ origami ostrich otter outdoor outfit outside oven owner paddle paint pajama palace palm pancake panda panel
+panther papaya paper parade parcel paris park parking partner party pasta pastel pastry patio peace peacock peanut
+pear pebble pecan pelican pencil penguin penny pepper person pesto petal phone photo piano pickle picnic picture
+pigeon piglet pilot pink pirate pitch pitcher pixel pizza planner plant plate player playful please plum pocket poem
+polar polite pollen polo poncho pond poodle popcorn popular portal poster potato pottery powder present pretty pretzel
+prince printer prism prize promise proud pudding puma pumpkin puppet puppy purple purse puzzle pyramid quarter queen
+quest quick quiet quiz rabbit raccoon radar radio radish raft railway rainbow rainy raise raisin ramen rapid reading
+ready recipe record reef relax remote resort rhino ribbon rice ripple river road robin robot rodeo rooftop room
+rooster rope rosy round royal ruby ruler running safari safety sailing sailor salad salsa salt samba sand sandal
+sandbox satin sauce sauna sausage scarf scene school science scooter scout screen scuba seafood seagull seal search
+seaside season second secret seoul sesame seven shadow shampoo shape shark shell shield shiny shirt shop shorts shovel
+shower shrimp shuttle signal silk silly silver simple singing sister sixty skate skating sketch skiing skip skyline
+sled sleep sleeve slide slipper slope slow small smile smooth snack snail sneaker snowman snowy soccer sock soda soft
+solve sonic sorry soup south space sparkle sparrow special speed spin spinach spiral spirit splash sponge spoon sport
+spring sprout square squash squid stable stadium stage stairs stamp stapler start station statue steady steak steel
+stem stereo stick sticker still stool store straw stream street student studio sturdy subway sugar suit summer summit
+sunbeam sunday sunhat sunny sunrise sunset super surf surfing sushi swan sweater sweet swift swim swing sydney symbol
+syrup tablet taco tadpole talent tape target taste taxi teacher teacup team teapot teddy tempo tender tennis thanks
+thing thirty three thunder ticket tidy tiger timber title toast toaster today tofu tomato toolbox topaz torch toucan
+tourist towel town tractor trade train trainer travel treetop trip trophy trout truck trumpet tuesday tugboat tulip
+tuna tunnel turbo turkey turnip turtle tutor tuxedo twelve twenty twice twin udon uncle under unicorn uniform useful
+valley vanilla vase veggie velvet victory video village violet violin visit visitor vista vitamin voice volcano voyage
+waffle wagon walk wallet walnut walrus warm wasabi watch water wave weather website wedding week weekend welcome west
+whale wheel white wide willow window windy winter wombat wonder workout world writer yellow yoga yogurt young zebra
+zesty zipper
+`.trim().split(/\s+/)
 
-/** Digits used after the word: 2-9 (0 and 1 look like O and l). */
-const DIGITS = '23456789'
+/** Digits after the word: four, 0-9. */
+const DIGITS = '0123456789'
+export const TEMP_PASSWORD_DIGITS = 4
 
 /**
  * A memorable temporary password. `randomInt(n)` must return a uniformly random integer in [0, n) from a
  * cryptographic source (server: node:crypto randomInt; browser: crypto.getRandomValues with rejection sampling).
  */
 export function memorablePassword(randomInt: (n: number) => number): string {
-  const word = TEMP_WORDS[randomInt(TEMP_WORDS.length)]!
-  let digits = ''
-  for (let i = Math.max(3, 8 - word.length); i > 0; i--) digits += DIGITS[randomInt(DIGITS.length)]
-  return word + digits
+  let pw = TEMP_WORDS[randomInt(TEMP_WORDS.length)]!
+  for (let i = 0; i < TEMP_PASSWORD_DIGITS; i++) pw += DIGITS[randomInt(DIGITS.length)]
+  return pw
 }
 
-/** Min-entropy of memorablePassword() in bits (a 5-7 letter word and three digits): about 20. */
-export const MEMORABLE_PASSWORD_BITS = Math.log2(TEMP_WORDS.length) + 3 * Math.log2(DIGITS.length)
+/** Min-entropy of memorablePassword() in bits: about 23.3. */
+export const MEMORABLE_PASSWORD_BITS = Math.log2(TEMP_WORDS.length) + TEMP_PASSWORD_DIGITS * Math.log2(DIGITS.length)
+
+/**
+ * A temporary password an admin types must be printable ASCII without spaces (letters, digits, symbols). Spaces at the
+ * ends are invisible on the hand-over screen, and non-ASCII text entered with a keyboard IME cannot be
+ * typed into a password box on most Windows desks, so either would lock the new member out.
+ */
+export const tempPasswordCharsOk = (v: string): boolean => /^[\x21-\x7e]*$/.test(v)

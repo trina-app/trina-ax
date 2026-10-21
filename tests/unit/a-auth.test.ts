@@ -160,7 +160,7 @@ describe('password change and forced change', () => {
 
   test('a new member must change the temporary password before anything else', async () => {
     const r = await owner.call('POST', '/api/admin/users', { username: 'nina', name: 'Nina', role: 'member' })
-    expect(r.temporaryPassword).toMatch(/^[a-z]{4,7}[2-9]{3,4}$/)
+    expect(r.temporaryPassword).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
     expect(r.user.mustChangePassword).toBe(true)
     const c = h.client()
     const login = await c.login('nina', r.temporaryPassword)
@@ -221,7 +221,7 @@ describe('password change and forced change', () => {
     expect(new Set(Array.from({ length: 50 }, temporaryPassword)).size).toBeGreaterThanOrEqual(49)
     for (let i = 0; i < 200; i++) {
       const t = temporaryPassword()
-      expect(t).toMatch(/^[a-z]{4,7}[2-9]{3,4}$/)
+      expect(t).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
       expect(passwordProblem(t)).toBeNull()
     }
   })
