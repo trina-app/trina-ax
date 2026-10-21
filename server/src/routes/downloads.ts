@@ -7,7 +7,8 @@
 //   constant memory), a resumed download (Range: bytes=N- or N-<last byte>) as Bun.file().slice(N) to the end of the
 //   file (measured: Bun 1.3.12 ends that body correctly, direct and when the body is read; only slices that stop
 //   before the end lose their end), any other range from the bounded pull stream of team-files/download.ts.
-// - Only index.json and the files it lists are served (one name, no folders), each opened like a team file
+// - Only index.json, latest.yml (electron-updater's feed file the office updater puts next to the Windows installer,
+//   docs/OFFICE.md "자동 업데이트") and the files index.json lists are served (one name, no folders), each opened like a team file
 //   (O_NOFOLLOW, a regular file with one link): a symlink, hard link or stray file in the folder stays private.
 // - Cache-Control: private, so Cloudflare (which caches .exe / .dmg by extension) never keeps a copy it could hand to
 //   someone without a session (a zone "Cache Everything" rule would override that: docs/OFFICE.md says to keep
@@ -26,7 +27,10 @@ export const INSTALLER_TYPES: Record<string, string> = {
   '.exe': 'application/vnd.microsoft.portable-executable',
   '.dmg': 'application/x-apple-diskimage',
   '.json': 'application/json; charset=utf-8',
+  '.yml': 'text/yaml; charset=utf-8',
 }
+/** served without being listed in index.json: the list itself and the desktop app's update feed file */
+export const META_FILES = ['index.json', 'latest.yml']
 
 const text = (status: number, body: string, extra: Record<string, string> = {}) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra } })
@@ -45,7 +49,7 @@ export function serveDownload(req: Request, sub: string, dir: string | null): Re
   if (!dir || !fs.existsSync(dir)) return text(404, 'Not found\n')
   let name: string
   try { name = decodeURIComponent(sub.replace(/^\//, '')) } catch { return text(404, 'Not found\n') }
-  if (name !== 'index.json' && !(SAFE_NAME.test(name) && readIndex(dir).some((i) => i.file === name))) return text(404, 'Not found\n')
+  if (!META_FILES.includes(name) && !(SAFE_NAME.test(name) && readIndex(dir).some((i) => i.file === name))) return text(404, 'Not found\n')
   const file = path.join(path.resolve(dir), name)
   let st: fs.Stats
   try {
@@ -66,7 +70,7 @@ export function serveDownload(req: Request, sub: string, dir: string | null): Re
     'ETag': etag,
     'Last-Modified': lastModified,
   })
-  if (name !== 'index.json') headers.set('Content-Disposition', contentDisposition('attachment', name))
+  if (!META_FILES.includes(name)) headers.set('Content-Disposition', contentDisposition('attachment', name))
   const inm = req.headers.get('if-none-match')
   if (inm && inm.split(',').map((s) => s.trim()).includes(etag)) return new Response(null, { status: 304, headers })
   const head = req.method === 'HEAD'
