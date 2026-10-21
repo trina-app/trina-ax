@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { Access, Folder, FolderRule, FolderRuleInput, Locale, PreviewResponse, Role } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
@@ -72,6 +73,48 @@ export function ensureFolderRow(db: Database, p: string): FolderRow {
   const row = { id: newId(), path: p, created_at: new Date().toISOString() }
   db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(row.id, row.path, row.created_at)
   return row
+}
+
+/**
+ * Remove a folders row (its rules go with it). Call inside a transaction. Trash items and versions stamped with it
+ * (migration 301: the nearest folders row when they were made) are stamped with the nearest row above it instead, so
+ * they keep following the folder they really sit in. For a row parked with a trashed folder (.system/trash/<m>/<id>/…)
+ * only a row parked in the same trashed folder counts: with none, trash items keep the stamp of a row that no longer
+ * exists and stay hidden (TeamFiles.trashHome), so they cannot fall through to whatever folder took the old name.
+ */
+export function dropFolderRow(db: Database, id: string): void {
+  const f = getFolder(db, id)
+  if (!f) return
+  const segs = f.path === '' ? [] : f.path.split('/')
+  const parked = segs[0] === PRODUCT.systemDir
+  const floor = parked ? Math.min(4, segs.length) : 0 // .system/trash/<month>/<id> is the parked folder's own root
+  let above: string | null = null
+  for (let len = segs.length - 1; len >= floor && f.path !== ''; len--) {
+    const row = getFolderByPath(db, segs.slice(0, len).join('/'))
+    if (row) { above = row.id; break }
+  }
+  if (above !== null || !parked) {
+    db.query('UPDATE trash_items SET folder_id = ? WHERE folder_id = ?').run(above, id)
+    db.query('UPDATE file_versions SET folder_id = ? WHERE folder_id = ?').run(above, id)
+  }
+  db.query('UPDATE groups SET folder_id = NULL WHERE folder_id = ?').run(id)
+  db.query('DELETE FROM folders WHERE id = ?').run(id)
+}
+
+/**
+ * A rule-less folders row that only marked a project folder (createProject on an existing folder, a shared project
+ * copy) once no project uses that path any more: dropped, so the folder stops being admin-only to move, rename or
+ * trash. Kept when it carries rules, is a group's folder, is shared/ or skills/, or another project still uses it.
+ * Call inside the transaction that deleted or repointed the project.
+ */
+export function dropProjectMarker(db: Database, p: string): void {
+  if (p === '' || p === 'shared' || p === 'skills' || isUsersPath(p)) return
+  const f = getFolderByPath(db, p)
+  if (!f) return
+  if (db.query('SELECT 1 FROM folder_rules WHERE folder_id = ? LIMIT 1').get(f.id)) return
+  if (db.query('SELECT 1 FROM groups WHERE folder_id = ? LIMIT 1').get(f.id)) return
+  if (db.query('SELECT 1 FROM projects WHERE folder_path = ? LIMIT 1').get(p)) return
+  dropFolderRow(db, f.id)
 }
 
 /** Rules must name existing subjects, at most once each. */

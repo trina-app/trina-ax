@@ -576,13 +576,32 @@ export class TeamFiles {
     const t = this.ctx.db.query('SELECT original_path FROM trash_items WHERE storage_path = ?').get(storage) as { original_path: string } | null
     return t ? t.original_path + f.path.slice(storage.length) : f.path
   }
+  /**
+   * Where a trash item goes back to now: its original path (move() keeps it up to date), held against the folder it
+   * was trashed from (folder_id: the nearest folders row when it was trashed, migration 301). null when that folder is
+   * itself in the trash (the item comes back with it: restoreTrash moves it along), was purged, or no longer holds that
+   * path. The path alone would let whoever owns a folder that took the old name since (another group, a new rule
+   * folder) see the item and restore it into their folder (security review r2).
+   */
+  private trashHome(t: TrashRow): string | null {
+    if (!t.folder_id) return t.original_path
+    const f = this.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(t.folder_id) as { path: string } | null
+    if (!f) return null
+    if (t.kind === 'folder' && f.path === t.storage_path) return t.original_path // its own rules, parked with it
+    if (segsOf(f.path)[0] === PRODUCT.systemDir) return null
+    return f.path === '' || f.path === t.original_path || isUnder(f.path, t.original_path) ? t.original_path : null
+  }
   private trashVisible(user: Principal, rules: RuleSet, t: TrashRow): boolean {
-    // a trashed folder's own (parked) rules count as if it were still in place
+    const home = this.trashHome(t)
+    if (home === null) return false
+    // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
+    // since belong to that other folder and do not
     const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
         THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
-      FROM folder_rules r JOIN folders f ON f.id = r.folder_id`).all(t.storage_path, t.original_path) as any) : rules
+      FROM folder_rules r JOIN folders f ON f.id = r.folder_id
+      WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, home) as any) : rules
     const access = (p: string) => r.access(user, segsOf(p))
-    if (access(t.original_path) !== 'write') return false
+    if (access(home) !== 'write') return false
     if (t.folder_id) {
       const f = this.folderLivePath(t.folder_id)
       if (f !== null && !atLeast(access(f), 'read')) return false
@@ -627,7 +646,7 @@ export class TeamFiles {
     const t = this.trashRow(id)
     if (!t || !this.trashVisible(user, rules, t)) throw new HttpError('not_found')
     const isDir = t.kind === 'folder'
-    const want = segsOf(t.original_path)
+    const want = segsOf(this.trashHome(t)!)
     // the original parent may be gone: it is created again (names were valid when the item was deleted).
     // A taken name (exactly or nearly) gets " (restored)" in the team's default language.
     const parentRel = want.slice(0, -1).join('/')
@@ -651,6 +670,12 @@ export class TeamFiles {
       verifyChain(this.root, r.segs, true)
       this.ctx.db.transaction(() => {
         rebaseFolders(this.ctx.db, t.storage_path, r.rel)
+        // items trashed from inside this folder before it went to the trash (hidden meanwhile, trashHome) come back
+        // into the trash of the folder where it now is, " (restored)" name included
+        this.ctx.db.query(`UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1)
+          WHERE restored_at IS NULL AND id <> ? AND (original_path = ? OR substr(original_path, 1, length(?) + 1) = ? || '/')
+            AND folder_id IN (SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/')`)
+          .run(r.rel, t.original_path, t.id, t.original_path, t.original_path, t.original_path, r.rel, r.rel, r.rel)
         fs.renameSync(src, r.abs)
       })()
     } else {
@@ -679,6 +704,9 @@ export class TeamFiles {
       // the folder's parked rules and the history kept under them go for good as well
       const ids = (db.query("SELECT id FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(t.storage_path, t.storage_path, t.storage_path) as { id: string }[]).map((x) => x.id)
       for (const fid of ids) {
+        // what was trashed from inside it earlier goes for good with it (its place is gone; restoring it by its path
+        // alone would put it into whatever folder takes the old name)
+        for (const inner of db.query('SELECT id, storage_path, kind FROM trash_items WHERE folder_id = ? AND restored_at IS NULL AND id <> ?').all(fid, t.id) as Pick<TrashRow, 'id' | 'storage_path' | 'kind'>[]) this.purgeRow(inner)
         for (const v of db.query('SELECT id, storage_path FROM file_versions WHERE folder_id = ?').all(fid) as { id: string; storage_path: string | null }[]) {
           if (v.storage_path?.startsWith(`${PRODUCT.systemDir}/history/`)) fs.rmSync(path.join(this.root, ...v.storage_path.split('/')), { force: true })
           db.query('DELETE FROM file_versions WHERE id = ?').run(v.id)
