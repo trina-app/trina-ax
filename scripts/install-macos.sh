@@ -230,6 +230,9 @@ for d in server launcher; do
   launchctl bootout "system/$LABEL.$d" >/dev/null 2>&1 || true
 done
 for u in "$SRV_UID" "$AGT_UID"; do
+  # anything run as the account (sudo -u, e.g. the admin commands) gets a per-user launchd domain whose agents
+  # (distnoted) launchd starts again after a kill: end the domain first
+  launchctl bootout "user/$u" >/dev/null 2>&1 || true
   for i in 1 2 3 4 5; do
     pkill -KILL -u "$u" >/dev/null 2>&1 || true
     pgrep -u "$u" >/dev/null 2>&1 || break
