@@ -427,7 +427,7 @@ polish/0(보안)·1(정확성)·2(화면·UX)·3(계약·데드 코드)을 이 �
 - **LOCAL_LOGIN을 실제로 쓰는 것만으로 좁혔다**(보고 모드 `(with report)`로 `claude -p`가 건드리는 경로를 기록해서 정함): `~/.claude.json`과 그 `.lock`·`.tmp.*`, `~/.claude/backups/`, 이 턴의 세션 폴더(`SESSION_DIR` = 실행기가 확인한 sessionCollect 폴더, 아니면 채팅 폴더), 읽기 전용 `~/.claude/settings.json`·`~/.claude/cache/`, `~/.codex/auth.json`, 설치 폴더(`~/.local/share/claude`, `~/.codex/packages`) 읽기, 로그인 키체인. 이제 막히는 것: owner의 다른 프로젝트 대화 기록(`~/.claude/projects/*`), 실행 중인 세션 목록과 메시지 키(`~/.claude/sessions/`), history·file-history·todos, owner가 설치한 플러그인(스캔도 못 함), settings·hooks·skills·CLAUDE.md 쓰기(owner의 샌드박스 밖 CLI가 읽는 것), `~/.codex`의 sessions·history·config.toml. Claude는 `sessions/`·`plugins/`·`telemetry/`가 막혀도 정상 동작한다.
 - **실행기의 USER_HOME**: 서버가 실행기를 빈 환경으로 띄워 `$HOME`이 없었고, LOCAL_LOGIN 규칙이 모두 `/.claude`를 가리켰다(위 "동작했다"는 sandbox-exec를 직접 실행한 확인이었다). 실행기가 계정 DB에서 홈을 찾고, `--local-login`인데 홈이 없으면 시작하지 않는다. 서버도 실행기에 HOME을 넘긴다(엔진 환경은 여전히 요청의 env만).
 - **개발 Codex의 상태는 채팅 폴더 안**: `CODEX_HOME=<chat>/.codex`(auth.json은 owner 로그인으로 가는 링크), `HOME=<chat>/.home`(매 턴 비움), 잠긴 카탈로그 사본 `<chat>/.codex/catalog.json`(매 턴 새로). 공유 `<data>/codex-home`은 샌드박스가 데이터 폴더를 열어야 했고 모든 채팅의 Codex 상태(로그·sqlite)가 섞였다. 서버는 샌드박스 밖에서 이 폴더들을 준비하므로 엔진이 남긴 링크는 따라가지 않고 지운다(`prepareCodexTurn`). 역할 계정 모드(`agent-own`)는 설정된 폴더 그대로.
-- **남는 것(기록)**: 개발 모드에서 엔진은 CLI 로그인에 필요한 `~/.claude.json`(owner가 연 프로젝트 경로 목록 포함)과 `~/.codex/auth.json`, 로그인 키체인 파일을 읽고 쓸 수 있고, owner uid라 pf가 없어 직접 HTTPS(`*:443`)가 열려 있다. 그래서 도구 잠금이 뚫린 개발 턴이 owner의 CLI 로그인 토큰을 밖으로 보낼 수 있는 길은 남는다. 이것은 역할 계정 모드(`_axagent` + 모델 프록시 + pf)가 닫는다. 실제 데이터를 쓰는 팀원에게는 개발 서버가 아니라 설치본을 쓴다.
+- **남는 것(기록)**: 개발 모드와 **사무실 모드**(같은 엔진 구성, 실제 환자 자료)에서 엔진은 CLI 로그인에 필요한 `~/.claude.json`(owner가 연 프로젝트 경로 목록 포함)과 로그인 키체인 파일을 읽고 쓸 수 있고(`/usr/bin/security`로 Claude 로그인 항목을 프롬프트 없이 읽음), 맥 사용자 uid라 pf가 없어 직접 HTTPS(`*:443`, `udp *:53`: 인터넷과 사무실 LAN의 443 기기)가 열려 있다. 그래서 도구 잠금이 뚫린 턴이 그 맥의 Claude 로그인 토큰과 턴이 읽은 자료를 밖으로 보낼 수 있는 길은 남는다. SBPL은 호스트 이름을 쓸 수 없어(`*` 또는 `localhost`만) 프로필로는 Anthropic만으로 좁힐 수 없다. 이것은 모델 프록시(구독 setup-token, `LOCAL_LOGIN=0`)가 닫는다(4차에서 사무실을 그쪽으로 바꾸지 않은 이유는 아래 "보안 4차"). 4차에서 좁힌 것: `~/.claude.json` 규칙을 그 파일과 실제 형제(`.lock`·`.tmp.*`·`.backup*`)로 고정, 키체인 폴더 쓰기를 `login.keychain-db`와 원자적 쓰기 짝으로, `~/.codex`는 Codex가 켜졌을 때만(`LOCAL_CODEX`), 사무실 모드는 `~/.claude.json`의 MCP 서버를 지움.
 - 검증: 실제 Claude 1턴(haiku)·Codex 1턴을 이 프로필로 실행기를 거쳐 돌렸고 둘 다 MCP `read`로 팀 파일을 읽어 답했다. 전에는 막히지 않던 것 중 엔진이 시도한 것: `/bin/sh`·`ps`·`git` 실행, 작업 폴더 위의 `.git` 탐색, `~/Library/Caches/claude-cli-nodejs` 쓰기(모두 거부되어도 턴은 정상).
 
 ## 보안 검토 r1 — 공유 흐름 (sec/r1-sharing-works, 2026-10-21)
@@ -840,6 +840,25 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   휴지통에서 되돌리면 규칙과 함께 돌아오고 그때 버전 되돌리기가 된다. 버전의 폴더가 지금 그 경로를 맡는지까지 요구하는 것은
   하지 않았다: 파일을 다른 폴더로 옮겨도 `folder_id`는 저장 때 폴더라 정상 되돌리기가 막힌다. 시험:
   `tests/security/r4-restore-version-trashed-folder.test.ts`(hr·관리자 모두 409, mallory는 내용·트리 404, 폴더를 되돌린 뒤 성공).
+- **사무실 엔진의 맥 로그인 노출을 좁혔다(4차 8~13).** 사무실 모드는 개발과 같은 엔진(`engine.sb` `LOCAL_LOGIN=1`, 맥 사용자의
+  Claude 로그인)으로 실제 환자 자료를 다루는데, 도구 잠금이 뚫린 턴에 열려 있던 것: 로그인 키체인의 Claude 항목(`/usr/bin/security`,
+  프롬프트 없음)·`~/.claude.json`, 아무 호스트의 `:443`·`udp :53`(8, 10), `~/.claude.json`에 사용자 범위 MCP 서버를 심어 맥
+  사용자가 다음에 띄우는 `claude`가 샌드박스 밖에서 실행(9), 키체인 폴더 전체 쓰기(11), Codex를 끈 사무실에서도
+  `~/.codex/auth.json` 읽기·쓰기(12), 끝이 열린 `~/.claude.json` 정규식으로 채팅 사이 공유 저장소(13). 고친 것:
+  ① `~/.claude.json` 규칙을 `\.claude\.json(\.lock|\.tmp\.[^/]+|\.backup[^/]*)?$`로 고정(13). ② 키체인 쓰기를
+  `login.keychain-db`(+`-shm`/`-wal`/`-journal`/`.sb-*` 임시)와 `.fl*` 잠금 파일로만(11; 감사의 N2안. 가짜 키체인에서
+  `security add-generic-password -U` 갱신은 그대로 되고 새 파일·폴더·이름 바꾸기는 거부. 지우기(unlink)는 원자적 다시 쓰기에 필요해
+  남음). ③ 새 프로필 인자 `LOCAL_CODEX`: Codex 경로(`~/.codex` 메타데이터, `auth.json`, `packages`)는 `1`일 때만, 실행기는
+  `--local-login --local-codex`일 때만 `1`, 서버는 Codex 바이너리가 있을 때만 `--local-codex`(사무실은 `codexBin ''` → 0)(12).
+  ④ 사무실 모드(`office` + local-login)는 서버 시작과 Claude 턴이 끝날 때마다 `~/.claude.json`의 MCP 설정(맨 위·프로젝트별
+  `mcpServers`, `enabledMcpjsonServers`, `enableAllProjectMcpServers`)이 비어 있지 않으면 비우고(나머지 키는 그대로, 같은 폴더
+  임시 파일 + rename, 링크는 따라가지 않음) 기록·감사(`engine.claude_json_mcp_removed`)에 남긴다(9의 단기책;
+  `server/src/engine/claude-json-guard.ts`). 실제 `claude -p` 1턴이 바뀐 프로필(LOCAL_LOGIN=1, LOCAL_CODEX=0)에서 로그인해 답했다.
+  **사무실을 구독 setup-token + 모델 프록시로 바꾸지 않은 이유**: 그 한 가지가 8·9·10·11·12를 함께 닫지만, 프록시를 거친
+  실제 Anthropic 응답은 아직 한 번도 확인되지 않았고(INSTALL.md "Not verified"), 설치기·치과 가이드의 로그인 절차도 바뀐다.
+  첫 시범 전날 확인 안 된 길로 바꾸는 것은 안전하지 않다고 봤다. 그래서 남는 위험(8·10·11 일부)은 SECURITY-AUDIT.md 4차와
+  OFFICE.md 8장에 적었고, 치과 맥 미니는 Team AX 전용·개인 키체인 항목 없음·`claude`를 `/login` 말고 쓰지 않음으로 운영한다.
+  시험: `tests/security/r4-engine-local-login.test.ts`(가짜 홈: 공유 저장소·키체인 새 파일·Codex 로그인 거부, MCP 지우기·감사).
 - **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 14, 검토 중 추가).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
   `teamName`(설정 전 null, 뒤 팀 이름)이 그대로 나갔고, `POST /api/setup`은 "이미 설정됨"(409)을 터널 거부(403)보다 먼저 봐서
   설정 전 403 / 뒤 409로 갈렸다. 이제 터널 거부를 먼저 보고(늘 403), `setupStatus`의 `teamName`은 누구에게나 늘 null이다(쓰는
