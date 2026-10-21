@@ -194,6 +194,9 @@ export class Hub implements RealtimeHub {
       auth = null
     }
     if (!auth) { conn.close(WsClose.unauthorized, 'sign in required'); return }
+    // a session that must still change its (temporary) password reaches nothing but /api/me, the password change and
+    // logout (http/route.ts enforceAuth): no team events either
+    if (auth.user.mustChangePassword) { conn.close(WsClose.unauthorized, 'password change required'); return }
 
     const userId = auth.user.id
     const windowId = q.data.windowId

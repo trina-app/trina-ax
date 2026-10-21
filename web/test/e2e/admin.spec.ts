@@ -8,12 +8,32 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await page.getByRole('link', { name: '관리자' }).click()
   await expect(page.getByTestId('members-table')).toContainText('Bob')
 
-  // add a member: the temporary password is shown once
+  // add a member: the temporary password field comes pre-filled with an easy one (word + digits), ↻ makes another,
+  // the admin may type their own (8+ characters); after creating, the username and password are shown once
   await page.getByRole('button', { name: '직접 추가' }).click()
   await page.getByRole('dialog').getByLabel('이름', { exact: true }).fill('Carol')
   await page.getByRole('dialog').getByLabel('아이디').fill('carol')
-  await page.getByRole('dialog').getByRole('button', { name: '만들기' }).click()
-  await expect(page.getByTestId('secret-value')).toHaveText('temp-password-1')
+  const temp = page.getByTestId('temp-password')
+  const first = await temp.inputValue()
+  expect(first).toMatch(/^[a-z]{4,7}[2-9]{3,4}$/)
+  expect(first.length).toBeGreaterThanOrEqual(8)
+  let other = first
+  for (let i = 0; i < 5 && other === first; i++) {
+    await page.getByTestId('temp-password-new').click()
+    other = await temp.inputValue()
+  }
+  expect(other).not.toBe(first)
+  expect(other).toMatch(/^[a-z]{4,7}[2-9]{3,4}$/)
+  // too short: the create button waits until it has 8 characters
+  await temp.fill('short1')
+  await expect(page.getByTestId('add-member-submit')).toBeDisabled()
+  await expect(page.getByRole('dialog')).toContainText('비밀번호는 8자 이상이어야 해요.')
+  await temp.fill('exampleteam2026')
+  await page.getByTestId('add-member-submit').click()
+  await expect(page.getByTestId('handover-username')).toHaveText('carol')
+  await expect(page.getByTestId('secret-value')).toHaveText('exampleteam2026')
+  await page.getByRole('button', { name: '아이디·비밀번호 복사' }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('아이디: carol\n임시 비밀번호: exampleteam2026')
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('members-table')).toContainText('비밀번호 변경 필요')
 

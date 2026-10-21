@@ -8,9 +8,12 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { ERROR_MESSAGES } from '@mycel/shared/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { useSession } from '../store/session'
+import { useMe, useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { Button, Field, inputCls } from '../components/ui'
+
+/** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
+export const PASSWORD_MIN = 8
 
 /**
  * A username with characters the server refuses (tab 5: the invite screen checks the rule while typing), so the hint
@@ -147,7 +150,7 @@ export function Setup() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (form.password !== form.password2) return setError('auth.passwordMismatch')
-    if (form.password.length < 10) return setError('auth.passwordRule')
+    if ([...form.password].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       signedIn(r.me)
@@ -192,7 +195,7 @@ export function Setup() {
           <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" />
         </Field>
         <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={10} autoComplete="new-password" />
+          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={PASSWORD_MIN} autoComplete="new-password" />
         </Field>
         <Field label={t('auth.passwordAgain')}>
           <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" />
@@ -265,7 +268,7 @@ export function AcceptInvite() {
           <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
         </Field>
         <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={10} autoComplete="new-password" data-testid="invite-password" />
+          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={PASSWORD_MIN} autoComplete="new-password" data-testid="invite-password" />
         </Field>
         <Field label={t('auth.passwordAgain')}>
           <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" data-testid="invite-password2" />
@@ -334,7 +337,7 @@ export function ResetPassword() {
       <form onSubmit={submit} className="space-y-3">
         <input type="text" name="username" value={info.username ?? ''} autoComplete="username" readOnly hidden />
         <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={10} autoComplete="new-password" data-testid="reset-password" />
+          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required minLength={PASSWORD_MIN} autoComplete="new-password" data-testid="reset-password" />
         </Field>
         <Field label={t('auth.passwordAgain')}>
           <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" data-testid="reset-password2" />
@@ -352,38 +355,49 @@ export function ResetPassword() {
   )
 }
 
+/**
+ * Change own password. Settings: current + new + again. Forced change right after signing in with a temporary
+ * password (`Me.session.tempLogin`): only new + again, the sign-in just proved the temporary one (the server allows
+ * that only for such a session). A forced change in an older session still asks for the temporary password.
+ */
 export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; forced?: boolean }) {
   const t = useT()
+  const me = useMe()
+  const withoutCurrent = !!forced && !!me?.session.tempLogin
   const [form, setForm] = useState({ current: '', next: '', next2: '' })
   const { busy, error, run, setError } = useSubmit()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (form.next !== form.next2) return setError('auth.passwordMismatch')
-    if (form.next.length < 10) return setError('auth.passwordRule')
+    if ([...form.next].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
-      await api.call(API.changePassword, { body: { currentPassword: form.current, newPassword: form.next } })
+      await api.call(API.changePassword, { body: withoutCurrent ? { newPassword: form.next } : { currentPassword: form.current, newPassword: form.next } })
       setForm({ current: '', next: '', next2: '' })
       onDone()
     })
   }
   return (
     <form onSubmit={submit} className="space-y-3">
-      <Field label={forced ? t('auth.temporaryPassword') : t('auth.currentPassword')}>
-        <input className={inputCls} type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" />
-      </Field>
+      {/* lets a password manager file the new password under the right account */}
+      {me && <input type="text" name="username" value={me.user.username} autoComplete="username" readOnly hidden />}
+      {!withoutCurrent && (
+        <Field label={forced ? t('auth.temporaryPassword') : t('auth.currentPassword')}>
+          <input className={inputCls} type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" data-testid="password-current" />
+        </Field>
+      )}
       <Field label={t('auth.newPassword')} hint={t('auth.passwordRule')}>
-        <input className={inputCls} type="password" value={form.next} onChange={set('next')} required minLength={10} autoComplete="new-password" />
+        <input className={inputCls} type="password" value={form.next} onChange={set('next')} required minLength={PASSWORD_MIN} autoComplete="new-password" autoFocus={withoutCurrent} data-testid="password-new" />
       </Field>
       <Field label={t('auth.passwordAgain')}>
-        <input className={inputCls} type="password" value={form.next2} onChange={set('next2')} required autoComplete="new-password" />
+        <input className={inputCls} type="password" value={form.next2} onChange={set('next2')} required autoComplete="new-password" data-testid="password-new2" />
       </Field>
       {error && (
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
-      <Button type="submit" variant="primary" busy={busy}>
+      <Button type="submit" variant="primary" busy={busy} data-testid="password-submit">
         {t('auth.changePassword')}
       </Button>
     </form>
@@ -393,9 +407,10 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
 export function ForcedPassword() {
   const t = useT()
   const load = useSession((s) => s.load)
+  const tempLogin = !!useMe()?.session.tempLogin
   const navigate = useNavigate()
   return (
-    <AuthFrame title={t('auth.changePassword')} sub={t('auth.mustChange')}>
+    <AuthFrame title={t('auth.changePassword')} sub={t(tempLogin ? 'auth.mustChangeNew' : 'auth.mustChange')}>
       <ChangePasswordForm
         forced
         onDone={async () => {
