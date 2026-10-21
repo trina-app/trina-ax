@@ -602,22 +602,26 @@ r3 재검증의 여섯 항목(이름 바꾼 그룹·프로젝트 폴더의 휴�
 - **Host 허용 목록(`allowedHosts`)을 서버에 일반 기능으로 넣었다**(`http/middleware.ts hostCheck`, direct 요청만, 다른 Host는
   421). 사무실 모드는 인증서의 이름·주소 + `localhost/127.0.0.1:<앱 포트>`를 넣는다. DNS 리바인딩(공격 페이지가 자기 이름을
   사무실 맥 IP로 돌림)이 API에도, 쿠키 origin에도 닿지 않는다. 비어 있으면(개발·운영 기본) 지금과 같다.
-- **TLS 리스너는 `'::'`(IPv4+IPv6)**, 설정 `tls.host`(기본은 기존 그대로 `0.0.0.0`). 듀얼 스택에서 IPv4 손님은
-  `::ffff:a.b.c.d`로 오므로 `peerIp()`가 `a.b.c.d`로 적는다(로그인 제한·감사 기록이 IPv4 리스너와 같은 값).
+- **TLS 리스너의 주소는 설정 `tls.host`**(없으면 `0.0.0.0`). 사무실 모드는 처음에 `'::'`(IPv4+IPv6)였으나 보안 검토 후
+  `0.0.0.0`으로 바꿨다(아래 '검토 반영'). 듀얼 스택 리스너의 IPv4 손님(`::ffff:a.b.c.d`)은 `peerIp()`가 `a.b.c.d`로 적는다.
 - **인증서: 자체 서명 한 장 대신 사무실 CA + 서버 인증서**(`server/src/office/tls.ts`). 운영 설치기의 방식(설치 때 자체 서명,
   `en0` IP 하나, 데스크마다 경고 클릭 + 데스크톱 앱은 지문 고정)으로는 Edge가 PWA 설치·서비스 워커를 거부하고, IP가 바뀌면
   모든 데스크가 다시 경고를 받는다. CA는 한 번만 만들고(10년, `ca.key` 600, 폴더 700, 서빙 안 함) 서버 인증서(397일, Apple의
   825일 제한 안)는 주소가 생기거나 30일 남으면 감시 프로세스가 30초 안에 다시 서명하고 서버를 다시 띄운다. CA가 그대로라 데스크는
-  할 일이 없다. 사라진 주소만으로는 다시 만들지 않는다(불필요한 재시작 방지). IPv6 임시(privacy) 주소는 `ifconfig`의
-  temporary 표시로 뺀다(매일 바뀌어 매일 재시작이 됨). 키는 운영 설치기와 같은 named-curve P-256(`ecparam -noout`).
-- **CA에 이름 제한(critical nameConstraints)**: `local`, 그 맥의 이름, 10/8·172.16/12·192.168/16·100.64/10·fc00::/7.
-  데스크 10대가 신뢰하는 루트이므로, 키가 새도 공개 사이트를 사칭할 수 없게 했다. macOS 신뢰 평가·OpenSSL·Node가 제한을
+  할 일이 없다. 사라진 주소만으로는 다시 만들지 않는다(불필요한 재시작 방지). 키는 운영 설치기와 같은 named-curve
+  P-256(`ecparam -noout`). main의 운영 설치기도 이제 모든 LAN 주소를 넣는 자체 서명 인증서(`system/lan-cert.ts`, `tls.managed`)를
+  관리하지만, 데스크 10대가 Edge 앱(PWA)으로 쓰려면 브라우저가 신뢰하는 체인이 필요해 사무실 모드는 CA 방식을 유지한다.
+- **CA에 이름 제한(critical nameConstraints)**: `<맥 이름>.local`, `<맥 이름>`, CA를 만들 때 그 맥이 있는 사무실 대역
+  (예: 192.168.1.0/24, 사설 대역 안만). 데스크 10대가 신뢰하는 루트이므로, 키가 새도 공개 사이트도, 다른 `.local` 기기나 다른
+  대역의 차트 서버·NAS·공유기도 사칭할 수 없게 했다(처음에는 `local`·사설 대역 전체였다: 보안 검토 5). 어느 쪽도 비워 두지
+  않는다(비면 그 종류의 이름은 모두 허용이 된다): 이름을 모르면 `local`, 대역을 모르면 사설 대역 전체. macOS 신뢰 평가·OpenSSL·Node가 제한을
   지키는 것(위반 인증서 거부)을 시험했다. Bun의 fetch(BoringSSL)는 IP 제한이 있는 CA를 아예 거부하므로 LAN 시험은 Node로
   한다(`tests/install/office-lan.mjs`). 그래서 공인 IP는 인증서에 넣지 않는다. 탈출구 `TEAMAX_CA_CONSTRAINTS=0`.
 - **평문 도우미 포트(기본 lanPort-1)는 `/`, `/ca.cer`, `/ca.crt`만**(`office/helper.ts`). CA를 아직 믿지 않는 데스크가 https를
   못 여니 CA를 받을 곳이 필요하다. API·리다이렉트·프록시 없음, 요청(Host·쿼리)의 어떤 값도 페이지에 넣지 않음, 스크립트 없음
-  (CSP `default-src 'none'`). 평문으로 CA를 받는 것의 위험(같은 망의 공격자가 바꿔치기)은 지문 확인 단계로 줄인다: 윈도우
-  설치 경고 창이 보여 주는 것이 SHA-1 지문이라 SHA-256과 함께 SHA-1도 보여 준다. 끌 수 있다(`TEAMAX_HELPER_PORT=0`).
+  (CSP `default-src 'none'`). 평문으로 CA를 받는 것의 위험(같은 망의 공격자가 페이지와 CA를 바꿔치기)은 지문 확인으로
+  줄이는데, **비교 대상은 이 페이지가 아니라 맥에서 인쇄한 데스크 카드**다(아래 '검토 반영' 1). 끌 수 있다(`TEAMAX_HELPER_PORT=0`,
+  그때는 `tls/ca.cer`를 USB로).
 - **감시 프로세스(`office/cli.ts run`) 하나가 LaunchAgent**(`app.team-ax.office`, 개발 서비스 `app.team-ax.dev`와 다른 이름):
   인증서·`config/server.json`(시작마다 다시 씀)·도우미 페이지·서버 자식 프로세스(죽으면 2→30초 간격으로 다시)를 맡는다.
   plist와 launchctl은 `scripts/dev-service.ts`의 함수를 일반화해 같이 쓴다(`plist({label,args,env})`, `launchAgent()`).
@@ -636,3 +640,36 @@ r3 재검증의 여섯 항목(이름 바꾼 그룹·프로젝트 폴더의 휴�
 - **시험**: `tests/unit/office.test.ts`(주소·이름, CA 제한과 위반 거부, 재생성, 설정, server.json, Host 421, LAN origin의
   CSRF·`__Host-` Secure 쿠키·실제 IP 감사, 초대 링크 주소, 도우미 허용 목록, plist, 복원 바꿔 넣기, 설치기 확인 경로),
   `tests/install/office-lan.mjs`(실제 설치본에 LAN 주소로: 첫 설정 → 초대 → 팀원 로그인 → 업로드 → wss → 실제 Claude 1턴).
+
+### 사무실 모드 검토 반영 (보안 검토·실사용 검토, 2026-10-21)
+
+보안 검토(86733d2, LAN에서 공격)와 처음부터 따라 해 본 검토의 지적을 고쳤다. 각 항목에 회귀 시험이 있다
+(`tests/unit/office.test.ts`, `tests/unit/a-auth.test.ts`, `web/test/unit/i18n.test.ts`).
+
+- **지문은 맥에서 인쇄한 카드와 비교한다(보안 1).** 평문 인증서 페이지가 자기 페이지의 지문과 비교하라고 했으므로, 페이지와
+  CA를 함께 바꿔치기하면 확인이 통과했다(그 CA는 데스크에서 모든 https 사이트를 사칭할 수 있음). 이제 페이지는 지문을 **보여
+  주지 않고** 서버 맥의 데스크 카드(`DESK-CARD.html`, `teamax card`; `teamax info`·`ADDRESSES.txt`)와 비교하라고 한다. 카드와
+  info는 윈도우가 보여 주는 형식(소문자, 8자씩)으로 SHA-1을 보여 준다. 윈도우 절차는 설치 **전에** 인증서 → 자세히 → 지문에서
+  비교하고, 경고 창이 나오는 **현재 사용자** 저장소를 기본으로 한다(실사용 4: 로컬 컴퓨터는 경고 창이 없음). 10대에는 USB로
+  `ca.cer`를 나눠 주는 것이 더 안전하다고 안내한다.
+- **IPv4만, 사무실 대역만(보안 2·6, 실사용 7).** TLS·도우미 리스너는 `0.0.0.0`. 인증서·데스크 주소에서 IPv6와 VPN(utun 등,
+  100.64/10, VM 브리지)을 뺀다(`TEAMAX_INCLUDE_VPN=1`로 되돌림). 0.0.0.0은 VPN 인터페이스에서도 받으므로 서버에 일반 기능
+  **`allowedPeers`**(IPv4 CIDR, loopback은 항상)를 넣고 사무실 모드는 맥의 사무실 대역을 넣는다: Tailscale 피어는 Host를
+  속여도 403. 대역이 바뀌면 server.json이 달라져 서버를 다시 띄운다. `TEAMAX_ALLOW_FROM=any|<CIDR,…>`. 로그인 제한은 IPv6
+  손님을 /64로 센다(한 기기가 /64 안에서 주소를 마음대로 만들 수 있음; 중계로 온 IPv6 손님도 같음).
+- **Host 없는 요청은 421(보안 3)**: 요청 URL을 파싱하지 않는다(500과 스택 기록이 없어짐).
+- **리스너마다 자기 Host·Origin만(보안 4)**: Bun.serve가 리스너의 포트를 넘기고(`RequestInfo.port`), Host의 포트가 그
+  리스너의 포트여야 한다. CSRF·WebSocket Origin도 Host 허용 목록이 있을 때는 그 포트의 공개 origin만(`originsFor`).
+  `localhost:<앱 포트>`는 사무실 포트에서 421, `http://localhost:<앱 포트>` Origin은 사무실 포트에서 403/4403.
+- **Codex는 사무실 모드에서 쓰지 않는다(실사용 2)**: 설치기가 PATH의 codex를 넣지 않고 server.json에 `engine.codexBin: ''`
+  (`findCodexBin('')` = 끔, PATH 검색 안 함). 가이드의 "환자 자료는 Anthropic에만"과 맞춘다. 진단에서도 Codex 줄을 뺀다.
+- **관리자 > 시스템이 사무실 모드를 사실대로 말한다(실사용 3)**: 샌드박스는 "적용됨"(engine.sb가 없으면 실패로), pf는 "운영
+  설치에서 더해짐", 중계는 "쓰지 않음(정상)", 업데이트는 "새 zip". 연결 카드의 SHA-256은 데스크가 비교하는 CA의 것. 연결 방식
+  바꾸기는 없다(`availableModes` = direct-only, PUT은 409: server.json은 감시 프로세스가 시작마다 다시 씀).
+- **운영 편의(실사용 1·5·8·9·10)**: `teamax archive --out FILE`이 `--out`이라는 파일을 만들던 것(래퍼가 `$1`을 파일로 봄)을
+  고쳤다(`restore-archive --in`도). zip에 `app/docs/OFFICE.md`와 인쇄용 PDF를 넣었다. 설치기는 자기 에이전트를 멈춘 뒤 포트가
+  다른 프로그램에 잡혀 있으면 설치 전에 멈춘다(`teamax check-ports`, `--check-only`도). 첫 설정 화면은 고른 언어가 없으면
+  브라우저 언어로 시작한다(`browserLocale`). `backup`/`archive`는 JSON 대신 문장으로, `logs`는 서버 로그 끝도 보여 준다.
+  IP가 바뀌면 데스크의 Edge 앱이 깨지므로 가이드는 DHCP 예약을 필수로 한다.
+- **남는 것**: 맥 이름을 바꾸거나 공유기를 바꿔 대역이 달라지면 그 이름·주소는 CA 제한 밖이라 인증서에 들어가지 않는다(새 CA
+  만들기, 데스크 재설치: OFFICE.md 문제 해결). 윈도우 실기기 확인은 여전히 안 했다.

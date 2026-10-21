@@ -18,7 +18,7 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Public team address `<team>.treesoop.com` | Not available: the production relay is not running |
 | Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
-| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
+| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md), clinic PDF [office/Team-AX-치과-설치가이드.pdf](office/Team-AX-치과-설치가이드.pdf)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
 
 **Production chats (subscription mode).** The installer writes `engine.authMode: "subscription"`. Claude Code runs
 as the hidden engine account `_axagent` under the sandbox and pf; the only address it can reach is the server's
@@ -365,7 +365,7 @@ With FileVault on, the Mac waits at the unlock screen after a power cut (not tes
 | Install | Address | Who can reach it |
 |---|---|---|
 | Dev mode | `http://localhost:19100`, `http://demo.localhost:19161` | The server Mac only |
-| Office mode ([OFFICE.md](OFFICE.md)) | `https://<LAN-IP>:8443`, `https://<LocalHostName>.local:8443` | Desks and phones on the same network after installing the office CA once (page on `http://<LAN-IP>:8442`). Chats work. |
+| Office mode ([OFFICE.md](OFFICE.md)) | `https://<LAN-IP>:8443`, `https://<LocalHostName>.local:8443` | Desks and phones on the Mac's office subnet after installing the office CA once (page on `http://<LAN-IP>:8442`, thumbprint compared with the desk card from `teamax card`). Chats work. |
 | Production, office network | `https://<LocalHostName>.local:8443` or `https://<LAN-IP>:8443` | Browsers and phones on the same network. The certificate is self-signed, so each person clicks through the warning once. Chats don't work yet (Part 2). |
 | Team AX relay | `https://<team>.treesoop.com` | Not available: `wss://relay.treesoop.com/connect` is not running. Admin → System does not offer it until `relay.officialAvailable` is `true` in `config/server.json`. |
 | Your own relay | your domain | Advanced and not tested end to end; see below. The "Cloudflare tunnel" and "Tailscale" modes are rejected with "not available in this version". |

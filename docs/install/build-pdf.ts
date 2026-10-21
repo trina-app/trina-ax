@@ -1,6 +1,8 @@
 // Renders docs/install/guide.html to "Team-AX-설치가이드.pdf" (A4) with Playwright's Chromium.
 //
 //   bun docs/install/build-pdf.ts              build the PDF
+//   bun docs/install/build-pdf.ts --office     the clinic guide instead: docs/office/guide.html -> docs/office/
+//                                              Team-AX-치과-설치가이드.pdf (office mode, docs/OFFICE.md; same look)
 //   bun docs/install/build-pdf.ts --png <dir>  also render every page to <dir>/page-NN.png (pdftoppm) for checking
 //
 // Two passes: the first PDF tells which page each chapter starts on (pdftotext), those numbers go into the table
@@ -15,15 +17,17 @@ import { pathToFileURL } from 'node:url'
 // @playwright/test is a dependency of the tests workspace (not hoisted to the repo root)
 import { chromium } from '../../tests/node_modules/@playwright/test/index.js'
 
-const DIR = import.meta.dir
+const OFFICE = process.argv.includes('--office')
+const DIR = OFFICE ? path.join(import.meta.dir, '..', 'office') : import.meta.dir
 const HTML = path.join(DIR, 'guide.html')
-const OUT = path.join(DIR, 'Team-AX-설치가이드.pdf')
+const OUT = path.join(DIR, OFFICE ? 'Team-AX-치과-설치가이드.pdf' : 'Team-AX-설치가이드.pdf')
+const TITLE = OFFICE ? 'Team AX 치과 설치 가이드 (사무실 모드)' : 'Team AX 설치 가이드'
 const pngIdx = process.argv.indexOf('--png')
 const PNG_DIR = pngIdx > 0 ? process.argv[pngIdx + 1] : null
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'teamax-install-'))
 
 const FOOTER = `<div style="width:100%;padding:0 17mm;font-size:10.5px;font-family:'Inter','Apple SD Gothic Neo',sans-serif;color:#8a8a85;display:flex;justify-content:space-between;align-items:center;">
-  <span>Team AX 설치 가이드</span><span style="font-weight:700;color:#0A0A0A;"><span class="pageNumber"></span></span></div>`
+  <span>${TITLE}</span><span style="font-weight:700;color:#0A0A0A;"><span class="pageNumber"></span></span></div>`
 
 const pdfText = (file: string, page: number) =>
   execFileSync('pdftotext', ['-f', String(page), '-l', String(page), '-layout', file, '-'], { encoding: 'utf8' }).replace(/\s+/g, '')
