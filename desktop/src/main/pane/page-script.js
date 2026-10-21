@@ -21,9 +21,20 @@
     return el && el.isConnected ? el : null;
   };
 
-  /** type=password, or autocomplete naming a password (current-password / new-password) */
-  const isPw = (el) =>
-    !!el && el.tagName === "INPUT" && ((el.getAttribute("type") ?? "").toLowerCase() === "password" || /(^|\s)(current-|new-)?password(\s|$)/i.test(el.getAttribute("autocomplete") ?? ""));
+  /**
+   * A field the AI may not fill: "password" (type=password, or autocomplete current-password / new-password) or
+   * "payment" (autocomplete cc-number / cc-csc / cc-exp*, or a name / id naming a card number, expiry or security
+   * code). "" otherwise. Same rules as PW_CHECK in pane.ts (the desktop's isolated-world copy).
+   */
+  const isPw = (el) => {
+    if (!el || el.tagName !== "INPUT") return "";
+    const ac = el.getAttribute("autocomplete") ?? "";
+    if ((el.getAttribute("type") ?? "").toLowerCase() === "password" || /(^|\s)(current-|new-)?password(\s|$)/i.test(ac)) return "password";
+    if (/(^|\s)cc-(number|csc|exp|exp-month|exp-year)(\s|$)/i.test(ac)) return "payment";
+    const id = `${el.getAttribute("name") ?? ""} ${el.id ?? ""}`;
+    if (/card|cvc|cvv|\bcsc\b|cc-?num|cc-?exp|security-?_?code/i.test(id)) return "payment";
+    return "";
+  };
   /** the focused element, through open shadow roots */
   const deepActive = () => {
     let el = document.activeElement;
@@ -43,10 +54,10 @@
   const passwordFocused = () => isPw(deepActive());
   const passwordAt = (x, y) => {
     const el = deepAt(x, y);
-    if (isPw(el)) return true;
+    if (isPw(el)) return isPw(el);
     // a click on the <label> of a password field focuses it too
     const label = el && el.closest ? el.closest("label") : null;
-    return !!(label && isPw(label.control));
+    return label ? isPw(label.control) : "";
   };
   const passwordRef = (r) => isPw(get(r));
 
@@ -119,7 +130,7 @@
     if (tag === "input" || tag === "textarea" || tag === "select") {
       const type = (el.getAttribute("type") ?? "").toLowerCase();
       if (type && !["submit", "button", "reset", "checkbox", "radio"].includes(type)) out.push(`type=${type}`);
-      if (el.value && !["submit", "button", "reset"].includes(type) && type !== "password") out.push(`value="${clean(el.value, 60)}"`);
+      if (el.value && !["submit", "button", "reset"].includes(type) && !isPw(el)) out.push(`value="${clean(el.value, 60)}"`);
       if (el.getAttribute("placeholder")) out.push(`placeholder="${clean(el.getAttribute("placeholder"), 40)}"`);
     }
     if (el.checked) out.push("checked");
@@ -257,7 +268,9 @@
   const setValue = (r, value) => {
     const el = get(r);
     if (!el) return { ok: false, error: `No element ${r} on the page (it may have changed). Call read_page or find again.` };
-    if (isPw(el)) return { ok: false, password: true, error: `${r} is a password field. The AI may not type passwords; ask the user to type it in the browser pane.` };
+    const secret = isPw(el);
+    if (secret === "password") return { ok: false, password: "password", error: `${r} is a password field. The AI may not type passwords; ask the user to type it in the browser pane.` };
+    if (secret === "payment") return { ok: false, password: "payment", error: `${r} is a payment card field. The AI may not type card numbers, expiry dates or security codes; ask the user to type it in the browser pane.` };
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute("type") ?? "").toLowerCase();
     const fire = () => {

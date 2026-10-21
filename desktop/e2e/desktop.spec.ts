@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import {
-  ACME, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome,
+  ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome,
 } from './helpers'
 
 const refOf = (s: string, label: string) => {
@@ -162,7 +162,9 @@ test.describe('browser tools over the team WebSocket', () => {
     expect((await run(ACME, 'computer', { action: 'key', text: 'Tab' })).result.ok).toBe(true)
     expect(await tab.evaluate(() => (document.getElementById('pw') as HTMLInputElement).value)).toBe('')
     const c = await chrome(app)
-    await expect(c.getByTestId('activity').locator('[data-kind="password"]').first()).toBeVisible()
+    // needs the person now: the one line over the page (and the log)
+    await expect(c.getByTestId('notice')).toHaveAttribute('data-kind', 'password')
+    await expect((await activityLog(app)).locator('[data-kind="password"]').first()).toBeVisible()
   })
 
   test('console, network bodies, scripts (always shown), screenshots, viewport emulation', async () => {
@@ -173,9 +175,10 @@ test.describe('browser tools over the team WebSocket', () => {
     expect(id).toBeTruthy()
     expect(text(await run(ACME, 'read_network_requests', { requestId: id }))).toContain('{"items":[1,2,3]}')
     expect(text(await run(ACME, 'javascript_tool', { action: 'javascript_exec', text: 'await Promise.resolve(6 * 7)' }))).toBe('42')
-    const c = await chrome(app)
-    await expect(c.getByTestId('activity').locator('[data-kind="script"]').first()).toContainText('shop.test:19153')
-    await expect(c.getByTestId('activity').locator('[data-kind="network"]').first()).toBeVisible()
+    // logged every time (the activity log), not shown over the page
+    const log = await activityLog(app)
+    await expect(log.locator('[data-kind="script"]').first()).toContainText('shop.test:19153')
+    await expect(log.locator('[data-kind="network"]').first()).toBeVisible()
 
     const shot = await run(ACME, 'computer', { action: 'screenshot', save_to_disk: true })
     const img = shot.result.content.find((x) => x.type === 'image') as { mime: string; data: string; shareToChat?: boolean }
@@ -293,7 +296,9 @@ test.describe('what the in-app browser never opens', () => {
     const probe = await openShop(app, '/fetch-team')
     await expect.poll(() => probe.evaluate(() => document.getElementById('out')!.textContent)).toBe('blocked,blocked,blocked')
     const c = await chrome(app)
-    await expect(c.getByTestId('activity').locator('[data-kind="forbidden"]').first()).toBeVisible()
+    // a page's own requests: logged, nothing over the page
+    await expect((await activityLog(app)).locator('[data-kind="forbidden"]').first()).toBeVisible()
+    await expect(c.getByTestId('notice')).toHaveCount(0)
 
     // redirect from an allowed site to the team address: stopped, the tab never shows the team page
     const r = await run(ACME, 'navigate', { url: `${SHOP}/redirect-team` })
@@ -304,7 +309,8 @@ test.describe('what the in-app browser never opens', () => {
     // the person types the team address into the pane: refused, shown in the toolbar
     await c.getByTestId('pane-address').fill(`${ACME}/`)
     await c.getByTestId('pane-address').press('Enter')
-    await expect(c.getByTestId('activity').locator('[data-kind="forbidden"]', { hasText: 'acme.localhost:19151' }).first()).toBeVisible()
+    await expect(c.getByTestId('notice')).toHaveAttribute('data-kind', 'forbidden')
+    await expect(c.getByTestId('notice')).toContainText('acme.localhost:19151')
     await new Promise((r) => setTimeout(r, 500))
     expect(app.windows().filter((w) => w.url().startsWith(ACME))).toHaveLength(1)
   })
@@ -345,7 +351,8 @@ test.describe('office network and allowed sites', () => {
       const intranet = await openShop(app, '/intranet.html')
       await expect.poll(() => intranet.evaluate(() => document.getElementById('out')!.textContent)).toBe('blocked')
       const c = await chrome(app)
-      await expect(c.getByTestId('activity').locator('[data-kind="blocked"]').first()).toContainText('nas.lan:19153')
+      await expect((await activityLog(app)).locator('[data-kind="blocked"]').first()).toContainText('nas.lan:19153')
+      await expect(c.getByTestId('notice')).toHaveCount(0)
 
       // a public page redirecting into the office: asked during the same call
       newTurn()

@@ -9,7 +9,9 @@
  *    not in the team page (a page served through the relay cannot answer the person's prompts)
  *  - office-network (private) addresses always need the person's approval, also for redirects and
  *    sub-requests (net-guard.ts)
- *  - password fields refuse clicks and typing; script runs and network-body reads are shown every time
+ *  - password and payment-card fields refuse clicks and typing; script runs and network-body reads are logged every time (the
+ *    pane's activity log; only what needs the person now is shown over the page: common/pane-activity.ts)
+ *  - site access "all" (the person's setting): public websites need no question; office addresses still do
  *  - "AI is using" state, a stop button (cancels the running call), and turn cancellation (browser.cancel)
  *
  * Each team has its own pane and its own session partition.
@@ -20,7 +22,8 @@ import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared'
 import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
-import { siteKey, SitePermissions, type PermissionDecision, type SiteScope } from '../../common/site-permissions'
+import { sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope } from '../../common/site-permissions'
+import { isNotice, type PaneActivity } from '../../common/pane-activity'
 import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
@@ -35,12 +38,7 @@ export interface PanePrompt {
   url: string
   tool: string
 }
-export interface PaneActivity {
-  id: number
-  kind: 'script' | 'network' | 'blocked' | 'forbidden' | 'password'
-  host: string
-  at: number
-}
+export type { PaneActivity } from '../../common/pane-activity'
 
 /** What the pane needs from the window around it. */
 export interface PaneHost {
@@ -119,13 +117,22 @@ const PRESETS: Record<string, { width: number; height: number; mobile: boolean }
 }
 /** isolated world for the desktop's own checks (the page cannot replace these functions) */
 const CHECK_WORLD = 1201
+/** password / payment-card fields (same rules as isPw in page-script.js): returns "password", "payment" or "" */
 const PW_CHECK = `(() => {
-  const isPw = (el) => !!el && el.tagName === 'INPUT' && ((el.getAttribute('type') || '').toLowerCase() === 'password' || /(^|\\s)(current-|new-)?password(\\s|$)/i.test(el.getAttribute('autocomplete') || ''));
+  const isPw = (el) => {
+    if (!el || el.tagName !== 'INPUT') return '';
+    const ac = el.getAttribute('autocomplete') || '';
+    if ((el.getAttribute('type') || '').toLowerCase() === 'password' || /(^|\\s)(current-|new-)?password(\\s|$)/i.test(ac)) return 'password';
+    if (/(^|\\s)cc-(number|csc|exp|exp-month|exp-year)(\\s|$)/i.test(ac)) return 'payment';
+    const id = (el.getAttribute('name') || '') + ' ' + (el.id || '');
+    if (/card|cvc|cvv|\\bcsc\\b|cc-?num|cc-?exp|security-?_?code/i.test(id)) return 'payment';
+    return '';
+  };
   const deep = (el) => { while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement; return el; };
   const at = (x, y) => { let el = document.elementFromPoint(x, y); while (el && el.shadowRoot) { const i = el.shadowRoot.elementFromPoint(x, y); if (!i || i === el) break; el = i; } return el; };
   return {
     focused: () => { const el = deep(document.activeElement); return { pw: isPw(el), inFrame: !!el && (el.tagName === 'IFRAME' || el.tagName === 'FRAME') }; },
-    point: (x, y) => { const el = at(x, y); const label = el && el.closest ? el.closest('label') : null; return isPw(el) || !!(label && isPw(label.control)); },
+    point: (x, y) => { const el = at(x, y); const label = el && el.closest ? el.closest('label') : null; return isPw(el) || (label ? isPw(label.control) : ''); },
   };
 })()`
 /** keys allowed while a password field has focus (they type nothing) */
@@ -140,6 +147,9 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true })
   })
 const PASSWORD_REFUSED = 'That is a password field. The AI may not type or click into password fields; ask the user to type it in the browser pane, then continue.'
+const PAYMENT_REFUSED = 'That is a payment card field (card number, expiry or security code). The AI may not type or click into it; ask the user to type it in the browser pane, then continue.'
+type SecretField = 'password' | 'payment'
+const asSecret = (v: unknown): SecretField | '' => (v === 'payment' ? 'payment' : v ? 'password' : '')
 
 export class BrowserPane {
   private tabs = new Map<string, Tab>()
@@ -160,6 +170,8 @@ export class BrowserPane {
   private clockOffsetMs = 0
   /** private hosts the person opened themselves from the address bar this session */
   readonly userHosts = new Set<string>()
+  /** office hosts let through for an allowed office page (net-guard.ts letThroughOffice) */
+  readonly officeLetThrough = new Set<string>()
   readonly perms: SitePermissions
   readonly classifier: HostClassifier
   private disposed = false
@@ -257,8 +269,9 @@ export class BrowserPane {
     this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool }) => ({ id, scope, host, url, tool })))
   }
 
-  activity(kind: PaneActivity['kind'], host: string) {
-    this.host.onActivity({ id: this.nextActivity++, kind, host, at: Date.now() })
+  /** Log what happened; `topLevel`: it stopped a whole page load (decides whether it is shown over the page). */
+  activity(kind: PaneActivity['kind'], host: string, topLevel = false) {
+    this.host.onActivity({ id: this.nextActivity++, kind, host, at: Date.now(), notice: isNotice(kind, topLevel) })
   }
 
   show() {
@@ -388,9 +401,11 @@ export class BrowserPane {
         case 'Network.responseReceived': {
           const e = tab.network.get(params.requestId)
           if (e) e.status = params.response.status
-          if (params.type === 'Document' && stopIfRebound(this, tab.wc, params.response.url, params.response.remoteIPAddress)) {
-            push(tab.console, { level: 'error', text: `[blocked] ${redactUrl(params.response.url)} answered from an office-network address (${params.response.remoteIPAddress}); the page was stopped.`, host: tab.host })
-          }
+          const resUrl = String(params.response.url)
+          const ip = params.response.remoteIPAddress as string | undefined
+          void stopIfRebound(this, tab.wc, resUrl, ip).then((stopped) => {
+            if (stopped) push(tab.console, { level: 'error', text: `[blocked] ${redactUrl(resUrl)} answered from an office-network address (${ip}); the page was stopped.`, host: tab.host })
+          }, () => {})
           break
         }
         case 'Network.loadingFailed': {
@@ -455,7 +470,7 @@ export class BrowserPane {
     const blocked = await this.forbidden(url)
     if (blocked) {
       this.show()
-      this.activity('forbidden', blocked.host || raw.trim().slice(0, 100))
+      this.activity('forbidden', blocked.host || raw.trim().slice(0, 100), true)
       return
     }
     const key = siteKey(url)
@@ -590,14 +605,14 @@ export class BrowserPane {
 
   /**
    * Requests of this tab count as the AI's script: the AI ran javascript_tool in its document, or in a tab on the
-   * same site (same-origin script can reach it), or the tab is blank (inherits the origin of whoever opened it).
+   * same site (registrable domain: same-origin script, or document.domain, can reach it), or the tab is blank (inherits the origin of whoever opened it).
    */
   scriptedFor(tab: Tab, topUrl: string): boolean {
     if (tab.scripted) return true
     const site = siteKey(topUrl)
     for (const t of this.tabs.values()) {
       if (!t.scripted || t.wc.isDestroyed()) continue
-      if (isBlankPage(topUrl) || siteKey(t.wc.getURL()) === site) return true
+      if (isBlankPage(topUrl) || sameSite(siteKey(t.wc.getURL()), site)) return true
     }
     return false
   }
@@ -611,6 +626,16 @@ export class BrowserPane {
 
   revokeSite(host: string) {
     if (this.perms.revoke(host)) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
+  /** The person's site-access setting (pane settings): 'all' lets the AI open public websites without asking. */
+  setSiteAccess(v: SiteAccess) {
+    if (this.perms.setSiteAccess(v)) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
+  /** What the pane's settings panel shows. */
+  siteSettings() {
+    return { ...this.perms.list(), siteAccess: this.perms.siteAccess }
   }
 
   /** "Clear all" in the allowed-sites list: every saved site and office address of this team. */
@@ -646,7 +671,11 @@ export class BrowserPane {
     }
     if (scheme !== 'http' && scheme !== 'https') throw new ToolError(`Only http(s) pages can be opened in the browser pane (${redactUrl(url).slice(0, 200)}).`)
     const blocked = await this.forbidden(url)
-    if (blocked) throw new ToolError(blockedMessage(blocked.reason, blocked.host))
+    if (blocked) {
+      // refused before any page load: the person sees it in the log too, not only the AI in chat (UX review)
+      this.activity('forbidden', blocked.host || redactUrl(url).slice(0, 100))
+      throw new ToolError(blockedMessage(blocked.reason, blocked.host))
+    }
     const host = siteKey(url)
     const hostname = new URL(url).hostname
     const isPrivate = (await this.classifier.classify(hostname)) === 'private'
@@ -657,6 +686,7 @@ export class BrowserPane {
     const d = await this.ask({ scope, host, url: redactUrl(url), tool }, ctx)
     if (ctx.cancelled) throw ctx.abort.signal.reason
     if (d === 'deny') {
+      this.activity('denied', host)
       throw new ToolError(
         scope === 'private'
           ? `The user declined opening the office-network address ${host}. Do not try it again; tell the user what you could not do.`
@@ -881,20 +911,20 @@ export class BrowserPane {
       case 'form_input': {
         const t = need()
         const { ref, value } = call.input
-        if (await this.page(t, `passwordRef(${JSON.stringify(ref)})`)) {
-          this.activity('password', t.host)
-          throw new ToolError(PASSWORD_REFUSED)
-        }
+        const secret = asSecret(await this.page(t, `passwordRef(${JSON.stringify(ref)})`))
+        if (secret) await this.refusePassword(t, secret)
         const r = await this.page(t, `setValue(${JSON.stringify(ref)}, ${JSON.stringify(value)})`)
         if (!r.ok) {
-          if (r.password) this.activity('password', t.host)
+          const s2 = asSecret(r.password)
+          if (s2) this.activity(s2, t.host)
           throw new ToolError(r.error)
         }
         return ok(`Set ${ref}${r.name ? ` "${r.name}"` : ''} to ${JSON.stringify(value)}`)
       }
       case 'javascript_tool': {
         const t = need()
-        // shown every time, also on always-allowed sites (design tab 5)
+        // logged every time, also on always-allowed sites (design tab 5): the pane's activity log, and the
+        // "AI is using the browser" bar shows it while the AI drives
         this.activity('script', t.host)
         // from now on this document's requests to sites the person has not allowed are held back (net-guard.ts)
         t.scripted = true
@@ -956,17 +986,18 @@ export class BrowserPane {
     return (await tab.wc.executeJavaScriptInIsolatedWorld(CHECK_WORLD, [{ code: `${PW_CHECK}.${expr}` }])) as T
   }
 
-  private async passwordFocused(tab: Tab): Promise<boolean> {
-    const top = await this.check<{ pw: boolean; inFrame: boolean }>(tab, 'focused()').catch(() => ({ pw: false, inFrame: false }))
-    if (top.pw) return true
-    if (!top.inFrame) return false
-    // focus is inside an iframe: ask every subframe (cross-origin frames included)
+  /** The focused field is a password or payment-card field (its kind), or '' . */
+  private async passwordFocused(tab: Tab): Promise<SecretField | ''> {
+    const top = await this.check<{ pw: unknown; inFrame: boolean }>(tab, 'focused()').catch(() => ({ pw: '', inFrame: false }))
+    if (asSecret(top.pw)) return asSecret(top.pw)
+    if (!top.inFrame) return ''
+    // focus is inside an iframe (card fields usually are: payment providers' frames): ask every subframe
     for (const f of tab.wc.mainFrame.framesInSubtree) {
       if (f === tab.wc.mainFrame) continue
-      const r = (await f.executeJavaScript(`${PW_CHECK}.focused()`).catch(() => null)) as { pw?: boolean } | null
-      if (r?.pw) return true
+      const r = (await f.executeJavaScript(`${PW_CHECK}.focused()`).catch(() => null)) as { pw?: unknown } | null
+      if (asSecret(r?.pw)) return asSecret(r?.pw)
     }
-    return false
+    return ''
   }
 
   /** CSS viewport size, read in the isolated world (the page can redefine innerWidth in its own world). */
@@ -1039,9 +1070,9 @@ export class BrowserPane {
     await this.cdp(tab, 'Input.dispatchKeyEvent', { type: 'keyUp', ...base })
   }
 
-  private async refusePassword(tab: Tab) {
-    this.activity('password', tab.host)
-    throw new ToolError(PASSWORD_REFUSED)
+  private async refusePassword(tab: Tab, kind: SecretField = 'password'): Promise<never> {
+    this.activity(kind, tab.host)
+    throw new ToolError(kind === 'payment' ? PAYMENT_REFUSED : PASSWORD_REFUSED)
   }
 
   private async computer(ctx: CallCtx, tab: Tab, input: BrowserToolInput['computer']): Promise<PaneResult> {
@@ -1061,7 +1092,8 @@ export class BrowserPane {
       case 'double_click':
       case 'triple_click': {
         const p = await this.point(tab, input)
-        if (await this.check<boolean>(tab, `point(${p.x}, ${p.y})`).catch(() => false)) await this.refusePassword(tab)
+        const secret = asSecret(await this.check<unknown>(tab, `point(${p.x}, ${p.y})`).catch(() => ''))
+        if (secret) await this.refusePassword(tab, secret)
         const count = action === 'double_click' ? 2 : action === 'triple_click' ? 3 : 1
         await this.click(tab, p, action === 'right_click' ? 'right' : 'left', count, modifiers)
         return ok(`${action.replace('_', ' ')} at (${Math.round(p.x)}, ${Math.round(p.y)})${p.name ? ` on "${p.name}"` : ''}`)
@@ -1073,7 +1105,8 @@ export class BrowserPane {
       }
       case 'type': {
         if (typeof input.text !== 'string') throw new ToolError('type needs text.')
-        if (await this.passwordFocused(tab)) await this.refusePassword(tab)
+        const secret = await this.passwordFocused(tab)
+        if (secret) await this.refusePassword(tab, secret)
         await this.cdp(tab, 'Input.insertText', { text: input.text })
         return ok(`Typed ${JSON.stringify(input.text)}`)
       }
@@ -1086,7 +1119,10 @@ export class BrowserPane {
           throw new ToolError(`At most ${MAX_KEY_PRESSES} key presses per call (keys × repeat); use type for text.`)
         }
         const parsed = keys.map((k) => parseKeyCombo(k)) // throws on unknown keys before anything is pressed
-        if (parsed.some((p) => !SAFE_KEYS.has(p.def.key) || p.command) && (await this.passwordFocused(tab))) await this.refusePassword(tab)
+        if (parsed.some((p) => !SAFE_KEYS.has(p.def.key) || p.command)) {
+          const secret = await this.passwordFocused(tab)
+          if (secret) await this.refusePassword(tab, secret)
+        }
         const repeat = input.repeat ?? 1
         for (let i = 0; i < repeat; i++) {
           for (const k of keys) {

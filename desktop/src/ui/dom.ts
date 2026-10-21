@@ -1,6 +1,7 @@
 // Tiny DOM helpers and the preload API types for the desktop's own screens (no framework: two small screens).
 import type { DesktopPaneState } from '@mycel/shared'
 import type { UiKey, UiLocale } from '../common/i18n'
+import type { PaneActivity } from '../common/pane-activity'
 
 export interface WelcomeState {
   mode: 'welcome' | 'team' | 'offline'
@@ -15,11 +16,11 @@ export interface PanePrompt {
   url: string
   tool: string
 }
-export interface PaneActivity {
-  id: number
-  kind: 'script' | 'network' | 'blocked' | 'forbidden' | 'password'
-  host: string
-  at: number
+export type { PaneActivity } from '../common/pane-activity'
+export interface SiteSettings {
+  always: string[]
+  privateAlways: string[]
+  siteAccess: 'ask' | 'all'
 }
 
 export interface MycelUi {
@@ -42,6 +43,10 @@ export interface MycelUi {
     onState(cb: (s: DesktopPaneState) => void): () => void
     onPrompts(cb: (p: PanePrompt[]) => void): () => void
     onActivity(cb: (a: PaneActivity) => void): () => void
+    /** another team's pane took over the toolbar: start an empty log */
+    onActivityReset(cb: () => void): () => void
+    /** the site settings changed (an answer saved a site, the setting changed, another team's pane) */
+    onSites(cb: (s: SiteSettings) => void): () => void
     navigate(url: string): void
     history(dir: 'back' | 'forward' | 'reload'): void
     newTab(): void
@@ -52,9 +57,10 @@ export interface MycelUi {
     answer(id: string, decision: 'once' | 'always' | 'deny'): void
     toolbarHeight(h: number): void
     resize(screenX: number): void
-    sites(): Promise<{ always: string[]; privateAlways: string[] } | null>
+    sites(): Promise<SiteSettings | null>
     removeSite(host: string): void
     clearSites(): void
+    setSiteAccess(v: 'ask' | 'all'): void
   }
 }
 

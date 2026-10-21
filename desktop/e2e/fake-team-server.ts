@@ -264,6 +264,23 @@ Bun.serve({
     if (p === '/data.json') return json({ items: [1, 2, 3] })
     // an open redirect on an allowed site (exfil.spec.ts)
     if (p === '/go') return new Response(null, { status: 302, headers: { location: url.searchParams.get('to') ?? '/' } })
+    // payment-card fields (quiet.spec.ts): refused like password fields
+    if (p === '/pay.html') {
+      return page(
+        'Checkout',
+        `<h1>Checkout</h1>
+<label>배송 메모 <input id="memo" name="memo"></label>
+<label>카드 번호 <input id="cc" autocomplete="cc-number" inputmode="numeric"></label>
+<label>보안코드 <input id="cvc" name="cvc"></label>`,
+      )
+    }
+    // a page's own sub-request to a name the browser's resolver points at this computer (quiet.spec.ts)
+    if (p === '/rebind.html') {
+      return page(
+        'Rebind probe',
+        `<p id="out">pending</p><script>fetch('http://rebind.test:19153/rebind-probe.js', { mode: 'no-cors' }).then(() => (document.getElementById('out').textContent = 'reached'), () => (document.getElementById('out').textContent = 'blocked'))</script>`,
+      )
+    }
     if (p === '/intranet.html') {
       return page(
         'Intranet probe',
