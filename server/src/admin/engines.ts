@@ -17,8 +17,9 @@ import { resolveLayout } from '../system/layout'
 import { codexCatalogFor } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
 import { CODEX_PROD_BETA } from '../chat/engines'
+import { readApiEngine } from '../engine/api-agent'
 
-export const ENGINE_LABELS: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
+export const ENGINE_LABELS: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', api: 'API' }
 export const CLAUDE_MODELS = [
   { id: 'opus', label: 'Claude Opus' },
   { id: 'sonnet', label: 'Claude Sonnet' },
@@ -51,6 +52,8 @@ export async function runCli(cmd: string, args: string[], o: { timeoutMs?: numbe
 
 export const T: Record<string, Record<Locale, string>> = {
   notInstalled: { ko: '서버 맥에 설치되어 있지 않습니다.', en: 'Not installed on the server Mac.', id: 'Belum terpasang di Mac server.' },
+  apiNotSet: { ko: '아직 설정하지 않았습니다. 아래에서 API 주소·모델·키를 넣어 주세요.', en: 'Not set up yet. Enter the API address, model and key below.', id: 'Belum diatur. Masukkan alamat API, model, dan kunci di bawah.' },
+  apiKey: { ko: 'API 키가 맞지 않습니다(401/403).', en: 'The API key was refused (401/403).', id: 'Kunci API ditolak (401/403).' },
   claudeLogin: { ko: '서버 맥에서 owner가 `claude`를 실행해 로그인해야 합니다.', en: 'The owner must sign in by running `claude` on the server Mac.', id: 'Owner harus masuk dengan menjalankan `claude` di Mac server.' },
   codexLogin: { ko: '서버 맥에서 owner가 `codex login`으로 로그인해야 합니다.', en: 'The owner must sign in with `codex login` on the server Mac.', id: 'Owner harus masuk dengan `codex login` di Mac server.' },
   setupToken: { ko: '전용 엔진 계정 모드에는 owner의 구독 장기 토큰이 필요합니다: 서버 맥에서 `claude setup-token`으로 토큰을 만들고 `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"`으로 저장하세요(secrets/claude-oauth-token, docs/INSTALL.md 2.4).', en: 'The dedicated engine account needs the owner\'s long-lived subscription token: make one with `claude setup-token` on the server Mac and store it with `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` (secrets/claude-oauth-token, docs/INSTALL.md 2.4).', id: 'Akun mesin khusus memerlukan token langganan owner: buat dengan `claude setup-token` di Mac server lalu simpan dengan `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` (secrets/claude-oauth-token, docs/INSTALL.md 2.4).' },
@@ -143,6 +146,7 @@ export function codexModels(env: EngineEnv): { id: string; label: string }[] {
 const versionOf = (s: string) => /(\d+\.\d+\.\d+)/.exec(s)?.[1] ?? null
 
 export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean, locale: Locale): Promise<EngineStatus> {
+  if (id === 'api') return checkApiEngine(env, enabled, locale)
   const base = { id, label: ENGINE_LABELS[id], enabled, authMode: shownAuthMode(env), checkedAt: new Date().toISOString(),
     ...(id === 'codex' && env.mode === 'prod' && CODEX_PROD_BETA ? { beta: true } : {}) }
   const bin = id === 'claude-code' ? env.claudeBin : env.codexBin
@@ -192,11 +196,29 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
   return out('ok', null)
 }
 
+/** The API engine (engine/api-agent.ts): configured? does the provider accept the key (GET /models, no model call)? */
+async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale): Promise<EngineStatus> {
+  const conf = readApiEngine(env.dataDir)
+  const base = { id: 'api' as const, label: conf ? `${conf.label} (API)` : ENGINE_LABELS.api, enabled, authMode: 'local-login' as const, checkedAt: new Date().toISOString(), version: null,
+    models: conf ? [{ id: conf.model, label: conf.label }] : [] }
+  if (!conf) return { ...base, installed: false, status: 'not_installed', detail: t('apiNotSet', locale) }
+  try {
+    const r = await fetch(`${conf.baseUrl}/models`, { headers: conf.key ? { Authorization: `Bearer ${conf.key}` } : {}, signal: AbortSignal.timeout(10_000) })
+    if (r.status === 401 || r.status === 403) return { ...base, installed: true, status: 'not_logged_in', detail: t('apiKey', locale) }
+    return { ...base, installed: true, status: 'ok', detail: null }
+  } catch (e) {
+    return { ...base, installed: true, status: 'error', detail: t('error', locale, { e: String((e as Error)?.message ?? e).slice(0, 200) }) }
+  }
+}
+
 /** Per-context cache of the last check of each engine. */
 export class EngineStatusCache {
   private last = new Map<EngineId, { at: number; status: EngineStatus; locale: Locale }>()
   private inflight = new Map<EngineId, Promise<EngineStatus>>()
   constructor(private env: () => EngineEnv) {}
+
+  /** Drop one engine's last check (its setup changed). */
+  forget(id: EngineId) { this.last.delete(id) }
 
   async get(id: EngineId, enabled: boolean, locale: Locale, force = false): Promise<EngineStatus> {
     const c = this.last.get(id)

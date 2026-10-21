@@ -8,6 +8,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { EngineId } from '@mycel/shared/api'
 import type { ClaudeConf } from '../engine/claude'
+import { readApiEngine, type ApiEngineConf } from '../engine/api-agent'
 import { catalogModels, codexCatalogFor, writeLockedCatalog, type CodexConf } from '../engine/codex'
 import { findCodexBin } from '../config'
 import type { AppContext } from '../context'
@@ -18,6 +19,8 @@ import { subscriptionTokenStatus } from '../proxy/subscription'
 export interface EngineConfs {
   claude: ClaudeConf | null
   codex: CodexConf | null
+  /** the team's OpenAI-compatible API engine (engine/api-agent.ts), when configured */
+  api?: ApiEngineConf | null
   /** why an engine can't run (shown as the answer error) */
   problems: Partial<Record<EngineId, 'engine_missing' | 'proxy_mode' | 'setup_token_missing'>>
   /** models the Codex catalog offers (first = default) */
@@ -35,6 +38,9 @@ export class LocalEngines implements EngineProvider {
   private cached: EngineConfs | null = null
   private cachedAt = 0
   constructor(private ctx: AppContext, private now: () => number = Date.now) {}
+
+  /** Forget the cached setup (the admin changed the API engine). */
+  reset() { this.cached = null }
 
   get(): EngineConfs {
     // a missing engine is looked for again after a while (the admin may install it without restarting the server)
@@ -91,7 +97,10 @@ export class LocalEngines implements EngineProvider {
         }
       } else problems.codex = 'engine_missing'
     }
-    this.cached = { claude, codex, problems, codexModels }
+    // the team's API engine (engine/api-agent.ts): runs inside the server, so it works the same in every mode
+    const api = readApiEngine(config.dataDir)
+    if (!api) problems.api = 'engine_missing'
+    this.cached = { claude, codex, api, problems, codexModels }
     this.cachedAt = this.now()
     return this.cached
   }

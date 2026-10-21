@@ -23,6 +23,8 @@ import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
 import { codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
+import { readApiEngine, writeApiEngine } from '../engine/api-agent'
+import { getChatRuntime } from '../chat/runtime'
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
@@ -151,6 +153,20 @@ export const adminRoutes: RouteModule = {
 
     // ---------------- engines ----------------
     kit.handle(API.engines, ({ c }) => enginesResponse(ctx, engineCache, c.get('locale')))
+
+    // ---------------- the team's API engine (engine/api-agent.ts) ----------------
+    const apiConfigOut = () => {
+      const conf = readApiEngine(ctx.config.dataDir)
+      return { baseUrl: conf?.baseUrl ?? null, model: conf?.model ?? null, label: conf?.label ?? null, hasKey: !!conf?.key }
+    }
+    kit.handle(API.getApiEngine, () => apiConfigOut())
+    kit.handle(API.putApiEngine, ({ body, auth }) => {
+      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, ...(body.key !== undefined ? { key: body.key } : {}) })
+      audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
+      engineCache.forget('api')
+      try { (getChatRuntime(ctx).engines as { reset?: () => void }).reset?.() } catch {}
+      return apiConfigOut()
+    })
 
     kit.handle(API.updateEngines, async ({ c, body, auth }) => {
       const locale = c.get('locale')

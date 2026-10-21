@@ -3,7 +3,7 @@
 import type { EngineId } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 
-export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude', codex: 'Codex' }
+export const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude', codex: 'Codex', api: 'API' }
 
 export interface EnginePick { engine: EngineId; model: string | null }
 
