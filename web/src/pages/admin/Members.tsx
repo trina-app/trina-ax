@@ -108,9 +108,11 @@ export default function Members() {
                             <Button size="sm" variant="ghost" onClick={() => toggleDisabled(u)}>
                               {u.status === 'active' ? t('members.disable') : t('members.enable')}
                             </Button>
-                            <IconButton label={t('common.delete')} onClick={() => remove(u)}>
-                              <Trash2 size={15} />
-                            </IconButton>
+                            {isOwner(me) && (
+                              <IconButton label={t('common.delete')} onClick={() => remove(u)}>
+                                <Trash2 size={15} />
+                              </IconButton>
+                            )}
                           </>
                         )}
                       </td>

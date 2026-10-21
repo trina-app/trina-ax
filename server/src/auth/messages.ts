@@ -15,6 +15,7 @@ const M = {
   linkInvalid: { ko: '만료되었거나 이미 사용한 링크입니다. 관리자에게 새 링크를 받아 주세요.', en: 'This link has expired or was already used. Ask your admin for a new one.', id: 'Tautan ini kedaluwarsa atau sudah dipakai. Minta tautan baru ke admin.' },
   inviteUsed: { ko: '이미 사용한 초대입니다.', en: 'This invite was already used.', id: 'Undangan ini sudah dipakai.' },
   ownerOnlyAdmins: { ko: '관리자 계정은 owner만 바꿀 수 있습니다.', en: 'Only the owner can change admin accounts.', id: 'Hanya owner yang dapat mengubah akun admin.' },
+  ownerOnlyDelete: { ko: '계정 삭제는 owner만 할 수 있습니다.', en: 'Only the owner can delete accounts.', id: 'Hanya owner yang dapat menghapus akun.' },
   notOnOwner: { ko: 'owner 계정에는 할 수 없습니다. owner 넘기기를 이용해 주세요.', en: 'Not possible for the owner account. Use "transfer ownership".', id: 'Tidak bisa untuk akun owner. Gunakan "alihkan owner".' },
   notOnSelf: { ko: '자기 계정에는 할 수 없습니다.', en: 'You cannot do this to your own account.', id: 'Anda tidak dapat melakukan ini pada akun sendiri.' },
   ownerTeamName: { ko: '팀 이름은 owner만 바꿀 수 있습니다(중계 주소도 바뀝니다).', en: 'Only the owner can rename the team (the relay address changes too).', id: 'Hanya owner yang dapat mengganti nama tim (alamat relay ikut berubah).' },
