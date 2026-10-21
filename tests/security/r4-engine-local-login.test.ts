@@ -64,7 +64,7 @@ describe.skipIf(!mac)('engine.sb LOCAL_LOGIN=1 (office engines)', () => {
     // what the CLI really writes still works
     expect(turn('c_me', {}, 'read', path.join(H, '.claude.json'))).toBe(0)
     expect(turn('c_me', {}, 'write', path.join(H, '.claude.json.lock'))).toBe(0)
-    expect(turn('c_me', {}, 'write', path.join(H, '.claude.json.tmp.4242.1761000000000'))).toBe(0)
+    expect(turn('c_me', {}, 'write', path.join(H, '.claude.json.tmp.4242.0fcd31173c31'))).toBe(0) // round 4b: <pid>.<12 hex>
     expect(turn('c_me', {}, 'write', path.join(H, '.claude.json.backup'))).toBe(0)
   })
 
@@ -103,7 +103,7 @@ describe('office mode removes MCP servers a turn planted in ~/.claude.json', () 
     expect(stripMcp(j)).toEqual([]) // the CLI's own empty values are not a finding
   })
 
-  test('the file is rewritten only when something was planted, with its mode; a link is never followed', () => {
+  test('the file is rewritten only when something was planted, with its mode; a link is never written through', () => {
     const f = path.join(B, 'claude.json')
     fs.writeFileSync(f, JSON.stringify(planted()), { mode: 0o600 })
     expect(guardClaudeJson(f).length).toBe(4)
@@ -118,7 +118,9 @@ describe('office mode removes MCP servers a turn planted in ~/.claude.json', () 
     const target = path.join(B, 'target.json'), link = path.join(B, 'link.json')
     fs.writeFileSync(target, JSON.stringify(planted()))
     fs.symlinkSync(target, link)
-    expect(guardClaudeJson(link)).toEqual([])
+    // round 4b: the link itself is replaced by a regular file (r4b-claude-json-link.test.ts); what it pointed to stays
+    expect(guardClaudeJson(link, { home: B })[0]).toBe('(link replaced)')
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(false)
     expect(JSON.parse(fs.readFileSync(target, 'utf8')).mcpServers.x).toBeDefined()
     expect(guardClaudeJson(path.join(B, 'missing.json'))).toEqual([])
   })
@@ -126,13 +128,15 @@ describe('office mode removes MCP servers a turn planted in ~/.claude.json', () 
   test('only office mode with the Mac user\'s login; the removal is audited', () => {
     const db = openDb(path.join(B, 'app.db'))
     try {
-      const f = path.join(B, 'claude-office.json')
+      const home = path.join(B, 'office-home')
+      fs.mkdirSync(home, { recursive: true })
+      const f = path.join(home, '.claude.json')
       fs.writeFileSync(f, JSON.stringify(planted()))
-      const ctx = (office: boolean, authMode: string) => ({ config: { office, engine: { authMode } } as any, db, log: silentLogger })
+      const ctx = (office: boolean, authMode: string) => ({ config: { office, dataDir: path.join(B, 'TeamAX', 'data'), teamRoot: path.join(B, 'TeamAX', 'team'), engine: { authMode } } as any, db, log: silentLogger })
       expect(claudeJsonGuarded(ctx(false, 'local-login'))).toBe(false) // dev: the owner's own machine and MCP servers
       expect(claudeJsonGuarded(ctx(true, 'subscription'))).toBe(false) // the CLI's config is in the chat folder
-      expect(guardOfficeClaudeJson(ctx(false, 'local-login'), 'turn', f)).toEqual([])
-      expect(guardOfficeClaudeJson(ctx(true, 'local-login'), 'turn', f).length).toBe(4)
+      expect(guardOfficeClaudeJson(ctx(false, 'local-login'), 'turn', home)).toEqual([])
+      expect(guardOfficeClaudeJson(ctx(true, 'local-login'), 'turn', home).length).toBe(4)
       const row = db.query("SELECT action, target FROM audit_log WHERE action = 'engine.claude_json_mcp_removed'").get() as { action: string; target: string } | null
       expect(row).toEqual({ action: 'engine.claude_json_mcp_removed', target: '~/.claude.json' })
     } finally { db.close() }

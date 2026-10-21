@@ -25,6 +25,7 @@
 //   @fake {"connect": "host:443"}            (Codex) CONNECT through HTTPS_PROXY, say the proxy's status line
 //   @fake {"claudeCall": true}               (Codex) call the proxy's Claude path with this turn's proxy token, say the status
 //   @fake {"exists": "rel/path"}             say whether the path exists in the chat folder (lstat)
+//   @fake {"readAbs": "/abs/path"}           try to read a file anywhere; says read=ok|blocked (never its content)
 // Without directives it answers "echo: <first line of the message>".
 import fs from 'node:fs'
 import path from 'node:path'
@@ -267,6 +268,10 @@ for (const d of directives) {
       status = String(r.status)
     } catch (e) { status = 'error ' + (e as Error).message }
     await say(status)
+  } else if (d.readAbs !== undefined) {
+    let ok = false
+    try { fs.readFileSync(String(d.readAbs)); ok = true } catch {}
+    await say(`read=${ok ? 'ok' : 'blocked'}`)
   } else if (d.exists !== undefined) {
     let there = true
     try { fs.lstatSync(path.join(process.cwd(), String(d.exists))) } catch { there = false }
