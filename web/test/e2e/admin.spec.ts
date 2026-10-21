@@ -8,14 +8,66 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await page.getByRole('link', { name: '관리자' }).click()
   await expect(page.getByTestId('members-table')).toContainText('Bob')
 
-  // add a member: the temporary password is shown once
+  // add a member: the temporary password field comes pre-filled with an easy one (word + digits), ↻ makes another,
+  // the admin may type their own (8+ characters); after creating, the username and password are shown once
   await page.getByRole('button', { name: '직접 추가' }).click()
   await page.getByRole('dialog').getByLabel('이름', { exact: true }).fill('Carol')
   await page.getByRole('dialog').getByLabel('아이디').fill('carol')
-  await page.getByRole('dialog').getByRole('button', { name: '만들기' }).click()
-  await expect(page.getByTestId('secret-value')).toHaveText('temp-password-1')
+  const temp = page.getByTestId('temp-password')
+  const first = await temp.inputValue()
+  expect(first).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
+  expect(first.length).toBeGreaterThanOrEqual(8)
+  let other = first
+  for (let i = 0; i < 5 && other === first; i++) {
+    await page.getByTestId('temp-password-new').click()
+    other = await temp.inputValue()
+  }
+  expect(other).not.toBe(first)
+  expect(other).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
+  // the field is the input's own label (not the ↻ / copy buttons), and its hint is attached to the input
+  await expect(page.getByRole('dialog').getByLabel('임시 비밀번호', { exact: true })).toHaveAttribute('data-testid', 'temp-password')
+  // too short: the create button waits until it has 8 characters
+  await temp.fill('short1')
+  await expect(page.getByTestId('add-member-submit')).toBeDisabled()
+  await expect(page.getByTestId('temp-password-error')).toHaveText('비밀번호는 8자 이상이어야 해요.')
+  await expect(temp).toHaveAttribute('aria-invalid', 'true')
+  // empty: says what to do instead of only greying out the button
+  await temp.fill('')
+  await expect(page.getByTestId('temp-password-error')).toContainText('↻')
+  // spaces are dropped as typed (they would be invisible on the hand-over screen)
+  await temp.fill('  tiger427 ')
+  await expect(temp).toHaveValue('tiger427')
+  // Hangul from a 한/영 key left on is refused with a hint
+  await temp.fill('노ㅑㅜㄷ1234')
+  await expect(page.getByTestId('temp-password-error')).toContainText('한/영')
+  await expect(page.getByTestId('add-member-submit')).toBeDisabled()
+  // the server's reason shows under the field, not as a toast, and goes away on the next try
+  await temp.fill('12345678')
+  await page.getByTestId('add-member-submit').click()
+  await expect(page.getByTestId('temp-password-error')).toContainText('너무 흔한 비밀번호')
+  await expect(page.getByRole('status').filter({ hasText: '너무 흔한' })).toHaveCount(0)
+  await temp.fill('exampleteam2026')
+  await expect(page.getByTestId('temp-password-error')).toHaveCount(0)
+  // another refusal (username taken) shows at the bottom of the dialog
+  await page.getByRole('dialog').getByLabel('아이디').fill('bob')
+  await page.getByTestId('add-member-submit').click()
+  await expect(page.getByTestId('dialog-error')).toContainText('이미 쓰고 있는 아이디')
+  await page.getByRole('dialog').getByLabel('아이디').fill('carol')
+  await page.getByTestId('add-member-submit').click()
+  // hand-over: the address, username and password (large) and the date it stops working
+  await expect(page.getByTestId('handover-url')).toHaveText('https://exampleteam.example.com')
+  await expect(page.getByTestId('handover-username')).toHaveText('carol')
+  await expect(page.getByTestId('handover-password')).toHaveText('exampleteam2026')
+  await expect(page.getByTestId('handover-password')).toHaveClass(/text-xl/)
+  await expect(page.getByTestId('handover-note')).toContainText('까지')
+  await expect(page.getByTestId('dialog-error')).toHaveCount(0)
+  await page.getByRole('button', { name: '주소·아이디·비밀번호 복사' }).click()
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied).toMatch(/^주소: https:\/\/exampleteam\.example\.com\n아이디: carol\n임시 비밀번호: exampleteam2026\n.+까지 로그인해서 새 비밀번호로 바꿔 주세요\.$/)
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('members-table')).toContainText('비밀번호 변경 필요')
+  // reset is a labelled button in the row, not an icon only
+  await expect(page.getByTestId('reset-password-carol')).toHaveText(/비밀번호 재설정/)
 
   // invite link with QR
   await page.getByTestId('invite-new').click()
@@ -63,7 +115,9 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(page.getByTestId('diagnostics')).toContainText('Relay connection')
   await page.getByTestId('backup-now').click()
   await expect(page.getByText('백업을 만들었어요.')).toBeVisible()
-  expect(realErrors(errors)).toEqual([])
+  // the refusals asked for above (a common temporary password, a taken username) are the only failed requests
+  expect(realErrors(errors).filter((e) => !/status of (400|409)/.test(e))).toEqual([])
+  expect(realErrors(errors).filter((e) => /status of (400|409)/.test(e)).length).toBe(2)
 })
 
 test('members: a one-time password reset link to copy (no email); the owner has none', async ({ page }) => {

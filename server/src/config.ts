@@ -17,6 +17,8 @@ export interface ServerConfig {
   rg: string
   pandoc: string | null
   pdftotext: string | null
+  /** mycel-ocr (macOS, Apple Vision): scanned PDFs and images; null when not built */
+  ocr: string | null
   /** folder with mycel-gate / mycel-bridge / mycel-launcher for this platform */
   nativeBin: string
   claudeBin: string
@@ -51,6 +53,13 @@ export function engineSandboxProfile(): string {
   return path.resolve(import.meta.dir, '..', '..', 'scripts', 'macos', 'engine.sb')
 }
 
+/** mycel-ocr next to the other native helpers (native/build.sh builds it on a Mac with swiftc). */
+export function ocrBin(): string | null {
+  if (process.platform !== 'darwin') return null
+  const p = path.join(nativeBinDir(), 'mycel-ocr')
+  return fs.existsSync(p) ? p : null
+}
+
 export function nativeBinDir(): string {
   const plat = process.platform === 'darwin' ? 'darwin' : 'linux'
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
@@ -70,6 +79,7 @@ export function defaultConfig(over: Partial<ServerConfig> & { teamRoot: string; 
     rg: which('rg') ?? 'rg',
     pandoc: which('pandoc'),
     pdftotext: which('pdftotext'),
+    ocr: ocrBin(),
     nativeBin: nativeBinDir(),
     claudeBin: which('claude', [path.join(os.homedir(), '.local', 'bin')]) ?? 'claude',
     authMode: 'local-login',

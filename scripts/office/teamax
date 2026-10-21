@@ -8,6 +8,8 @@
 #   ~/TeamAX/teamax restore-archive [--in] <file> [--replace]
 #   ~/TeamAX/teamax public-address set <app.example.com> <token file> | off | status
 #                                                 the internet address (Cloudflare Tunnel, docs/OFFICE.md)
+#   ~/TeamAX/teamax desktop list | add <installer.exe|.dmg> [--version x.y.z] [--keep] | remove <file>
+#                                                 the desktop apps members download under Settings → Apps
 #   ~/TeamAX/teamax update [status|check|now|pause|resume|channel stable|beta|time HH:MM]
 #                                                 automatic updates (docs/OFFICE.md "자동 업데이트")
 set -euo pipefail

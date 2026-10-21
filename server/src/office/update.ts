@@ -25,6 +25,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { compareVersions } from '../system/update'
 import { CHANNELS, decide, DEFAULT_FEED, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
+import { addInstaller, readIndex } from './desktop'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
@@ -427,7 +428,9 @@ export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<Upd
   const exe = await download(w.installer, tmp, d)
   const yml = await download(w.latestYml, tmp, d)
   checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, sha256File(exe, 'sha512', 'base64'), w.installer.size)
-  offerInstaller(dir, exe, w.version, w.installer.sha256)
+  // the same checks and index.json as `teamax desktop add` (./desktop.ts): an NSIS installer, the only Windows one
+  const added = addInstaller(dir, exe, { version: w.version })
+  if (added.item.sha256 !== w.installer.sha256) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
   // latest.yml last: it never names a file that is not there yet
   const dest = path.join(dir, 'latest.yml')
   const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
@@ -450,33 +453,6 @@ export function checkLatestYml(text: string, version: string, file: string, sha5
   if (!urls.length || urls.some((u) => u !== file)) throw new UpdateFailure(`latest.yml file urls must be just ${file}`)
   const sizes = [...text.matchAll(/^\s*size:\s*(\d+)\s*$/gm)].map((m) => Number(m[1]))
   if (sizes.some((x) => x !== size)) throw new UpdateFailure('latest.yml size does not match the installer')
-}
-
-// data/downloads/index.json: {items: [{platform, file, version, size, signed, sha256}]} (Settings → Apps lists it,
-// /downloads/<file> serves it to signed-in people)
-interface DownloadItem { platform: 'mac' | 'windows'; file: string; version: string; size: number; signed: boolean; sha256?: string }
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,150}\.(exe|dmg)$/
-export function readIndex(dir: string): DownloadItem[] {
-  const j = readJson(path.join(dir, 'index.json')) as { items?: unknown } | null
-  return Array.isArray(j?.items) ? (j!.items as DownloadItem[]).filter((i) => i && (i.platform === 'mac' || i.platform === 'windows') && typeof i.file === 'string' && SAFE_NAME.test(i.file) && typeof i.version === 'string') : []
-}
-
-/** copy the installer in (600, temporary dot-name + rename), make it the only Windows entry, remove older files */
-export function offerInstaller(dir: string, src: string, version: string, sha256: string) {
-  const name = path.basename(src)
-  if (!SAFE_NAME.test(name) || !name.endsWith('.exe')) throw new UpdateFailure(`${name} is not a Windows installer name`)
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const tmp = path.join(dir, `.${name}.tmp-${process.pid}`)
-  fs.rmSync(tmp, { force: true })
-  fs.copyFileSync(src, tmp)
-  fs.chmodSync(tmp, 0o600)
-  fs.renameSync(tmp, path.join(dir, name))
-  const items = readIndex(dir)
-  const old = items.filter((i) => i.platform === 'windows' && i.file !== name).map((i) => i.file)
-  const next = [...items.filter((i) => i.platform !== 'windows'), { platform: 'windows' as const, file: name, version, size: fs.statSync(path.join(dir, name)).size, signed: false, sha256 }]
-  next.sort((a, b) => (a.platform === b.platform ? compareVersions(b.version, a.version) : a.platform === 'windows' ? -1 : 1))
-  writeJson(path.join(dir, 'index.json'), { items: next })
-  for (const f of old) fs.rmSync(path.join(dir, f), { force: true })
 }
 
 /** One run of the updater. Never throws: the outcome is recorded in state.json and returned. */
@@ -603,3 +579,4 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
 }
 
 export const isVersion = (v: string) => VERSION_RE.test(v)
+export { readIndex }

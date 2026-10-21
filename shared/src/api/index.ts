@@ -9,14 +9,15 @@ import { FILES } from './files'
 import { JOBS } from './jobs'
 import { MEMORIES } from './memories'
 import { OFFICE_UPDATE } from './office-update'
+import { SKILLS } from './skills'
 import { SYSTEM } from './system'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...SYSTEM, ...OFFICE_UPDATE } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...SYSTEM, ...OFFICE_UPDATE } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, SYSTEM, OFFICE_UPDATE } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, SYSTEM, OFFICE_UPDATE } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -31,6 +32,7 @@ export * from './errors'
 export * from './auth'
 export * from './chats'
 export * from './memories'
+export * from './skills'
 export * from './files'
 export * from './artifacts'
 export * from './jobs'

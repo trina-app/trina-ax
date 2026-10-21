@@ -93,21 +93,23 @@ export default function System() {
   // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
   // updater's card; v null = not office mode, an error (older server) = the production card
   const office = useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
+  // a finished backup changes the diagnostics card's "last backup" line
+  const [rev, setRev] = useState(0)
   return (
     <>
-      <Diagnostics />
+      <Diagnostics rev={rev} />
       <Connection />
       {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />}
-      <Backups />
+      <Backups onChanged={() => setRev((r) => r + 1)} />
       <Export />
     </>
   )
 }
 
-function Diagnostics() {
+function Diagnostics({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  const state = useLoad(() => api.call(API.diagnostics))
+  const state = useLoad(() => api.call(API.diagnostics), [rev])
   const [busy, setBusy] = useState(false)
   return (
     <Card
@@ -352,7 +354,7 @@ function Update() {
   )
 }
 
-function Backups() {
+function Backups({ onChanged }: { onChanged: () => void }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
@@ -373,6 +375,7 @@ function Backups() {
               () => {
                 toast({ level: 'success', text: t('system.backupDone') })
                 void state.reload()
+                onChanged()
               },
             )
           }

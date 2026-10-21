@@ -321,6 +321,24 @@ describe('a whole update run (fake bundle, fake health)', () => {
 
 // ---- the Windows app in data/downloads ------------------------------------------------------------------------
 
+/** a minimal PE32 with the NSIS header on a 512-byte boundary (what `teamax desktop add` accepts; office-desktop.test.ts) */
+function fakeExe(size = 64 * 1024): Buffer {
+  const b = crypto.randomBytes(size)
+  b.write('MZ', 0, 'latin1')
+  const pe = 0x80
+  b.writeUInt32LE(pe, 0x3c)
+  b.write('PE\0\0', pe, 'latin1')
+  b.writeUInt16LE(0x10b, pe + 24)
+  const dirs = pe + 24 + 96
+  for (let i = 0; i < 16 * 8; i++) b[dirs + i] = 0
+  const at = 20 * 512
+  Buffer.from([0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde]).copy(b, at)
+  b.write('NullsoftInst', at + 8, 'latin1')
+  b.writeUInt32LE(200, at + 20)
+  b.writeUInt32LE(size - at, at + 24)
+  return b
+}
+
 function latestYml(version: string, file: string, exe: Uint8Array, urlName = file) {
   const s512 = crypto.createHash('sha512').update(exe).digest('base64')
   return `version: ${version}\nfiles:\n  - url: ${urlName}\n    sha512: ${s512}\n    size: ${exe.byteLength}\npath: ${file}\nsha512: ${s512}\nreleaseDate: '2026-10-21T00:00:00.000Z'\n`
@@ -337,7 +355,7 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
       { platform: 'windows', file: 'Team-AX-Setup-0.1.0-win-x64.exe', version: '0.1.0', size: 3, signed: false },
       { platform: 'mac', file: 'Team-AX-0.1.0-mac-universal.dmg', version: '0.1.0', size: 3, signed: false },
     ] }))
-    const exe = crypto.randomBytes(50_000)
+    const exe = fakeExe()
     const name = 'Team-AX-Setup-0.3.0-win-x64.exe'
     const yml = latestYml('0.3.0', name, exe)
     const files = new Map<string, Uint8Array | string>([[fileUrl(FEED, '0.3.0', name), exe], [fileUrl(FEED, '0.3.0', 'latest.yml'), yml]])

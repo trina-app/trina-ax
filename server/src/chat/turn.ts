@@ -20,7 +20,8 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
-import { buildTurnContext, buildTurnPrompt, type PromptInput } from './prompt'
+import { buildTurnContext, buildTurnPrompt, skillBlock, type PromptInput } from './prompt'
+import { invokedSkill, listSkills, skillFolder } from './skills'
 import { codexBetaAllowed, codexIsBeta, safeModel } from './engines'
 import { engineError, stepLabel, tr } from './i18n'
 import type { ChatRuntime } from './runtime'
@@ -187,7 +188,11 @@ export class TurnExec {
       history: fresh ? rt.history(userMsg.parent_id) : null,
     })
     const prompt = (fresh: boolean) => buildTurnPrompt(rt.files, promptInput(fresh))
-    const message = composeMessage(userMsg, atts)
+    // "/<skill name> …": that team skill goes in front of the message for this turn (skills.ts); its folder joins the
+    // read scope like a file the AI read
+    const invoked = invokedSkill(listSkills(rt.files, this.principal), userMsg.content)
+    if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
+    const message = (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message
     const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, spec.model, spec.turnId)
