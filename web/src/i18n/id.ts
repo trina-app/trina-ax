@@ -158,6 +158,8 @@ export const id: Record<MessageKey, string> = {
 
   'composer.label': 'Pesan',
   'composer.placeholder': 'Tanya apa saja',
+  'skills.menu': 'Skill tim',
+  'skills.hint': 'Enter untuk memilih · Esc untuk menutup',
   'composer.attach': 'Lampirkan file',
   'composer.camera': 'Ambil foto',
   'composer.attachments': 'Lampiran',

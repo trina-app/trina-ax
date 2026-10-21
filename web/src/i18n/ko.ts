@@ -157,6 +157,8 @@ export const ko = {
 
   'composer.label': '메시지',
   'composer.placeholder': '무엇이든 물어보세요',
+  'skills.menu': '팀 스킬',
+  'skills.hint': 'Enter로 고르기 · Esc로 닫기',
   'composer.attach': '파일 첨부',
   'composer.camera': '사진 찍기',
   'composer.attachments': '첨부 파일',
