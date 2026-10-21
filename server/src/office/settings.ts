@@ -197,13 +197,13 @@ export function runDirFor(s: OfficeSettings): string {
   return s.runDir ?? path.join(officePaths(s.home).data, 'run')
 }
 
-/** Every https origin of the certificate, best first: IPv4 addresses (the clinic sets a DHCP reservation),
- * <host>.local, the bare host name. `shown` keeps what the desks are told: the main IPv4 address and <host>.local. */
+/** Every https origin of the certificate, best first: IPv4 addresses (the clinic sets a DHCP reservation), then
+ * <host>.local (the certificate carries no bare host name, tls.ts). `shown` keeps what the desks are told: the main
+ * IPv4 address and <host>.local. */
 export function deskOrigins(names: OfficeNames, lanPort: number, o: { shown?: boolean } = {}): string[] {
   const v4 = names.ips.filter((i) => !i.includes(':'))
   const local = names.dns.filter((d) => d.endsWith('.local'))
-  const bare = names.dns.filter((d) => !d.endsWith('.local'))
-  const all = [...v4, ...local, ...bare].map((n) => `https://${hostPort(n, lanPort)}`)
+  const all = [...v4, ...local].map((n) => `https://${hostPort(n, lanPort)}`)
   if (!o.shown) return all
   const shown = [...v4.slice(0, 1), ...local].map((n) => `https://${hostPort(n, lanPort)}`)
   return shown.length ? shown : all
