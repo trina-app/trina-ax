@@ -18,7 +18,7 @@ test('browse, previews (CSV, Markdown, HTML in the sandbox), conflict copies, re
   await row(page, 'data.csv').getByRole('button').first().click()
   await expect(page.getByTestId('file-panel').locator('table')).toContainText('beta')
   await row(page, 'plan.md').getByRole('button').first().click()
-  await expect(page.getByTestId('file-panel').getByRole('heading', { name: 'Plan' })).toBeVisible()
+  await expect(page.getByTestId('file-panel').getByRole('heading', { name: 'Plan', exact: true })).toBeVisible()
   await row(page, 'page.html').getByRole('button').first().click()
   const frame = page.getByTestId('file-panel').locator('iframe')
   await expect(frame).toHaveAttribute('sandbox', 'allow-scripts')
