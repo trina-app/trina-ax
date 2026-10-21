@@ -14,6 +14,10 @@ import { enginesEnabled, getSetting, getTeamSettings, setSetting } from './setti
 import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv, engineStatusCache } from './engines'
 import { readApiEngine } from '../engine/api-agent'
 
+/** Realtime notice: who may pick the engine, which engines are on, or which can answer changed. Open windows ask GET
+ * /api/me and GET /api/engines again (the composer shows or hides its picker without a reload); it carries nothing. */
+export const ENGINE_CHOICE_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
+
 export const MEMBER_CHOICE_KEY = 'engines.memberChoice'
 export const LIMIT_FALLBACK_KEY = 'engines.limitFallback'
 const OFF: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
@@ -150,11 +154,17 @@ const READY_WAIT_MS = 3_000
 /**
  * The engines of `ids` that can answer here: set up (chat/engines.ts problems: no engine program, no setup token, no
  * API settings) and not found signed out by the last status check (`claude auth status`, `codex login status`, the
- * engine account's Codex login, the API key). A check that fails or is still running does not hide an engine.
+ * engine account's Codex login, the API key). A check that fails or is still running does not hide an engine; when a
+ * slow check later finds it signed out, onLateSignedOut is called (the caller tells open composers to ask again).
  */
-export async function readyEngines(ids: EngineId[], problems: EngineConfs['problems'], statusOf: (id: EngineId) => Promise<EngineStatus['status']>): Promise<EngineId[]> {
-  const signedOut = await Promise.all(ids.map((id) => problems[id] ? true
-    : Promise.race([statusOf(id).then((s) => s === 'not_logged_in', () => false), Bun.sleep(READY_WAIT_MS).then(() => false)])))
+export async function readyEngines(ids: EngineId[], problems: EngineConfs['problems'], statusOf: (id: EngineId) => Promise<EngineStatus['status']>, onLateSignedOut?: () => void): Promise<EngineId[]> {
+  const signedOut = await Promise.all(ids.map((id) => {
+    if (problems[id]) return true
+    let late = false
+    const check = statusOf(id).then((s) => s === 'not_logged_in', () => false)
+    void check.then((out) => { if (late && out) onLateSignedOut?.() })
+    return Promise.race([check, Bun.sleep(READY_WAIT_MS).then(() => { late = true; return false })])
+  }))
   return ids.filter((_, i) => !signedOut[i])
 }
 
@@ -170,7 +180,8 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
     : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? CLAUDE_MODELS : codexModels(env) }
   // the same cached checks as Admin > AI engines
   const cache = engineStatusCache(ctx)
-  const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => (await cache.get(id, true, locale)).status)
+  const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => (await cache.get(id, true, locale)).status,
+    () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
   return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }
 }
 
