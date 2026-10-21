@@ -301,7 +301,7 @@ rootbun() { (cd "$ITMP" && for v in $(compgen -e); do case "$v" in BUN_*|NODE_*)
 # repair after in-app updates) leaves newer ones in place: the launcher, the sandbox profile and the bootstrap only move
 # forward, since security fixes land there and in-app updates never touch them. To really go back: uninstall (the
 # data is kept) and install the older package.
-ROOT_V=$(tr -d '[:space:]' < "$BASE/root/VERSION" 2>/dev/null || true)
+ROOT_V=$(tr -d '[:space:]' 2>/dev/null < "$BASE/root/VERSION" || true)
 ROOT_KEEP=0
 if [[ "$ROOT_V" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] && [ "$(rootbun "$ADMIN_JS" compare-versions "$ROOT_V" "$VERSION")" = 1 ]; then
   ROOT_KEEP=1

@@ -21,7 +21,7 @@ import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, trans
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
-import { codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
+import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, limitFallbackOn, memberChoice, setLimitFallback, setMemberChoice } from '../admin/engine-choice'
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
@@ -38,9 +38,6 @@ async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale
   }
 }
 
-/** Realtime notice: who may pick the engine, or which engines are on, changed. Open windows ask GET /api/me and
- * GET /api/engines again (the composer shows or hides its picker without a reload); the message carries nothing. */
-export const ENGINE_CHOICE_CHANGED = { type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } } as const
 
 export const adminRoutes: RouteModule = {
   name: 'admin',

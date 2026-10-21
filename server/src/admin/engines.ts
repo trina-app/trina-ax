@@ -203,7 +203,11 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
     models: conf ? [{ id: conf.model, label: conf.label }] : [] }
   if (!conf) return { ...base, installed: false, status: 'not_installed', detail: t('apiNotSet', locale) }
   try {
-    const r = await fetch(`${conf.baseUrl}/models`, { headers: conf.key ? { Authorization: `Bearer ${conf.key}` } : {}, signal: AbortSignal.timeout(10_000) })
+    // Anthropic's model list wants x-api-key (its OpenAI-compatible chat endpoint takes the Bearer header): a refused
+    // list would leave a working Claude API engine out of the composer (admin/engine-choice.ts readyEngines)
+    const anthropic = /^https:\/\/api\.anthropic\.com\//.test(conf.baseUrl + '/')
+    const headers: Record<string, string> = conf.key ? { Authorization: `Bearer ${conf.key}`, ...(anthropic ? { 'x-api-key': conf.key, 'anthropic-version': '2023-06-01' } : {}) } : {}
+    const r = await fetch(`${conf.baseUrl}/models`, { headers, signal: AbortSignal.timeout(10_000) })
     if (r.status === 401 || r.status === 403) return { ...base, installed: true, status: 'not_logged_in', detail: t('apiKey', locale) }
     return { ...base, installed: true, status: 'ok', detail: null }
   } catch (e) {

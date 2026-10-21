@@ -343,7 +343,7 @@ describe('help texts and the other root scripts', () => {
 
   test('root programs only move forward: an older bundle leaves newer ones (root/VERSION) in place', () => {
     const s = fs.readFileSync(path.join(REPO, 'scripts/install-macos.sh'), 'utf8')
-    expect(s).toMatch(/ROOT_V=\$\(tr -d '\[:space:\]' < "\$BASE\/root\/VERSION"/)
+    expect(s).toMatch(/ROOT_V=\$\(tr -d '\[:space:\]' 2>\/dev\/null < "\$BASE\/root\/VERSION"/)
     expect(s).toMatch(/rootbun "\$ADMIN_JS" compare-versions "\$ROOT_V" "\$VERSION"\)" = 1 \]; then\n  ROOT_KEEP=1/)
     for (const f of ['755 mycel-bootstrap', '755 mycel-launcher', '644 engine.sb', '755 pf-load', '755 mycel-account']) expect(s.split('\n')).toContain(`rootfile ${f}`)
     expect(s).not.toMatch(/^install -o root -g wheel -m [0-9]+ "\$FROM\/root\//m)

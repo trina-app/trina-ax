@@ -91,8 +91,8 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       {icon && <div className="text-faint">{icon}</div>}
-      <p className="font-medium text-ink">{title}</p>
-      {children && <div className="text-sm text-muted">{children}</div>}
+      <p className="max-w-md font-medium text-balance text-ink">{title}</p>
+      {children && <div className="max-w-md text-sm text-balance text-muted">{children}</div>}
     </div>
   )
 }
@@ -101,9 +101,10 @@ export function ErrorNote({ children, onRetry }: { children: ReactNode; onRetry?
   const t = useT()
   return (
     <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-      <span className="min-w-0 flex-1">{children}</span>
+      {/* at least ~12rem for the text: on a phone the button wraps below instead of squeezing it to a column */}
+      <span className="min-w-0 flex-[1_1_12rem]">{children}</span>
       {onRetry && (
-        <Button size="sm" variant="secondary" onClick={onRetry}>
+        <Button size="sm" variant="secondary" className="ml-auto" onClick={onRetry}>
           {t('common.retry')}
         </Button>
       )}

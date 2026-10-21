@@ -81,7 +81,7 @@ export default function Skills() {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('skills.title')} desc={t('skills.desc')} />
-      <div className="mx-auto w-full max-w-4xl p-4 sm:p-6">
+      <div className="w-full max-w-4xl p-4 sm:p-6">
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (
