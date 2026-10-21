@@ -217,8 +217,10 @@ function budgetXlsx(): Uint8Array {
     ['합계', null as unknown as number, null as unknown as number, null as unknown as number, null as unknown as number, ''],
   ]
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  for (let r = 2; r <= 6; r++) ws[`E${r}`] = { t: 'n', f: `SUM(B${r}:D${r})` }
-  for (const c of ['B', 'C', 'D', 'E']) ws[`${c}7`] = { t: 'n', f: `SUM(${c}2:${c}6)` }
+  // formulas carry their computed value too: viewers and the AI's xlsx reader do not recalculate
+  const num = (a: string) => Number(ws[a]?.v ?? 0)
+  for (let r = 2; r <= 6; r++) ws[`E${r}`] = { t: 'n', f: `SUM(B${r}:D${r})`, v: num(`B${r}`) + num(`C${r}`) + num(`D${r}`) }
+  for (const c of ['B', 'C', 'D', 'E']) ws[`${c}7`] = { t: 'n', f: `SUM(${c}2:${c}6)`, v: [2, 3, 4, 5, 6].reduce((s, r) => s + num(`${c}${r}`), 0) }
   ws['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 22 }]
   const sales = XLSX.utils.aoa_to_sheet([
     ['월', '매출 목표', '매출 실적', '달성률'],
@@ -227,7 +229,7 @@ function budgetXlsx(): Uint8Array {
     ['9월', 350_000_000, 385_000_000, null],
     ['10월', 400_000_000, null, null],
   ])
-  for (let r = 2; r <= 4; r++) sales[`D${r}`] = { t: 'n', f: `C${r}/B${r}`, z: '0.0%' }
+  for (let r = 2; r <= 4; r++) sales[`D${r}`] = { t: 'n', f: `C${r}/B${r}`, z: '0.0%', v: Number(sales[`C${r}`].v) / Number(sales[`B${r}`].v) }
   sales['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 10 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '4분기 예산')
@@ -243,7 +245,7 @@ function payrollXlsx(): Uint8Array {
     ['박지훈', '재무', 4_100_000, 250_000, 560_000, null],
     ['최유나', '운영', 3_400_000, 200_000, 440_000, null],
   ])
-  for (let r = 2; r <= 5; r++) ws[`F${r}`] = { t: 'n', f: `C${r}+D${r}-E${r}` }
+  for (let r = 2; r <= 5; r++) ws[`F${r}`] = { t: 'n', f: `C${r}+D${r}-E${r}`, v: Number(ws[`C${r}`].v) + Number(ws[`D${r}`].v) - Number(ws[`E${r}`].v) }
   ws['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '2026-10')
