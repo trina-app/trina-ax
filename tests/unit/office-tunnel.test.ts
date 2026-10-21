@@ -14,7 +14,7 @@ import { peerIp } from '../../server/src/main'
 import { classifyPublic, configure, portProblems, publicProblem, readTunnelToken, tunnelIdOf, tunnelPlist } from '../../server/src/office/cli'
 import { deskCard } from '../../server/src/office/helper'
 import { loadSettings, officePaths, parseCountries, parsePublicHost, serverConfig, settingsFrom, settingsText, tunnelLabel } from '../../server/src/office/settings'
-import { checkRecords, ingressFor, main as publicAddressMain, normHost, readCert, Refused, removeAddress, setAddress, type Api } from '../../scripts/office/public-address'
+import { checkRecords, ingressFor, main as publicAddressMain, normHost, readCert, Refused, removeAddress, sameJson, setAddress, type Api } from '../../scripts/office/public-address'
 import { harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -437,6 +437,12 @@ describe('public-address.ts (mocked Cloudflare API)', () => {
     expect(cfg['warp-routing']).toEqual({ enabled: false })
     await expect(setAddress(f.api, cred, { host: HOST, tokenOut, tunnel: 'someone-else' })).rejects.toThrow(/already points to the tunnel/)
     expect(ingressFor(HOST, 47830, []).length).toBe(2)
+    // Cloudflare hands the rules back with their keys reordered (service first): a second run changes nothing
+    f.tunnels[0]!.config.ingress = f.tunnels[0]!.config.ingress.map((r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).reverse()))
+    const again = await setAddress(f.api, cred, { host: HOST, tokenOut, dryRun: true })
+    expect(again.actions).toEqual([])
+    expect(sameJson({ a: 1, b: [{ c: 2, d: 3 }] }, { b: [{ d: 3, c: 2 }], a: 1 })).toBe(true)
+    expect(sameJson([{ a: 1 }, { b: 2 }], [{ b: 2 }, { a: 1 }])).toBe(false)
   })
 
   test('remove: deletes only that CNAME and the tunnel (when no other name uses it) and the local token', async () => {

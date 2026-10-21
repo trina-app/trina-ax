@@ -152,6 +152,13 @@ export function ingressFor(host: string, port: number, current: IngressRule[]): 
   ]
 }
 
+/** equal as JSON regardless of key order (Cloudflare returns the ingress rules with their keys reordered) */
+export function sameJson(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b))
+}
+
 export interface SetOptions { host: string; port?: number; tunnel?: string; tokenOut?: string; allowApex?: boolean; dryRun?: boolean }
 export interface SetResult { host: string; zone: string; tunnelId: string; tunnelName: string; created: boolean; dns: 'created' | 'updated' | 'unchanged'; service: string; tokenFile: string | null; actions: string[] }
 
@@ -185,7 +192,7 @@ export async function setAddress(api: Api, cred: Pick<Credential, 'zoneId' | 'ac
   const service = `http://127.0.0.1:${port}`
   const cur = created ? { config: {}, ingress: [] } : await ingressOf(api, zone.accountId, tunnel.id)
   const ingress = ingressFor(host, port, cur.ingress)
-  if (JSON.stringify(ingress) !== JSON.stringify(cur.ingress)) {
+  if (!sameJson(ingress, cur.ingress)) {
     actions.push(`tunnel ${tunnel.name}: ${host} → ${service}`)
     if (!o.dryRun) await api('PUT', `/accounts/${zone.accountId}/cfd_tunnel/${tunnel.id}/configurations`, { config: { ...cur.config, ingress } })
   }
