@@ -1,12 +1,14 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
 // Implements: MEMORIES (own memories only; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
 // Also SKILLS (the team skills the caller can read, for the composer's "/" list). Contract: shared/src/api/skills.ts
+// And SCHEDULES (the caller's own scheduled tasks, Settings). Contract: shared/src/api/schedules.ts
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { listSkills } from '../chat/skills'
+import type { ScheduleRow } from '../chat/schedules'
 
 type Row = { id: string; text: string; source_chat_id: string | null; created_at: string }
 
@@ -34,6 +36,17 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.clearMemories, ({ auth }) => {
       ctx.db.query('DELETE FROM memories WHERE user_id = ?').run(auth.user.id)
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'cleared', memory: null } })
+    })
+    const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date,
+      projectId: s.project_id, enabled: !!s.enabled, nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id })
+    kit.handle(API.listSchedules, ({ auth }) => ({ items: rt.schedules.list(auth.user.id).map(scheduleOut), timeZone: rt.timeZone }))
+    kit.handle(API.updateSchedule, ({ params, body, auth }) => {
+      const s = rt.schedules.setEnabled(auth.user.id, params.id, body.enabled)
+      if (!s) return fail('not_found')
+      return scheduleOut(s)
+    })
+    kit.handle(API.deleteSchedule, ({ params, auth }) => {
+      if (!rt.schedules.delete(auth.user.id, params.id)) fail('not_found')
     })
     kit.handle(API.listSkills, ({ auth }) => {
       let p

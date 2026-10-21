@@ -1,6 +1,6 @@
 // System (owner only): diagnostics, connection, update, backup / restore, export. Update, restore and connection
 // changes ask for the password again. Long work runs as a job with progress from the WebSocket.
-import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, HardDrive, RefreshCw, RotateCcw, Upload } from 'lucide-react'
+import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, HardDrive, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ConnectionMode, Job } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -8,7 +8,7 @@ import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
-import { Badge, Button, Field, Modal, inputCls } from '../../components/ui'
+import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { isOwner, useMeStrict } from '../../store/session'
@@ -103,6 +103,7 @@ export default function System() {
     <>
       <Diagnostics rev={rev} />
       <Connection />
+      <ConnectedFolders />
       {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />}
       <Backups onChanged={() => setRev((r) => r + 1)} />
       <Export />
@@ -288,6 +289,93 @@ function Connection() {
               state.setData(r)
               setChange(null)
               setConfirming(false)
+            }
+          }}
+        />
+      )}
+    </Card>
+  )
+}
+
+/** Connected folders (team-files/connected.ts): a NAS share / Google Drive / folder of this Mac mirrored into connected/. */
+function ConnectedFolders() {
+  const t = useT()
+  const locale = useLocale()
+  const act = useAction()
+  const state = useLoad(async () => (await api.call(API.listConnected)).items)
+  const [name, setName] = useState('')
+  const [source, setSource] = useState('')
+  const [asking, setAsking] = useState(false)
+  const syncing = !!state.data?.some((c) => c.syncing)
+  // while a sync runs, look again every few seconds
+  useEffect(() => {
+    if (!syncing) return
+    const timer = setInterval(() => void state.reload(), 3000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncing])
+  return (
+    <Card title={t('connected.title')} desc={t('connected.desc')}>
+      <Loadable state={state}>
+        {(list) => (
+          <>
+            {!list.length ? <p className="text-sm text-faint">{t('connected.empty')}</p> : (
+              <ul className="divide-y divide-line rounded-xl border border-line" data-testid="connected-list">
+                {list.map((c) => (
+                  <li key={c.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                    <FolderSync size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 font-medium">
+                        {c.path}
+                        {c.syncing ? <Badge tone="accent">{t('connected.syncing')}</Badge> : c.lastStatus === 'error' ? <Badge tone="danger">!</Badge> : null}
+                      </span>
+                      <span className="block truncate text-xs text-muted" title={c.source}>{c.source}</span>
+                      <span className="mt-0.5 block text-xs text-faint">
+                        {c.lastSyncAt ? t('connected.last', { time: formatDateTime(c.lastSyncAt, locale), files: String(c.files), size: formatSize(c.bytes, locale) }) : t('connected.never')}
+                        {c.lastStatus === 'partial' && ` · ${t('connected.partial')}`}
+                      </span>
+                      {c.lastStatus === 'error' && c.lastError && <span className="mt-1 block text-xs text-danger">{c.lastError}</span>}
+                    </span>
+                    <Button size="sm" disabled={c.syncing} onClick={() => void act(() => api.call(API.syncConnected, { params: { id: c.id } })).then(() => state.reload())}>
+                      <RefreshCw size={13} aria-hidden /> {t('connected.syncNow')}
+                    </Button>
+                    <button type="button" aria-label={t('connected.remove')} title={t('connected.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger"
+                      onClick={async () => {
+                        if (!(await confirmDialog({ title: t('connected.removeTitle'), body: t('connected.removeBody', { name: c.name }), confirm: t('connected.remove'), danger: true }))) return
+                        await act(() => api.call(API.removeConnected, { params: { id: c.id } }))
+                        void state.reload()
+                      }}>
+                      <Trash2 size={15} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-4 grid gap-2 sm:grid-cols-[10rem_1fr_auto] sm:items-end">
+              <Field label={t('connected.name')}>
+                <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="connected-name" />
+              </Field>
+              <Field label={t('connected.source')} hint={t('connected.sourceHint')}>
+                <input className={inputCls} value={source} onChange={(e) => setSource(e.target.value)} placeholder="/Volumes/…" data-testid="connected-source" />
+              </Field>
+              <Button disabled={!name.trim() || !source.trim()} onClick={() => setAsking(true)}>{t('connected.add')}</Button>
+            </div>
+          </>
+        )}
+      </Loadable>
+      {asking && (
+        <ReauthDialog
+          title={t('connected.addTitle')}
+          body={t('connected.addBody', { source: source.trim(), name: name.trim() })}
+          confirm={t('connected.add')}
+          onClose={() => setAsking(false)}
+          onConfirm={async (password) => {
+            const r = await act(() => api.call(API.addConnected, { body: { name: name.trim(), source: source.trim(), password } }))
+            if (r) {
+              setAsking(false)
+              setName('')
+              setSource('')
+              void state.reload()
             }
           }}
         />
