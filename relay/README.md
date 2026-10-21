@@ -18,8 +18,12 @@ bun run dev:server:relay       # dev server that registers "myteam" and connects
 node relay/src/main.ts --domain treesoop.com --port 8080 --data /var/lib/mycel-relay   # production (behind Cloudflare)
 ```
 
-Production defaults: listens on `0.0.0.0:8080`, public scheme https, client IP from `CF-Connecting-IP` (the origin
-firewall must accept Cloudflare addresses only), proof of work 20 bits. Settings (flag / env):
+Production defaults: listens on `0.0.0.0:8080`, public scheme https, client IP from `CF-Connecting-IP`, proof of work
+20 bits. The relay believes `CF-Connecting-IP` only from a socket peer inside `--trusted-proxies` (default: Cloudflare's
+published ranges); anyone else who reaches the origin directly is identified by their socket address, whatever header
+they send. Still keep the origin firewall to Cloudflare addresses only, and turn on Cloudflare Authenticated Origin
+Pulls if the host allows it. Behind a local `cloudflared` tunnel the peer is loopback: run with
+`--trusted-proxies 127.0.0.1,::1` (only when nothing else on that host can reach the port). Settings (flag / env):
 
 | flag | env | default | |
 |---|---|---|---|
@@ -27,6 +31,7 @@ firewall must accept Cloudflare addresses only), proof of work 20 bits. Settings
 | `--port`, `--host` | `RELAY_PORT`, `RELAY_HOST` | 8080, 0.0.0.0 (dev 19161, 127.0.0.1) | |
 | `--data` | `RELAY_DATA_DIR` | `/var/lib/mycel-relay` | registry.db (SQLite) |
 | `--client-ip-header` | `RELAY_CLIENT_IP_HEADER` | `cf-connecting-ip` (none for localhost) | |
+| `--trusted-proxies` | `RELAY_TRUSTED_PROXIES` | `cloudflare` | peers whose client IP header counts: CIDRs / addresses, comma separated; `cloudflare` = Cloudflare's ranges, `none` = nobody |
 | `--pow-bits` | `RELAY_POW_BITS` | 20 (dev 8) | registration proof of work |
 | | `RELAY_HOLD_MS` | 5000 | requests wait this long for a (re)connecting team |
 | | `RELAY_SILENCE_MS` | 45000 | half-open control connection limit |

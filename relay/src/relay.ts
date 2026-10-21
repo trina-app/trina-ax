@@ -9,6 +9,7 @@
 import http from 'node:http'
 import type { Duplex } from 'node:stream'
 import { randomBytes } from 'node:crypto'
+import { isIP } from 'node:net'
 import { WebSocketServer, WebSocket, type RawData } from 'ws'
 import {
   AUTH_MAX_SKEW_MS, AUTH_TIMEOUT_MS, ClientClose, ControlClose, DataFlag, FrameError, HDR, MAX_PAYLOAD, Mux, RstCode,
@@ -20,6 +21,7 @@ import { teamAddress, type RelayConfig } from './config.ts'
 import { handleRegistryApi } from './api.ts'
 import type { RelayLog } from './log.ts'
 import { PAGE_STATUS, htmlPage, pageMessage, pickLang, type PageKind } from './pages.ts'
+import { ipInRanges, unmapIp } from './proxies.ts'
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
 
 export const RELAY_VERSION = '0.1.0'
@@ -201,16 +203,23 @@ export class RelayServer {
     return name === 'relay' ? null : name
   }
 
+  /**
+   * The visitor's address: the client IP header (CF-Connecting-IP) only when the socket peer is a trusted proxy
+   * (Cloudflare by default), else the socket peer. Someone who reaches the origin directly can send the header too;
+   * believing it let them pick the address the team server uses for audit and its per-IP sign-in limits, and dodge
+   * the relay's own per-IP registration limit.
+   */
   private clientIp(req: http.IncomingMessage): string | null {
+    const peer = req.socket.remoteAddress ?? undefined
     let ip: string | undefined
-    if (this.cfg.clientIpHeader) {
+    if (this.cfg.clientIpHeader && ipInRanges(peer, this.cfg.trustedProxies)) {
       const v = req.headers[this.cfg.clientIpHeader]
       ip = (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim()
     }
-    ip ??= req.socket.remoteAddress ?? undefined
+    ip ??= peer
     if (!ip) return null
-    if (ip.startsWith('::ffff:') && ip.includes('.')) ip = ip.slice(7)
-    return /^[0-9a-f.:]{2,64}$/i.test(ip) ? ip : null
+    ip = unmapIp(ip)
+    return /^[0-9a-f.:]{2,64}$/i.test(ip) && isIP(ip) ? ip : null
   }
 
   private async onRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
