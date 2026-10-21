@@ -16,7 +16,7 @@ import {
 import { settingsFrom } from '../../server/src/office/settings'
 import { officeUpdateHooks } from '../../server/src/routes/office-update'
 import { compareVersions as desktopCompare, feedUrlFor, genericFeed, macNotice, updateMode } from '../../desktop/src/common/update'
-import { harness, withOwner, addMember, type Harness } from './a-lib'
+import { harness, withOwner, addMember, OWNER_PW, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
 const BASE = path.join(WORK, 'office-update')
@@ -370,6 +370,15 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
     expect(fs.statSync(path.join(dir, name)).mode & 0o777).toBe(0o600)
     expect(readUpdateState(home).desktop?.version).toBe('0.3.0')
     expect(await deliverWindows(home, r, { fetch: fakeFetch(new Map()), log: () => {} })).toBeNull()
+    // /downloads/latest.yml is served (electron-updater asks for it), other unlisted files are not
+    const { serveDownload } = await import('../../server/src/routes/downloads')
+    const y = serveDownload(new Request('http://x/downloads/latest.yml'), '/latest.yml', dir)
+    expect(y.status).toBe(200)
+    expect(await y.text()).toBe(yml)
+    expect(y.headers.get('content-type')).toContain('yaml')
+    fs.writeFileSync(path.join(dir, 'other.yml'), 'x')
+    expect(serveDownload(new Request('http://x/downloads/other.yml'), '/other.yml', dir).status).toBe(404)
+    expect(serveDownload(new Request('http://x/downloads/' + name), '/' + name, dir).status).toBe(200)
   })
 
   test('latest.yml must name exactly that installer with its sha512 and size', () => {
@@ -424,7 +433,7 @@ describe('Admin > System endpoints', () => {
     const st = await owner.call('GET', '/api/admin/office-update')
     expect(st).toMatchObject({ current: '0.2.0', channel: 'beta', paused: false, time: '03:00', agentInstalled: false, nextWindowAt: null, running: null })
     // no update agent yet (an install from before automatic updates): "now" says how to get it
-    const no = await owner.try('POST', '/api/admin/office-update', { action: 'now' })
+    const no = await owner.try('POST', '/api/admin/office-update', { action: 'now', password: OWNER_PW })
     expect(no.status).toBe(409)
     expect(kicks).toEqual([])
     const agents = path.join(BASE, 'agents')
@@ -432,11 +441,24 @@ describe('Admin > System endpoints', () => {
     process.env.TEAMAX_AGENTS_DIR = agents
     fs.writeFileSync(path.join(agents, 'app.team-ax.webtest.update.plist'), '')
     try {
-      const now = await owner.call('POST', '/api/admin/office-update', { action: 'now' })
+      // "now" asks for the password again; a request without the CSRF header is refused before anything happens
+      expect((await owner.try('POST', '/api/admin/office-update', { action: 'now' })).status).toBe(403)
+      expect((await owner.try('POST', '/api/admin/office-update', { action: 'now', password: 'not the password' })).status).toBe(403)
+      expect((await owner.try('POST', '/api/admin/office-update', { action: 'now', password: OWNER_PW }, { 'x-mycel-csrf': '' })).status).toBe(403)
+      expect(kicks).toEqual([])
+      expect(fs.existsSync(path.join(home, 'update', 'request.json'))).toBe(false)
+      const now = await owner.call('POST', '/api/admin/office-update', { action: 'now', password: OWNER_PW })
       expect(now.requested).toBe(true)
       expect(kicks).toEqual(['app.team-ax.webtest.update'])
       expect(JSON.parse(fs.readFileSync(path.join(home, 'update', 'request.json'), 'utf8'))).toMatchObject({ action: 'now', by: 'olga' })
       const admin = await addMember(h, owner, { username: 'adam', role: 'admin' })
+      // an admin can ask for an update too (with the admin's own password): the request waits for the agent
+      fs.rmSync(path.join(home, 'update', 'request.json'))
+      expect((await admin.client.call('POST', '/api/admin/office-update', { action: 'now', password: admin.password })).requested).toBe(true)
+      expect(kicks).toEqual(['app.team-ax.webtest.update', 'app.team-ax.webtest.update'])
+      // the server only wrote the request: app/ is untouched (the agent installs)
+      expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.2.0')
+      expect(fs.readdirSync(path.join(home, 'update')).sort()).toEqual(['request.json', 'settings.json'])
       const p = await admin.client.call('POST', '/api/admin/office-update', { action: 'pause' })
       expect(p.paused).toBe(true)
       expect(p.nextWindowAt).toBeNull()
@@ -445,7 +467,7 @@ describe('Admin > System endpoints', () => {
       expect((await member.client.try('GET', '/api/admin/office-update')).status).toBe(403)
       expect((await member.client.try('POST', '/api/admin/office-update', { action: 'now' })).status).toBe(403)
       const actions = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'office_update.%' ORDER BY rowid").all() as { action: string }[]).map((r) => r.action)
-      expect(actions).toEqual(['office_update.now', 'office_update.pause', 'office_update.resume'])
+      expect(actions).toEqual(['office_update.now', 'office_update.now', 'office_update.pause', 'office_update.resume'])
     } finally { delete process.env.TEAMAX_AGENTS_DIR }
   })
 
@@ -454,7 +476,7 @@ describe('Admin > System endpoints', () => {
     try {
       const owner = await withOwner(h2)
       expect(await owner.call('GET', '/api/admin/office-update')).toBeNull()
-      expect((await owner.try('POST', '/api/admin/office-update', { action: 'now' })).status).toBe(409)
+      expect((await owner.try('POST', '/api/admin/office-update', { action: 'now', password: OWNER_PW })).status).toBe(409)
     } finally { await h2.close() }
   })
 

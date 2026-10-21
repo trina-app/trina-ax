@@ -145,7 +145,8 @@ export const updateLabel = (s: Pick<OfficeSettings, 'label'>) => `${s.label}.upd
 
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-/** The update agent: not kept alive, not run at load; launchd starts it at the nightly time (and after a wake if the
+/** The update agent: not kept alive, not run at load, a normal process (Background throttles disk I/O: unpacking the
+ * zip took a minute, and "update now" is waited for); launchd starts it at the nightly time (and after a wake if the
  * Mac slept through it) and when kickstarted. PATH has Claude Code's folder (the new installer checks it). */
 export function updatePlist(s: OfficeSettings, time: string, envPath: string): string {
   const m = TIME_RE.exec(time) ?? TIME_RE.exec(DEFAULT_UPDATE_SETTINGS.time)!
@@ -167,7 +168,7 @@ ${Object.entries(env).map(([k, v]) => `    <key>${k}</key><string>${xml(v)}</str
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>${Number(m[1])}</integer><key>Minute</key><integer>${Number(m[2])}</integer></dict>
   <key>RunAtLoad</key><false/>
-  <key>ProcessType</key><string>Background</string>
+  <key>ProcessType</key><string>Standard</string>
   <key>StandardOutPath</key><string>${xml(path.join(p.logs, 'update.log'))}</string>
   <key>StandardErrorPath</key><string>${xml(path.join(p.logs, 'update.log'))}</string>
 </dict>

@@ -11,6 +11,7 @@ import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
 import { useUi } from '../store/ui'
+import OfficeUpdateBanner from './OfficeUpdateBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
 import { IconButton, Spinner } from './ui'
@@ -70,6 +71,7 @@ export default function Layout() {
       </a>
       <DevModeBanner />
       <ConnectionBanner />
+      <OfficeUpdateBanner />
       <div className="flex min-h-0 flex-1">
         {/* sidebar: fixed column on wide screens, drawer below md */}
         <div className="hidden w-64 shrink-0 border-r border-line md:block">

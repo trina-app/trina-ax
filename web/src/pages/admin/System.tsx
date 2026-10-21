@@ -11,6 +11,7 @@ import { toast } from '../../store/ui'
 import { Badge, Button, Field, Modal, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
+import { isOwner, useMeStrict } from '../../store/session'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
 const STATUS_CLS = { ok: 'text-ok', warn: 'text-warn', fail: 'text-danger', unknown: 'text-faint' } as const
@@ -93,8 +94,11 @@ export default function System() {
   // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
   // updater's card; v null = not office mode, an error (older server) = the production card
   const office = useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
+  const me = useMeStrict()
   // a finished backup changes the diagnostics card's "last backup" line
   const [rev, setRev] = useState(0)
+  // an admin (office mode): the automatic update card only
+  if (!isOwner(me)) return office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : null
   return (
     <>
       <Diagnostics rev={rev} />

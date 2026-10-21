@@ -802,6 +802,8 @@ export const ko = {
   'system.updateNote': '설치 전에 데이터베이스를 백업하고, 서버가 다시 시작돼요. 진행 중인 답변이 있으면 끝난 뒤에 설치해요.',
   'system.updateDone': '업데이트를 마쳤어요.',
   'officeUpdate.title': '자동 업데이트',
+  'officeUpdate.banner': '새 버전 {version}이 있어요',
+  'officeUpdate.bannerNightly': '오늘 밤 {time}에 자동으로 설치돼요',
   'officeUpdate.current': '현재 버전 {version}',
   'officeUpdate.schedule': '매일 {time}에 새 버전을 확인해요 · 다음 확인 {date}',
   'officeUpdate.paused': "자동 업데이트가 꺼져 있어요. 새 버전은 '지금 업데이트'로만 설치돼요.",
