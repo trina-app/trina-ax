@@ -10,7 +10,7 @@ import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
-import { isAdmin, isOwner, useMeStrict } from '../store/session'
+import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
 import Composer, { type EngineChoice } from '../components/chat/Composer'
 
 export default function Home() {
@@ -25,14 +25,19 @@ export default function Home() {
   const send = useChats((s) => s.send)
   const upsertChat = useChats((s) => s.upsertChat)
   const models = useEngines((s) => s.models)
+  const engines = useEngines((s) => s.engines)
   const loadEngines = useEngines((s) => s.load)
-  const [engine, setEngine] = useState<EngineChoice>({ engine: me.user.prefs.engine, model: me.user.prefs.model ?? null })
+  // the engine / model are the admin's choice: only people allowed to pick see a picker and send a choice (starting
+  // from their own default, Settings); everyone else sends none and gets the team default
+  const choose = canChooseEngine(me)
+  const [picked, setEngine] = useState<EngineChoice>({ engine: me.user.prefs.engine, model: me.user.prefs.model ?? null })
+  const engine: EngineChoice = choose ? picked : { engine: undefined, model: undefined }
   const [project, setProject] = useState<Project | null>(null)
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(prompt ? { text: prompt, n: 0 } : null)
 
   useEffect(() => {
-    if (isAdmin(me)) void loadEngines()
-  }, [me, loadEngines])
+    if (choose) void loadEngines()
+  }, [choose, loadEngines])
   useEffect(() => {
     if (!projectId) return setProject(null)
     let live = true
@@ -85,7 +90,8 @@ export default function Home() {
             onSend={onSend}
             onStop={async () => {}}
             engine={engine}
-            onEngine={setEngine}
+            onEngine={choose ? setEngine : undefined}
+            engines={engines}
             models={models}
             initialText={preset?.text}
             autoFocus

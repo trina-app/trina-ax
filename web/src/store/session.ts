@@ -23,7 +23,8 @@ interface SessionState {
   refreshMe: () => Promise<void>
   /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
   pickLocale: (l: Locale) => void
-  updatePrefs: (prefs: Partial<UserPrefs>) => Promise<void>
+  /** engine / model null = back to the team default */
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<void>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
@@ -172,3 +173,6 @@ export function useMeStrict(): Me {
 
 export const isAdmin = (me: Me | null) => me?.user.role === 'admin' || me?.user.role === 'owner'
 export const isOwner = (me: Me | null) => me?.user.role === 'owner'
+/** may pick the AI engine / model (composer picker, "retry with another model", own default): owner and admins always,
+ * others when Admin > AI engines allows them. The server enforces it; an older server without the field: admins only. */
+export const canChooseEngine = (me: Me | null) => !!me && (me.user.canChooseEngine ?? isAdmin(me))
