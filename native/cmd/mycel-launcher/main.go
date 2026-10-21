@@ -16,6 +16,13 @@
 // exist and are answering. The engine runs with the chat folder as its working folder and every mention of it in
 // argv and env is rewritten to a relative path ("./.turn/mcp.json", "."); the bridge gets "--turn-dir ."; the
 // sandbox parameters go into a profile file with a random name instead of sandbox-exec -D arguments.
+//
+// Model proxy token (subscription / company-key mode, design tab 3 "실행기가 만드는 명령" ④): the request's modelToken
+// goes to the engine on a pipe inherited as fd 3 (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3, Claude Code reads it once
+// and drops the variable), never in argv or the environment: every process of the engine account can read another's
+// environment (KERN_PROCARGS2, not filterable by the sandbox). ANTHROPIC_BASE_URL is set from --proxy-port (the
+// root-owned LaunchDaemon arguments), not from the server's request, and credential variables in the request's
+// environment are dropped.
 package main
 
 import (
@@ -143,7 +150,22 @@ type request struct {
 	TimeoutMs      int64        `json:"timeoutMs"`
 	Stdin          string       `json:"stdin"`
 	Files          []fileSpec   `json:"files"`
+	ModelToken     *struct {
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	} `json:"modelToken"`
 }
+
+// credential variables an engine must never get through its environment (other processes of the engine account
+// can read it); the model proxy token travels on fd 3 instead
+var secretEnv = map[string]bool{
+	"CLAUDE_CODE_OAUTH_TOKEN": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_AUTH_TOKEN": true,
+	"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR": true, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR": true,
+	"CLAUDE_CODE_OAUTH_REFRESH_TOKEN": true,
+}
+
+// tokenFdVar is the variable that tells Claude Code which inherited descriptor holds its credential
+var tokenFdVar = map[string]string{"oauth": "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "api-key": "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"}
 
 type multi []string
 
@@ -473,7 +495,8 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if st, err := os.Lstat(chat); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("bad chat folder")
 	}
-	_ = os.MkdirAll(filepath.Join(chat, ".tmp"), 0o700) // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
+	_ = os.MkdirAll(filepath.Join(chat, ".tmp"), 0o700)  // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
+	_ = os.MkdirAll(filepath.Join(chat, ".home"), 0o700) // HOME of the engine in proxy modes (inside the sandbox)
 	turn := filepath.Join(chat, ".turn")
 	_ = os.RemoveAll(turn)
 	if err := os.Mkdir(turn, 0o700); err != nil {
@@ -556,14 +579,49 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			return fmt.Errorf("an engine argument names the chat folder")
 		}
 	}
-	env := make([]string, 0, len(req.Env))
+	env := make([]string, 0, len(req.Env)+2)
 	for k, v := range req.Env {
+		if secretEnv[k] || (*proxyPort > 0 && k == "ANTHROPIC_BASE_URL") {
+			continue
+		}
 		v = rel(subst.Replace(v))
 		if names(k) || names(v) {
 			return fmt.Errorf("an engine environment variable names the chat folder")
 		}
 		env = append(env, k+"="+v)
 	}
+	// the model proxy token: a pipe that holds the token, inherited as fd 3 (see the header comment)
+	var tokenRead *os.File
+	if mt := req.ModelToken; mt != nil {
+		fdVar, ok := tokenFdVar[mt.Kind]
+		if !ok || mt.Value == "" || strings.ContainsAny(mt.Value, "\r\n") || len(mt.Value) > 512 {
+			return fmt.Errorf("bad model token")
+		}
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			return err
+		}
+		// far below the pipe buffer: the write never blocks, and the engine sees end-of-file after the token
+		_, werr := pw.WriteString(mt.Value + "\n")
+		_ = pw.Close()
+		if werr != nil {
+			_ = pr.Close()
+			return werr
+		}
+		tokenRead = pr
+		req.ModelToken = nil
+		env = append(env, fdVar+"=3")
+		if *proxyPort > 0 {
+			env = append(env, fmt.Sprintf("ANTHROPIC_BASE_URL=http://127.0.0.1:%d", *proxyPort))
+		}
+	}
+	closeToken := func() {
+		if tokenRead != nil {
+			_ = tokenRead.Close()
+			tokenRead = nil
+		}
+	}
+	defer closeToken()
 	sessDir := chat
 	if s := req.SessionCollect; s != nil { // validated above (allowedSessionDir)
 		sessDir = s.Dir
@@ -577,6 +635,9 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	defer cleanup()
 	cmd.Dir = chat
 	cmd.Env = env
+	if tokenRead != nil {
+		cmd.ExtraFiles = []*os.File{tokenRead} // fd 3 in the engine
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
@@ -584,6 +645,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	closeToken() // only the engine holds the token pipe now
 	pid := cmd.Process.Pid
 	live.add(pid)
 	defer live.del(pid)

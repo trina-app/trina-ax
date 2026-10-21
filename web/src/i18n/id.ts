@@ -699,6 +699,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.auth.password_reset': 'Mengatur kata sandi lewat tautan reset',
   'audit.act.auth.reauth_failed': 'Konfirmasi kata sandi gagal',
   'audit.act.proxy.refused': 'Permintaan mesin AI diblokir',
+  'audit.act.engine.subscription_rejected': 'Token langganan Claude ditolak',
   'audit.file.create': 'Berkas baru',
   'audit.file.update': 'Mengubah berkas',
   'audit.file.delete': 'Dipindah ke sampah',

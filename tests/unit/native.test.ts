@@ -109,3 +109,30 @@ describe('launcher', () => {
     expect(peer?.pid).toBe(child.pid)
   })
 })
+
+// subscription mode: the per-turn model proxy token reaches the engine on an inherited pipe (fd 3), never through the
+// environment or argv (other processes of the engine account can read those); credential variables in a request's
+// environment are dropped by the launcher
+describe('launcher: model proxy token', () => {
+  const run = async (o: { env?: Record<string, string>; modelToken?: { kind: string; value: string } }) => {
+    const chatDir = path.join(srv.cfg.agentRoot, 'mt' + Math.random().toString(36).slice(2, 8))
+    const h = srv.launcher!.launch({ op: 'run', turnId: 'mt' + Math.random().toString(36).slice(2, 8), chatDir, cmd: '/bin/sh',
+      args: ['-c', 'echo "oauth=${CLAUDE_CODE_OAUTH_TOKEN-} key=${ANTHROPIC_API_KEY-} fdvar=${CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR-}${CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR-} base=${ANTHROPIC_BASE_URL-}"; cat <&3 2>/dev/null || echo "no fd 3"'],
+      env: o.env ?? {}, token: 't', systemPrompt: '', stdin: '', timeoutMs: 10_000, ...(o.modelToken ? { modelToken: o.modelToken } : {}) } as any)
+    let out = '', err: string | null = null
+    for await (const ev of h.events) { if (ev.ev === 'stdout') out += Buffer.from(ev.b64, 'base64').toString(); if (ev.ev === 'error') err = ev.message }
+    return { out: out.trim(), err }
+  }
+  test('token on fd 3 with the variable naming it; credential variables from the request are dropped', async () => {
+    const r = await run({ env: { CLAUDE_CODE_OAUTH_TOKEN: 'leak-1', ANTHROPIC_API_KEY: 'leak-2', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' }, modelToken: { kind: 'oauth', value: 'mpx_turn_token' } })
+    expect(r.err).toBeNull()
+    expect(r.out).toBe('oauth= key= fdvar=3 base=http://127.0.0.1:9\nmpx_turn_token')
+    const k = await run({ modelToken: { kind: 'api-key', value: 'mpx_key' } })
+    expect(k.out).toBe('oauth= key= fdvar=3 base=\nmpx_key')
+  })
+  test('without a model token there is no fd 3; a bad token kind or a token with a newline is refused', async () => {
+    expect((await run({})).out).toBe('oauth= key= fdvar= base=\nno fd 3')
+    expect((await run({ modelToken: { kind: 'other', value: 'x' } })).err).toContain('bad model token')
+    expect((await run({ modelToken: { kind: 'oauth', value: 'a\nb' } })).err).toContain('bad model token')
+  })
+})

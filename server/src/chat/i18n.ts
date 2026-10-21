@@ -37,6 +37,9 @@ export const TEXT = {
   errInterrupted: t('서버가 다시 시작되어 답변이 중단되었습니다.', 'The answer was interrupted because the server restarted.', 'Jawaban terputus karena server dimulai ulang.'),
   errEngineMissing: t('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).'),
   errProxyMode: t('회사 API 키 모드는 이 버전에서 아직 켤 수 없습니다. 구독 로그인 모드를 써 주세요.', 'Company API key mode cannot be turned on in this version yet. Use the subscription login mode.', 'Mode kunci API perusahaan belum bisa diaktifkan di versi ini. Gunakan mode login langganan.'),
+  errSetupToken: t('팀의 Claude 구독이 아직 연결되지 않았습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단).', "The team's Claude subscription is not connected yet. Let the team owner know (Admin > System > Diagnostics).", 'Langganan Claude tim belum terhubung. Beri tahu pemilik tim (Admin > Sistem > Diagnostik).'),
+  errProxyDown: t('AI 연결 통로(모델 프록시)가 아직 준비되지 않았습니다. 잠시 뒤 다시 시도하고, 계속되면 팀장에게 알려 주세요.', 'The AI connection (model proxy) is not ready. Try again in a moment; if it keeps happening, let the team owner know.', 'Koneksi AI (proxy model) belum siap. Coba lagi sebentar lagi; jika terus terjadi, beri tahu pemilik tim.'),
+  errBudget: t('AI 사용 한도를 다 썼습니다. 더 필요하면 관리자에게 말해 주세요.', 'The AI usage limit is used up. Ask an admin if you need more.', 'Batas penggunaan AI sudah habis. Minta admin jika perlu lebih.'),
   errUserDisabled: t('계정을 사용할 수 없습니다.', 'This account is not active.', 'Akun ini tidak aktif.'),
 
   // steps
@@ -71,7 +74,7 @@ export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, 
 }
 
 /** Engine error -> message.error (stable code + localized text). */
-export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_mode' | 'user_disabled', locale: Locale, retryAfter?: number): ApiErrorBody {
+export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_mode' | 'setup_token_missing' | 'proxy_down' | 'user_disabled', locale: Locale, retryAfter?: number): ApiErrorBody {
   const map: Record<string, [ErrorCode, keyof typeof TEXT]> = {
     auth: ['engine_unavailable', 'errAuth'],
     rate_limit: ['rate_limited', 'errRateLimit'],
@@ -82,6 +85,8 @@ export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_miss
     interrupted: ['unavailable', 'errInterrupted'],
     engine_missing: ['engine_unavailable', 'errEngineMissing'],
     proxy_mode: ['engine_unavailable', 'errProxyMode'],
+    setup_token_missing: ['engine_unavailable', 'errSetupToken'],
+    proxy_down: ['engine_unavailable', 'errProxyDown'],
     user_disabled: ['forbidden', 'errUserDisabled'],
   }
   const [c, k] = map[code] ?? ['internal', 'errCrash']

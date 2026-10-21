@@ -8,7 +8,7 @@
 //                           web/ (when web/dist exists), RELEASE_NOTES.md, manifest.json (+ manifest.sig when signed)
 //   <version>.tar.zst       the same folder packed, for POST /api/admin/update / `admin.js stage-update`
 //   root/                   the root-owned files (installed only by scripts/install-macos.sh, never by an update):
-//                           mycel-bootstrap, mycel-launcher, engine.sb, pf-load
+//                           mycel-bootstrap, mycel-launcher, engine.sb, pf-load, set-claude-token (+ safe-fs.sh)
 // Needs `bun run build:native` first. Without --sign-key the bundle is unsigned (no release key exists yet): the
 // installer then runs the bootstrap with --allow-unsigned and diagnostics say so.
 import fs from 'node:fs'
@@ -71,6 +71,8 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   for (const b of ['mycel-bootstrap', 'mycel-launcher']) fs.copyFileSync(path.join(nativeDir, b), path.join(root, b))
   fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'engine.sb'), path.join(root, 'engine.sb'))
   fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'pf-load.sh'), path.join(root, 'pf-load'))
+  fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'set-claude-token.sh'), path.join(root, 'set-claude-token'))
+  fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'safe-fs.sh'), path.join(root, 'safe-fs.sh'))
   fs.writeFileSync(path.join(o.out, 'VERSION'), o.version + '\n')
   return { dir, archive: path.join(o.out, `${o.version}.tar.zst`), size: packed.size, sha256: packed.sha256, root }
 }

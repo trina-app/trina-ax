@@ -10,6 +10,7 @@ import { FileService } from './files/service'
 import { TurnRegistry } from './turns'
 import { startMcpSocket } from './mcp/socket'
 import { SocketLauncher, startGate, startLauncher, type Launcher, type LauncherSandbox } from './native'
+import { ModelProxyService, type ProxyServiceOptions } from './proxy/subscription'
 
 export interface Running {
   cfg: ServerConfig
@@ -19,6 +20,8 @@ export interface Running {
   toolsSock: string
   launcherSock: string
   launcher: Launcher | null
+  /** subscription mode: the model proxy (null otherwise) */
+  proxy: ModelProxyService | null
   rejected: () => { reason: string }[]
   close(): Promise<void>
 }
@@ -41,6 +44,8 @@ export interface StartOptions {
   /** reuse an open DB / file service (the HTTP server owns them); otherwise opened here and closed by close() */
   db?: Database
   files?: FileService
+  /** subscription mode: run the model proxy (peer check through this core's launcher) */
+  modelProxy?: Omit<ProxyServiceOptions, 'db' | 'peerCheck'>
 }
 
 export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Promise<Running> {
@@ -60,9 +65,11 @@ export async function startServer(cfg: ServerConfig, o: StartOptions = {}): Prom
     procs.push(await startLauncher(cfg.nativeBin, { listen: launcherSock, agentRoot: cfg.agentRoot, toolsSock, allowCmds: o.launcher.allowCmds, sessionRoots: o.launcher.sessionRoots, sandbox: o.launcher.sandbox }))
     launcher = new SocketLauncher(launcherSock)
   }
-  return {
-    cfg, db, files, turns, toolsSock, launcherSock, launcher,
+  const running: Running = {
+    cfg, db, files, turns, toolsSock, launcherSock, launcher, proxy: null,
     rejected: () => mcp.rejected,
-    async close() { for (const p of procs) { p.kill(); await p.exited } mcp.stop(); if (ownDb) db.close() },
+    async close() { running.proxy?.stop(); for (const p of procs) { p.kill(); await p.exited } mcp.stop(); if (ownDb) db.close() },
   }
+  if (o.modelProxy) running.proxy = new ModelProxyService({ ...o.modelProxy, db, peerCheck: proxyPeerCheck(running) }).start()
+  return running
 }

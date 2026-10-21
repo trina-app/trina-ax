@@ -13,11 +13,18 @@
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
+//   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
+//                                            from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), POST
+//                                            $ANTHROPIC_BASE_URL/v1/messages?beta=true with stream, say the text deltas;
+//                                            an HTTP error ends the turn like Claude Code's "API Error: <status> ..."
+//   @fake {"echo": "secrets"}                say whether a model credential is visible in env / argv (it must not be)
+//   @fake {"direct": "http://127.0.0.1:N/"}  try to reach an address other than the proxy; says direct=blocked|reached
 // Without directives it answers "echo: <first line of the message>".
 import fs from 'node:fs'
 import path from 'node:path'
 
 const argv = process.argv.slice(2)
+if (argv[0] === '--version') { process.stdout.write('0.0.1 (fake engine)\n'); process.exit(0) }
 const codex = argv[0] === 'exec'
 const arg = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }
 const stdin = await new Response(Bun.stdin.stream()).text()
@@ -165,6 +172,46 @@ function finish(o: { error?: string; refused?: boolean } = {}) {
   process.exit(o.error ? 1 : 0)
 }
 
+// ---------------- the model, through the team server's proxy (subscription mode) ----------------
+let modelToken: string | null = null
+function proxyToken(): string {
+  if (modelToken !== null) return modelToken
+  const fdVar = process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR ? 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' : 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR'
+  const fd = Number(process.env[fdVar])
+  modelToken = Number.isInteger(fd) && fd > 2 ? fs.readFileSync(fd, 'utf8').trim() : ''
+  delete process.env[fdVar] // like Claude Code: read once, then forget where it came from
+  return modelToken
+}
+async function callModel(prompt: string) {
+  const base = process.env.ANTHROPIC_BASE_URL
+  if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
+  let r: Response
+  try {
+    r = await fetch(base.replace(/\/$/, '') + '/v1/messages?beta=true', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + proxyToken(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14', 'user-agent': 'claude-cli/0.0.0-fake (external, cli)', 'x-app': 'cli', 'x-stainless-os': 'MacOS' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }] }),
+    })
+  } catch (e) { return finish({ error: `API Error: Connection error (${(e as Error).message})` }) }
+  if (!r.ok) return finish({ error: `API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
+  let buf = ''
+  const dec = new TextDecoder()
+  for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
+    buf += dec.decode(chunk, { stream: true })
+    let i
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+      if (!l.startsWith('data:')) continue
+      try { const ev = JSON.parse(l.slice(5)); if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') await say(ev.delta.text) } catch {}
+    }
+  }
+}
+function secretsVisible(): string {
+  const looks = (v: string) => /mpx_|sk-ant-/.test(v)
+  const env = Object.entries(process.env).filter(([, v]) => v && looks(v)).map(([k]) => k)
+  return `envSecrets=${env.join(',') || 'none'} argvSecrets=${process.argv.some(looks) ? 'yes' : 'none'} fdVar=${process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR ?? 'none'} base=${process.env.ANTHROPIC_BASE_URL ?? 'none'}`
+}
+
 // ---------------- run the directives ----------------
 const directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
@@ -185,7 +232,13 @@ for (const d of directives) {
   else if (d.echo === 'message') await say(message)
   else if (d.echo === 'model') await say(`model=${model}`)
   else if (d.echo === 'resume') await say(`resumed=${resumed}`)
-  else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
+  else if (d.model !== undefined) await callModel(String(d.model))
+  else if (d.echo === 'secrets') await say(secretsVisible())
+  else if (d.direct) {
+    let reached = false
+    try { await fetch(String(d.direct), { signal: AbortSignal.timeout(3000) }); reached = true } catch {}
+    await say(`direct=${reached ? 'reached' : 'blocked'}`)
+  } else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
   else if (d.echo === 'tools') {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }

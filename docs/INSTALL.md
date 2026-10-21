@@ -14,15 +14,18 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 |---|---|
 | Dev mode on one Mac, chats included (Part 1) | Works |
 | Teams, invite links, folder permissions, backups | Works |
-| Production installer (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf | Runs, **but chats do not work afterwards** (see below) |
+| Production installer (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf | Runs. Claude chats work once the owner stored a `claude setup-token` token (2.4); not yet verified on a real install (see below) |
 | Public team address `<team>.treesoop.com` | Not available: the production relay is not running |
 | Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only |
 
-**Production chats do not work yet.** The installer writes `engine.authMode: "proxy"`. The server refuses Claude
-Code in that mode ("Company API key mode cannot be turned on in this version yet"), and the model proxy that would
-use the `claude setup-token` token is never started. Codex is not connected in production either. So today the only
-way a team can actually talk to the AI is **dev mode** (Part 1). Use the production install only to rehearse it.
+**Production chats (subscription mode).** The installer writes `engine.authMode: "subscription"`. Claude Code runs
+as the hidden engine account `_axagent` under the sandbox and pf; the only address it can reach is the server's
+model proxy on `127.0.0.1:47821`. The proxy adds the owner's `claude setup-token` token (2.4), which only the server
+account can read; the engine only ever gets a per-turn token. This path is tested as the current user
+(`tests/unit/g-subscription.test.ts`, also with the real `claude` binary against a fake model service) and in the
+role-account install test, which needs `sudo` and has not been run on this Mac yet. Codex is not connected in
+production yet (2.5).
 
 There is **no email** anywhere, by design. Invites and password resets are links an admin copies and sends.
 
@@ -224,19 +227,21 @@ What it creates:
 Running the installer again repairs the install. It keeps a valid existing certificate, so after the LAN IP changes,
 delete `secrets/lan-tls.*` before re-running it.
 
-### 2.4 Claude long-lived token (owner, once; not used yet)
+### 2.4 Claude long-lived token (owner, once a year)
 
 ```sh
-claude setup-token        # approve in the browser; prints sk-ant-oat01-… once; copy it
-umask 077 && pbpaste > ~/team-ax-claude-token.txt && pbcopy < /dev/null
-sudo install -m 600 -o _axserver -g _axserver ~/team-ax-claude-token.txt \
-     "/Library/Application Support/mycel/secrets/claude-oauth-token"
-rm -P ~/team-ax-claude-token.txt
+claude setup-token        # approve in the browser with the Claude subscription (Pro/Max); prints sk-ant-oat01-… once; copy it
+pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"
+pbcopy < /dev/null        # empty the clipboard
 ```
 
-- Diagnostics then show Claude Code as "Signed in (setup-token)". They only check that the file exists.
-- The token expires after a year; replace it with the same commands.
-- **No code uses the token yet.**
+- `set-claude-token` (root-owned, installed by the installer) reads the token from standard input, never from the
+  command line, checks that it looks like a setup-token, and stores it as
+  `secrets/claude-oauth-token` (`_axserver`, mode 600). The engine account cannot read it.
+- No restart: the server reads the file on every model request.
+- Diagnostics then show Claude Code as "Signed in (setup-token)". They also say when the token is older than a year
+  (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
+- The token expires after a year; replace it with the same commands. `--remove` forgets it.
 
 ### 2.5 Codex login for the engine account (command not final)
 
@@ -264,9 +269,9 @@ port, `https://<host>.local:8443/setup?token=…`. The screen is the same as in 
 
 | Where | What it shows |
 |---|---|
-| Admin → AI engines | Both engines: "Company-key mode is on but no company API key is stored." Expected today. |
-| Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token file exists. Codex: a warning, most likely "Not installed", because `_axserver` cannot reach a `codex` under `/Users/<you>`. pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
-| A chat | "Company API key mode cannot be turned on in this version yet. Use the subscription login mode." |
+| Admin → AI engines | Claude Code: "Engine account sign-in"; not signed in until the token is stored (2.4). Codex: not connected yet (2.5). |
+| Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821 after the first question, or "port in use". Codex: a warning, most likely "Not installed", because `_axserver` cannot reach a `codex` under `/Users/<you>`. pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
+| A chat | Without the token: "The team's Claude subscription is not connected yet." With it: Claude answers. |
 
 **Known crash.** If the launcher socket is missing (the launcher daemon is down), opening Diagnostics kills the
 production server with `connect ENOENT …/launcher.sock` (`server/src/system/ops.ts`). If Diagnostics stops
@@ -478,14 +483,17 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | Production server stops when Diagnostics opens | Known crash when the launcher socket is missing (2.7) |
 | Relay "Not registered" | `relay.teamName` missing in `server.json`, or the name is taken or reserved |
 | Owner password forgotten | Dev: `bun run dev admin reset-link`. Production: no tool yet |
-| Claude token expiry (1 year) | Repeat 2.4; diagnostics do not check expiry |
+| Claude token expiry (1 year) | Repeat 2.4; diagnostics warn 14 days before (counted from when the token was stored) |
+| "The team's Claude subscription is not connected yet" | Production: store the token (2.4) |
+| "The AI connection has a problem" + admin notice "token was refused" | Production: the token was revoked or expired; make a new one and store it (2.4) |
+| Diagnostics "Model proxy port in use" | Another program holds 127.0.0.1:47821 (`lsof -nP -iTCP:47821 -sTCP:LISTEN`); the server retries every 10 s |
 | `curl` against the API returns `{"error":{"code":"csrf"}}` | Send the header `x-mycel-csrf: 1` |
 
 ## Known gaps
 
-1. **Production chats fail.** `install-macos.sh` writes `engine.authMode: "proxy"` and `chat/engines.ts` refuses
-   Claude in that mode. `startModelProxy` is never called. With `local-login` set by hand, the engine would run as
-   `_axagent`, which has no Claude login.
+1. **Production chats are not verified on a real install yet.** Subscription mode works as the current user with the
+   real `claude` binary (against a fake model service) and is covered by `sudo bun tests/install/g-macos-install.ts`,
+   which has not been run on this Mac. A real answer also needs the owner's `claude setup-token` token.
 2. **Codex is not connected in production.** There is no `engine.codexBin`; the launcher's `--allow-cmd` would not
    allow a PATH codex; there is no `models_cache.json`; and three different codex-home folders appear in the code.
 3. **Engine names are not checked.** `--engine` is not validated, and the first engine becomes `claudeBin`.

@@ -1,16 +1,21 @@
 // Install test for macOS (component G, design tab 7 "설치": install -> run -> update -> roll back -> back up / restore
-// -> uninstall). Installs a TEST copy (id mycel-test, accounts _axtsrv / _axtagt, ports 19174-19177) with a FAKE engine
-// (tests/lib/g-sbprobe.c): running the real engine as the role account needs the owner's `claude setup-token`.
+// -> uninstall). Installs a TEST copy (id mycel-test, accounts _axtsrv / _axtagt, ports 19174-19178) with a FAKE engine
+// (tests/lib/g-sbprobe.c) and, when this Mac has Claude Code, the real `claude` binary as the server's engine.
 //
 //   bun run build:native            (as yourself)
-//   sudo bun tests/install/g-macos-install.ts [--keep]
+//   sudo bun tests/install/g-macos-install.ts [--keep]      (MYCEL_TEST_CLAUDE=<path> picks the claude binary)
 //
 // Verifies accounts, owners and modes, LaunchDaemons, the pf firewall (as the engine account), the sandbox through the
-// installed launcher, update swap / bootstrap roll-back / manual roll-back, backup + encrypted archive + restore, and
-// that the uninstaller removes everything. Prints a report and exits 1 if any check failed. Never asks for or stores
-// a password: run it with sudo.
+// installed launcher, subscription mode (engine.authMode "subscription" in server.json, root/set-claude-token stores
+// the owner token for the server account only, the model proxy as the server account, and one real Claude Code turn
+// as the engine account through sandbox + pf + proxy against a FAKE model service on 127.0.0.1:19178 that checks the
+// owner token arrives and the per-turn token never leaves; no request goes to Anthropic), update swap / bootstrap
+// roll-back / manual roll-back, backup + encrypted archive + restore, and that the uninstaller removes everything.
+// Prints a report and exits 1 if any check failed. Never asks for or stores a password: run it with sudo.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { API, ApiClient } from '@mycel/shared/api'
 import { buildBundle } from '../../scripts/build-bundle'
 import { packBundle, writeManifest } from '../../server/src/system/bundle'
 
@@ -18,7 +23,7 @@ const REPO = path.resolve(import.meta.dir, '..', '..')
 // account names can be overridden (MYCEL_TEST_SRV / MYCEL_TEST_AGT) when a record from an earlier run cannot be
 // deleted unattended (macOS asks the logged-in administrator to approve user deletions)
 const ID = 'mycel-test', SRV = process.env.MYCEL_TEST_SRV ?? '_axtsrv', AGT = process.env.MYCEL_TEST_AGT ?? '_axtagt'
-const PORT = 19174, TLS = 19175, PROXY = 19176, DECOY = 19177
+const PORT = 19174, TLS = 19175, PROXY = 19176, DECOY = 19177, UPSTREAM = 19178
 const BASE = `/Library/Application Support/${ID}`
 const LABEL = `app.treesoop.${ID}`
 const KEEP = process.argv.includes('--keep')
@@ -50,6 +55,14 @@ const BUN = `${BASE}/app/current/bin/bun`
 const ADMIN_ENV = { MYCEL_MODE: 'prod', MYCEL_CONFIG: `${BASE}/config/server.json`, MYCEL_INSTALL_BASE: BASE, HOME: `${BASE}/data` }
 const admin = (args: string[], input?: string) => sh([BUN, `${BASE}/app/current/server/src/admin.js`, ...args], { user: SRV, env: ADMIN_ENV, input })
 const readJson = (f: string) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null } }
+/** the real Claude Code binary of the person running sudo (copied into the test install as its engine) */
+function findClaude(): string | null {
+  const cands = [process.env.MYCEL_TEST_CLAUDE, process.env.SUDO_USER ? `/Users/${process.env.SUDO_USER}/.local/bin/claude` : undefined]
+  for (const c of cands) { if (!c) continue; try { const r = fs.realpathSync(c); if (fs.statSync(r).isFile()) return r } catch {} }
+  return null
+}
+const CLAUDE = findClaude()
+const ENGINE_ARGS = (probe: string) => [...(CLAUDE ? ['--engine', `claude=${CLAUDE}`] : []), '--engine', `fake=${probe}`]
 
 async function main() {
   if (process.getuid?.() !== 0) { console.error('run with sudo'); process.exit(2) }
@@ -74,7 +87,7 @@ async function main() {
 
   // ---- install ----
   const inst = sh([path.join(REPO, 'scripts', 'install-macos.sh'), '--from', path.join(W, 'rel1'), '--id', ID, '--server-user', SRV, '--agent-user', AGT,
-    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), '--engine', `fake=${probe}`, '--allow-unsigned', '--no-power'])
+    '--port', String(PORT), '--tls-port', String(TLS), '--proxy-port', String(PROXY), ...ENGINE_ARGS(probe), '--allow-unsigned', '--no-power'])
   check('install script', inst.code === 0, (inst.out + inst.err).trim().split('\n').slice(-3).join(' | '))
   if (inst.code !== 0) return
 
@@ -99,6 +112,7 @@ async function main() {
     [`${BASE}/run/tools`, `${SRV}:${AGT} 750`], [`${BASE}/run-launcher`, `${AGT}:${SRV} 750`], [`${BASE}/root`, 'root:wheel 755'],
     [`${BASE}/root/mycel-bootstrap`, 'root:wheel 755'], [`${BASE}/root/mycel-launcher`, 'root:wheel 755'], [`${BASE}/root/engine.sb`, 'root:wheel 644'],
     [`${BASE}/root/pf.anchor`, 'root:wheel 644'], [`${BASE}/root/pf-load`, 'root:wheel 755'], [`/Library/Logs/${ID}`, 'root:wheel 755'],
+    [`${BASE}/root/set-claude-token`, 'root:wheel 755'], [`${BASE}/root/safe-fs.sh`, 'root:wheel 644'],
     [`/Library/Logs/${ID}/crash`, 'root:wheel 755'], [`/Library/Logs/${ID}/server`, `${SRV}:admin 750`], [`${BASE}/app/state.json`, `${SRV}:${SRV} 640`],
     [`/Library/LaunchDaemons/${LABEL}.server.plist`, 'root:wheel 644'], [`/Library/LaunchDaemons/${LABEL}.launcher.plist`, 'root:wheel 644'],
     [`/Library/LaunchDaemons/${LABEL}.pf.plist`, 'root:wheel 644'], [`/etc/newsyslog.d/${ID}.conf`, 'root:wheel 644'],
@@ -178,6 +192,7 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   const asRoot = ask()
   check('the launcher refuses root (only the server uid)', /only the server may use the launcher/.test(asRoot.out), (asRoot.out + asRoot.err).trim().slice(0, 160))
   echoes.kill()
+  await subscription(asAgent)
 
   // ---- updates: switch, bootstrap roll-back of a crashing version, manual roll-back ----
   const stg = admin(['stage-update', v2.archive])
@@ -255,6 +270,113 @@ console.log('ready')`], { stdout: 'pipe', stderr: 'inherit' })
   const rr = await until(() => readJson(`${BASE}/data/restore-result.json`), (r) => !!r, 30_000)
   check('DB restore applied at the next start', rr?.ok === true, JSON.stringify(rr))
   check('server healthy after the restore', !!(await until(health, (h) => !!h?.ok, 30_000))?.ok)
+}
+
+// ---- subscription mode (production chats): owner token, model proxy, one real Claude Code turn as the engine account ----
+async function subscription(asAgent: (...a: string[]) => boolean) {
+  const cfgFile = `${BASE}/config/server.json`
+  const cfg = readJson(cfgFile)
+  check('server.json: engine.authMode "subscription" with the proxy port', cfg?.engine?.authMode === 'subscription' && cfg?.engine?.proxyPort === PROXY, JSON.stringify({ authMode: cfg?.engine?.authMode, proxyPort: cfg?.engine?.proxyPort }))
+  const tokenPath = `${BASE}/secrets/claude-oauth-token`
+  const OWNER_TOKEN = 'sk-ant-oat01-' + 'installtest'.repeat(6)
+  const setTok = (input: string, ...a: string[]) => sh([`${BASE}/root/set-claude-token`, ...a], { input })
+  const bad = setTok('not a token\n')
+  check('set-claude-token refuses what is not a setup-token, changes nothing', bad.code !== 0 && !fs.existsSync(tokenPath), bad.err.trim().slice(0, 160))
+  check('set-claude-token refuses a token on the command line', setTok('', OWNER_TOKEN).code !== 0)
+  // a hostile server account plants a link where the token goes: root must replace it, not write through it
+  const victim = '/private/tmp/mycel-test-token-victim'
+  fs.rmSync(victim, { force: true })
+  sh(['/bin/ln', '-s', victim, tokenPath], { user: SRV })
+  const ok = setTok(OWNER_TOKEN + '\n')
+  check('set-claude-token stores the token for the server account (600)', ok.code === 0 && statOf(tokenPath) === `${SRV}:${SRV} 600`, (ok.out + ok.err).trim().slice(0, 160) + ' ' + statOf(tokenPath))
+  check('set-claude-token replaced a planted link instead of writing through it', !fs.existsSync(victim) && !fs.lstatSync(tokenPath).isSymbolicLink())
+  check('the engine account cannot read the owner token', !asAgent('read', tokenPath))
+  if (!CLAUDE) { blocked('real Claude Code turn as the engine account', 'no claude binary found (set MYCEL_TEST_CLAUDE=<path to claude>)'); return }
+
+  // the fake model service (as root; pf only limits the engine account) and the server pointed at it
+  const seen: { auth: string; leak: boolean; path: string }[] = []
+  const enc = new TextEncoder()
+  const ev = (type: string, o: Record<string, unknown>) => enc.encode(`event: ${type}\ndata: ${JSON.stringify({ type, ...o })}\n\n`)
+  const upstream = Bun.serve({
+    port: UPSTREAM, hostname: '127.0.0.1', idleTimeout: 0,
+    async fetch(req) {
+      const body = await req.text()
+      const u = new URL(req.url)
+      seen.push({ auth: req.headers.get('authorization') ?? '', leak: /mpx_/.test(JSON.stringify([...req.headers]) + body), path: u.pathname })
+      if (req.headers.get('authorization') !== 'Bearer ' + OWNER_TOKEN) return Response.json({ type: 'error', error: { type: 'authentication_error', message: 'OAuth token has been revoked' } }, { status: 401 })
+      if (u.pathname.endsWith('/count_tokens')) return Response.json({ input_tokens: 42 })
+      let j: { stream?: boolean; model?: string } = {}
+      try { j = JSON.parse(body) } catch {}
+      const model = j.model ?? 'claude-sonnet-4-5', text = 'Hello from the install test model.'
+      const usage = { input_tokens: 200, output_tokens: 9 }
+      if (!j.stream) return Response.json({ id: 'msg_t', type: 'message', role: 'assistant', model, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage })
+      return new Response(new ReadableStream({ start(ctl) {
+        ctl.enqueue(ev('message_start', { message: { id: 'msg_t', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: 1 } } }))
+        ctl.enqueue(ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } }))
+        ctl.enqueue(ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text } }))
+        ctl.enqueue(ev('content_block_stop', { index: 0 }))
+        ctl.enqueue(ev('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 9 } }))
+        ctl.enqueue(ev('message_stop', {}))
+        ctl.close()
+      } }), { headers: { 'content-type': 'text/event-stream' } })
+    },
+  })
+  try {
+    fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, engine: { ...cfg.engine, modelUpstream: `http://127.0.0.1:${UPSTREAM}` } }, null, 2) + '\n')
+    sh(['/usr/sbin/chown', `${SRV}:${SRV}`, cfgFile]); sh(['/bin/chmod', '600', cfgFile])
+    const pid = readJson(`${BASE}/status/status.json`)?.pid
+    if (pid) sh(['/bin/kill', '-TERM', String(pid)])
+    await Bun.sleep(1500)
+    check('server back after pointing it at the fake model service', !!(await until(health, (h) => !!h?.ok, 40_000))?.ok)
+
+    const base = `http://127.0.0.1:${PORT}`
+    const anon = new ApiClient({ baseUrl: base })
+    const code = fs.readFileSync(`${BASE}/setup/code`, 'utf8').trim()
+    const PASS = 'install-test-pass-1'
+    try { await anon.call(API.setup, { body: { setupToken: code, teamName: 'Install test', locale: 'en', owner: { username: 'owner', name: 'Owner', password: PASS } } }) } catch (e) { check('team setup with the setup code', false, (e as Error).message) }
+    const login = await anon.call(API.login, { body: { username: 'owner', password: PASS, client: 'web', tokenMode: 'bearer' } })
+    const me = new ApiClient({ baseUrl: base, token: login.token! })
+    const turnAnswer = async (content: string) => {
+      const chat = await me.call(API.createChat, { body: {} })
+      const r = await me.call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+      return until(async () => (await me.call(API.listMessages, { params: { id: chat.id } })).items.find((m) => m.id === r.assistantMessage.id), (m) => !!m && m.status !== 'streaming', 180_000)
+    }
+    const a = await turnAnswer('Say hello.')
+    check('a real Claude Code turn as the engine account answers through the model proxy', a?.status === 'done' && a.content.includes('Hello from the install test model.'), JSON.stringify({ status: a?.status, content: a?.content?.slice(0, 80), error: a?.error }))
+    check('the model service saw only the owner token (Bearer), never a per-turn token', seen.length > 0 && seen.every((x) => x.auth === 'Bearer ' + OWNER_TOKEN && !x.leak), JSON.stringify(seen.map((x) => [x.path, x.auth.slice(0, 18), x.leak])))
+    const lsof = sh(['/usr/sbin/lsof', '-nP', `-iTCP@127.0.0.1:${PROXY}`, '-sTCP:LISTEN']).out
+    check('the model proxy listens on 127.0.0.1 as the server account', lsof.split('\n').some((l) => l.includes(SRV.slice(0, 8))), lsof.trim().split('\n').slice(1).join(' | '))
+    const diag = await me.call(API.diagnostics)
+    const byId = (id: string) => diag.checks.find((c) => c.id === id)
+    check('diagnostics: Claude Code signed in (setup-token), model proxy listening', byId('engine.claude-code')?.status === 'ok' && byId('model_proxy')?.status === 'ok', JSON.stringify([byId('engine.claude-code'), byId('model_proxy')]))
+
+    // a finished turn's proxy token is revoked; a valid-looking token used by an engine-account process that is not
+    // that turn's engine gets nothing upstream (the launcher's peer check, as the role account)
+    const sql = (q: string) => sh([BUN, '-e', `const { Database } = require('bun:sqlite'); const db = new Database(${JSON.stringify(`${BASE}/data/app.db`)}); console.log(JSON.stringify(db.query(${JSON.stringify(q)}).all()))`], { user: SRV })
+    const live = sql("SELECT COUNT(*) AS n FROM proxy_tokens p JOIN turns t ON t.id = p.turn_id WHERE p.revoked_at IS NULL AND t.status != 'running'")
+    check('proxy tokens of finished turns are revoked', live.code === 0 && JSON.parse(live.out)[0]?.n === 0, (live.out + live.err).trim().slice(0, 160))
+    const fake = 'mpx_' + crypto.randomBytes(32).toString('base64url')
+    const fakeHash = crypto.createHash('sha256').update(fake).digest('hex')
+    const ins = sql(`INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at) SELECT '${fakeHash}', id, user_id, '2999-01-01T00:00:00.000Z' FROM turns ORDER BY started_at DESC LIMIT 1 RETURNING turn_id`)
+    const before = seen.length
+    const stolenUse = sh(['/usr/bin/curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', `http://127.0.0.1:${PROXY}/v1/messages`, '-H', `authorization: Bearer ${fake}`, '-H', 'content-type: application/json',
+      '-d', JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] })], { user: AGT })
+    check('engine account outside the turn: a turn token gets 403, nothing reaches the model service', ins.code === 0 && stolenUse.out.trim() === '403' && seen.length === before, JSON.stringify({ ins: (ins.out + ins.err).trim().slice(0, 80), status: stolenUse.out.trim(), err: stolenUse.err.trim().slice(0, 80), upstream: seen.length - before }))
+    sql(`DELETE FROM proxy_tokens WHERE token_hash = '${fakeHash}'`)
+
+    // a token the model service refuses (revoked): the answer says so and diagnostics turn red; the old one back
+    const WRONG = 'sk-ant-oat01-' + 'revokedtoken'.repeat(5)
+    setTok(WRONG + '\n')
+    const b = await turnAnswer('Again.')
+    check('a refused owner token ends the turn with the AI-connection error', b?.status === 'error' && b.error?.code === 'engine_unavailable', JSON.stringify({ status: b?.status, error: b?.error }))
+    const diag2 = await me.call(API.diagnostics)
+    check('diagnostics: the refused token shows as a failure', diag2.checks.find((c) => c.id === 'engine.claude-code')?.status === 'fail', JSON.stringify(diag2.checks.find((c) => c.id === 'engine.claude-code')))
+    setTok(OWNER_TOKEN + '\n')
+    const c = await turnAnswer('Once more.')
+    check('storing a good token again works without a restart', c?.status === 'done', JSON.stringify({ status: c?.status, error: c?.error }))
+  } finally {
+    upstream.stop(true)
+  }
 }
 
 async function uninstall() {
