@@ -157,7 +157,7 @@ export function deskCard(s: HelperState, o: { helper: string | null; caCer: stri
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(name)} 데스크 카드</title>
 <style>${STYLE}
-@page{size:A4;margin:16mm}@media print{body{background:#fff;color:#000}section{break-inside:avoid;border-color:#999}.noprint{display:none}}
+@page{size:A4;margin:12mm}@media print{body{background:#fff;color:#000;font-size:14px}main{padding:0;max-width:none}h1{margin:0 0 .5rem}h3{margin:.25rem 0}section{break-inside:avoid;border-color:#999;margin:.6rem 0;padding:.5rem 1rem}section p{margin:.35rem 0}.noprint{display:none}}
 .big{font:700 1.35rem/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all}</style></head><body><main>
 <h1>${esc(name)} 데스크 카드</h1>
 <p class="muted noprint">이 페이지를 인쇄해(⌘P) 데스크마다 두세요. 이 카드는 서버 맥에서 만든 것이라 네트워크로 바뀔 수 없습니다. 만든 때: ${esc(o.made)}</p>
