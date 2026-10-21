@@ -408,7 +408,7 @@ dl.kv dd{ color:var(--ink-2);}
   </figure>
   <ol class="steps">
     <li><span class="n">1</span><span class="ui">올리기</span> — 내 컴퓨터의 파일을 지금 폴더에 올려요. 파일을 화면에 끌어다 놓아도 돼요. 큰 파일도 올릴 수 있어요.</li>
-    <li><span class="n">2</span><span class="ui">새 폴더</span> — 쓰기 권한이 있는 폴더 안에 만들 수 있어요.</li>
+    <li><span class="n">2</span><span class="ui">새 폴더</span> — 쓰기 권한이 있는 폴더 안에 만들 수 있어요. 그룹·프로젝트 폴더나 shared 같은 팀 폴더 자체를 옮기거나 이름을 바꾸거나 지우는 건 관리자만 할 수 있어요.</li>
     <li><span class="n">3</span><span class="ui">휴지통</span> — 지운 파일이 30일 동안 있어요. 거기서 <span class="ui">되돌리기</span>를 눌러요.</li>
     <li><span class="n">4</span><b>⋯ 메뉴</b> — 미리보기, 내려받기, <b>이 파일로 채팅 시작</b>, 버전 기록, 이름 바꾸기, 옮기기, 휴지통으로.</li>
   </ol>
@@ -431,7 +431,7 @@ dl.kv dd{ color:var(--ink-2);}
   </div>
   <div class="note"><b>엑셀·워드 같은 오피스 파일을 고칠 때</b><p>화면에서 바로 고칠 수는 없어요. 내려받아 고친 뒤 같은 폴더에 올리면, 원래 파일을 덮어쓰지 않고 <span class="path">2026-4분기-예산 (2).xlsx</span>처럼 <b>새 파일로 따로</b> 올라가요. 원래 이름으로 쓰려면 예전 파일을 휴지통으로 옮긴 뒤 새 파일의 이름을 바꾸세요.</p></div>
 
-  <div class="note"><b>두 사람이 동시에 고쳤다면 — 충돌 사본</b><p>내가 고치는 사이 다른 사람(또는 AI)이 먼저 저장했다면, 원본은 그대로 두고 <b>내 내용은 사본으로</b> 따로 저장돼요. 내용이 사라지지 않아요. 예: <span class="path">회의록 (충돌 사본 - Alice 2026-10-21 14.30).md</span> — 목록에 <b>충돌 사본</b> 표시가 붙어요. 두 파일을 비교해 하나로 합치세요.</p></div>
+  <div class="note"><b>두 사람이 동시에 고쳤다면 — 충돌 사본</b><p>내가 고치는 사이 다른 사람(또는 AI)이 먼저 저장했다면, 원본은 그대로 두고 <b>내 내용은 사본으로</b> 따로 저장돼요. 내용이 사라지지 않아요. 예: <span class="path">회의록 (충돌 사본 - Alice 2026-10-21 14.30).md</span> — 목록에 <b>충돌 사본</b> 표시가 붙고, 두 사람 모두에게 알림이 떠요(<span class="ui">사본 열기</span>). 두 파일을 비교해 하나로 합치세요.</p></div>
 
   <div class="row">
     <div>
@@ -544,9 +544,9 @@ dl.kv dd{ color:var(--ink-2);}
   </figure>
   <ol class="steps">
     <li><span class="n">1</span><span class="ui">이 프로젝트에서 채팅</span> — 프로젝트의 폴더와 지침으로 새 대화를 시작해요. 내 채팅은 왼쪽 “내 채팅”에 모여요.</li>
-    <li><span class="n">2</span><b>지침</b>과 <b>폴더의 파일</b> — 지침을 고치려면 위쪽 <span class="ui">수정</span>을 눌러요. 프로젝트 폴더에 쓰기 권한이 있어야 고칠 수 있어요.</li>
+    <li><span class="n">2</span><b>지침</b>과 <b>폴더의 파일</b> — 지침을 고치려면 위쪽 <span class="ui">수정</span>을 눌러요. 이름·지침 수정과 삭제는 <b>프로젝트를 만든 사람과 관리자</b>만 할 수 있어요.</li>
   </ol>
-  <p class="small">새 프로젝트는 <span class="ui">프로젝트</span> › <span class="ui">새 프로젝트</span>에서 이름, 폴더(쓰기 권한이 있는 폴더), 지침을 정해 만들어요. 프로젝트를 지워도 폴더와 채팅은 남아요.</p>
+  <p class="small">새 프로젝트는 <span class="ui">프로젝트</span> › <span class="ui">새 프로젝트</span>에서 이름, 폴더, 지침을 정해 만들어요. 지침이 바뀌면 그 프로젝트를 쓰는 사람에게 알림이 가요. 프로젝트를 지워도 폴더와 채팅은 남아요.</p>
 </section>
 
 <!-- ============================================================ 9 -->
@@ -556,7 +556,7 @@ dl.kv dd{ color:var(--ink-2);}
   <div class="row">
     <table class="t" style="flex:1">
       <tr><th style="width:17mm">역할</th><th>할 수 있는 일</th></tr>
-      <tr><td><b>팀장</b></td><td>관리자가 하는 모든 일 + <b>관리자 만들기</b>(관리자 역할로 추가·초대), <span class="ui">시스템</span>(진단·백업·복원·업데이트·내보내기).</td></tr>
+      <tr><td><b>팀장</b></td><td>관리자가 하는 모든 일 + <b>관리자 만들기</b>(관리자 역할로 추가·초대), <b>멤버 삭제</b>, <span class="ui">시스템</span>(진단·백업·복원·업데이트·내보내기).</td></tr>
       <tr><td><b>관리자</b></td><td><span class="ui">멤버·초대</span>, <span class="ui">그룹</span>, <span class="ui">폴더 권한</span>, <span class="ui">AI 엔진</span>(사용 한도 포함), <span class="ui">사용량</span>, <span class="ui">기록</span>, <span class="ui">팀 설정</span>. 다른 사람의 개인 폴더를 뺀 모든 폴더에 쓸 수 있어요.</td></tr>
       <tr><td><b>팀원</b></td><td>폴더 권한에 따라 정해진 폴더만 보고 써요.</td></tr>
     </table>
@@ -579,7 +579,7 @@ dl.kv dd{ color:var(--ink-2);}
   </ol>
   <dl class="kv">
     <dt><span class="ui">비활성화</span></dt><dd>바로 모든 기기에서 로그아웃되고 로그인할 수 없게 돼요. 데이터는 그대로 남아요. 잠시 막을 때 쓰세요.</dd>
-    <dt>휴지통 아이콘(삭제)</dt><dd>멤버를 삭제해요. 채팅과 메모리는 7일 뒤 지워지고, 개인 폴더 <span class="path">users/아이디/</span>는 기본으로 팀장의 개인 폴더 안 ‘보관된 계정’으로 옮겨져서 팀장이 처리해요.</dd>
+    <dt>휴지통 아이콘(삭제)</dt><dd><b>팀장만</b> 멤버를 삭제할 수 있어요. 채팅과 메모리는 7일 뒤 지워지고, 개인 폴더 <span class="path">users/아이디/</span>는 기본으로 팀장의 개인 폴더 안 ‘보관된 계정’으로 옮겨져서 팀장이 처리해요.</dd>
   </dl>
   <div class="row">
     <figure class="shot"><div class="frame"><img src="img/admin-invite-form.png" alt=""></div><figcaption>초대 링크 만들기: 역할, 그룹, 유효 기간</figcaption></figure>
@@ -639,7 +639,7 @@ dl.kv dd{ color:var(--ink-2);}
   <h3>팀 설정</h3>
   <p>팀 이름, 팀 기본 언어, 업데이트 시간, 그리고 <b>보관 기간</b>(기록, 파일 버전, 파일 휴지통, 삭제한 채팅)을 정해요.</p>
   <figure class="shot center" style="width:88%"><div class="frame"><img src="img/admin-settings.png" alt=""></div><figcaption>팀 설정의 보관 기간 부분</figcaption></figure>
-  <div class="warn"><b>처음 한 번 저장하세요</b><p>화면의 보관 기간은 <span class="ui">저장</span>을 눌러야 적용돼요. 한 번도 저장하지 않았다면 파일 버전은 <b>7일</b>만 남아요. 설치한 뒤 값을 확인하고 저장을 눌러 주세요.</p></div>
+  <div class="warn"><b>파일 버전은 기본 7일이에요</b><p>예전 버전은 7일이 지나면 저절로 지워져요. 더 오래 남기려면 ‘파일 버전 보관 (일)’ 값을 늘리고 <span class="ui">저장</span>을 누르세요. 설치한 뒤 한 번 확인해 두세요.</p></div>
   <p><span class="ui">시스템</span>(팀장 전용)에서는 서버 상태 진단, 백업(매일 자동, 14일 보관)과 복원, 업데이트, 내보내기를 해요. 백업에는 모든 팀 파일과 개인 폴더, 대화가 들어 있으니 안전하게 다뤄 주세요.</p>
 </section>
 
