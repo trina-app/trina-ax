@@ -892,6 +892,9 @@ export class MockServer {
     },
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
+    // nothing connected, no scheduled tasks yet
+    listConnected: () => ({ items: [] }),
+    listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
   }
 
