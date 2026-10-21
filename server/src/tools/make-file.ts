@@ -32,6 +32,7 @@ import { publishChanges } from '../team-files/changes'
 import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, runIsolated } from './isolate'
+import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
 import { PRODUCT } from '@mycel/shared'
 
 type Input = z.output<typeof MakeFileInput>
@@ -291,6 +292,8 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   segs = now.segs
   let target = segs
   const rel0 = now.rel
+  // under skills/ only after the person confirmed this save on the server's card (skills/guard.ts); fail closed
+  requireSkillApproval(c, rel0, null)
   if (now.exists) {
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)
@@ -313,6 +316,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)
+  consumeSkillApproval(c, rel0)
   const rel = target.join('/')
   c.files.bytesWritten += size
   c.files.filesWritten.add(rel)

@@ -15,6 +15,7 @@ import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { SkillManagerCell, useSkillManagers } from './SkillManagers'
 import { Card, Loadable, SecretBox, useAction, useLoad } from './common'
 
 type MemberRole = Exclude<Role, 'owner'>
@@ -28,6 +29,7 @@ export default function Members() {
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  const skillManagers = useSkillManagers()
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -84,6 +86,7 @@ export default function Members() {
                     <th className="py-2 pr-3 font-medium">{t('members.role')}</th>
                     <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('admin.groups')}</th>
                     <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('members.lastSeen')}</th>
+                    <th className="py-2 pr-3 font-medium">{t('skillMgr.column')}</th>
                     <th className="py-2">
                       <span className="sr-only">{t('files.actions')}</span>
                     </th>
@@ -105,6 +108,13 @@ export default function Members() {
                       </td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
+                      <td className="py-2 pr-3">
+                        {u.status === 'active' ? (
+                          <SkillManagerCell subject={{ type: 'user', id: u.id, name: u.name, always: u.role !== 'member' }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
+                        ) : (
+                          <span className="text-xs text-faint">—</span>
+                        )}
+                      </td>
                       <td className="py-2 text-right whitespace-nowrap">
                         {u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me)) && (
                           <>

@@ -2,7 +2,7 @@
 // upload (drag and drop; chunked and resumable when large), download, new folder, rename / move, trash, version
 // history with restore, conflict copies marked, "start a chat with this file". Refreshes on files.changed.
 import clsx from 'clsx'
-import { ArchiveRestore, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileVersion, TrashItem, TreeResponse } from '@mycel/shared/api'
@@ -18,6 +18,8 @@ import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import FolderPicker from '../components/FolderPicker'
+import SuggestSkillDialog from '../components/SuggestSkillDialog'
+import { useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, Tabs, confirmDialog, promptDialog } from '../components/ui'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
@@ -47,7 +49,14 @@ export default function Files() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const [drag, setDrag] = useState(false)
-  const [history, setHistory] = useState<string | null>(null)
+  const [history, setHistory] = useState<string | null>(params.get('history'))
+  const [suggesting, setSuggesting] = useState<string | null>(null)
+  const me = useMeStrict()
+  // "버전 기록 보기" from a banner while this screen is open: the address changes, the history opens
+  const historyParam = params.get('history')
+  useEffect(() => {
+    if (historyParam) setHistory(historyParam)
+  }, [historyParam])
   const [moving, setMoving] = useState<FileEntry | null>(null)
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -345,6 +354,7 @@ export default function Files() {
                       onShare={() => setSharing(e)}
                       onDelete={() => void remove(e)}
                       onHistory={() => setHistory(e.path)}
+                      onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                     />
                   ))}
                 </tbody>
@@ -362,12 +372,23 @@ export default function Files() {
       )}
       <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
       <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} onPick={moveTo} onClose={() => setMoving(null)} />
-      {history && <HistoryModal path={history} onClose={() => setHistory(null)} onRestored={() => void load()} />}
+      {history && (
+        <HistoryModal
+          path={history}
+          onClose={() => {
+            setHistory(null)
+            // opened from a link (a team skill changed: "버전 기록 보기"): the address no longer asks for it
+            if (params.get('history')) setParams(select ? { path, select } : path ? { path } : {}, { replace: true })
+          }}
+          onRestored={() => void load()}
+        />
+      )}
+      {suggesting && <SuggestSkillDialog source={{ kind: 'file', path: suggesting }} initialName={baseName(suggesting).replace(/\.(md|txt)$/i, '')} onClose={() => setSuggesting(null)} />}
     </div>
   )
 }
 
-function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void }) {
+function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, onSuggest }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -441,6 +462,11 @@ function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename
             {!folder && (
               <button role="menuitem" type="button" className={item} onClick={onHistory}>
                 <History size={14} aria-hidden /> {t('files.history')}
+              </button>
+            )}
+            {onSuggest && (
+              <button role="menuitem" type="button" className={item} onClick={onSuggest} data-testid="suggest-skill-file">
+                <BookmarkPlus size={14} aria-hidden /> {t('suggest.button')}
               </button>
             )}
             {!folder && (

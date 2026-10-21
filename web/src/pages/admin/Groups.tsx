@@ -6,17 +6,22 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { Button, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
+import { SkillManagerCell, useSkillManagers } from './SkillManagers'
 
 export default function Groups() {
   const t = useT()
   const act = useAction()
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const skillManagers = useSkillManagers()
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const name = (id: string) => users.data?.find((u) => u.id === id)?.name ?? id
   const remove = async (g: Group) => {
     if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body: t('groups.deleteBody'), confirm: t('common.delete'), danger: true }))) return
-    if ((await act(() => api.call(API.deleteGroup, { params: { id: g.id } }))) !== undefined) void groups.reload()
+    if ((await act(() => api.call(API.deleteGroup, { params: { id: g.id } }))) !== undefined) {
+      void groups.reload()
+      void skillManagers.reload()
+    }
   }
   return (
     <>
@@ -41,6 +46,10 @@ export default function Groups() {
                       <span className="block font-medium">{g.name}</span>
                       {g.description && <span className="block text-xs text-muted">{g.description}</span>}
                       <span className="block text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
+                    </span>
+                    <span className="flex shrink-0 flex-col items-end gap-0.5">
+                      <span className="text-[11px] text-faint">{t('skillMgr.column')}</span>
+                      <SkillManagerCell subject={{ type: 'group', id: g.id, name: g.name }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
                     </span>
                     <Button size="sm" variant="ghost" onClick={() => setEditing(g)}>
                       {t('common.edit')}

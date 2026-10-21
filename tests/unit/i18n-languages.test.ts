@@ -92,6 +92,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en and id)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en and id)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en and id)' },
+  'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en and id)' },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
   'server/src/files/store.ts': { why: 'conflict copy names (ko next to en and id)', also: /충돌 사본\|/ },
   'server/src/jobs/service.ts': { why: 'job texts (ko next to en and id)' },

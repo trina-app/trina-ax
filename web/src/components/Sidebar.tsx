@@ -1,7 +1,7 @@
 // Left sidebar (Claude-like): new chat, search, projects, files, recent chats by date, admin, account menu.
 // Below 768 px it is a drawer opened from the top bar.
 import clsx from 'clsx'
-import { FolderOpen, FolderKanban, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Search, Settings, Shield, Trash2, Pencil, ChevronDown } from 'lucide-react'
+import { BookMarked, FolderOpen, FolderKanban, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Search, Settings, Shield, Trash2, Pencil, ChevronDown } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -12,6 +12,7 @@ import { clearLocalData } from '../lib/localData'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
+import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { toast, useUi } from '../store/ui'
 import { confirmDialog, promptDialog } from './ui'
@@ -52,6 +53,13 @@ export default function Sidebar() {
   }, [chats])
 
   const close = () => setDrawer(false)
+  // suggestions waiting for me (I manage their skills folder): a count next to "팀 스킬"
+  const [pendingSkills, setPendingSkills] = useState(0)
+  useEffect(() => {
+    const load = () => api.call(API.skillsOverview).then((o) => setPendingSkills(o.pendingReview), () => {})
+    void load()
+    return skillsChanged.on(() => void load())
+  }, [])
   const nav = 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink hover:bg-hover max-sm:py-2.5'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
@@ -84,6 +92,14 @@ export default function Sidebar() {
         </NavLink>
         <NavLink to="/files" className={active} onClick={close}>
           <FolderOpen size={17} aria-hidden /> {t('sidebar.files')}
+        </NavLink>
+        <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
+          <BookMarked size={17} aria-hidden /> {t('sidebar.skills')}
+          {pendingSkills > 0 && (
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-white" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
+              {pendingSkills}
+            </span>
+          )}
         </NavLink>
         {isAdmin(me) && (
           <NavLink to="/admin" className={active} onClick={close}>

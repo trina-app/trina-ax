@@ -2,7 +2,7 @@
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped), copy, regenerate, branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
@@ -19,6 +19,7 @@ import { TYPE_LABEL } from '../artifactLabels'
 import { Markdown } from '../Markdown'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
+import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
 import Steps from './Steps'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
@@ -268,6 +269,7 @@ export function AssistantMessage({
   const thinking = streaming && !m.content
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const errText = m.error ? (known && Object.values(known).includes(m.error.message) ? known[locale] : m.error.message) : null
+  const [suggesting, setSuggesting] = useState(false)
 
   return (
     <div className="group flex gap-3" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
@@ -325,9 +327,17 @@ export function AssistantMessage({
             <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
               <RotateCcw size={13} />
             </IconButton>
+            {m.content && m.status === 'done' && (
+              <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} data-testid="suggest-skill">
+                <BookmarkPlus size={13} />
+              </IconButton>
+            )}
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
             {m.model && <span className="ml-1 text-[11px] text-faint">{m.model}</span>}
           </div>
+        )}
+        {suggesting && (
+          <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
       </div>
     </div>
