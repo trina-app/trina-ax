@@ -326,7 +326,7 @@
 - **데스크톱 자체 화면은 `mycel-ui://app/`(표준·보안 스킴, CSP `script-src 'self'`)로 제공**하고 메모리 전용 partition을 쓴다. IPC는 채널마다 보낸 view를 확인한다(환영 화면 채널은 환영 view에서만, 패널 채널은 패널 view에서만, 다리 채널은 팀 화면 최상위 프레임 + 팀 출처에서만).
 - **빌드는 Bun 번들러**(esbuild 의존성 없이). Bun이 Electron의 postinstall을 돌리지 않으므로(신뢰 목록 밖) 데스크톱의 build·test 스크립트가 처음 쓸 때 Electron 바이너리를 받는다. 저장소 전체 `bun install`은 Electron을 내려받지 않는다.
 - **패키징된 앱은 Electron 퓨즈를 켠다**(`build.electronFuses`): `ELECTRON_RUN_AS_NODE`·`NODE_OPTIONS`·`--inspect` 무시, 쿠키 디스크 암호화, `app.asar`에서만 코드 읽기, file:// 특권 없음. 같은 사용자 권한의 다른 프로그램이 이 앱(마이크 권한을 가진)을 Node로 띄우거나 디버거를 붙이는 길을 막는다. 그래서 패키징 앱 시험은 Playwright 대신 프로세스로 띄우고 가짜 서버로 확인한다. Info.plist에 `NSLocalNetworkUsageDescription`(macOS 15+ 로컬 네트워크 권한, 사무실 직접 연결용)을 넣는다.
-- **맥 빌드는 서명 없는 arm64 dmg**(`identity: null`). 서명·공증은 owner의 Apple 인증서가 필요하다. 껍데기 자동 업데이트(electron-updater)도 맥에서는 서명된 빌드가 필요해서 이번에는 넣지 않았다. 윈도우는 서명 없는 NSIS x64(맥에서 교차 빌드; 2026-10-21 exampleteam 키트부터 사용자별 원클릭 설치와 exe 이름·아이콘·버전 정보 넣기, 아래 "exampleteam 키트").
+- **맥 빌드는 서명 없는 arm64 dmg**(`identity: null`). 서명·공증은 owner의 Apple 인증서가 필요하다. 껍데기 자동 업데이트(electron-updater)도 맥에서는 서명된 빌드가 필요해서 이번에는 넣지 않았다. 윈도우는 서명 없는 NSIS x64(맥에서 교차 빌드; 2026-10-21 첫 시범 키트부터 사용자별 원클릭 설치와 exe 이름·아이콘·버전 정보 넣기, 아래 "첫 시범 키트").
 
 ## 통합 (main, 2026-10-21)
 
@@ -427,7 +427,7 @@ polish/0(보안)·1(정확성)·2(화면·UX)·3(계약·데드 코드)을 이 �
 - **LOCAL_LOGIN을 실제로 쓰는 것만으로 좁혔다**(보고 모드 `(with report)`로 `claude -p`가 건드리는 경로를 기록해서 정함): `~/.claude.json`과 그 `.lock`·`.tmp.*`, `~/.claude/backups/`, 이 턴의 세션 폴더(`SESSION_DIR` = 실행기가 확인한 sessionCollect 폴더, 아니면 채팅 폴더), 읽기 전용 `~/.claude/settings.json`·`~/.claude/cache/`, `~/.codex/auth.json`, 설치 폴더(`~/.local/share/claude`, `~/.codex/packages`) 읽기, 로그인 키체인. 이제 막히는 것: owner의 다른 프로젝트 대화 기록(`~/.claude/projects/*`), 실행 중인 세션 목록과 메시지 키(`~/.claude/sessions/`), history·file-history·todos, owner가 설치한 플러그인(스캔도 못 함), settings·hooks·skills·CLAUDE.md 쓰기(owner의 샌드박스 밖 CLI가 읽는 것), `~/.codex`의 sessions·history·config.toml. Claude는 `sessions/`·`plugins/`·`telemetry/`가 막혀도 정상 동작한다.
 - **실행기의 USER_HOME**: 서버가 실행기를 빈 환경으로 띄워 `$HOME`이 없었고, LOCAL_LOGIN 규칙이 모두 `/.claude`를 가리켰다(위 "동작했다"는 sandbox-exec를 직접 실행한 확인이었다). 실행기가 계정 DB에서 홈을 찾고, `--local-login`인데 홈이 없으면 시작하지 않는다. 서버도 실행기에 HOME을 넘긴다(엔진 환경은 여전히 요청의 env만).
 - **개발 Codex의 상태는 채팅 폴더 안**: `CODEX_HOME=<chat>/.codex`(auth.json은 owner 로그인으로 가는 링크), `HOME=<chat>/.home`(매 턴 비움), 잠긴 카탈로그 사본 `<chat>/.codex/catalog.json`(매 턴 새로). 공유 `<data>/codex-home`은 샌드박스가 데이터 폴더를 열어야 했고 모든 채팅의 Codex 상태(로그·sqlite)가 섞였다. 서버는 샌드박스 밖에서 이 폴더들을 준비하므로 엔진이 남긴 링크는 따라가지 않고 지운다(`prepareCodexTurn`). 역할 계정 모드(`agent-own`)는 설정된 폴더 그대로.
-- **남는 것(기록)**: 개발 모드와 **사무실 모드**(같은 엔진 구성, 실제 환자 자료)에서 엔진은 CLI 로그인에 필요한 `~/.claude.json`(owner가 연 프로젝트 경로 목록 포함)과 로그인 키체인 파일을 읽고 쓸 수 있고(`/usr/bin/security`로 Claude 로그인 항목을 프롬프트 없이 읽음), 맥 사용자 uid라 pf가 없어 직접 HTTPS(`*:443`, `udp *:53`: 인터넷과 사무실 LAN의 443 기기)가 열려 있다. 그래서 도구 잠금이 뚫린 턴이 그 맥의 Claude 로그인 토큰과 턴이 읽은 자료를 밖으로 보낼 수 있는 길은 남는다. SBPL은 호스트 이름을 쓸 수 없어(`*` 또는 `localhost`만) 프로필로는 Anthropic만으로 좁힐 수 없다. 이것은 모델 프록시(구독 setup-token, `LOCAL_LOGIN=0`)가 닫는다(4차에서 사무실을 그쪽으로 바꾸지 않은 이유는 아래 "보안 4차"). 4차에서 좁힌 것: `~/.claude.json` 규칙을 그 파일과 실제 형제(`.lock`·`.tmp.*`·`.backup*`)로 고정, 키체인 폴더 쓰기를 `login.keychain-db`와 원자적 쓰기 짝으로, `~/.codex`는 Codex가 켜졌을 때만(`LOCAL_CODEX`), 사무실 모드는 `~/.claude.json`의 MCP 서버를 지움.
+- **남는 것(기록)**: 개발 모드와 **사무실 모드**(같은 엔진 구성, 실제 업무 자료)에서 엔진은 CLI 로그인에 필요한 `~/.claude.json`(owner가 연 프로젝트 경로 목록 포함)과 로그인 키체인 파일을 읽고 쓸 수 있고(`/usr/bin/security`로 Claude 로그인 항목을 프롬프트 없이 읽음), 맥 사용자 uid라 pf가 없어 직접 HTTPS(`*:443`, `udp *:53`: 인터넷과 사무실 LAN의 443 기기)가 열려 있다. 그래서 도구 잠금이 뚫린 턴이 그 맥의 Claude 로그인 토큰과 턴이 읽은 자료를 밖으로 보낼 수 있는 길은 남는다. SBPL은 호스트 이름을 쓸 수 없어(`*` 또는 `localhost`만) 프로필로는 Anthropic만으로 좁힐 수 없다. 이것은 모델 프록시(구독 setup-token, `LOCAL_LOGIN=0`)가 닫는다(4차에서 사무실을 그쪽으로 바꾸지 않은 이유는 아래 "보안 4차"). 4차에서 좁힌 것: `~/.claude.json` 규칙을 그 파일과 실제 형제(`.lock`·`.tmp.*`·`.backup*`)로 고정, 키체인 폴더 쓰기를 `login.keychain-db`와 원자적 쓰기 짝으로, `~/.codex`는 Codex가 켜졌을 때만(`LOCAL_CODEX`), 사무실 모드는 `~/.claude.json`의 MCP 서버를 지움.
 - 검증: 실제 Claude 1턴(haiku)·Codex 1턴을 이 프로필로 실행기를 거쳐 돌렸고 둘 다 MCP `read`로 팀 파일을 읽어 답했다. 전에는 막히지 않던 것 중 엔진이 시도한 것: `/bin/sh`·`ps`·`git` 실행, 작업 폴더 위의 `.git` 탐색, `~/Library/Caches/claude-cli-nodejs` 쓰기(모두 거부되어도 턴은 정상).
 
 ## 보안 검토 r1 — 공유 흐름 (sec/r1-sharing-works, 2026-10-21)
@@ -604,7 +604,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 사무실 모드 (feat/office-mode, 2026-10-21)
 
-치과 한 곳 시범: 맥 미니 한 대(소유자의 Claude Code 로그인)와 같은 네트워크의 윈도우 데스크 약 10대. 운영 설치는 아직 채팅이
+첫 고객 한 곳 시범: 맥 미니 한 대(소유자의 Claude Code 로그인)와 같은 네트워크의 윈도우 데스크 약 10대. 운영 설치는 아직 채팅이
 안 되고(fix/prod-* 진행 중) 중계 서버도 없어서, 지금 되는 개발 모드의 엔진 구성을 그대로 쓰는 별도 설치 형태를 만들었다.
 사용법은 [OFFICE.md](OFFICE.md).
 
@@ -626,7 +626,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   관리하지만, 데스크 10대가 Edge 앱(PWA)으로 쓰려면 브라우저가 신뢰하는 체인이 필요해 사무실 모드는 CA 방식을 유지한다.
 - **CA에 이름 제한(critical nameConstraints)**: `<맥 이름>.local`, `<맥 이름>`, CA를 만들 때 그 맥이 있는 사무실 대역
   (예: 192.168.1.0/24, 사설 대역 안만). 데스크 10대가 신뢰하는 루트이므로, 키가 새도 공개 사이트도, 다른 `.local` 기기나 다른
-  대역의 차트 서버·NAS·공유기도 사칭할 수 없게 했다(처음에는 `local`·사설 대역 전체였다: 보안 검토 5). 어느 쪽도 비워 두지
+  대역의 업무 서버·NAS·공유기도 사칭할 수 없게 했다(처음에는 `local`·사설 대역 전체였다: 보안 검토 5). 어느 쪽도 비워 두지
   않는다(비면 그 종류의 이름은 모두 허용이 된다): 이름을 모르면 `local`, 대역을 모르면 사설 대역 전체. macOS 신뢰 평가·OpenSSL·Node가 제한을
   지키는 것(위반 인증서 거부)을 시험했다. Bun의 fetch(BoringSSL)는 IP 제한이 있는 CA를 아예 거부하므로 LAN 시험은 Node로
   한다(`tests/install/office-lan.mjs`). 그래서 공인 IP는 인증서에 넣지 않는다. 탈출구 `TEAMAX_CA_CONSTRAINTS=0`.
@@ -675,7 +675,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   리스너의 포트여야 한다. CSRF·WebSocket Origin도 Host 허용 목록이 있을 때는 그 포트의 공개 origin만(`originsFor`).
   `localhost:<앱 포트>`는 사무실 포트에서 421, `http://localhost:<앱 포트>` Origin은 사무실 포트에서 403/4403.
 - **Codex는 사무실 모드에서 쓰지 않는다(실사용 2)**: 설치기가 PATH의 codex를 넣지 않고 server.json에 `engine.codexBin: ''`
-  (`findCodexBin('')` = 끔, PATH 검색 안 함). 가이드의 "환자 자료는 Anthropic에만"과 맞춘다. 진단에서도 Codex 줄을 뺀다.
+  (`findCodexBin('')` = 끔, PATH 검색 안 함). 가이드의 "민감한 자료는 Anthropic에만"과 맞춘다. 진단에서도 Codex 줄을 뺀다.
 - **관리자 > 시스템이 사무실 모드를 사실대로 말한다(실사용 3)**: 샌드박스는 "적용됨"(engine.sb가 없으면 실패로), pf는 "운영
   설치에서 더해짐", 중계는 "쓰지 않음(정상)", 업데이트는 "새 zip". 연결 카드의 SHA-256은 데스크가 비교하는 CA의 것. 연결 방식
   바꾸기는 없다(`availableModes` = direct-only, PUT은 409: server.json은 감시 프로세스가 시작마다 다시 씀).
@@ -689,7 +689,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 사무실 모드 인터넷 주소 (feat/office-tunnel, 2026-10-21)
 
-치과 데스크가 인증서를 설치하지 않고 `https://app.example.com`으로 들어오게(사무실 밖·휴대폰 포함), 주소는 나중에
+사무실 데스크가 인증서를 설치하지 않고 `https://<첫 시범의 옛 주소>`으로 들어오게(사무실 밖·휴대폰 포함), 주소는 나중에
 쉽게 바꿀 수 있게. 사용법은 [OFFICE.md](OFFICE.md) 9장.
 
 - **Cloudflare Tunnel(원격 관리형) + 번들의 cloudflared.** 공유기 포트 열기·고정 IP·공인 인증서 갱신이 필요 없고, 맥 미니는
@@ -724,7 +724,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   스크립트의 거부 규칙·생성·재사용·제거), `tests/install/office-tunnel-e2e.mjs`(zip 설치본 + 실제 테스트 이름으로 인터넷에서:
   공인 인증서, 원격 첫 설정 거부, 맥에서 설정, 팀원 로그인, 작은 파일·120 MB, wss, Claude 1턴, 감사 기록의 공인 IP).
   주소 바꾸기(테스트 이름 두 개)와 remove도 실제로 했고 테스트 이름·터널은 지웠다.
-- **실제 이름**: `app.example.com`의 터널 `teamax-office-app` 인그레스는 데모 포트(19100) 자리표시에서
+- **실제 이름**: `<첫 시범의 옛 주소>`의 터널 `<첫 시범의 터널>` 인그레스는 데모 포트(19100) 자리표시에서
   `http://127.0.0.1:47830`(사무실 앱 포트)으로 바꿨다. DNS 기록은 그대로(이미 맞음), 꼭대기·다른 기록은 건드리지 않았다.
 
 - **리뷰 반영(공격·따라 하기)**: 인터넷 주소에서 로그인 전 `/api/health`는 `ok`·`time`만(버전·스키마·가동 시간 숨김; 맥·LAN·
@@ -738,16 +738,16 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   넣어 `remove` 명령을 보여 준다. 가이드: 2-0(주인 맥 준비·cert.pem·API 토큰), 주소를 바꾼 뒤 데스크 할 일(옛 앱 제거·새
   앱·다시 로그인, 카드 재인쇄, 안 쓴 초대 링크), 502와 530/1033 구분, zip 크기 170 MB.
 
-## exampleteam 키트: 첫 치과의 데스크 준비 (feat/exampleteam-kit, 2026-10-21)
+## 첫 시범 키트: 첫 고객의 데스크 준비 (2026-10-21)
 
-첫 시범 치과 "exampleteam"은 `https://exampleteam.example.com`(터널 `teamax-office-app`)으로 열고, 데스크 PC 10대 정도가 쓴다.
+첫 시범 고객은 `<첫 시범의 주소>`(터널 `<첫 시범의 터널>`)으로 열고, 데스크 PC 10대 정도가 쓴다.
 
 - **`public-address.ts remove --keep-tunnel`이 그 이름의 인그레스 규칙을 남기던 버그**: 예전 `remove`는 `--keep-tunnel`이면
-  터널을 아예 건드리지 않아, 지운 이름(`app.example.com`)의 규칙이 `teamax-office-app`에 남았다. 이제 `remove`는 남기는
+  터널을 아예 건드리지 않아, 지운 이름(`<첫 시범의 옛 주소>`)의 규칙이 `<첫 시범의 터널>`에 남았다. 이제 `remove`는 남기는
   터널에서도 그 이름의 규칙을 빼고, 계정의 다른 원격 관리 터널에 그 이름 규칙이 남아 있으면 함께 뺀다(CNAME이 이미 없어
   터널을 찾을 수 없던 경우도: 터널 목록을 한 번 읽고 터널마다 설정을 읽음). `set`도 이름을 다른 터널로 옮길 때 다른 터널의 그
   이름 규칙을 뺀다. 이렇게 찾은 터널은 절대 지우지 않고(그 이름 규칙만), 로컬 설정 터널(`config_src` ≠ cloudflare)은 건드리지
-  않는다. 실제 터널에서 `remove app.example.com --keep-tunnel`을 실행해 exampleteam + 404만 남겼다. 시험: 가짜 API로
+  않는다. 실제 터널에서 `remove <첫 시범의 옛 주소> --keep-tunnel`을 실행해 첫 시범 주소 + 404만 남겼다. 시험: 가짜 API로
   `--keep-tunnel`, 남은 규칙 정리, 이름 옮기기(`tests/unit/office-tunnel.test.ts`), 실제 API로 테스트 이름 두 개(만들고 다 지움).
 - **키트 빌드**(`desktop/src/common/kit.ts`): `TEAMAX_KIT_TEAM`·`TEAMAX_KIT_LOCALE`로 빌드하면 `dist/kit.json`이 앱에 들어가고,
   저장된 팀이 없을 때 첫 화면에 그 주소를 **채워 두기만** 한다(사람이 `연결`, 같은 https·`/api/health` 검사, 개발 주소는 거부).
@@ -761,10 +761,11 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   "이 주소는 Team AX 팀 서버가 아니에요"였다. 502~504·520~530은 "팀 서버에 연결할 수 없어요"로(`isGatewayDown`).
 - **웹의 단축키 표시**: 사이드바가 윈도우에서도 `⌘K`·`⇧⌘O`를 보여 줬다. 맥·iOS가 아니면 `Ctrl+K`·`Ctrl+Shift+O`(처리는 원래
   ⌘·Ctrl 둘 다).
-- **데스크 가이드**: `docs/office/windows-guide.html` → `Team-AX-윈도우-데스크-가이드.pdf`(`build-pdf.ts --windows`, 치과
-  가이드와 같은 모양), office zip에 함께 넣는다. 화면은 실제 앱(사무실 모드 시험 설치의 웹 앱, 데스크톱 앱, exampleteam 주소의 실제
-  530 페이지)에서 찍었고, 윈도우에만 있는 화면(Edge 앱 설치, SmartScreen, 설치 창)은 글로만 썼다. 치과 가이드·OFFICE.md의 예시
-  주소는 exampleteam으로 바꿨다(일반 설명의 자리표시는 그대로).
+- **데스크 가이드**: `docs/office/windows-guide.html` → `Team-AX-윈도우-데스크-가이드.pdf`(`build-pdf.ts --windows`, 사무실
+  가이드와 같은 모양), office zip에 함께 넣는다. 화면은 실제 앱(사무실 모드 시험 설치의 웹 앱, 데스크톱 앱, 첫 시범 주소의 실제
+  530 페이지)에서 찍었고, 윈도우에만 있는 화면(Edge 앱 설치, SmartScreen, 설치 창)은 글로만 썼다. 사무실 모드 가이드·OFFICE.md의 예시
+  주소는 첫 시범 주소로 바꿨다(일반 설명의 자리표시는 그대로). 이후 저장소를 업종 중립으로 바꾸면서 예시는 다시
+  `team.example.com`이 되었고, 한 고객용 안내서·키트는 같은 원본에서 저장소 밖 비공개 배포 폴더가 만든다(아래 "업종 중립").
 
 ## 팀 스킬: 작업 절차를 파일로 (feat/skills-workflows, 2026-10-21)
 
@@ -791,7 +792,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 쉬운 비밀번호: 8자 규칙, 외우기 쉬운 임시 비밀번호, 첫 로그인 한 번 입력 (feat/easy-passwords, 2026-10-21)
 
-소유자 요청(exampleteam 치과 윈도우 데스크 준비 중): "비밀번호 8자리 이상, 임시 비밀번호는 외울 수 있는 단어로 8자리 정도, 첫 로그인 뒤 바꿀 때 비밀번호를 또 입력하는 게 불편, 직접 추가할 때 임시 비밀번호를 정할 수 있게 기본값 하나 넣어 두고."
+소유자 요청(첫 시범 고객의 윈도우 데스크 준비 중): "비밀번호 8자리 이상, 임시 비밀번호는 외울 수 있는 단어로 8자리 정도, 첫 로그인 뒤 바꿀 때 비밀번호를 또 입력하는 게 불편, 직접 추가할 때 임시 비밀번호를 정할 수 있게 기본값 하나 넣어 두고."
 
 - **비밀번호 규칙은 어디서나 같다**(첫 설정·초대·강제 변경·설정 변경·재설정 링크·관리자가 정한 임시 비밀번호·서버 CLI): 8~128자(글자 수는 코드 포인트), 아이디와 같으면 안 됨(대소문자 무시), 흔한 비밀번호 목록(8자 이상, ko/en/id에서 흔한 것)·한 글자 반복(`aaaaaaaa`)·숫자 연속(`12345678`, `87654321`) 금지. 문자 종류, "서로 다른 문자 4개", 짧은 반복, 아이디 *포함* 규칙은 뺐다: 데스크에서 정하기·외우기 어렵게만 했다. 로그인 칸은 예전처럼 256자까지 받는다(전에 정한 긴 비밀번호). 계약 `Password` = `z.string().min(8).max(128)`.
 - **임시 비밀번호 = 쉬운 영어 단어 + 숫자 4개**(`shared/src/temp-password.ts`, 서버와 웹이 같은 함수): 4~7글자 단어 1007개 중 하나 + 0~9 숫자 4개, 8~11자. 예 `tiger4271`, `maple0385`, `piano7712`. 숫자는 늘 글자 뒤에 오므로 0/O, 1/l이 섞이지 않는다. 단어 목록(리뷰 반영)은 소리 내어 불러 줘도 받아 적기 쉬운 기초 단어(음식·동물·장소·물건·색·달·도시 몇 개)만: 철자가 어려운 말(rhythm, yacht, khaki…), 묵음(knee, climb, island…), 불쾌·위험·의료 걱정·종교·속어(knife, needle, ghost, snake, wine…)를 빼고, **한 글자만 다르거나 한 글자가 더/덜 있거나 두 글자가 바뀐 짝(bean/bear, star/start, quiet/quite)과 소리가 같은 짝(peace/piece, medal/metal)은 하나만 남겼다**(테스트가 확인). 서버는 `node:crypto` randomInt, 웹은 `crypto.getRandomValues`(거절 표본으로 치우침 없음).
@@ -803,7 +804,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 보안 4차 (sec/r4, 2026-10-21)
 
-첫 치과 exampleteam 전에 사무실 모드(LAN·인터넷 주소·터널 스크립트·엔진)를 다시 공격한 결과를 고쳤다. 표와 남은 위험은
+첫 시범 고객 전에 사무실 모드(LAN·인터넷 주소·터널 스크립트·엔진)를 다시 공격한 결과를 고쳤다. 표와 남은 위험은
 [SECURITY-AUDIT.md](SECURITY-AUDIT.md) "4차".
 
 - **복원은 어느 길이든 로그인을 모두 끝낸다(4차 1).** `teamax restore-archive --replace`가 보관본의 세션을 그대로 살려, 보관본을
@@ -820,7 +821,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   샐 때 그 TLD 아래 모든 공개 사이트를 데스크에 사칭할 수 있었다. 서버 인증서도 맨 이름을 넣지 않는다(데스크는 IP와
   `.local`만 쓴다). 맨 이름이 든 예전 CA(`ca.json`에 점 없는 이름이 `local` 말고 있으면)는 다음 시작 때 **새로 만든다**: 옛 CA는
   `ca.*.old-<날짜>`로 남고, 사무실 기록에 "new office CA … desks on the in-office path install the new CA once"가 나온다.
-  사무실 안 경로를 쓰는 데스크는 CA를 다시 설치해야 하지만, 지금 이 CA를 쓰는 데스크는 없다(exampleteam은 인터넷 주소가 기본이고
+  사무실 안 경로를 쓰는 데스크는 CA를 다시 설치해야 하지만, 지금 이 CA를 쓰는 데스크는 없다(첫 시범은 인터넷 주소가 기본이고
   아직 설정 전). `TEAMAX_CA_CONSTRAINTS=0`으로 만든 CA(제한 없음)는 그대로 둔다. 시험: `tests/security/r4-office-ca-tld.test.ts`
   (맥 이름 "dental": `www.smile.dental` 등 서명해도 OpenSSL이 거부, 예전 CA는 다시 만듦), `tests/unit/office.test.ts`.
 - **계정 로그인 제한을 길별로 나눴다(4차 2).** 계정당 실패 횟수가 모든 길에서 하나였으므로, 인터넷 주소로 아는 아이디에
@@ -829,16 +830,16 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   터널 아님) 또는 그 사람이 **전에 로그인한 네트워크**(IPv4 주소·IPv6 /64, 90일, 사람당 20개; 비밀번호·초대·재설정 링크로
   로그인할 때 `signIn`이 기억, 새 표 `login_nets`) → 그 네트워크만의 횟수, ② 인터넷(터널·중계)의 처음 보는 네트워크 → 예전처럼
   계정 하나의 횟수(봇넷도 15분에 10번), ③ 서버에 바로 온 사무실 안(LAN·개발) → 사무실 횟수. 인터넷 실패는 ①·③을 건드리지
-  않는다. 치과 데스크는 인터넷 주소로 들어오므로 치과의 공인 IP가 ①이 된다(처음 한 번 로그인한 뒤). 맞는 비밀번호는 **그 범위의
-  실패만** 지운다(치과에서 로그인해도 인터넷의 추측꾼에게 10번을 새로 주지 않음). 관리자 임시 비밀번호·재설정 링크는 모든
-  범위를 지운다(`clearAccount`). IP당 30번 제한은 그대로다. 남는 것: 처음 보는 네트워크(새 집 IP, 치과 IP가 바뀐 직후)에서는 공격
+  않는다. 사무실 데스크는 인터넷 주소로 들어오므로 사무실의 공인 IP가 ①이 된다(처음 한 번 로그인한 뒤). 맞는 비밀번호는 **그 범위의
+  실패만** 지운다(사무실에서 로그인해도 인터넷의 추측꾼에게 10번을 새로 주지 않음). 관리자 임시 비밀번호·재설정 링크는 모든
+  범위를 지운다(`clearAccount`). IP당 30번 제한은 그대로다. 남는 것: 처음 보는 네트워크(새 집 IP, 사무실 IP가 바뀐 직후)에서는 공격
   중에 막힐 수 있고, 같은 공인 IP를 쓰는 다른 사람(통신사 CGNAT)은 그 사람의 ① 횟수를 함께 쓴다. 시험:
-  `tests/security/r4-login-lockout-from-internet.test.ts`(인터넷에서 10번 틀린 뒤 맥·LAN·치과 IP는 200, 낯선 IP는 맞는 비밀번호도
-  429, LAN·치과 IP도 각자 10번에 잠김).
+  `tests/security/r4-login-lockout-from-internet.test.ts`(인터넷에서 10번 틀린 뒤 맥·LAN·사무실 IP는 200, 낯선 IP는 맞는 비밀번호도
+  429, LAN·사무실 IP도 각자 10번에 잠김).
 - **터널 하나 = 사무실 맥 하나(4차 4).** 터널의 연결 토큰(계정·터널 id·비밀)은 그 터널이 맡는 모든 이름에 같고, Cloudflare는
-  모든 이름의 손님을 그 터널의 모든 커넥터에 나눠 보낸다. 그런데 `set <치과2> --tunnel <치과1의 터널>`(또는 치과2의 CNAME이
-  이미 그 터널을 가리킬 때)이 아무 말 없이 치과1과 똑같은 토큰을 치과2의 토큰 파일로 썼다. 두 맥이 같은 터널에 붙으면 한
-  치과의 쿠키·로그인 본문이 다른 치과 맥에 갈 수 있었다. 이제 `set`은 터널이 이미 **다른 이름**을 맡고 있으면 아무것도 바꾸지
+  모든 이름의 손님을 그 터널의 모든 커넥터에 나눠 보낸다. 그런데 `set <사무실2> --tunnel <사무실1의 터널>`(또는 사무실2의 CNAME이
+  이미 그 터널을 가리킬 때)이 아무 말 없이 사무실1과 똑같은 토큰을 사무실2의 토큰 파일로 썼다. 두 맥이 같은 터널에 붙으면 한
+  사무실의 쿠키·로그인 본문이 다른 사무실 맥에 갈 수 있었다. 이제 `set`은 터널이 이미 **다른 이름**을 맡고 있으면 아무것도 바꾸지
   않고 거부한다(종료 3, 토큰 파일 없음). 한 맥이 이름 여럿을 맡을 때만 `--share-tunnel`로 허락하고, 출력에 함께 쓰는 이름을
   보인다. 이미 커넥터가 붙은 터널을 다시 쓰면 "this token is the one already running on N connector(s)"를 보인다. 빈
   `--tunnel ''`은 없는 것과 같다(기본 이름). 그 이름을 `remove`해도 손에 나간 토큰은 계속 붙었으므로, 남는 터널(`--keep-tunnel`
@@ -876,7 +877,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   하지 않았다: 파일을 다른 폴더로 옮겨도 `folder_id`는 저장 때 폴더라 정상 되돌리기가 막힌다. 시험:
   `tests/security/r4-restore-version-trashed-folder.test.ts`(hr·관리자 모두 409, mallory는 내용·트리 404, 폴더를 되돌린 뒤 성공).
 - **사무실 엔진의 맥 로그인 노출을 좁혔다(4차 8~13).** 사무실 모드는 개발과 같은 엔진(`engine.sb` `LOCAL_LOGIN=1`, 맥 사용자의
-  Claude 로그인)으로 실제 환자 자료를 다루는데, 도구 잠금이 뚫린 턴에 열려 있던 것: 로그인 키체인의 Claude 항목(`/usr/bin/security`,
+  Claude 로그인)으로 실제 업무 자료를 다루는데, 도구 잠금이 뚫린 턴에 열려 있던 것: 로그인 키체인의 Claude 항목(`/usr/bin/security`,
   프롬프트 없음)·`~/.claude.json`, 아무 호스트의 `:443`·`udp :53`(8, 10), `~/.claude.json`에 사용자 범위 MCP 서버를 심어 맥
   사용자가 다음에 띄우는 `claude`가 샌드박스 밖에서 실행(9), 키체인 폴더 전체 쓰기(11), Codex를 끈 사무실에서도
   `~/.codex/auth.json` 읽기·쓰기(12), 끝이 열린 `~/.claude.json` 정규식으로 채팅 사이 공유 저장소(13). 고친 것:
@@ -890,9 +891,9 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   임시 파일 + rename, 링크는 따라가지 않음) 기록·감사(`engine.claude_json_mcp_removed`)에 남긴다(9의 단기책;
   `server/src/engine/claude-json-guard.ts`). 실제 `claude -p` 1턴이 바뀐 프로필(LOCAL_LOGIN=1, LOCAL_CODEX=0)에서 로그인해 답했다.
   **사무실을 구독 setup-token + 모델 프록시로 바꾸지 않은 이유**: 그 한 가지가 8·9·10·11·12를 함께 닫지만, 프록시를 거친
-  실제 Anthropic 응답은 아직 한 번도 확인되지 않았고(INSTALL.md "Not verified"), 설치기·치과 가이드의 로그인 절차도 바뀐다.
+  실제 Anthropic 응답은 아직 한 번도 확인되지 않았고(INSTALL.md "Not verified"), 설치기·사무실 모드 가이드의 로그인 절차도 바뀐다.
   첫 시범 전날 확인 안 된 길로 바꾸는 것은 안전하지 않다고 봤다. 그래서 남는 위험(8·10·11 일부)은 SECURITY-AUDIT.md 4차와
-  OFFICE.md 8장에 적었고, 치과 맥 미니는 Team AX 전용·개인 키체인 항목 없음·`claude`를 `/login` 말고 쓰지 않음으로 운영한다.
+  OFFICE.md 8장에 적었고, 사무실 맥 미니는 Team AX 전용·개인 키체인 항목 없음·`claude`를 `/login` 말고 쓰지 않음으로 운영한다.
   시험: `tests/security/r4-engine-local-login.test.ts`(가짜 홈: 공유 저장소·키체인 새 파일·Codex 로그인 거부, MCP 지우기·감사).
 - **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 14, 검토 중 추가).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
   `teamName`(설정 전 null, 뒤 팀 이름)이 그대로 나갔고, `POST /api/setup`은 "이미 설정됨"(409)을 터널 거부(403)보다 먼저 봐서
@@ -904,7 +905,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 4차에서 남긴 사무실 엔진 항목 넷(SECURITY-AUDIT.md "4차" 8·9·10·13의 나머지)을 닫거나 닫을 길을 넣었다.
 
 - **엔진의 네트워크는 맥 안의 프록시 하나(4차 10, 8의 유출 절반).** 샌드박스 규칙은 호스트 이름을 쓸 수 없어 `*:443`·`udp *:53`을
-  열어 두었다(인터넷, 사무실 LAN의 차트 서버·NAS, DNS 이름으로 내보내기). 이제 사무실 모드(`office` + local-login)는 운영 설치의
+  열어 두었다(인터넷, 사무실 LAN의 업무 서버·NAS, DNS 이름으로 내보내기). 이제 사무실 모드(`office` + local-login)는 운영 설치의
   모델 프록시를 **CONNECT 전용**(Claude HTTP 경로 없음, 자격 증명 없음, `upstreamUrl: null`)으로 `engine.proxyPort`(사무실 기본
   47831, `TEAMAX_PROXY_PORT`)에 띄우고(`officeLoginProxy`, `context.ts`), Claude 턴마다 시도별 프록시 토큰을 발급해
   `HTTPS_PROXY=http://turn:<토큰>@127.0.0.1:<포트>`로 준다(`ClaudeConf.connectProxy`, 토큰은 턴이 끝나면 취소). CONNECT 처리기
@@ -951,7 +952,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   (`tests/unit/g-subscription.test.ts`)과 같은 코드라 새 프록시 코드는 없다. 시험: `tests/security/r4b-office-subscription.test.ts`
   (토큰 저장·거부, server.json → 모델 프록시, 가짜 Anthropic으로 사무실 턴: 진짜 토큰만 위로, 엔진에 자격 증명 없음, 엔진이 맥의
   `~/.claude.json`·키체인·`~/.claude`를 못 읽음). **실제 Anthropic으로는 아직 확인하지 않았다**: 실제 토큰이 없다. owner가
-  `claude setup-token`을 실행하면 한 턴으로 확인하고 exampleteam을 바꾼다. 그 전까지 exampleteam은 local-login(위 두 항목으로 좁힌 것)이다.
+  `claude setup-token`을 실행하면 한 턴으로 확인하고 첫 시범 설치를 바꾼다. 그 전까지 첫 시범 설치는 local-login(위 두 항목으로 좁힌 것)이다.
 
 ## 뜻으로 찾기: 로컬 임베딩 (feat/semantic-search, 2026-10-21)
 
@@ -964,7 +965,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 사무실 모드 자동 업데이트 (feat/auto-update, 2026-10-21)
 
-치과 맥 미니(사무실 모드)와 데스크 윈도우 앱이 손으로 zip을 받지 않아도 새 버전을 받게. 사용법은 [OFFICE.md](OFFICE.md) 6장.
+사무실 맥 미니(사무실 모드)와 데스크 윈도우 앱이 손으로 zip을 받지 않아도 새 버전을 받게. 사용법은 [OFFICE.md](OFFICE.md) 6장.
 
 - **피드 = `https://updates.treesoop.com`, R2 + Worker.** Workers 정적 자산은 파일당 25 MiB라 170 MB zip이 안 들어간다.
   비공개 R2 버킷 `teamax-updates` 앞에 읽기 전용 Worker(`scripts/release/worker.js`: GET/HEAD, Range, 목록 없음, 정해진
@@ -981,7 +982,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   넘으면 바로 끊고 SHA-256이 다르면 지운다.
 - **설치는 새 zip의 설치 프로그램이 한다**(`office-install.sh --update`). 업데이트 프로그램(옛 버전)이 새 배치를 알 필요가
   없다: 새 버전의 설치기가 자기 배치(app/ 교체, app.previous, 에이전트 plist)를 안다. `--update`는 브라우저를 열지 않고,
-  Claude Code 로그인 확인을 하지 않으며(로그인이 풀린 것은 원장님이 고칠 일이지 옛 버전에 머물 이유가 아님), 마지막 안내를
+  Claude Code 로그인 확인을 하지 않으며(로그인이 풀린 것은 대표님이 고칠 일이지 옛 버전에 머물 이유가 아님), 마지막 안내를
   뺀다. 순서: 새 설치기 `--check-only` → 진행 중인 답변을 최대 10분 기다림(`status/status.json`의 queue) → `admin.js backup
   --scope db --kind pre-update` → 설치 → `/api/health`가 **새 버전 번호로** 답하고 15초 뒤에도 답해야 성공(150초 안).
   실패하면 에이전트를 멈추고 `app` → `app.failed`, `app.previous` → `app`, 옛 버전의 `office.js install`로 다시 띄우고 옛
@@ -1065,6 +1066,30 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
 - **API**: `GET /api/engines`(누구나: `canChoose`, 팀 기본값, 고를 수 있으면 켜진 엔진과 모델), `/api/me`의 `user.canChooseEngine`, `GET/PATCH /api/admin/engines`에 `memberChoice`·`limitFallback`·`limitFallbackAvailable`. 없는 그룹·사람은 400. 바뀌면 모두에게 `notice engine_choice_changed`를 보내 열린 창이 새로 고침 없이 선택기를 보이거나 숨긴다. 마이그레이션은 필요 없다(설정은 키/값 표).
 - **시험**: `tests/unit/engine-choice.test.ts`(가짜 엔진: 기본은 owner·관리자만, 모두/그룹/사람, 보내기·수정·다시 생성·새 채팅·채팅 바꾸기 거부, 꺼진 엔진 거부, 꺼진 엔진의 채팅이 기본값으로 + 단계, 내 기본값, 한도 대체 꺼짐/켜짐/Codex 꺼짐/사무실 모드, 다른 오류에는 안 넘김), `tests/security/r5-engine-choice.test.ts`(실제 세션: 팀원은 고를 수 없음, 거부되면 턴 없음, prefs에 저장 안 됨, 스스로 허용하거나 한도 대체를 켤 수 없음), 권한 매트릭스에 `GET /api/engines`와 바뀐 `PATCH /api/admin/engines`, `web/test/e2e/engine-choice.spec.ts`(팀원: 선택기·다른 모델로 다시 시도·내 기본 엔진 없음, 요청에 엔진 없음 / owner: 모두 있음 / 관리자가 허용하면 열린 창에 바로 보임, OpenAI 경고, Codex를 끄면 한도 대체 꺼지고 못 켬). 기존 채팅 시험들은 팀원이 엔진을 고르므로 시험 하네스(`tests/lib/b-harness.ts`)는 기본으로 `everyone`을 켠다.
+
+## 업종 중립: 제품 저장소와 고객별 배포 자료 나누기 (docs/neutral, 2026-10-21)
+
+owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소는 공개할 예정이므로 고객 이름·주소·터널 이름이 남지 않게 한다.
+
+- **저장소는 중립**: 사무실 모드 안내서는 `Team-AX-사무실모드-설치가이드.pdf`(전에는 고객 업종 이름), 예시 주소는
+  `team.example.com`, 역할은 "대표님"(팀 소유자)·"설치 담당자 맥"(Cloudflare에 로그인하는 맥), 보안 메모는 "민감한 자료".
+  그림의 고객 주소·팀 이름은 같은 글꼴로 다시 그린 중립 화면으로 바꿨다(데스크 카드는 `deskCard()`로 다시 찍음).
+  DECISIONS·SECURITY-AUDIT의 기록은 그대로 두고 실제 주소·터널·고객 이름만 "첫 시범의 주소" 같은 자리표시로 바꿨다.
+  시험의 실제 주소는 `example.com` 이름으로(실제 Cloudflare 존을 쓰는 시험은 없음). 비밀번호 차단 목록과 임시 비밀번호
+  단어 목록 같은 일반 단어 목록은 그대로.
+- **한 고객용 사본은 같은 원본에서 빌드할 때 만든다**: `docs/install/build-pdf.ts --office|--windows`에 `--team-host`,
+  `--title`, `--place`, `--boss`, `--team-name`, `--sensitive`, `--set key=value`, `--img-dir`, `--version`, `--out`.
+  HTML의 바뀌는 낱말은 `<x-k data-k="…">`(스타일이 닿지 않는 태그)로 표시하고, 주소·존·cert 파일 이름은 글과 링크에서
+  바꾼다. 명령 속 파일 이름의 버전은 `server/`·`desktop/package.json`에서 채워서 인쇄본이 늘 그 키트의 버전을 말한다.
+  제품 이름은 `PRODUCT.displayName`(shared/src/product.ts)을 따른다. `scripts/build-office.ts`는 `--guide`·`--desk-guide`
+  (그 고객의 PDF를 자기 이름으로 zip에)와 `--team-host`(기본 `TEAMAX_KIT_TEAM`, `설치-먼저-읽기.txt`의 예시 주소)를 받는다.
+- **OFFICE.md의 명령은 버전에 매이지 않는다**: `다운로드`에서 가장 최근의 `TeamAX-office-*-mac.zip`을 고르고 그 이름을
+  보여 준 뒤 푼다(맥 미니에 옛 zip이 남아 있어도 새 것을 씀).
+- **고객별 자료는 저장소 밖**: owner 맥의 비공개 로컬 폴더(고객마다 remote 없는 git 저장소, `_template/`에서 복사)에
+  주소·언어·터널 이름과 id·인증 파일 **경로**, 안내서 말과 그림, 키트 빌드 스크립트, 설치 기록을 둔다. 비밀값은 어디에도
+  복사하지 않는다. 빌드 스크립트는 zip에 토큰 파일·토큰 모양의 글·그 고객의 연결 토큰이 없는지 확인한다.
+- **남는 것**: git 기록에는 예전 커밋의 고객 주소·이름·PDF가 그대로 있다. 공개 전에 기록을 새로 시작하거나
+  (`git filter-repo` 등으로) 지워야 한다.
 
 ## 팀 스킬 관리: 누가 스킬을 바꾸나 (feat/skill-managers, 2026-10-21)
 

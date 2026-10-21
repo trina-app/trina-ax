@@ -1,9 +1,9 @@
 // Security regression, round 4 (tunnel 4): public-address.ts gave a second name the connector token of an existing
-// tunnel, and removing the name never revoked it. `set <clinic2> --tunnel <clinic1's tunnel>` (or a clinic2 CNAME that
-// already pointed at it) was accepted without a word and wrote clinic1's token (same tunnel id and secret) as
-// clinic2's token file, which OFFICE.md says to hand to clinic2's Mac. Cloudflare spreads every name of a tunnel over
-// all its connectors, so each clinic's visitors (session cookies, sign-in bodies) could reach the other's Mac.
-// `remove <clinic2>` then dropped only the ingress rule: the token on clinic2's Mac kept connecting.
+// tunnel, and removing the name never revoked it. `set <office2> --tunnel <office1's tunnel>` (or a office2 CNAME that
+// already pointed at it) was accepted without a word and wrote office1's token (same tunnel id and secret) as
+// office2's token file, which OFFICE.md says to hand to office2's Mac. Cloudflare spreads every name of a tunnel over
+// all its connectors, so each office's visitors (session cookies, sign-in bodies) could reach the other's Mac.
+// `remove <office2>` then dropped only the ingress rule: the token on office2's Mac kept connecting.
 //
 // Port of scratchpad tunnel/repro/set-shares-connector-token.sh against an in-memory Cloudflare API whose tokens are
 // derived from the tunnel's secret (tests/security/lib/fake-cloudflare.ts).
@@ -17,7 +17,7 @@ import { cred, fakeCloudflare, tokenConnects, writes } from './lib/fake-cloudfla
 const W = path.join(WORK, 'security', 'r4-tunnel-token-sharing')
 fs.rmSync(W, { recursive: true, force: true })
 fs.mkdirSync(W, { recursive: true })
-const ONE = 'clinic1.clinic-test.example', TWO = 'clinic2.clinic-test.example'
+const ONE = 'office1.office-test.example', TWO = 'office2.office-test.example'
 const T1 = path.join(W, 'T1'), T2 = path.join(W, 'T2')
 
 describe('one tunnel token is never handed out for a second name by accident, and a removed name\'s token dies', () => {
@@ -25,16 +25,16 @@ describe('one tunnel token is never handed out for a second name by accident, an
     const f = fakeCloudflare()
     const a = await setAddress(f.api, cred, { host: ONE, port: 52030, tokenOut: T1 })
     const n = writes(f).length
-    await expect(setAddress(f.api, cred, { host: TWO, port: 52031, tunnel: a.tunnelName, tokenOut: T2 })).rejects.toThrow(/already serves clinic1\.clinic-test\.example; its connector token is the same/)
+    await expect(setAddress(f.api, cred, { host: TWO, port: 52031, tunnel: a.tunnelName, tokenOut: T2 })).rejects.toThrow(/already serves office1\.office-test\.example; its connector token is the same/)
     expect(writes(f).length).toBe(n)
-    expect(fs.existsSync(T2)).toBe(false) // was: a copy of clinic1's token
+    expect(fs.existsSync(T2)).toBe(false) // was: a copy of office1's token
     // a CNAME for the second name that already points at the first name's tunnel: refused the same way
     f.dns.push({ id: 'r-two', type: 'CNAME', name: TWO, content: `${a.tunnelId}.cfargotunnel.com`, proxied: true })
-    await expect(setAddress(f.api, cred, { host: TWO, port: 52031, tokenOut: T2 })).rejects.toThrow(/already serves clinic1/)
+    await expect(setAddress(f.api, cred, { host: TWO, port: 52031, tokenOut: T2 })).rejects.toThrow(/already serves office1/)
     expect(fs.existsSync(T2)).toBe(false)
     // an empty --tunnel is the default name (a tunnel of its own), not a way past the check
     const c = await setAddress(f.api, cred, { host: TWO, port: 52031, tunnel: '', tokenOut: T2 }).catch((e) => e)
-    expect(String(c)).toMatch(/already serves clinic1/) // the CNAME still points at clinic1's tunnel
+    expect(String(c)).toMatch(/already serves office1/) // the CNAME still points at office1's tunnel
   })
 
   test('set again on a tunnel that already has connectors says whose token it is', async () => {
@@ -55,7 +55,7 @@ describe('one tunnel token is never handed out for a second name by accident, an
     expect(old).toBe(fs.readFileSync(T1, 'utf8')) // the same secret: why it is refused without the flag
     const NEW1 = path.join(W, 'T1-new')
     const r = await removeAddress(f.api, cred, { host: TWO, tokenOut: T2, newTokenOut: NEW1 })
-    expect(tokenConnects(f, old)).toBe(false) // was true: clinic2's Mac kept connecting to clinic1's tunnel
+    expect(tokenConnects(f, old)).toBe(false) // was true: office2's Mac kept connecting to office1's tunnel
     expect(f.calls).toContain(`DELETE /accounts/acc1/cfd_tunnel/${a.tunnelId}/connections`)
     expect(r.rotated).toEqual({ tunnelName: a.tunnelName, names: [ONE], tokenFile: NEW1 })
     expect(tokenConnects(f, fs.readFileSync(NEW1, 'utf8'))).toBe(true) // the remaining name's Mac gets this one

@@ -68,7 +68,7 @@ export function pickLocale(user: Locale | null | undefined, teamDefault: Locale 
 }
 
 /** The first of the browser's languages we have (navigator.languages: "ko-KR", "en-US" ...), or null. The first-run
- * setup screen starts in it: before setup there is no team language yet, and a Korean clinic should not see English. */
+ * setup screen starts in it: before setup there is no team language yet, and a Korean office should not see English. */
 export function browserLocale(languages: readonly string[] | undefined): Locale | null {
   for (const l of languages ?? []) {
     const x = asLocale(l)

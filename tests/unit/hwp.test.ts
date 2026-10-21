@@ -73,10 +73,10 @@ describe('.hwpx (OWPML)', () => {
   test('sections in order, runs joined, tab / line break / entities', () => {
     const z = container({
       'Contents/section1.xml': sec('<hp:p><hp:run><hp:t>둘째 구역</hp:t></hp:run></hp:p>'),
-      'Contents/section0.xml': sec('<hp:p><hp:run><hp:t>환자 &amp; 보호자</hp:t></hp:run><hp:run><hp:t>안내<hp:tab/>1층<hp:lineBreak/>2층</hp:t></hp:run></hp:p><hp:p><hp:run><hp:t/></hp:run></hp:p>'),
+      'Contents/section0.xml': sec('<hp:p><hp:run><hp:t>고객 &amp; 보호자</hp:t></hp:run><hp:run><hp:t>안내<hp:tab/>1층<hp:lineBreak/>2층</hp:t></hp:run></hp:p><hp:p><hp:run><hp:t/></hp:run></hp:p>'),
       'mimetype': 'application/hwp+zip',
     }, 'zip')
-    expect(hwpxText(z)).toBe('환자 & 보호자안내\t1층\n2층\n\n둘째 구역')
+    expect(hwpxText(z)).toBe('고객 & 보호자안내\t1층\n2층\n\n둘째 구역')
   })
   test('a caption paragraph inside a paragraph keeps its own line', () => {
     const z = container({ 'Contents/section0.xml': sec('<hp:p><hp:run><hp:pic><hp:caption><hp:subList><hp:p><hp:run><hp:t>그림 1. 대기실</hp:t></hp:run></hp:p></hp:subList></hp:caption></hp:pic><hp:t>본문 글</hp:t></hp:run></hp:p>') }, 'zip')

@@ -1,4 +1,4 @@
-// Component A: memorable temporary passwords (owner decision 2026-10-21, clinic pilot). The generator's format and
+// Component A: memorable temporary passwords (owner decision 2026-10-21, first office pilot). The generator's format and
 // entropy, an admin-chosen temporary password, the forced change that asks only for the new password (only in the
 // session that just signed in with the temporary one), its limits (one hour, 7 days, 50 wrong tries), and that a
 // normal change still needs the current password.
@@ -35,7 +35,7 @@ describe('memorable temporary password generator', () => {
       expect(passwordProblem(w + '0000'), w).toBeNull()
     }
   })
-  test('word list: nothing unpleasant, hard to spell or silent-lettered (security review, UX review of the clinic pilot)', () => {
+  test('word list: nothing unpleasant, hard to spell or silent-lettered (security review, UX review of the first office pilot)', () => {
     const bad = [
       'kill', 'abuse', 'bomb', 'drug', 'naked', 'sexy', 'stupid', 'idiot', 'hate', 'satoshi',
       'knife', 'needle', 'drill', 'horror', 'ghost', 'whip', 'wine', 'master', 'snake', 'infant', 'blood', 'virus', 'grave',
@@ -85,8 +85,8 @@ describe('temporary passwords end to end', () => {
     const common = await owner.try('POST', '/api/admin/users', { username: 'sam', name: 'Sam', role: 'member', temporaryPassword: '12345678' })
     expect(common.status).toBe(400)
     expect(common.body.error.message).toContain('흔한')
-    const r = await owner.call('POST', '/api/admin/users', { username: 'sam', name: 'Sam', role: 'member', temporaryPassword: 'exampleteam2026' })
-    expect(r.temporaryPassword).toBe('exampleteam2026')
+    const r = await owner.call('POST', '/api/admin/users', { username: 'sam', name: 'Sam', role: 'member', temporaryPassword: 'maple2026' })
+    expect(r.temporaryPassword).toBe('maple2026')
     expect(r.user.mustChangePassword).toBe(true)
     const auto = await owner.call('POST', '/api/admin/users', { username: 'sue', name: 'Sue', role: 'member' })
     expect(auto.temporaryPassword).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
@@ -254,7 +254,7 @@ describe('temporary passwords end to end', () => {
     const m = await addMember(h, owner, { username: 'lee' })
     expect((await owner.try('POST', `/api/admin/users/${m.id}/reset-password`, { temporaryPassword: '노ㅑㅜㄷ1234' })).status).toBe(400)
     // symbols are fine
-    expect((await owner.call('POST', `/api/admin/users/${m.id}/reset-password`, { temporaryPassword: 'Exampleteam#2026' })).temporaryPassword).toBe('Exampleteam#2026')
+    expect((await owner.call('POST', `/api/admin/users/${m.id}/reset-password`, { temporaryPassword: 'Maple#2026' })).temporaryPassword).toBe('Maple#2026')
   })
 
   test('the per-account sign-in limit still applies to temporary passwords', async () => {
