@@ -628,7 +628,7 @@ describe('office-install.sh / office-uninstall.sh dry paths', () => {
       [[], { ...ok, TEAMAX_TEST_OSVERSION: '12.7' }, /macOS 13 or newer/],
       [[], { ...ok, TEAMAX_TEST_UNAME: 'Linux' }, /runs on macOS/],
       [[], { ...ok, TEAMAX_TEST_ARCH: 'ppc' }, /unsupported processor/],
-      [[], { ...ok, TEAMAX_TEST_ARCH: 'x86_64' }, /not an unpacked TeamAX-office bundle for darwin-amd64/],
+      [[], { ...ok, TEAMAX_TEST_ARCH: 'x86_64' }, /not an unpacked office bundle for darwin-amd64/],
       [['--lan-port', '99999'], ok, /must be a port number/],
       [['--lan-port', '47830'], ok, /must differ/],
       [['--bogus'], ok, /unknown option/],
@@ -647,7 +647,7 @@ describe('office-install.sh / office-uninstall.sh dry paths', () => {
   test('uninstall refuses a folder that is not an installation, and the home folder itself', () => {
     const r = run('office-uninstall.sh', ['--prefix', path.join(BASE, 'nothing-here')])
     expect(r.code).not.toBe(0)
-    expect(r.out).toMatch(/not a Team AX office installation/)
+    expect(r.out).toMatch(/is not an office installation of the team server/) // no app/product.env in this folder
     const home = path.join(BASE, 'fakehome')
     fs.mkdirSync(path.join(home, 'config'), { recursive: true })
     fs.writeFileSync(path.join(home, 'config', 'office.env'), 'TEAMAX_LABEL=app.team-ax.office-x\n')

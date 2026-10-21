@@ -173,7 +173,7 @@ function Diagnostics({ rev }: { rev: number }) {
 }
 
 type Mode = ConnectionMode
-/** Offered when an older server does not say (the Team AX relay is not running yet; tunnels are not in v1). */
+/** Offered when an older server does not say (the official relay is not running yet; tunnels are not in v1). */
 const FALLBACK_MODES: Mode[] = ['self-relay', 'direct-only']
 /** Team name at a relay: <name>.<relay domain> (same rule as the server's RelayTeamName). */
 const TEAM_NAME_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/

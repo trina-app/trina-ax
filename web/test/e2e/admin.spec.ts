@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { PRODUCT } from '@mycel/shared'
 
 test('admin screens: members, groups, folder rules with "who sees what", engines, usage, audit, system', async ({ page }) => {
   await reset(page)
@@ -140,7 +141,7 @@ test('members: a one-time password reset link to copy (no email); the owner has 
   expect(realErrors(errors)).toEqual([])
 })
 
-test('system: the relay connection asks for the team name; the Team AX relay is not offered while it does not run', async ({ page }) => {
+test('system: the relay connection asks for the team name; the official relay is not offered while it does not run', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -148,7 +149,7 @@ test('system: the relay connection asks for the team name; the Team AX relay is 
   await page.getByRole('button', { name: '연결 방식 바꾸기' }).click()
   const mode = page.getByTestId('connection-mode')
   await expect(mode.locator('option')).toHaveText(['직접 운영하는 중계 서버', '사무실 안 직접 연결만'])
-  await expect(mode.locator('option', { hasText: 'Team AX' })).toHaveCount(0)
+  await expect(mode.locator('option', { hasText: PRODUCT.displayName })).toHaveCount(0)
   const name = page.getByTestId('relay-team-name')
   await expect(name).toHaveValue('acme')
   await page.getByRole('dialog').getByRole('textbox', { name: '중계 서버 주소' }).fill('wss://relay.example.org/connect')

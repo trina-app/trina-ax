@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
+import { PRODUCT } from '@mycel/shared'
 import {
   ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome,
 } from './helpers'
@@ -75,7 +76,7 @@ test.describe('team address and window', () => {
     try {
       const page = await teamPage(app, ACME)
       await expect(page.locator('#team')).toHaveText('Acme')
-      expect(await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getTitle())).toBe('Acme Team — Team AX')
+      expect(await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getTitle())).toBe(`Acme Team — ${PRODUCT.displayName}`)
     } finally {
       await close(app)
     }
@@ -332,7 +333,8 @@ test.describe('what the in-app browser never opens', () => {
     const ua = await (await tabPage(app, (u) => u === `${SHOP}/ua`)).locator('#ua').textContent()
     expect(ua).toContain('MycelBrowser/1')
     expect(ua).not.toContain('Electron')
-    expect(ua).not.toMatch(/Team AX|mycel\//i)
+    expect(ua).not.toContain(`${PRODUCT.displayName}/`)
+    expect(ua).not.toMatch(/mycel\//i)
   })
 })
 

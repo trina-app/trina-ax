@@ -30,6 +30,10 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { PRODUCT } from '@mycel/shared'
+
+/** a value inside an openssl -subj (/O=.../CN=...): / , = + and \\ escaped */
+const dnPart = (s: string) => s.replace(/[\\/,=+]/g, (c) => `\\${c}`)
 
 export const SERVER_CERT_DAYS = 397
 export const RENEW_BEFORE_DAYS = 30
@@ -255,7 +259,7 @@ export function ensureCa(dir: string, o: { host: string | null; subnets?: [strin
     ? { dns: [], v4: [], v6: [] }
     : caConstraintsFor(o.host, o.subnets ?? [])
   const stamp = now.toISOString().slice(0, 10)
-  const subj = `/O=Team AX/CN=Team AX office CA ${o.host ?? 'server'} ${stamp}`
+  const subj = `/O=${dnPart(PRODUCT.displayName)}/CN=${dnPart(PRODUCT.displayName)} office CA ${o.host ?? 'server'} ${stamp}`
   const tmpKey = `ca.key.new-${process.pid}`
   const tmpCrt = `ca.crt.new-${process.pid}`
   try {
@@ -318,7 +322,7 @@ export function issueServerCert(dir: string, names: OfficeNames): crypto.X509Cer
     const old = process.umask(0o077)
     try { openssl(['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', f.key], dir) } finally { process.umask(old) }
     const cn = names.dns[0] ?? names.ips[0]!
-    openssl(['req', '-new', '-sha256', '-key', f.key, '-subj', `/O=Team AX/CN=${cn}`, '-out', f.csr], dir)
+    openssl(['req', '-new', '-sha256', '-key', f.key, '-subj', `/O=${dnPart(PRODUCT.displayName)}/CN=${cn}`, '-out', f.csr], dir)
     fs.writeFileSync(path.join(dir, f.ext), [
       'basicConstraints=critical,CA:FALSE', 'keyUsage=critical,digitalSignature', 'extendedKeyUsage=serverAuth',
       `subjectAltName=${san}`, 'authorityKeyIdentifier=keyid', 'subjectKeyIdentifier=hash', '',

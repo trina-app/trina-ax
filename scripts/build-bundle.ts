@@ -24,6 +24,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { packBundle, signManifest, writeManifest } from '../server/src/system/bundle'
+import { productEnv } from '../shared/src/product'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -105,6 +106,8 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'safe-fs.sh'), path.join(root, 'safe-fs.sh'))
   for (const f of ['mycel-bootstrap', 'mycel-launcher', 'mycel-account', 'pf-load', 'set-claude-token']) fs.chmodSync(path.join(root, f), 0o755)
   fs.writeFileSync(path.join(o.out, 'VERSION'), o.version + '\n')
+  // the product's name for install-macos.sh (the role accounts' full names): shared/src/product.ts
+  fs.writeFileSync(path.join(o.out, 'product.env'), productEnv())
   return { dir, archive: path.join(o.out, `${o.version}.tar.zst`), size: packed.size, sha256: packed.sha256, root, arch }
 }
 
