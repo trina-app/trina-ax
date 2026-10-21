@@ -28,6 +28,9 @@ export const User = z.object({
   role: Role,
   status: UserStatus,
   mustChangePassword: z.boolean(),
+  /** while the account still has a temporary password (admin "add member" / "reset password"): until when it works,
+   * and whether it was voided after too many wrong sign-in tries (Admin > Members shows both; a reset gives a new one) */
+  tempPassword: z.object({ expiresAt: IsoTime, voided: z.boolean() }).nullable().optional(),
   /** the language the person sees: their own choice, else the team default */
   locale: Locale,
   /** their own choice; null = follows the team default */

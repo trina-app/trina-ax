@@ -75,7 +75,9 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   else fs.copyFileSync(await bunFor(arch), bunOut)
   fs.chmodSync(bunOut, 0o755)
   fs.mkdirSync(path.join(dir, 'native'), { recursive: true })
-  for (const b of ['mycel-gate', 'mycel-bridge']) {
+  // mycel-ocr (scanned PDFs, images) when this Mac built it (native/build.sh, swiftc): optional, the server works without it
+  for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-ocr']) {
+    if (b === 'mycel-ocr' && !fs.existsSync(path.join(nativeDir, b))) continue
     fs.copyFileSync(path.join(nativeDir, b), path.join(dir, 'native', b))
     fs.chmodSync(path.join(dir, 'native', b), 0o755)
   }

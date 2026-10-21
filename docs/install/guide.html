@@ -370,7 +370,7 @@ bun run build</pre>
       <ol class="steps">
         <li><span class="n">1</span>1-4의 로그에서 <code>http://127.0.0.1:19100/setup?token=…</code> 주소를 닫는 괄호 <code>)</code> 앞까지 복사해 브라우저 주소 창에 붙여 넣어요. 설정 코드가 주소에 들어 있어서 따로 입력하지 않아요.</li>
         <li><span class="n">2</span>화면은 처음에 영어(<span class="ui">Create your team</span>)예요. <span class="ui">Team language</span>에서 <b>한국어</b>를 고르면 화면이 바로 한국어로 바뀌고, 팀 기본 언어도 한국어가 돼요.</li>
-        <li><span class="n">3</span>팀 이름, 이름, 아이디(영문·숫자와 <code>. _ @ -</code>, 2–64자), 비밀번호(10자 이상)와 <span class="ui">비밀번호 확인</span>을 넣어요. 이 계정이 <b>팀장(owner)</b>이에요.</li>
+        <li><span class="n">3</span>팀 이름, 이름, 아이디(영문·숫자와 <code>. _ @ -</code>, 2–64자), 비밀번호(8자 이상)와 <span class="ui">비밀번호 확인</span>을 넣어요. 이 계정이 <b>팀장(owner)</b>이에요.</li>
         <li><span class="n">4</span><span class="ui">팀 만들고 시작하기</span>(<span class="ui">Create team and start</span>)를 누르면 바로 로그인된 첫 화면으로 가요.</li>
       </ol>
       <div class="tip"><b>주소는 하나로</b><p>설정 링크로 팀을 만들었으면 앞으로도 <code>http://127.0.0.1:19100</code>으로 들어가요. <code>localhost:19100</code>도 같은 서버지만 브라우저가 다른 곳으로 여겨서 로그인을 한 번 더 해야 해요.</p></div>
@@ -608,7 +608,7 @@ cd / &amp;&amp; sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" \
   <p><b>A. 브라우저로</b>: <b>서버 맥에서</b> 아래 두 줄을 실행하면 설정 코드를 읽어 설정 화면을 브라우저로 바로 열어 줘요. 화면과 입력은 1-5 A와 같아요(팀 언어에서 한국어 고르기).</p>
 <pre class="cmd">C=$(sudo cat "/Library/Application Support/mycel/setup/code")
 open "http://127.0.0.1:47820/setup?token=$C"</pre>
-  <p><b>B. 터미널로</b>: 팀장 계정과 팀을 한 번에 만들어요. <code>kim</code>(로그인 아이디), <code>김팀장</code>(이름), <code>우리 팀</code>(팀 이름)은 <b>내 것으로 바꿔서</b> 실행해요. 비밀번호(10자 이상)를 두 번 물어요.</p>
+  <p><b>B. 터미널로</b>: 팀장 계정과 팀을 한 번에 만들어요. <code>kim</code>(로그인 아이디), <code>김팀장</code>(이름), <code>우리 팀</code>(팀 이름)은 <b>내 것으로 바꿔서</b> 실행해요. 비밀번호(8자 이상)를 두 번 물어요.</p>
 <pre class="cmd">sudo "/Library/Application Support/mycel/root/mycel-account" create-owner \
      --username kim --name "김팀장" --team "우리 팀" --locale ko</pre>
   <div class="check"><span class="k">확인</span><span>브라우저에서 <code>http://127.0.0.1:47820</code>에 팀장으로 로그인하면 첫 화면이 나와요. 이번에는 노란 “개발 모드” 띠가 없어요.</span></div>
