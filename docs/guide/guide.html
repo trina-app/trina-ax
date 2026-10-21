@@ -286,7 +286,7 @@ dl.kv dd{ color:var(--ink-2);}
     <div class="side">
       <h3>로그인</h3>
       <p>팀 주소를 열고 아이디와 비밀번호를 넣어요. 화면 아래에서 언어(한국어, English, Bahasa Indonesia)도 고를 수 있어요.</p>
-      <p>팀장이 직접 계정을 만들어 준 경우에는 <b>임시 비밀번호</b>를 받아요. 처음 로그인하면 새 비밀번호를 정하는 화면이 먼저 나와요.</p>
+      <p>팀장이 직접 계정을 만들어 준 경우에는 <b>임시 비밀번호</b>(예: <code>tiger4271</code>)를 받아요. 처음 로그인하면 새 비밀번호를 정하는 화면이 먼저 나와요. 새 비밀번호만 두 번 넣으면 돼요(8자 이상, 임시 비밀번호는 다시 묻지 않아요). 잘못된 계정으로 들어왔다면 <span class="ui">다른 계정으로 로그인</span>을 눌러요. 임시 비밀번호는 7일이 지나면 쓸 수 없어요.</p>
     </div>
     <figure class="shot" style="flex:.5;margin-top:5mm"><div class="frame"><img src="img/login.png" alt=""></div><figcaption>로그인 화면.</figcaption></figure>
   </div>
@@ -299,7 +299,7 @@ dl.kv dd{ color:var(--ink-2);}
         <li><span class="n">2</span><span class="ui">보안·기기</span>에서 현재 비밀번호, 새 비밀번호, 비밀번호 확인을 넣고 <span class="ui">비밀번호 바꾸기</span>.</li>
         <li><span class="n">3</span>아래쪽 <b>로그인한 기기</b>에서 모르는 기기가 있으면 <span class="ui">로그아웃</span>을 누르고 비밀번호를 바꾸세요.</li>
       </ol>
-      <p class="small">비밀번호는 10자 이상이어야 하고, 너무 흔한 비밀번호나 아이디가 들어간 비밀번호는 쓸 수 없어요. 바꾸면 다른 기기에서는 모두 로그아웃돼요.</p>
+      <p class="small">비밀번호는 8자 이상이어야 하고, 너무 흔한 비밀번호나 아이디와 같은 비밀번호는 쓸 수 없어요. 바꾸면 다른 기기에서는 모두 로그아웃돼요.</p>
       <figure class="shot" style="width:75%"><div class="frame"><img src="img/account-menu.png" alt=""></div><figcaption>왼쪽 아래 이름 → 설정·로그아웃</figcaption></figure>
     </div>
     <figure class="shot"><div class="frame"><img src="img/security.png" alt=""></div><figcaption>설정 › 보안·기기</figcaption></figure>
@@ -583,9 +583,9 @@ dl.kv dd{ color:var(--ink-2);}
     </div>
   </figure>
   <ol class="steps">
-    <li><span class="n">1</span><span class="ui">직접 추가</span> — 이름·아이디·역할·그룹을 넣으면 <b>임시 비밀번호</b>가 한 번 보여요. 직접 전해 주세요. 그 사람은 처음 로그인할 때 새 비밀번호를 정해요.</li>
+    <li><span class="n">1</span><span class="ui">직접 추가</span> — 이름·아이디·역할·그룹을 넣어요. <b>임시 비밀번호</b> 칸에는 외우기 쉬운 비밀번호(예: <code>tiger4271</code>)가 미리 들어 있고, ↻로 바꾸거나 직접 정할 수 있어요(8자 이상, 영문·숫자·기호). 만들면 접속 주소·아이디·임시 비밀번호와 쓸 수 있는 날짜가 한 번 보여요. <span class="ui">주소·아이디·비밀번호 복사</span>로 직접 전해 주세요. 그 사람은 처음 로그인할 때 새 비밀번호를 정해요.</li>
     <li><span class="n">2</span><span class="ui">초대 링크</span> — 역할·그룹·유효 기간을 고르고 링크를 만들어요. 받은 사람이 아이디와 비밀번호를 직접 정해요. 관리자 역할로 초대하는 건 팀장만 할 수 있어요.</li>
-    <li><span class="n">3</span><b>비밀번호 재설정</b>(열쇠) — 임시 비밀번호를 새로 만들어요. 재설정한 사실은 기록과 그 사람의 <span class="ui">보안·기기</span>에 남아요.</li>
+    <li><span class="n">3</span><span class="ui">비밀번호 재설정</span> — 직접 추가와 같은 임시 비밀번호 칸이 나와요. 그 사람은 모든 기기에서 바로 로그아웃돼요. 재설정한 사실은 기록과 그 사람의 <span class="ui">보안·기기</span>에 남아요. 멤버 줄에 <b>임시 비밀번호 만료</b>나 <b>임시 비밀번호 잠김</b>(틀린 시도가 너무 많음)이 보이면 재설정해서 새 임시 비밀번호를 주세요.</li>
   </ol>
   <dl class="kv">
     <dt><span class="ui">비활성화</span></dt><dd>바로 모든 기기에서 로그아웃되고 로그인할 수 없게 돼요. 데이터는 그대로 남아요. 잠시 막을 때 쓰세요.</dd>

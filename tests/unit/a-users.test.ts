@@ -36,7 +36,7 @@ describe('invites', () => {
     const { token } = await admin.call('POST', '/api/admin/invites', { groupIds: [groupId] })
     const guest = h.client()
     expect(await guest.call('GET', `/api/invites/${token}`)).toMatchObject({ teamName: 'Acme', role: 'member', valid: true })
-    const weak = await guest.try('POST', `/api/invites/${token}/accept`, { username: 'ivy', name: 'Ivy', password: 'ivyivyivy1' })
+    const weak = await guest.try('POST', `/api/invites/${token}/accept`, { username: 'ivy', name: 'Ivy', password: 'qwerty123' })
     expect(weak.status).toBe(400)
     const r = await guest.call('POST', `/api/invites/${token}/accept`, { username: 'ivy', name: 'Ivy', password: 'tulip meadow 2026' })
     expect(r.me.user).toMatchObject({ id: 'ivy', role: 'member', mustChangePassword: false })

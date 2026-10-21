@@ -16,6 +16,7 @@
 #                        scripts/office/public-address.ts). The token is copied to <prefix>/config/tunnel-token (600)
 #                        and the bundled cloudflared runs as a second LaunchAgent. Later: <prefix>/teamax public-address
 #   --no-open            do not open the setup page in the browser
+#   --no-desktop         do not offer the desktop app installers found next to the bundle (below)
 #   --update             run by the automatic updater (docs/OFFICE.md "자동 업데이트", server/src/office/update.ts):
 #                        nothing interactive, no browser, the Claude Code found earlier is kept when the login check
 #                        cannot run here, and the closing instructions are left out
@@ -26,14 +27,18 @@
 # office mode (the clinic's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
-# for the desks and the first-run setup link.
+# for the desks and the first-run setup link. Desktop app installers (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg) in
+# this folder or the folder it was unzipped into (where the zip usually is) are offered to the members under
+# Settings → Apps (the newest per platform). ~/Downloads is looked at only for a platform those have nothing for, and
+# its file is offered only after you answer yes. A bundle built with --with-desktop carries desktop.sha256: then only
+# the installers it lists (same name and SHA-256) are offered. Later: <prefix>/teamax desktop add <file>.
 set -euo pipefail
 umask 022
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 PREFIX="$HOME/TeamAX"
 CONF_ARGS=()
-OPEN=1 CHECK_ONLY=0 UPDATE=0
+OPEN=1 CHECK_ONLY=0 DESKTOP=1 UPDATE=0
 die() { echo "office-install: $*" >&2; exit 1; }
 say() { echo "office-install: $*"; }
 while [ $# -gt 0 ]; do
@@ -41,9 +46,10 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX=$2; shift 2 ;;
     --lan-port|--helper-port|--app-port|--label|--run-dir|--public-host|--tunnel-token-file) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
     --no-open) OPEN=0; shift ;;
-    --update) UPDATE=1; OPEN=0; shift ;;
+    --no-desktop) DESKTOP=0; shift ;;
+    --update) UPDATE=1; OPEN=0; DESKTOP=0; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -61,6 +67,13 @@ esac
 [ -f "$SRC/app/VERSION" ] && [ -x "$SRC/app/bin/$ARCH/bun" ] && [ -f "$SRC/app/server/src/office.js" ] || die "$SRC is not an unpacked TeamAX-office bundle for $ARCH"
 VERSION=$(tr -d '[:space:]' < "$SRC/app/VERSION")
 case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
+# where desktop app installers may be: inside this folder and next to it (the zip's folder); ~/Downloads only as a
+# fallback that asks first; desktop.sha256 in the bundle = only the installers built with it
+DESKTOP_ARGS=("$SRC" "$(dirname "$SRC")")
+if [ -d "$HOME/Downloads" ] && [ "$(cd "$HOME/Downloads" && pwd -P)" != "$(cd "$(dirname "$SRC")" && pwd -P)" ]; then
+  DESKTOP_ARGS+=(--fallback "$HOME/Downloads")
+fi
+[ -f "$SRC/desktop.sha256" ] && DESKTOP_ARGS+=(--manifest "$SRC/desktop.sha256")
 [[ "$PREFIX" != *$'\n'* && "$PREFIX" != *:* ]] || die "the install folder may not contain ':' or a line break"
 
 # Claude Code: the engine is this Mac's own login (the owner's subscription)
@@ -99,6 +112,8 @@ if [ "$CHECK_ONLY" = 1 ]; then
     say "ports: free"
   fi
   if [ -d "$PREFIX/app" ]; then say "would update $PREFIX/app (data/, team/, tls/, config/ kept)"; else say "would install into $PREFIX"; fi
+  # read-only: compared with what $PREFIX already offers
+  [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$PREFIX" add-from --dry-run "${DESKTOP_ARGS[@]}" | sed 's/^/  /'
   say "check only: nothing changed"
   exit 0
 fi
@@ -137,6 +152,12 @@ INSTALL_ARGS=(install --home "$PREFIX")
 [ "$OPEN" = 1 ] || INSTALL_ARGS+=(--no-open)
 "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" "${INSTALL_ARGS[@]}" || die "the server did not start; see $PREFIX/logs/office.log ($PREFIX/teamax logs)"
 
+# ---- desktop app installers next to the bundle: offered under Settings → Apps (a failure is reported, not fatal) ----
+if [ "$DESKTOP" = 1 ]; then
+  say "데스크톱 앱 설치 파일 찾는 중 / looking for desktop app installers: $SRC, $(dirname "$SRC")"
+  "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" desktop --home "$PREFIX" add-from "${DESKTOP_ARGS[@]}" | sed -l 's/^/  /' || true
+fi
+
 if [ "$UPDATE" = 1 ]; then say "updated to $VERSION"; exit 0; fi
 
 # ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
@@ -145,7 +166,7 @@ PUBLIC=$(sed -n 's/^TEAMAX_PUBLIC_HOST=//p' "$PREFIX/config/office.env")
 cat <<EOF
 
 === 설치 끝 / installed: $VERSION ===
-명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address
+명령 / command:  $PREFIX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | public-address | desktop
 설치 가이드 / guide:  $PREFIX/app/docs/OFFICE.md (PDF: 압축을 푼 폴더의 Team-AX-치과-설치가이드.pdf)
 EOF
 if [ -n "$PUBLIC" ]; then

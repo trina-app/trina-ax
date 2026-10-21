@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { UserPrefs, type Locale, type Role, type User, type UserRef } from '@mycel/shared/api'
+import { TEMP_PASSWORD_MAX_FAILURES } from '@mycel/shared'
 import { teamDefaultLocale } from '../admin/settings'
 
 export interface UserRow {
@@ -23,9 +24,12 @@ export interface UserRow {
   deleted_at: string | null
   password_reset_by: string | null
   password_reset_at: string | null
+  /** set while the password is a temporary one: sign-in with it is refused from then on (migration 103) */
+  temp_password_expires_at: string | null
+  temp_password_failures: number
 }
 
-export const USER_COLS = 'id, username, name, email, password_hash, role, status, must_change_password, locale, locale_follows_team, prefs, created_at, last_seen_at, deleted_at, password_reset_by, password_reset_at'
+export const USER_COLS = 'id, username, name, email, password_hash, role, status, must_change_password, locale, locale_follows_team, prefs, created_at, last_seen_at, deleted_at, password_reset_by, password_reset_at, temp_password_expires_at, temp_password_failures'
 
 /** Live (not deleted) user by id. */
 export function getUser(db: Database, id: string): UserRow | null {
@@ -56,6 +60,7 @@ export function toUser(db: Database, r: UserRow): User {
     role: r.role,
     status: r.status,
     mustChangePassword: !!r.must_change_password,
+    tempPassword: r.must_change_password && r.temp_password_expires_at ? { expiresAt: r.temp_password_expires_at, voided: r.temp_password_failures >= TEMP_PASSWORD_MAX_FAILURES } : null,
     locale: r.locale,
     localeChoice: localeChoice(r),
     groupIds: userGroupIds(db, r.id),
@@ -103,13 +108,15 @@ export interface NewUser {
   /** own language, or null = follow the team default */
   locale: Locale | null
   mustChangePassword: boolean
+  /** with mustChangePassword: when the temporary password stops working */
+  tempPasswordExpiresAt?: string | null
   groupIds?: string[]
 }
 
 /** Insert a user (+ group memberships). Call inside a transaction when combined with other writes. */
 export function insertUser(db: Database, u: NewUser, now = new Date().toISOString()): void {
-  db.query(`INSERT INTO users (id, username, name, email, password_hash, role, status, must_change_password, locale, locale_follows_team, prefs, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, '{}', ?)`).run(u.id, u.username, u.name, u.email ?? null, u.passwordHash, u.role, u.mustChangePassword ? 1 : 0, u.locale ?? teamDefaultLocale(db), u.locale ? 0 : 1, now)
+  db.query(`INSERT INTO users (id, username, name, email, password_hash, role, status, must_change_password, temp_password_expires_at, locale, locale_follows_team, prefs, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, '{}', ?)`).run(u.id, u.username, u.name, u.email ?? null, u.passwordHash, u.role, u.mustChangePassword ? 1 : 0, u.mustChangePassword ? (u.tempPasswordExpiresAt ?? null) : null, u.locale ?? teamDefaultLocale(db), u.locale ? 0 : 1, now)
   const add = db.query('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)')
   for (const g of u.groupIds ?? []) add.run(g, u.id)
 }

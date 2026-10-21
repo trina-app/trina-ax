@@ -26,6 +26,13 @@
 //                                  the token goes to config/tunnel-token, cloudflared runs as a second LaunchAgent
 //                                  (<label>.tunnel), the server answers https://HOST. The tunnel itself (DNS, ingress)
 //                                  is made on the owner's Mac with scripts/office/public-address.ts
+//   desktop list | add FILE [--version V] [--keep] | remove FILE
+//           | add-from DIR... [--fallback DIR] [--manifest FILE] [--dry-run]
+//                                  the desktop app installers members download under Settings → Apps (data/downloads,
+//                                  ./desktop.ts); add-from offers the newest Team-AX-Setup-*-x64.exe / Team-AX-*-mac*.dmg
+//                                  found in the folders (office-install.sh runs it; a --fallback folder only after a
+//                                  yes on the terminal; with the bundle's desktop.sha256 only the files it lists).
+//                                  No restart needed.
 //   update [status|check|now|pause|resume|channel stable|beta|time HH:MM|run]
 //                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
 //                                  LaunchAgent (<label>.update) checks https://updates.treesoop.com every night
@@ -38,6 +45,10 @@ import { Database } from 'bun:sqlite'
 import { launchAgent, plist } from '../../../scripts/dev-service'
 import { REPO_ROOT } from '../app-config'
 import { peerAllowed } from '../http/middleware'
+import {
+  addInstaller, findInstallers, listInstallers, MANIFEST, planAdd, platformOf, platformWord, readManifest, removeInstaller, sha256File, 
+  sizeText, versionFromName, type AddPlan, type AddResult, type DownloadItem, type Found, type Signature,
+} from './desktop'
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
 import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
@@ -588,6 +599,135 @@ async function applyPublicChange(s: OfficeSettings, serverToo: boolean): Promise
   return false
 }
 
+// ---- desktop app installers (Settings → Apps) ---------------------------------------------------------------
+
+export const downloadsDir = (home: string) => path.join(officePaths(home).data, 'downloads')
+
+const DESKTOP_USAGE = [
+  'usage: teamax desktop list',
+  '       teamax desktop add <installer.exe|.dmg> [--version x.y.z] [--keep]   offer it under Settings → Apps',
+  '       teamax desktop remove <file name>',
+  '       teamax desktop add-from <folder>... [--fallback <folder>] [--manifest desktop.sha256] [--dry-run] [--keep]',
+  '  --version  when the file name has no version     --keep  keep the older ones of the platform too',
+].join('\n')
+
+const what = (i: Omit<DownloadItem, 'sha256'>) =>
+  `${platformWord(i.platform)}${i.arch && i.arch !== 'universal' ? ` (${i.arch === 'arm64' ? 'Apple Silicon' : 'Intel'} only)` : ''} ${i.version} (${i.file}, ${sizeText(i.size)}, ${signatureWord(i.signature, i.signed)})`
+
+const signatureWord = (s: Signature | undefined, signed: boolean) =>
+  signed || s === 'verified' ? '서명 확인됨 / signature verified' : s === 'unverified' ? '서명 있음(확인 안 됨) / signed, not verified' : '서명 없음 / unsigned'
+
+function addedLine(r: AddResult): string {
+  return (r.unchanged ? `이미 올라가 있습니다 / already offered: ${what(r.item)}` : `데스크톱 앱을 올렸습니다 / desktop app added: ${what(r.item)}`) +
+    (r.removed.length ? `\n  이전 파일 지움 / older one removed: ${r.removed.join(', ')}` : '')
+}
+
+/** a yes/no question on the terminal (stderr, so office-install.sh's output filter does not hold it back); no
+ * terminal = no */
+export function askTerminal(q: string): boolean {
+  if (!process.stdin.isTTY) return false
+  process.stderr.write(`${q} [y/N] `)
+  const buf = Buffer.alloc(256)
+  let n = 0
+  try { n = fs.readSync(0, buf, 0, buf.length, null) } catch { return false }
+  return /^\s*(y|yes|예|네|ㅇ)/i.test(buf.toString('utf8', 0, n))
+}
+
+/** `teamax desktop …` (exit code) */
+export function desktopCommand(home: string, argv: string[], out: (s: string) => void = console.log, o: { ask?: (q: string) => boolean } = {}): number {
+  const args = argv.filter((a, i) => !(a === '--home' || argv[i - 1] === '--home'))
+  const flag = (n: string) => { const i = args.indexOf(n); if (i < 0) return undefined; const v = args[i + 1]; args.splice(i, 2); return v }
+  const version = flag('--version'), fallback = flag('--fallback'), manifestFile = flag('--manifest')
+  const keep = args.includes('--keep'), dry = args.includes('--dry-run')
+  const [sub = 'list', ...rest] = args.filter((a) => a !== '--keep' && a !== '--dry-run')
+  const dir = downloadsDir(home)
+  const teamax = path.join(home, 'teamax')
+  const where = '팀원은 설정 → 앱에서 내려받습니다 / members download it under Settings → Apps'
+  if (sub === '--help' || sub === '-h' || sub === 'help') { out(DESKTOP_USAGE); return 0 }
+  if (sub === 'list') {
+    const { items, stray } = listInstallers(dir)
+    if (!items.length) out(`올라간 데스크톱 앱 없음 / no desktop app offered (${dir}). 올리기 / add: ${teamax} desktop add <Team-AX-Setup-…-x64.exe | Team-AX-…-mac-universal.dmg>`)
+    for (const i of items) out(`${platformWord(i.platform).padEnd(8)} ${i.version.padEnd(10)} ${sizeText(i.size).padStart(9)}  ${i.signed ? 'verified  ' : i.signature === 'unverified' ? 'unverified' : 'unsigned  '}  ${i.file}${i.arch && i.arch !== 'universal' ? ` (${i.arch} only)` : ''}${i.sha256 ? `  sha256 ${i.sha256.slice(0, 16)}…` : ''}`)
+    if (stray.length) out(`목록에 없는 파일 (안 보임) / files not in the list (not shown): ${stray.join(', ')}`)
+    return 0
+  }
+  if (sub === 'add') {
+    if (rest.length !== 1) { console.error(DESKTOP_USAGE); return 2 }
+    const src = path.resolve(rest[0]!)
+    if (!fs.existsSync(src)) { console.error(`teamax: 파일이 없습니다 / no such file: ${src}`); return 1 }
+    out(addedLine(addInstaller(dir, src, { version, keep })))
+    out(where)
+    return 0
+  }
+  if (sub === 'remove') {
+    if (rest.length !== 1) { console.error(DESKTOP_USAGE); return 2 }
+    if (!removeInstaller(dir, rest[0]!)) { console.error(`teamax: ${path.basename(rest[0]!)} is not offered (teamax desktop list)`); return 1 }
+    out(`내렸습니다 / removed: ${path.basename(rest[0]!)}`)
+    return 0
+  }
+  if (sub === 'add-from') {
+    // Which file per platform: with the bundle's desktop.sha256 only files it lists (by name and hash), from any of the
+    // folders; without one, the newest in the bundle's folders (the bundle, the folder next to it). The --fallback
+    // folder (~/Downloads) is looked at only for a platform those have nothing for, and its file is added only when
+    // the owner says yes on the terminal: a stray or planted file there never becomes the app everyone downloads.
+    const main = rest.map((d) => path.resolve(d))
+    const fb = fallback ? path.resolve(fallback) : null
+    const manifest = manifestFile ? readManifest(path.resolve(manifestFile)) : null
+    type Pick = Found & { ask: boolean }
+    const picks: Pick[] = []
+    const notes: string[] = []
+    for (const platform of ['windows', 'mac'] as const) {
+      if (manifest) {
+        const listed = [...main, ...(fb ? [fb] : [])].flatMap((d) => findInstallers([d]).filter((f) => f.platform === platform))
+        let hit: Found | undefined
+        for (const d of [...main, ...(fb ? [fb] : [])]) {
+          let names: string[] = []
+          try { names = fs.readdirSync(d) } catch { continue }
+          for (const n of names) {
+            const sha = manifest.get(n)
+            if (!sha || platformOf(n) !== platform) continue
+            const f = path.join(d, n)
+            try { if (fs.statSync(f).isFile() && sha256File(f) === sha) { hit = { file: f, platform, version: versionFromName(n) ?? '' }; break } } catch {}
+          }
+          if (hit) break
+        }
+        if (hit && hit.version) picks.push({ ...hit, ask: false })
+        for (const f of listed) if (!hit || fs.realpathSync(f.file) !== fs.realpathSync(hit.file)) notes.push(`목록(${MANIFEST})과 다른 파일이라 건너뜀 / not in the bundle's ${MANIFEST}, skipped: ${f.file} (to offer it anyway: ${teamax} desktop add "${f.file}")`)
+        continue
+      }
+      const near = findInstallers(main).find((f) => f.platform === platform)
+      if (near) { picks.push({ ...near, ask: false }); continue }
+      const far = fb ? findInstallers([fb]).find((f) => f.platform === platform) : undefined
+      if (far) picks.push({ ...far, ask: true })
+    }
+    if (!picks.length) {
+      for (const n of notes) out(n)
+      out('데스크톱 앱 설치 파일 없음 / no desktop installer found (Team-AX-Setup-*-x64.exe, Team-AX-*-mac*.dmg)')
+      return 0
+    }
+    let bad = 0, offered = 0
+    for (const f of picks) {
+      let plan: AddPlan
+      try { plan = planAdd(dir, f.file, { keep }) } catch (e) { bad++; out(`올리지 못함 / not added: ${f.file}: ${(e as Error).message}`); continue }
+      if (plan.action === 'refused') { out(`올리지 않음 / not added: ${f.file}: ${plan.reason}`); continue }
+      if (plan.action === 'unchanged') { offered++; out(`이미 올라가 있습니다 / already offered: ${what(plan.item)}`); continue }
+      if (f.ask) {
+        const q = `${f.file} 은(는) 압축 파일 옆이 아니라 ${path.dirname(f.file)}에 있습니다. 팀원 모두가 내려받을 앱으로 올릴까요? / found in ${path.dirname(f.file)}, not next to the bundle: offer it to everyone?`
+        if (dry) { out(`물어볼 파일 / would ask about: ${f.file} (${platformWord(f.platform)} ${f.version})`); continue }
+        if (!(o.ask ?? askTerminal)(q)) { out(`올리지 않음 / not added: ${f.file} (${path.dirname(f.file)}의 파일은 묻고 올림 / files there are added only when you say yes; or: ${teamax} desktop add "${f.file}")`); continue }
+      }
+      if (dry) { out(`올릴 파일 / would add: ${f.file} (${platformWord(f.platform)} ${f.version})${plan.replaces.length ? `, replacing ${plan.replaces.join(', ')}` : ''}`); continue }
+      try { out(`${addedLine(addInstaller(dir, f.file, { keep }))}\n  ← ${f.file}`); offered++ } catch (e) { bad++; out(`올리지 못함 / not added: ${f.file}: ${(e as Error).message}`) }
+    }
+    for (const n of notes) out(n)
+    if (!dry && offered) out(where)
+    if (!dry && !listInstallers(dir).items.length) out(`아직 올라간 데스크톱 앱 없음 / no desktop app is offered yet: ${teamax} desktop add <file>`)
+    return bad ? 1 : 0
+  }
+  console.error(DESKTOP_USAGE)
+  return 2
+}
+
 function teamIsSetUp(home: string): boolean {
   const db = path.join(officePaths(home).data, 'app.db')
   if (!fs.existsSync(db)) return false
@@ -657,6 +797,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'public-address': return await publicAddress(home, args)
+    case 'desktop': return desktopCommand(home, args)
     case 'update': return await updateCommand(home, args, agentPath(s))
     case 'uninstall-agent': {
       lines(fs.existsSync(p.plist(s.label)) || agent.loaded() ? agent.stop() : 'not installed')
@@ -748,7 +889,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|uninstall-agent')
       return 2
   }
 }

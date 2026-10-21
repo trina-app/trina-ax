@@ -160,7 +160,7 @@ describe('password change and forced change', () => {
 
   test('a new member must change the temporary password before anything else', async () => {
     const r = await owner.call('POST', '/api/admin/users', { username: 'nina', name: 'Nina', role: 'member' })
-    expect(r.temporaryPassword).toMatch(/^([A-Za-z2-9]{4}-){3}[A-Za-z2-9]{4}$/)
+    expect(r.temporaryPassword).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
     expect(r.user.mustChangePassword).toBe(true)
     const c = h.client()
     const login = await c.login('nina', r.temporaryPassword)
@@ -169,9 +169,11 @@ describe('password change and forced change', () => {
     expect(blocked.status).toBe(403)
     expect(blocked.body.error.code).toBe('password_change_required')
     expect((await c.try('GET', '/api/me')).status).toBe(200)
-    const same = await c.try('POST', '/api/auth/password', { currentPassword: r.temporaryPassword, newPassword: r.temporaryPassword })
+    const same = await c.try('POST', '/api/auth/password', { newPassword: r.temporaryPassword })
     expect(same.status).toBe(400)
-    await c.call('POST', '/api/auth/password', { currentPassword: r.temporaryPassword, newPassword: 'north star picks 9' })
+    expect(same.body.error.fields['body.newPassword']).toBe('same as current')
+    // right after signing in with the temporary password only the new one is needed
+    await c.call('POST', '/api/auth/password', { newPassword: 'north star picks 9' })
     expect((await c.call('PATCH', '/api/me', { name: 'Nina K' })).user.name).toBe('Nina K')
   })
   test('changing the password ends every other session, keeps this one; the old password stops working', async () => {
@@ -181,9 +183,13 @@ describe('password change and forced change', () => {
     const otherSid = (await other.call('GET', '/api/me')).session.id
     const wrong = await m.client.try('POST', '/api/auth/password', { currentPassword: 'not it at all', newPassword: 'purple new garden 99' })
     expect(wrong.status).toBe(403)
-    const weak = await m.client.try('POST', '/api/auth/password', { currentPassword: m.password, newPassword: 'paulpaulpaul1' })
+    const weak = await m.client.try('POST', '/api/auth/password', { currentPassword: m.password, newPassword: 'paul' })
     expect(weak.status).toBe(400)
-    expect(weak.body.error.fields['body.newPassword']).toContain('username')
+    expect(weak.body.error.fields['body.newPassword']).toContain('8')
+    // a normal session (not right after a temporary sign-in) must give the current password
+    const noCurrent = await m.client.try('POST', '/api/auth/password', { newPassword: 'purple new garden 99' })
+    expect(noCurrent.status).toBe(400)
+    expect(noCurrent.body.error.fields['body.currentPassword']).toBe('required')
     h.hub.events = []
     await m.client.call('POST', '/api/auth/password', { currentPassword: m.password, newPassword: 'purple new garden 99' })
     expect((await m.client.try('GET', '/api/me')).status).toBe(200)
@@ -202,21 +208,29 @@ describe('password change and forced change', () => {
     expect(r.status).toBe(401)
     expect(r.body.error.message).toContain('아이디 또는 비밀번호')
   })
-  test('password policy', () => {
-    expect(passwordProblem('short')).toContain('10')
-    expect(passwordProblem('qwertyuiop')).toContain('common')
-    expect(passwordProblem('aaaaaaaaaaaa')).toContain('different')
-    expect(passwordProblem('abcabcabcabc')).toContain('different')
-    expect(passwordProblem('kim2026kim2026', { username: 'kim2026' })).toContain('username')
-    expect(passwordProblem('correct horse battery')).toBeNull()
-    expect(new Set(Array.from({ length: 50 }, temporaryPassword)).size).toBe(50)
-    for (let i = 0; i < 20; i++) expect(passwordProblem(temporaryPassword())).toBeNull()
+  test('password rule: 8-128 characters, not the username, not a common one; nothing else', () => {
+    expect(passwordProblem('short12')).toBe('at least 8 characters')
+    expect(passwordProblem('비밀번호하나둘')).toBe('at least 8 characters')
+    expect(passwordProblem('x'.repeat(129))).toBe('at most 128 characters')
+    expect(passwordProblem('x'.repeat(127) + 'y')).toBeNull()
+    for (const pw of ['12345678', '123456789', '1234567890', '87654321', '23456789', '11111111', '00000000', 'aaaaaaaa', 'password', 'Password1', 'qwerty123', 'QWERTYUIOP', '1q2w3e4r', 'iloveyou', 'qwer1234'])
+      expect(passwordProblem(pw), pw).toBe('this password is too common')
+    expect(passwordProblem('kim2026k', { username: 'KIM2026K' })).toBe('must not be the username')
+    // easy is fine now: no character classes, no "different characters" or repeat rules
+    for (const pw of ['tiger427', 'exampleteam2026', 'abcabcab', 'kim20260', 'sunflower', '한국어비밀번호입니다']) expect(passwordProblem(pw, { username: 'kim' }), pw).toBeNull()
+    expect(new Set(Array.from({ length: 50 }, temporaryPassword)).size).toBeGreaterThanOrEqual(49)
+    for (let i = 0; i < 200; i++) {
+      const t = temporaryPassword()
+      expect(t).toMatch(/^[a-z]{4,7}[0-9]{4}$/)
+      expect(passwordProblem(t)).toBeNull()
+    }
   })
   test('weak password messages say why, in the person\'s language', () => {
-    expect(weakPasswordMessage('must not contain the username', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 아이디가 들어간 비밀번호는 쓸 수 없습니다.')
-    expect(weakPasswordMessage('at least 10 characters', 'en')).toBe('Please choose a stronger password. Use at least 10 characters.')
+    expect(weakPasswordMessage('must not be the username', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 아이디와 같은 비밀번호는 쓸 수 없습니다.')
+    expect(weakPasswordMessage('at least 8 characters', 'en')).toBe('Please choose a stronger password. Use at least 8 characters.')
+    expect(weakPasswordMessage('at least 8 characters', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 8자 이상이어야 합니다.')
     expect(weakPasswordMessage('something new', 'id')).toBe('Pilih kata sandi yang lebih kuat.')
-    for (const pw of ['short', 'qwertyuiop', 'aaaaaaaaaaaa', 'abcabcabcabc']) expect(weakPasswordMessage(passwordProblem(pw)!, 'ko')).not.toBe('더 안전한 비밀번호를 정해 주세요.')
+    for (const pw of ['short', 'qwertyuiop', 'x'.repeat(200)]) expect(weakPasswordMessage(passwordProblem(pw)!, 'ko')).not.toBe('더 안전한 비밀번호를 정해 주세요.')
   })
 })
 

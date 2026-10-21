@@ -20,6 +20,16 @@ function guardLine(line: string) {
     .join('')
 }
 
+// Engines (Codex especially) write LaTeX delimiters \( … \) and \[ … \]; remark-math only knows $…$ and $$…$$, and
+// Markdown reads "\[" as a plain "[", so the formula showed as "[ A = P(1+r)^n ]". \( … \) is always math (Markdown
+// has no reason to escape a parenthesis); \[ … \] only when the inside looks like math, so an escaped "\[note\]" stays.
+const MATHY = /[\\^_=+*/<>]|\d/
+function latexDelimiters(part: string) {
+  return part
+    .replace(/\\\[([\s\S]+?)\\\]/g, (m, body: string) => (MATHY.test(body) ? `\n$$\n${body.trim()}\n$$\n` : m))
+    .replace(/\\\(([^\n]+?)\\\)/g, (_m, body: string) => `$${body.trim()}$`)
+}
+
 /**
  * Single-dollar math on, without eating prices; code spans and fences are left alone. While streaming, close what is
  * still open (bold, a code fence, a link…) so the half-written answer doesn't flash raw markdown.
@@ -27,7 +37,7 @@ function guardLine(line: string) {
 export function prepareMarkdown(text: string, streaming?: boolean) {
   const guarded = text
     .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g)
-    .map((part, i) => (i % 2 === 1 ? part : part.split('\n').map(guardLine).join('\n')))
+    .map((part, i) => (i % 2 === 1 ? part : latexDelimiters(part).split('\n').map(guardLine).join('\n')))
     .join('')
   return streaming ? remend(guarded, { linkMode: 'text-only' }) : guarded
 }

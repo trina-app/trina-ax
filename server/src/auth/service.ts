@@ -19,10 +19,16 @@ import { RateLimiter, reauthKey } from './rate-limit'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
+/** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
+ * then becomes a normal SESSION_TTL_MS session): "just signed in with it" is what lets it skip the current password. */
+export const TEMP_SESSION_TTL_MS = 3600_000
 /** last_seen_at is written at most this often per session */
 const TOUCH_MS = 60_000
 
 interface SessionRow { id: string; user_id: string; client: ClientKind; user_agent: string | null; created_at: string; last_seen_at: string; expires_at: string }
+
+/** sessions.temp_login counts only while the account must still change its temporary password */
+const tempLoginOf = (row: { temp_login: number }, user: { must_change_password: number }) => !!row.temp_login && !!user.must_change_password
 
 export type EndReason = Parameters<RealtimeHub['disconnectUser']>[1]
 
@@ -86,12 +92,12 @@ export class AuthService implements SessionService {
   async resolve(req: Request, _info: RequestInfo): Promise<AuthInfo | null> {
     const t = readToken(req)
     if (!t) return null
-    const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at, s.last_seen_at AS s_seen, u.${USER_COLS.split(', ').join(', u.')}
-      FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hashToken(t.token)) as (UserRow & { sid: string; client: ClientKind; expires_at: string; s_seen: string }) | null
+    const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at AS s_expires, s.last_seen_at AS s_seen, s.temp_login, u.${USER_COLS.split(', ').join(', u.')}
+      FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hashToken(t.token)) as (UserRow & { sid: string; client: ClientKind; s_expires: string; s_seen: string; temp_login: number }) | null
     if (!row) return null
     const now = this.now()
-    if (Date.parse(row.expires_at) <= now || row.status !== 'active' || row.deleted_at) {
-      if (Date.parse(row.expires_at) <= now) {
+    if (Date.parse(row.s_expires) <= now || row.status !== 'active' || row.deleted_at) {
+      if (Date.parse(row.s_expires) <= now) {
         this.db.query('DELETE FROM sessions WHERE id = ?').run(row.sid)
         // a window still open on this session must not keep receiving team events
         this.ctx.services.realtime.disconnectSession?.(row.sid, 'expired')
@@ -105,7 +111,7 @@ export class AuthService implements SessionService {
     }
     return {
       user: { id: row.id, username: row.username, name: row.name, role: row.role, locale: row.locale, mustChangePassword: !!row.must_change_password },
-      session: { id: row.sid, client: row.client, expiresAt: row.expires_at },
+      session: { id: row.sid, client: row.client, expiresAt: row.s_expires, ...(tempLoginOf(row, row) ? { tempLogin: true } : {}) },
       via: t.via,
     }
   }
@@ -135,15 +141,21 @@ export class AuthService implements SessionService {
   }
 
   // ---------------- sessions ----------------
-  createSession(userId: string, client: ClientKind, userAgent: string | null): { id: string; token: string; expiresAt: string } {
+  /** tempLogin: signed in with a temporary password (one hour; may set the new password without the current one) */
+  createSession(userId: string, client: ClientKind, userAgent: string | null, o: { tempLogin?: boolean } = {}): { id: string; token: string; expiresAt: string } {
     const token = newToken()
     const id = newId()
     const now = this.now()
-    const expiresAt = this.iso(now + SESSION_TTL_MS)
-    this.db.query('INSERT INTO sessions (id, user_id, token_hash, client, user_agent, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, userId, hashToken(token), client, userAgent ? userAgent.slice(0, 300) : null, this.iso(now), this.iso(now), expiresAt)
+    const expiresAt = this.iso(now + (o.tempLogin ? TEMP_SESSION_TTL_MS : SESSION_TTL_MS))
+    this.db.query('INSERT INTO sessions (id, user_id, token_hash, client, user_agent, created_at, last_seen_at, expires_at, temp_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, userId, hashToken(token), client, userAgent ? userAgent.slice(0, 300) : null, this.iso(now), this.iso(now), expiresAt, o.tempLogin ? 1 : 0)
     this.db.query('UPDATE users SET last_seen_at = ? WHERE id = ?').run(this.iso(now), userId)
     return { id, token, expiresAt }
+  }
+
+  /** The temporary password was changed in this session: it becomes a normal session (30 days from now). */
+  finishTempLogin(sessionId: string): void {
+    this.db.query('UPDATE sessions SET temp_login = 0, expires_at = ? WHERE id = ? AND temp_login = 1').run(this.iso(this.now() + SESSION_TTL_MS), sessionId)
   }
 
   /** Delete one session and close its sockets (logout, "sign out this device"). */
@@ -181,8 +193,10 @@ export class AuthService implements SessionService {
 
   // ---------------- sign-in ----------------
   /** Create a session, set the cookie (cookie mode) and return the LoginResponse. */
-  signIn(c: Context<AppEnv>, userId: string, client: ClientKind, tokenMode: 'cookie' | 'bearer'): LoginResponse {
-    const s = this.createSession(userId, client, c.req.header('user-agent') ?? null)
+  signIn(c: Context<AppEnv>, userId: string, client: ClientKind, tokenMode: 'cookie' | 'bearer', o: { tempLogin?: boolean } = {}): LoginResponse {
+    const s = this.createSession(userId, client, c.req.header('user-agent') ?? null, o)
+    // the cookie keeps the normal lifetime either way: the server decides when a temporary sign-in ends, and a changed
+    // password turns it into a normal session without a new cookie
     if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })
     const me = this.me(userId, s.id)
     return tokenMode === 'bearer' ? { me, token: s.token } : { me }
@@ -195,7 +209,7 @@ export class AuthService implements SessionService {
   me(userId: string, sessionId: string): Me {
     const u = getUser(this.db, userId)
     if (!u) return fail('unauthorized')
-    const s = this.db.query('SELECT id, client, expires_at FROM sessions WHERE id = ?').get(sessionId) as { id: string; client: ClientKind; expires_at: string } | null
+    const s = this.db.query('SELECT id, client, expires_at, temp_login FROM sessions WHERE id = ?').get(sessionId) as { id: string; client: ClientKind; expires_at: string; temp_login: number } | null
     if (!s) return fail('unauthorized')
     const groups = this.db.query('SELECT g.id, g.name FROM group_members m JOIN groups g ON g.id = m.group_id WHERE m.user_id = ? ORDER BY g.name').all(userId) as { id: string; name: string }[]
     const settings = getTeamSettings(this.db)
@@ -206,7 +220,7 @@ export class AuthService implements SessionService {
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale },
-      session: { id: s.id, client: s.client, expiresAt: s.expires_at },
+      session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the clinic's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
