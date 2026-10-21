@@ -246,6 +246,12 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(readUpdateState(home2).available?.version).toBe('0.4.0')
   })
 
+  test('a channel with no release yet (404) is up to date, not a failure', async () => {
+    const home = makeHome('run-404', '0.2.0')
+    const r = await runUpdate(home, { reason: 'schedule', deps: fakeDeps(home, new Map()).deps, ...short })
+    expect(r).toMatchObject({ kind: 'up-to-date', version: '0.2.0' })
+  })
+
   test('a manifest that does not verify installs nothing', async () => {
     const home = makeHome('run-badsig', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
