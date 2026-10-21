@@ -1,20 +1,27 @@
 # 사무실 모드: 치과 설치 가이드 (맥 미니 한 대 + 데스크 PC 10대)
 
-치과·병원·작은 사무실에서 **맥 미니 한 대**가 Team AX를 돌리고, 같은 사무실 네트워크의 **윈도우 데스크 PC 10대 정도**가
-Edge로 접속하는 구성입니다. 중계 서버(`<팀>.treesoop.com`)도, 운영 설치(역할 계정)도 필요 없습니다.
+치과·병원·작은 사무실에서 **맥 미니 한 대**가 Team AX를 돌리고, **윈도우 데스크 PC 10대 정도**가 Edge로 접속하는
+구성입니다. 중계 서버(`<팀>.treesoop.com`)도, 운영 설치(역할 계정)도 필요 없습니다.
 
 - AI는 **그 맥에 로그인된 Claude Code**(원장님/소유자의 Claude 구독)로 돕니다. 엔진은 개발 모드와 같은 구성입니다:
   권한 함수, 엔진 잠금(lockdown), macOS 샌드박스(`engine.sb`). DEV 배너는 나오지 않고, Codex는 쓰지 않습니다.
-- 데스크는 `https://<맥 IP>:8443`으로 들어옵니다. 인증서는 맥이 처음 한 번 만드는 **사무실 전용 인증 기관(CA)**이
-  서명하고, 데스크마다 이 CA를 **한 번만** 설치합니다.
+- **기본 경로: 인터넷 주소** (예: `https://app.example.com`). 데스크는 Edge로 이 주소를 열기만 하면 됩니다
+  (**인증서 설치 없음**, 사무실 밖·휴대폰에서도). 맥 미니의 `cloudflared`(Cloudflare Tunnel)가 바깥으로 연결을 열어
+  두므로 공유기 포트 열기·고정 IP가 필요 없습니다. 자세히: [9장 인터넷 주소](#9-인터넷-주소-cloudflare-tunnel).
+- **사무실 안 대체 경로**: `https://<맥 IP>:8443`. 인터넷이 끊겨도 됩니다. 인증서는 맥이 처음 한 번 만드는 **사무실 전용
+  인증 기관(CA)**이 서명하고, 이 경로를 쓰는 데스크만 이 CA를 **한 번** 설치합니다.
 - 관리자 암호(sudo) 없이 설치됩니다. 모든 것이 `~/TeamAX`에 들어갑니다.
 - 같은 내용의 인쇄용 PDF: `Team-AX-치과-설치가이드.pdf`(zip 안, `docs/office/`).
 
 > English summary: one Mac runs Team AX as the signed-in user with that Mac's Claude Code login (dev mode's engine
-> setup, no DEV banner, no Codex). Desks on the office subnet use `https://<mac IP>:8443` after installing the office
-> CA once; they compare its thumbprint with the desk card printed on the Mac (`teamax card`), never with the plain-http
-> certificate page (`http://<mac IP>:8442`). No sudo, no relay. Bundle: `bun run build:office`; install:
-> `bash office-install.sh`; control: `~/TeamAX/teamax`.
+> setup, no DEV banner, no Codex). Main path: an internet address (`https://app.example.com`) through a Cloudflare
+> Tunnel: the bundled cloudflared runs as a second LaunchAgent and delivers it to the loopback app port; desks just
+> open it (public certificate, nothing to install). The address is made on the owner's Mac with
+> `bun scripts/office/public-address.ts set <name> --cert <cloudflared cert.pem>` and given to the Mac with
+> `office-install.sh --public-host <name> --tunnel-token-file <file>` or later `teamax public-address set|off|status`.
+> In-office fallback: `https://<mac IP>:8443` after installing the office CA once (thumbprint from the desk card
+> printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
+> `bun run build:office`; control: `~/TeamAX/teamax`.
 
 ## 1. 준비물
 
@@ -23,7 +30,8 @@ Edge로 접속하는 구성입니다. 중계 서버(`<팀>.treesoop.com`)도, �
 | 맥 미니 | macOS 13 이상(Apple Silicon 또는 Intel). **Team AX 전용**으로 두고 개인 자료·다른 프로그램을 두지 마세요 |
 | FileVault | 켜 두세요(시스템 설정 → 개인정보 보호 및 보안 → FileVault). 환자 자료가 디스크에 암호화되어 저장됩니다 |
 | Claude Code | 맥 미니의 그 사용자 계정에서 설치·로그인되어 있어야 합니다(원장님 구독 계정) |
-| 네트워크 | 데스크와 **같은 사무실 네트워크**(유선 권장). 공유기에서 맥 미니 주소를 **고정(DHCP 예약)** — 필수 |
+| 네트워크 | 인터넷 연결(유선 권장). 사무실 안 대체 경로도 쓰려면 공유기에서 맥 미니 주소를 **고정(DHCP 예약)** |
+| 인터넷 주소 | 원장님(주인) 맥에서 만든 **연결 토큰 파일**(`app.example.com.tunnel-token`, 9장). 공유기 설정은 필요 없음 |
 | zip 파일 | `TeamAX-office-0.1.0-mac.zip` (USB·AirDrop로 맥 미니의 `다운로드` 폴더에) |
 | 데스크 | 윈도우 10/11 + Edge. 데스크마다 직원 윈도우 계정으로 하면 됩니다(관리자 암호 필요 없음) |
 | 그 밖에 | 프린터(데스크 카드 1장), 외장 디스크(주 1회 보관용), 가능하면 UPS |
@@ -40,16 +48,23 @@ claude auth status
 확인: `"loggedIn": true`. 아니면 `claude` 실행 → `/login` → 구독 계정으로 로그인. (Claude Code가 없으면
 `curl -fsSL https://claude.ai/install.sh | bash` 후 터미널을 다시 열기.)
 
+연결 토큰 파일(9장)을 AirDrop·USB로 맥 미니의 `다운로드` 폴더에 받아 둔 뒤:
+
 ```sh
 cd ~/Downloads && ditto -x -k TeamAX-office-0.1.0-mac.zip .
-bash ~/Downloads/TeamAX-office-0.1.0/office-install.sh
+bash ~/Downloads/TeamAX-office-0.1.0/office-install.sh \
+  --public-host app.example.com --tunnel-token-file ~/Downloads/app.example.com.tunnel-token
+rm ~/Downloads/app.example.com.tunnel-token
 ```
-확인: 마지막에 `=== 설치 끝 / installed: 0.1.0 ===`, 그 위에 **데스크 주소**(`https://192.168.x.x:8443`),
-**인증서 받는 곳**(`http://192.168.x.x:8442`), **인증서 지문**(8자씩 5묶음), **첫 설정 링크**가 나오고, 첫 설정 페이지가
-맥 미니의 브라우저에 열립니다.
+확인: 마지막에 `=== 설치 끝 / installed: 0.1.0 ===`, 그 위에 `https://app.example.com 답함 / answers`,
+**인터넷 주소**, 사무실 안 대체 경로(**데스크 주소** `https://192.168.x.x:8443`, **인증서 받는 곳**
+`http://192.168.x.x:8442`, **인증서 지문**), **첫 설정 링크**가 나오고, 첫 설정 페이지가 맥 미니의 브라우저에 열립니다.
+토큰은 `~/TeamAX/config/tunnel-token`(600)에 복사되므로 받은 파일은 지웁니다. 인터넷 주소 없이 설치하려면 두 옵션을
+빼면 됩니다(나중에 `teamax public-address set`).
 
-설치기가 하는 일: macOS·프로세서·Claude 로그인·포트 확인 → `~/TeamAX/app`에 프로그램 복사 → 설정
-`~/TeamAX/config/office.env` → LaunchAgent `app.team-ax.office` 시작 → 서버가 답할 때까지 기다림 → 주소·지문·링크 출력.
+설치기가 하는 일: macOS·프로세서·Claude 로그인·포트·토큰 확인 → `~/TeamAX/app`에 프로그램 복사 → 설정
+`~/TeamAX/config/office.env` → LaunchAgent `app.team-ax.office` 시작 → 서버가 답할 때까지 기다림 → 인터넷 주소가 있으면
+두 번째 LaunchAgent `app.team-ax.office.tunnel`(번들의 `cloudflared`) 시작 → 주소·지문·링크 출력.
 `--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
 `--lan-port`·`--app-port`·`--helper-port`로 다른 번호를 고르라고 알려 줍니다.
 
@@ -76,6 +91,7 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 ## 3. 첫 설정 (소유자 계정)
 
 맥 미니에 열린 페이지(`http://localhost:47830/setup?token=…`; 다시 보려면 `~/TeamAX/teamax setup-link`)에서:
+(첫 설정은 **맥 미니에서**(또는 사무실 안 대체 경로의 데스크에서)만 됩니다. 인터넷 주소로는 토큰이 맞아도 거부합니다.)
 
 1. **팀 이름**: 예) `OO사무실`.
 2. **팀 언어**: **한국어** (브라우저가 한국어면 처음부터 한국어로 열립니다). 팀원 화면과 AI 답변의 기본 언어입니다.
@@ -83,11 +99,24 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 
 확인: 홈 화면이 열리고 오른쪽 위에 원장님 이름이 보입니다.
 
-그다음 **관리자 → 멤버**에서 데스크마다 **초대 링크**를 만듭니다(메일 발송 없음, 링크 복사). 맥 미니에서 만들어도 링크는
-데스크 주소(`https://192.168.x.x:8443/invite/…`)로 나옵니다. 메신저 등으로 각 데스크에 전달합니다.
+그다음 **관리자 → 멤버**에서 데스크마다 **초대 링크**를 만듭니다(메일 발송 없음, 링크 복사). 맥 미니에서 만들면 링크는
+인터넷 주소(`https://app.example.com/invite/…`; 인터넷 주소가 없으면 데스크 주소 `https://192.168.x.x:8443/…`)로
+나옵니다. 메신저 등으로 각 데스크에 전달합니다.
 초대 대신 **직접 추가**(임시 비밀번호, 첫 로그인 때 바꾸기)도 됩니다.
 
-## 4. 데스크 PC 10대 연결 (PC마다 5분)
+## 4. 데스크 PC 10대 연결 (PC마다 2분)
+
+### 기본: 인터넷 주소
+
+1. Edge에서 `https://app.example.com` (카드 맨 위의 인터넷 주소). 확인: 경고 없이 자물쇠, 로그인 화면.
+2. Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설치.
+3. 받은 초대 링크를 Edge에서 열어 가입. 확인: 채팅에서 "안녕하세요"를 보내면 답이 옵니다.
+
+인증서 설치는 필요 없습니다(Cloudflare의 공인 인증서). 집·휴대폰에서도 같은 주소입니다.
+
+### 사무실 안 대체 경로 (인터넷이 끊겼을 때)
+
+인터넷이 끊겨도 쓰려는 데스크만 아래를 한 번 해 둡니다. 로그인은 주소마다 따로입니다(앱도 주소마다 하나).
 
 ### ① 인증서 설치 (처음 한 번)
 
@@ -158,6 +187,9 @@ bash ~/Downloads/TeamAX-office-<새 버전>/office-install.sh
 
 | 증상 | 할 일 |
 |---|---|
+| 인터넷 주소: Cloudflare 오류 530 / 1033 / 502 | 맥 미니가 꺼졌거나 터널이 끊김. 맥 미니에서 `teamax public-address status`(`answers`, `cloudflared running`), `teamax status`, `teamax logs`(끝에 `tunnel.log`) |
+| 인터넷 주소: 403 "not open to your network" | 허용 목록(`TEAMAX_PUBLIC_ALLOW_FROM`·`TEAMAX_PUBLIC_COUNTRIES`, 9장)에 그 네트워크가 없음 |
+| 첫 설정 "인터넷 주소에서 할 수 없습니다" | 정상. 맥 미니에서 `teamax setup-link`의 `http://localhost…` 링크로 |
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
 | 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
 | 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
@@ -170,11 +202,26 @@ bash ~/Downloads/TeamAX-office-<새 버전>/office-install.sh
 
 명령 모음(`~/TeamAX/teamax …`): `status`, `info`(주소·지문, `~/TeamAX/ADDRESSES.txt`와 같음), `card`, `logs [n]`,
 `start` / `stop` / `restart`, `setup-link`, `reset-link [--username U]`, `backup`, `archive <파일>`,
-`restore-archive <파일> [--replace]`. 설정은 `~/TeamAX/config/office.env`를 고친 뒤 `teamax restart`
+`restore-archive <파일> [--replace]`, `public-address set <이름> <토큰 파일>` / `off` / `status`. 설정은 `~/TeamAX/config/office.env`를 고친 뒤 `teamax restart`
 (`config/server.json`은 시작마다 다시 쓰이므로 고치지 마세요). 제거: `bash office-uninstall.sh`(데이터는 남김,
 `--delete-data`는 전부 지움).
 
 ## 8. 보안 메모
+
+**인터넷 주소를 열었을 때 (꼭 읽기)**
+- 로그인 화면이 **인터넷 전체에** 보입니다. 원장님·관리자 비밀번호는 **길고 다른 곳에 쓰지 않는 것**(예: 단어 4개 + 숫자,
+  16자 이상)으로 정하세요. 팀원도 10자 이상(서버가 강제)이며, 퇴사자는 바로 **관리자 → 멤버 → 비활성**.
+- **2단계 인증(2FA)은 아직 없습니다.** 대신 로그인 시도 제한이 **접속한 사람의 실제 IP**(Cloudflare가 알려 주는
+  `CF-Connecting-IP`) 기준과 계정 기준으로 걸리고, 실패·제한은 감사 기록(**관리자 → 기록**)에 IP와 함께 남습니다.
+- **첫 설정(소유자 계정 만들기)은 인터넷 주소로 할 수 없습니다**(맥 미니 또는 사무실 안 데스크만). 설치 직후 누군가
+  먼저 소유자가 되는 일이 없습니다.
+- 인터넷 주소는 https만입니다(http는 https로 보냄, HSTS). 로그인 쿠키는 `__Host-`·Secure·HttpOnly, 다른 사이트에서 온
+  요청(Origin이 다른 것)은 403입니다. 맥 미니의 앱 포트는 그대로 `127.0.0.1`에만 열려 있고, 들어오는 포트를 공유기에서
+  열지 않습니다(cloudflared가 바깥으로 연결).
+- 환자 자료가 **Cloudflare를 거쳐** 갑니다(Cloudflare가 TLS를 끝내고 맥 미니까지는 터널 안). 이것이 안 되는 자료라면
+  인터넷 주소를 끄고(`teamax public-address off`) 사무실 안 경로만 쓰세요.
+- 더 좁히려면 `~/TeamAX/config/office.env`에 `TEAMAX_PUBLIC_COUNTRIES=KR`(한국에서만) 또는
+  `TEAMAX_PUBLIC_ALLOW_FROM=<치과 공인 IP>/32`(IPv4만; 이때 IPv6 손님은 거부) → `teamax restart`. 기본은 꺼짐.
 
 **사무실 모드가 지키는 것**
 - 폴더 권한과 채팅 비공개는 운영 모드와 **같은 권한 함수**가 모든 파일 접근(AI 도구 포함)에서 판단합니다. AI는 질문한
@@ -199,6 +246,48 @@ bash ~/Downloads/TeamAX-office-<새 버전>/office-install.sh
 - 그래서 지금은 **Team AX 전용 맥 미니, 개인 자료 없음, FileVault 켜기, 맥 미니 사용자 암호는 원장님만**을 권장합니다.
 - 서명·공증된 앱이 아닙니다(설치기가 다운로드 격리 표시를 지웁니다).
 
+## 9. 인터넷 주소 (Cloudflare Tunnel)
+
+구성: 데스크 → `https://<이름>` → Cloudflare(공인 인증서) → 터널 → 맥 미니의 `cloudflared`(LaunchAgent
+`app.team-ax.office.tunnel`) → `http://127.0.0.1:47830`(앱 포트). 서버는 이 길로 온 요청만(앱 포트 + 루프백 + Host가 그
+이름) https로 다루고, 손님 IP를 `CF-Connecting-IP`에서 읽습니다. 그 밖의 경로에서는 그 헤더를 무시합니다.
+
+**처음 만들기 (원장님/주인 맥에서, Cloudflare 로그인이 있는 맥)** — 저장소 체크아웃에서:
+```sh
+bun scripts/office/public-address.ts set app.example.com --cert ~/.cloudflared/cert-example.pem
+```
+- 그 이름의 존을 찾고, **존 꼭대기(`example.com`)는 거부**(`--allow-apex`가 없으면), 그 이름에 터널 CNAME이 아닌
+  기록(웹사이트·메일 등)이 하나라도 있으면 **아무것도 바꾸지 않고 거부**합니다. 다른 이름·기록은 건드리지 않습니다.
+- 그 이름이 가리키는 터널이 있으면 다시 쓰고, 없으면 `teamax-<이름>` 터널을 만듭니다(설정이 Cloudflare에 있는 원격 관리형).
+  터널 설정: 그 이름 → `http://127.0.0.1:47830`(Host 헤더 = 그 이름), 마지막은 `http_status:404`.
+- 그 이름의 **프록시 CNAME 하나만** 만들거나 고칩니다. 연결 토큰을 `~/.config/teamax-office/<이름>.tunnel-token`(600,
+  `--token-out`으로 바꿈)에 씁니다. 토큰은 화면·로그에 나오지 않습니다.
+- 자격 증명: `--cert`(cloudflared `cert.pem`, 한 존용 API 토큰이 들어 있음) 또는 `--api-token-file`(Zone:DNS:Edit +
+  Account:Cloudflare Tunnel:Edit 권한의 API 토큰 한 줄). `--dry-run`은 할 일만 보여 줍니다. `status <이름>`은 기록·터널·연결 수.
+
+**맥 미니에 넣기**: 토큰 파일을 AirDrop·USB로 옮긴 뒤 설치기에 `--public-host <이름> --tunnel-token-file <파일>`(2장),
+또는 이미 설치된 맥 미니에서:
+```sh
+~/TeamAX/teamax public-address set app.example.com ~/Downloads/app.example.com.tunnel-token
+rm ~/Downloads/app.example.com.tunnel-token
+```
+확인: `인터넷 주소가 답합니다 / the internet address answers`. `teamax public-address status`: `answers`, 터널 id,
+`cloudflared running`. 서버가 새 이름을 쓰도록 한 번 다시 켜집니다(몇 초).
+
+**주소 바꾸기 (명령 두 개)** — 예: `app.example.com` → `teamax.새도메인.com`
+1. 주인 맥: `bun scripts/office/public-address.ts set teamax.새도메인.com --cert <그 도메인의 cert.pem>`
+2. 맥 미니: 토큰 파일을 옮기고 `~/TeamAX/teamax public-address set teamax.새도메인.com <토큰 파일>`
+
+데스크는 새 주소를 Edge로 열고 앱을 다시 설치합니다(로그인·앱은 주소마다 따로). 옛 이름 정리(주인 맥):
+`bun scripts/office/public-address.ts remove app.example.com --cert ~/.cloudflared/cert-example.pem`
+(그 이름의 CNAME과, 다른 이름이 쓰지 않으면 그 터널과 토큰 파일을 지움. 터널 CNAME이 아닌 기록은 지우지 않음.)
+
+**끄기**: 맥 미니에서 `~/TeamAX/teamax public-address off`(cloudflared 멈춤, 토큰 지움, 사무실 안 경로는 그대로), 그다음
+주인 맥에서 위 `remove`. 업데이트(새 zip)는 인터넷 주소 설정과 토큰을 그대로 둡니다.
+
+**한도**: 요청 하나는 Cloudflare 무료 요금제의 100 MB를 넘지 않습니다. 50 MB가 넘는 파일은 웹 앱이 8 MB 조각으로 올립니다
+(120 MB 시험 통과). Cloudflare는 100초 동안 답이 없는 요청을 끊지만, 긴 작업은 이미 작업(job)과 WebSocket으로 갑니다.
+
 ## 부록 A. 번들 만들기 (개발 맥에서)
 
 ```sh
@@ -207,7 +296,7 @@ bun run build:office        # = ARCHS="arm64 amd64" bash native/build.sh && web 
 # → dist/office/TeamAX-office-<버전>-mac.zip  (약 130 MB)
 bun docs/install/build-pdf.ts --office   # docs/office/Team-AX-치과-설치가이드.pdf (zip에 함께 들어감)
 ```
-bun·ripgrep·pandoc은 GitHub 릴리스에서 버전과 SHA-256을 고정해 받습니다(`scripts/build-office.ts`의 `DOWNLOADS`,
+bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리스에서 버전과 SHA-256을 고정해 받습니다(`scripts/build-office.ts`의 `DOWNLOADS`,
 `dist/cache/`에 보관). zip에는 이 문서(`app/docs/OFFICE.md`)와 PDF가 들어갑니다.
 
 ## 부록 B. 운영 설치(역할 계정)로 옮기기
@@ -232,4 +321,7 @@ bun·ripgrep·pandoc은 GitHub 릴리스에서 버전과 SHA-256을 고정해 �
   `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`).
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
 - PDF 글자 추출은 `pdftotext`(Homebrew `poppler`)가 있을 때만 됩니다. docx·pptx는 번들의 pandoc으로 됩니다.
-- 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
+- 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
+- 인터넷 주소: 2FA 없음(8장). 허용 목록은 IPv4 CIDR과 나라(`CF-IPCountry`)만, 사람별 허용(Cloudflare Access 등)은 나중.
+  같은 맥의 다른 프로그램은 앱 포트에 그 이름으로 요청해 IP를 꾸밀 수 있습니다(계정별 로그인 제한은 그대로).
+- 실제 윈도우 PC·Edge로 인터넷 주소 앱 설치는 아직 확인하지 않았습니다(공인 인증서라 일반 웹사이트와 같음).

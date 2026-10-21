@@ -673,3 +673,44 @@ r3 재검증의 여섯 항목(이름 바꾼 그룹·프로젝트 폴더의 휴�
   IP가 바뀌면 데스크의 Edge 앱이 깨지므로 가이드는 DHCP 예약을 필수로 한다.
 - **남는 것**: 맥 이름을 바꾸거나 공유기를 바꿔 대역이 달라지면 그 이름·주소는 CA 제한 밖이라 인증서에 들어가지 않는다(새 CA
   만들기, 데스크 재설치: OFFICE.md 문제 해결). 윈도우 실기기 확인은 여전히 안 했다.
+
+## 사무실 모드 인터넷 주소 (feat/office-tunnel, 2026-10-21)
+
+치과 데스크가 인증서를 설치하지 않고 `https://app.example.com`으로 들어오게(사무실 밖·휴대폰 포함), 주소는 나중에
+쉽게 바꿀 수 있게. 사용법은 [OFFICE.md](OFFICE.md) 9장.
+
+- **Cloudflare Tunnel(원격 관리형) + 번들의 cloudflared.** 공유기 포트 열기·고정 IP·공인 인증서 갱신이 필요 없고, 맥 미니는
+  바깥으로만 연결한다. cloudflared 2026.10.0(darwin arm64/amd64, Cloudflare 서명)을 GitHub 릴리스에서 받아 압축 파일과 안의
+  프로그램 SHA-256을 둘 다 고정한다(`scripts/build-office.ts`). 두 번째 LaunchAgent `<label>.tunnel`(KeepAlive)로 돌고,
+  `--no-autoupdate`, 메트릭은 루프백, `--management-diagnostics=false`. 토큰은 `--token-file`(`config/tunnel-token`, 600)로만
+  넘겨 plist·argv·로그 어디에도 없다(e2e에서 확인).
+- **터널 요청의 판정은 한 곳**(`server/src/http/tunnel.ts`): 공개 이름이 설정돼 있고, 앱 포트(127.0.0.1)로, 루프백 피어에서,
+  Host가 그 이름일 때만. 그때만 요청을 `https://<이름><경로>`로 바꿔 앱에 넘기고(쿠키 `__Host-sid` Secure, CSRF·WebSocket
+  Origin, 링크가 모두 https 기준), 손님 IP는 `CF-Connecting-IP`(유효한 IP 하나일 때; 없으면 루프백 하나로 묶음). 그 밖의 경로
+  (LAN 포트, localhost Host, 공개 이름 없음)에서는 그 헤더를 무시한다. WebSocket은 Bun이 자기 요청 객체만 업그레이드하므로
+  원래 요청을 `env.upgradeReq`로 넘긴다. cloudflared에 `httpHostHeader`를 그 이름으로 고정해 Host가 늘 같다.
+- **Host 허용 목록에 공개 이름을 넣지 않는다.** 포트가 없는 Host라 리스너 포트 검사와 맞지 않고, 터널 판정이 이미 Host를
+  봤다. LAN 포트에 그 이름이 오면 421. `originsFor`는 터널 요청에 `https://<이름>` 하나만 준다. `originAllowed`의 "자기
+  자신" 비교가 스킴을 보게 했다(`http://<이름>` Origin이 https 주소로 통과하던 것). 평문 http 손님(`CF-Visitor`)은 GET이면
+  308로 https, 아니면 403. 터널 응답에 HSTS(`max-age=31536000`, 하위 도메인 없음: 꼭대기 웹사이트에 영향 없음).
+- **첫 설정은 인터넷 주소로 거부**(토큰이 맞아도 403 `setupNotRemote`). 맥 미니(localhost)와 사무실 안 데스크만. 설치 직후
+  누군가 먼저 소유자가 되는 길을 없앤다. 초대·재설정 링크는 공개 origin을 맨 앞에 둬 맥에서 만들어도 인터넷 주소로.
+- **선택 허용 목록**: `TEAMAX_PUBLIC_ALLOW_FROM`(IPv4 CIDR; IPv6 손님은 거부), `TEAMAX_PUBLIC_COUNTRIES`(`CF-IPCountry`).
+  기본 꺼짐. 값싸서 넣었다. 사람별 허용(Cloudflare Access)·2FA는 나중.
+- **업로드 크기**: 요청 하나의 최대는 이미 51 MB(작은 업로드 50 MB + 여유)이고 큰 파일은 8 MB 조각이라 Cloudflare 100 MB에
+  닿지 않는다. 바꾼 것 없음, 시험으로 고정(120 MB 조각 업로드·다운로드 e2e).
+- **Cloudflare 쪽은 주인 맥의 스크립트**(`scripts/office/public-address.ts set|remove|status`): cloudflared `cert.pem`(한 존용
+  API 토큰) 또는 API 토큰 파일. 존 꼭대기는 `--allow-apex` 없이는 거부, 그 이름에 터널 CNAME이 아닌 기록이 하나라도 있으면
+  아무것도 바꾸지 않고 거부, 그 이름의 프록시 CNAME 하나만 만들거나 고친다. 터널은 CNAME이 가리키는 것 → `--tunnel` 이름 →
+  새로 만들기 순. 인그레스는 그 이름 → `http://127.0.0.1:<앱 포트>`, 다른 이름의 규칙은 남기고 마지막 `http_status:404`.
+  remove는 그 이름의 터널 CNAME만 지우고, 다른 이름이 안 쓰면 연결 정리 후 터널도 지운다. 주소 바꾸기 = 새 이름으로 `set`
+  + 맥 미니에서 `teamax public-address set <새 이름> <토큰>`(+ 옛 이름 `remove`). 이름마다 터널이 따로라 다른 존·계정으로도
+  옮길 수 있다.
+- **시험**: `tests/unit/office-tunnel.test.ts`(CF-Connecting-IP 신뢰 규칙, 공개 이름의 Host/Origin, 터널 경로의 쿠키,
+  인터넷 첫 설정 거부, http 리다이렉트·허용 목록, IP별 로그인 제한, 설정·server.json·plist·토큰 파일, 가짜 Cloudflare API로
+  스크립트의 거부 규칙·생성·재사용·제거), `tests/install/office-tunnel-e2e.mjs`(zip 설치본 + 실제 테스트 이름으로 인터넷에서:
+  공인 인증서, 원격 첫 설정 거부, 맥에서 설정, 팀원 로그인, 작은 파일·120 MB, wss, Claude 1턴, 감사 기록의 공인 IP).
+  주소 바꾸기(테스트 이름 두 개)와 remove도 실제로 했고 테스트 이름·터널은 지웠다.
+- **실제 이름**: `app.example.com`의 터널 `teamax-office-app` 인그레스는 데모 포트(19100) 자리표시에서
+  `http://127.0.0.1:47830`(사무실 앱 포트)으로 바꿨다. DNS 기록은 그대로(이미 맞음), 꼭대기·다른 기록은 건드리지 않았다.
+

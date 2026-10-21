@@ -68,7 +68,10 @@ export const wsRoutes: RouteModule = {
           onClose() { hooks.closed = true; for (const f of hooks.close.splice(0)) f() },
         },
       }
-      const ok = server!.upgrade(req, { data, headers: chosen ? { 'Sec-WebSocket-Protocol': chosen } : undefined })
+      // Bun upgrades only the request object it handed over: through the office public address app.fetch got an https
+      // copy (http/tunnel.ts), the original is in env.upgradeReq. The hub checks the copy (https Origin, cookie name).
+      const original = (c.env as { upgradeReq?: Request } | undefined)?.upgradeReq ?? req
+      const ok = server!.upgrade(original, { data, headers: chosen ? { 'Sec-WebSocket-Protocol': chosen } : undefined })
       if (!ok) fail('bad_request', 'WebSocket upgrade failed')
       return new Response(null)
     })

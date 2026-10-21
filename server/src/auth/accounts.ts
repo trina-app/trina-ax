@@ -88,6 +88,9 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
 export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetupBody>): Promise<LoginResponse> {
   const locale = c.get('locale')
   if (userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
+  // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
+  // from the internet, whatever token is sent (http/tunnel.ts)
+  if (c.get('info').tunnel) fail('forbidden', msg('setupNotRemote', locale))
   const guard = tokenGuard(ctx, c.get('info').ip)
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
