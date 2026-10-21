@@ -857,7 +857,7 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, downloads: null, dev: false, devPort: 0 }) ?? new Response('no', { status: 404 }))
+    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0 }) ?? new Response('no', { status: 404 }))
     this.log.push(`${req.method} ${p}`)
     const route = this.routes.find((r) => r.ep.method === req.method && r.re.test(p))
     try {

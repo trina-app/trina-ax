@@ -8,6 +8,8 @@
 #   ~/TeamAX/teamax restore-archive [--in] <file> [--replace]
 #   ~/TeamAX/teamax public-address set <app.example.com> <token file> | off | status
 #                                                 the internet address (Cloudflare Tunnel, docs/OFFICE.md)
+#   ~/TeamAX/teamax desktop list | add <installer.exe|.dmg> [--version x.y.z] [--keep] | remove <file>
+#                                                 the desktop apps members download under Settings → Apps
 set -euo pipefail
 d=$(cd "$(dirname "$0")" && pwd)
 if [ -d "$d/app/server" ]; then H=$d; else H=$(dirname "$d"); fi
