@@ -106,31 +106,40 @@
 ;; file-history), the live-session registry with its messaging keys (~/.claude/sessions), and settings, hooks,
 ;; skills, plugins and config.toml that the owner's own unsandboxed CLIs load (writing them = escaping the sandbox).
 ;; SESSION_DIR: this turn's ~/.claude/projects/<chat folder slug>/ (the launcher passes it; Claude keeps the session
-;; transcript there in this mode). Codex's CODEX_HOME is in the chat folder and links to ~/.codex/auth.json.
+;; transcript there in this mode). Codex's CODEX_HOME is in the chat folder and links to ~/.codex/auth.json; the Codex
+;; paths open only with LOCAL_CODEX=1 (a Codex binary is configured: office mode turns Codex off, security round 4).
 (if (equal? (param "LOCAL_LOGIN") "1")
   (let* ((home (param "USER_HOME"))
          (in-home (lambda (p) (string-append home p))))
     (apply allow file-read-metadata
-      (map literal (append (path-and-ancestors (in-home "/.claude")) (path-and-ancestors (in-home "/.codex"))
+      (map literal (append (path-and-ancestors (in-home "/.claude"))
                            (ancestors (in-home "/.local/share/claude")) (ancestors (in-home "/Library/Keychains/-"))
                            (ancestors (in-home "/Library/Preferences/-")) (ancestors (param "SESSION_DIR")))))
-    ;; Claude Code: ~/.claude.json and its .lock / .tmp.* siblings, its backups, this turn's session folder,
-    ;; read-only settings.json (it reads it even with --setting-sources "") and the model catalog cache
+    ;; Claude Code: ~/.claude.json and only its real siblings (.lock, .tmp.<pid>.<time> of its atomic write, .backup*),
+    ;; its backups, this turn's session folder, read-only settings.json (it reads it even with --setting-sources "")
+    ;; and the model catalog cache. The name is anchored at both ends: an open prefix let a turn create any
+    ;; ~/.claude.json<anything> file, a store every other chat's turn could read (security round 4).
     (allow file-read* file-write*
-      (regex (string-append "^" (regex-quote home) "/\\.claude\\.json"))
+      (regex (string-append "^" (regex-quote home) "/\\.claude\\.json(\\.lock|\\.tmp\\.[^/]+|\\.backup[^/]*)?$"))
       (subpath (in-home "/.claude/backups"))
       (subpath (param "SESSION_DIR")))
     (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
-    ;; Codex: the login only
-    (allow file-read* file-write* (literal (in-home "/.codex/auth.json")))
-    ;; the installed CLIs (no secrets) and the login keychain (Security framework reads it in-process)
+    ;; Codex: the login and the installed CLI, only when Codex is on
+    (if (equal? (param "LOCAL_CODEX") "1")
+      (begin
+        (apply allow file-read-metadata (map literal (path-and-ancestors (in-home "/.codex"))))
+        (allow file-read* file-write* (literal (in-home "/.codex/auth.json")))
+        (allow file-read* (subpath (in-home "/.codex/packages")))))
+    ;; the installed CLI (no secrets) and the login keychain. The Security framework reads it in-process and rewrites
+    ;; login.keychain-db atomically when the CLI refreshes its token (.sb-* temp file renamed over it, -shm/-wal/-journal,
+    ;; the .fl* lock): only those names are writable, so a turn cannot create other files there, make folders or move
+    ;; the keychain away (it can still read and overwrite login.keychain-db itself: security round 4, documented).
     (allow file-read*
       (subpath (in-home "/.local/share/claude"))
-      (subpath (in-home "/.codex/packages"))
       (subpath (in-home "/Library/Keychains"))
       (literal (in-home "/Library/Preferences/com.apple.security.plist"))
       (subpath "/Library/Keychains") (subpath "/private/var/db/mds"))
-    (allow file-write* (subpath (in-home "/Library/Keychains")))
+    (allow file-write* (regex (string-append "^" (regex-quote home) "/Library/Keychains/(login\\.keychain-db(-shm|-wal|-journal|\\.sb-[0-9a-f]+-[A-Za-z0-9]+)?|\\.fl[0-9A-F]+)$")))
     (allow process-exec (literal "/usr/bin/security"))
     (allow mach-lookup
       (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc")

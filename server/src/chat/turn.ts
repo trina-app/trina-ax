@@ -14,6 +14,7 @@ import { ClaudeStreamParser } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
 import { audit } from '../admin/audit'
+import { guardOfficeClaudeJson } from '../engine/claude-json-guard'
 import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
@@ -126,6 +127,8 @@ export class TurnExec {
         else { this.rt.log.error('turn failed', { err: e, turn: this.id }); this.error = engineError('crash', this.spec.locale) }
       }
     } finally {
+      // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
+      if (this.spec.engine === 'claude-code') guardOfficeClaudeJson(this.rt.ctx, 'turn')
       await this.finish()
     }
   }
