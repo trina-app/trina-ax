@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Attachment, FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { draftChat, draftChatIfAny, forgetDraftChat } from '../lib/teamAttach'
+import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../lib/teamAttach'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
@@ -63,6 +63,9 @@ export default function Home() {
     const chatId = pending ? await pending : null
     const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model })
     forgetDraftChat(me.user.id, draftId)
+    // the current chat from now on, before the (lazily loaded) chat page mounts and says so itself: "Add to …" on the
+    // file screen was missing when the person went there that quickly (e2e team-files, flaky)
+    rememberChat(me.user.id, r.chatId)
     navigate(`/c/${r.chatId}`)
   }
 
