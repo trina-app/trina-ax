@@ -318,7 +318,9 @@ func codexLogin(line []byte, o *out, stop <-chan struct{}) error {
 	}
 	defer cleanup()
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(dir, "home"), "CODEX_HOME=" + dir, "TMPDIR=" + filepath.Join(dir, "tmp"),
+	// relative to the working folder, as for a turn: the profile closes the metadata of the agent root, so Codex could
+	// not canonicalize an absolute CODEX_HOME under it ("Operation not permitted", staging 2026-10-22)
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=./home", "CODEX_HOME=.", "TMPDIR=./tmp",
 		"LANG=en_US.UTF-8", "NO_COLOR=1", "SSL_CERT_FILE=/etc/ssl/cert.pem", "HTTPS_PROXY=" + req.Proxy}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	timeout := time.Duration(req.TimeoutMs) * time.Millisecond

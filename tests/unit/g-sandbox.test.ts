@@ -6,7 +6,7 @@ import os from 'node:os'
 import net from 'node:net'
 import path from 'node:path'
 import { nativeBinDir } from '../../server/src/config'
-import { SocketLauncher } from '../../server/src/native'
+import { codexDeviceLogin, SocketLauncher } from '../../server/src/native'
 import { WORK } from '../lib/env'
 
 const mac = process.platform === 'darwin' && fs.existsSync('/usr/bin/sandbox-exec') && !!Bun.which('cc')
@@ -351,6 +351,43 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
       // the link path itself stays closed (what the engine was handed before)
       expect(await run(['exec', path.join(W, 'app', 'current', 'native', 'mycel-bridge')])).not.toBe(0)
     } finally { p4.kill() }
+  })
+
+  // staging 2026-10-22: `codex login` as the engine account failed with "failed to canonicalize CODEX_HOME
+  // <agent>/codex-auth: Operation not permitted": the profile closes the agent root's metadata, and the login (unlike a
+  // turn) got absolute paths. The stand-in resolves CODEX_HOME like the real CLI and writes auth.json there.
+  test('codex-login under the profile: the CLI can resolve its CODEX_HOME (the auth folder inside the agent root)', async () => {
+    const dir = path.join(W, 'codexlogin')
+    const agent = path.join(dir, 'agent')
+    const auth = path.join(agent, 'codex-auth')
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.mkdirSync(auth, { recursive: true, mode: 0o700 })
+    const src = path.join(dir, 'codex.c')
+    fs.writeFileSync(src, `#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+int main(void) { const char *h = getenv("CODEX_HOME"); char r[PATH_MAX];
+  if (!h || !realpath(h, r)) { perror("canonicalize CODEX_HOME"); return 1; }
+  char f[PATH_MAX]; snprintf(f, sizeof f, "%s/auth.json", r); FILE *o = fopen(f, "w"); if (!o) { perror("auth.json"); return 1; }
+  fputs("{}", o); fclose(o); return 0; }
+`)
+    const eng = path.join(dir, 'engine')
+    fs.mkdirSync(eng)
+    const cc = Bun.spawnSync(['cc', '-O2', '-o', path.join(eng, 'codex'), src])
+    expect(cc.exitCode).toBe(0)
+    const sock5 = path.join(W, 'launcher5.sock')
+    const p5 = Bun.spawn([path.join(nativeBinDir(), 'mycel-launcher'), '--listen', sock5, '--agent-root', agent, '--bridge', '/nonexistent/bridge',
+      '--tools-sock', path.join(W, 'tools.sock'), '--allow-cmd', path.join(eng, 'codex'), '--sandbox-profile', PROFILE, '--proxy-port', String(PROXY),
+      '--codex-auth-dir', auth], { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' })
+    try {
+      const r = p5.stdout.getReader()
+      expect(new TextDecoder().decode((await r.read()).value)).toContain('ready')
+      r.releaseLock()
+      let out = ''
+      const res = await codexDeviceLogin(sock5, { cmd: path.join(eng, 'codex'), proxy: `http://turn:${'t'.repeat(32)}@127.0.0.1:${PROXY}` }, { output: (t) => { out += t } })
+      expect({ code: res.code, out }).toEqual({ code: 0, out: '' })
+      expect(fs.existsSync(path.join(auth, 'auth.json'))).toBe(true)
+    } finally { p5.kill() }
   })
 
   // security audit r1: the server starts the launcher with an empty environment; USER_HOME came from $HOME, so it was
