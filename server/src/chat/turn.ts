@@ -8,7 +8,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { TEAM_TOOL_PREFIX, type EngineEvent } from '@mycel/shared'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest } from '@mycel/shared/api'
-import { buildClaudeLaunch, type ClaudeConf } from '../engine/claude'
+import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
@@ -246,7 +246,8 @@ export class TurnExec {
       const tunnelPort = !claude.modelProxy && claude.connectProxy ? core.proxy?.port ?? null : null
       if (!claude.modelProxy && claude.connectProxy && !core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
       if (!resume) sid = crypto.randomUUID()
-      let model = safeModel(spec.model) ? spec.model : undefined
+      // subscription mode: Opus unless someone chose (also makes the refusal retry's "other model" really another one)
+      let model = safeModel(spec.model) ? spec.model : claude.modelProxy?.kind === 'oauth' ? SUBSCRIPTION_DEFAULT_MODEL : undefined
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
         const parser = new ClaudeStreamParser()

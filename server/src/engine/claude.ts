@@ -55,6 +55,12 @@ export function sessionLocation(conf: ClaudeConf, chatDir: string) {
   return { restoreDir: path.join(projects, 'restored'), collectDir: projects }
 }
 
+/** The model of a subscription-mode turn nobody chose a model for. With an injected token (our per-turn token on fd 3)
+ * Claude Code cannot tell the plan and starts on Sonnet, where the Mac's stored Max login starts on Opus (Claude Code
+ * 2.1.305/2.1.306, seen on the staging install 2026-10-22: every turn was claude-sonnet-*). A team default, chat or
+ * personal model still wins; company-key mode keeps Claude Code's own default (API pricing). */
+export const SUBSCRIPTION_DEFAULT_MODEL = 'opus'
+
 /** Claude Code gives up on an MCP tool call after this (ask_user / browser site confirmations wait up to 15 minutes). */
 export const MCP_TOOL_TIMEOUT_MS = 1_800_000
 

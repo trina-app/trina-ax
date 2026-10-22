@@ -124,6 +124,15 @@ describe.skipIf(!mac)('subscription mode (same user): engine -> fd token -> mode
     expect(done.content).toBe(`envSecrets=none argvSecrets=none fdVar=3 base=http://127.0.0.1:${core.proxy!.port}`)
   })
 
+  // staging 2026-10-22: with the fd token Claude Code starts on Sonnet (it cannot tell the plan); every turn was Sonnet
+  test('no model chosen: the turn asks for Opus; a chosen model still wins', async () => {
+    const a = await ask(h, alice, 'alice', (await newChat()).id, fake({ echo: 'model' }), { ms: 30_000 })
+    expect(a.done.content).toBe('model=opus')
+    const chat = await h.api('alice').call(API.createChat, { body: { model: 'sonnet' } })
+    const b = await ask(h, alice, 'alice', chat.id, fake({ echo: 'model' }), { ms: 30_000 })
+    expect(b.done.content).toBe('model=sonnet')
+  })
+
   test('the sandbox lets the engine reach the proxy only (not the model service directly)', async () => {
     const chat = await newChat()
     const { done } = await ask(h, alice, 'alice', chat.id, fake({ direct: `http://127.0.0.1:${upstream.port}/` }, { model: 'after' }), { ms: 30_000 })
