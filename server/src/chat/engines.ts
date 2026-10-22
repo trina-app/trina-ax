@@ -106,11 +106,12 @@ export class LocalEngines implements EngineProvider {
   }
 }
 
-/** Codex on the engine account (production) is "beta" until the open checks of design tab 2 "Codex 네트워크" pass
- * (WebSocket transport through the tunnel, token refresh and web search with pf on, the target "proxy swaps the
- * token" setup): it is labelled beta, cannot be the team default, and only the owner plus the people in the setting
- * `codexUsers` (ids; empty by default) may use it. Dev mode (the owner's own login) is not affected. */
-export const CODEX_PROD_BETA = true
+/** Codex on the engine account (production) was "beta" until the open checks of design tab 2 "Codex 네트워크" passed:
+ * on the staging install 2026-10-22 (pf on, the engine account without direct internet) real turns, the team tools,
+ * a forced token refresh written back to codex-auth, and web search all worked through the tunnel. While beta it is
+ * labelled beta, cannot be the team default, and only the owner plus the people in the setting `codexUsers` (ids;
+ * empty by default) may use it. Dev mode (the owner's own login) is not affected. */
+export const CODEX_PROD_BETA = false
 export const codexIsBeta = (ctx: { config: { mode: 'dev' | 'prod' } }) => CODEX_PROD_BETA && ctx.config.mode === 'prod'
 export function codexBetaAllowed(db: Database, user: { id: string; role: string }): boolean {
   if (user.role === 'owner') return true

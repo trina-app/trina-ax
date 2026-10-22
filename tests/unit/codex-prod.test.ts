@@ -18,6 +18,7 @@ import { CODEX_LOGIN_BOUND, CODEX_LOGIN_PENDING } from '../../server/src/proxy/c
 import { codexDeviceLogin, codexLoginState, codexLogout, SocketLauncher, startLauncher } from '../../server/src/native'
 import { codexCommand, parseDeviceLogin } from '../../server/src/system/codex-login'
 import { nativeBinDir } from '../../server/src/config'
+import { CODEX_PROD_BETA } from '../../server/src/chat/engines'
 import type { AppConfig } from '../../server/src/app-config'
 
 setDefaultTimeout(30_000)
@@ -378,24 +379,16 @@ describe('Codex turns of the engine account (fake Codex through the real launche
       expect(r.done.content).toBe('')
     } finally { fs.writeFileSync(authFile(), saved, { mode: 0o600 }) }
   })
-  test('production: Codex is beta — owner only (plus settings.codexUsers), never the team default', async () => {
+  test('production: Codex is no longer beta (CODEX_PROD_BETA off): every member may use it and it may be the team default', async () => {
+    expect(CODEX_PROD_BETA).toBe(false)
     const cfg = h.ctx.config as { mode: 'dev' | 'prod' }
     cfg.mode = 'prod'
     try {
-      const a = await ask(h, alice, 'alice', (await newChat()).id, fake({ say: 'hi' }))
-      expect(a.done.status).toBe('error')
-      expect(a.done.error?.code).toBe('forbidden')
-      expect(a.done.error?.message).toMatch(/beta/i)
-      const d = await ask(h, dana, 'dana', (await newChat('dana')).id, fake({ say: 'owner ok' }))
-      expect(d.done.content).toBe('owner ok')
-      h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('codexUsers', ?)").run(JSON.stringify(['alice']))
-      const a2 = await ask(h, alice, 'alice', (await newChat()).id, fake({ say: 'picked' }))
-      expect(a2.done.content).toBe('picked')
-      h.ctx.db.query("DELETE FROM settings WHERE key = 'codexUsers'").run()
-      let err: unknown = null
-      try { await h.api('dana').call(API.updateEngines, { body: { defaultEngine: 'codex' } }) } catch (e) { err = e }
-      expect(err).toBeInstanceOf(ApiError)
-      expect((err as ApiError).status).toBe(409)
+      const a = await ask(h, alice, 'alice', (await newChat()).id, fake({ say: 'member ok' }))
+      expect(a.done.content).toBe('member ok')
+      const r = await h.api('dana').call(API.updateEngines, { body: { defaultEngine: 'codex' } })
+      expect(r.defaultEngine).toBe('codex')
+      await h.api('dana').call(API.updateEngines, { body: { defaultEngine: 'claude-code' } })
     } finally { cfg.mode = 'dev' }
   })
   test('the fake login stays the harness\'s (sanity)', () => { expect(auth().tokens.account_id).toBe(FAKE_CODEX_AUTH.tokens.account_id) })

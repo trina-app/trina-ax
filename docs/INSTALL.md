@@ -29,7 +29,7 @@ model proxy on `127.0.0.1:47821`. The proxy adds the owner's `claude setup-token
 account can read; the engine only ever gets a per-turn token. This path is tested as the current user
 (`tests/unit/g-subscription.test.ts`, also with the real `claude` binary against a fake model service) and in the
 role-account install test (2.0), which needs `sudo` and has not been run on this Mac yet. Codex runs through the same
-proxy, as beta (2.5).
+proxy (2.5).
 
 There is **no email** anywhere, by design. Invites and password resets are links an admin copies and sends.
 
@@ -209,7 +209,7 @@ The owner's steps, in order:
 | 2.2 Bundle | `bun run build:bundle` | `dist/release/root/` has `set-claude-token` and `mycel-account` |
 | 2.3 Check, then install | `scripts/install-macos.sh --check …`, then the same with `sudo` and without `--check` | `install: installed mycel 0.1.0 …`; `curl -s http://127.0.0.1:47820/api/health` |
 | 2.4 Claude token | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
-| 2.5 Codex login (optional, beta) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
+| 2.5 Codex login (optional) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
 | 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
 | 2.7 Verify | Admin → System → Diagnostics, then a chat | Claude Code "Signed in (setup-token)", model proxy "Listening on 127.0.0.1:47821", Claude answers |
 
@@ -416,10 +416,9 @@ account."
   ```
 - For each Codex turn the launcher copies the login into the chat folder. If Codex refreshes the token, the launcher
   writes it back, but only a plain file for the same ChatGPT account. One Codex turn runs at a time.
-- **Codex is beta in production.** Only the owner can use it, plus anyone whose user id is in the setting
-  `codexUsers` (a list of user ids; there is no screen for it yet). It cannot be the team default.
-  - Verified so far: the login and the HTTPS path go through the proxy with the sandbox on.
-  - Not yet verified with a real login: Codex WebSockets, token refresh and web search with pf on.
+- **Codex in production** was beta until it was checked with a real ChatGPT login on a staging install
+  (2026-10-22, sandbox and pf on): sign-in, answers with the team tools, a token refresh written back to
+  `agent/codex-auth`, and web search all go through the proxy. Every member may use it and it may be the team default.
 
 ### 2.6 First-run setup
 
@@ -458,7 +457,7 @@ owner's other sessions are signed out. The tool runs the bundled account CLI as 
 
 | Where | What it shows |
 |---|---|
-| Admin → AI engines | Claude Code: "Engine account sign-in"; not signed in until the token is stored (2.4). Codex (beta): "The engine account has no Codex sign-in yet" until 2.5, then "Connected". |
+| Admin → AI engines | Claude Code: "Engine account sign-in"; not signed in until the token is stored (2.4). Codex: "The engine account has no Codex sign-in yet" until 2.5, then "Connected". |
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | Without the token: "The team's Claude subscription is not connected yet." With it: Claude answers. |
 
@@ -751,10 +750,9 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
    real `claude` binary (2.1.306, against a fake model service) and is covered by
    `sudo bun tests/install/g-macos-install.ts` (2.0), which has not been run on this Mac. A real answer also needs the
    owner's `claude setup-token` token; no answer from Anthropic through the proxy has been seen yet.
-2. **Codex in production is beta.** It works through the model proxy: `engine.codexBin`, the locked catalog,
-   `agent/codex-auth` and `admin.js codex-login` (2.5). Only the owner (plus `codexUsers`, no screen) can use it, and
-   it cannot be the default. The open checks with a real ChatGPT login and pf on are WebSockets, token refresh and web
-   search. Only the single `codex` executable is installed, not its helper files.
+2. **Codex in production** works through the model proxy: `engine.codexBin`, the locked catalog,
+   `agent/codex-auth` and `admin.js codex-login` (2.5); checked with a real ChatGPT login and pf on (answers, token
+   refresh, web search). Only the single `codex` executable is installed, not its helper files.
 3. **The menubar app has no token step, setup assistant, "Repair firewall", "Reinstall" or uninstall.** The token is
    stored with `set-claude-token` in Terminal (2.4); repairs are an installer re-run (2.7).
 4. **The model proxy's caller check compares only the session id** (ancestor chain and start time are follow-ups).
