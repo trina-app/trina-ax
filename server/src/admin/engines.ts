@@ -155,7 +155,8 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
   const models = id === 'claude-code' ? CLAUDE_MODELS : codexModels(env)
   if (!version) {
     const missing = v.error || v.code === 127 || /ENOENT|not found|No such file/i.test(v.error ?? v.stderr)
-    return { ...base, installed: false, version: null, status: missing || v.code === null ? 'not_installed' : 'error', detail: missing ? t('notInstalled', locale) : t('error', locale, { e: (v.stderr || v.stdout).trim().slice(0, 200) }), models }
+    // a timeout is not "not installed" (a first start after a long idle can take over 10 s): an error, kept in the picker
+    return { ...base, installed: false, version: null, status: missing ? 'not_installed' : 'error', detail: missing ? t('notInstalled', locale) : t('error', locale, { e: (v.stderr || v.stdout || (v.timedOut ? 'timeout' : '')).trim().slice(0, 200) }), models }
   }
   const out = (status: EngineStatus['status'], detail: string | null): EngineStatus => ({ ...base, installed: true, version, status, detail, models })
   if (id === 'codex' && env.mode === 'prod' && !models.length) return out('error', t('codexCatalog', locale))

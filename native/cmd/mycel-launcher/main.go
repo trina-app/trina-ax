@@ -567,14 +567,17 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if err := write(sysFile, req.SystemPrompt); err != nil {
 		return err
 	}
+	// the engine starts the bridge by its resolved path, the one the sandbox profile allows (BRIDGE): an installed
+	// --bridge goes through app/current, a link the sandboxed engine may not read, and the team tools failed with EPERM
+	bridge, sock := resolvePath(*bridgePath), resolvePath(*toolsSock)
 	mcpFile := filepath.Join(turn, "mcp.json")
 	mcp, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"team": map[string]any{
-		"type": "stdio", "command": *bridgePath, "args": []string{"--turn-dir", ".", "--sock", *toolsSock}}}})
+		"type": "stdio", "command": bridge, "args": []string{"--turn-dir", ".", "--sock", sock}}}})
 	if err := write(mcpFile, string(mcp)); err != nil {
 		return err
 	}
 	subst := strings.NewReplacer("{MCP_CONFIG}", mcpFile, "{SYSTEM_PROMPT_FILE}", sysFile, "{TURN_DIR}", turn,
-		"{CHAT_DIR}", chat, "{BRIDGE}", *bridgePath, "{TOOLS_SOCK}", *toolsSock)
+		"{CHAT_DIR}", chat, "{BRIDGE}", bridge, "{TOOLS_SOCK}", sock)
 	for _, f := range req.Files {
 		p := filepath.Join(chat, filepath.Clean(subst.Replace(f.Rel)))
 		if !inside(chat, p) {

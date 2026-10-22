@@ -325,6 +325,34 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
     } finally { p3.kill() }
   })
 
+  // staging 2026-10-22: an install passes --bridge <install>/app/current/native/mycel-bridge; the profile allows the
+  // resolved path only, and the engine, started with the link path from mcp.json, got EPERM: no team tools at all
+  test('a --bridge through a link (app/current): the engine starts the bridge by the path the profile allows', async () => {
+    const v1 = path.join(W, 'app', 'versions', 'v1', 'native')
+    fs.mkdirSync(v1, { recursive: true })
+    fs.copyFileSync('/usr/bin/true', path.join(v1, 'mycel-bridge'))
+    fs.chmodSync(path.join(v1, 'mycel-bridge'), 0o755)
+    fs.rmSync(path.join(W, 'app', 'current'), { force: true })
+    fs.symlinkSync('versions/v1', path.join(W, 'app', 'current'))
+    const sock4 = path.join(W, 'launcher4.sock')
+    const p4 = Bun.spawn([path.join(nativeBinDir(), 'mycel-launcher'), '--listen', sock4, '--agent-root', AGENT,
+      '--bridge', path.join(W, 'app', 'current', 'native', 'mycel-bridge'), '--tools-sock', path.join(W, 'tools.sock'),
+      '--allow-cmd', PROBE, '--sandbox-profile', PROFILE, '--proxy-port', String(PROXY)], { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' })
+    try {
+      const r = p4.stdout.getReader()
+      expect(new TextDecoder().decode((await r.read()).value)).toContain('ready')
+      r.releaseLock()
+      const run = async (args: string[]) => {
+        const h = new SocketLauncher(sock4).launch({ op: 'run', turnId: 'tl' + Math.random().toString(36).slice(2, 8), chatDir: CHAT, cmd: PROBE, args, env: {}, token: 'x', systemPrompt: '', stdin: '', timeoutMs: 10_000 })
+        for await (const ev of h.events) if (ev.ev === 'exit') return ev.code
+        return null
+      }
+      expect(await run(['exec', '{BRIDGE}'])).toBe(0)
+      // the link path itself stays closed (what the engine was handed before)
+      expect(await run(['exec', path.join(W, 'app', 'current', 'native', 'mycel-bridge')])).not.toBe(0)
+    } finally { p4.kill() }
+  })
+
   // security audit r1: the server starts the launcher with an empty environment; USER_HOME came from $HOME, so it was
   // "" and the LOCAL_LOGIN rules opened "/.claude" instead of the owner's login (dev engines: "Not logged in").
   test('--local-login with an empty environment: USER_HOME is the account\'s home', async () => {
