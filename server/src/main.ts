@@ -187,14 +187,20 @@ if (import.meta.main) {
   // under mycel-bootstrap (production): the server runs in its own process group, so a bootstrap killed outright
   // (launchd's SIGKILL, `launchctl kill 9`) left it running, holding the port with the old version while every new
   // bootstrap failed to start one (found by the medical fork, docs/UPSTREAM-CANDIDATES.md there, item 6)
-  watchSupervisor(process.env.MYCEL_SUPERVISOR_PID, () => process.ppid, () => void shutdown('supervisor gone'))
+  watchSupervisor(process.env.MYCEL_SUPERVISOR_PID, processAlive, () => void shutdown('supervisor gone'))
 }
 
-/** Calls onGone once the process that started us (pid in MYCEL_SUPERVISOR_PID) is no longer our parent. */
-export function watchSupervisor(pidVar: string | undefined, ppid: () => number, onGone: () => void, everyMs = 2_000): (() => void) | null {
+/** kill(pid, 0): no such process = gone. (Bun keeps process.ppid from the start: it never changes when the parent
+ * exits, which is how a first version of this check missed a killed bootstrap on the staging install.) */
+export function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH' }
+}
+
+/** Calls onGone once the process that started us (pid in MYCEL_SUPERVISOR_PID) has exited. */
+export function watchSupervisor(pidVar: string | undefined, alive: (pid: number) => boolean, onGone: () => void, everyMs = 2_000): (() => void) | null {
   const supervisor = Number(pidVar)
   if (!Number.isInteger(supervisor) || supervisor <= 1) return null
-  const t = setInterval(() => { if (ppid() !== supervisor) { clearInterval(t); onGone() } }, everyMs)
+  const t = setInterval(() => { if (!alive(supervisor)) { clearInterval(t); onGone() } }, everyMs)
   t.unref()
   return () => clearInterval(t)
 }

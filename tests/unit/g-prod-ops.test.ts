@@ -18,7 +18,7 @@ import { CoreUnavailableError, createContext, startLocalCore, type AppContext } 
 import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger, type Logger } from '../../server/src/log'
-import { checkSocketPaths, watchSupervisor } from '../../server/src/main'
+import { checkSocketPaths, processAlive, watchSupervisor } from '../../server/src/main'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
 import { systemTestHooks } from '../../server/src/routes/system'
 import type { AuthInfo, SessionService } from '../../server/src/services'
@@ -438,18 +438,25 @@ describe('connection change: relay team name, official relay only when it runs',
 // left it running and holding the port
 describe('under mycel-bootstrap: the server ends when its supervisor is gone', () => {
   test('no supervisor variable (dev, office): nothing is watched', () => {
-    expect(watchSupervisor(undefined, () => 1, () => {})).toBeNull()
-    expect(watchSupervisor('1', () => 1, () => {})).toBeNull()
-    expect(watchSupervisor('abc', () => 1, () => {})).toBeNull()
+    expect(watchSupervisor(undefined, () => true, () => {})).toBeNull()
+    expect(watchSupervisor('1', () => true, () => {})).toBeNull()
+    expect(watchSupervisor('abc', () => true, () => {})).toBeNull()
   })
-  test('the parent changes (bootstrap killed, re-parented to launchd): onGone once', async () => {
-    let parent = 4242, gone = 0
-    const stop = watchSupervisor('4242', () => parent, () => { gone++ }, 20)!
+  test('the supervisor exits (bootstrap killed): onGone once', async () => {
+    let up = true, gone = 0
+    const stop = watchSupervisor('4242', () => up, () => { gone++ }, 20)!
     await Bun.sleep(80)
     expect(gone).toBe(0)
-    parent = 1
+    up = false
     await Bun.sleep(80)
     expect(gone).toBe(1)
     stop()
+  })
+  test('processAlive: a real child that exited is gone (Bun never updates process.ppid, so the check uses kill 0)', async () => {
+    const c = Bun.spawn(['sleep', '30'])
+    expect(processAlive(c.pid)).toBe(true)
+    c.kill('SIGKILL'); await c.exited
+    expect(processAlive(c.pid)).toBe(false)
+    expect(processAlive(process.pid)).toBe(true)
   })
 })
