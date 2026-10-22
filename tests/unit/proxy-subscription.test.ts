@@ -1,7 +1,7 @@
 // Subscription mode of the model proxy (design tab 1 "프록시 동작"): the owner's setup-token replaces the engine's
 // per-turn token on the way out and never comes back; headers are filtered; SSE streams through unbuffered; the engine
 // hanging up cancels the upstream request; upstream 401 / 429 / unreachable; the token file's states for diagnostics;
-// the port taken by someone else (fail closed, retry).
+// the port taken by someone else (fail closed, retry); refused and failed requests in the server log, without secrets.
 import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -49,9 +49,11 @@ env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?, 'c', '
 const events: ProxyTurnEvent[] = []
 const rejected: (string | null)[] = []
 let secret: string | null = REAL
+const logged: Record<string, unknown>[] = []
+const log = { warn: (msg: string, f: Record<string, unknown> = {}) => { logged.push({ msg, ...f }) } }
 const proxy = await startModelProxy({
   db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: () => secret },
-  onTurnEvent: (t, ev) => { if (t === turnId) events.push(ev) }, onAuthRejected: (s) => rejected.push(s),
+  onTurnEvent: (t, ev) => { if (t === turnId) events.push(ev) }, onAuthRejected: (s) => rejected.push(s), log,
 })
 afterAll(() => { proxy.stop(); upstream.stop(true) })
 const body = (o: Record<string, unknown> = {}) => JSON.stringify({ model: 'claude-sonnet-x', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }], ...o })
@@ -127,6 +129,32 @@ describe('subscription proxy', () => {
     secret = REAL
   })
 
+  test('refused and failed requests are logged with status and reason only, never a token', async () => {
+    logged.length = 0
+    mode = '401'
+    expect((await call(tok)).status).toBe(401)
+    mode = 'ok'
+    expect((await call(tok, {}, body({ mcp_servers: [{ url: 'https://example.com' }] }))).status).toBe(403)
+    expect(logged).toEqual([
+      { msg: 'model proxy: request not ok', status: 401, path: '/v1/messages', reason: 'authentication_error: invalid bearer token' },
+      { msg: 'model proxy: request not ok', status: 403, path: '/v1/messages', reason: 'permission_error: refused by the team server: mcp_servers is not allowed' },
+    ])
+    // the model service out of reach, and the request handler itself throwing: both 502
+    const dead = await startModelProxy({ db: env.db, upstream: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth', secret: REAL }, log })
+    const throws = await startModelProxy({ db: env.db, upstream: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth', secret: REAL }, log, peerCheck: async () => { throw new Error('peer lookup broke') } })
+    for (const p of [dead, throws]) {
+      const r = await fetch(p.url + '/v1/messages', { method: 'POST', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: body() })
+      expect(r.status).toBe(502)
+      p.stop()
+    }
+    expect(logged.slice(2)).toEqual([
+      { msg: 'model proxy: request not ok', status: 502, path: '/v1/messages', reason: 'api_error: the model service could not be reached' },
+      { msg: 'model proxy: request failed', err: 'peer lookup broke' },
+    ])
+    const all = JSON.stringify(logged)
+    expect(all).not.toContain(REAL); expect(all).not.toContain(tok); expect(all).not.toContain('example.com')
+  })
+
   test('429: a short retry-after passes through; the subscription limit becomes 403 subscription_limited and holds', async () => {
     mode = '429short'; events.length = 0
     let r = await call(tok)
@@ -196,13 +224,15 @@ describe('proxy port', () => {
   test('taken by another program: no turns (not ready), retried until it is free', async () => {
     const squatter = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('squat') })
     const port = squatter.port!
-    const svc = new ModelProxyService({ db: env.db, port, upstreamUrl: 'http://127.0.0.1:9', secretsDir: env.fx.data, retryMs: 100 }).start()
+    const warned: Record<string, unknown>[] = []
+    const svc = new ModelProxyService({ db: env.db, port, upstreamUrl: 'http://127.0.0.1:9', secretsDir: env.fx.data, retryMs: 100, log: { info() {}, warn: (msg, f) => { warned.push({ msg, ...f }) } } }).start()
     await svc.started
     expect(svc.state).toBe('port_in_use'); expect(svc.ready).toBe(false)
     squatter.stop(true)
     expect(await waitFor(() => svc.ready, { timeoutMs: 3000 })).toBe(true)
     const r = await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST' })
     expect(r.status).toBe(401) // our proxy now
+    expect(warned.at(-1)).toEqual({ msg: 'model proxy: request not ok', status: 401, path: '/v1/messages', reason: 'authentication_error: missing proxy token' })
     svc.stop()
   })
 })

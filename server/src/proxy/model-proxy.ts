@@ -56,6 +56,9 @@ export interface ProxyOpts {
   connect?: Omit<ConnectOpts, 'db'>
   port?: number
   hostname?: string
+  /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
+   * or a credential). Without it the reason is lost: the engine shows most refusals as an authentication failure. */
+  log?: { warn(msg: string, f?: Record<string, unknown>): void }
 }
 
 // ---------------- forwarding rules (design tab 7 "모델 프록시를 통한 외부 전송", tab 3 "프록시 전달 규칙") ----------------
@@ -322,7 +325,21 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const ip = srv.requestIP(req)
       const clientPort = ip ? links.get(ip.port) : undefined
       if (clientPort === undefined) return apiError(403, 'permission_error', 'not through the model proxy port')
-      try { return await handle(req, clientPort) } catch { return apiError(502, 'api_error', 'the team server could not reach the model API') }
+      let res: Response
+      try { res = await handle(req, clientPort) } catch (e) {
+        o.log?.warn('model proxy: request failed', { err: String((e as Error)?.message ?? e).slice(0, 200) })
+        return apiError(502, 'api_error', 'the team server could not reach the model API')
+      }
+      // our refusals carry the message written above, the model service's its own error type and message
+      if (res.status >= 400 && o.log) {
+        let reason = ''
+        try {
+          const j = await res.clone().json() as { error?: { type?: unknown; message?: unknown } }
+          reason = `${String(j.error?.type ?? '')}: ${String(j.error?.message ?? '')}`.slice(0, 200)
+        } catch {}
+        o.log.warn('model proxy: request not ok', { status: res.status, path: new URL(req.url).pathname.slice(0, 120), reason })
+      }
+      return res
     },
   })
   const onConnect = o.connect ? codexConnectHandler({ db, ...o.connect }) : null

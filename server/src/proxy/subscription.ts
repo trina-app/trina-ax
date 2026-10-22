@@ -120,7 +120,7 @@ export class ModelProxyService {
   start(): this {
     if (this.state === 'stopped') return this
     this.started = startModelProxy({
-      db: this.o.db, port: this.o.port,
+      db: this.o.db, port: this.o.port, ...(this.o.log ? { log: this.o.log } : {}),
       upstream: this.o.upstreamUrl === null ? null : { baseUrl: this.o.upstreamUrl, kind: 'oauth', secret: () => this.tokens.read() },
       peerCheck: this.o.peerCheck,
       ...(this.o.connect ? { connect: this.o.connect } : {}),
