@@ -147,6 +147,9 @@ export function mergeFresh(current: ViewMessage[], fresh: Message[]): ViewMessag
     if (cur && m.status === 'streaming' && cur.status === 'streaming' && cur.content.length > m.content.length && cur.content.startsWith(m.content)) {
       return { ...m, content: cur.content }
     }
+    // a reload that left the server while the answer was still running, answered after message.done: the finished
+    // message is newer (staging 2026-10-22: the answer stayed cut at its first line until the page was reloaded)
+    if (cur && m.status === 'streaming' && cur.status !== 'streaming' && !cur.local) return cur
     return m
   })
   for (const m of current) if (m.local && !out.some((x) => x.id === m.id)) out.push(m)
