@@ -194,6 +194,16 @@ describe.skipIf(!mac)('engine.sb (sandbox-exec)', () => {
     expect(ll('write', path.join(mine, 'new.jsonl'))).toBe(0)
     expect(ll('read', path.join(H, '.codex', 'auth.json'))).toBe(0)
     expect(ll('stat', path.join(H, '.claude'))).toBe(0)
+    // the login refresh lock (Claude Code 2.1.305): without it every question failed 8 hours after the last refresh
+    expect(ll('mkdir', path.join(H, '.claude', '.oauth_refresh.lock'))).toBe(0)
+    expect(ll('mkdir', path.join(H, '.claude.lock'))).toBe(0)
+    expect(ll('write', path.join(H, '.claude', '.oauth_refresh.lock.owner'))).toBe(0)
+    expect(ll('write', path.join(H, '.claude', '.oauth_refresh.lock.owner.tmp.42.0fcd31173c31'))).toBe(0)
+    expect(ll('write', path.join(H, '.claude', '.oauth_refresh.lock.ownerx'))).not.toBe(0)
+    expect(ll('write', path.join(H, '.claude.lockx'))).not.toBe(0)
+    expect(ll('symlink', path.join(H, '.claude', 'settings.json'), path.join(H, '.claude', '.oauth_refresh.lock.owner'))).not.toBe(0)
+    expect(ll('hardlink', path.join(H, '.claude', 'settings.json'), path.join(H, '.claude.lock'))).not.toBe(0)
+    expect(probeWith({ localLogin: false, home: H }, 'mkdir', path.join(H, '.claude', '.oauth_refresh.lock'))).not.toBe(0)
     // the owner's other sessions, the session registry and its keys, history
     expect(ll('read', path.join(other, 's.jsonl'))).not.toBe(0)
     expect(ll('stat', path.join(other, 's.jsonl'))).toBe(1)
