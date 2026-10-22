@@ -521,6 +521,8 @@ write_plist() {  # label user group throttle keepalive(true/false) interval umas
     if [ "$keep" = true ]; then echo '  <key>KeepAlive</key><true/>'; echo "  <key>ThrottleInterval</key><integer>$throttle</integer>"; fi
     [ "$interval" != 0 ] && echo "  <key>StartInterval</key><integer>$interval</integer>"
     echo "  <key>Umask</key><integer>$um</integer>"
+    # the server job: longer than the bootstrap's own 20 s grace for the server, so launchd does not SIGKILL it first
+    case "$label" in *.server) echo '  <key>ExitTimeOut</key><integer>40</integer>' ;; esac
     echo '  <key>ProcessType</key><string>Standard</string>'
     echo "  <key>StandardOutPath</key><string>$(xml "$log")</string>"
     echo "  <key>StandardErrorPath</key><string>$(xml "$log")</string>"

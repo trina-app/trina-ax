@@ -18,7 +18,7 @@ import { CoreUnavailableError, createContext, startLocalCore, type AppContext } 
 import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger, type Logger } from '../../server/src/log'
-import { checkSocketPaths } from '../../server/src/main'
+import { checkSocketPaths, watchSupervisor } from '../../server/src/main'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
 import { systemTestHooks } from '../../server/src/routes/system'
 import type { AuthInfo, SessionService } from '../../server/src/services'
@@ -431,5 +431,25 @@ describe('connection change: relay team name, official relay only when it runs',
     expect((await put({ mode: 'self-relay', relayUrl: 'wss://relay2.example.org/connect' })).status).toBe(200)
     expect((await put({ mode: 'direct-only' })).status).toBe(200)
     expect(JSON.parse(fs.readFileSync(cfgFile, 'utf8')).relay).toEqual({ url: null, teamName: 'acme-sales' })
+  })
+})
+
+// UPSTREAM-CANDIDATES (medical fork) item 6: the server is in its own process group, so a bootstrap killed outright
+// left it running and holding the port
+describe('under mycel-bootstrap: the server ends when its supervisor is gone', () => {
+  test('no supervisor variable (dev, office): nothing is watched', () => {
+    expect(watchSupervisor(undefined, () => 1, () => {})).toBeNull()
+    expect(watchSupervisor('1', () => 1, () => {})).toBeNull()
+    expect(watchSupervisor('abc', () => 1, () => {})).toBeNull()
+  })
+  test('the parent changes (bootstrap killed, re-parented to launchd): onGone once', async () => {
+    let parent = 4242, gone = 0
+    const stop = watchSupervisor('4242', () => parent, () => { gone++ }, 20)!
+    await Bun.sleep(80)
+    expect(gone).toBe(0)
+    parent = 1
+    await Bun.sleep(80)
+    expect(gone).toBe(1)
+    stop()
   })
 })

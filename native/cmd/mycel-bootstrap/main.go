@@ -30,6 +30,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -332,7 +333,9 @@ func startServer(v string) (*exec.Cmd, error) {
 	cmd := exec.Command(filepath.Join(dir, "bin", "bun"), filepath.Join(dir, "server", "src", "main.js"), "--prod")
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "MYCEL_MODE=prod", "MYCEL_CONFIG="+*configFile, "MYCEL_NATIVE_BIN="+filepath.Join(dir, "native"))
+	// MYCEL_SUPERVISOR_PID: the server ends itself when this process is gone (it is not in our process group)
+	cmd.Env = append(os.Environ(), "MYCEL_MODE=prod", "MYCEL_CONFIG="+*configFile, "MYCEL_NATIVE_BIN="+filepath.Join(dir, "native"),
+		"MYCEL_SUPERVISOR_PID="+strconv.Itoa(os.Getpid()))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd, cmd.Start()
 }
