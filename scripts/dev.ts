@@ -8,7 +8,9 @@
 //   vite    http://localhost:19140        only with --vite: hot-reloading web dev server (proxies /api to 19100)
 //
 // Data lives in ~/.team-ax-dev (team folder, data, relay registry); delete it to start over. Override with
-// TEAM_AX_DEV_DIR. Flags: --vite, --no-relay, --team <name> (default demo), --rebuild-web, --no-web-build.
+// TEAM_AX_DEV_DIR, and the server / relay ports with TEAM_AX_DEV_PORT / TEAM_AX_DEV_RELAY_PORT (all three together run
+// a second checkout's `bun run dev` next to this one). Flags: --vite, --no-relay, --team <name> (default demo),
+// --rebuild-web, --no-web-build.
 // Output is prefixed per process; Ctrl-C stops everything. A relay that dies is restarted (like its service manager
 // would); any other process ending stops the rest.
 //
@@ -26,8 +28,16 @@ const opt = (f: string, d: string) => { const i = args.indexOf(f); return i >= 0
 
 const DEV_HOME = process.env.TEAM_AX_DEV_DIR ? path.resolve(process.env.TEAM_AX_DEV_DIR) : path.join(os.homedir(), '.team-ax-dev')
 const TEAM = opt('--team', 'demo').toLowerCase()
-const SERVER_PORT = 19100
-const RELAY_PORT = 19161
+/** a port from the environment, or the default; anything but a port number stops here */
+function envPort(name: string, d: number): number {
+  const v = process.env[name]
+  if (!v) return d
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < 1 || n > 65535) { console.error(`[dev] ${name}=${v} is not a port number`); process.exit(1) }
+  return n
+}
+const SERVER_PORT = envPort('TEAM_AX_DEV_PORT', 19100)
+const RELAY_PORT = envPort('TEAM_AX_DEV_RELAY_PORT', 19161)
 const RELAY_MIN_NODE = 25
 
 /** plain tags when NO_COLOR is set (the background service of `bun run dev:service` writes to a log file) */
@@ -134,7 +144,8 @@ if (relay) {
     cwd: ROOT, env: process.env as Record<string, string>,
   })
 }
-if (flag('--vite')) procs.push({ name: 'vite', cmd: ['bun', 'run', 'dev'], cwd: path.join(ROOT, 'web'), env: process.env as Record<string, string> })
+// vite stays on 19140 but proxies /api to this run's server port
+if (flag('--vite')) procs.push({ name: 'vite', cmd: ['bun', 'run', 'dev'], cwd: path.join(ROOT, 'web'), env: { MYCEL_API_TARGET: `http://127.0.0.1:${SERVER_PORT}`, ...(process.env as Record<string, string>) } })
 
 const colors = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m']
 type Running = (typeof procs)[number] & { child: ReturnType<typeof Bun.spawn>; tag: string }
@@ -166,7 +177,7 @@ const running: Running[] = procs.map((p, i) => {
 
 // The relay is restarted when it dies (in production its service manager does that): the team server keeps
 // reconnecting, and open browser tabs resume their WebSocket. Kill it (e.g. `kill $(lsof -ti tcp:19161
-// -sTCP:LISTEN)`) to try the reconnect path; it comes back after RELAY_RESTART_MS.
+// -sTCP:LISTEN)`, or TEAM_AX_DEV_RELAY_PORT) to try the reconnect path; it comes back after RELAY_RESTART_MS.
 const RELAY_RESTART_MS = 1500
 say(`data: ${DEV_HOME}`)
 say(`direct: http://localhost:${SERVER_PORT}`)
