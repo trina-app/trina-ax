@@ -117,7 +117,15 @@
          (claude-json-names (lambda ()
            (require-any
              (regex (string-append "^" (regex-quote home) "/\\.claude\\.json(\\.lock|\\.tmp\\.[0-9]+\\.[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|\\.backup)?$"))
-             (regex (string-append "^" (regex-quote home) "/\\.claude/backups(/\\.claude\\.json\\.backup\\.[0-9]+)?$"))))))
+             (regex (string-append "^" (regex-quote home) "/\\.claude/backups(/\\.claude\\.json\\.backup\\.[0-9]+)?$")))))
+         ;; the login refresh lock of Claude Code 2.1.305: the folder ~/.claude/.oauth_refresh.lock (mkdir lock, mtime
+         ;; kept fresh), its owner record ~/.claude/.oauth_refresh.lock.owner (written atomically: .tmp.<pid>.<12 hex>)
+         ;; and the older lock folder ~/.claude.lock. Without them the engine could not refresh the Mac's login, and every
+         ;; question failed with 401 eight hours after the last refresh outside the sandbox (seen at a clinic)
+         (refresh-lock-names (lambda ()
+           (require-any
+             (regex (string-append "^" (regex-quote home) "/\\.claude/\\.oauth_refresh\\.lock(\\.owner(\\.tmp\\.[0-9]+\\.[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])?)?$"))
+             (literal (in-home "/.claude.lock"))))))
     (apply allow file-read-metadata
       (map literal (append (path-and-ancestors (in-home "/.claude"))
                            (ancestors (in-home "/.local/share/claude")) (ancestors (in-home "/Library/Keychains/-"))
@@ -135,6 +143,11 @@
     ;; symbolic link cannot be created there (nor renamed onto them), a hard link cannot be made to them.
     (deny file-write-create (require-all (vnode-type SYMLINK) (claude-json-names)))
     (deny file-link (claude-json-names))
+    ;; the refresh lock (names above): empty folders and a pid record, nothing a turn can hide data in for another
+    ;; turn beyond a few bytes; no links there either
+    (allow file-read* file-write* (refresh-lock-names))
+    (deny file-write-create (require-all (vnode-type SYMLINK) (refresh-lock-names)))
+    (deny file-link (refresh-lock-names))
     (allow file-read* (literal (in-home "/.claude/settings.json")) (subpath (in-home "/.claude/cache")))
     ;; Claude Code's login when it is not in the keychain: some Macs keep it in ~/.claude/.credentials.json, and
     ;; without it every turn ends "Not logged in". Read-write so a refreshed token is saved.
