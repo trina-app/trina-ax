@@ -1,8 +1,8 @@
 // Checks `bun run dev` makes before it starts anything (scripts/dev.ts).
 //
-// - Ports: the dev ports are fixed (19100 server, 19161 relay, 19140 vite), so a second `bun run dev`, the dev
-//   service (`bun run dev:service`) or any other program on them used to give a half-started setup with a bare
-//   EADDRINUSE from one child. Now the runner says which process holds which port, and how to free it.
+// - Ports: the dev ports are fixed (19100 server, 19161 relay, 19140 vite; TEAM_AX_DEV_PORT / TEAM_AX_DEV_RELAY_PORT
+//   move the first two), so a second `bun run dev`, the dev service (`bun run dev:service`) or any other program on
+//   them used to give a half-started setup with a bare EADDRINUSE from one child. Now the runner says which process holds which port, and how to free it.
 // - Data folder: the engine's Unix sockets live under <data>/run, and a socket path holds at most 103 bytes on
 //   macOS; a long data folder used to fail only at the first chat ("The AI engine stopped unexpectedly").
 import fs from 'node:fs'

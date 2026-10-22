@@ -12,6 +12,7 @@
 | **http://demo.localhost:19161** | 중계 서버를 거친 연결 (나중의 `팀이름.treesoop.com`에 해당. 지금은 이 맥 안의 중계 서버) |
 
 두 주소는 같은 팀, 같은 데이터입니다. 화면 맨 위의 노란 띠 "개발 모드: OS 격리 없음…"은 개발 모드라서 늘 보입니다(아래 "알려진 한계").
+다른 체크아웃의 `bun run dev`를 옆에 같이 띄우려면 데이터 폴더와 두 포트를 바꿉니다: `TEAM_AX_DEV_DIR=~/.team-ax-dev2 TEAM_AX_DEV_PORT=19200 TEAM_AX_DEV_RELAY_PORT=19261 bun run dev`(`--vite`는 19140 고정이라 한쪽에서만).
 
 ## 계정 (데모용 비밀번호, 넷 다 같음: `teamax-demo-1`)
 
