@@ -14,7 +14,9 @@ const W = path.join(WORK, 'g-update')
 fs.rmSync(W, { recursive: true, force: true })
 fs.mkdirSync(W, { recursive: true })
 const BOOTSTRAP = path.resolve(import.meta.dir, '..', '..', 'native', 'bin', `${process.platform === 'darwin' ? 'darwin' : 'linux'}-${process.arch === 'arm64' ? 'arm64' : 'amd64'}`, 'mycel-bootstrap')
-const PORT = 19171
+// a free port per run, not a fixed one: a fake server left over from a killed run (or a second run at the same time)
+// answering /api/health on it made every later run fail at the first step
+const PORT = (() => { const l = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } }); const p = l.port; l.stop(true); return p })()
 
 /** A fake server version: bin/bun (wrapper around the real bun) + server/src/main.js with a chosen behaviour. */
 async function fakeVersion(appDir: string, v: string, behaviour: 'ok' | 'crash' | 'unhealthy', extra: Record<string, string> = {}) {
@@ -27,6 +29,10 @@ const fs = require('fs')
 const cfg = JSON.parse(fs.readFileSync(process.env.MYCEL_CONFIG, 'utf8'))
 const B = ${JSON.stringify(behaviour)}, V = ${JSON.stringify(v)}
 if (B === 'crash') process.exit(3)
+// the bootstrap puts the server in its own process group, so killing the test run (or afterAll's SIGKILL) leaves it
+// running: exit once the bootstrap that started it is gone
+const parent = process.ppid
+setInterval(() => { try { process.kill(parent, 0) } catch { process.exit(0) } }, 500)
 Bun.serve({ hostname: '127.0.0.1', port: cfg.listen.port, fetch(req) {
   const u = new URL(req.url)
   if (u.pathname === '/exit') { setTimeout(() => process.exit(0), 30); return new Response('bye') }
