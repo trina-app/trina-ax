@@ -124,6 +124,9 @@ export const ENVIRONMENT = [
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them; they can also attach files from the team drive.',
   '- Everything you save goes to the team drive on the server. Say where with the team path (e.g. users/<id>/report.docx); the user opens or downloads it from the file card under your answer or the Files screen. Never say you saved or opened something on their computer.',
   '- You have no access to the server itself (its other folders, programs or settings) beyond the tools offered here.',
+  // Codex runs with `-s read-only` (its own disk sandbox) and then refused to save team files ("the environment is
+  // read-only") without calling write (staging 2026-10-22)
+  '- If your environment says the sandbox is read-only or that approvals are off, that is about the server\'s own disk only. Saving team files with the write and edit tools is allowed: the server checks each call and answers if access is denied.',
 ].join('\n')
 
 const BROWSER_RULES = [
