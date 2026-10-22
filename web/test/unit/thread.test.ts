@@ -108,6 +108,10 @@ describe('REST reloads', () => {
     expect(mergeFresh([a], [{ ...a, content: 'Hello world!' }])[0]!.content).toBe('Hello world!')
     expect(mergeFresh([a], [{ ...a, content: 'Bye' }])[0]!.content).toBe('Bye')
   })
+  test('mergeFresh: a reload still showing the answer as running does not undo message.done', () => {
+    const done = msg({ role: 'assistant', status: 'done', content: 'Checking first.\n\nSaved shared/a.md.' })
+    expect(mergeFresh([done], [{ ...done, status: 'streaming', content: 'Checking first.' }])[0]).toBe(done)
+  })
   test('prependPage drops overlap', () => {
     const x = msg({ role: 'user' })
     const y = msg({ role: 'assistant' })
