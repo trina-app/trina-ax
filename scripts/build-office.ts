@@ -71,6 +71,34 @@ const ENTRIES: [string, string][] = [
   ['server/src/system/cli.ts', 'admin.js'],
   ['server/src/auth/cli.ts', 'accounts.js'],
 ]
+/** native helpers per architecture (native/build.sh) */
+const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
+
+/** What the bundle folder must hold (paths relative to it; a trailing '/' = a folder that is not empty): what
+ * office-install.sh reads and copies, and what the installed server runs. Checked after staging, before the zip is
+ * made, so a copy step that went missing stops the build here instead of the install at the office. The guide PDFs
+ * stay out (a build without them only warns). */
+export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string[] {
+  return [
+    'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
+    'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md',
+    ...ARCHS.flatMap((a) => [
+      ...['bun', 'rg', 'cloudflared', ...(o.pandoc ? ['pandoc'] : [])].map((b) => `app/bin/${a.dir}/${b}`),
+      ...NATIVE.map((b) => `app/native/bin/${a.dir}/${b}`),
+    ]),
+    ...ENTRIES.map(([, out]) => `app/server/src/${out}`), 'app/server/migrations/', 'app/server/node_modules/@huggingface/transformers/',
+    'app/scripts/macos/engine.sb', 'app/web/dist/index.html',
+  ]
+}
+
+/** the entries of `manifest` the stage folder lacks */
+export function missingFromStage(stage: string, manifest: string[]): string[] {
+  return manifest.filter((m) => {
+    const p = path.join(stage, m)
+    if (m.endsWith('/')) { try { return fs.readdirSync(p).length === 0 } catch { return true } }
+    return !fs.existsSync(p)
+  })
+}
 
 function arg(name: string): string | null {
   const i = process.argv.indexOf(name)
@@ -135,7 +163,7 @@ export async function buildOffice(o: {
 }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
   if (process.platform !== 'darwin') throw new Error('build the office bundle on a Mac (ditto, codesign)')
-  for (const a of ARCHS) for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']) {
+  for (const a of ARCHS) for (const b of NATIVE) {
     if (!fs.existsSync(path.join(REPO, 'native', 'bin', a.dir, b))) throw new Error(`native/bin/${a.dir}/${b} missing: run ARCHS="arm64 amd64" bash native/build.sh`)
   }
   if (!fs.existsSync(path.join(REPO, 'web', 'dist', 'index.html'))) throw new Error('web/dist missing: run bun run --cwd web build')
@@ -179,7 +207,7 @@ export async function buildOffice(o: {
     if (sha256(cf) !== CLOUDFLARED_BIN_SHA256[a.cf]) throw new Error(`cloudflared ${a.cf}: SHA-256 ${sha256(cf)}, expected ${CLOUDFLARED_BIN_SHA256[a.cf]}`)
     const nat = path.join(app, 'native', 'bin', a.dir)
     fs.mkdirSync(nat, { recursive: true })
-    for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']) {
+    for (const b of NATIVE) {
       fs.copyFileSync(path.join(REPO, 'native', 'bin', a.dir, b), path.join(nat, b))
       fs.chmodSync(path.join(nat, b), 0o755)
     }
@@ -215,6 +243,9 @@ export async function buildOffice(o: {
   fs.writeFileSync(path.join(app, 'product.env'), productEnv({ PRODUCT_OFFICE_PDF: fs.existsSync(pdf) ? path.basename(pdf) : '' }))
   // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
+
+  const lack = missingFromStage(stage, bundleManifest({ pandoc: o.pandoc, desktop: !!o.desktop?.length }))
+  if (lack.length) throw new Error(`the bundle is incomplete: ${lack.join(', ')}`)
 
   const zip = path.join(o.out, `${name}-mac.zip`)
   fs.rmSync(zip, { force: true })

@@ -1,6 +1,7 @@
 // Office mode (docs/OFFICE.md): the office CA and server certificate (names, regeneration, constraints), the
 // settings and the server.json they produce, Host / Origin / cookie handling on the office address, the helper
-// page's allow-list, the LaunchAgent, restore swap, and the installer's dry paths (no install, no LaunchAgent).
+// page's allow-list, the LaunchAgent, restore swap, the installer's dry paths (no install, no LaunchAgent), and the
+// check of the staged bundle before the zip is made.
 // The real install from the zip, over the LAN address with one real Claude turn, is tests/install/office-lan.mjs.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
@@ -19,6 +20,7 @@ import { deskCard, HELPER_PATHS, helperFetch, windowsThumbprint, type HelperStat
 import { allowedHosts, allowedPeers, cidr, deskOrigins, officePaths, parseAllowFrom, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
 import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted, lanInfo, normIp, PRIVATE_V4, serverCertProblem, tldWideConstraint, tlsPaths, wantedNames } from '../../server/src/office/tls'
 import { parseTeamAddress } from '../../desktop/src/common/address'
+import { bundleManifest, missingFromStage } from '../../scripts/build-office'
 import { connectionStatus } from '../../server/src/system/connection'
 import { harness, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
@@ -655,5 +657,39 @@ describe('office-install.sh / office-uninstall.sh dry paths', () => {
     expect(r2.code).not.toBe(0)
     expect(r2.out).toMatch(/refusing/)
     expect(fs.existsSync(path.join(home, 'config', 'office.env'))).toBe(true)
+  })
+})
+
+describe('build-office.ts: the staged bundle is checked before the zip is made', () => {
+  const stage = path.join(BASE, 'stage')
+  const fill = (manifest: string[]) => {
+    fs.rmSync(stage, { recursive: true, force: true })
+    for (const m of manifest) {
+      const p = path.join(stage, m.endsWith('/') ? path.join(m, 'x') : m)
+      fs.mkdirSync(path.dirname(p), { recursive: true })
+      fs.writeFileSync(p, 'x')
+    }
+  }
+
+  test('both architectures, what office-install.sh reads; pandoc and desktop.sha256 only when built in', () => {
+    const m = bundleManifest({ pandoc: true, desktop: false })
+    for (const f of ['office-install.sh', 'app/VERSION', 'app/product.env', 'app/server/src/office.js', 'app/server/migrations/',
+      'app/bin/darwin-arm64/bun', 'app/bin/darwin-amd64/cloudflared', 'app/bin/darwin-amd64/pandoc', 'app/native/bin/darwin-arm64/mycel-launcher',
+      'app/native/bin/darwin-amd64/mycel-ocr', 'app/scripts/macos/engine.sb', 'app/web/dist/index.html']) expect(m).toContain(f)
+    expect(m).not.toContain('desktop.sha256')
+    expect(bundleManifest({ pandoc: false, desktop: true }).filter((f) => f.endsWith('/pandoc'))).toEqual([])
+    expect(bundleManifest({ pandoc: false, desktop: true })).toContain('desktop.sha256')
+  })
+
+  test('a complete stage passes; one missing file fails with its name; an empty folder counts as missing', () => {
+    const m = bundleManifest({ pandoc: true, desktop: true })
+    fill(m)
+    expect(missingFromStage(stage, m)).toEqual([])
+    fs.rmSync(path.join(stage, 'app', 'native', 'bin', 'darwin-amd64', 'mycel-gate'))
+    expect(missingFromStage(stage, m)).toEqual(['app/native/bin/darwin-amd64/mycel-gate'])
+    fill(m)
+    fs.rmSync(path.join(stage, 'app', 'server', 'migrations', 'x'))
+    fs.rmSync(path.join(stage, 'app', 'VERSION'))
+    expect(missingFromStage(stage, m)).toEqual(['app/VERSION', 'app/server/migrations/'])
   })
 })
