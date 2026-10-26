@@ -1,5 +1,5 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config'
-import { mobileProduct } from './src/product'
+import { mobileProduct } from './src/product.ts'
 export default ({ config }: ConfigContext): ExpoConfig => {
   const product = mobileProduct(config.extra?.teamAxEdition)
   return {
