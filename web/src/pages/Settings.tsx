@@ -19,7 +19,7 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
-import { SourceCodeLink, serverVersion } from '../components/SourceCodeLink'
+import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
@@ -477,17 +477,13 @@ function Memories() {
 /** Version, license and where the source code is (AGPL-3.0 §13). */
 function About() {
   const t = useT()
-  const [version, setVersion] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    void serverVersion().then((v) => { if (live) setVersion(v) })
-    return () => { live = false }
-  }, [])
+  const info = useServerSource()
+  const { version } = info
   return (
     <Section title={t('settings.about')}>
       {version && <p className="text-sm" data-testid="about-version">{t('about.version', { version })}</p>}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
-      <SourceCodeLink className="mt-3 inline-block text-sm text-accent-text underline" />
+      <SourceCodeLinks info={info} className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>
   )
 }
