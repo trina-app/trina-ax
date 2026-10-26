@@ -18,6 +18,41 @@ async function together(file: string, n: number) {
 }
 
 describe('migrations under the write lock', () => {
+  test('a stale migration check never leaves a post-migration database labeled as a pre-migration backup', () => {
+    const dir = path.join(W, 'stale-backup'), part = path.join(dir, 'old-migrations')
+    fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(part, { recursive: true })
+    for (const m of readMigrations().slice(0, 2)) fs.copyFileSync(path.join(MIGRATIONS_DIR, m.name), path.join(part, m.name))
+    const file = path.join(dir, 'app.db'), db = openDb(file, { migrationsDir: part })
+    const winner = path.join(dir, 'winner-backups'), late = path.join(dir, 'late-backups')
+    let raced = false
+    const proxy = new Proxy(db, { get(target, key) {
+      if (key === 'query') return (sql: string) => {
+        const statement = target.query(sql)
+        if (sql === 'VACUUM INTO ?' && !raced) return { run(out: string) {
+          raced = true
+          // A competing opener commits after the outer before-check but before its snapshot is taken.
+          openDb(file, { backupDir: winner }).close()
+          return statement.run(out)
+        } }
+        return statement
+      }
+      const value = Reflect.get(target, key, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+    try {
+      migrate(proxy, { backupDir: late })
+      expect(raced).toBe(true)
+      expect(fs.readdirSync(late)).toEqual([])
+      const copies = fs.readdirSync(winner).filter(f => f.endsWith('.db'))
+      expect(copies).toHaveLength(1)
+      expect(fs.readdirSync(winner)).toEqual(copies)
+      expect(fs.statSync(path.join(winner, copies[0]!)).mode & 0o777).toBe(0o600)
+      const before = new Database(path.join(winner, copies[0]!), { readonly: true })
+      try { expect((before.query('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(2) } finally { before.close() }
+      expect((db.query('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(ALL)
+    } finally { db.close() }
+  })
+
   test('several processes migrating a database with data at once all start', async () => {
     for (let round = 0; round < 3; round++) {
       const dir = path.join(W, `data-${round}`)

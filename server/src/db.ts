@@ -75,7 +75,7 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
   const before = appliedVersions(db)
   if (before && before.size && o.backupDir && all.some((m) => !before.has(m.version))) {
     checkReadable(db, readerLevel)
-    backupBeforeMigrate(db, o.backupDir)
+    backupBeforeMigrate(db, o.backupDir, before)
   }
   // Then everything under the database write lock: another process may open the same file at the same moment
   // (the admin CLI next to a starting server, a restart racing the old process). Without the lock both saw the
@@ -134,12 +134,33 @@ export function schemaInfo(db: Database): { applied: number; maxVersion: number 
   return { applied: r.n, maxVersion: r.v }
 }
 
-function backupBeforeMigrate(db: Database, dir: string) {
+function backupBeforeMigrate(db: Database, dir: string, expectedVersions: Set<number>) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   // unique per process: two processes starting together must not write into one file
-  const out = path.join(dir, `pre-migrate-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}.db`)
-  db.query('VACUUM INTO ?').run(out)
-  try { fs.chmodSync(out, 0o600) } catch {}
+  const suffix = uuidv7()
+  const out = path.join(dir, `pre-migrate-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}-${suffix}.db`)
+  // SQLite requires a nonexistent VACUUM target. A private staging directory protects the
+  // copy until its permissions and schema have been checked, without precreating that file.
+  const staging = fs.mkdtempSync(path.join(dir, '.pending-migration-'))
+  const partial = path.join(staging, 'snapshot.db')
+  try {
+    db.query('VACUUM INTO ?').run(partial)
+    // VACUUM cannot share the later write transaction. A competing opener can migrate after our initial
+    // check and before this consistent snapshot. Keep only a copy of the schema we intended to protect;
+    // otherwise the newest "pre-migrate" file would misleadingly contain the already upgraded schema.
+    // The competing migrator made its own old-schema backup before committing.
+    const copy = new Database(partial, { readonly: true })
+    let matches = false
+    try {
+      const actual = appliedVersions(copy)
+      matches = !!actual && actual.size === expectedVersions.size && [...expectedVersions].every(version => actual.has(version))
+    } finally { copy.close() }
+    if (!matches) return
+    fs.chmodSync(partial, 0o600)
+    fs.renameSync(partial, out)
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true })
+  }
 }
 
 /** New row id (UUIDv7). users.id is the exception (a slug). */
