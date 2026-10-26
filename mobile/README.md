@@ -4,7 +4,7 @@ An independent Expo SDK 58 wrapper around a team's HTTPS web app. The neutral ap
 
 ## Development
 
-Install from this directory with `npm ci --ignore-scripts --no-audit --no-fund`. This package has its own `package-lock.json` and `node_modules`; do not add its React Native dependencies to the root workspace. Use a Node version supported by React Native 0.88: `^22.13.0 || ^24.3.0 || >=26.0.0`. Node 25 is outside that range.
+Install from this directory with `npm ci --ignore-scripts --no-audit --no-fund`. This package has its own `package-lock.json` and `node_modules`; do not add its React Native dependencies to the root workspace. Use Node `^22.18.0 || ^24.3.0 || >=26.0.0`, within React Native 0.88's supported range. Expo's dynamic config imports a TypeScript helper and requires Node's default type stripping; do not disable it. Node 22.22.0 is verified. Node 25 is outside the supported range.
 
 Run `npm run typecheck` and `npm start` from this directory. The repository's sanitized test runner can execute the pure bridge tests without starting Expo, contacting a team, or using a provider:
 
