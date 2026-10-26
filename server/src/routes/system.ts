@@ -3,7 +3,7 @@
 // Contract: shared/src/api/system.ts. Health is implemented by the foundation (the dev server, CI smoke test and
 // the menubar app need it from day one); G implements the rest. The work itself is in server/src/system/*.
 import { API, type Health, type Locale } from '@mycel/shared/api'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, sourceCodeOffer } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { SCHEMA_READER_LEVEL, schemaInfo } from '../db'
 import { fail } from '../http/errors'
@@ -89,6 +89,7 @@ export const systemRoutes: RouteModule = {
       return {
         ok: dbOk,
         version: ctx.version,
+        sourceCode: sourceCodeOffer(ctx.version, ctx.config.sourceCode),
         schema: { applied, readerLevel: SCHEMA_READER_LEVEL },
         uptimeSec: Math.round((Date.now() - ctx.startedAt) / 1000),
         time: new Date().toISOString(),

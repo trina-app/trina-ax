@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { parseKit } from './src/common/kit'
 import { ensureElectron } from './scripts/ensure-electron'
+import { reportReleaseNotices, writeReleaseNotices } from '../scripts/release-notices'
+import pkg from './package.json'
 
 const root = import.meta.dir
 const out = join(root, 'dist')
@@ -43,4 +45,12 @@ if (kitEnv.team || kitEnv.locale) {
   console.log(`kit: ${JSON.stringify(kit)}`)
 }
 await ensureElectron()
+reportReleaseNotices(writeReleaseNotices({
+  repoRoot: join(root, '..'), artifactDir: out, version: pkg.version,
+  // This JS stage is shared by macOS universal and Windows packaging; it is not a host binary inventory.
+  target: 'portable', arch: 'any',
+  kind: 'desktop', includeNative: false,
+  // These devDependencies are bundled into main/preload/UI code; Electron itself is external.
+  roots: [{ directory: 'desktop', packages: ['@mycel/shared', 'zod', 'electron-updater'] }],
+}))
 console.log(`built ${out}`)

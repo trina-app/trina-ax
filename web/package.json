@@ -7,7 +7,7 @@
   "description": "Web client (React + Vite). Component D. Built to web/dist and served by the team server.",
   "scripts": {
     "dev": "vite --port 19140 --strictPort",
-    "build": "vite build && bun scripts/build-vendor.ts",
+    "build": "vite build && bun scripts/build-vendor.ts && bun scripts/build-notices.ts",
     "build:app": "vite build",
     "build:vendor": "bun scripts/build-vendor.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
