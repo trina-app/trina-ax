@@ -77,3 +77,11 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
 직전 450개 mapping을 모두 보존하고 1개를 추가해 451개가 됐다. 두 fresh 필터의 전체 manifest 바이트가 같으며 각 결과의 7,742 objects · 3,676 trees · 1 ref 검사를 통과했다. 원본과 filtered 코어 각각 직전 기준 대비 위 테스트 한 파일만 달라졌고, 후보 merge 직후 기존 Trina 변경 152개 경로의 내용·모드가 모두 같았다. 이 문단만 최종 출처 기록으로 추가했다. 원본 refs/index 변경, 실제 main/cloud 병합, 원격 게시 또는 배포는 없었다.
 
 코어 담당자의 집중 검증은 19 pass / 0 fail / 1,048 assertions와 source TypeScript exit 0이었다. 이번 후보 자체의 최종 전체 검증과 source archive는 이 후속 ref 기준 별도 수행한다. 제품 바이트가 동일한 이전 security/web/build/bundle 증거는 검증 범위와 실행 기준을 명시해 재사용할 수 있으며, 테스트 계약 변경으로 기존 전체 검증 실패를 성공으로 소급하지 않는다.
+
+## Mobile native configuration follow-up
+
+- Unfiltered local review snapshot: `9701e20c207c334d864ad664cf0a4dd0ddd15e30`; tree `75dbcd77d1ede86f5982a7d30e36de45d9513a02`.
+- Filtered core: `910695d29d24b56227f0927d961a593d4e3cc9e2`. Existing 451 commit mappings are preserved; 452 mappings and the complete manifest match the independently repeated fresh copy.
+- Common changes: explicit TypeScript helper extension in Expo configuration, TypeScript compiler support for that import, and the verified Node runtime requirement. No mobile identity, bridge, permission, or server behavior changed.
+- The Trina edition additionally receives explicit operator recovery of provably undispatched expired/cancelled provisioning and an unused registration left by an interrupted first attempt. Dispatched or exchanged registrations fail closed. This is edition-only and is not an upstream core change.
+- This remains an unpublished local review snapshot. Actual upstream merge/push, public repository operations, and production deployment require the existing owner approvals.
