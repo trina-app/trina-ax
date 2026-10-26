@@ -15,7 +15,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import { AuthMode, PRODUCT } from '@mycel/shared'
+import { AuthMode, PRODUCT, SourceCodeConfig } from '@mycel/shared'
 import { CredentialKind } from '@mycel/shared/api'
 import { CLOUD_DEFAULT_CREDENTIAL_KINDS } from '@mycel/shared/cloud-protocol'
 
@@ -144,6 +144,8 @@ export const AppConfigFile = z.object({
      * installer never sets it, the hosted cloud leaves it off: the control plane updates) */
     auto: z.boolean().default(false),
   }).default({ channel: 'stable', feedUrl: null, auto: false }),
+  /** Operator-owned corresponding-source metadata. Does not publish or export source. */
+  sourceCode: SourceCodeConfig.optional(),
   /** check every JSON response against the contract (default: on in dev) */
   validateResponses: z.boolean().optional(),
   /** how this server is installed (linux-runtime D24, server/src/system/deployment.ts): "self" (a customer's own server,
@@ -185,6 +187,7 @@ export interface AppConfig {
   }
   relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null; auto?: boolean }
+  sourceCode?: SourceCodeConfig
   validateResponses: boolean
   /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
   deployment?: 'self' | 'hosted'
@@ -271,6 +274,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
     update: f.update,
+    ...(f.sourceCode ? { sourceCode: f.sourceCode } : {}),
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),

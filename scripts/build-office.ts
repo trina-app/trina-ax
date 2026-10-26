@@ -32,6 +32,7 @@ import path from 'node:path'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
+import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
 const ARCHS = [{ dir: 'darwin-arm64', bun: 'aarch64', rg: 'aarch64', pandoc: 'arm64', cf: 'arm64' }, { dir: 'darwin-amd64', bun: 'x64', rg: 'x86_64', pandoc: 'x86_64', cf: 'amd64' }] as const
@@ -82,6 +83,7 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
     'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md',
+    ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [
       ...['bun', 'rg', 'cloudflared', ...(o.pandoc ? ['pandoc'] : [])].map((b) => `app/bin/${a.dir}/${b}`),
       ...NATIVE.map((b) => `app/native/bin/${a.dir}/${b}`),
@@ -244,6 +246,8 @@ export async function buildOffice(o: {
   // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
+  const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: app, version: o.version, target: 'darwin', arch: 'universal', kind: 'office', includeWeb: true })
+  reportReleaseNotices(notices)
   const lack = missingFromStage(stage, bundleManifest({ pandoc: o.pandoc, desktop: !!o.desktop?.length }))
   if (lack.length) throw new Error(`the bundle is incomplete: ${lack.join(', ')}`)
 
@@ -251,7 +255,7 @@ export async function buildOffice(o: {
   fs.rmSync(zip, { force: true })
   sh(['/usr/bin/ditto', '-c', '-k', '--keepParent', '--norsrc', stage, zip])
   if (!o.keepStage) fs.rmSync(stage, { recursive: true, force: true })
-  return { zip, size: fs.statSync(zip).size, sha256: sha256(zip), stage: o.keepStage ? stage : null }
+  return { zip, size: fs.statSync(zip).size, sha256: sha256(zip), stage: o.keepStage ? stage : null, notices: { publicClear: false, pending: notices.pending.length, manifest: 'app/licenses/manifest.json' } }
 }
 
 /** The desktop installers desktop/release has (built first unless `build` is false), copied into `out` under the names
