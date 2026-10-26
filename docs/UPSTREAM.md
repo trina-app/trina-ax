@@ -59,3 +59,21 @@ P5 독립 구현 사본의 과거 기반은 filtered main v2 `afaa7a8f35a3753693
 G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0개)다. [배포 고지 범위](RELEASE-NOTICES.md)는 `publicClear=false`의 부분 증거이며 라이선스 허락을 부여하지 않는다. [대응 소스 제공 설정](SOURCE-OFFER.md)은 관리자가 실제 대응 소스 URL을 설정·검증해야 하며 이번 반입이 URL 제공/운영 공개를 완료한 것은 아니다.
 
 이 갱신은 승인된 로컬 사본만 사용했고 candidate에 remote를 추가하지 않았다. 기존 원본 core refs/index와 다른 포크를 변경하지 않았다. 새로운 후보의 전체 runtime/security/build 검증과 최종 source archive는 이 후속 ref에서 별도 수행하며, 앞 절의 과거 후보 테스트를 새 ref의 실행 증거로 대신하지 않는다.
+
+## G4/G5 최종 설치기 테스트 계약 반영
+
+후속 전체 검증에서 설치기 테스트의 `stderr == ''` 기대가 새 G4 고지 한 줄과 충돌했다. 제품 코드는 변경하지 않고 `tests/unit/g-installer.test.ts`만 수정했다. 허용하는 stderr는 산출물의 실제 package/pending 수와 일치하는 정확한 고지 한 줄이며 추가 stderr는 계속 실패한다. 고지 존재·`publicClear=false`·고지 원문의 외부 manifest 해시도 함께 검증한다.
+
+| 항목 | 최종 테스트 계약 기준 |
+|---|---|
+| 필터 전 로컬 snapshot | `df0eba1a4f39e05f9eb354e38f7b8b5fa692d55c` |
+| snapshot tree | `e5a139126f32e5b42b1afec340a27e1e88e0730d` |
+| 코어 소스 manifest | 1,245 files · SHA-256 `7d0ffa7ff48acbb6c6ec7e4c06a51676553cc75a45dea1a47df3769081094212` |
+| filtered main | `eee9b616d67f6c282ed9bde36bcf220007f82a19` |
+| filtered tree | `c320884c97bb184f8a68fce46feb07fe810f6874` |
+| 후보 내부 로컬 merge | `6ebd07e1b5691ebde2135108a3dde481ccaaf497` |
+| 필터 manifest SHA-256 | `74dcacf46a103e686646df770a5a2facb49536dfd3d68ae230dc08ea50252539` |
+
+직전 450개 mapping을 모두 보존하고 1개를 추가해 451개가 됐다. 두 fresh 필터의 전체 manifest 바이트가 같으며 각 결과의 7,742 objects · 3,676 trees · 1 ref 검사를 통과했다. 원본과 filtered 코어 각각 직전 기준 대비 위 테스트 한 파일만 달라졌고, 후보 merge 직후 기존 Trina 변경 152개 경로의 내용·모드가 모두 같았다. 이 문단만 최종 출처 기록으로 추가했다. 원본 refs/index 변경, 실제 main/cloud 병합, 원격 게시 또는 배포는 없었다.
+
+코어 담당자의 집중 검증은 19 pass / 0 fail / 1,048 assertions와 source TypeScript exit 0이었다. 이번 후보 자체의 최종 전체 검증과 source archive는 이 후속 ref 기준 별도 수행한다. 제품 바이트가 동일한 이전 security/web/build/bundle 증거는 검증 범위와 실행 기준을 명시해 재사용할 수 있으며, 테스트 계약 변경으로 기존 전체 검증 실패를 성공으로 소급하지 않는다.
