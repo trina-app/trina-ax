@@ -21,7 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PUBLIC_HOST_RE } from '../app-config'
 import { hostPort, type OfficeNames } from './tls'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, SourceCodeConfig } from '@mycel/shared'
 
 export const DEFAULT_LABEL = 'app.team-ax.office'
 export const DEFAULT_APP_PORT = 47830
@@ -62,6 +62,8 @@ export interface OfficeSettings {
   publicAllowFrom: string[]
   /** optional allow-list for the public address: countries (CF-IPCountry, e.g. KR; empty = anywhere) */
   publicCountries: string[]
+  /** Operator source offer, preserved when the supervisor regenerates server.json. */
+  sourceCode?: SourceCodeConfig
 }
 
 export interface OfficePaths {
@@ -113,6 +115,11 @@ function port(v: string | undefined, def: number, name: string, allowZero = fals
 
 export function settingsFrom(home: string, e: Record<string, string>): OfficeSettings {
   const lanPort = port(e.TEAMAX_LAN_PORT, DEFAULT_LAN_PORT, 'TEAMAX_LAN_PORT')
+  const sourceCode = e.TEAMAX_SOURCE_REQUEST_EMAIL || e.TEAMAX_SOURCE_VERSION || e.TEAMAX_SOURCE_URL
+    ? SourceCodeConfig.parse({
+      ...(e.TEAMAX_SOURCE_REQUEST_EMAIL ? { requestEmail: e.TEAMAX_SOURCE_REQUEST_EMAIL } : {}),
+      ...(e.TEAMAX_SOURCE_VERSION || e.TEAMAX_SOURCE_URL ? { release: { version: e.TEAMAX_SOURCE_VERSION, url: e.TEAMAX_SOURCE_URL } } : {}),
+    }) : undefined
   const s: OfficeSettings = {
     home: path.resolve(home),
     label: e.TEAMAX_LABEL || DEFAULT_LABEL,
@@ -130,6 +137,7 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     publicHost: parsePublicHost(e.TEAMAX_PUBLIC_HOST),
     publicAllowFrom: (() => { const a = parseAllowFrom(e.TEAMAX_PUBLIC_ALLOW_FROM); return Array.isArray(a) ? a : [] })(),
     publicCountries: parseCountries(e.TEAMAX_PUBLIC_COUNTRIES),
+    ...(sourceCode ? { sourceCode } : {}),
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9.-]{2,100}$/.test(s.label)) throw new Error(`TEAMAX_LABEL ${s.label} is not a launchd label`)
   const ports = [s.appPort, s.lanPort, s.proxyPort, ...(s.helperPort ? [s.helperPort] : [])]
@@ -213,6 +221,12 @@ export function settingsText(s: OfficeSettings): string {
     '# optional: who may use the internet address (IPv4 CIDRs, two-letter countries); empty = anyone',
     line('TEAMAX_PUBLIC_ALLOW_FROM', s.publicAllowFrom.join(',')),
     line('TEAMAX_PUBLIC_COUNTRIES', s.publicCountries.join(',')),
+    ...(s.sourceCode ? [
+      '# operator source offer (docs/SOURCE-OFFER.md); this metadata does not verify publication or content',
+      line('TEAMAX_SOURCE_REQUEST_EMAIL', s.sourceCode.requestEmail ?? null),
+      line('TEAMAX_SOURCE_VERSION', s.sourceCode.release?.version ?? null),
+      line('TEAMAX_SOURCE_URL', s.sourceCode.release?.url ?? null),
+    ] : []),
     '',
   ].join('\n')
 }
@@ -268,6 +282,7 @@ export function serverConfig(s: OfficeSettings, names: OfficeNames, subnets: [st
   return {
     mode: 'dev' as const,
     office: true,
+    ...(s.sourceCode ? { sourceCode: s.sourceCode } : {}),
     listen: { host: '127.0.0.1', port: s.appPort },
     tls: { host: '0.0.0.0', port: s.lanPort, certFile: path.join(p.tls, 'server.crt'), keyFile: path.join(p.tls, 'server.key') },
     // the internet address first: invite and reset links made on the Mac point there (no certificate to install)

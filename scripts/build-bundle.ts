@@ -47,6 +47,7 @@ import { PRODUCT, productEnv } from '../shared/src/product'
 import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, type LinuxArch } from './linux/downloads'
 import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
+import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -91,6 +92,8 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   const web = path.join(REPO, 'web', 'dist')
   if (fs.existsSync(web)) fs.cpSync(web, path.join(dir, 'web'), { recursive: true })
   if (o.notes) fs.copyFileSync(o.notes, path.join(dir, 'RELEASE_NOTES.md'))
+  const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'darwin', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
+  reportReleaseNotices(notices)
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
   await writeManifest(dir, o.version)
   if (o.signKey) await signManifest(dir, fs.readFileSync(o.signKey, 'utf8'))
@@ -110,7 +113,7 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   fs.writeFileSync(path.join(o.out, 'VERSION'), o.version + '\n')
   // the product's name for install-macos.sh (the role accounts' full names): shared/src/product.ts
   fs.writeFileSync(path.join(o.out, 'product.env'), productEnv())
-  return { dir, archive: path.join(o.out, `${o.version}.tar.zst`), size: packed.size, sha256: packed.sha256, root, arch }
+  return { dir, archive: path.join(o.out, `${o.version}.tar.zst`), size: packed.size, sha256: packed.sha256, root, arch, notices: { publicClear: false, pending: notices.pending.length, manifest: 'licenses/manifest.json' } }
 }
 
 /** The server's entry points as self-contained files in <dir>/server/src (both OS bundles). */
@@ -252,6 +255,7 @@ export const whisperFiles = (arch: LinuxArch) => (arch === 'amd64' ? ['whisper-c
 /** Every file a Linux version folder must hold (relative paths; the server's own files are checked by name). */
 export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[] }): string[] {
   return [
+    ...RELEASE_NOTICE_FILES,
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
@@ -371,6 +375,9 @@ export async function buildLinuxBundle(o: {
   if (missing.length && o.strict) throw new Error(`--strict: missing ${missing.join(', ')}`)
   for (const m of missing) console.warn(`warning: ${m} is missing; the bundle is incomplete`)
 
+  const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'linux', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
+  reportReleaseNotices(notices)
+
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
   const absent = new Set(LINUX_ROOT_SCRIPTS.filter(([src]) => missing.includes(src)).map(([, d]) => `root/${d}`))
   for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units })) {
@@ -397,7 +404,7 @@ export async function buildLinuxBundle(o: {
   for (const f of files) entries.push({ name: `${top}/app/${o.version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode })
   const kitFile = path.join(o.out, `${top}.tar.gz`)
   const kit = await writeAtomic(gzip(tarStream(entries)), kitFile, 0o644)
-  return { os: 'linux' as const, dir, archive, size: packed.size, sha256: packed.sha256, kit: kitFile, kitSize: kit.size, kitSha256: kit.sha256, arch, engines: { claude: lock.claude.version, codex: lock.codex.version }, missing }
+  return { os: 'linux' as const, dir, archive, size: packed.size, sha256: packed.sha256, kit: kitFile, kitSize: kit.size, kitSha256: kit.sha256, arch, engines: { claude: lock.claude.version, codex: lock.codex.version }, missing, notices: { publicClear: false, pending: notices.pending.length, manifest: 'licenses/manifest.json' } }
 }
 
 if (import.meta.main) {

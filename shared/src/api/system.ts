@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { IsoTime, JobAccepted } from './common'
 import { empty, endpoint } from './endpoint'
+import { SourceCodeOffer } from '../source'
 
 export const Health = z.object({
   ok: z.boolean(),
@@ -10,6 +11,8 @@ export const Health = z.object({
    * "인터넷 주소"): the internet does not learn which build runs. Everyone else (this Mac, the office LAN, the relay,
    * a signed-in person) gets them. */
   version: z.string().optional(),
+  /** Operator metadata for this version; absent with anonymous office tunnel redaction or on older servers. */
+  sourceCode: SourceCodeOffer.optional(),
   /** schema version range this build reads */
   schema: z.object({ applied: z.number().int(), readerLevel: z.number().int() }).optional(),
   uptimeSec: z.number().nonnegative().optional(),
