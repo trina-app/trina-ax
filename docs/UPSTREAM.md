@@ -38,3 +38,24 @@ P5 독립 구현 사본의 과거 기반은 filtered main v2 `afaa7a8f35a3753693
 ## 후보 경로 재검증
 
 최종 filtered HEAD에서 candidate 자체를 `TRINA_CORE_ROOT`로 지정한 판매판 테스트는 48 pass / 0 fail / 344 assertions였고 edition TypeScript는 exit 0이었다. 사이트는 후보 경로에서 새 빌드 exit 0, unit 69 pass / 0 fail / 463 assertions였다. 독립 localhost 브라우저에서 30 page/viewport/theme 조합과 동작·내부 링크를 확인했고 11개 화면을 기록했으며, console/CSP/외부 요청/overflow 문제가 없었다. 판매판의 합성 HTTP 화면도 로그인·초대·운영 버튼·권한·모바일 폭 검사를 통과했다. 이것은 실제 결제·VM·모델 또는 공개 배포 검증이 아니다.
+
+
+## 2026-10-27 G4/G5 후속 로컬 검토 반입
+
+위 초기 조립 표의 “미커밋” 설명은 초기 시점 기록이다. 이후 로컬 검토 overlay `ebf47f833b14803f208a638ae5b1491b336611f1`를 보존하고 G4 배포 고지 수집 및 G5 대응 소스 설정/표시 변경을 후속 반입했다. 원본 main/feat/cloud의 실제 병합이나 공개·배포가 아니다.
+
+| 항목 | 후속 기준 |
+|---|---|
+| 필터 전 로컬 검토 snapshot | `edf8a4b90bc5efb6901d3cb8a8134e7605f38e57` |
+| snapshot tree | `8cdb30d8813fe37d0772263c86ad623371d8685a` |
+| 코어 소스 manifest | 1,245 files · SHA-256 `1eb12e12e202d118bd3a227d1409426f2a7a42a8bdc929e4a5e60579c73f8ed3` |
+| 새 filtered main | `5135952660f618fb17951ef72ccad4c966aa9ea9` |
+| filtered tree | `fed1ee9085e5b2229553d49d4ae3889810b260fb` |
+| 후보 내부 로컬 merge | `6a3abebc73112210e37daa9a41a8f136dcebc0ed` |
+| 필터 manifest SHA-256 | `9863b789921bd8317aef093c6c4642dac381d3ec98eb6504887fedd71016f09a` |
+
+기존 449개 commit mapping을 모두 보존하고 새 snapshot 1개를 추가해 450개가 됐다. 별도 fresh 사본 두 개의 전체 manifest 바이트와 filtered HEAD가 동일하다. 각 필터 결과는 7,737 objects · 3,673 trees · 1 ref 검사를 통과했다. 기존 overlay 152개 파일의 바이트·권한을 merge 직후 대조해 동일함을 확인했으며, 이 UPSTREAM 문단만 후속 기록으로 추가했다.
+
+G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0개)다. [배포 고지 범위](RELEASE-NOTICES.md)는 `publicClear=false`의 부분 증거이며 라이선스 허락을 부여하지 않는다. [대응 소스 제공 설정](SOURCE-OFFER.md)은 관리자가 실제 대응 소스 URL을 설정·검증해야 하며 이번 반입이 URL 제공/운영 공개를 완료한 것은 아니다.
+
+이 갱신은 승인된 로컬 사본만 사용했고 candidate에 remote를 추가하지 않았다. 기존 원본 core refs/index와 다른 포크를 변경하지 않았다. 새로운 후보의 전체 runtime/security/build 검증과 최종 source archive는 이 후속 ref에서 별도 수행하며, 앞 절의 과거 후보 테스트를 새 ref의 실행 증거로 대신하지 않는다.
