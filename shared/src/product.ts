@@ -11,15 +11,15 @@ export const PRODUCT = {
   /** machine name: folders, sockets, bundle ids, temp-file prefixes, env prefix (MYCEL_*). Keep stable. */
   id: 'mycel',
   /** what people see in the UI, window titles, the menubar app, installers and emails */
-  displayName: 'Team AX',
+  displayName: "Trina AX",
   /** where space is short: the PWA home-screen label (manifest short_name, apple-mobile-web-app-title) */
-  shortName: 'Team AX',
+  shortName: "Trina AX",
   /** file names (no spaces): desktop installers <artifactBase>-Setup-<v>-x64.exe and <artifactBase>-<v>-mac-universal.dmg,
    *  the fetch tool's User-Agent token */
-  artifactBase: 'Team-AX',
+  artifactBase: "Trina-AX",
   /** the office zip <officeBundle>-<version>-mac.zip and its one folder. Offices from this version on accept any
    *  "<name>-office-<version>" folder in an update, so changing it only needs older offices to install one zip by hand. */
-  officeBundle: 'TeamAX-office',
+  officeBundle: "TrinaAX-office",
   /** the desktop app's own settings folder (Electron userData: remembered teams, window size, language). This is a
    *  path on the desks, not a name: it stays when the product is renamed, or every desk would forget its teams. */
   desktopDataDir: 'Team AX',

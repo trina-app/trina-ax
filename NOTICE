@@ -1,0 +1,33 @@
+Trina AX local release candidate
+
+This candidate contains the filtered Team AX core, shared cloud protocols,
+ee/cloud hosting code, and Trina edition and website additions. It has not
+been approved for public release. See docs/UPSTREAM.md for provenance and
+docs/PUBLICATION.md for unresolved publication conditions.
+
+Preserve the copyright notices and authorship of Team AX and incorporated
+third-party components. The accompanying LICENSE preserves the Team AX
+GNU Affero General Public License version 3 text. Trina edition additions
+are designated AGPL-3.0-only; this does not grant rights to third-party or
+separately licensed material.
+
+Component-specific scope:
+- shared/src/cloud-protocol/ has its own MIT LICENSE, which is retained.
+- ee/README.md designates ee/ as separately licensed; ee/cloud/README.md
+  points to that designation. An applicable ee/cloud grant has not been
+  supplied in this candidate. No AGPL grant for ee/cloud is made here.
+- Saram/chat-proto-derived code has recorded provenance but unresolved
+  permission evidence. The affected source files remain subject to review.
+- pptx-preview@1.0.7 has unresolved version-specific licensing evidence.
+- Historical website source retains its Apache-2.0 license and Trina Inc.
+  attribution in editions/trina/branding/. Font notices remain under the
+  website public/fonts/ directory. The modified Korean subsets are named
+  Trina UI; public/fonts/NOTICE-Trina-UI.txt records the naming changes.
+  Website public/licenses/ includes the
+  Apache and AGPL texts and a website-specific notice for static builds.
+
+This is not a complete third-party notice bundle or a certification that
+all distribution requirements have been met. See docs/THIRD-PARTY-NOTICES.md.
+No trademark rights or licenses to third-party engine binaries are granted.
+Claude Code and Codex are separate products; this candidate does not imply
+endorsement by Anthropic or OpenAI.
