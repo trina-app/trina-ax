@@ -14,6 +14,7 @@ import { planInstallState } from '../../server/src/system/install-plan'
 import { canonIp, certNames, ensureLanCert, LAN_CERT_DAYS, lanAddresses, missingNames, wantedNames } from '../../server/src/system/lan-cert'
 import { UpdateManager } from '../../server/src/system/update'
 import { hostArch, type buildBundle } from '../../scripts/build-bundle'
+import { verifyReleaseNotices } from '../../scripts/release-notices'
 import { WORK } from '../lib/env'
 import { OWNER_PW, testConfig } from './a-lib'
 
@@ -369,14 +370,25 @@ describe.skipIf(!mac || !fs.existsSync(NATIVE))('release bundle (scripts/build-b
     const out = path.join(W, 'bundle')
     // in a separate process: Bun.build inside the test runner cannot read the workspace packages
     const built = run([process.execPath, path.join(REPO, 'scripts', 'build-bundle.ts'), '--version', '0.9.0-unit.1', '--out', out], { env: { HOME: process.env.HOME ?? '/' } })
-    expect(built.err).toBe('')
+    expect(built.code).toBe(0)
     const b = JSON.parse(built.out) as Awaited<ReturnType<typeof buildBundle>>
+    const notices = verifyReleaseNotices(b.dir)
+    expect(notices.publicClear).toBe(false)
+    expect(notices.coverage).toBe('partial-review-evidence')
+    expect(notices.packages.length).toBeGreaterThan(0)
+    expect(notices.pending.length).toBeGreaterThan(0)
+    expect(b.notices).toEqual({ publicClear: false, pending: notices.pending.length, manifest: 'licenses/manifest.json' })
+    // Exactly the review-status line, with counts bound to the artifact. Any extra stderr still fails.
+    expect(built.err).toBe(`release notices: ${notices.packages.length} installed packages; ${notices.pending.length} pending findings; publicClear=false (review artifact, NOT publication approval)\n`)
+    for (const file of ['LICENSE', 'licenses/README.txt', 'licenses/manifest.json']) expect(fs.existsSync(path.join(b.dir, file))).toBe(true)
     expect(b.arch).toBe(hostArch())
     for (const f of ['server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'bin/bun', 'native/mycel-gate', 'native/mycel-bridge']) expect(fs.existsSync(path.join(b.dir, f))).toBe(true)
     expect(fs.readdirSync(b.root).sort()).toEqual(['engine.sb', 'mycel-account', 'mycel-bootstrap', 'mycel-launcher', 'pf-load', 'safe-fs.sh', 'set-claude-token'])
     expect(fs.statSync(path.join(b.root, 'mycel-account')).mode & 0o777).toBe(0o755)
-    const manifest = JSON.parse(fs.readFileSync(path.join(b.dir, 'manifest.json'), 'utf8')) as { files: Record<string, unknown> }
+    const manifest = JSON.parse(fs.readFileSync(path.join(b.dir, 'manifest.json'), 'utf8')) as { files: Record<string, { sha256: string }> }
     expect(Object.keys(manifest.files)).toContain('server/src/account.js')
+    for (const doc of notices.documents) expect(manifest.files[doc.path]?.sha256).toBe(doc.sha256)
+    expect(manifest.files['licenses/manifest.json']?.sha256).toBe(crypto.createHash('sha256').update(fs.readFileSync(path.join(b.dir, 'licenses/manifest.json'))).digest('hex'))
 
     const bun = path.join(b.dir, 'bin', 'bun')
     const data = path.join(W, 'bundle-data')
