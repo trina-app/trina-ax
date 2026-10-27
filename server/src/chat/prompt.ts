@@ -11,6 +11,7 @@ import type { Principal } from '../policy/access'
 import { isSkillManifest, listSkills, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
+import { zonedParts } from '../system/time-zone'
 
 export const MEMORY_ITEM_MAX = 300
 export const MEMORY_BLOCK_MAX = 4096
@@ -144,8 +145,21 @@ const BROWSER_RULES = [
  * repeated them as they were ("수정 2026-10-20 23:09" for a file saved at 08:09 in Seoul), so it is told to convert.
  */
 export function timeLine(now: Date, timeZone: string): string {
-  const local = new Intl.DateTimeFormat('en-CA', { timeZone, dateStyle: 'full', timeStyle: 'short' }).format(now)
-  return `Now: ${local} (${timeZone}); ${now.toISOString()} UTC. Times in tool results are UTC: when you mention a time to the user, give it in ${timeZone}.`
+  return `Now: ${localTimeText(now, timeZone)} (${timeZone}); ${now.toISOString()} UTC. Times in tool results are UTC: when you mention a time to the user, give it in ${timeZone}.`
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/**
+ * "Wednesday, October 21, 2026 at 8:09 AM" in the zone, built from the zone's calendar numbers, not from an ICU
+ * pattern: the same text on every server. ICU's patterns change between versions (en-CA wrote "8:09 AM" with macOS's
+ * ICU 74 and "8:09 a.m." with the ICU 75 in Bun for Linux; en-GB moved a comma), so the prompt depended on the host.
+ */
+export function localTimeText(now: Date, timeZone: string): string {
+  const p = zonedParts(now, timeZone)
+  const h12 = p.h % 12 === 0 ? 12 : p.h % 12
+  return `${WEEKDAYS[p.wd]}, ${MONTHS[p.m - 1]} ${p.d}, ${p.y} at ${h12}:${String(p.min).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}`
 }
 
 /** Items 2-3 of the instructions: the person, their folders, the time and the answer language. */

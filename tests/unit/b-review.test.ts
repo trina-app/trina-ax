@@ -82,8 +82,13 @@ describe('prompt blocks', () => {
 
   test('the time line gives the local time and asks for tool-result times (UTC) in the same zone', () => {
     const l = timeLine(new Date('2026-10-20T23:09:00Z'), 'Asia/Seoul')
-    expect(l).toContain('October 21, 2026')
-    expect(l).toContain('8:09 AM')
+    // the whole local part, exactly: it is built from the zone's numbers, so every server (macOS ICU 74, Bun's ICU 75
+    // on Linux, which wrote "8:09 a.m." for the old en-CA pattern) sends the same text
+    expect(l).toContain('Now: Wednesday, October 21, 2026 at 8:09 AM (Asia/Seoul); 2026-10-20T23:09:00.000Z UTC.')
+    expect(timeLine(new Date('2026-10-20T15:00:00Z'), 'Asia/Seoul')).toContain('Wednesday, October 21, 2026 at 12:00 AM (Asia/Seoul)')
+    expect(timeLine(new Date('2026-10-21T03:05:00Z'), 'Asia/Seoul')).toContain('Wednesday, October 21, 2026 at 12:05 PM (Asia/Seoul)')
+    expect(timeLine(new Date('2026-03-08T07:30:00Z'), 'America/New_York')).toContain('Sunday, March 8, 2026 at 3:30 AM (America/New_York)') // after the DST jump
+    expect(timeLine(new Date('2026-12-31T23:59:00Z'), 'UTC')).toContain('Thursday, December 31, 2026 at 11:59 PM (UTC)')
     expect(l).toContain('Times in tool results are UTC')
     expect(l).toContain('give it in Asia/Seoul')
   })
