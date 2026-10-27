@@ -1,25 +1,29 @@
-// Office mode release feed (docs/OFFICE.md "자동 업데이트"): what scripts/release/publish.ts uploads to
-// https://updates.treesoop.com and what the office updater (./update.ts) checks before it installs anything.
+// Office mode release feed (docs/OFFICE.md "자동 업데이트"): what scripts/release/publish.ts uploads to this product's
+// feed (RELEASE_CHANNEL.feed, shared/src/release-channel.ts) and what the office updater (./update.ts) checks before it
+// installs anything. <dir> is RELEASE_CHANNEL.officeDir.
 //
-//   <feed>/office/<channel>.json       the signed manifest of the channel (stable | beta), no-cache
-//   <feed>/office/<version>/<file>     the office zip, the Windows installer and its electron-updater latest.yml;
+//   <feed>/<dir>/<channel>.json        the signed manifest of the channel (stable | beta), no-cache
+//   <feed>/<dir>/<version>/<file>      the office zip, the Windows installer and its electron-updater latest.yml;
 //                                      never overwritten once published (publish.ts refuses a different file)
 //
 // <channel>.json is one object, {format: 1, payload: "<JSON text>", keyId, sig}: an Ed25519 signature over the exact
 // payload bytes, so the manifest and its signature are always uploaded together (no window where one is new and the
-// other old). The private key lives only on the owner's Mac (~/.config/teamax-release/release-key.pem, mode 600,
+// other old). The private key lives only on the owner's Mac (~/.config/<keyDir>/release-key.pem, mode 600,
 // scripts/release/keygen.ts); the public keys below are baked into every build. A key is replaced by adding the new
 // one here first, shipping that build, then signing with the new key (the old one stays until every office has it).
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { compareVersions, keyId } from '../system/update'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, RELEASE_CHANNEL } from '@mycel/shared'
 import { RELEASE_KEYS } from '../system/release-keys'
 
 /** the only address the office updater contacts unless config/office.env sets TEAMAX_UPDATE_FEED (tests) */
-export const DEFAULT_FEED = 'https://updates.treesoop.com'
+export const DEFAULT_FEED: string = RELEASE_CHANNEL.feed
 
-/** Ed25519 release public keys (raw 32 bytes, base64). The private key: ~/.config/teamax-release/release-key.pem. */
+/** the signed manifest's product: an office takes only its own product's releases */
+export const OFFICE_PRODUCT: string = RELEASE_CHANNEL.officeProduct
+
+/** Ed25519 release public keys (raw 32 bytes, base64). The private key: ~/.config/<keyDir>/release-key.pem. */
 export const OFFICE_RELEASE_KEYS: readonly string[] = RELEASE_KEYS // system/release-keys.ts: the same key signs the server feed
 
 export const CHANNELS = ['stable', 'beta'] as const
@@ -42,7 +46,7 @@ export type ReleaseFile = z.infer<typeof ReleaseFile>
 
 export const OfficeRelease = z.object({
   format: z.literal(1),
-  product: z.literal('teamax-office'),
+  product: z.literal(OFFICE_PRODUCT),
   channel: z.enum(CHANNELS),
   version: Version,
   /** the oldest installed version that may update to this one by itself (older ones install the zip by hand) */
@@ -73,12 +77,13 @@ export function publicKeyOf(privatePem: string): string {
   return der.subarray(der.length - 32).toString('base64')
 }
 
-/** <feed>/office/<channel>.json */
-export const manifestUrl = (feed: string, channel: Channel) => `${feed.replace(/\/+$/, '')}/office/${channel}.json`
-/** <feed>/office/<version>/<file> */
-export const fileUrl = (feed: string, version: string, file: string) => `${feed.replace(/\/+$/, '')}/office/${version}/${file}`
+const DIR = RELEASE_CHANNEL.officeDir
+/** <feed>/<dir>/<channel>.json */
+export const manifestUrl = (feed: string, channel: Channel) => `${feed.replace(/\/+$/, '')}/${DIR}/${channel}.json`
+/** <feed>/<dir>/<version>/<file> */
+export const fileUrl = (feed: string, version: string, file: string) => `${feed.replace(/\/+$/, '')}/${DIR}/${version}/${file}`
 
-/** Sign a release: the manifest text uploaded as <feed>/office/<channel>.json. */
+/** Sign a release: the manifest text uploaded as <feed>/<dir>/<channel>.json. */
 export function signRelease(r: OfficeRelease, privatePem: string): string {
   const payload = JSON.stringify(OfficeRelease.parse(r), null, 1)
   const key = crypto.createPrivateKey(privatePem)

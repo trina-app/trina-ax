@@ -9,7 +9,7 @@
 // The DB is never rolled back automatically (tab 6): migrations are additive, a release that is not readable by the
 // previous version says so (needsBackupRestoreToRollBack) and then roll-back means restoring the pre-update backup.
 //
-// Release feed: https://updates.treesoop.com/server/<channel>.json + .sig (docs/INSTALL-LINUX.md "업데이트"), signed with
+// Release feed: <feed>/server/<channel>.json + .sig (RELEASE_CHANNEL.feed; docs/INSTALL-LINUX.md "업데이트"), signed with
 // the release key (system/release-keys.ts, the same key as the office feed). A feed is used only when server.json
 // names one (the Mac installer leaves update.feedUrl null, so a Mac never looks online).
 //

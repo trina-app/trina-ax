@@ -44,6 +44,7 @@ import { walkTree } from '../server/src/system/manifest'
 import { writeAtomic } from '../server/src/system/streams'
 import { tarStream, type TarEntryInput } from '../server/src/system/tar'
 import { PRODUCT, productEnv } from '../shared/src/product'
+import { RELEASE_CHANNEL } from '../shared/src/release-channel'
 import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, type LinuxArch } from './linux/downloads'
 import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
@@ -391,7 +392,8 @@ export async function buildLinuxBundle(o: {
   // the kit: <out> itself (install-linux.sh, VERSION, product.env, app/<version>/), packed under one top folder
   if (fs.existsSync(installer)) { fs.copyFileSync(installer, path.join(o.out, 'install-linux.sh')); fs.chmodSync(path.join(o.out, 'install-linux.sh'), 0o755) }
   fs.writeFileSync(path.join(o.out, 'VERSION'), o.version + '\n')
-  fs.writeFileSync(path.join(o.out, 'product.env'), productEnv())
+  // the product's names and release feed for install-linux.sh (a new install updates from <feed>/server/)
+  fs.writeFileSync(path.join(o.out, 'product.env'), productEnv({ RELEASE_FEED: RELEASE_CHANNEL.feed }))
   fs.rmSync(scratch, { recursive: true, force: true })
   const top = kitName(o.version, arch)
   const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755 }]

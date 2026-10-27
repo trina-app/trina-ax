@@ -2,7 +2,7 @@
 // <label>.update (app.team-ax.office.update), runs `office.js update run` every night at the chosen time (default 03:00)
 // and when someone asks (`teamax update now`, Admin > System "지금 업데이트": a request file + launchctl kickstart):
 //
-//   1. GET <feed>/office/<channel>.json (the only address contacted, https://updates.treesoop.com), verify the Ed25519
+//   1. GET <feed>/<dir>/<channel>.json (the only address contacted: RELEASE_CHANNEL.feed), verify the Ed25519
 //      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom
 //   2. download the office zip, check its size and SHA-256, unpack it into update/staging/
 //   3. the new bundle's own installer with --check-only, wait until no answer is running (10 min at most), a database

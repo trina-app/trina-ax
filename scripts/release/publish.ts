@@ -1,4 +1,5 @@
-// Publish an office release to https://updates.treesoop.com (docs/OFFICE.md "자동 업데이트"). On the owner's Mac.
+// Publish an office release to this product's feed (RELEASE_CHANNEL, shared/src/release-channel.ts; docs/OFFICE.md
+// "자동 업데이트"). On the owner's Mac. <dir> below is RELEASE_CHANNEL.officeDir.
 //
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
 //       [--office dist/office/<officeBundle>-X-mac.zip]
@@ -11,10 +12,10 @@
 //   1. checks the files: the zip holds <officeBundle>-<version>/app/VERSION = version; latest.yml names the installer
 //      with its sha512 and size
 //   2. refuses to go back: the channel's current manifest (if any) must be older (the same version only re-uploads
-//      identical files), and a file already published under office/<version>/ is never replaced by a different one
-//   3. uploads office/<version>/<files> to the R2 bucket, then signs (~/.config/teamax-release/release-key.pem) and
-//      uploads office/<channel>.json last, so the manifest never names a file that is not there
-//   4. reads the manifest back through https://updates.treesoop.com and verifies it like an office does
+//      identical files), and a file already published under <dir>/<version>/ is never replaced by a different one
+//   3. uploads <dir>/<version>/<files> to the R2 bucket, then signs (~/.config/<keyDir>/release-key.pem) and
+//      uploads <dir>/<channel>.json last, so the manifest never names a file that is not there
+//   4. reads the manifest back through the feed and verifies it like an office does
 // --out DIR writes the feed into a folder instead (tests: a feed on this Mac, whose address --feed names, served to an
 // install switched to it with `teamax update feed`); --dry-run checks and signs, uploads nothing.
 // The API token (CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env) and the release key are never printed.
@@ -22,10 +23,13 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { compareVersions } from '../../server/src/system/update'
-import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
+import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
 import { readReleaseKey } from './keygen'
 import { PRODUCT } from '../../shared/src/product'
+import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
+
+const DIR = RELEASE_CHANNEL.officeDir
 
 const ZIP_VERSION = new RegExp(`^${PRODUCT.officeBundle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-([^/]+)/app/VERSION$`)
 
@@ -72,7 +76,7 @@ export interface Artifact { key: string; file: string; type: string; meta: Relea
 
 export function describe(feed: string, version: string, file: string, type: string): Artifact {
   const name = path.basename(file)
-  return { key: `office/${version}/${name}`, file, type, meta: { file: name, url: fileUrl(feed, version, name), sha256: sha256(file), size: fs.statSync(file).size } }
+  return { key: `${DIR}/${version}/${name}`, file, type, meta: { file: name, url: fileUrl(feed, version, name), sha256: sha256(file), size: fs.statSync(file).size } }
 }
 
 async function main() {
@@ -114,7 +118,7 @@ async function main() {
   }
 
   const release: OfficeRelease = {
-    format: 1, product: 'teamax-office', channel, version, minFrom, publishedAt: new Date().toISOString(), notes,
+    format: 1, product: OFFICE_PRODUCT, channel, version, minFrom, publishedAt: new Date().toISOString(), notes,
     office: [{ ...arts[0]!.meta, arch: 'universal' }], windows,
   }
   const signed = signRelease(release, readReleaseKey())
@@ -123,9 +127,9 @@ async function main() {
 
   if (out) {
     for (const a of arts) { fs.mkdirSync(path.join(out, path.dirname(a.key)), { recursive: true }); fs.copyFileSync(a.file, path.join(out, a.key)) }
-    fs.mkdirSync(path.join(out, 'office'), { recursive: true })
-    fs.writeFileSync(path.join(out, 'office', `${channel}.json`), signed)
-    console.log(`written into ${out} (feed paths office/…)`)
+    fs.mkdirSync(path.join(out, DIR), { recursive: true })
+    fs.writeFileSync(path.join(out, DIR, `${channel}.json`), signed)
+    console.log(`written into ${out} (feed paths ${DIR}/…)`)
     return
   }
 
@@ -159,7 +163,7 @@ async function main() {
   const tmp = path.join(REPO, 'dist', `.${channel}.json.tmp-${process.pid}`)
   fs.mkdirSync(path.dirname(tmp), { recursive: true })
   fs.writeFileSync(tmp, signed)
-  try { await cf.putObject(account, `office/${channel}.json`, tmp, 'application/json') } finally { fs.rmSync(tmp, { force: true }) }
+  try { await cf.putObject(account, `${DIR}/${channel}.json`, tmp, 'application/json') } finally { fs.rmSync(tmp, { force: true }) }
   const back = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })
   const got = verifyRelease(await back.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
   if (got.version !== version) throw new Error(`the feed answers ${got.version}, not ${version}`)

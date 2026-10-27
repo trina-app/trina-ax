@@ -1,15 +1,17 @@
 // Cloudflare API access for the release feed (scripts/release/hosting.ts, publish.ts). The API token comes from
 // CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env and is never printed. It needs, on the account of the
-// treesoop.com zone: Workers R2 Storage Edit, Workers Scripts Edit, and on the zone Workers Routes Edit (the custom
-// domain updates.treesoop.com, whose DNS record Cloudflare creates for the Worker; no other record is touched).
+// feed's zone: Workers R2 Storage Edit, Workers Scripts Edit, and on the zone Workers Routes Edit (the custom domain of
+// the feed, whose DNS record Cloudflare creates for the Worker; no other record is touched). Zone, host, bucket and
+// Worker are this product's release channel (shared/src/release-channel.ts).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 
-export const ZONE = 'treesoop.com'
-export const HOST = 'updates.treesoop.com'
-export const BUCKET = 'teamax-updates'
-export const WORKER = 'teamax-updates'
+export const ZONE: string = RELEASE_CHANNEL.hosting.zone
+export const HOST: string = new URL(RELEASE_CHANNEL.feed).hostname
+export const BUCKET: string = RELEASE_CHANNEL.hosting.bucket
+export const WORKER: string = RELEASE_CHANNEL.hosting.worker
 const API = 'https://api.cloudflare.com/client/v4'
 
 export function apiToken(): string {

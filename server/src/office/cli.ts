@@ -40,7 +40,7 @@
 //                                  No restart needed.
 //   update [status|check|now|pause|resume|channel stable|beta|time HH:MM|run]
 //                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
-//                                  LaunchAgent (<label>.update) checks https://updates.treesoop.com every night
+//                                  LaunchAgent (<label>.update) checks the release feed every night
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'

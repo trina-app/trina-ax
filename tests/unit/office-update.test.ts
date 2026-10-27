@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { decide, fileUrl, manifestUrl, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
+import { decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
 import {
   checkLatestYml, deliverWindows, download, feedOf, nextWindow, readIndex, readUpdateState, runUpdate, updatePlist, updateView, writeUpdateSettings,
   sha256File, type UpdateDeps,
@@ -34,7 +34,7 @@ const sha = (b: Uint8Array | string) => crypto.createHash('sha256').update(b).di
 function release(over: Partial<OfficeRelease> = {}, files: { name: string; bytes: Uint8Array }[] = [{ name: 'TeamAX-office-0.3.0-mac.zip', bytes: new Uint8Array([1, 2, 3]) }]): OfficeRelease {
   const version = over.version ?? '0.3.0'
   return {
-    format: 1, product: 'teamax-office', channel: 'beta', version, minFrom: '0.2.0-0', publishedAt: new Date().toISOString(), notes: 'n',
+    format: 1, product: OFFICE_PRODUCT, channel: 'beta', version, minFrom: '0.2.0-0', publishedAt: new Date().toISOString(), notes: 'n',
     office: files.map((f) => ({ arch: 'universal' as const, file: f.name, url: fileUrl(FEED, version, f.name), sha256: sha(f.bytes), size: f.bytes.byteLength })),
     windows: null,
     ...over,
@@ -90,10 +90,11 @@ describe('what an installed version does with a release', () => {
     expect(old.kind).toBe('too-old')
     expect(decide('0.2.0-beta.1', { version: '0.2.0-beta.2', minFrom: '0.2.0-0' }).kind).toBe('install')
   })
-  test('the feed is updates.treesoop.com unless a test points at this Mac', () => {
-    expect(feedOf({})).toBe('https://updates.treesoop.com')
-    expect(feedOf({ feed: 'https://evil.example' })).toBe('https://updates.treesoop.com')
-    expect(feedOf({ feed: 'http://192.168.1.5:80' })).toBe('https://updates.treesoop.com')
+  test('the feed is the release channel\'s unless a test points at this Mac', () => {
+    expect(DEFAULT_FEED).toMatch(/^https:\/\/[a-z0-9.-]+$/)
+    expect(feedOf({})).toBe(DEFAULT_FEED)
+    expect(feedOf({ feed: 'https://evil.example' })).toBe(DEFAULT_FEED)
+    expect(feedOf({ feed: 'http://192.168.1.5:80' })).toBe(DEFAULT_FEED)
     expect(feedOf({ feed: 'http://127.0.0.1:45999' })).toBe('http://127.0.0.1:45999')
   })
 })

@@ -19,6 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { TenantStatus } from '@mycel/shared/cloud-protocol'
+import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { buildLinuxBundle } from '../../scripts/build-bundle'
 import { writeManifest } from '../../server/src/system/bundle'
 import { walkTree } from '../../server/src/system/manifest'
@@ -188,7 +189,7 @@ async function main() {
   check('engines: app/engines/<name>/<sha12>/<name>, server-owned, engine group may run', engineStat === `${SRV}:${AGT} 750` && statOf(`${BASE}/app/engines/codex/current/model_catalog.json`) === `${SRV}:${AGT} 640`, engineStat)
   const cfg = readJson(`${BASE}/config/server.json`)
   check('server.json: prod, subscription, journald logs, deployment self, signed feed with automatic updates', cfg?.mode === 'prod' && cfg?.engine?.authMode === 'subscription'
-    && cfg?.logDir === null && cfg?.deployment === 'self' && cfg?.update?.auto === true && cfg?.update?.feedUrl === 'https://updates.treesoop.com/server/stable.json'
+    && cfg?.logDir === null && cfg?.deployment === 'self' && cfg?.update?.auto === true && cfg?.update?.feedUrl === `${RELEASE_CHANNEL.feed}/server/stable.json`
     && cfg?.engine?.claudeBin === `${BASE}/app/engines/claude/current/claude` && cfg?.engine?.codexBin === `${BASE}/app/engines/codex/current/codex` && statOf(`${BASE}/config/server.json`) === `${SRV}:${SRV} 600`, JSON.stringify(cfg))
   check('setup code for root, setup token for the server', /^[A-Za-z0-9_-]{24}$/.test(fs.readFileSync(`${BASE}/setup/code`, 'utf8').trim()) && statOf(`${BASE}/setup/code`) === `${SRV}:root 640` && statOf(`${BASE}/data/setup-token`) === `${SRV}:${SRV} 600`)
 
