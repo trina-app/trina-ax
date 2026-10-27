@@ -356,6 +356,9 @@ function convertError(tool: string, stderr: string, killed: string | null, work:
 export function parseCsv(s: string, sep = ','): string[][] {
   const rows: string[][] = []
   let row: string[] = [], cell = '', q = false
+  // blank rows are dropped as they end, not collected and filtered afterwards: millions of blank lines (hostile input)
+  // made millions of arrays, 13 s of garbage collection on a Linux VM where the rest took 0.4 s
+  const keep = (r: string[]) => { if (r.some((c) => c.trim() !== '')) rows.push(r) }
   s = s.replace(/^﻿/, '')
   for (let i = 0; i < s.length; i++) {
     const ch = s[i]!
@@ -366,11 +369,11 @@ export function parseCsv(s: string, sep = ','): string[][] {
     else if (ch === sep) { row.push(cell); cell = '' }
     else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && s[i + 1] === '\n') i++
-      row.push(cell); rows.push(row); row = []; cell = ''
+      row.push(cell); keep(row); row = []; cell = ''
     } else cell += ch
   }
-  if (cell !== '' || row.length) { row.push(cell); rows.push(row) }
-  return rows.filter((r) => r.some((c) => c.trim() !== ''))
+  if (cell !== '' || row.length) { row.push(cell); keep(row) }
+  return rows
 }
 const tsvToCsv = (s: string) => parseCsv(s, '\t').map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(',')).join('\n') + '\n'
 
