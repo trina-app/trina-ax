@@ -1,13 +1,14 @@
-// The release feed's hosting (docs/OFFICE.md "자동 업데이트"): https://updates.treesoop.com = the Worker
-// scripts/release/worker.js in front of the private R2 bucket teamax-updates. Run once on the owner's Mac (again
-// after changing worker.js); it changes nothing else in the account or the zone.
+// The release feed's hosting (docs/OFFICE.md "자동 업데이트"): the feed's host (RELEASE_CHANNEL.feed) = the Worker
+// scripts/release/worker.js in front of the private R2 bucket RELEASE_CHANNEL.hosting.bucket. Run once on the owner's
+// Mac (again after changing worker.js or the channel); it changes nothing else in the account or the zone.
 //
 //   bun scripts/release/hosting.ts setup     bucket (if missing), Worker with the bucket binding, custom domain
-//                                            updates.treesoop.com (Cloudflare makes its DNS record), no workers.dev
-//   bun scripts/release/hosting.ts status    what exists, and what https://updates.treesoop.com answers
+//                                            (the feed's host; Cloudflare makes its DNS record), no workers.dev
+//   bun scripts/release/hosting.ts status    what exists, and what the feed answers
 import fs from 'node:fs'
 import path from 'node:path'
 import { BUCKET, Cloudflare, HOST, WORKER } from './cloudflare'
+import { workerCode } from './worker-code'
 
 const cf = new Cloudflare()
 const cmd = process.argv[2] ?? 'status'
@@ -33,7 +34,7 @@ if (cmd === 'setup') {
     await cf.json('POST', `/accounts/${account}/r2/buckets`, { name: BUCKET })
     console.log(`bucket ${BUCKET} created`)
   }
-  const code = fs.readFileSync(path.join(import.meta.dir, 'worker.js'), 'utf8')
+  const code = workerCode(fs.readFileSync(path.join(import.meta.dir, 'worker.js'), 'utf8'))
   const form = new FormData()
   form.append('metadata', new Blob([JSON.stringify({ main_module: 'worker.js', compatibility_date: '2026-10-01', bindings: [{ type: 'r2_bucket', name: 'BUCKET', bucket_name: BUCKET }] })], { type: 'application/json' }))
   form.append('worker.js', new Blob([code], { type: 'application/javascript+module' }), 'worker.js')

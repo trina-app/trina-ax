@@ -1,8 +1,8 @@
 // Server release manifests (control-plane 3.7.1, linux-runtime 3.6.3). MIT (see LICENSE in this folder).
 //
-//   https://updates.treesoop.com/server/<channel>.json (+ .sig)       channel head (stable / beta)
-//   https://updates.treesoop.com/server/<version>/release.json (+ .sig) one version, so the control plane can roll out a
-//                                                                       version that is no longer the channel head
+//   <feed>/server/<channel>.json (+ .sig)         channel head (stable / beta); <feed> = RELEASE_CHANNEL.feed
+//   <feed>/server/<version>/release.json (+ .sig) one version, so the control plane can roll out a version that is no
+//                                                 longer the channel head
 // Both are the server's ReleaseFeed (server/src/system/update.ts) with optional fields added (never removed or
 // changed): `rollout` (linux runtime), readerLevel / minReaderRequired / checks / notesI18n / engines / desktop (control
 // plane). The .sig file is { keyId, sig }: Ed25519 over the exact bytes of the .json (the office release key).

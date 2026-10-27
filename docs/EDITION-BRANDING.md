@@ -17,3 +17,5 @@ bun run --cwd web build
 브랜드 설정 파일에 다른 필드를 넣거나 쉘/소스 특수문자·잘못된 파일 이름을 넣으면 쓰기 전에 거부한다. 알 수 없는 product 소스 형식도 거부한다. 동일 설정을 반복 적용하면 추가 차이가 생기지 않는다. 로고·상표·앱 서명·배포 계정 설정을 바꾸는 도구는 아니다.
 
 코어 자체의 중립 소스에는 판매판 이름을 적용하지 않는다. 포크 동기화에서 `product.ts`가 충돌하면 upstream 중립 파일을 받은 뒤 edition 설정을 다시 적용하고 제품명 검사와 각 빌드를 실행한다.
+
+업데이트 주소와 서명 키는 이름과 따로 `editions/<name>/branding/release-channel.json`에서 정한다. [EDITION-RELEASE.md](EDITION-RELEASE.md)를 본다.

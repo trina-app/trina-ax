@@ -44,8 +44,7 @@ export LC_ALL=C
 shopt -u patsub_replacement 2>/dev/null || true
 
 # (the release public key, spec D12, is built into mycel-ctl: verify-bundle checks with it and render-units gives it
-# to the bootstrap as --pubkey)
-FEED_BASE=https://updates.treesoop.com/server
+# to the bootstrap as --pubkey; the feed comes from the kit's product.env, see RELEASE_FEED below)
 ENGINE_CACHE=/var/cache/mycel-engines
 
 CMD=${1:-}
@@ -241,6 +240,14 @@ VERSION=$(tr -d '[:space:]' < "$FROM/VERSION")
 [[ "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] || die "bad VERSION"
 PRODUCT_NAME=$(sed -n 's/^PRODUCT_NAME=//p' "$FROM/product.env" 2>/dev/null | head -n 1 || true)
 [[ "$PRODUCT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]{0,40}$ ]] || PRODUCT_NAME="Team AX"
+# the product's release feed (shared/src/release-channel.ts, written into product.env by build-bundle.ts): a new install
+# updates from <feed>/server/<channel>.json. A repair from the installed copy has no product.env: server.json keeps its feed.
+RELEASE_FEED=$(sed -n 's/^RELEASE_FEED=//p' "$FROM/product.env" 2>/dev/null | head -n 1 || true)
+FEED_BASE=""
+if [ -n "$RELEASE_FEED" ]; then
+  [[ "$RELEASE_FEED" =~ ^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] || die "product.env: RELEASE_FEED is not an https address"
+  FEED_BASE="$RELEASE_FEED/server"
+fi
 BUNDLE="$FROM/app/$VERSION"
 KROOT="$BUNDLE/root"
 [ -f "$BUNDLE/manifest.json" ] || die "$BUNDLE/manifest.json missing"
@@ -717,7 +724,7 @@ const cfg = {
     proxyPort: Number(e.MYCEL_I_PROXY_PORT),
     runDir: b + "/run/tools", agentRoot: b + "/agent", launcherSock: b + "/run-launcher/launcher.sock", agentUid: Number(e.MYCEL_I_AGT_UID) },
   relay: old.relay ?? { url: null, teamName: null },
-  update: { ...ou, channel, feedUrl: typeof ou.feedUrl === "string" && ou.feedUrl ? ou.feedUrl : e.MYCEL_I_FEED + "/" + channel + ".json",
+  update: { ...ou, channel, feedUrl: typeof ou.feedUrl === "string" && ou.feedUrl ? ou.feedUrl : e.MYCEL_I_FEED ? e.MYCEL_I_FEED + "/" + channel + ".json" : null,
     auto: e.MYCEL_I_DEPLOY === "hosted" ? false : e.MYCEL_I_AUTO === "1" },
 }
 fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 })

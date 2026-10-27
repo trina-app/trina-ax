@@ -161,7 +161,7 @@ export async function updateCommand(home: string, args: string[], envPath: strin
       return 0
     }
     case 'feed': {
-      // tests only: a feed on this Mac (http://127.0.0.1:<port>); `default` goes back to https://updates.treesoop.com
+      // tests only: a feed on this Mac (http://127.0.0.1:<port>); `default` goes back to RELEASE_CHANNEL.feed
       if (!val) { console.error('usage: teamax update feed http://127.0.0.1:<port> | default'); return 2 }
       if (val === 'default') { const cur = readUpdateSettings(home); delete cur.feed; fs.writeFileSync(updatePaths(home).settings, JSON.stringify(cur, null, 1) + '\n', { mode: 0o600 }); return 0 }
       if (!/^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/.test(val)) { console.error('only a feed on this Mac (http://127.0.0.1:<port>) can replace the default'); return 2 }

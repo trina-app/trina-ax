@@ -102,8 +102,16 @@ func TestVerifySig(t *testing.T) {
 	if VerifySig(data, sig, nil) == nil {
 		t.Fatal("no keys accepted a feed")
 	}
-	if len(ReleaseKeys) == 0 || KeyID(mustB64(t, ReleaseKeys[0])) != "84b790c8b6439e8b" {
-		t.Fatal("built-in release key changed")
+	// the built-in keys are the release channel's (tests/unit/release-channel.test.ts checks they match it)
+	if len(ReleaseKeys) == 0 {
+		t.Fatal("no built-in release key")
+	}
+	seen := map[string]bool{}
+	for _, k := range ReleaseKeys {
+		if len(mustB64(t, k)) != 32 || seen[KeyID(mustB64(t, k))] {
+			t.Fatalf("built-in release key %q is not a distinct 32-byte key", k)
+		}
+		seen[KeyID(mustB64(t, k))] = true
 	}
 }
 

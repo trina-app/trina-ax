@@ -19,10 +19,7 @@ import (
 	"regexp"
 )
 
-// ReleaseKeys are the Ed25519 release public keys (raw 32 bytes, base64) built into mycel-ctl: the same keys as
-// server/src/office/release.ts OFFICE_RELEASE_KEYS (spec D12: one release key for office and server feeds). A key is
-// replaced by adding the new one here first, shipping that build, then signing with the new key.
-var ReleaseKeys = []string{"aBlaqvK85shocX702pWi4gM/aYEzGS56Yy9h7Pj4KF4=" /* key id 84b790c8b6439e8b, made 2026-10-21 */}
+// ReleaseKeys (the built-in release public keys) are in release_keys.go, written from the release channel.
 
 // a version is a folder name in app/versions/ (shared/src/install.ts BundleManifest.version), never a path
 var versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$`)

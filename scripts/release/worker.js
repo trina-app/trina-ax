@@ -1,11 +1,13 @@
-// https://updates.treesoop.com — the office release feed (docs/OFFICE.md "자동 업데이트"), a Cloudflare Worker in
-// front of the private R2 bucket teamax-updates (binding BUCKET). Deployed by scripts/release/hosting.ts.
+// The office release feed (docs/OFFICE.md "자동 업데이트"), a Cloudflare Worker on the feed's host in front of the
+// private R2 bucket (binding BUCKET); both are the product's release channel (shared/src/release-channel.ts).
+// Deployed by scripts/release/hosting.ts, which sets DIR to RELEASE_CHANNEL.officeDir.
 //
-// Read-only: GET / HEAD of office/<channel>.json (the signed manifest, never cached) and office/<version>/<file>
+// Read-only: GET / HEAD of <DIR>/<channel>.json (the signed manifest, never cached) and <DIR>/<version>/<file>
 // (immutable once published), with Range for resumed downloads. Nothing is listed; every other path is 404. The
 // signature and the hashes in the manifest are what the offices trust, not this server.
-const KEY = /^office\/(?:(?:stable|beta)\.json|\d{1,4}\.\d{1,4}\.\d{1,6}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+){0,3})?\/[A-Za-z0-9][A-Za-z0-9._+-]{0,150})$/
-const MANIFEST = /^office\/(?:stable|beta)\.json$/
+const DIR = 'office'
+const KEY = new RegExp(`^${DIR}\\/(?:(?:stable|beta)\\.json|\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+){0,3})?\\/[A-Za-z0-9][A-Za-z0-9._+-]{0,150})$`)
+const MANIFEST = new RegExp(`^${DIR}\\/(?:stable|beta)\\.json$`)
 
 const text = (status, body, extra = {}) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...extra } })

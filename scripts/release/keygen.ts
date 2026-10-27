@@ -1,8 +1,9 @@
 // One-time: make the office release signing key on the owner's Mac (docs/OFFICE.md "자동 업데이트").
 //
-//   bun scripts/release/keygen.ts            -> ~/.config/teamax-release/release-key.pem (600, folder 700)
+//   bun scripts/release/keygen.ts            -> ~/.config/<keyDir>/release-key.pem (600, folder 700)
 //
-// Prints only the public key (to bake into server/src/office/release.ts OFFICE_RELEASE_KEYS). Never overwrites an
+// keyDir is this product's release channel (shared/src/release-channel.ts). Prints only the public key (to put into
+// editions/<name>/release-channel.json keys, applied with scripts/edition-release.ts). Never overwrites an
 // existing key: every installed office trusts it, and a lost key means shipping a build with a new one by hand.
 // The private key never goes into the repository, a zip, a log or the terminal.
 import crypto from 'node:crypto'
@@ -11,8 +12,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { publicKeyOf } from '../../server/src/office/release'
 import { keyId } from '../../server/src/system/update'
+import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 
-export const KEY_DIR = path.join(os.homedir(), '.config', 'teamax-release')
+export const KEY_DIR = path.join(os.homedir(), '.config', RELEASE_CHANNEL.keyDir)
 export const KEY_FILE = process.env.TEAMAX_RELEASE_KEY ?? path.join(KEY_DIR, 'release-key.pem')
 
 export function readReleaseKey(file = KEY_FILE): string {
