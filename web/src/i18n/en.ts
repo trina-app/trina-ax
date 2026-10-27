@@ -1257,7 +1257,7 @@ export const en: Record<MessageKey, string> = {
   'engines.concurrencyPlan': 'The plan\'s maximum: {max}',
   'teamSettings.timeZone': 'Team time zone',
   'teamSettings.timeZoneHint': 'Today\'s and this month\'s usage, scheduled tasks and the nightly backup follow this zone. Changing it moves the current day and month boundaries (the data stays).',
-  'system.updateManaged': 'On {product} Cloud, TreeSoop installs updates during the maintenance window. Nothing to do here.',
+  'system.updateManaged': 'On {product} Cloud, the hosting provider installs updates during the maintenance window. Nothing to do here.',
   'system.updateNeedsRoot': 'This version needs administrator rights on the server. Run `sudo mycel-ctl update` there, or wait for the automatic update timer.',
   'system.updateAuto': 'New versions that only change the app install themselves during the team\'s update window (Admin > Settings).',
   'storage.title': 'Storage',

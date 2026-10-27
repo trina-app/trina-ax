@@ -11,7 +11,7 @@ type T = { ko: string; en: string; id: string }
 type MT = typeof M
 
 /** Support line for the hosted cloud messages ("tell us"). */
-const SUPPORT: T = { ko: 'TreeSoop 지원팀(카카오톡 채널·메일)에 알려 주세요.', en: 'Tell TreeSoop support (KakaoTalk channel or mail).', id: 'Beri tahu dukungan TreeSoop (kanal KakaoTalk atau email).' }
+const SUPPORT: T = { ko: '호스팅 지원팀에 알려 주세요.', en: 'Contact the hosting support team.', id: 'Hubungi tim dukungan layanan.' }
 const withSupport = (t: T): T => ({ ko: `${t.ko} ${SUPPORT.ko}`, en: `${t.en} ${SUPPORT.en}`, id: `${t.id} ${SUPPORT.id}` })
 
 /** The Linux replacements; `id` = the install id (systemd unit prefix), `base` = the install folder. */
@@ -109,7 +109,7 @@ export const ML = {
   storageHigh: (free: number, pct: number): T => ({ ko: `${pct}% 사용, ${gb(free)} 남음. 휴지통 비우기·오래된 파일 정리로 공간을 늘려 주세요(관리자 > 시스템 > 저장 공간).`, en: `${pct}% used, ${gb(free)} free. Empty the trash or clean up old files (Admin > System > Storage).`, id: `${pct}% terpakai, ${gb(free)} kosong. Kosongkan tempat sampah atau rapikan berkas lama (Admin > Sistem > Penyimpanan).` }),
   storageFull: (free: number, pct: number): T => ({ ko: `${pct}% 사용, ${gb(free)} 남음. 공간이 거의 없어 저장·업로드·AI의 파일 쓰기가 거부됩니다. 바로 공간을 비워 주세요.`, en: `${pct}% used, ${gb(free)} free. Saves, uploads and the AI's file writes are refused. Free up space now.`, id: `${pct}% terpakai, ${gb(free)} kosong. Penyimpanan, unggahan, dan penulisan berkas AI ditolak. Segera kosongkan ruang.` }),
   updateNeedsRoot: (v: string): T => ({ ko: `새 버전 ${v}은(는) 서버의 관리자 권한이 필요합니다. 서버에서 \`sudo mycel-ctl update\`를 실행하거나 업데이트 타이머를 기다려 주세요.`, en: `The new version ${v} needs administrator rights on the server. Run \`sudo mycel-ctl update\` there, or wait for the update timer.`, id: `Versi baru ${v} memerlukan hak administrator di server. Jalankan \`sudo mycel-ctl update\` di sana, atau tunggu timer pembaruan.` }),
-  updateManaged: (v: string): T => ({ ko: `버전 ${v}. 업데이트는 TreeSoop이 점검 시간에 합니다.`, en: `Version ${v}. TreeSoop installs updates during the maintenance window.`, id: `Versi ${v}. TreeSoop memasang pembaruan saat jendela pemeliharaan.` }),
+  updateManaged: (v: string): T => ({ ko: `버전 ${v}. 업데이트는 호스팅 운영자가 점검 시간에 합니다.`, en: `Version ${v}. the hosting provider installs updates during the maintenance window.`, id: `Versi ${v}. pengelola layanan memasang pembaruan saat jendela pemeliharaan.` }),
   managedFiles: { ko: '요금제·공지 파일', en: 'Plan and notices files', id: 'Berkas paket dan pengumuman' },
   managedFileBad: (file: string, err: string, hosted: boolean, cmd = file === 'plan.json' ? 'apply-plan' : 'notices-set'): T => hosted
     ? withSupport({ ko: `${file}을(를) 읽지 못해 이전 값을 그대로 씁니다.`, en: `${file} could not be read; the previous values stay.`, id: `${file} tidak bisa dibaca; nilai sebelumnya tetap dipakai.` })
@@ -142,7 +142,7 @@ export function engineStatusMessages(host: HostKind, base: string): Record<strin
   if (host === 'linux') return linux
   return {
     ...linux,
-    notInstalled: { ko: '이 팀 서버에 설치되어 있지 않습니다. TreeSoop 지원팀에 알려 주세요.', en: 'Not installed on this team server. Tell TreeSoop support.', id: 'Belum terpasang di server tim ini. Beri tahu dukungan TreeSoop.' },
+    notInstalled: { ko: '이 팀 서버에 설치되어 있지 않습니다. 호스팅 지원팀에 알려 주세요.', en: 'Not installed on this team server. Tell the hosting support team.', id: 'Belum terpasang di server tim ini. Beri tahu tim dukungan layanan.' },
     claudeLogin: { ko: '관리자 > AI 엔진에서 연결해 주세요.', en: 'Connect it in Admin > AI engines.', id: 'Hubungkan di Admin > Mesin AI.' },
     codexLogin: { ko: '관리자 > AI 엔진에서 연결해 주세요.', en: 'Connect it in Admin > AI engines.', id: 'Hubungkan di Admin > Mesin AI.' },
     setupToken: { ko: 'AI 계정이 연결되어 있지 않습니다. 관리자 > AI 엔진에서 연결해 주세요.', en: 'No AI account is connected. Connect one in Admin > AI engines.', id: 'Belum ada akun AI yang terhubung. Hubungkan di Admin > Mesin AI.' },

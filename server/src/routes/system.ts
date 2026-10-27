@@ -52,9 +52,9 @@ export const T = {
   teamNameMissing: { ko: '중계 서버에 등록할 팀 이름을 입력해 주세요(영문 소문자·숫자·하이픈).', en: 'Enter the team name to register at the relay (lowercase letters, digits and hyphens).', id: 'Masukkan nama tim untuk didaftarkan di relay (huruf kecil, angka, dan tanda hubung).' },
   badRelayUrl: { ko: '자체 중계 서버 주소는 wss://로 시작하는 주소여야 합니다.', en: 'The self-hosted relay address must be a wss:// address.', id: 'Alamat relay sendiri harus berupa alamat wss://.' },
   // the hosted cloud (server/src/system/deployment.ts): the operator owns server.json, the relay registration and the updates
-  cloudConnection: { ko: `${PRODUCT.displayName} Cloud에서는 연결 방식을 바꿀 수 없습니다. 팀 주소는 TreeSoop이 관리합니다.`, en: `The connection cannot be changed on ${PRODUCT.displayName} Cloud. TreeSoop manages the team address.`, id: `Koneksi tidak bisa diubah di ${PRODUCT.displayName} Cloud. TreeSoop mengelola alamat tim.` },
+  cloudConnection: { ko: `${PRODUCT.displayName} Cloud에서는 연결 방식을 바꿀 수 없습니다. 팀 주소는 호스팅 운영자가 관리합니다.`, en: `The connection cannot be changed on ${PRODUCT.displayName} Cloud. The hosting provider manages the team address.`, id: `Koneksi tidak bisa diubah di ${PRODUCT.displayName} Cloud. pengelola layanan mengelola alamat tim.` },
   needsRoot: { ko: '이 업데이트는 서버의 관리자 권한이 필요합니다. 서버에서 `sudo mycel-ctl update`를 실행해 주세요(docs/INSTALL-LINUX.md).', en: 'This update needs administrator rights on the server. Run `sudo mycel-ctl update` there (docs/INSTALL-LINUX.md).', id: 'Pembaruan ini memerlukan hak administrator di server. Jalankan `sudo mycel-ctl update` di sana (docs/INSTALL-LINUX.md).' },
-  cloudUpdate: { ko: `${PRODUCT.displayName} Cloud의 업데이트와 되돌리기는 TreeSoop이 점검 시간에 합니다.`, en: `On ${PRODUCT.displayName} Cloud, TreeSoop installs updates (and rolls them back) during the maintenance window.`, id: `Di ${PRODUCT.displayName} Cloud, TreeSoop memasang pembaruan (dan mengembalikannya) saat jendela pemeliharaan.` },
+  cloudUpdate: { ko: `${PRODUCT.displayName} Cloud의 업데이트와 되돌리기는 호스팅 운영자가 점검 시간에 합니다.`, en: `On ${PRODUCT.displayName} Cloud, the hosting provider installs updates (and rolls them back) during the maintenance window.`, id: `Di ${PRODUCT.displayName} Cloud, pengelola layanan memasang pembaruan (dan mengembalikannya) saat jendela pemeliharaan.` },
 }
 
 export const systemRoutes: RouteModule = {

@@ -64,7 +64,7 @@ describe('wording', () => {
     const hosted = render(hostMessages('hosted', { id: 'mycel', base: '/var/lib/mycel' }) as unknown as Record<string, unknown>)
     for (const k of ['launcherNotRunning.ko', 'firewallMissing.en', 'engineSetupToken.en', 'engineCodexLogin.ko']) expect(hosted[k]).not.toMatch(/sudo|systemctl|journalctl|mycel-ctl/)
     expect(hosted['engineSetupToken.en']).toContain('Admin > AI engines')
-    expect(hosted['launcherDown.ko']).toContain('TreeSoop 지원팀')
+    expect(hosted['launcherDown.ko']).toContain('호스팅 지원팀')
   })
 })
 
@@ -154,7 +154,7 @@ describe('diagnostics of an installed Linux server', () => {
     for (const c of d.checks) expect(MAC_WORDS.test(`${c.label} ${c.detail ?? ''}`), `${c.id}: ${c.detail}`).toBe(false)
     const hd = await ops({ hosted: true }).diagnostics('en')
     expect(hd.checks.find((c) => c.id === 'sockets')).toBeUndefined()
-    expect(hd.checks.find((c) => c.id === 'update')!.detail).toContain('TreeSoop installs updates')
+    expect(hd.checks.find((c) => c.id === 'update')!.detail).toContain('the hosting provider installs updates')
     for (const c of hd.checks) expect(`${c.detail ?? ''}`).not.toMatch(/sudo |systemctl|journalctl/)
   })
   test('the launcher protocol: {"op":"status"} -> one status line (an older launcher\'s error = null)', async () => {
