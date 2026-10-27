@@ -5,18 +5,18 @@
 // `bun scripts/edition-release.ts editions/<name>/release-channel.json --apply`, never by hand.
 export const RELEASE_CHANNEL = {
   /** https origin of the feed: offices read <feed>/<officeDir>/<channel>.json, Linux servers <feed>/server/<channel>.json */
-  feed: "https://updates.treesoop.com",
+  feed: "https://updates.trina.app",
   /** Ed25519 release public keys (raw 32 bytes, base64), the only keys an installation trusts for updates. A key is
    *  replaced by adding the new one first, shipping that build, then signing with the new key. */
   keys: [
-    "aBlaqvK85shocX702pWi4gM/aYEzGS56Yy9h7Pj4KF4=", // key id 84b790c8b6439e8b
+    "jdltMFlx7RlZaB2fHZoplBVCE0drUl1Xycw1lXPNquk=", // key id 086478d11148fd06
   ] as readonly string[],
   /** the product field of a signed office manifest */
-  officeProduct: "teamax-office",
+  officeProduct: "trina-ax-office",
   /** the feed's folder for office releases */
   officeDir: "office",
   /** the owner's signing key on the release Mac: ~/.config/<keyDir>/release-key.pem (scripts/release/keygen.ts) */
-  keyDir: "teamax-release",
+  keyDir: "trina-ax-release",
   /** where the feed is hosted (scripts/release/hosting.ts): the Cloudflare zone of the feed's host, the R2 bucket, the Worker */
-  hosting: { zone: "treesoop.com", bucket: "teamax-updates", worker: "teamax-updates" },
+  hosting: { zone: "trina.app", bucket: "trina-ax-updates", worker: "trina-ax-updates" },
 } as const
