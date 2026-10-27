@@ -65,12 +65,19 @@ export default function Files() {
 
   /** the folder the table last showed: a not_found for it means access changed while it was open (tab 5 "권한 회수") */
   const shown = useRef<string | null>(null)
+  /** only the latest listing request may set the table: an older answer arriving last (the first listing of a slow
+   * folder, after the reload an upload asked for) showed the folder without the new file */
+  const loads = useRef(0)
   const load = useCallback(async () => {
+    const mine = ++loads.current
     setError(null)
     try {
-      setTree(await api.call(API.tree, { query: { path, limit: 200 } }))
+      const r = await api.call(API.tree, { query: { path, limit: 200 } })
+      if (mine !== loads.current) return
+      setTree(r)
       shown.current = path
     } catch (e) {
+      if (mine !== loads.current) return
       if (isApiError(e, 'not_found') && path) {
         // gone or not visible: climb to the nearest folder we can see, then say so once (not once per level)
         const wasShown = shown.current === path
@@ -129,7 +136,10 @@ export default function Files() {
 
   const startUploads = (list: File[]) => {
     if (!list.length) return
-    if (!canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
+    // only a folder known to be read-only refuses here; while its listing is still loading (a file dropped or picked
+    // right after opening the folder) the server decides, and a refusal shows on the upload row. Refusing then said
+    // "read-only folder" for a folder the person can write and dropped the file (e2e mobile upload on a slow server).
+    if (tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     const folder = path
     for (const file of list) {
       const item: UploadItem = { id: ++uploadSeq, name: file.name, folder, progress: null, status: 'uploading', abort: new AbortController() }

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Request } from '@playwright/test'
 import { reset, signIn } from './helpers'
 
 const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ hasText: name })
@@ -41,6 +41,30 @@ test('cancelling a chunked upload drops its session on the server', async ({ pag
   await list.getByRole('button', { name: '취소' }).click()
   await expect(list).toHaveCount(0)
   await expect.poll(async () => ((await (await page.request.post('/__test/log')).json()) as string[]).some((l) => /^DELETE \/api\/upload-sessions\//.test(l))).toBe(true)
+})
+
+test('a file picked while the folder is still loading is uploaded, not refused as read-only', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the folder's first listing answers late (a slow server) and the person picks a file before the table shows; the
+  // upload's own reload answers first, so the late listing must not hide the new file either
+  let held: Request | null = null
+  let lateDone = false
+  page.on('requestfinished', (r) => { if (r === held) lateDone = true })
+  await page.route(/\/api\/files\/tree\?.*path=marketing/, async (route) => {
+    if (!held) {
+      held = route.request()
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    await route.continue()
+  })
+  await page.goto('/files?path=marketing')
+  await page.getByTestId('files-input').setInputFiles({ name: 'early-upload.txt', mimeType: 'text/plain', buffer: Buffer.from('picked while loading') })
+  await expect(row(page, 'early-upload.txt')).toBeVisible()
+  await expect.poll(() => lateDone).toBe(true)
+  await page.waitForTimeout(300) // the app handles that late answer
+  await expect(row(page, 'early-upload.txt')).toBeVisible()
+  await expect(page.getByText('읽기 전용 폴더')).toHaveCount(0)
 })
 
 test('upload small and chunked files, new folder, rename, trash and restore', async ({ page }) => {
