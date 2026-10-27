@@ -17,13 +17,14 @@ import zlib from 'node:zlib'
 import { which } from '../config'
 import { ToolError } from '../policy/errors'
 import { runIsolated } from './isolate'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 
 export const FETCH_MAX_BYTES = 5 * 1024 * 1024
 export const FETCH_TIMEOUT_MS = 15_000
 export const FETCH_MAX_REDIRECTS = 5
 export const DEFAULT_MAX_CHARS = 40_000
-const UA = `Mozilla/5.0 (compatible; ${PRODUCT.artifactBase}-fetch/1.0; +https://github.com/potenlab/team-ax)`
+// the product's own repository (an edition's public one: scripts/edition-source.ts)
+const UA = `Mozilla/5.0 (compatible; ${PRODUCT.artifactBase}-fetch/1.0; +${SOURCE_CODE.repository})`
 
 // ---------------- address checks ----------------
 const v4 = (s: string): number | null => {

@@ -19,3 +19,14 @@ bun run --cwd web build
 코어 자체의 중립 소스에는 판매판 이름을 적용하지 않는다. 포크 동기화에서 `product.ts`가 충돌하면 upstream 중립 파일을 받은 뒤 edition 설정을 다시 적용하고 제품명 검사와 각 빌드를 실행한다.
 
 업데이트 주소와 서명 키는 이름과 따로 `editions/<name>/branding/release-channel.json`에서 정한다. [EDITION-RELEASE.md](EDITION-RELEASE.md)를 본다.
+
+## 소스 코드 링크 (AGPL-3.0)
+
+판매판 앱의 "소스 코드" 링크와 소스 요청 메일 주소는 `editions/<name>/branding/source.json`에서 정한다. 필드는 `repository`(그 판매판의 공개 레포 주소), `published`(공개됐으면 `true`, 그 전에는 링크가 메일 요청으로 바뀐다), `requestEmail`(소스 요청을 받는 주소) 셋뿐이다. 코어의 비공개 레포 주소가 판매판 앱에 나오면 안 된다.
+
+```sh
+bun scripts/edition-source.ts editions/trina/branding/source.json
+bun scripts/edition-source.ts editions/trina/branding/source.json --apply
+```
+
+`--apply`는 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다. `tests/unit/edition-source.test.ts`가 판매판 설정과 적용 값이 같은지, 다른 소스에 레포 주소가 직접 적혀 있지 않은지 확인한다.
