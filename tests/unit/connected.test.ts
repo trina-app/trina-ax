@@ -18,11 +18,15 @@ const put = (rel: string, text: string, mtime?: number) => {
   if (mtime) fs.utimesSync(p, mtime / 1000, mtime / 1000)
 }
 const team = (rel: string) => path.join(h.team, 'connected', 'nas', rel)
-beforeAll(async () => { h = await startHarness({ name: 'connected' }); cf = new ConnectedFolders(h.ctx, { home }) })
+// the mirror's sources live in a temporary folder: on macOS any visible folder in the home may be connected; on Linux
+// only folders below the mount roots (/mnt, /media, /srv), so here the temporary folder stands for such a root
+beforeAll(async () => { h = await startHarness({ name: 'connected' }); cf = new ConnectedFolders(h.ctx, { home, linuxRoots: [home] }) })
 afterAll(async () => { await h.close(); fs.rmSync(home, { recursive: true, force: true }) })
 
 describe('what may be connected', () => {
-  const o = () => ({ home, teamRoot: h.team, dataDir: h.dataDir })
+  // the macOS rules (home, ~/Library, cloud folders) on every host; the Linux rules (mount roots, outside the install):
+  // g-cloud-deployment.test.ts
+  const o = () => ({ home, teamRoot: h.team, dataDir: h.dataDir, platform: 'darwin' as const })
   test('a visible folder in the home, /Volumes shares and cloud folders; not the home itself, hidden or Library', () => {
     fs.mkdirSync(path.join(home, 'Library', 'CloudStorage', 'GoogleDrive-a@b.com', 'My Drive'), { recursive: true })
     fs.mkdirSync(path.join(home, 'Library', 'Keychains'), { recursive: true })

@@ -153,7 +153,9 @@ describe('Team AX Cloud refuses what the operator owns (UX-07, SEC-02)', () => {
     h = await harness('cloud-refusals', { deployment: 'hosted' })
     owner = await withOwner(h)
   })
-  afterAll(() => h.close())
+  // the hosted app turned the process-wide API-engine egress check on (routes/system.ts, one team per process); later
+  // files in the same bun process are not the cloud
+  afterAll(async () => { await h.close(); setApiEnginePublicOnly(false) })
 
   test('/api/me tells the web the deployment, its features and the team time zone', async () => {
     const me = await owner.call('GET', '/api/me')
