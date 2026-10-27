@@ -15,6 +15,21 @@ for (const f of fs.readdirSync(F_WORK)) if (/^t[a-z]+-\d{13}-\d+/.test(f)) fs.rm
 let S: Stack | null = null
 afterEach(() => { S?.stop(); S = null })
 const MB = 1024 * 1024
+/** The most one TCP connection on this host may buffer in the kernel: send buffer + receive buffer limits (autotuned
+ * sizes cap there). Linux: tcp_wmem / tcp_rmem maximums; macOS: the autotuning maximums. */
+function socketBufferMax(): number {
+  const n = (s: string | undefined) => (Number.isFinite(Number(s)) ? Number(s) : 0)
+  if (process.platform === 'linux') {
+    const max = (f: string) => { try { return n(fs.readFileSync(f, 'utf8').trim().split(/\s+/)[2]) } catch { return 0 } }
+    const sum = max('/proc/sys/net/ipv4/tcp_wmem') + max('/proc/sys/net/ipv4/tcp_rmem')
+    if (sum > 0) return sum
+  } else if (process.platform === 'darwin') {
+    const out = Bun.spawnSync(['sysctl', '-n', 'net.inet.tcp.autosndbufmax', 'net.inet.tcp.autorcvbufmax']).stdout.toString().trim().split(/\s+/)
+    const sum = n(out[0]) + n(out[1])
+    if (sum > 0) return sum
+  }
+  return 8 * MB
+}
 /** measured numbers, printed at the end and saved to tests/.work/f-relay/conformance.json */
 const notes: Record<string, unknown> = {}
 afterAll(() => {
@@ -45,12 +60,24 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
     S = await startStack(PORT, { name: 'ttwo' })
     const rss0 = rssMb(S.relay.p.pid)
     const slow = Bun.spawn(['curl', '-s', '--limit-rate', '1M', '-o', '/dev/null', `${S.base}/bytes?n=${500 * MB}&rid=slow`])
-    await Bun.sleep(4000)
-    const d = await debug(S.base, 'slow')
+    // Bytes the reader has not taken yet sit in one window (256 KB) and in the relay -> reader socket's kernel buffers
+    // (the team -> relay hop carries at most one window). Those buffers fill in the first half second and their size
+    // is the host's, not ours: up to 4 + 4 MB on macOS, 4 + 6 MB with Linux's defaults (12.1 MB produced after 4 s
+    // on a Debian server against the old fixed 4 + 8 MB). So: once they are full, the producer goes only as fast as
+    // the reader, and the total stays within what was read plus this host's buffer limits.
+    await Bun.sleep(2000)
+    const a = await debug(S.base, 'slow'), aAt = Date.now()
+    await Bun.sleep(2000)
+    const d = await debug(S.base, 'slow'), dAt = Date.now()
     const elapsed = (Date.now() - d.lastPullAt) / 1000
-    // ~4 MB read at 1 MB/s; allow window (256 KB) + kernel socket buffers on both hops
-    notes.t2 = { producedMB: +(d.produced / MB).toFixed(2), relayRssGrowthMB: +(rssMb(S.relay.p.pid) - rss0).toFixed(1) }
-    expect(d.produced).toBeLessThan(4 * MB + 8 * MB)
+    const read = ((dAt - aAt) / 1000) * MB // the reader's 1 MB/s over the interval
+    const buffers = socketBufferMax()
+    notes.t2 = { producedMB: +(d.produced / MB).toFixed(2), lastTwoSecondsMB: +((d.produced - a.produced) / MB).toFixed(2), socketBuffersMB: +(buffers / MB).toFixed(1), relayRssGrowthMB: +(rssMb(S.relay.p.pid) - rss0).toFixed(1) }
+    // without flow control the producer runs at memory speed (hundreds of MB in a second): here, the reader's pace
+    // plus at most 2 MB (the relay returns window in steps as the socket drains: ~1.5 MB on Linux)
+    expect(d.produced - a.produced).toBeLessThan(read + 2 * MB)
+    // ~4 MB read in 4 s (curl may burst 1 MB more), one window, and this host's socket buffers between relay and reader
+    expect(d.produced).toBeLessThan(5 * MB + 256 * 1024 + buffers)
     expect(elapsed).toBeLessThan(5)
     expect(rssMb(S.relay.p.pid) - rss0).toBeLessThan(40)
     slow.kill(9)
