@@ -13,6 +13,10 @@ import { productPages } from './scripts/product-pages.ts'
 const API_TARGET = process.env.MYCEL_API_TARGET ?? 'http://127.0.0.1:19100'
 
 export default defineConfig({
+  // one tsconfig for every file: web imports mobile/src/protocol.ts, and mobile/tsconfig.json extends
+  // expo/tsconfig.base, which a clean checkout does not have (mobile/ is not a workspace; vite 8 reads the
+  // nearest tsconfig per file otherwise and the build fails with "Tsconfig not found expo/tsconfig.base")
+  tsconfig: 'tsconfig.json',
   plugins: [react(), tailwindcss(), productPages()],
   define: {
     __WEB_VERSION__: JSON.stringify(pkg.version),
