@@ -19,7 +19,7 @@
 
 - `repository`: `https://github.com/trina-app/trina-ax`
 - `published`: 레포가 공개되기 전에는 `false`다. 그동안 링크는 메일 요청이 된다. 공개할 때 `true`로 바꾸고 다시 적용한다.
-- `requestEmail`: 지금은 코어와 같은 `support@treesoop.com`이다. Trina 전용 주소가 정해지면 바꾼다.
+- `requestEmail`: `contact@trina.app`(2026-10-28 대표 결정).
 
 ## 사이트 자산
 
