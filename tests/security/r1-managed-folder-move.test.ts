@@ -95,7 +95,23 @@ describe('admins and the owner', () => {
     expect(folderRows()).toContain('groups/marketing-team')
     expect((await read('alice', 'groups/marketing-team/campaign-brief.md')).status).toBe(200)
     expect((await read('bob', 'groups/marketing-team/campaign-brief.md')).status).toBe(404)
+    // A case-sensitive file system (Linux) also holds groups/Marketing, the look-alike folder the shared fixture plants
+    // for the case-confusion tests (tests/lib/fixtures.ts). With groups/marketing renamed away, taking that name back
+    // would create a second folder that differs only by case: refused like any new look-alike name
+    // (policy/authorize.ts), nothing moves, until the look-alike is gone. Case-insensitive volumes (macOS) never
+    // have it, so there the name comes straight back.
+    if (fs.readdirSync(path.join(A.team, 'groups')).includes('Marketing')) {
+      const twin = await move('carol', 'groups/marketing-team', 'groups/marketing')
+      expect(twin.status).toBe(409)
+      expect(twin.body.error.code).toBe('conflict')
+      expect(twin.body.error.fields.to).toContain('almost the same name')
+      expect(exists(A.team, 'groups/marketing-team/campaign-brief.md')).toBe(true)
+      expect(folderRows()).toContain('groups/marketing-team')
+      fs.rmSync(path.join(A.team, 'groups', 'Marketing'), { recursive: true })
+    }
     expect((await move('carol', 'groups/marketing-team', 'groups/marketing')).status).toBe(200)
+    expect(folderRows()).toContain('groups/marketing')
+    expect((await read('alice', 'groups/marketing/campaign-brief.md')).status).toBe(200)
     expect((await del('dana', 'shared/team-x')).status).toBe(200)
   })
 })
