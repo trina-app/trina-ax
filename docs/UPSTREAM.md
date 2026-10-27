@@ -96,3 +96,62 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
 - 그 위 일반 커밋: `ee/cloud` 작업공간·`test:cloud` 제거와 잠금 파일 정리(ee/cloud 항목 10줄만 삭제), self-hosted runner workflow(`linux-lockdown.yml`) 삭제, NOTICE·PUBLICATION·CLAUDE.md 갱신.
 
 이 기록은 아직 one-parent 검토 snapshot의 필터 결과다. 원본 코어 main 병합 뒤 진짜 main을 다시 필터하면 기록이 달라질 수 있고, 그때 이 비공개 레포를 바꾸려면 force push 승인이 필요하다. 공개 전환 전에 정한다.
+
+## 2026-10-27 코어 리눅스 P2 수정 반입 (fix/linux-p2)
+
+넣을 곳: trina-ax 포크(코어 수정 반입), 이유: AWS 리눅스 시험 실패를 코어 Team AX에서 먼저 고쳤고(모든 회사 해당), 이 포크가 받아 간다.
+
+| 항목 | 값 |
+|---|---|
+| 받은 것 | 코어 `fix/linux-p2`의 `91fd604..e96e266` 커밋 10개 (15파일, +230 / −40) |
+| 뺀 것 | 그 브랜치 첫 커밋 `503ba36`(web vite tsconfig). 이 레포에 이미 `5efc5ca`로 있다 |
+| 적용 | `git format-patch` 10개를 `git am`으로 순서대로 적용. 커밋 메시지·저자 그대로 |
+| 충돌 | 없음. 고친 15파일 모두 코어 `e96e266`의 blob과 같다 |
+| 이 레포 커밋 | `4072bfc..92be904` (기준 `d0b13ee`) |
+
+| 코어 | 이 레포 | 내용 |
+|---|---|---|
+| `91fd604` | `4072bfc` | 보안 시험: 대소문자 구분 파일시스템에서 `groups/Marketing`과 닮은 이름 되돌리기 (409 기대) |
+| `7ca793b` | `355067a` | 프롬프트 시간 줄을 ICU 패턴 없이 고정 영어로 (리눅스 "a.m." 차이) |
+| `77e6096` | `532fbf6` | make_file: 변환기 없을 때 OS에 맞는 안내, typst 없이도 PDF 보안 시험 |
+| `5933932` | `42f0cbe` | 시험: 맥 전용 도구(ditto zip, Apple Vision OCR fixture)를 플랫폼 조건 뒤로 |
+| `d5dad85` | `2004f3b` | 시험: 연결 폴더 리눅스 fixture, API 엔진 egress 모드가 시험 파일 사이로 새지 않게 |
+| `b270f67` | `fbe630d` | 중계 시험 t2: 생산 속도와 이 호스트의 소켓 버퍼 한도로 판정 |
+| `b342b1f` | `68350f3` | 웹: 새 채팅 화면이 뜨기 전에 시작한 아티팩트도 패널이 열림 |
+| `327082e` | `cae9cbb` | 웹: 폴더 목록 로딩 중 고른 파일도 업로드, 늦은 목록 응답이 덮지 않음 |
+| `b0d7c66` | `d028257` | make_file: 빈 CSV 줄을 바로 버림 (빈 줄 수백만 개) |
+| `e96e266` | `92be904` | e2e: 업로드 취소 시험이 두 번째 청크 요청을 기다림 |
+
+코어 `fix/linux-p2`는 아직 코어 main에 병합·push되지 않은 로컬 브랜치다. 나중에 코어 main이 같은 수정을 다른 SHA로 받아 오면, 다음 동기화 때 같은 내용이 이미 있는 것으로 처리한다(내용 대조 후).
+
+### 시험 결과 (`92be904`)
+
+리눅스: `lfx-env:2`(= `p2-linux-dev:20261027` + Playwright chromium + `libnss-myhostname`), Debian 13 ARM64 컨테이너(Colima 4 vCPU). 소스는 `git archive 92be904`만 컨테이너 안 파일시스템에 풀었다. `native/bin/linux-arm64`는 맥에서 `native/build.sh`로 만든 것을 넣었다. 컨테이너 안에서 `bun install --frozen-lockfile`, `p2build` 계정, `env -i`, `LANG=C.UTF-8`, UTC, `unshare --net`(루프백만, 외부 네트워크 없음), `docker run --init`. 시험하는 동안만 Colima의 `kernel.apparmor_restrict_unprivileged_userns`를 0으로 두고 끝나고 1로 되돌렸다.
+
+| 묶음 | 리눅스 | 코어 리눅스 고친 뒤 (참고) |
+|---|---|---|
+| `bun test tests/unit` | 1943 pass / 59 skip / 0 fail (2002) | 1943 / 59 / 0 (2002) |
+| `bun test tests/security` | 1482 / 23 / 0 (1505) | 1482 / 23 / 0 |
+| `bun test tests/relay` | 25 / 0 | 25 / 0 |
+| `bun run --cwd web e2e` (`--cpus 2`) | 108 passed / 3 skipped / 0 failed (111) | 108 / 0 / 3 (111) |
+
+리눅스는 모두 통과해 수정 전 비교는 하지 않았다. `ee/`가 없어서 생긴 차이는 없었다. `tests/unit/g-cloud-deployment.test.ts`는 `server/src`만 불러 이 레포에서도 돈다. unit 파일 수(171)·시험 수(2002)가 코어와 같다. `tests/cloud`(ee/cloud 호스트 시험)는 이 레포에 없어 돌리지 않았다.
+
+맥(개발 맥, 이 레포 경로):
+
+| 항목 | 결과 |
+|---|---|
+| `bun install --frozen-lockfile` | 통과 (변경 없음) |
+| `bun run typecheck` | 통과 |
+| web unit (`bun run --cwd web test`) | 168 / 0 |
+| web build | 통과 |
+| `editions/trina` `bun test test` (`TRINA_CORE_ROOT` 없음) | 105 pass / 24 skip / 0 fail (129) |
+| 같은 시험, `TRINA_CORE_ROOT=trina-ax-release-candidate` | 129 / 0 |
+| `editions/trina` typecheck | 통과 |
+| `editions/trina/website` `bun run test` (astro build + 시험) | 69 / 0 |
+| `bun test tests/unit` | 1962 / 13 / 22 (1997). 수정 전 `d0b13ee`: 1961 / 13 / 22 (1996) |
+| `bun test tests/security` | 1493 / 0 / 6. 수정 전 `d0b13ee`: 1493 / 0 / 6 |
+
+맥 unit·security 실패는 수정 전과 이름까지 같다(새 실패 0). 코어 맥 실행의 실패 목록과도 같다. 이 맥 환경에서 원래 나는 실패다: 긴 소켓 경로(`g-prod-ops`), `/var` → `/private/var` 임시 폴더(`skills`), 사무실 모드·구독 관리 모드(`g-subscription`, `office`, `office-tunnel`, 보안 `r4b-office-*`), P2 credential 파일(`p2-smoke-prepare`). 시험 수 +1은 `b-review`의 새 시간 줄 시험이다.
+
+시험은 실제 Anthropic API·모델을 부르지 않았다(리눅스는 네트워크 없음, 맥은 최소 환경 변수로 가짜 엔진만). 비밀값은 쓰지 않았다.
