@@ -155,3 +155,21 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
 맥 unit·security 실패는 수정 전과 이름까지 같다(새 실패 0). 코어 맥 실행의 실패 목록과도 같다. 이 맥 환경에서 원래 나는 실패다: 긴 소켓 경로(`g-prod-ops`), `/var` → `/private/var` 임시 폴더(`skills`), 사무실 모드·구독 관리 모드(`g-subscription`, `office`, `office-tunnel`, 보안 `r4b-office-*`), P2 credential 파일(`p2-smoke-prepare`). 시험 수 +1은 `b-review`의 새 시간 줄 시험이다.
 
 시험은 실제 Anthropic API·모델을 부르지 않았다(리눅스는 네트워크 없음, 맥은 최소 환경 변수로 가짜 엔진만). 비밀값은 쓰지 않았다.
+
+## 2026-10-27 코어 배포 채널 반입 (feat/release-channel)
+
+- 받은 것: 코어 `feat/release-channel` `3d13f8d`(코어 `fix/linux-p2` 위 1커밋) → 이 레포 `498105f`. 충돌 없음.
+- 업데이트 주소·서명 키·사무실 업데이트 제품 값·Cloudflare 이름이 코어 파일 여러 곳에 박혀 있던 것을 `shared/src/release-channel.ts`와 `native/internal/bundle/release_keys.go` 두 곳으로 모았다. 판매판은 `editions/<name>/branding/release-channel.json`을 `scripts/edition-release.ts`로 적용한다.
+- Trina 적용(다음 커밋): `editions/trina/branding/release-channel.json`
+  - 주소 `https://updates.trina.app`
+  - 키 ID `086478d11148fd06`
+  - 제품 값 `trina-ax-office`
+  - 개인키 폴더 `~/.config/trina-ax-release`
+  - Cloudflare zone `trina.app`, bucket/Worker `trina-ax-updates`
+- 고객 주소 예약어에 `update(s)`, `release(s)`, `download(s)`를 더했다.
+- 다음 동기화: 코어 main이 같은 변경을 다른 SHA로 받으면 이미 있는 것으로 처리한다. 두 채널 파일이 충돌하면 코어 쪽을 받고 `bun scripts/edition-release.ts editions/trina/branding/release-channel.json --apply`를 다시 한다.
+- 맥 검증
+  - typecheck 통과, Go `internal/bundle`·`cmd/mycel-ctl` 통과
+  - 업데이트·설치·이름 관련 단위 시험 145 / 7 skip / 0
+  - `editions/trina` 105 / 24 skip / 0
+- 리눅스 설치 시험(T2)은 별도로 돌린다.

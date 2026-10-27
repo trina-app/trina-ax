@@ -5,5 +5,5 @@ package bundle
 // ReleaseKeys are the Ed25519 release public keys (raw 32 bytes, base64) built into mycel-ctl: RELEASE_CHANNEL.keys in
 // shared/src/release-channel.ts (spec D12: one release key for office and server feeds).
 var ReleaseKeys = []string{
-	"aBlaqvK85shocX702pWi4gM/aYEzGS56Yy9h7Pj4KF4=", // key id 84b790c8b6439e8b
+	"jdltMFlx7RlZaB2fHZoplBVCE0drUl1Xycw1lXPNquk=", // key id 086478d11148fd06
 }
