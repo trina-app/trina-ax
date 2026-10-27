@@ -173,3 +173,16 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
   - 업데이트·설치·이름 관련 단위 시험 145 / 7 skip / 0
   - `editions/trina` 105 / 24 skip / 0
 - 리눅스 설치 시험(T2)은 별도로 돌린다.
+
+## 2026-10-27 코어 배포 자동화 반입 (feat/release-ci)
+
+- 받은 것: 코어 `feat/release-ci` `0ef404f` → 이 레포 `33c579b`. 충돌 없음.
+- 내용
+  - `v*` 태그 → 전체 시험 → 리눅스 kit·사무실 zip·윈도우 설치 파일 빌드 → GitHub 비밀값의 키로 서명 → `updates.trina.app` 업로드(사무실·서버 피드) → GitHub Release.
+  - 서명 키가 `RELEASE_CHANNEL.keys`(Trina 키)가 아니면 빌드 전에 멈춘다.
+  - 상세: `docs/RELEASE-CI.md`
+- 이 레포에서 할 일(대표 확인 뒤)
+  - GitHub Actions 결제
+  - 비밀값 `RELEASE_SIGNING_KEY`(`~/.config/trina-ax-release/release-key.pem`)와 `CLOUDFLARE_API_TOKEN`(trina.app zone, R2 쓰기)
+  - `bun scripts/release/hosting.ts setup`(`updates.trina.app`)
+- 맥 검증: typecheck 통과. 배포·채널·업데이트 시험 80 / 0(Trina 값으로).
