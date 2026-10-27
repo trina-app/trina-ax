@@ -1,9 +1,10 @@
-Trina AX local release candidate
+Trina AX
 
-This candidate contains the filtered Team AX core, shared cloud protocols,
-ee/cloud hosting code, and Trina edition and website additions. It has not
-been approved for public release. See docs/UPSTREAM.md for provenance and
-docs/PUBLICATION.md for unresolved publication conditions.
+This repository contains the filtered Team AX core, the shared cloud
+protocols, and the Trina edition and website additions. The separately
+licensed hosting control plane (ee/) is not part of this repository or its
+history. See docs/UPSTREAM.md for provenance and docs/PUBLICATION.md for
+publication conditions.
 
 Preserve the copyright notices and authorship of Team AX and incorporated
 third-party components. The accompanying LICENSE preserves the Team AX
@@ -13,12 +14,14 @@ separately licensed material.
 
 Component-specific scope:
 - shared/src/cloud-protocol/ has its own MIT LICENSE, which is retained.
-- ee/README.md designates ee/ as separately licensed; ee/cloud/README.md
-  points to that designation. An applicable ee/cloud grant has not been
-  supplied in this candidate. No AGPL grant for ee/cloud is made here.
-- Saram/chat-proto-derived code has recorded provenance but unresolved
-  permission evidence. The affected source files remain subject to review.
-- pptx-preview@1.0.7 has unresolved version-specific licensing evidence.
+- ee/ (the hosting control plane) is excluded and stays private. The Trina
+  edition loads its contracts at run time from a separate checkout
+  (TRINA_CORE_ROOT); no ee/ code or grant is included here.
+- Saram/chat-proto-derived code: the copyright holder (Potenlab) confirmed
+  on 2026-10-27 that it may be published under AGPL-3.0-only.
+- pptx-preview@1.0.7 is used as an npm dependency. Its package metadata says
+  ISC; the author's current repository LICENSE restricts source publication.
+  This is recorded as an open item in docs/PUBLICATION.md.
 - Historical website source retains its Apache-2.0 license and Trina Inc.
   attribution in editions/trina/branding/. Font notices remain under the
   website public/fonts/ directory. The modified Korean subsets are named

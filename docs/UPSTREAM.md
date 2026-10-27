@@ -85,3 +85,14 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
 - Common changes: explicit TypeScript helper extension in Expo configuration, TypeScript compiler support for that import, and the verified Node runtime requirement. No mobile identity, bridge, permission, or server behavior changed.
 - The Trina edition additionally receives explicit operator recovery of provably undispatched expired/cancelled provisioning and an unused registration left by an interrupted first attempt. Dispatched or exchanged registrations fail closed. This is edition-only and is not an upstream core change.
 - This remains an unpublished local review snapshot. Actual upstream merge/push, public repository operations, and production deployment require the existing owner approvals.
+
+## 2026-10-27 GitHub 비공개 업로드용 기록 정리
+
+대표 결정(비공개로 먼저 올리고, 권리 정리 뒤 공개)에 따라 `trina-ax-release-candidate`(HEAD `ce48af1`)의 새 사본에서 `git filter-repo`로 기록을 다시 썼다. 원래 후보는 바꾸지 않았다.
+
+- 기록에서 뺀 경로: `ee/`, `tests/cloud/host-setup-test.sh`, `tests/cloud/host/`(ee/cloud 호스트 시험), `native/cmd/mycel-ctl/mycel-ctl`(실수로 커밋된 macOS 실행 파일, 개발자 홈 경로 포함).
+- 작성자 메일: 로컬 호스트명·사설 IP·개인 메일을 `dev@potenlab.dev`로 바꿨다(이름은 유지).
+- 커밋 메시지의 로컬 경로(`/Users/…`)를 `(local path)`로 바꿨다.
+- 그 위 일반 커밋: `ee/cloud` 작업공간·`test:cloud` 제거와 잠금 파일 정리(ee/cloud 항목 10줄만 삭제), self-hosted runner workflow(`linux-lockdown.yml`) 삭제, NOTICE·PUBLICATION·CLAUDE.md 갱신.
+
+이 기록은 아직 one-parent 검토 snapshot의 필터 결과다. 원본 코어 main 병합 뒤 진짜 main을 다시 필터하면 기록이 달라질 수 있고, 그때 이 비공개 레포를 바꾸려면 force push 승인이 필요하다. 공개 전환 전에 정한다.

@@ -4,17 +4,15 @@
 
 ## 실제 포함 범위와 권리
 
-현재 후보에는 `shared/src/cloud-protocol/`과 `ee/cloud/`가 실제 포함된다. 기존 준비 문서의 cloud 미포함 설명은 현재 후보에 적용되지 않는다.
+2026-10-27 대표 결정을 반영했다. `ee/`(호스팅 제어면)는 이 레포와 커밋 기록에서 뺐고, `shared/src/cloud-protocol/`만 남는다.
 
-| 대상 | 현재 근거 | 공개/배포 전 완료 조건 |
+| 대상 | 현재 근거 | 남은 조건 |
 |---|---|---|
 | 일반 코어·Trina 추가 코드 | root LICENSE/package metadata는 AGPL-3.0-only | 실행 버전 출처·수정 기록·대응 소스와 구성요소 예외 보존 |
-| Saram/chat-proto 유래 코드 | DECISIONS.md:292 복사 기록 및 12개 명시 파일 | Saram d315378/chat-proto의 원 revision·권리자·원 허락 또는 소유/양도 기록·고지 확보. 불확정 부분은 허락 또는 제거/대체 후 검증 |
-| ee/cloud | ee/README.md의 separate license, ee/cloud/README.md가 이를 참조. 적용 허락 본문 없음 | 권리자가 정확한 파일 범위·재배포/수정/호스팅·라이선스 허락을 확인. root AGPL이나 공유 프로토콜 MIT로 대체하지 않음 |
-| shared/src/cloud-protocol | 폴더 한정 MIT LICENSE 보존 | 원문/저작권 고지 유지. 다른 shared 및 ee까지 MIT로 확대하지 않음 |
-| pptx-preview@1.0.7 | 실제 lock/import 존재. 설치 metadata ISC, LICENSE 없음. 저자 현재 LICENSE는 별도 제한 | 정확한 1.0.7 허락과 번들/소스 제공 권한 근거 또는 대체. 현재 문구가 과거 허락을 취소했다고 단정하지 않음 |
-
-P5 hosting/core.ts가 ee/cloud/contracts를 읽으므로 ee를 단순 제외하면 현재 P5 실행 계약도 사라진다. 제외/대체 선택은 별도 구현·검증이 필요하다. 저장소 공개 동의와 다른 권리자의 허락은 대체 관계가 아니다.
+| Saram/chat-proto 유래 코드 | DECISIONS.md:292 복사 기록. 권리자(포텐랩)가 2026-10-27 AGPL 공개를 확인 | 원 고지 보존 |
+| ee/ | 레포와 기록에서 제외(비공개 유지). 판매판은 `TRINA_CORE_ROOT`의 별도 사본에서 계약만 읽고, 없으면 `core_contract_unavailable`(503) | 공개본에 ee 코드를 다시 넣지 않는다 |
+| shared/src/cloud-protocol | 폴더 한정 MIT LICENSE 보존 | 원문/저작권 고지 유지. 다른 shared로 MIT를 넓히지 않음 |
+| pptx-preview@1.0.7 | npm 의존성. 설치 metadata ISC, LICENSE 없음. 저자의 현재 LICENSE는 소스 게시·자체 오픈소스화를 제한 | 대표가 2026-10-27 위험을 알고 유지하기로 결정. 권리 불일치는 해결된 것이 아니라 열린 항목으로 남긴다 |
 
 ## 배포 형태별 조건
 
