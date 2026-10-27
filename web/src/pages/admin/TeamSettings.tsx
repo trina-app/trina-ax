@@ -6,6 +6,7 @@ import { LOCALES, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { Button, Field, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
+import { timeZoneOptions } from '../../lib/time-zones'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -44,6 +45,15 @@ export default function TeamSettingsPage() {
                   {LOCALES.map((l) => (
                     <option key={l.id} value={l.id} lang={l.id}>
                       {l.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('teamSettings.timeZone')} hint={t('teamSettings.timeZoneHint')}>
+                <select className={inputCls} value={f.timeZone} onChange={(e) => setF({ ...f, timeZone: e.target.value })} data-testid="team-time-zone">
+                  {timeZoneOptions(f.timeZone).map((z) => (
+                    <option key={z} value={z}>
+                      {z}
                     </option>
                   ))}
                 </select>

@@ -17,6 +17,7 @@ import { Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
+import { CredentialLogin } from './credentials'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -125,7 +126,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('message.step', z.object({ chatId: Uuid7, messageId: Uuid7, step: Step })),
   /** finished: done / error / stopped; the full final message (content, steps, file summary, usage) */
   ev('message.done', z.object({ chatId: Uuid7, messageId: Uuid7, status: MessageStatus, message: Message })),
-  ev('queue.position', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, position: z.number().int().nonnegative() })),
+  ev('queue.position', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, position: z.number().int().nonnegative(), epoch: z.string().optional(), revision: z.number().int().nonnegative().optional() })),
   /** artifact being written (status writing, content so far, throttled) or saved (status done, summary) */
   ev('artifact.updated', z.object({
     chatId: Uuid7, messageId: Uuid7.nullable(), key: z.string(), type: ArtifactType, title: z.string().nullable(),
@@ -151,6 +152,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional(),
     /** an app address to open from the banner (e.g. the version history of a changed team skill) */
     link: z.string().max(2000).regex(/^\/[^/]/).optional() })),
+  /** a ChatGPT sign-in this person started (Admin / Settings > AI connections): the device address and code, then the
+   * result. Sent to the person who started it only, never to the other admins. */
+  ev('credential.login', CredentialLogin),
   /** the session ended (logout elsewhere, password changed, account disabled); the socket closes with 4401 */
   ev('session.ended', z.object({ reason: z.enum(['logout', 'password_changed', 'disabled', 'expired', 'revoked']) })),
 ])

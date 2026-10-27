@@ -1,0 +1,21 @@
+table inet mycel {}
+delete table inet mycel
+table inet mycel {
+  chain output {
+    type filter hook output priority filter; policy accept;
+    meta skuid 990 jump engine_out
+    meta skuid 989 jump server_out
+  }
+  chain engine_out {
+    oifname "lo" ip daddr 127.0.0.1 tcp dport 47821 accept
+    meta l4proto tcp counter reject with tcp reset
+    counter reject with icmpx type admin-prohibited
+  }
+  chain server_out {
+    ip daddr 169.254.0.0/16 counter reject with icmpx type admin-prohibited
+    ip daddr 10.20.0.1 meta l4proto { tcp, udp } th dport 53 accept
+    ip daddr 10.30.0.0/24 accept
+    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 } counter reject with icmpx type admin-prohibited
+    ip6 daddr { fc00::/7, fe80::/10 } counter reject with icmpx type admin-prohibited
+  }
+}

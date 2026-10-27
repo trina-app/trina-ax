@@ -1,6 +1,6 @@
 // Component G: the SYSTEM endpoints through the real app (auth levels, jobs, files they produce), diagnostics in dev
 // and in an installed (prod) layout, the menubar status file.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
@@ -22,6 +22,9 @@ import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
 import { stepText, uptimeText } from '../../server/src/system/messages'
 import { WORK } from '../lib/env'
+
+// backups, restores and exports stream zstd / age over a team folder: seconds on a busy machine
+setDefaultTimeout(30_000)
 
 const BASE = path.join(WORK, 'g-routes')
 fs.rmSync(BASE, { recursive: true, force: true })
@@ -243,9 +246,9 @@ describe('diagnostics in an installed layout', () => {
     // pf-load (root) writes run/pf.json; a pf.json in status/ (a folder the server account owns) is not trusted
     fs.writeFileSync(path.join(base, 'status', 'pf.json'), JSON.stringify({ format: 1, at: new Date().toISOString(), enabled: true, anchor: 'x', rules: 9, referenced: true }))
     const writePf = (o: object) => fs.writeFileSync(path.join(base, 'run', 'pf.json'), JSON.stringify({ format: 1, at: pfAt, enabled: true, anchor: 'com.apple/250.x', rules: 4, referenced: true, ...o }))
-    const layout = { ...resolveLayout(cfg, { MYCEL_INSTALL_BASE: base, MYCEL_LAUNCHDAEMONS_DIR: path.join(base, 'ld') }) }
+    const layout = { ...resolveLayout(cfg, { MYCEL_INSTALL_BASE: base, MYCEL_LAUNCHDAEMONS_DIR: path.join(base, 'ld') }, 'darwin') }
     expect(layout.label).toBe('app.treesoop.base')
-    const ops = new OpsService(c2, { layout, engines: async () => [], tmutil: async (p) => p.endsWith('secrets'), atDir: path.join(base, 'at') })
+    const ops = new OpsService(c2, { layout, engines: async () => [], tmutil: async (p) => p.endsWith('secrets'), atDir: path.join(base, 'at'), platform: 'darwin' })
     const get = async (id: string) => (await ops.diagnostics('ko')).checks.find((x) => x.id === id)!
     expect(layout.pfStatusFile).toBe(path.join(base, 'run', 'pf.json'))
     expect((await get('pf_anchor')).status).toBe('fail') // only status/pf.json so far

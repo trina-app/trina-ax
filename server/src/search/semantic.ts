@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isOffice } from '../files/extract'
 import type { OfficeCache } from '../files/search'
+import { onnxThreads } from '../system/limits'
 
 export const SEMANTIC_MODEL = 'Xenova/multilingual-e5-small'
 const DIM = 384
@@ -50,31 +51,119 @@ export async function ensureModel(modelDir: string, fetchFn: typeof fetch = fetc
   }
 }
 
-/** The local embedding model (lazy; null when the runtime or the model can't load). */
-export function localEmbedder(modelDir: string, log?: { warn(m: string, d?: object): void }): () => Promise<Embed | null> {
-  let ready: Promise<Embed | null> | null = null
-  return () => (ready ??= (async () => {
-    try {
-      await ensureModel(modelDir)
-      const { pipeline, env } = await import('@huggingface/transformers')
-      // only the files checked above: no download by the library itself
-      env.cacheDir = modelDir
-      env.localModelPath = modelDir
-      env.allowRemoteModels = false
-      env.allowLocalModels = true
-      const extractor = await pipeline('feature-extraction', SEMANTIC_MODEL, { dtype: 'q8' })
-      return async (texts: string[], kind: 'query' | 'passage') => {
-        const t = await extractor(texts.map((x) => `${kind}: ${x}`), { pooling: 'mean', normalize: true })
-        const flat = t.data as Float32Array
-        return texts.map((_, i) => flat.slice(i * DIM, (i + 1) * DIM))
+/** Every model file in `dir` matches its hash (a read-only shared folder is used only then; nothing is written there).
+ * Checked once per file version per process: the ONNX file is ~120 MB. */
+const verified = new Map<string, string>()
+export async function modelFilesOk(dir: string): Promise<boolean> {
+  const base = path.join(dir, ...SEMANTIC_MODEL.split('/'))
+  for (const [rel, want] of Object.entries(MODEL_FILES)) {
+    const f = path.join(base, ...rel.split('/'))
+    let st: fs.Stats
+    try { st = fs.statSync(f) } catch { return false }
+    if (!st.isFile()) return false
+    const key = `${f}:${st.size}:${st.mtimeMs}`
+    if (verified.get(f) === key) continue
+    if (await sha256File(f) !== want) return false
+    verified.set(f, key)
+  }
+  return true
+}
+
+export interface LoadedModel { embed: Embed; dispose(): Promise<void> | void }
+export interface EmbedderOptions {
+  /** read-only model folder shared by the teams of a host ($MYCEL_MODELS_DIR/semantic): used when its files match
+   * their hashes, never written; otherwise the model is downloaded into the team's own folder as before */
+  sharedDir?: string | null
+  /** unload the model after this long without use (default 15 minutes): it holds 150–300 MB */
+  idleMs?: number
+  /** ONNX threads (default system/limits.ts onnxThreads(): at most 2 where the limits apply) */
+  threads?: () => { intraOpNumThreads: number; interOpNumThreads: number } | null
+  /** tests: load a model from a folder */
+  load?: (dir: string) => Promise<LoadedModel>
+  /** tests: the model download (ensureModel) */
+  fetchFn?: typeof fetch
+  /** tests: what makes the team's own model folder ready (default ensureModel: check the hashes, download what is missing) */
+  ensure?: (dir: string) => Promise<void>
+  now?: () => number
+}
+export type Embedder = (() => Promise<Embed | null>) & {
+  /** the model is in memory now */
+  loaded(): boolean
+  /** unload now if it was idle long enough (the timer calls it every minute; tests call it with their clock) */
+  checkIdle(): Promise<boolean>
+  /** unload now (server shutdown) */
+  unload(): Promise<void>
+}
+
+async function loadTransformers(dir: string, threads: { intraOpNumThreads: number; interOpNumThreads: number } | null): Promise<LoadedModel> {
+  const { pipeline, env } = await import('@huggingface/transformers')
+  // only the files checked above: no download by the library itself
+  env.cacheDir = dir
+  env.localModelPath = dir
+  env.allowRemoteModels = false
+  env.allowLocalModels = true
+  const extractor = await pipeline('feature-extraction', SEMANTIC_MODEL, { dtype: 'q8', ...(threads ? { session_options: threads } : {}) })
+  return {
+    embed: async (texts: string[], kind: 'query' | 'passage') => {
+      const t = await extractor(texts.map((x) => `${kind}: ${x}`), { pooling: 'mean', normalize: true })
+      const flat = t.data as Float32Array
+      return texts.map((_, i) => flat.slice(i * DIM, (i + 1) * DIM))
+    },
+    dispose: () => extractor.dispose(),
+  }
+}
+
+/**
+ * The local embedding model, loaded when first needed (null when the runtime or the model can't load) and unloaded
+ * after `idleMs` without use: an index with nothing new to embed never loads it (SemanticIndex.refresh), so an idle
+ * team's server does not keep 150–300 MB for it.
+ */
+export function localEmbedder(modelDir: string, log?: { warn(m: string, d?: object): void }, o: EmbedderOptions = {}): Embedder {
+  const now = o.now ?? Date.now
+  const idleMs = o.idleMs ?? 15 * 60_000
+  let ready: Promise<LoadedModel | null> | null = null
+  let model: LoadedModel | null = null
+  let lastUse = 0
+  let busy = 0
+  let timer: ReturnType<typeof setInterval> | null = null
+  const unload = async () => {
+    const p = ready
+    ready = null
+    model = null
+    if (timer) { clearInterval(timer); timer = null }
+    const m = await p?.catch(() => null)
+    try { await m?.dispose() } catch (e) { log?.warn('embedding model unload failed', { err: String(e).slice(0, 200) }) }
+  }
+  const checkIdle = async () => {
+    if (!model || busy > 0 || now() - lastUse < idleMs) return false
+    await unload()
+    return true
+  }
+  const get = async (): Promise<Embed | null> => {
+    ready ??= (async () => {
+      try {
+        const dir = o.sharedDir && await modelFilesOk(o.sharedDir) ? o.sharedDir : (await (o.ensure ? o.ensure(modelDir) : ensureModel(modelDir, o.fetchFn)), modelDir)
+        const m = await (o.load ? o.load(dir) : loadTransformers(dir, (o.threads ?? onnxThreads)()))
+        model = m
+        if (!timer && !o.now) { timer = setInterval(() => { void checkIdle() }, Math.min(60_000, idleMs)); (timer as { unref?: () => void }).unref?.() }
+        return m
+      } catch (e) {
+        log?.warn('semantic search is off: the embedding model could not load', { err: String(e).slice(0, 300) })
+        // try again later (no internet at the first start, a download cut off): not on every query
+        const p = ready
+        setTimeout(() => { if (ready === p) ready = null }, RETRY_MS).unref?.()
+        return null
       }
-    } catch (e) {
-      log?.warn('semantic search is off: the embedding model could not load', { err: String(e).slice(0, 300) })
-      // try again later (no internet at the first start, a download cut off): not on every query
-      setTimeout(() => { ready = null }, RETRY_MS).unref?.()
-      return null
+    })()
+    const m = await ready
+    if (!m) return null
+    lastUse = now()
+    return async (texts, kind) => {
+      busy++
+      try { return await m.embed(texts, kind) } finally { busy--; lastUse = now() }
     }
-  })())
+  }
+  return Object.assign(get, { loaded: () => model !== null, checkIdle, unload })
 }
 
 /** ~800-character pieces along paragraph / line breaks, long lines cut. */
@@ -153,13 +242,15 @@ export class SemanticIndex {
   }
 
   private async doRefresh(budgetMs: number): Promise<{ pending: number }> {
-    const embed = await this.o.embedder()
-    if (!embed) return { pending: 0 }
+    // the folder is compared first: with nothing new or changed the model is not loaded at all (it is 150–300 MB)
     const now = this.walk()
     const known = new Map((this.db.query('SELECT path, mtime, size FROM files').all() as { path: string; mtime: number; size: number }[]).map((r) => [r.path, r]))
     let changed = false
     for (const p of known.keys()) if (!now.has(p)) { this.drop(p); changed = true }
     const stale = [...now].filter(([p, st]) => { const k = known.get(p); return !k || k.mtime !== Math.floor(st.mtimeMs) || k.size !== st.size })
+    if (!stale.length) { if (changed) this.cache = null; return { pending: 0 } }
+    const embed = await this.o.embedder()
+    if (!embed) { if (changed) this.cache = null; return { pending: 0 } }
     // newest first: what people just saved is what they ask about
     stale.sort((a, b) => b[1].mtimeMs - a[1].mtimeMs)
     const until = Date.now() + budgetMs

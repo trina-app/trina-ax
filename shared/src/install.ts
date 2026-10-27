@@ -74,6 +74,9 @@ export const StatusFile = z.object({
   overall: z.enum(['ok', 'warn', 'fail', 'unknown']),
   /** short problem lines in the team's default language (the menubar shows them as is) */
   problems: z.array(z.string()).max(20),
+  /** every diagnostics check's id and result, no texts (the hosted service's TenantStatus.checks via admin.js
+   * cloud-status). Absent from older servers. */
+  checks: z.array(z.object({ id: z.string().max(64), status: z.enum(['ok', 'warn', 'fail', 'unknown']) })).max(100).optional(),
   /** the team's default language: the menubar app's own words follow it (English when missing) */
   locale: z.enum(['ko', 'en', 'id']).optional(),
 })
@@ -102,3 +105,25 @@ export const PfStatus = z.object({
   referenced: z.boolean(),
 })
 export type PfStatus = z.infer<typeof PfStatus>
+
+/** Linux: `mycel-ctl firewall apply|status` (root, at boot and every 2 minutes) writes run/firewall.json (root-owned
+ * folder) after loading and checking the nftables table `inet <id>` (linux-runtime spec 3.4.2). The launcher refuses
+ * turns when it is missing, older than 10 minutes, not loaded, or for another uid or port (fail closed); the
+ * diagnostics show it. Same fields as native/internal/fwstatus.Status. */
+export const FirewallStatus = z.object({
+  format: z.literal(1),
+  at: z.string(),
+  backend: z.literal('nftables'),
+  /** "inet <id>" (empty when the configuration could not be read) */
+  table: z.string(),
+  loaded: z.boolean(),
+  /** rules in the table (output, engine_out, server_out chains) */
+  rules: z.number().int().nonnegative(),
+  engineUid: z.number().int().nonnegative(),
+  proxyPort: z.number().int().nonnegative(),
+  /** sha256 of the rules text that was loaded ("" when not loaded) */
+  sha256: z.string(),
+  nftVersion: z.string().nullable().optional(),
+  error: z.string().nullable(),
+})
+export type FirewallStatus = z.infer<typeof FirewallStatus>

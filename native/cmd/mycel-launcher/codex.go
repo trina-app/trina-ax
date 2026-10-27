@@ -2,7 +2,8 @@
 // v1 "대체 구성"). The engine account's own ChatGPT login (`codex login --device-auth`) lives in ONE folder,
 // --codex-auth-dir (agent/codex-auth/auth.json, engine account 600). The engine sandbox never sees that folder:
 //
-//   - a Codex turn (request "codexAuth": true) gets a COPY in <chat>/.codex/auth.json. After the turn the copy goes
+//   - a Codex turn (request "codexAuth": true) gets a COPY in <chat>/.codex/auth.json (written and removed through the
+//     chat folder's no-follow root, safepath.go). After the turn the copy goes
 //     back only when it is a plain file (no link, link count 1), parses, and names the same ChatGPT account
 //     (tokens.account_id); then <chat>/.codex is removed. One Codex turn at a time (the refresh token rotates, two
 //     turns would overwrite each other's), and a logout in between wins (the turn's copy is not written back).
@@ -14,6 +15,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -22,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,8 +32,94 @@ import (
 
 var codexAuthDir = flag.String("codex-auth-dir", "", "the engine account's Codex login folder (auth.json); enables codexAuth turns and codex-login/-status/-logout")
 
-// one Codex turn (or login) at a time
+// one agent-own Codex turn (or legacy login) at a time; managed turns never take it (the server refreshes tokens)
 var codexTurnSem = make(chan struct{}, 1)
+
+// one ChatGPT sign-in for an AI connection (codex-login v2) at a time
+var codexLoginSem = make(chan struct{}, 1)
+
+const (
+	placeholderRefresh = "teamax-no-refresh"
+	maxManagedAuth     = 16 << 10
+)
+
+var (
+	turnTokenRe    = regexp.MustCompile(`^mpx_[A-Za-z0-9_-]{43}$`)
+	accountAliasRe = regexp.MustCompile(`^teamax-[0-9a-f]{12}$`)
+	loginIDRe      = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
+)
+
+// codexManagedBegin writes the placeholder login of a managed Codex turn (docs/DECISIONS.md "AI 연결" D9) into a fresh
+// <chat>/.codex (0600, no links followed) and an empty <chat>/.home. It refuses anything that could be a real login
+// (security T1: a server bug must not put a real token where the engine reads it): the access token / API key must be
+// this turn's proxy token (mpx_ + 43), the refresh token the fixed placeholder, the account id our alias.
+func codexManagedBegin(chat, authJSON string) error {
+	if len(authJSON) == 0 || len(authJSON) > maxManagedAuth {
+		return fmt.Errorf("managed Codex login: bad size")
+	}
+	var a struct {
+		AuthMode string  `json:"auth_mode"`
+		APIKey   *string `json:"OPENAI_API_KEY"`
+		Tokens   *struct {
+			IDToken      string `json:"id_token"`
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+			AccountID    string `json:"account_id"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal([]byte(authJSON), &a); err != nil {
+		return fmt.Errorf("managed Codex login: not JSON")
+	}
+	switch a.AuthMode {
+	case "chatgpt":
+		if a.Tokens == nil || !turnTokenRe.MatchString(a.Tokens.AccessToken) || a.Tokens.RefreshToken != placeholderRefresh ||
+			!accountAliasRe.MatchString(a.Tokens.AccountID) || (a.APIKey != nil && *a.APIKey != "") || strings.Count(a.Tokens.IDToken, ".") != 2 {
+			return fmt.Errorf("managed Codex login: refused (it does not look like a placeholder)")
+		}
+	case "apikey":
+		if a.APIKey == nil || !turnTokenRe.MatchString(*a.APIKey) || a.Tokens != nil {
+			return fmt.Errorf("managed Codex login: refused (it does not look like a placeholder)")
+		}
+	default:
+		return fmt.Errorf("managed Codex login: unknown auth_mode")
+	}
+	return writeChatCodexHome(chat, []byte(authJSON))
+}
+
+// writeChatCodexHome replaces <chat>/.codex and <chat>/.home with fresh empty folders and writes .codex/auth.json
+// (0600), all below the chat folder's open root without following any link (safepath.go, D27): a link the engine
+// planted AT .codex / .home or INSIDE them (auth.json, config.toml, ...) is removed as a link, never written through,
+// and every component is resolved from the root's descriptor, so a swap after the check cannot redirect the write.
+func writeChatCodexHome(chat string, auth []byte) error {
+	d, err := openRoot(chat)
+	if err != nil {
+		return err
+	}
+	defer d.close()
+	for _, n := range []string{".codex", ".home"} {
+		if err := d.removeAll(n); err != nil {
+			return err
+		}
+		if err := d.mkdirAll(n, 0o700); err != nil {
+			return err
+		}
+	}
+	return d.writeNew(".codex/auth.json", auth, 0o600)
+}
+
+// removeChatCodexHome removes <chat>/.codex and <chat>/.home without following links (a link is unlinked itself).
+func removeChatCodexHome(chat string) {
+	d, err := openRoot(chat)
+	if err != nil {
+		return
+	}
+	defer d.close()
+	_ = d.removeAll(".codex")
+	_ = d.removeAll(".home")
+}
+
+// codexManagedEnd removes a managed turn's Codex folders (nothing is written back: the server refreshes tokens).
+func codexManagedEnd(chat string) { removeChatCodexHome(chat) }
 
 // authMu guards auth.json in the auth folder; authGen changes on logout and login so a turn that started before
 // does not write its (now stale) copy back.
@@ -65,6 +154,21 @@ func readPlain(p string) ([]byte, error) {
 		return nil, fmt.Errorf("%s is not a plain file", filepath.Base(p))
 	}
 	return io.ReadAll(io.LimitReader(f, maxAuthBytes+1))
+}
+
+// readChatPlain reads rel below the chat folder like readPlain, without following a link in any component.
+func readChatPlain(chat, rel string) ([]byte, error) {
+	d, err := openRoot(chat)
+	if err != nil {
+		return nil, err
+	}
+	defer d.close()
+	b, err := d.readFile(rel, maxAuthBytes)
+	var pe *os.PathError
+	if errors.As(err, &pe) && errors.Is(pe.Err, syscall.ENOENT) {
+		return nil, os.ErrNotExist
+	}
+	return b, err
 }
 
 func parseAuth(b []byte) (*codexAuthFile, error) {
@@ -102,7 +206,8 @@ func writeAtomic(dir, name string, b []byte) error {
 	return nil
 }
 
-// freshDir removes p (a link is unlinked, not followed) and creates it empty, 0700.
+// freshDir removes p (a link is unlinked, not followed) and creates it empty, 0700. Only for the launcher's own folders
+// (the Codex login folder, a ChatGPT sign-in folder); below a chat folder use writeChatCodexHome / dirRoot.
 func freshDir(p string) error {
 	if err := os.RemoveAll(p); err != nil {
 		return err
@@ -152,23 +257,8 @@ func codexBegin(chat string, stopping <-chan struct{}) (*codexTurn, error) {
 		return fail(fmt.Errorf("codex_not_signed_in: auth.json: %v", err))
 	}
 	ct.orig, ct.acct = b, a.Tokens.AccountID
-	home := filepath.Join(chat, ".codex")
-	if err := freshDir(home); err != nil {
+	if err := writeChatCodexHome(chat, b); err != nil {
 		return fail(err)
-	}
-	if err := freshDir(filepath.Join(chat, ".home")); err != nil {
-		return fail(err)
-	}
-	f, err := os.OpenFile(filepath.Join(home, "auth.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
-	if err != nil {
-		return fail(err)
-	}
-	_, werr := f.Write(b)
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return fail(werr)
 	}
 	return ct, nil
 }
@@ -184,10 +274,9 @@ func (ct *codexTurn) release() {
 // for the server (audit): why a changed login was not written back.
 func (ct *codexTurn) end() []string {
 	defer ct.release()
-	home := filepath.Join(ct.chat, ".codex")
-	defer os.RemoveAll(filepath.Join(ct.chat, ".home"))
-	defer os.RemoveAll(home)
-	b, err := readPlain(filepath.Join(home, "auth.json"))
+	defer removeChatCodexHome(ct.chat)
+	// <chat>/.codex may have become a link during the turn: read below the chat folder without following (D27)
+	b, err := readChatPlain(ct.chat, ".codex/auth.json")
 	if err != nil {
 		if !os.IsNotExist(err) {
 			ct.notes = append(ct.notes, "codex_auth_writeback_refused: "+err.Error())
@@ -273,6 +362,106 @@ type loginRequest struct {
 	Cmd       string `json:"cmd"`
 	Proxy     string `json:"proxy"`
 	TimeoutMs int64  `json:"timeoutMs"`
+	// v2 (ChatGPT sign-in for an AI connection): a one-off folder <agent root>/.codex-login/<loginId>; the result goes
+	// to the server ({ev:'codex_auth'}), never into --codex-auth-dir
+	LoginID string `json:"loginId"`
+}
+
+// codexExport hands the engine account's old Codex login (--codex-auth-dir) to the server once (the migration into an
+// AI connection, credentials/migrate.ts); the server then removes it with codex-logout. Removed next release.
+func codexExport(o *out) {
+	if *codexAuthDir == "" {
+		o.send(map[string]any{"ev": "codex_export", "none": true})
+		return
+	}
+	authMu.Lock()
+	b, err := readPlain(filepath.Join(*codexAuthDir, "auth.json"))
+	authMu.Unlock()
+	if os.IsNotExist(err) {
+		o.send(map[string]any{"ev": "codex_export", "none": true})
+		return
+	}
+	if err != nil {
+		o.send(map[string]any{"ev": "error", "message": err.Error()})
+		return
+	}
+	if _, perr := parseAuth(b); perr != nil {
+		o.send(map[string]any{"ev": "codex_export", "none": true})
+		return
+	}
+	o.send(map[string]any{"ev": "codex_export", "b64": b64(b)})
+}
+
+// codexSignIn (codex-login v2) runs `<codex> login --device-auth` as this account in a fresh folder
+// <agent root>/.codex-login/<loginId> (CODEX_HOME and the sandbox's CHAT_DIR), through the model proxy like a turn.
+// When it ends with a login, the auth.json goes to the server ({ev:'codex_auth', b64}); the folder is removed in every
+// case (success, failure, cancel, timeout). Does not touch --codex-auth-dir or the turns' semaphore.
+func codexSignIn(req loginRequest, o *out, stop <-chan struct{}) error {
+	if !loginIDRe.MatchString(req.LoginID) {
+		return fmt.Errorf("bad login id")
+	}
+	select {
+	case codexLoginSem <- struct{}{}:
+	case <-stop:
+		return fmt.Errorf("stopped")
+	}
+	defer func() { <-codexLoginSem }()
+	parent := filepath.Join(filepath.Clean(*agentRoot), ".codex-login")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	if st, err := os.Lstat(parent); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("bad sign-in folder")
+	}
+	dir := filepath.Join(parent, req.LoginID)
+	defer os.RemoveAll(dir)
+	if err := freshDir(dir); err != nil {
+		return err
+	}
+	for _, d := range []string{"home", "tmp"} {
+		if err := freshDir(filepath.Join(dir, d)); err != nil {
+			return err
+		}
+	}
+	args := []string{"login", "--device-auth", "-c", `cli_auth_credentials_store="file"`}
+	// under the engine sandbox like a turn and like the engine-account login below: sandbox-exec on macOS, bwrap +
+	// the login cgroup on Linux (engineCommand alone is the macOS profile: on Linux it ran Codex unsandboxed)
+	te, err := beginLogin(dir)
+	if err != nil {
+		return err
+	}
+	defer te.cleanup()
+	cmd, cleanup, err := te.command(req.Cmd, args, dir, dir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	cmd.Dir = dir
+	// relative to the working folder, as for a turn: the macOS profile closes the metadata of the agent root, so Codex
+	// cannot canonicalize an absolute CODEX_HOME under it (the engine-account login's fix, 5ff9676, applies here too)
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=./home", "CODEX_HOME=.", "TMPDIR=./tmp",
+		"LANG=en_US.UTF-8", "NO_COLOR=1", "SSL_CERT_FILE=/etc/ssl/cert.pem", "HTTPS_PROXY=" + req.Proxy}
+	cmd.SysProcAttr = te.procAttr()
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	if timeout <= 0 || timeout > 20*time.Minute {
+		timeout = 16 * time.Minute // the device code expires after 15 minutes
+	}
+	code, sig := runStreaming(cmd, o, stop, timeout)
+	sig = te.finish(sig)
+	if code == 0 && sig == "" {
+		if b, err := readPlain(filepath.Join(dir, "auth.json")); err == nil {
+			if _, perr := parseAuth(b); perr == nil {
+				o.send(map[string]any{"ev": "codex_auth", "b64": b64(b)})
+			}
+		}
+	}
+	_ = os.RemoveAll(dir) // before "exit": nothing of the login stays on the engine account
+	ev := map[string]any{"ev": "exit", "code": code}
+	if sig != "" {
+		ev["signal"] = sig
+	}
+	o.send(ev)
+	return nil
 }
 
 // codexLogin runs `<codex> login --device-auth` as this account with CODEX_HOME = the auth folder: under the engine
@@ -283,7 +472,7 @@ func codexLogin(line []byte, o *out, stop <-chan struct{}) error {
 	if err := json.Unmarshal(line, &req); err != nil {
 		return fmt.Errorf("bad request")
 	}
-	if *codexAuthDir == "" {
+	if req.LoginID == "" && *codexAuthDir == "" {
 		return fmt.Errorf("codex_not_configured")
 	}
 	if !allowedCmd(req.Cmd) || filepath.Base(req.Cmd) != "codex" {
@@ -292,6 +481,9 @@ func codexLogin(line []byte, o *out, stop <-chan struct{}) error {
 	m := proxyURLRe.FindStringSubmatch(req.Proxy)
 	if m == nil || m[1] != strconv.Itoa(*proxyPort) || *proxyPort == 0 {
 		return fmt.Errorf("bad proxy (the login goes through the model proxy on port %d)", *proxyPort)
+	}
+	if req.LoginID != "" {
+		return codexSignIn(req, o, stop)
 	}
 	select {
 	case codexTurnSem <- struct{}{}:
@@ -312,7 +504,12 @@ func codexLogin(line []byte, o *out, stop <-chan struct{}) error {
 	authGen++ // a turn that started before this login must not write its copy over the new login
 	authMu.Unlock()
 	args := []string{"login", "--device-auth", "-c", `cli_auth_credentials_store="file"`}
-	cmd, cleanup, err := engineCommand(req.Cmd, args, dir, dir)
+	te, err := beginLogin(dir) // sandbox.go (Linux: bwrap, cgroup turns/login)
+	if err != nil {
+		return err
+	}
+	defer te.cleanup()
+	cmd, cleanup, err := te.command(req.Cmd, args, dir, dir)
 	if err != nil {
 		return err
 	}
@@ -322,12 +519,13 @@ func codexLogin(line []byte, o *out, stop <-chan struct{}) error {
 	// not canonicalize an absolute CODEX_HOME under it ("Operation not permitted", staging 2026-10-22)
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=./home", "CODEX_HOME=.", "TMPDIR=./tmp",
 		"LANG=en_US.UTF-8", "NO_COLOR=1", "SSL_CERT_FILE=/etc/ssl/cert.pem", "HTTPS_PROXY=" + req.Proxy}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = te.procAttr()
 	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 	if timeout <= 0 || timeout > 20*time.Minute {
 		timeout = 16 * time.Minute // the device code expires after 15 minutes
 	}
 	code, sig := runStreaming(cmd, o, stop, timeout)
+	sig = te.finish(sig)
 	authMu.Lock()
 	authGen++
 	authMu.Unlock()

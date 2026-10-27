@@ -18,6 +18,9 @@ let alice: TestSocket
 let carol: TestSocket
 beforeAll(async () => {
   h = await startHarness({ name: 'engine-choice', memberChoice: { mode: 'off', groupIds: [], userIds: [] } })
+  // This fixture runs managed fake engines with the harness's own API credentials. Do not let the
+  // developer machine's Codex login decide whether an engine-choice permission test sees Codex.
+  h.ctx.config.engine.authMode = 'managed'
   alice = await h.ws('alice')
   carol = await h.ws('carol')
   await alice.next('hello')
@@ -210,13 +213,35 @@ describe('Claude limit -> Codex fallback', () => {
 })
 
 describe('only engines that can answer are offered', () => {
-  test('not installed / no setup token (problems) or signed out (status check) is left out; a failed or slow check is not', async () => {
+  test('not installed (problems) or signed out (status check) is left out; a failed or slow check is not', async () => {
     const st = { 'claude-code': 'ok', codex: 'not_logged_in', api: 'ok' } as const
     expect(await readyEngines(['claude-code', 'codex', 'api'], {}, async (id) => st[id])).toEqual(['claude-code', 'api'])
-    expect(await readyEngines(['claude-code', 'codex'], { 'claude-code': 'setup_token_missing' }, async () => 'ok')).toEqual(['codex'])
+    expect(await readyEngines(['claude-code', 'codex'], { 'claude-code': 'engine_missing' }, async () => 'ok')).toEqual(['codex'])
     expect(await readyEngines(['claude-code', 'codex'], { codex: 'engine_missing' }, async () => 'ok')).toEqual(['claude-code'])
     expect(await readyEngines(['claude-code', 'codex'], {}, async () => { throw new Error('boom') })).toEqual(['claude-code', 'codex'])
     expect(await readyEngines(['claude-code'], {}, async () => 'error')).toEqual(['claude-code'])
+  })
+})
+
+describe('managed mode: the composer offers the engines this person has an AI connection for', () => {
+  test('a Codex connection assigned to a group shows Codex to its members only; switching it off hides it again', async () => {
+    const { credentialsOf, listRows } = await import('../../server/src/credentials/store')
+    const { updateCredential } = await import('../../server/src/credentials/service')
+    const cfg = h.ctx.config.engine
+    const before = cfg.authMode
+    cfg.authMode = 'managed'
+    try {
+      await setChoice({ mode: 'everyone', groupIds: [], userIds: [] })
+      const codex = listRows(h.ctx.db).find((r) => r.kind === 'openai-api-key')!
+      updateCredential(credentialsOf(h.ctx), codex.id, { assignments: [{ subjectType: 'group', subjectId: 'marketing' }] }, 'dana', 'en')
+      const ids = async (u: string) => (await h.api(u).call(API.chatEngines)).engines.map((e) => e.id)
+      expect(await ids('alice')).toEqual(['claude-code', 'codex']) // marketing
+      expect(await ids('bob')).toEqual(['claude-code'])            // finance: no Codex connection for him
+      updateCredential(credentialsOf(h.ctx), codex.id, { assignments: [], disabled: true }, 'dana', 'en')
+      expect(await ids('alice')).toEqual(['claude-code'])
+      updateCredential(credentialsOf(h.ctx), codex.id, { disabled: false }, 'dana', 'en')
+      expect(await ids('bob')).toEqual(['claude-code', 'codex'])
+    } finally { cfg.authMode = before; await setChoice(OFF) }
   })
 })
 

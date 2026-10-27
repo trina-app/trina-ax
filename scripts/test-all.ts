@@ -1,7 +1,7 @@
 // `bun run test`: every unit and component test of the repo, one after the other, with one summary at the end.
 //   unit      tests/unit: server components A–G, shared contracts, desktop logic, integration wiring (bun test)
 //   web       web/test/unit (bun test in the web workspace)
-//   relay     tests/relay: relay conformance + hardening against a real Node 25 relay (about 90 s)
+//   relay     tests/relay: relay conformance + hardening against a real Node relay (production: Node 26; 24+) (about 90 s)
 // Flags: --no-relay (skip the slow relay suite), --only <unit|web|relay>. Engines are never called for real here;
 // real-engine, Docker, Playwright and packaged-app runs have their own scripts (see README).
 import path from 'node:path'
@@ -23,7 +23,7 @@ const suites: Suite[] = [
   { name: 'web', cmd: ['bun', 'test', 'test/unit'], cwd: path.join(ROOT, 'web') },
   {
     name: 'relay', cmd: ['bun', 'test', 'tests/relay'], cwd: ROOT,
-    skip: args.includes('--no-relay') ? 'skipped (--no-relay)' : nodeMajor() < 25 ? 'skipped: needs Node 25+ on PATH (the relay runs on Node)' : null,
+    skip: args.includes('--no-relay') ? 'skipped (--no-relay)' : nodeMajor() < 24 ? 'skipped: needs Node 24+ on PATH (the relay runs on Node; production pins 26)' : null,
   },
 ]
 

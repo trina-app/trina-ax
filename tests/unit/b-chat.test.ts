@@ -25,6 +25,80 @@ const newChat = async (user = 'alice', body: { engine?: 'claude-code' | 'codex';
   h.api(user).call(API.createChat, { body })
 
 describe('a turn', () => {
+  test('a skill-usage insert failure does not stop the permitted command turn', async () => {
+    const rel = 'skills/usage-write-failure.md', abs = path.join(h.team, rel)
+    fs.writeFileSync(abs, '---\nname: Usage failure\ndescription: synthetic skill\n---\nAnswer briefly.\n')
+    h.ctx.db.exec("CREATE TRIGGER fail_skill_usage BEFORE INSERT ON turn_skill_usage BEGIN SELECT RAISE(ABORT,'synthetic usage failure'); END")
+    try {
+      const result = await ask(h, alice, 'alice', (await newChat()).id, '/Usage failure\n' + fake({ say: 'permitted command completed' }))
+      expect(result.done.status).toBe('done')
+      expect(result.done.content).toBe('permitted command completed')
+      expect(h.ctx.db.query('SELECT COUNT(*) n FROM turn_skill_usage WHERE turn_id=?').get(result.started.turnId)).toEqual({ n: 0 })
+    } finally {
+      h.ctx.db.exec('DROP TRIGGER fail_skill_usage')
+      fs.rmSync(abs, { force: true })
+    }
+  })
+  test('command and successful file-tool reads record actual skill use once per turn', async () => {
+    const rel = 'skills/queue-skill.md', abs = path.join(h.team, rel)
+    fs.writeFileSync(abs, '---\nname: Queue test\ndescription: synthetic skill\n---\nAnswer briefly.\n')
+    try {
+      const command = await ask(h, alice, 'alice', (await newChat()).id, '/Queue test\n' + fake({ say: 'command used' }))
+      expect(command.done.status).toBe('done')
+      expect(h.ctx.db.query('SELECT skill_path,source FROM turn_skill_usage WHERE turn_id=?').all(command.started.turnId)).toEqual([{ skill_path: rel, source: 'command' }])
+      const read = await ask(h, alice, 'alice', (await newChat()).id, fake(
+        { tool: 'read', args: { file_path: rel } }, { tool: 'read', args: { file_path: rel } }, { say: 'read used' }))
+      expect(read.done.status).toBe('done')
+      expect(h.ctx.db.query('SELECT skill_path,source FROM turn_skill_usage WHERE turn_id=?').all(read.started.turnId)).toEqual([{ skill_path: rel, source: 'read' }])
+      const absent = await ask(h, alice, 'alice', (await newChat()).id, fake({ tool: 'read', args: { file_path: 'skills/absent-synthetic.md' } }, { say: 'no skill' }))
+      expect(h.ctx.db.query('SELECT COUNT(*) n FROM turn_skill_usage WHERE turn_id=?').get(absent.started.turnId)).toEqual({ n: 0 })
+    } finally { fs.rmSync(abs, { force: true }) }
+  })
+  test('P4 folder skill: manifest injection, authorized resources, denied resources and one usage row', async () => {
+    const name = 'standard-' + 's'.repeat(55), rel = `skills/${name}/SKILL.md`
+    const dir = path.join(h.team, 'skills', name)
+    const privateFolder = `skills/${name}/references/private`
+    const description = 'D'.repeat(1024)
+    fs.mkdirSync(path.join(dir, 'references/private'), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'assets'), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\nallowed-tools: Bash(*) Read\n---\nP4_MANIFEST_BODY\nRead references/guide.md when needed.\n`)
+    fs.writeFileSync(path.join(dir, 'references/guide.md'), '---\nname: Resource is not a skill\n---\nP4_REFERENCE_BODY\n')
+    fs.writeFileSync(path.join(dir, 'references/private/hidden.md'), 'P4_DENIED_RESOURCE_BODY')
+    fs.writeFileSync(path.join(dir, 'assets/template.txt'), 'P4_ASSET_BODY')
+    fs.writeFileSync(path.join(dir, 'scripts/run.sh'), '#!/bin/sh\ntouch ../executed\n', { mode: 0o700 })
+    h.ctx.db.query("INSERT INTO folders (id,path) VALUES ('p4-private-resource',?)").run(privateFolder)
+    h.ctx.db.query("INSERT INTO folder_rules (id,folder_id,subject_type,subject_id,access) VALUES ('p4-private-deny','p4-private-resource','user','alice','none')").run()
+    try {
+      const listed = (await h.api('alice').call(API.listSkills)).items.filter(s => s.path.startsWith(`skills/${name}/`))
+      expect(listed).toEqual([{ path: rel, name, description }])
+      const command = await ask(h, alice, 'alice', (await newChat()).id, `/${name}\n` + fake(
+        { echo: 'message' },
+        { tool: 'read', args: { file_path: `skills/${name}/references/guide.md` }, sayResult: true },
+        { tool: 'read', args: { file_path: `skills/${name}/assets/template.txt` }, sayResult: true },
+        { tool: 'read', args: { file_path: `skills/${name}/references/private/hidden.md` }, sayResult: true },
+        { tool: 'read', args: { file_path: rel } }, { tool: 'read', args: { file_path: rel } }))
+      expect(command.done.status).toBe('done')
+      expect(command.done.content).toContain(`<team_skill name="${name}" path="${rel}">`)
+      expect(command.done.content).toContain('P4_MANIFEST_BODY')
+      expect(command.done.content).toContain('P4_REFERENCE_BODY')
+      expect(command.done.content).toContain('P4_ASSET_BODY')
+      expect(command.done.content).not.toContain('P4_DENIED_RESOURCE_BODY')
+      expect(h.ctx.db.query('SELECT skill_path, skill_name, source FROM turn_skill_usage WHERE turn_id=?').all(command.started.turnId))
+        .toEqual([{ skill_path: rel, skill_name: name, source: 'command' }])
+      const read = await ask(h, alice, 'alice', (await newChat()).id, fake({ tool: 'read', args: { file_path: rel } }, { say: 'read' }))
+      expect(h.ctx.db.query('SELECT skill_path, source FROM turn_skill_usage WHERE turn_id=?').all(read.started.turnId)).toEqual([{ skill_path: rel, source: 'read' }])
+      const resources = await ask(h, alice, 'alice', (await newChat()).id, fake(
+        { tool: 'read', args: { file_path: `skills/${name}/references/guide.md` } }, { echo: 'tools' }))
+      expect(h.ctx.db.query('SELECT COUNT(*) n FROM turn_skill_usage WHERE turn_id=?').get(resources.started.turnId)).toEqual({ n: 0 })
+      expect(resources.done.content.toLowerCase()).not.toContain('bash')
+      expect(resources.done.content.toLowerCase()).not.toContain('shell')
+      expect(fs.existsSync(path.join(dir, 'executed'))).toBe(false)
+    } finally {
+      h.ctx.db.query("DELETE FROM folders WHERE id='p4-private-resource'").run()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
   test('send -> 202, message.created, queue position 0, deltas, message.done; saved; title; idle again', async () => {
     const chat = await newChat()
     expect(chat.runState).toBe('idle')

@@ -13,6 +13,7 @@ import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { Markdown } from '../components/Markdown'
+import { PopularSkills } from '../components/PopularSkills'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, Tabs, inputCls, promptDialog } from '../components/ui'
 
 type Tab = 'review' | 'mine' | 'changes'
@@ -82,6 +83,7 @@ export default function Skills() {
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('skills.title')} desc={t('skills.desc')} />
       <div className="w-full max-w-4xl p-4 sm:p-6">
+        <PopularSkills key={me.user.id} />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (

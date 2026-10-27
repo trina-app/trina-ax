@@ -5,11 +5,14 @@
 // same name ...", and the tool result handed the same text to the AI. Now a clash with a hidden sibling answers exactly
 // like a path the caller may not access (plain 404 / "not found or no access: '<their own input>'") and nothing is
 // created next to it; a clash with a visible sibling still gets the helpful near-duplicate answer.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { exists, jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { authorize } from '../../server/src/policy/authorize'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-hidden-name-clash') })

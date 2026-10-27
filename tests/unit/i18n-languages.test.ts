@@ -92,6 +92,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en and id)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en and id)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en and id)' },
+  'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en and id)' },
+  'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en and id)' },
   'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en and id)' },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
   'server/src/files/store.ts': { why: 'conflict copy names (ko next to en and id)', also: /충돌 사본\|/ },
@@ -111,6 +113,12 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en and id)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en and id)' },
+  'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en and id)' },
+  'server/src/system/limits.ts': { why: 'plan limit messages: seats, concurrency (ko next to en and id)' },
+  'server/src/system/storage.ts': { why: 'the storage notice (ko next to en and id)' },
+  'server/src/system/egress.ts': { why: 'the cloud API address refusal (ko next to en and id)' },
+  'server/src/system/messages-linux.ts': { why: 'Linux and cloud diagnostics texts (ko next to en and id)' },
+  'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en and id)' },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

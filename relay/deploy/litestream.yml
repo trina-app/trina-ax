@@ -1,0 +1,13 @@
+# /etc/litestream.yml on the relay VM (Litestream 0.5.x, control-plane D21): the registry streams to R2 continuously.
+# Credentials come from /etc/default/litestream (LITESTREAM_ACCESS_KEY_ID, LITESTREAM_SECRET_ACCESS_KEY: an R2 token
+# for the teamax-ops bucket only) and R2_ACCOUNT_ID. Restore: litestream restore -o /var/lib/mycel-relay/registry.db \
+#   /var/lib/mycel-relay/registry.db   (runbook: relay/deploy/README.md "Restore").
+dbs:
+  - path: /var/lib/mycel-relay/registry.db
+    replica:
+      type: s3
+      bucket: teamax-ops
+      path: relay/litestream
+      endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+      region: auto
+      force-path-style: true

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import { teamDefaultLocale } from '../admin/settings'
+import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
@@ -176,7 +176,7 @@ export class TeamFiles {
   private conflictCopy(user: Principal, rules: RuleSet, r: Authorized, data: Buffer): SaveResult {
     const dir = r.segs.slice(0, -1)
     const dirAbs = path.join(this.root, ...dir)
-    let name = conflictCopyName(r.segs[r.segs.length - 1]!, user.name, new Date(), teamDefaultLocale(this.ctx.db))
+    let name = conflictCopyName(r.segs[r.segs.length - 1]!, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
     if (badSegment(name)) name = `conflict-${Date.now()}-${r.segs[r.segs.length - 1]}`
     name = freeName(dirAbs, name)
     const copy = [...dir, name]
@@ -408,7 +408,7 @@ export class TeamFiles {
         const cur = await this.sha(r.abs, checkRegular(r.abs))
         if (o.baseSha256 && o.baseSha256 !== cur) {
           // changed since the caller looked at it: keep it, put the copy next to it (tab 2 "동시 수정")
-          let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db))
+          let cn = conflictCopyName(name, user.name, new Date(), teamDefaultLocale(this.ctx.db), teamTimeZone(this.ctx.db))
           if (badSegment(cn)) cn = `conflict-${Date.now()}-${name}`
           conflictOf = r.rel
           r = authorize(this.fx, rules, user, [...pr.segs, freeName(pr.abs, cn)].join('/'), 'write', { mustExist: false })

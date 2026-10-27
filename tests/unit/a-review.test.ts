@@ -178,6 +178,7 @@ describe('logs', () => {
     // the web pages the links open are logged too (debug level, the default in dev)
     expect(loggablePath('/invite/abcDEF123_-xyz')).toBe('/invite/***')
     expect(loggablePath('/reset-password/abcDEF123_-xyz')).toBe('/reset-password/***')
+    expect(loggablePath('/api/connectors/remote/requests/abcDEF123_-xyz')).toBe('/api/connectors/remote/requests/***')
     expect(loggablePath('/files/view')).toBe('/files/view')
     expect(loggablePath('/api/admin/invites/0199-id')).toBe('/api/admin/invites/0199-id')
   })

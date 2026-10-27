@@ -1,7 +1,10 @@
-// Component A: engines status, company keys, settings, budgets, usage, audit list, the server CLI.
+// Component A: engines status (local logins, managed AI connections), settings, budgets, usage, audit list, the server CLI.
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { recordSkillUse } from '../../server/src/admin/skill-usage'
 import { uuidv7 } from '@mycel/shared/api'
 import { buildApp } from '../../server/src/app'
 import { checkBudgets } from '../../server/src/admin/budgets'
@@ -10,6 +13,8 @@ import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { CliError, runCli } from '../../server/src/auth/cli'
 import { OWNER_PW, addMember, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
+import { credentialsOf } from '../../server/src/credentials/store'
+import { addCred } from '../lib/credentials'
 
 function fakeBin(dir: string, name: string, script: string): string {
   fs.mkdirSync(dir, { recursive: true })
@@ -63,26 +68,30 @@ describe('engines', () => {
     expect(await check('codex')).toMatchObject({ status: 'ok' })
     expect((await admin.try('POST', '/api/admin/engines/gpt/check')).status).toBe(404)
   })
-  test('dedicated engine account mode says what the owner must do (claude setup-token)', async () => {
+  test('managed mode (installed server): an engine without an AI connection says to add one; a usable connection is "ok"', async () => {
     h.ctx.config.engine.claudeBin = path.join(bins, 'claude-ok')
-    h.ctx.config.mode = 'prod'
-    // an installed server's base folder (the installer starts it with this, tab 6); data/ and secrets/ live in it
-    const base = path.resolve(h.ctx.config.dataDir, '..')
-    process.env.MYCEL_INSTALL_BASE = base
+    h.ctx.config.engine.authMode = 'managed'
     try {
       const r = await check('claude-code')
-      expect(r).toMatchObject({ authMode: 'agent-own', status: 'not_logged_in' })
-      expect(r.detail).toContain('claude setup-token')
-      expect(r.detail).toContain('secrets/claude-oauth-token')
-      // the install's secrets folder (<base>/secrets, next to data/), where the diagnostics look too
-      const secrets = path.join(base, 'secrets')
-      fs.mkdirSync(secrets, { recursive: true })
-      // something that is not a setup-token (pasted wrong) is not a sign-in
-      fs.writeFileSync(path.join(secrets, 'claude-oauth-token'), 'sk-ant-oat-fake', { mode: 0o600 })
-      expect((await check('claude-code')).status).toBe('not_logged_in')
-      fs.writeFileSync(path.join(secrets, 'claude-oauth-token'), 'sk-ant-oat01-' + 'f'.repeat(40), { mode: 0o600 })
-      expect((await check('claude-code')).status).toBe('ok')
-    } finally { h.ctx.config.mode = 'dev'; delete process.env.MYCEL_INSTALL_BASE }
+      expect(r).toMatchObject({ authMode: 'managed', status: 'not_logged_in' })
+      expect(r.detail).toContain('AI 연결')
+      const cc = credentialsOf(h.ctx)
+      setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true) // this case explicitly exercises a shared team subscription
+      const id = addCred(cc, 'anthropic-oauth', 'sk-ant-oat01-' + 'f'.repeat(40))
+      expect(await check('claude-code')).toMatchObject({ authMode: 'managed', status: 'ok' })
+      // refused: none usable any more, and the text says so
+      h.ctx.db.query("UPDATE engine_credentials SET status = 'invalid' WHERE id = ?").run(id)
+      const bad = await check('claude-code')
+      expect(bad.status).toBe('not_logged_in'); expect(bad.detail).toContain('쓸 수 없어요')
+      // Codex: the OpenAI family is separate
+      expect((await check('codex')).status).toBe('not_logged_in')
+      addCred(cc, 'openai-api-key', 'sk-' + 'o'.repeat(40))
+      expect((await check('codex')).status).toBe('ok')
+      expect((await admin.call('GET', '/api/admin/engines')).accounts).toEqual([])
+    } finally {
+      h.ctx.config.engine.authMode = 'local-login'; h.ctx.db.query('DELETE FROM engine_credentials').run()
+      h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(SHARED_SUBSCRIPTIONS_KEY)
+    }
   })
   test('defaults, concurrency, enable / disable', async () => {
     const r = await admin.call('PATCH', '/api/admin/engines', { defaultEngine: 'codex', defaultModel: 'gpt-x', concurrency: 5 })
@@ -97,24 +106,10 @@ describe('engines', () => {
     await admin.call('PATCH', '/api/admin/engines', { enabled: { 'claude-code': true }, defaultEngine: 'claude-code' })
     expect((await admin.call('GET', '/api/admin/settings')).defaultModel).toBeNull() // engine changed -> model reset
   })
-  test('company keys (proxy mode, code-only): owner only, secret in a 0600 file, only a hint in the DB', async () => {
+  test('the older company-key endpoints are gone (company keys are AI connections now)', async () => {
     const secret = 'sk-ant-api03-' + 'x'.repeat(30) + 'WXYZ'
-    expect((await admin.try('POST', '/api/admin/engines/accounts', { engine: 'anthropic', secret })).status).toBe(403)
-    const a = await owner.call('POST', '/api/admin/engines/accounts', { engine: 'anthropic', label: 'main', secret })
-    expect(a).toMatchObject({ engine: 'anthropic', label: 'main', hint: 'WXYZ', status: 'ok' })
-    const file = path.join(h.ctx.config.dataDir, 'secrets', `${a.id}.key`)
-    expect(fs.readFileSync(file, 'utf8')).toBe(secret)
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600)
-    const dump = JSON.stringify(h.ctx.db.query('SELECT * FROM engine_accounts').all()) + JSON.stringify(await admin.call('GET', '/api/admin/engines'))
-    expect(dump).not.toContain(secret)
-    // proxy mode: a missing company key is reported, a stored one is accepted
-    h.ctx.config.engine.authMode = 'proxy'
-    expect(await check('claude-code')).toMatchObject({ authMode: 'proxy', status: 'ok' })
-    expect((await check('codex')).status).toBe('not_logged_in')
-    h.ctx.config.engine.authMode = 'local-login'
-    await owner.call('DELETE', `/api/admin/engines/accounts/${a.id}`)
-    expect(fs.existsSync(file)).toBe(false)
-    expect((await owner.try('DELETE', `/api/admin/engines/accounts/${a.id}`)).status).toBe(404)
+    expect((await owner.try('POST', '/api/admin/engines/accounts', { engine: 'anthropic', secret })).status).toBe(404)
+    expect((await owner.try('DELETE', '/api/admin/engines/accounts/x')).status).toBe(404)
   })
 })
 
@@ -186,6 +181,16 @@ describe('settings, budgets, usage, audit', () => {
     const local = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     expect(days.map((r: any) => r.key)).toEqual([local(new Date(Date.now() - 40 * 86_400_000)), local(new Date())])
     expect((await admin.try('GET', `/api/admin/usage?from=${encodeURIComponent(new Date().toISOString())}&to=${encodeURIComponent(from)}`)).status).toBe(400)
+  })
+  test('skill usage uses the same admin permission and report dates; no prompt body is returned', async () => {
+    const turn = h.ctx.db.query('SELECT id, user_id FROM turns ORDER BY started_at DESC LIMIT 1').get() as { id: string; user_id: string }
+    recordSkillUse(h.ctx.db, { turnId: turn.id, userId: turn.user_id, skill: { path: 'skills/report.md', name: 'Weekly report' }, source: 'command' })
+    const res = await admin.call('GET', '/api/admin/usage?groupBy=skill')
+    expect(res.rows).toHaveLength(1)
+    expect(res.rows[0]).toMatchObject({ key: 'skills/report.md', label: 'Weekly report', turns: 1 })
+    expect(Object.keys(res.rows[0]).sort()).toEqual(['costUsd', 'inputTokens', 'key', 'label', 'outputTokens', 'turns'])
+    expect((await mem.client.try('GET', '/api/admin/usage?groupBy=skill')).status).toBe(403)
+    expect((await admin.try('GET', '/api/admin/usage?groupBy=skill&from=invalid')).status).toBe(400)
   })
   test('audit: admin, sign-in, file and tool events newest first, filters, stable cursor pages', async () => {
     h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action, size) VALUES (NULL, ?, 'groups/Ops/plan.md', 'update', 12), (NULL, ?, 'shared/x.md', 'create', 3)").run(mem.id, mem.id)

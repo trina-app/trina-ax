@@ -8,7 +8,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { FILE_TOOLS, type LaunchRequest } from '@mycel/shared'
+import { FILE_TOOLS, PRODUCT, type LaunchRequest } from '@mycel/shared'
+import { REPO_ROOT } from '../app-config'
+import { engineTimeZone } from '../system/time-zone'
 
 export const CODEX_DISABLED_FEATURES = ['shell_tool', 'unified_exec', 'unified_exec_tty', 'code_mode', 'code_mode_host', 'code_mode_interrupt', 'code_mode_only',
   'multi_agent', 'multi_agent_v2', 'apps', 'browser_use', 'browser_use_external', 'browser_use_full_cdp_access', 'in_app_browser', 'computer_use',
@@ -21,11 +23,13 @@ export interface CodexConf {
   /** engine's CODEX_HOME (no config.toml, no AGENTS.md, no skills). Both modes use the chat folder per turn
    * (codexTurnPaths); this field is only the fallback of tests that pass their own folder. */
   codexHome: string
-  /** agent-own: production, the engine account (_axagent) signed in itself (`codex login --device-auth`, run by the
-   * server CLI through the launcher); its auth.json lives in ONE place, <agent root>/codex-auth (codexAuthDir), which
-   * the launcher copies into the turn's <chat>/.codex and writes back after a refresh. The server never touches it.
+  /** managed: production, cloud, Linux (docs/DECISIONS.md "AI 연결" D9): the turn's <chat>/.codex/auth.json is a
+   * placeholder holding this turn's proxy token; the custom provider "teamax" sends every request to the model proxy,
+   * which puts the real credential of the turn's AI connection on it. The engine never sees a real token.
+   * agent-own: the older production setup, kept for the F1 fallback: the engine account signed in itself; its
+   * auth.json lives in <agent root>/codex-auth, which the launcher copies into the turn and writes back.
    * dev-owner-symlink: dev / stage 1 — <chat>/.codex/auth.json is a symlink to the owner's login. */
-  auth: 'agent-own' | 'dev-owner-symlink'
+  auth: 'managed' | 'agent-own' | 'dev-owner-symlink'
   /** engine's HOME (empty) so ~/.agents/skills etc. are not found: <chat>/.home per turn */
   agentHome: string
   /** locked model catalog (writeLockedCatalog). agent-own: <engine folder>/model_catalog.json, written by the
@@ -76,7 +80,7 @@ export function prepareCodexHome(codexHome: string, auth: CodexConf['auth'], rea
   fs.mkdirSync(codexHome, { recursive: true, mode: 0o700 })
   for (const f of ['config.toml', 'AGENTS.md']) fs.rmSync(path.join(codexHome, f), { force: true })
   fs.rmSync(path.join(codexHome, 'skills'), { recursive: true, force: true })
-  if (auth === 'agent-own') return
+  if (auth === 'agent-own' || auth === 'managed') return
   const link = path.join(codexHome, 'auth.json')
   let st: fs.Stats | null = null
   try { st = fs.lstatSync(link) } catch {}
@@ -89,9 +93,9 @@ export function prepareCodexHome(codexHome: string, auth: CodexConf['auth'], rea
  * #2). The shared <data>/codex-home would need the server's data folder opened to every turn, and it mixed the
  * state (logs, sqlite) of every chat. */
 export function codexTurnPaths(conf: CodexConf, chatDir: string): { codexHome: string; agentHome: string; catalog: string } {
-  // agent-own: the launcher (running as the engine account) makes <chat>/.codex with the login copy and <chat>/.home;
-  // the server cannot even read the chat folder. The catalog stays in the engine folder.
-  if (conf.auth === 'agent-own') return { codexHome: '{CHAT_DIR}/.codex', agentHome: '{CHAT_DIR}/.home', catalog: conf.catalog }
+  // managed / agent-own: the launcher (running as the engine account) makes <chat>/.codex (placeholder login or the
+  // login copy) and <chat>/.home; the server cannot even read the chat folder. The catalog stays in the engine folder.
+  if (conf.auth === 'agent-own' || conf.auth === 'managed') return { codexHome: '{CHAT_DIR}/.codex', agentHome: '{CHAT_DIR}/.home', catalog: conf.catalog }
   const codexHome = path.join(chatDir, '.codex')
   return { codexHome, agentHome: path.join(chatDir, '.home'), catalog: path.join(codexHome, 'catalog.json') }
 }
@@ -108,7 +112,7 @@ function realDir(p: string) {
 /** Before (and after) every Codex turn: prepare its CODEX_HOME (see prepareCodexHome); dev-owner-symlink also gets an
  * empty HOME and a fresh copy of the locked catalog in the chat folder. */
 export function prepareCodexTurn(conf: CodexConf, chatDir: string, realAuth?: string) {
-  if (conf.auth === 'agent-own') return // the launcher prepares and cleans the turn's Codex folders
+  if (conf.auth === 'agent-own' || conf.auth === 'managed') return // the launcher prepares and cleans the turn's Codex folders
   const p = codexTurnPaths(conf, chatDir)
   if (conf.auth === 'dev-owner-symlink') {
     realDir(chatDir)
@@ -124,20 +128,53 @@ export function prepareCodexTurn(conf: CodexConf, chatDir: string, realAuth?: st
   }
 }
 
+/** the pinned Codex CLI version (versions.json): sent as the `version` header the built-in provider sends (C8) */
+export const CODEX_VERSION: string = (() => {
+  try { const v = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'versions.json'), 'utf8'))['codex-cli']; if (typeof v === 'string') return v } catch {}
+  return '0.163.0'
+})()
+
 /** seconds codex waits for one MCP tool call (ask_user waits for a person; codex's default is about 60 s) */
 export const CODEX_TOOL_TIMEOUT_SEC = 1800
 
-export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: string } = {}): string[] {
+/** A managed Codex turn's provider setup (docs/DECISIONS.md "AI 연결" 3.5.3): everything the engine calls goes to the
+ * model proxy on 127.0.0.1 (the launcher checks the addresses and refuses others). */
+export interface CodexManaged { port: number; mode: 'chatgpt' | 'openai'; codexVersion: string }
+
+export function codexManagedArgs(m: CodexManaged): string[] {
+  return [
+    '-c', 'model_provider="teamax"',
+    // not "OpenAI": the name switches OpenAI-only behaviour on (C4)
+    '-c', `model_providers.teamax.name=${JSON.stringify(PRODUCT.displayName)}`,
+    '-c', `model_providers.teamax.base_url="http://127.0.0.1:${m.port}/codex/${m.mode}"`,
+    '-c', 'model_providers.teamax.wire_api="responses"',
+    // the provider takes the (placeholder) auth.json: Authorization / ChatGPT-Account-ID carry the turn token (C3)
+    '-c', 'model_providers.teamax.requires_openai_auth=true',
+    '-c', 'model_providers.teamax.supports_websockets=false',
+    '-c', 'model_providers.teamax.request_max_retries=2',
+    '-c', 'model_providers.teamax.stream_max_retries=2',
+    '-c', 'model_providers.teamax.capabilities.remote_compaction="v2"',
+    // the version header the built-in provider sends (C8)
+    '-c', `model_providers.teamax.http_headers={ version = ${JSON.stringify(m.codexVersion)} }`,
+    // background /wham/* calls go to the proxy too, which answers them without going upstream (C12)
+    '-c', `chatgpt_base_url="http://127.0.0.1:${m.port}/codex/backend/"`,
+    '-c', 'feedback.enabled=false',
+    '-c', 'otel.metrics_exporter="none"',
+  ]
+}
+
+export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: string; managed?: CodexManaged; webSearch?: boolean } = {}): string[] {
   return ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '--ignore-rules', '--ignore-user-config',
     '-s', 'read-only',
     '-c', 'approval_policy="never"',
     '-c', 'project_doc_max_bytes=0',
-    // no update check, no usage analytics (codex 0.163 sends them to chatgpt.com through the same tunnel)
+    // no update check, no usage analytics (codex 0.163 sends them to chatgpt.com)
     '-c', 'check_for_update_on_startup=false',
     '-c', 'analytics.enabled=false',
-    // the engine account's login is a file the launcher copies in (never the keychain, which it cannot reach)
-    ...(conf.auth === 'agent-own' ? ['-c', 'cli_auth_credentials_store="file"'] : []),
-    '-c', 'web_search="live"',
+    // the login is a file the launcher writes (never the keychain, which the engine account cannot reach; C11)
+    ...(conf.auth === 'agent-own' || conf.auth === 'managed' ? ['-c', 'cli_auth_credentials_store="file"'] : []),
+    ...(o.managed ? codexManagedArgs(o.managed) : []),
+    '-c', `web_search="${o.webSearch === false ? 'disabled' : 'live'}"`,
     '-c', `model_catalog_json=${JSON.stringify(conf.catalog)}`,
     '-c', `model=${JSON.stringify(o.model ?? conf.model)}`,
     ...CODEX_DISABLED_FEATURES.flatMap((f) => ['-c', `features.${f}=false`]),
@@ -155,22 +192,50 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
  * sandbox), which tunnels this turn's HTTPS (CONNECT) to the allowed hosts when the turn's proxy token comes with it. */
 export const codexProxyUrl = (port: number, token: string) => `http://turn:${token}@127.0.0.1:${port}`
 
-export function buildCodexLaunch(i: { turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string; proxy?: { port: number; token: string } }, conf: CodexConf): LaunchRequest {
+export function buildCodexLaunch(i: {
+  turnId: string; chatDir: string; token: string; systemPrompt: string; message: string; timeoutMs: number; extraTools?: string[]; model?: string; webSearch?: boolean
+  /** agent-own (F1): the CONNECT tunnel */
+  proxy?: { port: number; token: string }
+  /** managed: the provider setup and the placeholder auth.json (credentials/codex-home.ts dummyAuthJson) */
+  managed?: CodexManaged & { authJson: string }
+}, conf: CodexConf): LaunchRequest {
   const p = codexTurnPaths(conf, i.chatDir)
   if (conf.auth === 'agent-own' && !i.proxy) throw new Error('a Codex turn of the engine account needs the model proxy')
+  if (conf.auth === 'managed' && !i.managed) throw new Error('a managed Codex turn needs its AI connection')
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   // codex has no system-prompt file option that keeps its tool instructions; the instructions travel on stdin
   // (never argv/env) ahead of the user's message.
   const stdin = `<instructions>\n${i.systemPrompt}\n</instructions>\n\n${i.message}`
   return {
-    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args: codexArgs({ ...conf, catalog: p.catalog }, { extraTools: i.extraTools, model: i.model }),
+    op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin,
+    args: codexArgs({ ...conf, catalog: p.catalog }, { extraTools: i.extraTools, model: i.model, webSearch: i.webSearch, ...(i.managed ? { managed: { port: i.managed.port, mode: i.managed.mode, codexVersion: i.managed.codexVersion } } : {}) }),
     env: {
       PATH: '/usr/bin:/bin', HOME: p.agentHome, CODEX_HOME: p.codexHome, TMPDIR: tmp, LANG: 'en_US.UTF-8',
-      // agent-own: HTTPS only through the model proxy; certificates from the system bundle (the engine sandbox has no
-      // keychain / trustd in this mode, and Codex then verifies with the file: tested under engine.sb)
-      ...(i.proxy ? { HTTPS_PROXY: codexProxyUrl(i.proxy.port, i.proxy.token), SSL_CERT_FILE: '/etc/ssl/cert.pem' } : {}),
+      // the team's time zone (system/time-zone.ts): a Linux server itself runs in UTC
+      ...(engineTimeZone() ? { TZ: engineTimeZone()! } : {}),
+      // agent-own (F1): HTTPS only through the model proxy's tunnel; certificates from the system bundle (the engine
+      // sandbox has no keychain / trustd in this mode, and Codex then verifies with the file: tested under engine.sb).
+      // managed: no HTTPS at all (plain HTTP to the proxy); the launcher sets CODEX_REFRESH_TOKEN_URL_OVERRIDE itself.
+      ...(i.proxy && !i.managed ? { HTTPS_PROXY: codexProxyUrl(i.proxy.port, i.proxy.token), SSL_CERT_FILE: '/etc/ssl/cert.pem' } : {}),
     },
     token: i.token, systemPrompt: '', stdin, timeoutMs: i.timeoutMs,
     ...(conf.auth === 'agent-own' ? { codexAuth: true } : {}),
+    ...(i.managed ? { codexHome: { authJson: i.managed.authJson } } : {}),
   }
+}
+
+/** The models of the locked catalog this server's Codex uses (the proxy's Codex path forwards only these). Read again
+ * when the file changes. prod: next to the installed engine; dev: the one chat/engines.ts wrote into the data folder. */
+const catalogCache = new Map<string, { key: string; models: string[] }>()
+export function lockedCatalogModels(file: string | null): string[] {
+  if (!file) return []
+  try {
+    const st = fs.statSync(file)
+    const key = `${st.ino}:${st.size}:${st.mtimeMs}`
+    const c = catalogCache.get(file)
+    if (c?.key === key) return c.models
+    const models = catalogModels(file)
+    catalogCache.set(file, { key, models })
+    return models
+  } catch { return [] }
 }

@@ -1,6 +1,6 @@
 // Component C engine tools through the MCP handler: make_file, share_file, artifact (+ artifacts REST), the tool
 // registry, and converter isolation.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,6 +12,9 @@ import { cellValue, markdownTables, parseCsv } from '../../server/src/tools/make
 import { toolRegistry } from '../../server/src/tools/registry'
 import { which } from '../../server/src/config'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
+
+// make_file runs pandoc / typst / the xlsx writer in child processes: seconds on a busy machine
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('c-tools') })

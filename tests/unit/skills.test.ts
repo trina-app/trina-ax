@@ -23,7 +23,7 @@ type User = Parameters<typeof listSkills>[1]
 // alice: no access to skills/재무, read elsewhere; admin: write to skills/
 const files = (writer = false) => ({
   fx: { root },
-  rules: () => ({ access: (u: { id: string }, segs: string[]) => (segs[1] === '재무' && u.id === 'alice' ? 'none' : writer && u.id === 'admin' ? 'write' : 'read') }),
+  rules: () => ({ canList: (u: { id: string }, segs: string[]) => !(segs[1] === '재무' && u.id === 'alice'), access: (u: { id: string }, segs: string[]) => (segs[1] === '재무' && u.id === 'alice' ? 'none' : writer && u.id === 'admin' ? 'write' : 'read') }),
 }) as unknown as Files
 const alice = { id: 'alice' } as User
 const admin = { id: 'admin' } as User

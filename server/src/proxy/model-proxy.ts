@@ -1,10 +1,13 @@
-// Model proxy (design tab 1 "모델 프록시 예산" / "프록시 동작", tab 3 "모델 호출" / "프록시 전달 규칙"). The engine gets
-// ANTHROPIC_BASE_URL=<this proxy> and a per-turn proxy token instead of the real credential. The proxy checks the
-// token (turn + user, expiry, revocation), the TCP peer (the launcher finds the process; it must belong to the turn's
-// engine session), the budgets, and what is asked for (forwarding rules below); then it puts the real credential on
-// the request (the owner's `claude setup-token` subscription token as a Bearer, or a company key), streams the answer
-// back without buffering and counts the usage itself (authoritative numbers in `turns`, usage_source 'proxy').
-// Subscription mode (owner 2026-10-21: subscriptions only) runs it in production; company-key mode stays code only.
+// Model proxy (design tab 1 "모델 프록시 예산" / "프록시 동작", tab 3 "모델 호출" / "프록시 전달 규칙"; AI connections:
+// docs/DECISIONS.md "AI 연결"). The engine gets the proxy's address and a per-turn proxy token instead of a real
+// credential. The proxy checks the token (turn + person + the AI connection chosen for this attempt, expiry,
+// revocation), the TCP peer (the launcher finds the process; it must belong to the turn's engine session), the
+// budgets, and what is asked for (forwarding rules below); then it puts the real credential of that connection on the
+// request (credentials/broker.ts), streams the answer back without buffering and counts the usage itself (turns,
+// credential_usage_daily; usage_source 'proxy').
+//   /v1/*     Claude Code turns (family 'anthropic'): a Claude subscription token as a Bearer, or an Anthropic key
+//   /codex/*  Codex turns (family 'openai'): ChatGPT sign-in or OpenAI key (./codex-path.ts)
+//   CONNECT   office mode's Claude login tunnels and the ChatGPT sign-in process (./connect.ts); never a Codex turn
 import crypto from 'node:crypto'
 import net from 'node:net'
 import type { IncomingMessage } from 'node:http'
@@ -12,47 +15,49 @@ import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
 import { budgetBlock } from '../admin/budgets'
 import { codexConnectHandler, type ConnectOpts } from './connect'
+import type { CredentialBroker } from '../credentials/broker'
+import type { Family } from '../credentials/resolve'
+import { handleCodex } from './codex-path'
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
-export function issueProxyToken(db: Database, turnId: string, userId: string, o: { ttlMs?: number; budgetUsd?: number } = {}) {
+export function issueProxyToken(db: Database, turnId: string, userId: string, o: { ttlMs?: number; budgetUsd?: number; credentialId?: string; family?: Family } = {}) {
   const token = 'mpx_' + crypto.randomBytes(32).toString('base64url')
-  db.query('INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at, budget_usd) VALUES (?,?,?,?,?)')
-    .run(h(token), turnId, userId, new Date(Date.now() + (o.ttlMs ?? 30 * 60_000)).toISOString(), o.budgetUsd ?? null)
+  db.query('INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at, budget_usd, credential_id, family) VALUES (?,?,?,?,?,?,?)')
+    .run(h(token), turnId, userId, new Date(Date.now() + (o.ttlMs ?? 30 * 60_000)).toISOString(), o.budgetUsd ?? null, o.credentialId ?? null, o.family ?? null)
+  // the turn remembers the connection of its latest attempt (usage per connection: Admin > Usage)
+  if (o.credentialId) db.query('UPDATE turns SET credential_id = ? WHERE id = ?').run(o.credentialId, turnId)
   return token
 }
 export function revokeProxyTokens(db: Database, turnId: string) {
   db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ? AND revoked_at IS NULL').run(new Date().toISOString(), turnId)
 }
 
-/** USD per million tokens (approximate list prices; input, output). Cache reads 0.1x input, cache writes 1.25x input.
- * Company-key mode only: a subscription has no per-request price, its turns carry cost 0 (design tab 1 "비용"). */
-const PRICES: [RegExp, number, number][] = [[/opus/i, 15, 75], [/sonnet/i, 3, 15], [/haiku/i, 1, 5]]
-export function costUsd(model: string, u: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }) {
-  const [, pi, po] = PRICES.find(([re]) => re.test(model)) ?? [null, 15, 75]
-  return ((u.input_tokens ?? 0) * pi + (u.output_tokens ?? 0) * po + (u.cache_read_input_tokens ?? 0) * pi * 0.1 + (u.cache_creation_input_tokens ?? 0) * pi * 1.25) / 1e6
-}
-
-/** What the proxy tells the turn that owns a request (the chat runtime stops the turn and shows the reason). */
+/** What the proxy tells the turn that owns a request (the chat runtime stops the turn, or moves it to another AI
+ * connection, and shows the reason). */
 export type ProxyTurnEvent =
   | { type: 'auth' }
   | { type: 'budget' }
-  | { type: 'rate_limit'; retryAt: string | null }
+  | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
+  | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
+
+/** a proxy token row as the proxy reads it */
+export interface TokenRow { turn_id: string; user_id: string; revoked_at: string | null; expires_at: string; budget_usd: number | null; credential_id: string | null; family: Family | null }
+export const tokenRow = (db: Database, tok: string) =>
+  db.query('SELECT turn_id, user_id, revoked_at, expires_at, budget_usd, credential_id, family FROM proxy_tokens WHERE token_hash = ?').get(h(tok)) as TokenRow | null
 
 export interface ProxyOpts {
   db: Database
-  /** the real credential: a company API key (x-api-key) or the owner's long-lived subscription OAuth token
-   * (Authorization: Bearer). A function is asked on every request (the token file can change while the server runs);
-   * null = no credential stored (401 + auth event, nothing goes upstream). upstream null = this proxy has no Claude
-   * path at all (503; Codex tunnels still work). */
-  upstream: { baseUrl: string; kind: 'api-key' | 'oauth'; secret: string | (() => string | null) } | null
+  /** the team's AI connections (credentials/broker.ts); null = this proxy has no model path at all (503: office mode
+   * with the Mac user's own login, where Claude goes through the CONNECT tunnel) */
+  broker: CredentialBroker | null
   /** return false to refuse (TCP peer not in the turn's engine session; the launcher finds the process) */
   peerCheck?: (clientPort: number, serverPort: number, turnId: string) => Promise<boolean>
-  /** a turn's request hit an upstream 401, a used-up budget or the subscription limit */
+  /** a turn's request hit a refused / limited connection, a used-up budget */
   onTurnEvent?: (turnId: string, ev: ProxyTurnEvent) => void
-  /** the upstream refused the credential itself (401): the owner has to connect the subscription again */
-  onAuthRejected?: (secret: string | null) => void
-  /** Codex turns' HTTPS tunnels on the same port (CONNECT, ./connect.ts); absent = CONNECT is refused */
+  /** the locked Codex catalog's model slugs (the Codex path forwards these models only) */
+  codexModels?: () => string[]
+  /** HTTPS tunnels on the same port (CONNECT, ./connect.ts); absent = CONNECT is refused */
   connect?: Omit<ConnectOpts, 'db'>
   port?: number
   hostname?: string
@@ -130,7 +135,7 @@ export function checkProxyRequest(method: string, url: URL, body: unknown): stri
   return null
 }
 
-function apiError(status: number, type: string, message: string, extra: Record<string, string> = {}) {
+export function apiError(status: number, type: string, message: string, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', ...extra } })
 }
 
@@ -154,52 +159,56 @@ export function retryAfterSeconds(v: string | null, now = Date.now()): number | 
 
 export interface ModelProxy { url: string; port: number; stop(): Promise<void> }
 
-/** Listens on 127.0.0.1:<port> (Claude requests and Codex CONNECT tunnels, see below); rejects when the port is taken
- * (no reusePort). */
+/** Listens on 127.0.0.1:<port> (model requests and CONNECT tunnels, see below); rejects when the port is taken (no
+ * reusePort). */
 export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   const { db } = o
-  const add = db.query("UPDATE turns SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_usd = COALESCE(cost_usd, 0) + ?, usage_source = 'proxy' WHERE id = ?")
-  const record = (turnId: string, model: string, u: Record<string, number | undefined>) => {
-    if (!Object.keys(u).length) return
-    add.run((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), u.output_tokens ?? 0,
-      o.upstream?.kind === 'api-key' ? costUsd(model, u) : 0, turnId)
-  }
-  const secret = () => (!o.upstream ? null : typeof o.upstream.secret === 'function' ? o.upstream.secret() : o.upstream.secret)
-  /** subscription 5-hour / weekly limit reached: nothing goes upstream until then (design tab 1 "업스트림 오류") */
-  let limitedUntil = 0
-  const limited = (turnId: string) => {
-    const retryAt = new Date(limitedUntil).toISOString()
-    o.onTurnEvent?.(turnId, { type: 'rate_limit', retryAt })
-    return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(Math.max(1, Math.ceil((limitedUntil - Date.now()) / 1000))) })
+  let serverPort = 0
+  const refusedAudit = (row: TokenRow | null, reason: string, extra: Record<string, unknown> = {}) =>
+    audit(db, { actor: row?.user_id ?? null, action: 'proxy.refused', target: row?.turn_id ?? null, detail: { reason, ...(row?.credential_id ? { credentialId: row.credential_id } : {}), ...extra } })
+
+  /** token + peer: the request's proxy token row, or a Response that refuses it */
+  async function admit(req: Request, clientPort: number, family: Family, path: string): Promise<TokenRow | Response> {
+    // Claude Code sends its per-turn token as x-api-key (API key kind) or as a Bearer (subscription kind); Codex as a
+    // Bearer (its placeholder auth.json carries it as the access token / API key)
+    const tok = (req.headers.get('x-api-key') || req.headers.get('authorization')?.replace(/^Bearer\s*/i, '') || '').trim()
+    if (!tok) return apiError(401, 'authentication_error', 'missing proxy token')
+    const row = tokenRow(db, tok)
+    if (!row || row.revoked_at || row.expires_at < new Date().toISOString()) return apiError(401, 'authentication_error', 'invalid proxy token')
+    // each path is for its own family's turns only: a Codex turn's token, a Claude turn's token on the Codex path, the
+    // ChatGPT sign-in token (the engine's process passes the peer check, so the token has to say what it is for)
+    if (row.family !== family) {
+      refusedAudit(row, family === 'anthropic' ? 'not a Claude turn' : 'not a Codex turn', { path: path.slice(0, 120) })
+      return apiError(403, 'permission_error', `this token is not for the ${family === 'anthropic' ? 'Claude' : 'Codex'} path`)
+    }
+    if (o.peerCheck) {
+      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
+    }
+    return row
   }
 
-  let serverPort = 0
   // the Claude path: `req` carries a signal that fires when the engine hangs up
   async function handle(req: Request, clientPort: number): Promise<Response> {
       const url = new URL(req.url)
+      if (req.headers.get('upgrade')) return apiError(400, 'invalid_request_error', 'no protocol upgrades on the model proxy')
+      if (url.pathname.startsWith('/codex/')) {
+        return handleCodex(req, url, {
+          db, broker: o.broker, codexModels: o.codexModels ?? (() => []), onTurnEvent: o.onTurnEvent, refused: refusedAudit,
+          admit: (r) => admit(r, clientPort, 'openai', url.pathname),
+        })
+      }
       if (!url.pathname.startsWith('/v1/')) return apiError(404, 'not_found_error', 'not found')
-      // the engine sends its per-turn token as x-api-key (company key mode) or as a Bearer (subscription mode)
-      const tok = (req.headers.get('x-api-key') || req.headers.get('authorization')?.replace(/^Bearer\s*/i, '') || '').trim()
-      if (!tok) return apiError(401, 'authentication_error', 'missing proxy token')
-      const row = db.query('SELECT * FROM proxy_tokens WHERE token_hash = ?').get(h(tok)) as { turn_id: string; user_id: string; revoked_at: string | null; expires_at: string; budget_usd: number | null } | null
-      if (!row || row.revoked_at || row.expires_at < new Date().toISOString()) return apiError(401, 'authentication_error', 'invalid proxy token')
-      // the Claude path is for Claude turns only: a Codex turn's token (its HTTPS_PROXY) or the codex-login token must
-      // not reach the Anthropic API with the owner's Claude credential (the Codex turn's process passes the peer check)
-      if (String(row.turn_id).startsWith('codex-login:') || (db.query('SELECT engine FROM turns WHERE id = ?').get(row.turn_id) as { engine: string } | null)?.engine === 'codex') {
-        audit(db, { actor: row.user_id ?? null, action: 'proxy.refused', target: row.turn_id, detail: { reason: 'not a Claude turn', path: url.pathname.slice(0, 120) } })
-        return apiError(403, 'permission_error', 'this token is not for the Claude API')
-      }
-      if (o.peerCheck) {
-        if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
-      }
-      if (!o.upstream) return apiError(503, 'api_error', 'no Claude credential is configured on the team server')
-      const upstream = o.upstream
+      const admitted = await admit(req, clientPort, 'anthropic', url.pathname)
+      if (admitted instanceof Response) return admitted
+      const row = admitted
+      if (!o.broker) return apiError(503, 'api_error', 'no AI connection path on this team server')
+      const broker = o.broker
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
       const refused = checkProxyRequest(req.method, url, parsed)
       if (refused) {
-        audit(db, { actor: row.user_id, action: 'proxy.refused', target: row.turn_id, detail: { reason: refused } })
+        refusedAudit(row, refused)
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
       }
       // 403, not 429: the SDK retries a 429 by itself (design tab 1 "예산 초과")
@@ -207,11 +216,10 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         o.onTurnEvent?.(row.turn_id, { type: 'budget' })
         return apiError(403, 'permission_error', 'budget_exceeded')
       }
-      if (limitedUntil > Date.now()) return limited(row.turn_id)
-      const real = secret()
-      if (!real) {
-        o.onTurnEvent?.(row.turn_id, { type: 'auth' })
-        return apiError(401, 'authentication_error', 'the team server has no model credential (the owner has to connect the subscription)')
+      const cred = await broker.forRequest({ credentialId: row.credential_id, family: row.family, turnId: row.turn_id, userId: row.user_id }, 'anthropic')
+      if (!cred.ok) {
+        if (cred.event) o.onTurnEvent?.(row.turn_id, cred.event)
+        return apiError(cred.status, cred.type, cred.message, cred.retryAfter ? { 'retry-after': String(cred.retryAfter) } : {})
       }
 
       const headers = new Headers()
@@ -221,11 +229,12 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       headers.set('content-type', 'application/json')
       const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
-      if (upstream.kind === 'api-key') headers.set('x-api-key', real)
-      else {
-        headers.set('authorization', 'Bearer ' + real)
+      let sent = ''
+      if (cred.inject.type === 'anthropic-x-api-key') { headers.set('x-api-key', cred.inject.key); sent = cred.inject.key; beta.delete('oauth-2025-04-20') }
+      else if (cred.inject.type === 'anthropic-bearer') {
+        headers.set('authorization', 'Bearer ' + cred.inject.token); sent = cred.inject.token
         beta.add('oauth-2025-04-20')
-      }
+      } else return apiError(403, 'permission_error', 'this AI connection is not for Claude')
       if (beta.size) headers.set('anthropic-beta', [...beta].join(','))
       else headers.delete('anthropic-beta')
 
@@ -237,7 +246,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       try {
         // never follow a redirect: it would carry the request (and an x-api-key, which fetch keeps across origins) to
         // another host, or the real credential to a path the rules above do not allow
-        up = await fetch(upstream.baseUrl.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
+        up = await fetch(cred.upstream.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
       } catch {
         return apiError(502, 'api_error', 'the model service could not be reached')
       }
@@ -249,27 +258,32 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase())) outHeaders.set(k, v)
 
       if (up.status === 401) {
-        o.onTurnEvent?.(row.turn_id, { type: 'auth' })
-        o.onAuthRejected?.(real)
+        // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
+        await broker.onUnauthorized(cred.credentialId, sent)
+        o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
       }
       if (up.status === 429) {
         const s = retryAfterSeconds(up.headers.get('retry-after'))
         if (s !== null && s > SHORT_RETRY_S) {
-          // the subscription's own limit: say so once, keep further requests from going out until it resets
+          // the subscription's own limit: this connection stays out until it resets; the turn moves on or ends
           await up.body?.cancel().catch(() => {})
-          limitedUntil = Date.now() + s * 1000
-          return limited(row.turn_id)
+          const until = new Date(Date.now() + s * 1000)
+          broker.onLongLimit(cred.credentialId, until)
+          o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
+          return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(s) })
         }
         // a short burst limit: status and retry-after as they came, the SDK retries
       }
+      if (up.status >= 200 && up.status < 300) broker.succeeded(cred.credentialId)
       const counts = url.pathname === '/v1/messages' && up.status < 400
+      const record = (m: string, u: Record<string, unknown>) => { if (Object.keys(u).length) broker.record(cred.credentialId, row.turn_id, m, u) }
       if (counts && (up.headers.get('content-type') ?? '').includes('text/event-stream') && up.body) {
         // pass the stream through as it arrives while reading usage from message_start / message_delta. Input and
         // cache numbers come from message_start, output from the last message_delta (a running total, not added up).
-        const usage: Record<string, number | undefined> = {}
+        const usage: Record<string, unknown> = {}
         let buf = ''
         let recorded = false
-        const done = () => { if (!recorded) { recorded = true; record(row.turn_id, model, usage) } }
+        const done = () => { if (!recorded) { recorded = true; record(model, usage) } }
         const dec = new TextDecoder()
         const reader = up.body.getReader()
         const scan = (chunk: Uint8Array) => {
@@ -303,7 +317,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         return new Response(stream, { status: up.status, headers: outHeaders })
       }
       const text = await up.text()
-      if (counts) try { const j = JSON.parse(text); if (j.usage) record(row.turn_id, j.model ?? model, j.usage) } catch {}
+      if (counts) try { const j = JSON.parse(text); if (j.usage) record(j.model ?? model, j.usage) } catch {}
       return new Response(text, { status: up.status, headers: outHeaders })
   }
 

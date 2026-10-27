@@ -10,6 +10,7 @@ import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import { Denied, ToolError } from '../policy/errors'
 import { verifyChain } from '../policy/resolve'
 import { newId } from '../db'
+import { zonedParts } from '../system/time-zone'
 
 const C = fs.constants
 export const sha256 = (b: Uint8Array | string) => crypto.createHash('sha256').update(b).digest('hex')
@@ -104,10 +105,12 @@ export const CONFLICT_COPY: Record<Locale, string> = { ko: '충돌 사본', en: 
 
 /** "name (conflict copy - person date time).ext" next to the original (design tab 2 "동시 수정"), in the team's
  * default language (the file is shared, so not in one person's language). */
-export function conflictCopyName(original: string, person: string, d = new Date(), locale: Locale = DEFAULT_LOCALE): string {
+export function conflictCopyName(original: string, person: string, d = new Date(), locale: Locale = DEFAULT_LOCALE, tz?: string): string {
   const m = /^(.*?)(\.[^.]+)?$/.exec(original)!
   const pad = (n: number) => String(n).padStart(2, '0')
-  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}`
+  // the team's time zone when given (admin/settings.ts teamTimeZone), else the process's
+  const z = tz ? zonedParts(d, tz) : { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), min: d.getMinutes() }
+  const stamp = `${z.y}-${pad(z.m)}-${pad(z.d)} ${pad(z.h)}.${pad(z.min)}`
   const safePerson = person.replace(/[<>:"|?*\\/\u0000-\u001f]/g, '').trim() || 'unknown'
   return `${m[1]} (${CONFLICT_COPY[locale] ?? CONFLICT_COPY.en} - ${safePerson} ${stamp})${m[2] ?? ''}`
 }

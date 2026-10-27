@@ -12,7 +12,10 @@ import { openDb } from '../../server/src/db'
 import { createLogger, silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES, type RouteModule } from '../../server/src/routes'
 import { startEngineProxy, startServer } from '../../server/src/server'
-import { codexAuthDir } from '../../server/src/engine/codex'
+import { brokerOf } from '../../server/src/credentials/maintenance'
+import { insertRow } from '../../server/src/credentials/service'
+import { credentialsOf } from '../../server/src/credentials/store'
+import net from 'node:net'
 import type { AuthInfo, SessionService } from '../../server/src/services'
 import { configureChat, getChatRuntime, type ChatRuntimeOptions } from '../../server/src/chat/runtime'
 import { LocalEngines, StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
@@ -29,11 +32,13 @@ export function fakeEngineBin(dir: string): string {
   return bin
 }
 
-export function fakeEngines(bin: string, dataDir: string): EngineConfs {
+export function fakeEngines(bin: string, dataDir: string, codexBin: string = bin): EngineConfs {
   return {
-    // proxy layout (CLAUDE_CONFIG_DIR inside the chat folder) so the fake's session files stay out of ~/.claude
-    claude: { bin, authMode: 'proxy', agentHome: path.join(dataDir, 'agent-home'), modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'api-key' } },
-    codex: { bin, codexHome: path.join(dataDir, 'codex-home'), agentHome: path.join(dataDir, 'codex-agent-home'), catalog: path.join(dataDir, 'catalog.json'), model: 'fake-1', auth: 'agent-own' },
+    // managed layout (CLAUDE_CONFIG_DIR inside the chat folder) so the fake's session files stay out of ~/.claude; the
+    // launcher sets ANTHROPIC_BASE_URL to its --proxy-port
+    claude: { bin, authMode: 'managed', agentHome: path.join(dataDir, 'agent-home'), modelProxy: { baseUrl: 'http://127.0.0.1:9' } },
+    // managed Codex: a placeholder login per turn, the provider pointing at the harness's model proxy
+    codex: { bin: codexBin, codexHome: path.join(dataDir, 'codex-home'), agentHome: path.join(dataDir, 'codex-agent-home'), catalog: path.join(dataDir, 'catalog.json'), model: 'fake-1', auth: 'managed' },
     problems: {},
     codexModels: ['fake-1', 'fake-2'],
   }
@@ -124,18 +129,40 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   proxyDial?: (host: string, port: number) => import('node:net').Socket
   /** "팀원이 엔진 고르기 허용" (default here: everyone; the product default is off) */
   memberChoice?: import('@mycel/shared/api').MemberEngineChoice
+  /** the team's AI connections made at start (default: one Anthropic and one OpenAI API key for the whole team, fake
+   * values); [] = none */
+  credentials?: { kind: import('@mycel/shared/api').CredentialKind; secret: string; label?: string; priority?: number }[]
+  /** where the model proxy sends requests (default: a refused local port, never the internet) */
+  upstreams?: Partial<import('../../server/src/app-config').ModelUpstreams>
+  /** the locked Codex catalog the proxy's Codex path accepts (default the fake engine's fake-1 / fake-2) */
+  codexModels?: string[]
+  /** a launcher already running elsewhere (the Linux T1 job: the engine account's launcher in bwrap mode) instead of
+   * one started here; the model proxy then listens on its --proxy-port */
+  externalLauncher?: { sock: string; proxyPort: number; toolsSockMode?: string }
+  /** where the gate's sockets and the chat folders are, and the engine account's uid (the external launcher's) */
+  engineConfig?: { runDir?: string; agentRoot?: string; agentUid?: number }
+  /** the fake engine executables (default: a script running tests/lib/b-fake-engine.ts with this bun). A Linux turn
+   * sandbox shows only the engine's own folder, so T1 uses compiled copies named claude and codex. */
+  engineBins?: { claude: string; codex: string }
 }
 
-/** the engine account's Codex login in the harness (fake tokens) */
-export const FAKE_CODEX_AUTH = { auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: 'x', access_token: 'at', refresh_token: 'rt-0', account_id: 'acc-team' }, last_refresh: '2026-10-21T00:00:00Z' }
+/** the harness's default AI connections (fake keys; nothing reaches a real provider) */
+export const HARNESS_KEYS = { anthropic: 'sk-ant-api03-HARNESS' + 'a'.repeat(40), openai: 'sk-HARNESS' + 'o'.repeat(40) }
+/** a free TCP port on 127.0.0.1 */
+export function freePort(): Promise<number> {
+  return new Promise((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)) }) })
+}
 
 export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const base = path.join(WORK, o.name)
   const fx = makeFixture(base)
   const dataDir = fx.data
+  const dead = 'http://127.0.0.1:9'
+  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, ...o.upstreams }
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
-    teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error', engine: o.realCore?.engine ?? { authMode: 'local-login' },
+    teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error',
+    engine: o.realCore?.engine ? { modelUpstreams: upstreams, ...o.realCore.engine } : { authMode: 'local-login', modelUpstreams: upstreams },
     relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null,
     ...(o.realCore?.office ? { office: true } : {}),
   }
@@ -146,27 +173,37 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   // most chat tests pick engines as members (they predate the admin-only engine choice, admin/engine-choice.ts): the
   // harness lets everyone pick unless a test asks for the shipped default ({ mode: 'off' })
   db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.memberChoice', ?)").run(JSON.stringify(o.memberChoice ?? { mode: 'everyone', groupIds: [], userIds: [] }))
-  const bin = fakeEngineBin(path.join(base, 'bin'))
+  const bin = o.engineBins?.claude ?? fakeEngineBin(path.join(base, 'bin'))
+  const codexBin = o.engineBins?.codex ?? bin
+  const ext = o.externalLauncher
   const ctx = createContext({
     config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,
     ...(o.realCore ? {} : {
-    // the fake Codex runs the production path ("agent-own"): the launcher copies the engine account's login from
-    // <agent root>/codex-auth into the turn and the turn talks through the model proxy (tunnels to a local echo
-    // server instead of the internet)
+    // the fake engines run the production path ("managed"): every turn gets a per-turn proxy token bound to one of
+    // the team's AI connections, and the model proxy puts the connection's (fake) credential on the request
     startCore: async (c: AppContext) => {
-      const authDir = codexAuthDir(c.engineConfig.agentRoot)
-      fs.mkdirSync(authDir, { recursive: true, mode: 0o700 })
-      if (!fs.existsSync(path.join(authDir, 'auth.json'))) fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify(FAKE_CODEX_AUTH), { mode: 0o600 })
-      const srv = await startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [], codexAuthDir: authDir } })
-      await startEngineProxy(srv, { upstreamUrl: null, dial: o.proxyDial })
+      const port = ext ? ext.proxyPort : await freePort()
+      const srv = ext
+        ? await startServer(c.engineConfig, { db: c.db, files: c.files, externalLauncher: ext.sock, toolsSockMode: ext.toolsSockMode })
+        : await startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, codexBin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [], proxyPort: port } })
+      await startEngineProxy(srv, { port, broker: brokerOf(c), codexModels: () => o.codexModels ?? ['fake-1', 'fake-2'], dial: o.proxyDial })
       return srv
     },
     }),
   })
+  // the team's AI connections (fake keys): every chat test's turns resolve one, like a production team
+  const cc = credentialsOf(ctx)
+  for (const k of o.credentials ?? [{ kind: 'anthropic-api-key' as const, secret: HARNESS_KEYS.anthropic, label: 'Harness Anthropic' }, { kind: 'openai-api-key' as const, secret: HARNESS_KEYS.openai, label: 'Harness OpenAI' }]) {
+    insertRow(cc, { kind: k.kind, label: k.label ?? k.kind, secret: k.kind === 'anthropic-oauth' ? { token: k.secret } : { key: k.secret } as never, ownerUserId: null, priority: k.priority ?? 100, assignments: [], createdBy: null, checkedAt: new Date().toISOString(),
+      ...(k.kind === 'anthropic-oauth' ? { expiresAt: new Date(Date.now() + 365 * 86400_000).toISOString() } : {}) })
+  }
   // unix socket paths must stay short (macOS: 104 bytes); the real core keeps them under the data folder, which the
   // engine sandbox can reach (it refuses /tmp)
-  if (!o.realCore) ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
-  configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir)) })
+  // (a run folder given by the caller, the T1 job's /run/mycel, is not ours to remove)
+  const ownRunDir = !o.engineConfig?.runDir
+  if (ownRunDir && !o.realCore) ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
+  if (o.engineConfig) Object.assign(ctx.engineConfig, o.engineConfig)
+  configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
   const app = await buildApp(ctx, [...ROUTE_MODULES, sessionModule])
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'test', server: s }) })
@@ -209,7 +246,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
       server.stop(true)
       await ctx.close()
       db.close()
-      fs.rmSync(runDir, { recursive: true, force: true })
+      if (ownRunDir) fs.rmSync(runDir, { recursive: true, force: true })
     },
   }
 }

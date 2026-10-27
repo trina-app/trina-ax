@@ -3,6 +3,7 @@
 // server's own zod schemas.
 import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
 import { currentLocale } from '../i18n'
+import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
 
 const WINDOW_KEY = 'mycel.windowId'
 
@@ -136,6 +137,7 @@ export class PreviewTooLargeError extends Error {
 
 /** Let the browser download a URL (streams to disk; nothing is held in memory). */
 export function startDownload(url: string, name?: string) {
+  if (mobileApp()) { void downloadToApp(url, name).catch(reportMobileError); return }
   const a = document.createElement('a')
   a.href = url
   if (name) a.download = name
@@ -147,6 +149,7 @@ export function startDownload(url: string, name?: string) {
 
 /** Save a Blob made in the page (artifact source, copied table) as a file. */
 export function saveBlob(blob: Blob, name: string) {
+  if (mobileApp()) { void sendFileToApp(blob, name).catch(reportMobileError); return }
   const url = URL.createObjectURL(blob)
   startDownload(url, name)
   setTimeout(() => URL.revokeObjectURL(url), 30_000)

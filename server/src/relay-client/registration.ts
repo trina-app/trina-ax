@@ -2,6 +2,14 @@
 // The Ed25519 private key lives in <data>/relay/team-key.pem (0600); the relay only ever sees the public key.
 // The recovery code is shown once: it goes to <data>/relay/recovery-code.txt (0600) and the log, for the owner to
 // print and keep.
+//
+// Three ways to get the address (control-plane SV-4, SV-9):
+//   1. <data>/relay/registration.json (the hosted service: the control plane registered the address with this server's
+//      own key through the relay's operator API; mycel-enroll / `mycel-ctl relay-registration-set` writes the file).
+//      Adopted as is, no proof of work; it wins over what the DB had (address change, key rotation).
+//   2. a claim code (the official relay add-on for self-hosted servers: Admin > System > connection), used once.
+//   3. public registration with proof of work (self-hosted relays; the production relay has it closed).
+// A hosted server (deployment "hosted") never registers by itself: without the file it waits (awaiting_operator).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -13,6 +21,7 @@ import {
   type PowInfo, type RegisterRequest, type RegisterResponse, type RegistryError, type TeamInfo, type UpdateTeamRequest,
 } from '@mycel/shared/relay-protocol'
 import { createHash } from 'node:crypto'
+import { RelayRegistrationFile } from '@mycel/shared/cloud-protocol'
 
 export interface Registration {
   relayApi: string
@@ -33,6 +42,74 @@ export class RelayRegistrationError extends Error {
     this.code = code
     this.status = status
   }
+}
+
+export const REGISTRATION_FILE = 'registration.json'
+export const CLAIM_FILE = 'claim.json'
+
+const sameApi = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+
+/** <data>/relay/registration.json, or null when there is none. Throws registration_file_invalid when it is unusable. */
+export function readRegistrationFile(dataDir: string): RelayRegistrationFile | null {
+  const file = path.join(dataDir, 'relay', REGISTRATION_FILE)
+  let text: string
+  try { text = fs.readFileSync(file, 'utf8') } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new RelayRegistrationError('registration_file_invalid', `${file} is not readable: ${(e as Error).message}`)
+  }
+  let raw: unknown
+  try { raw = JSON.parse(text) } catch { throw new RelayRegistrationError('registration_file_invalid', `${file} is not JSON`) }
+  const p = RelayRegistrationFile.safeParse(raw)
+  if (!p.success) throw new RelayRegistrationError('registration_file_invalid', `${file}: ${p.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`)
+  return p.data
+}
+
+/**
+ * The hosted service's registration (control-plane SV-4): take <data>/relay/registration.json when it names this relay
+ * and this server's key. Null when there is no file. The file wins over the DB row (the control plane rewrote it after
+ * a rename or a key rotation).
+ */
+export function adoptRegistrationFile(db: Database, dataDir: string, relayApi: string, publicKey: string): Registration | null {
+  const f = readRegistrationFile(dataDir)
+  if (!f) return null
+  if (!sameApi(f.relayApi, relayApi)) throw new RelayRegistrationError('registration_other_relay', `registration.json is for ${f.relayApi}, this server connects to ${relayApi}`)
+  if (f.publicKey !== publicKey) throw new RelayRegistrationError('registration_key_mismatch', 'registration.json names another team key than <data>/relay/team-key.pem')
+  const existing = getRegistration(db, relayApi)
+  if (existing && existing.teamId === f.teamId && existing.teamName === f.teamName && existing.publicKey === publicKey && existing.address === f.address) return existing
+  const reg: Registration = {
+    relayApi, teamId: f.teamId, teamName: f.teamName, publicKey, address: f.address,
+    registeredAt: existing?.registeredAt ?? new Date().toISOString(), lastHeartbeatAt: existing?.teamId === f.teamId ? existing.lastHeartbeatAt : null,
+  }
+  saveRegistration(db, reg)
+  recordRelayEvent(db, 'adopted', f.address)
+  return reg
+}
+
+/** The relay answered "unknown team" for the adopted registration: keep the file aside, wait for a new one. */
+export function rejectRegistrationFile(dataDir: string): void {
+  const file = path.join(dataDir, 'relay', REGISTRATION_FILE)
+  try { fs.renameSync(file, `${file}.rejected`) } catch { /* gone already */ }
+}
+
+export interface ClaimCode { relayApi: string; name: string; code: string }
+
+/** A claim code from the connection screen (official relay add-on), kept until the registration used it (0600). */
+export function saveClaimCode(dataDir: string, c: ClaimCode): void {
+  const file = path.join(relayDir(dataDir), CLAIM_FILE)
+  const tmp = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(c) + '\n', { mode: 0o600 })
+  fs.renameSync(tmp, file)
+}
+
+export function readClaimCode(dataDir: string): ClaimCode | null {
+  try {
+    const c = JSON.parse(fs.readFileSync(path.join(dataDir, 'relay', CLAIM_FILE), 'utf8')) as ClaimCode
+    return typeof c.relayApi === 'string' && typeof c.name === 'string' && typeof c.code === 'string' ? c : null
+  } catch { return null }
+}
+
+export function clearClaimCode(dataDir: string): void {
+  fs.rmSync(path.join(dataDir, 'relay', CLAIM_FILE), { force: true })
 }
 
 export function relayDir(dataDir: string): string {
@@ -115,19 +192,36 @@ export async function solvePow(r: Pick<RegisterRequest, 'name' | 'publicKey' | '
   }
 }
 
-/** Register `name` at the relay unless this key is already registered there. Returns the registration. */
-export async function ensureRegistered(o: { db: Database; dataDir: string; relayApi: string; name: string; key: KeyObject; publicKey: string; log: { info(m: string, f?: object): void; warn(m: string, f?: object): void } }): Promise<Registration> {
+/**
+ * Register `name` at the relay unless this key is already registered there. Returns the registration.
+ * hosted: the control plane registers the address (registration.json); never register here, wait for the file.
+ */
+export async function ensureRegistered(o: { db: Database; dataDir: string; relayApi: string; name: string; key: KeyObject; publicKey: string; hosted?: boolean; log: { info(m: string, f?: object): void; warn(m: string, f?: object): void } }): Promise<Registration> {
+  const adopted = adoptRegistrationFile(o.db, o.dataDir, o.relayApi, o.publicKey)
+  if (adopted) return adopted
   const existing = getRegistration(o.db, o.relayApi)
   if (existing && existing.publicKey === o.publicKey) return existing
   // this team already has the address there, under another key (restored on another Mac, or the key file was lost):
   // registering again would only find the name taken. The owner moves it with the recovery code (recoverWithCode).
   if (existing) throw new RelayRegistrationError('recovery_needed', `the team address ${existing.address} is registered with another key; enter the recovery code to move it to this server`)
-  const pow = await call<PowInfo>(`${o.relayApi}/teams/pow`, { method: 'GET' })
+  if (o.hosted) throw new RelayRegistrationError('awaiting_operator', 'the hosted service registers this team address; waiting for <data>/relay/registration.json')
+  if (!o.name) throw new RelayRegistrationError('team_name_missing', 'no team name to register')
   const ts = Date.now()
   const base = { name: o.name, publicKey: o.publicKey, ts }
-  const nonce = await solvePow(base, pow.bits)
-  const req: RegisterRequest = { ...base, nonce, sig: signB64(o.key, registerSigningString(o.name, o.publicKey, ts)) }
+  const sig = signB64(o.key, registerSigningString(o.name, o.publicKey, ts))
+  const claim = readClaimCode(o.dataDir)
+  const useClaim = claim && sameApi(claim.relayApi, o.relayApi) && claim.name === o.name ? claim : null
+  let req: RegisterRequest
+  if (useClaim) {
+    // the official relay add-on: the code from the account console replaces the proof of work
+    req = { ...base, sig, claimCode: useClaim.code }
+  } else {
+    const pow = await call<PowInfo>(`${o.relayApi}/teams/pow`, { method: 'GET' })
+    if (pow.open === false) throw new RelayRegistrationError('registration_closed', 'this relay registers team addresses with a claim code only: enter the code from the account console')
+    req = { ...base, nonce: await solvePow(base, pow.bits), sig }
+  }
   const r = await call<RegisterResponse>(`${o.relayApi}/teams`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) })
+  if (useClaim) clearClaimCode(o.dataDir)
   const reg: Registration = { relayApi: o.relayApi, teamId: r.teamId, teamName: r.name, publicKey: o.publicKey, address: r.address, registeredAt: new Date().toISOString(), lastHeartbeatAt: null }
   saveRegistration(o.db, reg)
   const file = path.join(relayDir(o.dataDir), 'recovery-code.txt')

@@ -155,8 +155,15 @@ type request struct {
 		Value string `json:"value"`
 	} `json:"modelToken"`
 	// Codex turn as the engine account: copy the account's Codex login into <chat>/.codex for this turn and write a
-	// refreshed one back afterwards (codex.go). Needs --codex-auth-dir.
+	// refreshed one back afterwards (codex.go). Needs --codex-auth-dir. Older setup / F1 fallback only.
 	CodexAuth bool `json:"codexAuth"`
+	// managed Codex turn (docs/DECISIONS.md "AI 연결" D9): a placeholder auth.json carrying only this turn's proxy
+	// token, written into a fresh <chat>/.codex and removed after the turn (codexManagedBegin, codex.go)
+	CodexHome *struct {
+		AuthJSON string `json:"authJson"`
+	} `json:"codexHome"`
+	// F1 only: the AI connection of the turn's real Codex login (unused by managed turns)
+	CredentialID string `json:"credentialId"`
 }
 
 // credential variables an engine must never get through its environment (other processes of the engine account
@@ -165,6 +172,9 @@ var secretEnv = map[string]bool{
 	"CLAUDE_CODE_OAUTH_TOKEN": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_AUTH_TOKEN": true,
 	"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR": true, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR": true,
 	"CLAUDE_CODE_OAUTH_REFRESH_TOKEN": true,
+	// Codex: an API key or access token in the environment would win over auth.json (C15); the refresh address is set
+	// by the launcher itself (managed turns: the proxy, which refuses)
+	"CODEX_API_KEY": true, "OPENAI_API_KEY": true, "CODEX_ACCESS_TOKEN": true, "CODEX_REFRESH_TOKEN_URL_OVERRIDE": true,
 }
 
 // tokenFdVar is the variable that tells Claude Code which inherited descriptor holds its credential
@@ -317,6 +327,10 @@ func resolvePath(p string) string {
 
 var profileParam = regexp.MustCompile(`\(param "([A-Za-z_][A-Za-z0-9_]*)"\)`)
 
+// baseURLArg: a Codex `-c` option that names an address the engine sends requests to (model_providers.<id>.base_url,
+// chatgpt_base_url, openai_base_url)
+var baseURLArg = regexp.MustCompile(`^[A-Za-z0-9_.]*base_url\s*=\s*(.*)$`)
+
 // renderProfile replaces every (param "NAME") of the SBPL profile with the value as an SBPL string literal. A
 // parameter the launcher does not know, or a value with a control character, refuses the turn (fail closed).
 func renderProfile(text string, params map[string]string) (string, error) {
@@ -366,13 +380,16 @@ func main() {
 	flag.Var(&allowCmd, "allow-cmd", "engine executable that may be started (repeatable)")
 	flag.Var(&sessRoots, "session-root", "extra folder under which session files may be restored/collected (repeatable)")
 	flag.Parse()
+	if err := checkPlatformFlags(); err != nil { // sandbox.go: Linux sandbox setup (spec 3.3.2), exit 2 when wrong
+		exitf("%v", err)
+	}
 	if *listen == "" || *agentRoot == "" || *bridgePath == "" || *toolsSock == "" || len(allowCmd) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: mycel-launcher --listen <sock> --agent-root <dir> --bridge <path> --tools-sock <path> --allow-cmd <engine> [--server-uid N]")
 		os.Exit(2)
 	}
 	if *sandboxProfile != "" {
 		if runtime.GOOS != "darwin" {
-			fmt.Fprintln(os.Stderr, "mycel-launcher: --sandbox-profile is macOS only")
+			fmt.Fprintln(os.Stderr, "mycel-launcher: --sandbox-profile is macOS only (on Linux use --sandbox bwrap)")
 			os.Exit(2)
 		}
 		if _, err := os.Stat(*sandboxProfile); err != nil {
@@ -395,6 +412,7 @@ func main() {
 		}
 		killLeftovers() // leftovers of a previous launcher (setsid escapees, crashed turns)
 		go reaper()
+		go dailySweep() // ops.go: chat folders unused for 30 days
 	}
 	if *exitWithParent {
 		go func() { _, _ = io.Copy(io.Discard, os.Stdin); stopAllAndExit() }()
@@ -455,11 +473,21 @@ func serve(c *net.UnixConn) {
 	}
 	_ = json.Unmarshal(line, &probe)
 	switch probe.Op {
+	case "status", "forget": // ops.go
+		if probe.Op == "status" {
+			o.send(statusEvent())
+		} else {
+			forgetChat(line, o)
+		}
+		return
 	case "codex-status":
 		codexStatus(o)
 		return
 	case "codex-logout":
 		codexLogout(o)
+		return
+	case "codex-export":
+		codexExport(o)
 		return
 	case "codex-login":
 		stop := make(chan struct{})
@@ -528,43 +556,58 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if isCodexAuthDir(chat) {
 		return fmt.Errorf("the Codex login folder is not a chat folder")
 	}
+	// chat ids are uuids: a name starting with "." (the ChatGPT sign-in folders .codex-login, anything hidden) is never
+	// a chat folder
+	if strings.HasPrefix(filepath.Base(chat), ".") {
+		return fmt.Errorf("a hidden folder is not a chat folder")
+	}
 	if err := os.MkdirAll(chat, 0o700); err != nil {
 		return err
 	}
 	if st, err := os.Lstat(chat); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("bad chat folder")
 	}
-	if *codexAuthDir != "" && !req.CodexAuth {
-		// a Codex turn's copy of the engine account's login (<chat>/.codex/auth.json, the ChatGPT refresh token) is
-		// removed when that turn ends; after a launcher crash or kill it stays. A later turn of another engine in the
-		// same chat (Claude with its tools) must not find it: remove the folder before any other turn starts here.
-		if err := os.RemoveAll(filepath.Join(chat, ".codex")); err != nil {
+	// every file operation below the chat folder goes through its open root, never through a link the engine planted
+	// (safepath.go, D27, spec 3.3.8): .codex, .home, .tmp, .turn, the request's files and the session transcript
+	chatRoot, err := openRoot(chat)
+	if err != nil {
+		return err
+	}
+	defer chatRoot.close()
+	if !req.CodexAuth {
+		// a Codex turn's <chat>/.codex (a login copy or a placeholder login) is removed when that turn ends; after a
+		// launcher crash or kill it stays. Every other turn here (Claude with its tools, the next Codex turn) must not
+		// find it: remove the folder before any other turn starts (a managed Codex turn makes a fresh one below).
+		if err := chatRoot.removeAll(".codex"); err != nil {
 			return fmt.Errorf("could not clear a left-over Codex folder: %v", err)
 		}
 	}
-	_ = os.MkdirAll(filepath.Join(chat, ".tmp"), 0o700)  // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
-	_ = os.MkdirAll(filepath.Join(chat, ".home"), 0o700) // HOME of the engine in proxy modes (inside the sandbox)
+	if req.CodexHome != nil && req.CodexAuth {
+		return fmt.Errorf("a turn is either managed or agent-own Codex, not both")
+	}
+	// sandbox.go hooks (Linux: fail-closed checks, turn cgroup, fresh .tmp; macOS: bookkeeping only)
+	te, err := beginTurn(req, chat)
+	if err != nil {
+		return err
+	}
+	defer te.cleanup()
+	_ = chatRoot.mkdirAll(".tmp", 0o700)  // TMPDIR / CLAUDE_CODE_TMPDIR of the engine
+	_ = chatRoot.mkdirAll(".home", 0o700) // HOME of the engine in proxy modes (inside the sandbox)
 	turn := filepath.Join(chat, ".turn")
-	_ = os.RemoveAll(turn)
-	if err := os.Mkdir(turn, 0o700); err != nil {
+	if err := chatRoot.removeAll(".turn"); err != nil {
 		return err
 	}
-	defer os.RemoveAll(turn) // early-error paths; the normal path removes it before reporting "exit" (below)
-	write := func(p, s string) error {
-		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		_, err = f.WriteString(s)
+	if err := chatRoot.mkdirAll(".turn", 0o700); err != nil {
 		return err
 	}
-	if err := write(filepath.Join(turn, "token"), req.Token); err != nil {
+	defer chatRoot.removeAll(".turn") // early-error paths; the normal path removes it before reporting "exit" (below)
+	write := func(name, s string) error { return chatRoot.writeNew(filepath.Join(".turn", name), []byte(s), 0o600) }
+	if err := write("token", req.Token); err != nil {
 		return err
 	}
 	req.Token = ""
 	sysFile := filepath.Join(turn, "system.md")
-	if err := write(sysFile, req.SystemPrompt); err != nil {
+	if err := write("system.md", req.SystemPrompt); err != nil {
 		return err
 	}
 	// the engine starts the bridge by its resolved path, the one the sandbox profile allows (BRIDGE): an installed
@@ -573,19 +616,19 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	mcpFile := filepath.Join(turn, "mcp.json")
 	mcp, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"team": map[string]any{
 		"type": "stdio", "command": bridge, "args": []string{"--turn-dir", ".", "--sock", sock}}}})
-	if err := write(mcpFile, string(mcp)); err != nil {
+	if err := write("mcp.json", string(mcp)); err != nil {
 		return err
 	}
 	subst := strings.NewReplacer("{MCP_CONFIG}", mcpFile, "{SYSTEM_PROMPT_FILE}", sysFile, "{TURN_DIR}", turn,
 		"{CHAT_DIR}", chat, "{BRIDGE}", bridge, "{TOOLS_SOCK}", sock)
+	// files and the session transcript go below the chat folder (or a --session-root) through safepath.go
 	for _, f := range req.Files {
 		p := filepath.Join(chat, filepath.Clean(subst.Replace(f.Rel)))
 		if !inside(chat, p) {
 			return fmt.Errorf("file outside chat folder")
 		}
-		_ = os.MkdirAll(filepath.Dir(p), 0o700)
-		_ = os.Remove(p)
-		if err := write(p, subst.Replace(f.Content)); err != nil {
+		rel, _ := filepath.Rel(chat, p)
+		if err := chatRoot.writeNew(rel, []byte(subst.Replace(f.Content)), 0o600); err != nil {
 			return err
 		}
 	}
@@ -597,11 +640,8 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		if err != nil {
 			return err
 		}
-		_ = os.MkdirAll(s.Dir, 0o700)
-		p := filepath.Join(s.Dir, s.Name)
-		_ = os.Remove(p)
-		if err := write(p, string(b)); err != nil {
-			return err
+		if err := restoreSession(chat, s.Dir, s.Name, b); err != nil {
+			return fmt.Errorf("session restore: %v", err)
 		}
 	}
 	if s := req.SessionCollect; s != nil && (!allowedSessionDir(chat, s.Dir) || strings.ContainsAny(s.Name, "/\\")) {
@@ -631,6 +671,23 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			}
 		}
 	}()
+	managedCleared := false
+	if req.CodexHome != nil {
+		// managed Codex turn: a placeholder login only (refused if it looks like a real one, security T1); the folders
+		// go when the turn ends, whatever happens
+		if *proxyPort <= 0 {
+			return fmt.Errorf("a managed Codex turn needs the model proxy (--proxy-port)")
+		}
+		if err := codexManagedBegin(chat, req.CodexHome.AuthJSON); err != nil {
+			return err
+		}
+		req.CodexHome.AuthJSON = ""
+		defer func() { // early-error paths; the normal path removes them before reporting "exit" (below)
+			if !managedCleared {
+				codexManagedEnd(chat)
+			}
+		}()
+	}
 	var ct *codexTurn
 	codexEnded := false
 	if req.CodexAuth {
@@ -665,8 +722,19 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		if names(args[i]) {
 			return fmt.Errorf("an engine argument names the chat folder")
 		}
+		// a model provider / ChatGPT address in the engine's options may only be the model proxy (like
+		// ANTHROPIC_BASE_URL, which the launcher sets itself): the engine account's credentials never go elsewhere
+		if m := baseURLArg.FindStringSubmatch(args[i]); m != nil {
+			if *proxyPort <= 0 || !strings.HasPrefix(strings.Trim(m[1], `"' `), fmt.Sprintf("http://127.0.0.1:%d/", *proxyPort)) {
+				return fmt.Errorf("an engine address that is not the model proxy")
+			}
+		}
 	}
-	env := make([]string, 0, len(req.Env)+2)
+	env := make([]string, 0, len(req.Env)+3)
+	if req.CodexHome != nil {
+		// Codex's own refresh goes to the proxy, which refuses it (the server refreshes; credentials D10)
+		env = append(env, fmt.Sprintf("CODEX_REFRESH_TOKEN_URL_OVERRIDE=http://127.0.0.1:%d/codex/oauth/token", *proxyPort))
+	}
 	for k, v := range req.Env {
 		if secretEnv[k] || (*proxyPort > 0 && k == "ANTHROPIC_BASE_URL") {
 			continue
@@ -715,7 +783,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	} else if s := req.SessionRestore; s != nil {
 		sessDir = s.Dir
 	}
-	cmd, cleanup, err := engineCommand(req.Cmd, args, chat, sessDir)
+	cmd, cleanup, err := te.command(req.Cmd, args, chat, sessDir) // sandbox-exec (macOS) / bwrap (Linux) / none
 	if err != nil {
 		return err
 	}
@@ -725,7 +793,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	if tokenRead != nil {
 		cmd.ExtraFiles = []*os.File{tokenRead} // fd 3 in the engine
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = te.procAttr() // new session (+ Linux: parent-death signal, turn cgroup)
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
@@ -737,6 +805,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	live.add(pid)
 	defer live.del(pid)
 	o.send(map[string]any{"ev": "started", "pid": pid, "pgid": pid})
+	te.started(pid, stop) // Linux: disk watch
 	killGroup := func(sig syscall.Signal) { _ = syscall.Kill(-pid, sig) }
 
 	go func() { _, _ = stdin.Write([]byte(req.Stdin)); _ = stdin.Close() }()
@@ -749,7 +818,10 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			n, err := f.Read(buf)
 			if n > 0 {
 				if name == "stdout" {
-					once.Do(func() { _ = os.Remove(sysFile) })
+					// the engine runs now and may have swapped .turn for a link: unlink below the chat root only
+					once.Do(func() { _ = chatRoot.remove(filepath.Join(".turn", "system.md")) })
+				} else {
+					te.stderr(buf[:n])
 				}
 				o.send(map[string]any{"ev": name, "b64": base64.StdEncoding.EncodeToString(buf[:n])})
 			}
@@ -788,7 +860,8 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			werr = <-waitDone
 		}
 	}
-	killGroup(syscall.SIGKILL) // nothing of this turn survives (bridge, stray children)
+	killGroup(syscall.SIGKILL)   // nothing of this turn survives (bridge, stray children)
+	sigName = te.finish(sigName) // Linux: cgroup.kill; "oom" / "disk_limit"
 	if *dedicated {
 		live.del(pid)
 		me := os.Getpid()
@@ -804,20 +877,9 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		ev["signal"] = sigName
 	}
 	if s := req.SessionCollect; s != nil {
-		var found string
-		if st, err := os.Lstat(filepath.Join(s.Dir, s.Name)); err == nil && st.Mode().IsRegular() {
-			found = filepath.Join(s.Dir, s.Name)
-		} else if ms, _ := filepath.Glob(filepath.Join(s.Dir, "*", s.Name)); len(ms) > 0 {
-			found = ms[0]
-		}
-		if found != "" {
-			if b, err := os.ReadFile(found); err == nil {
-				ev["session"] = map[string]string{"b64": base64.StdEncoding.EncodeToString(b)}
-			}
-			_ = os.Remove(found)
-		}
-		if s.RemoveDir {
-			_ = os.RemoveAll(s.Dir)
+		// never through a link (safepath.go): <dir>/x/<sid>.jsonl -> codex-auth/auth.json leaked the Codex login
+		if b, err := collectSession(chat, s.Dir, s.Name, s.RemoveDir); err == nil && b != nil {
+			ev["session"] = map[string]string{"b64": base64.StdEncoding.EncodeToString(b)}
 		}
 	}
 	if ct != nil {
@@ -826,10 +888,15 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			o.send(map[string]any{"ev": "note", "message": n})
 		}
 	}
+	if req.CodexHome != nil {
+		managedCleared = true
+		codexManagedEnd(chat)
+	}
 	// Remove the per-turn files BEFORE reporting the exit: the server treats "exit" as "turn over" and may start
 	// the next turn in the same chat folder (or check that nothing is left). A deferred removal ran after the
 	// event was sent, so .turn was still there for a moment (flaky unit test, 1 in ~10 runs).
-	_ = os.RemoveAll(turn)
-	o.send(ev)
+	_ = chatRoot.removeAll(".turn")
+	te.cleanup()
+	o.send(te.report(ev, code)) // Linux: a sandbox that could not start is an error, not an engine exit
 	return nil
 }

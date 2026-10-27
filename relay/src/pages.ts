@@ -8,6 +8,12 @@
 export type PageKind =
   | 'team_offline' | 'team_unknown' | 'team_suspended' | 'team_busy' | 'team_timeout' | 'team_connection_lost' | 'bad_gateway'
   | 'not_found' | 'bad_request' | 'request_timeout'
+  /** suspended for billing / canceled (control-plane 3.6.4): the owner sorts it out in the account console */
+  | 'team_suspended_billing'
+  /** the control plane is updating the team server (relay maintenance window) and it is offline meanwhile */
+  | 'team_maintenance'
+  /** a hosted (cloud) team (origin cloud) is offline: no "check the server Mac" advice */
+  | 'team_offline_cloud'
 type Lang = 'ko' | 'en' | 'id'
 
 /** Name of the cookie the web app writes with the language on screen (web/src/i18n/index.ts). */
@@ -85,7 +91,27 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     en: { title: 'Not found', body: '' },
     id: { title: 'Tidak ditemukan', body: '' },
   },
+  team_suspended_billing: {
+    ko: { title: '이 팀의 이용이 잠시 멈췄어요', body: '팀 대표는 %ACCOUNT%에서 결제 정보를 확인해 주세요.' },
+    en: { title: "This team's service is paused", body: 'The team owner can check the payment details at %ACCOUNT%.' },
+    id: { title: 'Layanan tim ini sedang dijeda', body: 'Pemilik tim dapat memeriksa informasi pembayaran di %ACCOUNT%.' },
+  },
+  team_maintenance: {
+    ko: { title: '팀 서버를 업데이트하고 있어요', body: '보통 1–2분이면 끝나요. 잠시 뒤 새로 고쳐 주세요.' },
+    en: { title: 'The team server is being updated', body: 'This usually takes a minute or two. Reload this page shortly.' },
+    id: { title: 'Server tim sedang diperbarui', body: 'Biasanya selesai dalam satu atau dua menit. Muat ulang halaman ini sebentar lagi.' },
+  },
+  team_offline_cloud: {
+    ko: { title: '팀 서버에 잠깐 연결되지 않아요', body: '잠시 뒤 새로 고쳐 주세요. 서비스 상태: %STATUS%' },
+    en: { title: "The team server can't be reached right now", body: 'Reload this page in a moment. Service status: %STATUS%' },
+    id: { title: 'Server tim sedang tidak dapat dijangkau', body: 'Muat ulang halaman ini sebentar lagi. Status layanan: %STATUS%' },
+  },
 }
+
+/** Hosts the cloud pages point to (RELAY_ACCOUNT_HOST / RELAY_STATUS_HOST). */
+export interface PageLinks { account: string; status: string }
+export const DEFAULT_PAGE_LINKS: PageLinks = { account: 'account.treesoop.com', status: 'status.treesoop.com' }
+const fill = (s: string, links: PageLinks) => s.replace('%ACCOUNT%', links.account).replace('%STATUS%', links.status)
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
@@ -94,8 +120,12 @@ export function pageMessage(kind: PageKind, lang: Lang, offlineForMs: number | n
   return kind === 'team_offline' ? t.title + minutesText(lang, offlineForMs) : t.title
 }
 
-export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null = null): string {
-  const t = TEXT[kind][lang]
+export function pageBody(kind: PageKind, lang: Lang, links: PageLinks = DEFAULT_PAGE_LINKS): string {
+  return fill(TEXT[kind][lang].body, links)
+}
+
+export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null = null, links: PageLinks = DEFAULT_PAGE_LINKS): string {
+  const t = { title: TEXT[kind][lang].title, body: pageBody(kind, lang, links) }
   const title = pageMessage(kind, lang, offlineForMs)
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(t.title)}</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}}</style></head>
@@ -104,5 +134,7 @@ export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null
 
 export const PAGE_STATUS: Record<PageKind, number> = {
   team_offline: 503, team_unknown: 404, team_suspended: 403, team_busy: 503, team_timeout: 504, team_connection_lost: 502, bad_gateway: 502, not_found: 404,
-  bad_request: 400, request_timeout: 408,
+  bad_request: 400, request_timeout: 408, team_suspended_billing: 403, team_maintenance: 503, team_offline_cloud: 503,
 }
+/** Retry-After of the 503 pages: an update takes a minute or two */
+export const PAGE_RETRY_AFTER: Partial<Record<PageKind, number>> = { team_offline: 5, team_busy: 5, team_offline_cloud: 5, team_maintenance: 30 }

@@ -5,13 +5,14 @@ import { useEffect, useState } from 'react'
 import type { ConnectionMode, Job } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
-import { useLocale, useT } from '../../i18n'
+import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
 import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { isOwner, useMeStrict } from '../../store/session'
+import { safeHref } from '../../lib/safeLinks'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
 const STATUS_CLS = { ok: 'text-ok', warn: 'text-warn', fail: 'text-danger', unknown: 'text-faint' } as const
@@ -97,13 +98,23 @@ export default function System() {
   const me = useMeStrict()
   // a finished backup changes the diagnostics card's "last backup" line
   const [rev, setRev] = useState(0)
-  // an admin (office mode): the automatic update card only
-  if (!isOwner(me)) return office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : null
+  // what this deployment offers (server/src/system/deployment.ts; absent from older servers = everything)
+  const features = me.server.features
+  // an admin: the storage use, and (office mode) the automatic update card
+  if (!isOwner(me)) return (
+    <>
+      <PlanCard />
+      <Storage />
+      {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : null}
+    </>
+  )
   return (
     <>
       <Diagnostics rev={rev} />
-      <Connection />
-      <ConnectedFolders />
+      <PlanCard />
+      <Storage />
+      <Connection canChange={features?.connectionChange !== false} />
+      {features?.connectedFolders !== false && <ConnectedFolders />}
       {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />}
       <Backups onChanged={() => setRev((r) => r + 1)} />
       <Export />
@@ -172,30 +183,126 @@ function Diagnostics({ rev }: { rev: number }) {
   )
 }
 
+const STORAGE_PARTS = ['team', 'history', 'trash', 'backups', 'models', 'data', 'app', 'other'] as const
+const LEVEL_TONE = { ok: 'ok', warn: 'warn', high: 'warn', full: 'danger' } as const
+
+/** Storage use of the team disk (system/storage.ts): a bar, what uses the space, how to free it, the plan's disk. */
+function Storage() {
+  const t = useT()
+  const locale = useLocale()
+  const state = useLoad(() => api.call(API.storage))
+  return (
+    <Card title={t('storage.title')}>
+      <Loadable state={state} lines={2}>
+        {(s) => {
+          const pct = Math.min(100, Math.max(0, s.percent))
+          const bar = s.level === 'full' ? 'bg-danger' : s.level === 'ok' ? 'bg-accent' : 'bg-warn'
+          return (
+            <div className="space-y-3 text-sm" data-testid="storage">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{t('storage.used', { used: formatSize(s.usedBytes, locale), total: formatSize(s.totalBytes, locale), pct: Math.round(pct) })}</span>
+                  <Badge tone={LEVEL_TONE[s.level]}>{t(`storage.level.${s.level}`)}</Badge>
+                </div>
+                <div className="mt-1 h-2 rounded bg-line" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={t('storage.title')}>
+                  <div className={`h-full rounded ${bar}`} style={{ width: `${pct}%` }} data-testid="storage-bar" />
+                </div>
+                <p className="mt-1 text-xs text-faint">{t('storage.free', { free: formatSize(s.freeBytes, locale) })}</p>
+              </div>
+              {s.writesRefused && <p className="text-xs text-danger" role="alert">{t('storage.refused')}</p>}
+              {s.level !== 'ok' && <p className="text-xs text-warn">{t('storage.howToFree')}</p>}
+              {s.breakdown && (
+                <ul className="grid gap-1 text-xs sm:grid-cols-2" data-testid="storage-breakdown">
+                  {STORAGE_PARTS.map((k) => (
+                    <li key={k} className="flex justify-between gap-2">
+                      <span className="text-muted">{t(`storage.part.${k}`)}</span>
+                      <span>{formatSize(s.breakdown![k], locale)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {s.measuredAt && <p className="text-xs text-faint">{t('storage.measured', { date: formatDateTime(s.measuredAt, locale) })}</p>}
+              {s.planDiskGiB !== null && <p className="text-xs text-faint">{t('storage.planDisk', { gb: s.planDiskGiB })}</p>}
+            </div>
+          )
+        }}
+      </Loadable>
+    </Card>
+  )
+}
+
+/** a support contact from plan.json: a URL as is, a mail address as mailto: */
+const supportHref = (v: string) => (/^[^\s@/]+@[^\s@/]+$/.test(v) ? `mailto:${v}` : safeHref(v))
+
+/** The plan (plan.json; the hosted service or a self-hosted plan file): "Plan: Team · up to 3 answers at the same time ·
+ * 7 of 12 members · 50 GB storage · [Manage plan]". Nothing without a plan file (GET /api/admin/plan answers null). */
+function PlanCard() {
+  const t = useT()
+  const state = useLoad(() => api.call(API.plan))
+  const p = state.data?.plan
+  if (!p) return null
+  const manage = safeHref(p.links?.account)
+  const status = safeHref(p.links?.status)
+  const support = p.links ? supportHref(p.links.support) : null
+  return (
+    <Card title={t('plan.title')}>
+      <div className="space-y-2 text-sm" data-testid="plan-card">
+        <p>
+          <span className="font-medium">{p.name}</span>
+          {' · '}
+          {t('plan.concurrency', { max: p.maxConcurrency })}
+          {' · '}
+          {p.maxActiveMembers !== null ? t('plan.members', { used: p.activeMembers, max: p.maxActiveMembers }) : t('plan.membersUnlimited', { used: p.activeMembers })}
+          {' · '}
+          {t('plan.disk', { gb: p.diskGiB })}
+        </p>
+        <p className="text-xs text-faint">{t('plan.details', { memory: Math.round((p.memoryMiB / 1024) * 10) / 10, cores: p.cpuCores, days: p.localBackupRetentionDays })}</p>
+        {p.maxActiveMembers !== null && p.activeMembers >= p.maxActiveMembers && <p className="text-xs text-warn" role="status">{t('plan.membersFull')}</p>}
+        {(manage || status || support) && (
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            {manage && <a className="font-medium text-accent underline" href={manage} target="_blank" rel="noreferrer">{t('plan.manage')}</a>}
+            {status && <a className="text-accent underline" href={status} target="_blank" rel="noreferrer">{t('plan.status')}</a>}
+            {support && <a className="text-accent underline" href={support} target="_blank" rel="noreferrer">{t('plan.support')}</a>}
+          </p>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 type Mode = ConnectionMode
 /** Offered when an older server does not say (the official relay is not running yet; tunnels are not in v1). */
 const FALLBACK_MODES: Mode[] = ['self-relay', 'direct-only']
 /** Team name at a relay: <name>.<relay domain> (same rule as the server's RelayTeamName). */
 const TEAM_NAME_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 const needsTeamName = (m: Mode) => m === 'relay' || m === 'self-relay'
+/** relay registration details the server reports as codes (relay-client/index.ts) that have words of their own */
+const DETAIL_TEXT: Record<string, MessageKey> = {
+  registration_closed: 'system.detail.registration_closed',
+  bad_claim: 'system.detail.bad_claim',
+  awaiting_operator: 'system.detail.awaiting_operator',
+}
+/** claim codes as the account console shows them: groups of four letters / digits */
+const claimCodeOk = (c: string) => c === '' || /^[A-Za-z0-9 -]{16,64}$/.test(c.trim())
 
-function Connection() {
+function Connection({ canChange = true }: { canChange?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
   const state = useLoad(() => api.call(API.connection))
-  const [change, setChange] = useState<{ mode: Mode; relayUrl: string; teamName: string } | null>(null)
+  const [change, setChange] = useState<{ mode: Mode; relayUrl: string; teamName: string; claimCode: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
   const modes = state.data?.availableModes ?? FALLBACK_MODES
   const teamNameOk = (n: string) => n.length >= 2 && n.length <= 40 && TEAM_NAME_RE.test(n)
   const open = () => {
     const c = state.data
     if (!c) return
-    setChange({ mode: modes.includes(c.mode) ? c.mode : modes[0]!, relayUrl: '', teamName: c.teamName ?? '' })
+    setChange({ mode: modes.includes(c.mode) ? c.mode : modes[0]!, relayUrl: '', teamName: c.teamName ?? '', claimCode: '' })
   }
   return (
     // one mode only (office mode: the office network): nothing to change
-    <Card title={t('system.connection')} actions={modes.length > 1 ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
+    // the hosted cloud: the team address is TreeSoop's to manage (no change button)
+    <Card title={t('system.connection')} actions={canChange && modes.length > 1 ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
           <div className="space-y-1 text-sm">
@@ -213,7 +320,7 @@ function Connection() {
               </p>
             )}
             {c.connectedSince && <p className="text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</p>}
-            {c.detail && <p className="text-xs text-muted">{c.detail}</p>}
+            {c.detail && <p className="text-xs text-muted">{DETAIL_TEXT[c.detail] ? t(DETAIL_TEXT[c.detail]!) : c.detail}</p>}
             <p className="text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-[11px] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
           </div>
@@ -231,7 +338,7 @@ function Connection() {
               </Button>
               <Button
                 variant="primary"
-                disabled={(change.mode === 'self-relay' && !/^wss?:\/\/|^https?:\/\//.test(change.relayUrl)) || (needsTeamName(change.mode) && !teamNameOk(change.teamName))}
+                disabled={(change.mode === 'self-relay' && !/^wss?:\/\/|^https?:\/\//.test(change.relayUrl)) || (needsTeamName(change.mode) && !teamNameOk(change.teamName)) || !claimCodeOk(change.claimCode)}
                 onClick={() => setConfirming(true)}
               >
                 {t('common.continue')}
@@ -267,6 +374,20 @@ function Connection() {
                 />
               </Field>
             )}
+            {needsTeamName(change.mode) && (
+              <Field label={t('system.claimCode')} hint={t('system.claimCodeHint')} error={!claimCodeOk(change.claimCode) ? t('system.detail.bad_claim') : null}>
+                <input
+                  className={inputCls}
+                  value={change.claimCode}
+                  onChange={(e) => setChange({ ...change, claimCode: e.target.value.toUpperCase() })}
+                  placeholder="ABCD-EFGH-JKLM-NPQR-STUV"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-testid="relay-claim-code"
+                />
+              </Field>
+            )}
             <p className="text-xs text-warn">{t('system.modeWarning')}</p>
           </div>
         </Modal>
@@ -281,7 +402,10 @@ function Connection() {
             const r = await act(
               () =>
                 api.call(API.updateConnection, {
-                  body: { mode: change.mode, relayUrl: change.mode === 'self-relay' ? change.relayUrl : undefined, teamName: needsTeamName(change.mode) ? change.teamName : undefined, password },
+                  body: {
+                    mode: change.mode, relayUrl: change.mode === 'self-relay' ? change.relayUrl : undefined, teamName: needsTeamName(change.mode) ? change.teamName : undefined,
+                    claimCode: needsTeamName(change.mode) && change.claimCode.trim() ? change.claimCode.trim() : undefined, password,
+                  },
                 }),
               t('common.saved'),
             )
@@ -405,21 +529,29 @@ function Update() {
               {t('system.current', { version: u.current })} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
               {u.lastCheckedAt && <span className="text-xs text-faint"> · {t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
             </p>
-            {u.available ? (
+            {u.managed ? (
+              // the hosted cloud: TreeSoop installs updates during the maintenance window (no buttons here)
+              <p className="text-muted" data-testid="update-managed">{t('system.updateManaged')}</p>
+            ) : u.available ? (
               <div className="rounded-lg border border-line p-3">
                 <p className="font-medium">{t('system.available', { version: u.available.version })}</p>
                 <p className="mt-1 text-xs whitespace-pre-wrap text-muted">{u.available.notes}</p>
                 {u.available.needsBackupRestoreToRollBack && <p className="mt-1 text-xs text-warn">{t('system.oneWay')}</p>}
-                <Button variant="primary" size="sm" className="mt-2" disabled={!!runner.jobId} onClick={() => setAsk('update')}>
-                  <Upload size={14} aria-hidden /> {t('system.installUpdate')}
-                </Button>
+                {u.needsRoot ? (
+                  <p className="mt-2 text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</p>
+                ) : (
+                  <Button variant="primary" size="sm" className="mt-2" disabled={!!runner.jobId} onClick={() => setAsk('update')}>
+                    <Upload size={14} aria-hidden /> {t('system.installUpdate')}
+                  </Button>
+                )}
               </div>
             ) : u.feed === false ? (
               <p className="text-muted">{t('system.noFeed')}</p>
             ) : (
               <p className="text-muted">{t('system.upToDate')}</p>
             )}
-            {u.previous && (
+            {u.auto && !u.managed && <p className="text-xs text-faint">{t('system.updateAuto')}</p>}
+            {u.previous && !u.managed && (
               <Button size="sm" variant="ghost" disabled={!!runner.jobId} onClick={() => setAsk('rollback')}>
                 <RotateCcw size={14} aria-hidden /> {t('system.rollback', { version: u.previous })}
               </Button>

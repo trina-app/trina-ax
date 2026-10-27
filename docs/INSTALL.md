@@ -15,7 +15,7 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Dev mode on one Mac, chats included (Part 1) | Works |
 | Teams, invite links, folder permissions, backups | Works |
 | Production install (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf, Claude chats on the owner's `claude setup-token` token | **Not verified on a real install.** Done in code and tests (as the current user), but never run as the real role accounts and no Anthropic answer through the proxy has been seen; run the role-account test first (2.0) |
-| Codex in production | Beta (owner only); not yet tried with a real ChatGPT login with pf on (2.5) |
+| Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, docs/OWNER-TODO.md 11) |
 | Public team address `<team>.treesoop.com` | Not available: the production relay is not running |
 | Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
@@ -208,8 +208,9 @@ The owner's steps, in order:
 | 2.1 Prepare | Full Disk Access for Terminal; `bun run dev:service uninstall` (optional) | |
 | 2.2 Bundle | `bun run build:bundle` | `dist/release/root/` has `set-claude-token` and `mycel-account` |
 | 2.3 Check, then install | `scripts/install-macos.sh --check …`, then the same with `sudo` and without `--check` | `install: installed mycel 0.1.0 …`; `curl -s http://127.0.0.1:47820/api/health` |
-| 2.4 Claude token | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
-| 2.5 Codex login (optional) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
+| 2.3a AI connections | Admin → AI connections (`/admin/credentials`) in the browser | the connection shows "OK" |
+| 2.4 Claude token (optional; 2.3a is the usual way) | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
+| 2.5 Codex login (older setup; 2.3a is the usual way) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
 | 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
 | 2.7 Verify | Admin → System → Diagnostics, then a chat | Claude Code "Signed in (setup-token)", model proxy "Listening on 127.0.0.1:47821", Claude answers |
 
@@ -367,7 +368,40 @@ tool) only move forward: `root/VERSION` names the bundle they came from, and an 
 settings, so a `bunfig.toml` or `.env` in the folder it was started from is never read as root. Data kept by an earlier `uninstall-macos.sh` (without
 `--delete-data`) is given back to the server account, so the team is there again after a reinstall.
 
-### 2.4 Claude long-lived token (owner, once a year)
+### 2.3a AI connections (owner, from the web)
+
+The engines answer with the team's **AI connections**: Admin > AI connections (`/admin/credentials`). The owner adds
+them in the browser; nothing on the server's command line is needed.
+
+- **Claude API key** / **OpenAI API key** (pay as you go, made for team use): paste a key made for this team in the
+  provider's console (set a monthly limit there too). Checked with `GET /models` (no tokens spent).
+- **Claude subscription (Pro, Max, Team)**: on any computer run `claude setup-token`, paste the `sk-ant-oat01-…` token.
+  One year; the screen warns 14 days before. Checked without spending tokens where the provider allows it.
+- **ChatGPT plan (Codex)**: "Start sign-in" shows an address and a one-time code; sign in with the ChatGPT account the
+  team will use. The server keeps the sign-in and refreshes it itself.
+- Subscriptions are meant for individual use: the screen says so and asks the owner to confirm before saving.
+- Tokens and keys are sealed in the browser before they are sent and stored encrypted (`secrets/credentials.key`);
+  nobody can read them back. The page must be opened over https (or on this Mac at `http://127.0.0.1`).
+- One connection serves the whole team. Connections can be assigned to groups or people, ordered, given a monthly
+  limit, switched off. When one hits its limit or is refused, the answer continues on the next one of the same engine.
+- Members can add their own connections (Settings > AI connections) when the owner switches that on.
+
+server.json (`engine`), for operators:
+
+| key | meaning |
+|---|---|
+| `authMode` | `"managed"` (AI connections behind the model proxy). `"subscription"` and `"proxy"` are read as `"managed"`; this release's installer still writes `"subscription"` so a rollback starts. `"local-login"`: dev / office with the Mac's own login. |
+| `credentialKinds` | the kinds this server allows, default all four: `["anthropic-oauth","anthropic-api-key","chatgpt","openai-api-key"]`. The hosted cloud's enrollment may write `["anthropic-api-key","openai-api-key"]`: subscription kinds then cannot be added and existing ones show as "off on this server" (never deleted). |
+| `modelUpstreams` | tests only: `{ "anthropic", "openai", "chatgpt", "openaiAuth" }` addresses (https, or http to 127.0.0.1). `modelUpstream` is the older name of `anthropic`. |
+
+Rotating the key of the stored secrets: `admin.js credentials-rekey` (same `sudo -u _axserver … admin.js` form as
+2.5). The key files are left out of backups: on another machine the connections must be connected again.
+
+### 2.4 Claude long-lived token from the command line (owner, optional)
+
+The web (2.3a) is the usual way. This command-line path stays for a server whose web page you cannot open yet: the
+server imports `secrets/claude-oauth-token` as an AI connection ("Claude subscription") at start and checks the file
+every 5 minutes; a new token in the file replaces that connection's token.
 
 ```sh
 claude setup-token        # approve in the browser with the Claude subscription (Pro/Max); prints sk-ant-oat01-… once; copy all of it
@@ -389,10 +423,12 @@ otherwise be stored half, reported as stored for a year, and refused on the firs
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
 - The token expires after a year; replace it with the same commands. `--remove` forgets it.
 
-### 2.5 Codex login for the engine account (owner, once)
+### 2.5 Codex login for the engine account (older setup)
 
-Codex runs as `_axagent` with its own ChatGPT login. Use a ChatGPT account meant for the team's AI, not your
-personal one: the engine can read the login it is given for a turn (design tab 2, "Codex 네트워크").
+In managed mode ChatGPT is connected from the web (2.3a): Codex turns get only a placeholder login with a per-turn
+token, and the model proxy adds the real one. A login made with the command below before this release is moved
+into an AI connection ("ChatGPT (existing)") at the next start and then removed from the engine account. The command
+stays for the F1 fallback (docs/DECISIONS.md "AI 연결").
 
 ```sh
 B="/Library/Application Support/mycel"
@@ -414,11 +450,15 @@ account."
   cd / && sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" codex-status   # {"loggedIn":true,…}; no token printed
   cd / && sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" codex-logout
   ```
-- For each Codex turn the launcher copies the login into the chat folder. If Codex refreshes the token, the launcher
-  writes it back, but only a plain file for the same ChatGPT account. One Codex turn runs at a time.
-- **Codex in production** was beta until it was checked with a real ChatGPT login on a staging install
-  (2026-10-22, sandbox and pf on): sign-in, answers with the team tools, a token refresh written back to
-  `agent/codex-auth`, and web search all go through the proxy. Every member may use it and it may be the team default.
+- Managed Codex turns do not use this login: each turn gets a placeholder `auth.json` in its chat folder, talks plain
+  HTTP to the model proxy (`/codex/...`), and the proxy adds the AI connection's real credential and refreshes
+  ChatGPT sign-ins itself. Several Codex turns run at once. Codex is no longer beta: everyone may use it and it can be
+  the team default.
+  - Verified with the real `codex-cli 0.163.0` against a fake model service (`bun tests/engine/managed-real.ts`).
+  - Not yet verified with a real ChatGPT / OpenAI account: spike S1 (docs/OWNER-TODO.md 11).
+- The older engine-account login (2.5, `agent/codex-auth`, one Codex turn at a time) was checked with a real ChatGPT
+  login on a staging install (2026-10-22, sandbox and pf on): sign-in, answers with the team tools, a token refresh
+  written back, and web search, all through the proxy.
 
 ### 2.6 First-run setup
 
@@ -457,9 +497,10 @@ owner's other sessions are signed out. The tool runs the bundled account CLI as 
 
 | Where | What it shows |
 |---|---|
-| Admin → AI engines | Claude Code: "Engine account sign-in"; not signed in until the token is stored (2.4). Codex: "The engine account has no Codex sign-in yet" until 2.5, then "Connected". |
+| Admin → AI engines | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > AI connections." until one is added (2.3a) or imported (2.4, 2.5). |
+| Admin → AI connections | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
-| A chat | Without the token: "The team's Claude subscription is not connected yet." With it: Claude answers. |
+| A chat | Without an AI connection for that engine: "There is no AI connection for this engine. Let your admin know." With one: the engine answers. |
 
 **Launcher daemon down.** Diagnostics shows "AI engine launcher: The AI launcher is not running" with the command that
 starts it again (`sudo launchctl kickstart -k system/app.treesoop.mycel.launcher`, or, when launchd says the service
@@ -612,7 +653,7 @@ The relay code works locally. A team server pointed at `ws://127.0.0.1:<port>/co
 registered itself, and `/api/health` answered through the relay.
 
 The full setup:
-1. Run the relay on Node 25 on a Linux host behind Cloudflare, with a proxied wildcard `*.yourdomain` DNS record
+1. Run the relay on Node 26 (24+) on a Linux host behind Cloudflare, with a proxied wildcard `*.yourdomain` DNS record
    plus `relay.yourdomain`:
    ```sh
    node relay/src/main.ts --domain yourdomain --port 8080 --data /var/lib/mycel-relay [--trusted-proxies 127.0.0.1,::1]
@@ -730,7 +771,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | "The AI engine is not available right now…" | Dev: no `native/bin/<platform>`; install Go and run `bun run build:native` (Intel: `ARCHS=amd64`). Production: Diagnostics shows why (launcher, engine file); an engine "Not installed" needs the installer again with `--engine claude=…` |
 | "The AI connection (model proxy) is not ready" | Production: see "Model proxy" in Diagnostics; the server retries binding every 10 s |
 | Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → AI engines |
-| "relay skipped: it needs Node 25+" | Install Node 25+; the direct address still works |
+| "relay skipped: it needs Node 24+" | Install Node 24+ (26 recommended); the direct address still works |
 | Admin → AI engines: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
 | An `admin.js` command ends with `error: An unknown error occurred (Unexpected)` | It was started from a folder `_axserver` cannot enter; start it with `cd / &&` (2.5) |
 | Diagnostics say to run "Repair firewall" / "Reinstall" in the menubar app | Those menubar actions do not exist yet; run the installer again (2.7) |
@@ -750,9 +791,12 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
    real `claude` binary (2.1.306, against a fake model service) and is covered by
    `sudo bun tests/install/g-macos-install.ts` (2.0), which has not been run on this Mac. A real answer also needs the
    owner's `claude setup-token` token; no answer from Anthropic through the proxy has been seen yet.
-2. **Codex in production** works through the model proxy: `engine.codexBin`, the locked catalog,
-   `agent/codex-auth` and `admin.js codex-login` (2.5); checked with a real ChatGPT login and pf on (answers, token
-   refresh, web search). Only the single `codex` executable is installed, not its helper files.
+2. **Codex with a real ChatGPT / OpenAI account through AI connections is not verified yet.** Managed Codex
+   (placeholder login, the proxy adds the AI connection's credential, server-side ChatGPT refresh) runs with the real
+   `codex` 0.163.0 against a fake model service (`bun tests/engine/managed-real.ts`). Whether the real backends accept
+   it is spike S1 (docs/OWNER-TODO.md 11); if not, the F1 fallback in docs/DECISIONS.md "AI 연결" applies. The older
+   engine-account login (2.5) was checked with a real ChatGPT login and pf on (answers, token refresh, web search).
+   Only the single `codex` executable is installed, not its helper files.
 3. **The menubar app has no token step, setup assistant, "Repair firewall", "Reinstall" or uninstall.** The token is
    stored with `set-claude-token` in Terminal (2.4); repairs are an installer re-run (2.7).
 4. **The model proxy's caller check compares only the session id** (ancestor chain and start time are follow-ups).

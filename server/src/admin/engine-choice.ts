@@ -9,6 +9,8 @@ import { MemberEngineChoice, UserPrefs, type EngineId, type EngineStatus, type L
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { codexBetaAllowed, codexIsBeta, safeModel, type EngineConfs } from '../chat/engines'
+import { allowedCredentialKinds, isManaged } from '../app-config'
+import { hasCredentialFor } from '../credentials/resolve'
 import { tr } from '../chat/i18n'
 import { enginesEnabled, getSetting, getTeamSettings, setSetting } from './settings'
 import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv, engineStatusCache } from './engines'
@@ -178,10 +180,15 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
   const api = readApiEngine(ctx.config.dataDir)
   const of = (id: EngineId) => id === 'api' && api ? { label: api.label, models: [{ id: api.model, label: api.label }] }
     : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? CLAUDE_MODELS : codexModels(env) }
-  // the same cached checks as Admin > AI engines
+  // the same cached checks as Admin > AI engines; managed: an engine this person has no usable AI connection for is
+  // left out (an engine whose only connection is assigned to a group shows only for that group's members)
   const cache = engineStatusCache(ctx)
-  const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => (await cache.get(id, true, locale)).status,
-    () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
+  const managed = isManaged(ctx.config)
+  const allowed = allowedCredentialKinds(ctx.config)
+  const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => {
+    if (managed && id !== 'api') return hasCredentialFor(ctx.db, p.id, id, allowed) ? 'ok' : 'not_logged_in'
+    return (await cache.get(id, true, locale)).status
+  }, () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
   return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }
 }
 

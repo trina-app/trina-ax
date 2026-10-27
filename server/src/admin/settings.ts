@@ -3,6 +3,7 @@
 import type { Database } from 'bun:sqlite'
 import { DEFAULT_LOCALE, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
+import { defaultTimeZone, isValidTimeZone } from '../system/time-zone'
 
 export const DEFAULT_SETTINGS: TeamSettingsT = {
   teamName: PRODUCT.displayName,
@@ -17,6 +18,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   fileHistoryRetentionDays: 7,
   trashRetentionDays: 30,
   chatTrashRetentionDays: 7,
+  /** placeholder: getTeamSettings() puts defaultTimeZone() here (MYCEL_TEAM_TZ, else the process's zone, else UTC) */
+  timeZone: 'UTC',
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
@@ -33,7 +36,7 @@ export function setSetting(db: Database, key: string, value: unknown): void {
 
 /** Stored settings over the defaults. A stored value that no longer fits the schema falls back to the default. */
 export function getTeamSettings(db: Database): TeamSettingsT {
-  const out = { ...DEFAULT_SETTINGS } as Record<string, unknown>
+  const out = { ...DEFAULT_SETTINGS, timeZone: defaultTimeZone() } as Record<string, unknown>
   const rows = db.query(`SELECT key, value FROM settings WHERE key IN (${FIELDS.map(() => '?').join(',')})`).all(...FIELDS) as { key: string; value: string }[]
   for (const r of rows) {
     let v: unknown
@@ -45,6 +48,7 @@ export function getTeamSettings(db: Database): TeamSettingsT {
 }
 
 export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>): TeamSettingsT {
+  tzCache.delete(db)
   db.transaction(() => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined && (FIELDS as string[]).includes(k)) setSetting(db, k, v)
     if (patch.defaultLocale !== undefined) syncFollowingLocales(db)
@@ -81,4 +85,30 @@ export function enginesEnabled(db: Database): Record<EngineId, boolean> {
 }
 export function setEnginesEnabled(db: Database, patch: Partial<Record<EngineId, boolean>>) {
   setSetting(db, 'engines.enabled', { ...enginesEnabled(db), ...patch })
+}
+
+// ---------------- the team's time zone ----------------
+const tzCache = new WeakMap<Database, { at: number; v: string }>()
+/** The team's time zone (setting timeZone, else system/time-zone.ts defaultTimeZone()). Cached for 60 s per database;
+ * updateTeamSettings() drops the cache, so a change applies at once in this process. */
+export function teamTimeZone(db: Database): string {
+  const c = tzCache.get(db)
+  if (c && Date.now() - c.at < 60_000) return c.v
+  let v = getSetting<unknown>(db, 'timeZone')
+  if (!isValidTimeZone(v)) v = defaultTimeZone()
+  tzCache.set(db, { at: Date.now(), v: v as string })
+  return v as string
+}
+
+/** The install's id: MYCEL_INSTALL_ID (the hosted cloud: the control plane's tenant id), else a random id made on first
+ * use and kept in the settings table. Spreads the nightly backup, update roll-outs and the first search indexing of
+ * the teams on one host (system/ops.ts, system/update-job.ts, tools/search.ts). */
+export function installId(db: Database, env: Record<string, string | undefined> = process.env): string {
+  const e = env.MYCEL_INSTALL_ID
+  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
+  const v = getSetting<unknown>(db, 'system.installId')
+  if (typeof v === 'string' && v) return v
+  const id = crypto.randomUUID()
+  db.query("INSERT INTO settings (key, value) VALUES ('system.installId', ?) ON CONFLICT(key) DO NOTHING").run(JSON.stringify(id))
+  return getSetting<string>(db, 'system.installId') ?? id
 }

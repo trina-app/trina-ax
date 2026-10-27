@@ -1,7 +1,9 @@
 // Registry HTTP API on the relay's own address (relay.<domain>, or the bare host in dev). Design tab 6:
 //   GET    /healthz                  liveness
-//   GET    /teams/pow                proof-of-work difficulty
-//   POST   /teams                    register: name + Ed25519 public key + signature + proof of work -> recovery code (once)
+//   GET    /teams/pow                proof-of-work difficulty (+ whether public registration is open)
+//   POST   /teams                    register: name + Ed25519 public key + signature + proof of work -> recovery code (once);
+//                                    with a claim code (official relay add-on) instead of the proof of work. A relay with
+//                                    closed registration (RELAY_OPEN_REGISTRATION=0, production) accepts only the latter.
 //   GET    /teams/:id                status (signed)
 //   POST   /teams/:id/heartbeat      daily: version and member count only (signed)
 //   PATCH  /teams/:id                rename (old name held 1 year) / key rotation (signed by the current key, or recovery code)
@@ -42,7 +44,7 @@ export async function handleRegistryApi(relay: RelayServer, req: http.IncomingMe
   const method = req.method ?? 'GET'
   try {
     if (method === 'GET' && path === '/healthz') return sendJson(res, 200, { ok: true, version: RELAY_VERSION })
-    if (method === 'GET' && path === '/teams/pow') return sendJson(res, 200, { bits: relay.cfg.powBits, maxAgeMs: POW_MAX_AGE_MS })
+    if (method === 'GET' && path === '/teams/pow') return sendJson(res, 200, { bits: relay.cfg.powBits, maxAgeMs: POW_MAX_AGE_MS, open: relay.cfg.openRegistration })
     if (!path.startsWith('/teams')) return fail(res, 404, 'not_found', 'not found')
     const body = method === 'GET' || method === 'HEAD' ? '' : await readBody(req)
     if (body === null) return fail(res, 413, 'invalid_request', 'body too large')
@@ -53,9 +55,19 @@ export async function handleRegistryApi(relay: RelayServer, req: http.IncomingMe
     }
 
     if (method === 'POST' && path === '/teams') {
-      if (!relay.allowRegistration(req)) return fail(res, 429, 'rate_limited', 'too many registrations, try again later')
       const r = json as RegisterRequest
-      const out = relay.registry.register({ ...r, name: normalizeTeamName(String(r.name ?? '')) }, relay.cfg.powBits)
+      const name = normalizeTeamName(String(r.name ?? ''))
+      let out: { teamId: string; name: string; recoveryCode: string }
+      if (typeof r.claimCode === 'string' && r.claimCode.trim()) {
+        // claim code (control-plane 3.13): no proof of work and no per-IP limit; the code is 100 random bits, one use
+        out = relay.registry.registerWithClaim({ ...r, name, claimCode: r.claimCode })
+        relay.counters.regClaim++
+      } else {
+        if (!relay.cfg.openRegistration) return fail(res, 403, 'registration_closed', 'this relay registers team addresses with a claim code only (from the account console)')
+        if (!relay.allowRegistration(req)) return fail(res, 429, 'rate_limited', 'too many registrations, try again later')
+        out = relay.registry.register({ ...r, name }, relay.cfg.powBits)
+        relay.counters.regPow++
+      }
       relay.invalidateNames()
       relay.log.info('team_registered', { team: out.teamId })
       const reply: RegisterResponse = { ...out, address: teamAddress(relay.cfg, out.name) }

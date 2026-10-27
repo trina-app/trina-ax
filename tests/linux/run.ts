@@ -10,7 +10,10 @@ export interface LinuxJobResult { ok: boolean; summary: string; detail?: unknown
 export function runLinuxJob(): LinuxJobResult {
   const b = sh(['docker', 'build', '-q', '-f', 'tests/linux/Dockerfile', '-t', 'mycel-linux-test', '.'])
   if (b.code) return { ok: false, summary: 'docker build failed: ' + b.out.slice(-800) }
-  const r = sh(['docker', 'run', '--rm', 'mycel-linux-test'])
+  // --privileged: bwrap needs user namespaces and mounts (Docker's seccomp and AppArmor profiles refuse them), nft
+  // needs CAP_NET_ADMIN, and the entrypoint loads an AppArmor profile for bwrap on Ubuntu 24.04 hosts
+  // (kernel.apparmor_restrict_unprivileged_userns=1). --cgroupns=private: a cgroup tree the entrypoint can delegate.
+  const r = sh(['docker', 'run', '--rm', '--privileged', '--cgroupns=private', 'mycel-linux-test'])
   const line = r.out.split('\n').find((l) => l.startsWith('MYCEL_LINUX_RESULT '))
   if (!line) return { ok: false, summary: r.out.slice(-1500) }
   const o = JSON.parse(line.slice('MYCEL_LINUX_RESULT '.length))

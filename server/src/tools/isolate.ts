@@ -18,6 +18,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
+import { cgexecPrefix } from '../system/cgroups'
 
 export interface IsolatedRun {
   /** absolute path of the converter (resolved through symlinks before it is allowed to exec) */
@@ -105,9 +106,22 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
   ].join('\n')
 }
 
-function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[] }): string[] {
+/** bwrap 0.8.0+ (Debian 12+, Ubuntu 24.04): --disable-userns. Older ones (dev machines) run without it. */
+let bwrapModern: boolean | null = null
+function bwrapIsModern(bin: string): boolean {
+  if (bwrapModern === null) {
+    const m = /(\d+)\.(\d+)\.(\d+)/.exec(Bun.spawnSync([bin, '--version']).stdout.toString())
+    bwrapModern = !!m && (+m[1]! > 0 || +m[2]! >= 8)
+  }
+  return bwrapModern
+}
+
+function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; modern?: boolean }): string[] {
   const a = ['--die-with-parent', '--unshare-all', '--new-session', '--clearenv']
-  for (const d of ['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc/alternatives', '/etc/fonts', '/etc/ssl', '/usr/share'])
+  // linux-runtime spec 3.8.2: no NESTED user namespaces, no capabilities. bwrap 0.12 wants --unshare-user spelled
+  // out next to --disable-userns (--unshare-all alone is not enough for that check).
+  if (o.modern) a.push('--unshare-user', '--disable-userns', '--cap-drop', 'ALL')
+  for (const d of ['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc/alternatives', '/etc/fonts', '/etc/ssl', '/usr/share', '/etc/ld.so.cache'])
     if (fs.existsSync(d)) a.push('--ro-bind', d, d)
   a.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--bind', o.workDir, o.workDir)
   for (const p of o.readPaths) a.push('--ro-bind', p, p)
@@ -128,7 +142,10 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   if (kind === 'sandbox-exec') {
     argv = ['/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu }), cmd, ...o.args]
   } else if (kind === 'bwrap') {
-    argv = [which('bwrap')!, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [] }), ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
+    const bwrap = which('bwrap')!
+    // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
+    argv = [...cgexecPrefix(o.timeoutMs ?? 60_000), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap) }),
+      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
   } else {
     argv = [cmd, ...o.args]
   }

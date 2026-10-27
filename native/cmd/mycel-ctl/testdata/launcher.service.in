@@ -1,0 +1,19 @@
+[Unit]
+Description=Team AX engine launcher (@ID@)
+After=@ID@-firewall.service
+Wants=@ID@-firewall.service
+
+[Service]
+Type=simple
+User=@AGT@
+Group=@AGT@
+ExecStart=@BASE@/root/mycel-launcher \
+  --listen @BASE@/run-launcher/launcher.sock --mode 0660 --agent-root @BASE@/agent \
+  --bridge @BASE@/app/current/native/mycel-bridge --tools-sock @BASE@/run/tools/tools.sock \
+  --server-uid @SRV_UID@ --dedicated-account \
+  --sandbox bwrap --bwrap /usr/bin/bwrap --sandbox-helper @BASE@/root/mycel-sandbox \
+  --sandbox-etc @BASE@/root/sandbox-etc --ca-bundle @CA_BUNDLE@ --landlock @LANDLOCK@ \
+  --proxy-port @PROXY_PORT@ --codex-auth-dir @BASE@/agent/codex-auth \
+  --firewall-status @BASE@/run/firewall.json --plan-file @BASE@/root/plan.json --cgroup @CGROUP@ \
+  @ENGINE_ARGS@
+Environment=PATH=/usr/bin:/bin HOME=@BASE@/agent/home

@@ -5,7 +5,7 @@
 // (c) `bun run dev` names the process that holds a dev port (scripts/dev-checks.ts);
 // (d) GET /api/connect-info + POST /api/connect-info/lan-failure (desktop pinning, failures in Diagnostics);
 // (e) the connection change asks for the relay team name and does not offer the official relay while it is not running.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -31,6 +31,9 @@ import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSa
 import { checkDataDir, checkPorts, portHolders } from '../../scripts/dev-checks'
 import { WORK } from '../lib/env'
 import { PRODUCT } from '@mycel/shared'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 const BASE = path.join(WORK, 'g-prod-ops')
 fs.rmSync(BASE, { recursive: true, force: true })
@@ -178,8 +181,9 @@ describe('diagnostics in an installed layout with the launcher down', () => {
     fs.mkdirSync(runLauncher, { recursive: true })
     const sock = path.join(runLauncher, 'launcher.sock')
     const cfg = config(dir, { mode: 'prod', engine: { authMode: 'local-login', runDir: path.join(SHORT, 'run'), launcherSock: sock, agentUid: process.getuid!() }, configFile: path.join(base, 'config', 'server.json') })
-    const layout = resolveLayout(cfg, { MYCEL_INSTALL_BASE: base, MYCEL_LAUNCHDAEMONS_DIR: path.join(base, 'ld'), MYCEL_LABEL: 'app.treesoop.mycel-po' })
-    systemTestHooks.opsOptions = { layout: { ...layout, logDir: '/Library/Logs/mycel-po' }, engines: async () => [], tmutil: async () => true, atDir: base }
+    const layout = resolveLayout(cfg, { MYCEL_INSTALL_BASE: base, MYCEL_LAUNCHDAEMONS_DIR: path.join(base, 'ld'), MYCEL_LABEL: 'app.treesoop.mycel-po' }, 'darwin')
+    // the Mac role-account install's checks (pf, LaunchDaemons, Time Machine), also when the tests run on Linux
+    systemTestHooks.opsOptions = { layout: { ...layout, logDir: '/Library/Logs/mycel-po' }, engines: async () => [], tmutil: async () => true, atDir: base, platform: 'darwin' }
     let ctx: AppContext | null = null
     let server: ReturnType<typeof Bun.serve> | null = null
     try {

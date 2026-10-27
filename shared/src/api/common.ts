@@ -98,13 +98,16 @@ export const ErrorCode = z.enum([
   'busy', // e.g. update refused while turns are running
   'unavailable', // server shutting down / restoring
   'internal',
+  'storage_full', // 507: the team's storage is (almost) full; writes are refused until space is freed
+  'plan_limit', // 409: over the plan (plan.json): seats (params.reason seat_limit) or answers at the same time (concurrency_over_plan); params.manageUrl = where to change it
 ])
 export type ErrorCode = z.infer<typeof ErrorCode>
 
 export const ErrorStatus: Record<ErrorCode, number> = {
   bad_request: 400, validation: 400, unauthorized: 401, password_change_required: 403, forbidden: 403, csrf: 403,
   not_found: 404, conflict: 409, gone: 410, payload_too_large: 413, range_not_satisfiable: 416, rate_limited: 429,
-  budget_exceeded: 429, engine_unavailable: 503, busy: 409, unavailable: 503, internal: 500,
+  budget_exceeded: 429, engine_unavailable: 503, busy: 409, unavailable: 503, internal: 500, storage_full: 507,
+  plan_limit: 409,
 }
 
 export const ApiErrorBody = z.object({

@@ -4,6 +4,7 @@
 // RealtimeHub.attach() (wrapped by realtime-conn.ts). ctx.services.relay.status() feeds GET /api/admin/connection (component G).
 import { X509Certificate } from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 import type { ConnectionStatus, Locale } from '@mycel/shared/api'
 import type { RelayEvent } from '@mycel/shared/relay-protocol'
 import type { AppContext } from '../context'
@@ -11,7 +12,8 @@ import type { RelayStatusProvider } from '../services'
 import { RelayClient, relayApiBase, type RelayClientState } from './client'
 import { relayConn } from './realtime-conn'
 import { noteEgressIp } from '../tools/egress'
-import { RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, recoverWithCode, type Registration } from './registration'
+import { REGISTRATION_FILE, RelayRegistrationError, ensureRegistered, forgetRegistration, heartbeat, loadOrCreateKey, recordRelayEvent, recoverWithCode, rejectRegistrationFile, type Registration } from './registration'
+import { isHosted } from '../system/deployment'
 
 export { RelayClient, relayApiBase, responseHeaders } from './client'
 export { RelayWebSocket } from './virtual-ws'
@@ -19,6 +21,8 @@ export { RelayWebSocket } from './virtual-ws'
 /** Team name used in dev when MYCEL_RELAY_URL is set but no name is configured. */
 export const DEV_TEAM_NAME = 'myteam'
 const HEARTBEAT_MS = 24 * 3600_000
+/** hosted: how often to look for <data>/relay/registration.json while waiting for the control plane (tests shorten it) */
+export const relayClientTimers = { awaitOperatorMs: 30_000 }
 
 export const NOTICES: Record<string, Record<Locale, string>> = {
   relay_took_over: {
@@ -146,11 +150,20 @@ export function startRelayClient(ctx: AppContext): RelayService {
       onState: (s) => {
         // the relay no longer knows this team (its registry was reset, or the address was released): register again
         if (s.state === 'offline' && s.detail === 'auth_failed' && s.lastError === 'unknown team' && client) {
-          log.warn('relay does not know this team any more; registering the address again', { name })
           client.stop()
           client = null
           if (hbTimer) { clearInterval(hbTimer); hbTimer = null }
           forgetRegistration(ctx.db, api)
+          if (hosted) {
+            // the control plane's registration is wrong for this relay: put the file aside and wait for a new one
+            log.warn('relay does not know the registered team; waiting for the hosted service to register it again')
+            rejectRegistrationFile(ctx.config.dataDir)
+            recordRelayEvent(ctx.db, 'registration_rejected', null)
+            pre = { state: 'not_registered', detail: 'awaiting_operator' }
+            regTimer = setTimeout(register, relayClientTimers.awaitOperatorMs)
+            return
+          }
+          log.warn('relay does not know this team any more; registering the address again', { name })
           pre = { state: 'connecting', detail: 're_registering' }
           regTimer = setTimeout(register, 1000)
           return
@@ -173,22 +186,34 @@ export function startRelayClient(ctx: AppContext): RelayService {
     hbTimer.unref?.()
   }
 
-  if (!name) {
+  // hosted (the hosted service's tenant): the control plane registers the address, the team name comes with it
+  const hosted = isHosted(ctx.config)
+  if (!name && !hosted && !fs.existsSync(path.join(ctx.config.dataDir, 'relay', REGISTRATION_FILE))) {
     pre = { state: 'not_registered', detail: 'team_name_missing' }
     log.warn('relay url is set but no team name (config relay.teamName / MYCEL_RELAY_TEAM): remote access is off')
     return service
   }
 
   let attempt = 0
+  let waitingLogged = false
   const register = () => {
     regTimer = null
     if (stopped) return
-    ensureRegistered({ db: ctx.db, dataDir: ctx.config.dataDir, relayApi: api, name, key, publicKey, log })
+    ensureRegistered({ db: ctx.db, dataDir: ctx.config.dataDir, relayApi: api, name: name ?? '', key, publicKey, hosted, log })
       .then((r) => { if (!stopped) begin(r) })
       .catch((e: unknown) => {
         const code = e instanceof RelayRegistrationError ? e.code : 'internal'
-        // a taken / reserved / invalid name needs a person: don't retry; an unreachable relay: retry with backoff
-        const permanent = ['name_taken', 'name_reserved', 'invalid_name', 'key_in_use', 'recovery_needed'].includes(code)
+        // the control plane has not written (or wrote a wrong) registration.json yet: look again every 30 s
+        if (['awaiting_operator', 'registration_file_invalid', 'registration_key_mismatch', 'registration_other_relay'].includes(code)) {
+          pre = { state: 'not_registered', detail: code }
+          if (!waitingLogged || code !== 'awaiting_operator') log.warn('relay registration: waiting for the hosted service', { code, err: e instanceof Error ? e.message : e })
+          waitingLogged = true
+          if (!stopped) regTimer = setTimeout(register, relayClientTimers.awaitOperatorMs)
+          return
+        }
+        // a taken / reserved / invalid name, a closed relay or a wrong claim code need a person: don't retry; an
+        // unreachable relay: retry with backoff
+        const permanent = ['name_taken', 'name_reserved', 'invalid_name', 'key_in_use', 'recovery_needed', 'registration_closed', 'bad_claim', 'team_name_missing'].includes(code)
         pre = { state: permanent ? 'not_registered' : 'offline', detail: code }
         log.warn('relay registration failed', { code, err: e instanceof Error ? e.message : e, retry: !permanent })
         if (!permanent && !stopped) regTimer = setTimeout(register, Math.min(300_000, 5000 * 2 ** attempt++))

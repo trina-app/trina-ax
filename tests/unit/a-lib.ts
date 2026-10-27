@@ -57,10 +57,10 @@ export interface Harness {
   close(): Promise<void>
 }
 
-export async function harness(name: string, over: Partial<AppConfig> = {}, o: { reuse?: boolean } = {}): Promise<Harness> {
+export async function harness(name: string, over: Partial<AppConfig> = {}, o: { reuse?: boolean; log?: import('../../server/src/log').Logger } = {}): Promise<Harness> {
   const cfg = testConfig(name, over, o)
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
-  const ctx = createContext({ config: cfg, db, log: silentLogger })
+  const ctx = createContext({ config: cfg, db, log: o.log ?? silentLogger })
   ctx.onClose(() => db.close())
   const hub = new RecordingHub()
   const app = await buildApp(ctx)

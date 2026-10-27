@@ -1,11 +1,14 @@
 // Component C tools through the real engine path: launcher -> fake engine -> mycel-bridge -> mycel-gate -> MCP socket
 // -> tool registry (the same path a Claude Code / Codex turn uses). Needs `bun run build:native`.
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { startServer, type Running } from '../../server/src/server'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { fakeTurn } from '../lib/run-turn'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 let core: Running

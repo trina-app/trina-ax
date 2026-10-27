@@ -26,8 +26,12 @@ import { diskSpace, type InstallLayout } from './layout'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
 import { readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
+import { backupRetentionDays } from './limits'
 
 export const BACKUP_RETENTION_DAYS = 14
+/** days local backups are kept: the plan's localBackupRetentionDays (the hosted cloud: 3, the off-site copy is the real
+ * one), else BACKUP_RETENTION_DAYS (system/limits.ts) */
+const retentionDays = () => backupRetentionDays()
 export const FULL_EVERY_DAYS = 7
 /** below this much free space backups stop (tab 7 "디스크 단계") */
 export const BACKUP_MIN_FREE_BYTES = 2 * 1024 ** 3
@@ -223,7 +227,7 @@ export class BackupManager {
     if (!prev || !lastFull || now.getTime() - Date.parse(lastFull.createdAt) >= FULL_EVERY_DAYS * 86400_000) return this.writeTeamArchive(id, null, {}, progress)
     let chainLen = 0
     try { chainLen = this.chain(prev.id).length } catch { return this.writeTeamArchive(id, null, {}, progress) }
-    if (chainLen >= BACKUP_RETENTION_DAYS) return this.writeTeamArchive(id, null, {}, progress)
+    if (chainLen >= retentionDays()) return this.writeTeamArchive(id, null, {}, progress)
     let prevManifest: Manifest
     try { prevManifest = JSON.parse(await fsp.readFile(path.join(this.teamDir(prev.id), 'manifest.json'), 'utf8')) } catch {
       return this.writeTeamArchive(id, null, {}, progress) // previous list is gone: start a new chain
@@ -292,7 +296,7 @@ export class BackupManager {
   prune(): string[] {
     const metas = this.metas()
     if (!metas.length) return []
-    const cutoff = this.now().getTime() - BACKUP_RETENTION_DAYS * 86400_000
+    const cutoff = this.now().getTime() - retentionDays() * 86400_000
     const keep = new Set<string>()
     const byId = new Map(metas.map((m) => [m.id, m]))
     for (const m of metas) if (Date.parse(m.createdAt) >= cutoff) keep.add(m.id)
@@ -352,50 +356,61 @@ export class BackupManager {
    */
   async restoreTeamTo(id: string, dest: string, progress: BackupProgress = () => {}): Promise<{ files: number }> {
     if (fs.existsSync(dest)) throw new BackupError(`restore target already exists: ${dest}`)
-    const ids = this.chain(id)
-    await fsp.mkdir(dest, { recursive: true, mode: 0o700 })
-    try {
-      for (const [i, bid] of ids.entries()) {
-        progress(i / ids.length, `archive ${i + 1}/${ids.length}`)
-        const dir = this.teamDir(bid)
-        // deletions first: they are paths of the previous state, and a deleted file may have become a folder (or the
-        // other way round) in this archive
-        const deleted: string[] = JSON.parse(await fsp.readFile(path.join(dir, 'deleted.json'), 'utf8'))
-        for (const p of deleted) {
-          const t = path.join(dest, p)
-          if (!t.startsWith(dest + path.sep)) throw new BackupError(`unsafe path in deleted.json: ${p}`)
-          await fsp.rm(t, { force: true })
-        }
-        await extractTar(zstdDecompress(readFileChunks(path.join(dir, 'team.tar.zst'))), dest, { replace: i > 0 })
+    return restoreTeamChain(this.chain(id).map((b) => this.teamDir(b)), dest, progress)
+  }
+}
+
+/**
+ * Rebuild a team folder from backup folders (team.tar.zst, deleted.json, manifest.json, dirs.json each), the full
+ * archive first, then each incremental in order; the last one's file list and folder list are what `dest` must hold.
+ * Used for this server's own backups (restoreTeamTo) and for a chain downloaded from off-site storage (admin.js
+ * restore-artifacts, control-plane 3.8.5). `dest` must not exist; on any error it is removed.
+ */
+export async function restoreTeamChain(dirs: string[], dest: string, progress: BackupProgress = () => {}): Promise<{ files: number }> {
+  if (!dirs.length) throw new BackupError('no backup to restore')
+  if (fs.existsSync(dest)) throw new BackupError(`restore target already exists: ${dest}`)
+  await fsp.mkdir(dest, { recursive: true, mode: 0o700 })
+  try {
+    for (const [i, dir] of dirs.entries()) {
+      progress(i / dirs.length, `archive ${i + 1}/${dirs.length}`)
+      // deletions first: they are paths of the previous state, and a deleted file may have become a folder (or the
+      // other way round) in this archive
+      const deleted: string[] = JSON.parse(await fsp.readFile(path.join(dir, 'deleted.json'), 'utf8'))
+      for (const p of deleted) {
+        const t = path.join(dest, p)
+        if (!t.startsWith(dest + path.sep)) throw new BackupError(`unsafe path in deleted.json: ${p}`)
+        await fsp.rm(t, { force: true })
       }
-      const want: Manifest = JSON.parse(await fsp.readFile(path.join(this.teamDir(id), 'manifest.json'), 'utf8'))
-      // folders: as listed at backup `id` (backups made before dirs.json existed have no list: folders stay as layered)
-      let wantDirs: string[] | null = null
-      try { wantDirs = JSON.parse(await fsp.readFile(path.join(this.teamDir(id), 'dirs.json'), 'utf8')) } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-      }
-      if (wantDirs) {
-        const keep = new Set(wantDirs)
-        // deepest first; a folder that still holds files is left for the file check below to report
-        for (const d of (await walkTree(dest)).dirs.map((x) => x.rel).filter((r) => !keep.has(r)).reverse()) {
-          await fsp.rmdir(path.join(dest, d)).catch(() => {})
-        }
-        const have = new Set((await walkTree(dest)).dirs.map((x) => x.rel))
-        for (const d of wantDirs) if (!have.has(d)) throw new BackupError(`restored folder is missing the folder ${d}`)
-      }
-      const got = toManifest((await walkTree(dest)).files)
-      for (const [p, e] of Object.entries(want)) {
-        if (e.s < 0) continue // changed while it was being archived: whatever version made it in is fine
-        const g = got[p]
-        if (!g || g.s !== e.s) throw new BackupError(`restored folder does not match the backup at ${p}`)
-      }
-      for (const p of Object.keys(got)) if (!(p in want)) throw new BackupError(`restored folder has a file the backup does not: ${p}`)
-      progress(1, 'done')
-      return { files: Object.keys(got).length }
-    } catch (e) {
-      await fsp.rm(dest, { recursive: true, force: true })
-      throw e
+      await extractTar(zstdDecompress(readFileChunks(path.join(dir, 'team.tar.zst'))), dest, { replace: i > 0 })
     }
+    const last = dirs.at(-1)!
+    const want: Manifest = JSON.parse(await fsp.readFile(path.join(last, 'manifest.json'), 'utf8'))
+    // folders: as listed at the last backup (backups made before dirs.json existed have no list: folders stay as layered)
+    let wantDirs: string[] | null = null
+    try { wantDirs = JSON.parse(await fsp.readFile(path.join(last, 'dirs.json'), 'utf8')) } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    }
+    if (wantDirs) {
+      const keep = new Set(wantDirs)
+      // deepest first; a folder that still holds files is left for the file check below to report
+      for (const d of (await walkTree(dest)).dirs.map((x) => x.rel).filter((r) => !keep.has(r)).reverse()) {
+        await fsp.rmdir(path.join(dest, d)).catch(() => {})
+      }
+      const have = new Set((await walkTree(dest)).dirs.map((x) => x.rel))
+      for (const d of wantDirs) if (!have.has(d)) throw new BackupError(`restored folder is missing the folder ${d}`)
+    }
+    const got = toManifest((await walkTree(dest)).files)
+    for (const [p, e] of Object.entries(want)) {
+      if (e.s < 0) continue // changed while it was being archived: whatever version made it in is fine
+      const g = got[p]
+      if (!g || g.s !== e.s) throw new BackupError(`restored folder does not match the backup at ${p}`)
+    }
+    for (const p of Object.keys(got)) if (!(p in want)) throw new BackupError(`restored folder has a file the backup does not: ${p}`)
+    progress(1, 'done')
+    return { files: Object.keys(got).length }
+  } catch (e) {
+    await fsp.rm(dest, { recursive: true, force: true })
+    throw e
   }
 }
 

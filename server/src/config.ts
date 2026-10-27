@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PRODUCT, type AuthMode } from '@mycel/shared'
+import { type AuthMode } from '@mycel/shared'
+import { prodBase } from './app-config'
 
 export interface ServerConfig {
   /** team folder (resolved real path). Only the server touches it. */
@@ -30,8 +31,12 @@ export interface ServerConfig {
   maxFilesWrittenPerTurn: number
 }
 
+/** a release bundle's own tools (Linux bundle: rg, pandoc, typst, whisper-cli; macOS bundle: bun only): app/<v>/bin next
+ * to server/src (linux-runtime spec 3.6.1). Absent in a source checkout. */
+const BUNDLE_BIN = path.resolve(import.meta.dir, '..', '..', 'bin')
+
 export function which(name: string, extra: string[] = []): string | null {
-  const dirs = [...extra, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(process.env.PATH ?? '').split(':')]
+  const dirs = [BUNDLE_BIN, ...extra, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(process.env.PATH ?? '').split(':')]
   for (const d of dirs) {
     if (!d) continue
     const p = path.join(d, name)
@@ -53,8 +58,13 @@ export function engineSandboxProfile(): string {
   return path.resolve(import.meta.dir, '..', '..', 'scripts', 'macos', 'engine.sb')
 }
 
-/** mycel-ocr next to the other native helpers (native/build.sh builds it on a Mac with swiftc). */
+/** mycel-ocr next to the other native helpers (native/build.sh builds it on a Mac with swiftc). Linux: the Go
+ * version (tesseract kor+eng + poppler, spec 3.7.1), only when those tools are installed. */
 export function ocrBin(): string | null {
+  if (process.platform === 'linux') {
+    const p = path.join(nativeBinDir(), 'mycel-ocr')
+    return fs.existsSync(p) && fs.existsSync('/usr/bin/tesseract') && fs.existsSync('/usr/bin/pdftoppm') ? p : null
+  }
   if (process.platform !== 'darwin') return null
   const p = path.join(nativeBinDir(), 'mycel-ocr')
   return fs.existsSync(p) ? p : null
@@ -94,5 +104,6 @@ export function defaultConfig(over: Partial<ServerConfig> & { teamRoot: string; 
 /** Production layout (design tab 6). Stage 3 installer creates these with the right owners.
  * Folder names use the machine id, not the display name (no spaces, survives a rename of the display name). */
 export const PROD_LAYOUT = {
-  base: `/Library/Application Support/${PRODUCT.id}`,
+  /** macOS /Library/Application Support/<id>, Linux /var/lib/<id> (app-config.ts prodBase) */
+  base: prodBase(),
 } as const

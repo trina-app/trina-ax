@@ -3,7 +3,7 @@
 // session that just signed in with the temporary one), its limits (one hour, 7 days, 50 wrong tries), and that a
 // normal change still needs the current password.
 import crypto from 'node:crypto'
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { MEMORABLE_PASSWORD_BITS, TEMP_PASSWORD_MAX_FAILURES, TEMP_WORDS, memorablePassword } from '@mycel/shared'
 import { WsClose } from '@mycel/shared/api'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
@@ -11,6 +11,9 @@ import { passwordProblem } from '../../server/src/auth/passwords'
 import { Hub } from '../../server/src/realtime/hub'
 import type { RealtimeConn } from '../../server/src/services'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+
+// dozens of argon2id checks per case (64 MiB each): about 2 s alone, more on a busy machine
+setDefaultTimeout(30_000)
 
 /** Damerau-Levenshtein distance <= 1: one letter changed, added, dropped, or two neighbours swapped. */
 function lookAlike(a: string, b: string): boolean {

@@ -1,0 +1,11 @@
+# Re-applies the engine firewall every 2 minutes (spec 3.2.1): another tool (nft flush ruleset, ufw/firewalld reload,
+# docker) may remove our table; the launcher refuses turns when run/firewall.json is older than 10 minutes.
+[Unit]
+Description=Re-apply the Team AX engine firewall (@ID@)
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+AccuracySec=10s
+Unit=@ID@-firewall.service
+[Install]
+WantedBy=timers.target

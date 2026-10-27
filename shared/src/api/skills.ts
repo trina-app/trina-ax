@@ -12,12 +12,19 @@ import { endpoint } from './endpoint'
 import { UserRef } from './entities'
 
 export const SkillInfo = z.object({
-  /** team path of the skill file, e.g. skills/주간-보고서.md */
+  /** Entry point: legacy skills/주간-보고서.md or standard skills/weekly-report/SKILL.md. */
   path: z.string(),
+  // Display metadata also accepts standard 64-character names and 1024-character descriptions.
+  // The legacy suggestion form below keeps its existing limits; this response never truncates a manifest.
   name: z.string(),
   description: z.string(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
+export const PopularSkills = z.object({
+  items: z.array(SkillInfo.extend({ uses: z.number().int().positive(), users: z.number().int().positive() })).max(10),
+  days: z.literal(30),
+})
+export type PopularSkills = z.infer<typeof PopularSkills>
 
 /** skills/ itself or a folder below it (at most two levels: skills/재무/월말). */
 export const SkillFolderPath = RelPath.refine((p) => {
@@ -134,6 +141,7 @@ export type SkillManagersResponse = z.infer<typeof SkillManagersResponse>
 export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object({ path: SkillFolderPath.default('skills'), enabled: z.boolean() }))
 
 export const SKILLS = {
+  popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
   listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, by name.' }),
   skillsOverview: endpoint({ method: 'GET', path: '/api/skills/overview', auth: 'user', owner: 'B', response: SkillsOverview, summary: 'The skills folders the caller manages / can suggest into, and how many suggestions wait.' }),
   listSkillSuggestions: endpoint({ method: 'GET', path: '/api/skills/suggestions', auth: 'user', owner: 'B', query: SkillSuggestionsQuery, response: page(SkillSuggestion), summary: 'My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them.' }),

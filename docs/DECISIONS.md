@@ -1109,3 +1109,355 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **팀에 키 하나**: owner가 관리자 › AI 엔진 › API 엔진에서 주소·모델·표시 이름·키를 넣는다(`GET/PUT /api/admin/engines/api-config`, 감사 `engines.api`). 설정은 `<data>/engine-api.json`, 키는 `<data>/secrets/api-engine.key`(0600). 키는 서버 밖으로 나가지 않고 화면에는 "있음"만 보인다. 사용 비용은 그 키의 계정. 사람별 로그인은 다음 단계.
 - **누가 쓰나**: 다른 엔진과 같은 규칙(위 "AI 엔진·모델은 관리자가 정한다")을 따른다. 켜져 있고 설정됐을 때만 "켜진 엔진"이다(`engineOn`): `GET /api/engines`에 표시 이름·모델로 나오고, 팀 기본 엔진으로도 고를 수 있다. 설정을 지우면 그 엔진의 채팅은 팀 기본값으로 이어진다. 상태 확인은 `GET <주소>/models`(401/403이면 "키 확인").
 - **한계**: 한 턴 30번까지 도구 왕복, 도구 결과는 30,000자에서 자름. 엔진 세션 이어 가기는 없어 매 턴 팀 프롬프트 + 메시지로 시작한다(채팅 문맥은 프롬프트에 들어간 만큼). 작은 로컬 모델은 도구를 잘못 부를 수 있다. 이 맥의 Ollama `qwen3:4b`로 shared 목록 보기를 실제로 확인했다.
+
+## 클라우드 호스트: 하부(substrate)·ax-hostd·호스트 구성·템플릿·mycel-enroll (feat/cloud-host, 2026-10-22)
+
+명세: isolation.md(D1–D21, §4–§8, H-*), control-plane.md §3.5·HC-1·CT-2, ADDENDUM(우선). 코드는 `ee/cloud/`, `native/cmd/mycel-enroll`,
+`scripts/image`, `tests/cloud`. 요약은 `ee/cloud/README.md`.
+
+- **계약은 `ee/cloud/contracts/substrate.ts` 한 파일(zod만, WebCrypto)이다.** 비공개 저장소의 컨트롤 플레인이 그대로 가져다 쓴다(node: 가져오기 없음). 작업 서명은 Ed25519로 `"ax-substrate-job-v1\n" + 정규화 JSON(RFC 8785 JCS)`, 키 id는 공개 키 sha256의 앞 16자(릴리스 키와 같은 모양), `notAfter`는 발행 뒤 10분 이내. 파괴 작업의 2차 서명은 별도 purge 키로 `"ax-substrate-purge-v1\n<opId>\n<tenantId>\n<reason>"`. hostd 요청 서명은 `"ax-substrate-host-v1\n<METHOD>\n<path>\n<ts>\n<본문 sha256>"`, ±60초. 시험 벡터는 `contracts/vectors/substrate-v1.json`(node:crypto로도 교차 검증).
+- **명세에 없던 계약 추가**(모두 더하기만): 작업 `reserveCapacity`(이동 대상 예약)와 `tenantCommand`(CP §3.5.3), 오류 코드 `command_not_allowed`·`bad_signature`·`job_expired`·`wrong_host`·`invalid_args`·`purge_refused`·`template_missing`·`template_verify_failed`·`enroll_failed`·`host_command_failed`·`internal`, 폴링 응답의 `hostState`(`evacuated`면 부팅 때 VM을 띄우지 않음, §7.2 격리), 복원 스냅숏 이름에 sanoid 이름(`autosnap_…:…`) 허용, 손님 파일 `enroll.json`의 `mode: "reattach"`(토큰 null).
+- **같은 opId에 다른 인자 → 409 `op_conflict`이고 저장된 작업은 그대로 둔다.** 지문은 `sha256(JCS(op))`. 끝난 작업에 같은 opId가 다시 오면 저장된 결과를, 진행 중이면 현재 단계를 다시 보낸다. 최종 이벤트는 CP가 2xx로 받을 때까지 저널에 "미확인"으로 남아 재시작 뒤에도 다시 보낸다.
+- **단계마다 체크포인트(SQLite WAL, `synchronous=FULL`)이고 단계는 "확인한 뒤 실행"이다.** 그래서 kill -9로 단계 중간에 죽어도 그 단계를 다시 돌리면 된다(예: 클론은 VMID가 이미 있고 설명이 그 테넌트면 건너뜀, 데이터 디스크는 이미 있으면 새로 만들지 않음). VMID·IP·MAC 배정도 저널에 남아 재시작해도 같다. 시험은 실제 hostd 프로세스를 단계 ③·④에서 SIGKILL로 죽이고 다시 띄워 성공까지 본다.
+- **이동은 두 작업으로 나눴다.** 대상에 `reserveCapacity` → 원본에 `moveTenant`(운영 중 사전 복사, 정지, 마지막 증분, `moved` 표시) → 대상에 `restoreTenant{replica:{host:<원본>}}`. 대상 쪽은 호스트 고장 때 버디 복제본을 승격하는 경로와 똑같다. VM 설정은 데이터 zvol의 ZFS 사용자 속성 `ax:vmconf`로 데이터와 같이 간다(syncoid `--sendoptions=p`, 수신 계정 `zfs allow`에 `userprop` 추가). §6.2의 "moveTenant 한 작업" 대신 이렇게 한 이유: 한 호스트의 hostd가 다른 호스트의 Proxmox를 만질 수 없게(호스트 사이 권한을 수신 전용 ZFS 위임으로만 둠).
+- **purge 조건**: (소프트 삭제 + `purgeAfter` 지남) 또는 (`customer_request`·`provision_failed` + purge 키 2차 서명). `provision_failed`는 소프트 삭제 없이도 된다(만들다 실패한 VM). 호스트당 시간당 3건은 실행 시점에 세고, 재시작으로 이어지는 purge는 자기 자리를 유지한다.
+- **데이터 디스크는 `/var/lib/mycel` 전체에 마운트한다(결정 L1).** isolation §5.1(데이터 디스크 = `/var/lib/mycel`)과 linux-runtime D2(`/var/lib/mycel` 아래에 app·root까지 한 트리)가 부딪힌다. 템플릿 빌드는 W1 설치기를 `--image-mode`로 돌린 뒤 그 트리를 `/usr/lib/mycel/seed-base`로 옮겨 두고, `mycel-enroll`이 빈 데이터 디스크에 그대로 복사한다(`cp -a`). 그래서 `mycel-ctl update`로 바뀐 앱 버전과 root 바이너리가 데이터 디스크에 있어 재이미징에도 남는다. 계정 uid/gid는 **고정**(`axserver` 990, `axagent` 991, 시스템 범위라 `checkDedicated` 통과): 템플릿 판이 바뀌어도 데이터 디스크 파일 주인이 맞는다. 버린 안: 데이터 디스크를 다른 곳에 두고 하위 폴더만 바인드(마운트 7개, W1 설치기와 따로 놀음), app·root를 OS 디스크에 두기(재이미징 때 업데이트가 되돌아감).
+- **W1 설치기 `--image-mode` 계약**: BASE에 전부 설치하되 유닛을 켜거나 시작하지 않고 설정 토큰도 만들지 않는다. 키트가 없으면 템플릿 빌드가 이 계약을 적은 오류로 멈춘다(`--allow-missing-kit`은 파이프라인 점검용, 운영 불가 표시).
+- **재이미징 뒤 `reattach`는 CP를 부르지 않는다.** 토큰도 없다. 데이터 디스크에 설정·릴레이 키·등록이 다 있으므로 `/etc/default/mycel`을 다시 쓰고 유닛을 켜면 끝난다(control-plane에 reattach 계약이 없음). 절대 포맷하지 않는다.
+- **클라우드 등록은 `engine.credentialKinds = ["anthropic-api-key","openai-api-key"]`**(CP 응답에 목록이 없을 때, ADDENDUM 3). `--standalone`(셀프호스트)은 네 종류 모두.
+- **DHCP 고정 임대는 `/etc/ax/axnet-dhcp-hosts`(dnsmasq `dhcp-hostsfile`, 줄 `<mac>,<ip>,t-<tenantId>`)이고 SIGHUP으로 다시 읽힌다.** §4.4의 `/etc/dnsmasq.d/axnet-hosts` + reload는 동작하지 않는다(dnsmasq는 SIGHUP에 설정 파일의 `dhcp-host=`를 다시 읽지 않음). `dnsmasq@axnet`은 conf-dir 없이 그 파일만 읽는 독립 유닛.
+- **cloud-init 드라이브는 `ax-vm`(zfspool)에 둔다**(§6.2의 `ide2=ax-snip:cloudinit` 대신). snippets 전용 디렉터리 저장소에는 cloud-init 이미지를 만들 수 없다. snippet(사용자 데이터)은 그대로 `ax-snip`.
+- **sanoid.conf는 hostd가 만든다**: `/etc/sanoid/ax-templates.conf`(호스트 구성이 씀) + 원장의 테넌트마다 `vm-<id>-disk-1`(ax_data: 15분 8, 시간 48, 일 14)·`disk-0`(ax_os: 일 3). 호스트 구성은 처음 한 번만 만들고 덮어쓰지 않는다.
+- **디스크 I/O 버스트는 `mbps_*_max`·`iops_*_max` = 2배만 건다.** 버스트 길이(30초) 옵션 이름은 PVE 9.2에서 확인한 뒤에 더한다(잘못된 옵션 하나가 설정 전체를 실패시키므로).
+- **호스트 구성은 Ansible이 아니라 멱등 bash(`ee/cloud/host/site.sh` + roles)다.** 제어 노드가 필요 없고, EC2 user-data와 ISO 설치 호스트 양쪽에서 같은 스크립트가 돌고, 컨테이너에서 시험할 수 있다. 단계마다 changed/ok를 세고 두 번째 실행은 `changed=0`(H-02 완료 조건을 그대로 시험). PVE 커널 설치 뒤 종료 코드 100 → `ax-host-setup.service`가 재부팅 뒤 다시 돈다.
+- **호스트 방화벽 세부**(§4.4–4.5에서 바꾼 것): 호스트 DHCP 허용은 출발지 조건 없이 `-sport 68 -dport 67`(DISCOVER는 0.0.0.0에서 옴), ICMP 5/s는 pve-firewall에 속도 옵션이 없어 커널 `icmp_ratelimit`, sshd는 include 파일에서 새는 `Match` 대신 `AllowUsers root@100.64.0.0/10`, 사설 대역 9개는 클러스터 IPSet `ax-private` 하나로 DROP.
+- **AWS EC2 첫 호스트(ADDENDUM 1)**: `m8i.4xlarge` + `--cpu-options NestedVirtualization=enabled`, Debian 13 AMI는 SSM 공개 파라미터(없으면 Debian 계정 136693071363), 루트·데이터 EBS 모두 암호화, 데이터 볼륨은 인스턴스를 지워도 남김, 보안 그룹 인바운드 0개(있으면 중단), IMDSv2 필수·hop limit 1(NAT 뒤 테넌트가 IMDS에 닿지 못함 — 방화벽과 이중), 키 페어·IAM 역할 없음, EIP(CP WAF용). user-data 16KB 한도 때문에 user-data는 Tailscale 가입만 하고 설정 트리는 `push-tree.sh`로 보낸다. EC2에서는 `vmbr0`을 만들지 않고 ens5를 건드리지 않는다(SDN SNAT이 기본 경로로 나감). EC2 프로필 `aws-m8i4x`는 vCPU 16개라 vCPU가 먼저 찬다(혼합 A 약 12팀, h64는 16팀).
+- **ZFS 키 출처**: 기본은 CP에서 서명 요청으로 받기(`ax-hostd unlock --fetch`, 1분×10회, 실패 시 P1 + 운영자가 `ax-hostd unlock`에 붙여 넣기). CP가 없는 파일럿은 `AX_UNLOCK_SOURCE=file:/root/ax-zfs.key`(루트 디스크 = EC2에서는 EBS 암호화)이고 더 약하다는 것을 README에 적었다. 키 사본은 1Password `ax-ops`.
+- **부팅 때 VM 시작**: 모든 VM은 `onboot 0`. hostd가 CP 첫 폴링에서 `evacuated`가 아님을 확인한 뒤(또는 CP 없이 15분이 지나고 로컬 `evacuated` 표시가 없을 때) `desired=running`인 VM을 Pro→Team→Basic, 10초 간격으로 띄운다.
+- **용량 식**: `committedMaxMB = RAM − ARC 4GiB − 호스트 3GiB − 80MB × 최대 VM 수`를 GiB 단위로 내림. 최대 VM 수를 h64 38, h32 12로 두면 §5.6의 55,296 / 24,576 MB가 그대로 나온다. 시뮬레이션: 혼합 A 100팀은 h64 7대에 모든 시드에서 위반 0으로 들어가고, 6대로는 대부분의 시드에서 넘친다(7이 여유가 아니라 필요한 수). 7대에서 리전 committed 80% 경보가 켜지는 것도 확인.
+- **`TenantStatus`는 당분간 `substrate.ts`에도 정의돼 있다.** 주인은 `shared/src/cloud-protocol/tenant-commands.ts`(SH-1, relay 브랜치). 합칠 때 한쪽이 다른 쪽을 다시 내보내게 한다. zod가 모르는 키를 버리므로 상태 보고에 개인 정보가 실려도 CP 저장소에는 들어가지 않는다(계약 시험).
+- **DockerDriver는 개발 전용이다.** 테넌트 = systemd가 PID 1인 특권 Debian 컨테이너, 데이터 디스크 = 도커 볼륨, 게스트 에이전트 = `docker exec`. 커널을 공유하고 특권이라 격리가 전혀 없다. 이 맥에서 가짜 CP와 진짜 `mycel-enroll`로 생성→등록→실행→정지/재개→스냅숏/복원→크기 변경→삭제→purge 전체를 확인하는 데만 쓴다.
+- **mycel-enroll 세부**(작업자 기록): 복원 내려받기는 `BASE/.install-tmp/enroll-dl`(root 0700), 복호화 결과는 `BASE/data/.restore-staging/<backupId>/`(axserver 0700, 서버 계정이 root 전용 폴더를 지나갈 수 없어서). `identityAge`·`credentialsKeyAge`는 ASCII armor와 바이너리 age의 base64를 둘 다 받는다. 데이터 디스크는 `mount -t ext4 -o noatime`로 직접 마운트한다. 오류 코드: `config_invalid`, `insecure_url`, `data_disk_missing|ambiguous|not_blank|failed`, `kit_incomplete`, `seed_failed`, `relay_key_failed`, `enroll_unreachable`, `apply_failed`, `restore_failed`, `restore_unsupported`, `start_failed`. https가 아닌 http:// CP는 루프백이거나 `AX_ENROLL_ALLOW_HTTP=1`(개발 이미지)일 때만.
+- **템플릿 서명**: 릴리스 키가 `"ax-template-v1\n<templateVersion>\n<sha256>"`(줄바꿈 끝 없음)에 Ed25519로 서명하고(`scripts/image/build.sh` → `<image>.sig`, base64), hostd `installTemplate`은 작업의 버전과 sha256으로 같은 문자열을 만들어 확인한다(`templateSigningString`). 버전까지 묶어 옛 이미지를 새 버전 이름으로 다시 설치하는 것을 막는다.
+- **템플릿 빌드(`scripts/image/build.sh`, H-05)**: Debian 13 genericcloud(SHA512SUMS 확인) → `virt-resize`로 12G → `virt-customize --network`로 `customize.sh`(멱등, 두 번째 실행 `changed=0`) → `virt-sparsify`. libguestfs가 필요해서 리눅스 CI 러너나 Proxmox 호스트에서 돈다(이 맥의 colima 컨테이너에서는 passt가 죽어 appliance가 안 뜸). 계정 990/991은 **패키지 설치보다 먼저** 만든다(어떤 패키지의 시스템 계정도 그 번호를 가져가지 못하게).
+- **`var-lib-mycel.mount`는 켜 두지 않는다**(인터페이스 메모의 "enabled"에서 바꿈). 켜 두면 첫 부팅마다 아직 없는 디스크를 약 90초 기다린다. 대신 mycel 유닛마다 `RequiresMountsFor=/var/lib/mycel` 드롭인을 두어, 등록 뒤 부팅에서는 유닛이 마운트를 끌어오고 데이터 디스크가 없으면 서비스가 OS 디스크의 빈 폴더 위에서 뜨지 않는다. 첫 부팅·reattach에서는 `mycel-enroll`이 직접 마운트한다.
+- **손님 sysctl 파일은 `99-ax-guest.conf`**(`ptrace_scope=2` 등): 키트의 `60-mycel.conf`(`ptrace_scope=1`)보다 뒤에 읽혀 이긴다.
+- **무인 업그레이드는 Debian-Security만**, `--force-confold`(우리가 바꾼 `chrony.conf` 때문에 보안 업데이트가 멈추지 않게).
+
+## 클라우드 계약·중계 운영 (feat/cloud-relay, 2026-10-22)
+
+명세: control-plane SH-1, RL-1–RL-9, SV-4–SV-9. 명세와 코드가 다른 곳은 아래처럼 정했다.
+
+**공용 계약 `shared/src/cloud-protocol/` (SH-1)**
+- **이 폴더만 MIT**(`LICENSE`, README에 이중 라이선스). 폴더 밖 코드를 import하지 않는다(zod·`node:crypto`만, 시험으로 고정). 컨트롤 플레인(비공개)이 폴더째 복사해 쓴다.
+- **`plan.json` 필드 이름은 W1(linux-runtime §3.8.5)을 따른다.** control-plane 3.5.6의 `planId`·`issuedAt`·`ramMB`·`diskGB`·`backup.localRetentionDays`는 같은 뜻의 W1 이름 `plan`·`updatedAt`·`memoryMiB`·`diskGiB`·`localBackupRetentionDays`로 바꿨다(파일 스키마의 주인이 W1이라고 명세가 스스로 적음). 컨트롤 플레인이 더하는 `maxActiveMembers`·`display`·`links`는 선택(null 기본) — W1만 쓴 파일도 통과.
+- **`enroll` 모드는 네 개**: `new`·`restore`·`verify`에 격리 명세 §6.2 `reimageTenant`의 `reattach`를 더했다. `reattach`는 등록 토큰이 없고, 데이터 디스크에 남은 중계 키로 `reattachSigningString(tenantId, relayTeamId, ts)`(±5분)에 서명한다. `enroll.json`에 `mode`가 없으면 `new`(격리 명세 모양 그대로 읽힘). `verify` 응답은 `server: null`(명세는 항상 객체였지만 verify VM은 아무것도 켜지 않음). 모드와 응답의 짝은 `enrollResponseProblem()` 한 곳.
+- **`tenantCommand` 관문은 계약 파일에**: `tenantCommandProblem(command, args, stdin)`가 null이 아니면 hostd는 `command_not_allowed`. 인자는 평평한 문자열·숫자·참거짓만, 이름은 소문자 낙타, 명령마다 엄격한 스키마(모르는 인자 거부). `TenantStatus`는 strict 스키마라 필드가 하나 늘면 실패한다(이름·IP·토큰이 끼어들 수 없게), relay `detail`은 코드만(`^[a-z0-9_]+$`).
+- **서명된 JSON은 `canonicalJson()`**(키 정렬, 공백 없음, NaN·undefined·Date 거부). 시험 벡터는 RFC 8032 시험 키(공개값)로 만든 결정적 서명이라 Go(mycel-enroll·ax-hostd)가 같은 바이트를 재현해 볼 수 있다(`vectors/vectors.json`, `bun scripts/cloud-protocol-vectors.ts`).
+- **중계가 읽는 `relay-ops.ts`는 zod 없이**(지울 수 있는 TypeScript, Node가 바로 읽음). 같은 몸통의 zod 판은 `relay-ops-schema.ts`, 두 쪽이 같은 벡터를 같게 판정하는지 시험.
+
+**중계 레지스트리 (RL-1)**
+- `PRAGMA user_version` 단계 적용(더하기만): 0→1 = `origin`·`external_ref`·`suspend_reason`·`suspended_at`·`maintenance_until`, `claims`, `ops_audit`. 새 파일도 옛 파일도 같은 길(옛 스키마 `CREATE IF NOT EXISTS` → 단계). 더 새 판이 만든 파일(높은 user_version)은 그대로 연다(a/b 되돌리기).
+- **임시 보류 = `reservations(reason='reserved', hold_until 있음)`**: 공개 등록에는 "예약"으로 보이고, 운영 API·청구 코드는 무시한다. 영구 예약·차단·이름 변경 뒤 1년 보류는 운영 API도 거부. 단 중계 호스트 CLI `create`는 기본 예약어를 쓸 수 있다(운영자 탐침 팀 `ax-probe`는 예약어이면서 운영자가 만든다는 명세 둘을 함께 만족시키는 길). 차단(`blocked`)은 CLI도 안 됨.
+- **멱등**: `POST /ops/v1/teams`는 같은 `externalRef` + 같은 키 + 같은 이름이면 기존 팀(200), 키나 이름이 다르면 409 `conflict`. 새로 만들면 201. 운영자 팀의 복구 코드는 만들어 버린다(컬럼은 NOT NULL, 키 회전은 운영 API가 함).
+- **청구 코드**: 복구 코드와 같은 100비트(4자 × 5), 해시만 저장, 한 번만, 이름이 같아야, 기한(최대 7일) 안. 같은 `externalRef`로 새 코드를 만들면 쓰지 않은 옛 코드는 무효. 다른 `externalRef`의 살아 있는 코드가 그 이름을 잡고 있으면 409. 코드가 있는 동안 이름은 임시 보류.
+- 감사 `ops_audit`: 키 id·동작·팀 id(보류·청구 코드는 팀 id가 없어 `name=`을 detail에 — 팀 주소 이름은 개인 정보가 아님), 2년 뒤 지움(D33). 중계 호스트 CLI의 쓰기도 키 id `cli`로 남긴다.
+
+**운영 API (RL-2)**
+- 사설 리스너(`RELAY_PRIVATE_LISTEN`)에만 `/ops/v1/*`·`/metrics`. 공개 리스너는 중계 자기 주소의 `/ops`·`/metrics`에 404(팀 주소의 같은 경로는 팀 서버 몫이라 그대로 전달).
+- 확인 순서: 모르는 키·±60초 밖·서명 불일치 401 → 같은 서명 120초 안 409 `replayed` → 범위 없음 403 → 없는 끝점 404. 재사용 캐시는 서명이 맞은 요청만(최대 1만, 넘치면 가장 오래된 것부터). **Ed25519는 결정적이라 같은 ms에 같은 요청을 두 번 서명하면 같은 서명 = 재사용**으로 거부된다: 클라이언트는 `ts`를 단조 증가(`max(now, last+1)`)로, 재시도는 다시 서명(시험 도우미가 그렇게 함).
+- 몸통은 모르는 필드도 400(운영 API에서 오타가 조용히 무시되지 않게). `operator-keys.json`은 mtime이 바뀌면 다시 읽고, 깨진 파일이면 열쇠 0개로(닫힌 채로) 오류 로그.
+- 정지는 즉시 끊는다(`suspendNow`: GOAWAY suspended + 4010, 5초 점검을 기다리지 않음). `DELETE`는 이미 released면 200(재시도 안전), 같은 키로 다시 `PUT key`도 200. 공지(`notice`)는 팀이 연결돼 있지 않으면 409(명세는 204만 적었으나 CP가 전달 실패를 알아야 함).
+
+**공개 쪽 (RL-3, RL-4)**
+- `RELAY_OPEN_REGISTRATION` 기본: `--dev`면 1, 아니면 **0**. 닫혀 있으면 `POST /teams`는 `claimCode` 없이는 403 `registration_closed`(작업 증명·IP 제한 전에), 코드가 있으면 열림 여부와 상관없이 작업 증명 없이 등록(`origin='addon'`). `GET /teams/pow`에 `open`을 더해 팀 서버가 작업 증명을 풀기 전에 알 수 있게.
+- 화면 셋 추가(ko/en/id, 명세 문구): `team_suspended_billing`(403, billing·canceled), `team_maintenance`(503, Retry-After 30, 점검 기한 안 + 팀 오프라인일 때만), `team_offline_cloud`(503, origin cloud). 계정·상태 주소는 `RELAY_ACCOUNT_HOST`·`RELAY_STATUS_HOST`(기본 account/status.treesoop.com).
+- 바뀐 주소: 살아 있는 팀이 없는 이름이 `reason='released'`로 살아 있는 팀에 보류돼 있고 그 보류가 90일 안에 시작됐으면 **308**(요청한 도메인 그대로, 경로·쿼리 유지). WebSocket은 404. 이름 캐시(2초)에 같이 둔다.
+- 여러 도메인: `--domain a.com,b.com`(또는 `RELAY_DOMAINS`), 첫 번째가 기본(등록 응답·팀 주소). 도메인마다 `relay.<도메인>`이 중계 자기 주소.
+- HSTS `max-age=31536000`(includeSubDomains 없음: 상위 도메인에 다른 것도 있음)을 팀 응답에 팀 서버가 안 붙였을 때만, 그리고 공개 주소가 https일 때만. 중계가 직접 답하는 팀 주소 화면에도.
+
+**TLS·메트릭·Node·배포 (RL-5, RL-6, RL-8, RL-9)**
+- `RELAY_TLS_CERT`·`RELAY_TLS_KEY`가 있으면 `https.createServer`, `RELAY_TLS_CLIENT_CA`가 있으면 `requestCert + rejectUnauthorized`(클라이언트 인증서 없거나 다른 CA면 TLS 자체가 안 열림), TLS 1.2 이상. 시험은 Node 중계 프로세스에 openssl로 만든 인증서 셋으로(`tests/relay/f-cloud.test.ts`). macOS LibreSSL은 v1 CA·명시적 EC 매개변수를 만들어 OpenSSL 3이 거부하므로 시험 PKI는 설정 파일 + `ec_param_enc:named_curve`.
+- `/metrics`: 명세 목록 + `relay_tls_client_errors_total`, `relay_ops_*`, `outcome="redirect"`. 팀 라벨 없음(시험이 팀 id·이름이 본문에 없는지 확인).
+- **Node 26.12.1**(2026-10-21 보안 판, 26 LTS는 10-28부터): `versions.json`, CI `node-version: 26.12.1`, `relay/package.json` engines `>=24`, `scripts/test-all.ts`는 24 미만이면 건너뜀. 이 맥(Node 25.6)에 26을 설치하지 않고 공식 tarball을 해시 확인해 작업 폴더에 풀어 `bun run test:relay`를 25·26 둘 다로 돌렸다. Node는 `.ts` 타입 지우기만 하고 변환은 안 하므로(매개변수 속성·enum 불가) 중계 모듈을 Node로 모두 불러 보는 단위 시험을 더했다.
+- **묶음(`scripts/build-relay.ts`)**: Node는 `node_modules` 안의 `.ts`를 타입 지우기 하지 않는다. 그래서 공유 소스를 `node_modules/@mycel/shared`(심볼릭 링크)에 두지 않고, 묶음 최상위 `package.json`의 이름을 `@mycel/shared` + `exports`로 두어 **자기 참조**로 `@mycel/shared/relay-protocol`이 풀리게 했다(`relay/package.json`은 넣지 않음). `ws`만 `node_modules`에. 모든 파일의 sha256을 `MANIFEST.json`에, 배포 스크립트가 풀 때 하나하나 확인. 시험이 저장소 밖 임시 폴더에 풀어 Node로 띄운다.
+- **a/b 배포**: 인스턴스마다 자기 릴리스 링크(`/opt/mycel-relay/instance-a|b`)와 자기 루프백 건강 포트(`RELAY_HEALTH_LISTEN`, a 18091 / b 18092: 공개·사설 포트는 SO_REUSEPORT로 두 인스턴스가 나눠 써서 어느 쪽이 답하는지 알 수 없음). 새 인스턴스가 건강하면 옛 인스턴스 정지(GOAWAY restart, 1012), 부팅 시 켜질 인스턴스를 바꿈. 실패하면 새 것만 내리고 옛 것이 계속. 비밀은 `LoadCredential=`(SOPS는 비공개 저장소 몫).
+- 레지스트리 매일 사본: `VACUUM INTO` → `age`(조직 복구 키) → R2, 업로드는 curl `--aws-sigv4`(호스트에 S3 도구를 더 깔지 않음). Litestream 설정은 0.5의 `replica:` 형식.
+- 시험 VM에서 배포 중 WS 1012 이어받기 실연은 VM이 없어 하지 못했다(SIGTERM 재시작 이어받기는 기존 적합성 시험 t6이 Node에서 확인). macOS는 SO_REUSEPORT 부하 분산이 리눅스와 달라 두 인스턴스 겹치기는 리눅스에서만 의미가 있다.
+- 시험 포트: 기존 시험이 쓰는 19191 근처를 다른 작업 폴더의 프로세스가 쓰고 있어, 새 시험은 19281–19288을 쓴다.
+
+**팀 서버 쪽 (SV-4–SV-9)**
+- **`registration.json` 채택(SV-4)**: `<data>/relay/registration.json`(`RelayRegistrationFile`)이 있으면 작업 증명 없이 그대로 쓴다. 조건은 파일의 `relayApi`가 지금 중계와 같고(끝 `/` 무시) `publicKey`가 `team-key.pem`의 공개 키와 같을 것 — 아니면 `registration_other_relay`/`registration_key_mismatch`, 형식이 틀리면 `registration_file_invalid`. **파일이 DB 행보다 우선**(CP가 이름 변경·키 회전 뒤 `relay-registration-set`으로 다시 씀). 위 셋과 "파일 없음"은 30초마다 다시 본다(상태 `not_registered` + detail 코드).
+- **hosted 판단은 `server.json`의 `deployment: "hosted"`**(linux-runtime D24). 그 키는 feat/cloud-linux-server가 `app-config.ts`에 넣으므로 이 가지는 `system/deployment.ts`의 `isHosted(cfg)`로 속성을 방어적으로 읽기만 한다(키가 없으면 지금처럼 자체 설치). hosted는 스스로 등록하지 않고 `awaiting_operator`로 기다리며, 팀 이름이 설정에 없어도 된다(파일에 있음). 중계가 "unknown team"이라고 하면 hosted는 다시 작업 증명으로 등록하지 않고 파일을 `registration.json.rejected`로 치운 뒤 새 파일을 기다린다(같은 파일로 30초마다 헛돌지 않게).
+- **청구 코드(SV-9)**: 연결 화면(`PUT /api/admin/connection`)의 새 선택 필드 `claimCode`(16–64자, 글자·숫자·`-`·공백)를 `server.json`이 아니라 `<data>/relay/claim.json`(0600)에 중계 주소·팀 이름과 함께 둔다. 다음 시작 때 이름이 같으면 작업 증명 대신 코드로 등록하고, 성공하면 파일을 지운다. 중계가 닫혀 있으면(`GET /teams/pow`의 `open:false`) 작업 증명을 풀지 않고 바로 `registration_closed`. `bad_claim`·`registration_closed`는 사람이 고쳐야 하므로 다시 시도하지 않는다. 새 엔드포인트는 없다(기존 owner-reauth 엔드포인트의 선택 필드라 권한 매트릭스 변화 없음).
+- **`relay.officialAvailable` 기본 true**(SV-9, "애드온을 여는 릴리스"). 사무실 모드는 여전히 `direct-only`만. 운영 중계가 아직 배포되지 않았으므로 **이 판을 고객에게 내기 전에 운영 중계가 떠 있어야 한다**(owner 할 일).
+- **age 수신자·신원(SV-6)**: `ageEncryptTo(recipients)`/`ageDecryptWith(identities)`는 X25519(`age1…`/`AGE-SECRET-KEY-1…`)만 받는다(scrypt·플러그인·PQ 하이브리드 섞지 않음, PQ는 D단계). 작은 비밀은 ASCII armor(`ageArmorTo`). 이 맥의 `age` 1.3.2 CLI와 양방향 교차 확인 시험.
+- **admin.js 새 명령(SV-5, `system/cloud-admin.ts`)**: `relay-key`(키를 서버 계정 소유로 만들고 register/rotate/reattach 서명), `setup-status`, `setup-token-rotate`(사용자 0명일 때만), `cloud-backup prepare|upload`, `archive --passphrase-random --upload`, `restore-artifacts`, `restore-verify`.
+  - prepare: `manual`·`final`은 지금 전체 백업(로컬 백업 종류에는 `final`이 없어 `manual`로 만듦), `daily`·`pre-update`는 `--local-id`(CP가 증분 체인을 거슬러 올라갈 때) 또는 가장 새 로컬 백업. 계약에 `localId` 인자와 `totals`(복원 시험의 기대값: 팀 파일 수·바이트·스키마)를 더했다. DB 사본만 `cloud-staging/<id>/db.sqlite.zst`로 미리 압축하고(크기를 알아야 조각 수를 정함) 팀 폴더 백업 파일은 제자리에서 읽는다.
+  - upload: 파일마다 age(수신자 둘) → 조각 PUT, 메모리에는 조각 하나만. 네트워크 오류·5xx·429는 최대 4번 지수 대기 재시도, 4xx(만료된 URL)는 바로 실패, ETag 없으면 실패, URL보다 조각이 많으면 실패. 계획한 파일이 다 올라가면 `backups/cloud-backup-state.json`의 `lastUploadedLocalId`를 갱신하고 준비 폴더를 지운다.
+  - restore-artifacts: 받은 폴더 `D/<backupId>/<이름>`(+ 선택 `chain.json`, 없으면 meta의 시각순) → 체인이 전체 백업에서 시작하고 각 증분의 `base`가 바로 앞인지 확인 → 가장 새 DB(`inspectDbCopy` + `endSessions`) + 팀 폴더(`restoreTeamChain`) → `--to`에 `db/app.sqlite` + `team/`(restore-archive와 같은 모양, 끝까지 성공해야 나타남). 팀 폴더 복원 로직은 `BackupManager.restoreTeamTo`에서 `restoreTeamChain()`으로 꺼내 같이 쓴다(동작 같음, 기존 시험 그대로 통과).
+  - restore-verify: 버리는 폴더에 복원해 `totals`와 비교, 결과에 `problem` 문구를 더하고 지운다. 맞지 않으면 종료 코드 4.
+- **설정 화면 `#token`(SV-7)**: 토큰을 `location.hash`에서 먼저, 없으면 예전 `?token=`에서 읽고, `team`·`lang`으로 팀 이름·언어를 미리 채운 뒤 셋 다 `history.replaceState`로 주소창에서 지운다(다른 쿼리·조각은 남김). 브라우저에 고른 언어가 이미 있으면 그것이 이긴다.
+- **소스 코드 링크(SV-8)**: 설정 > 정보(새 탭: 판·라이선스·링크)와 로그인 계열 화면 아래. 저장소가 아직 공개되지 않았으므로(OSS-01) `shared/src/source.ts`의 `published: false`인 동안은 `support@treesoop.com`으로 "그 판의 소스 요청" 메일 링크, 공개하면 `github.com/potenlab/team-ax/tree/v<판>`. 판은 `GET /api/health`의 `version`(사무실 인터넷 주소에서는 없음 → 판 없이).
+
+## AI 연결: 팀 자격 증명 풀 (feat/cloud-cred, 2026-10-22)
+
+기준 명세: 클라우드 기획의 자격 증명 명세(`credentials.md`, 결정 D1–D23, 작업 CR-00–CR-21). 이 절은 그 결정을 코드에 옮긴 결과와, 명세와 다르게 하거나 명세에 없던 것을 정한 이유를 적는다.
+
+### 무엇이 바뀌었나 (명세의 결정 그대로)
+
+- **D1 풀**: 자격 증명은 팀 DB의 `engine_credentials`(마이그레이션 106). 종류 4개(`anthropic-oauth`, `anthropic-api-key`, `chatgpt`, `openai-api-key`), 계열 2개(D2). 팀 공용 1개로 팀 전체가 쓰는 것이 기본. 그룹·사람 지정, 팀 설정 `credentials.memberOwn`(기본 꺼짐)으로 팀원 개인 연결.
+- **D3 턴마다 하나**: 시도마다 해석기(`credentials/resolve.ts`)가 하나를 골라 `proxy_tokens.credential_id`·`family`에 묶는다. 프록시는 요청마다 그 행을 다시 읽는다(끄거나 지우면 다음 요청부터 막힘). 엔진이 보낸 헤더(계정 id, 키)로는 절대 고르지 않는다.
+- **D4/D5 해석 순서**: 본인 연결(설정이 켜졌을 때만) → 사람 지정 → 그룹 지정(지금 속한 그룹) → 팀 공용. 같은 단계는 priority → 구독 먼저 → created_at → id. 쓸 수 없는 것은 건너뛰고, 지정된 것을 못 쓰면 팀 공용으로 넘어간다. 남의 개인 연결은 어떤 경우에도 후보가 아니다.
+- **D6 보관**: 비밀값은 `secret_enc`(AES-256-GCM, AAD `mycel-cred-v1|<id>|<kind>`)에만. 열쇠 `<secrets>/credentials.key`(32바이트, 600, `O_EXCL|O_NOFOLLOW`로 만들고 링크·다른 권한·다른 소유자·크기 이상이면 거부). 복호화 실패 → 그 연결만 `needs_reconnect`, 감사, 관리자 알림, 서버는 계속.
+- **D7/D8 연결 흐름**: Claude 구독은 아무 PC의 `claude setup-token` 붙여 넣기. API 키는 붙여 넣기. 둘 다 토큰을 쓰지 않는 확인(count_tokens / GET models)으로 200=확인, 401(키는 403도)=저장 안 함, 그 밖=저장 후 "첫 질문 때 확인". ChatGPT는 브라우저에서 시작하는 기기 로그인: 실행기가 `<agent root>/.codex-login/<loginId>`에서 공식 `codex login --device-auth`를 돌리고, 주소·코드는 시작한 사람에게만(WebSocket `credential.login` + GET), 결과 auth.json은 실행기 소켓으로 서버에, 폴더는 어떤 경우든 지운다(codex-login v2).
+- **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404, `/codex/oauth/token`은 400 invalid_grant + 감사.
+- **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
+- **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
+- **D13 권한**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
+- **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
+- **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
+- **D17 알림**: warn 예산은 100%, block 예산은 80%·100%에 한 번씩(`budget_notices`), 관리자 + 그 사람. 연결별 월 한도(USD·토큰, warn/block)와 80%·100% 알림(`credential_notices`).
+- **D18 인증 모드**: `managed`를 더하고 `subscription`·`proxy`는 읽을 때 `managed`로(별칭, 시작할 때 로그 한 줄). 설치기(macOS)와 사무실은 이번 릴리스에 `subscription`을 그대로 쓴다(되돌리기 안전). 다음 릴리스(CR-21)에서 `managed`를 쓴다.
+- **D19 Codex 베타 끝**: `CODEX_PROD_BETA = false`, `codexUsers`는 읽지 않음, Codex를 팀 기본 엔진으로 정할 수 있다.
+- **D20 회사 키 경로 제거**: `addEngineAccount`·`deleteEngineAccount`와 화면의 "고급 · 회사 키"를 지웠다. `engine_accounts` 표는 남기고(추가만 규칙) 시작할 때 같은 id의 API 키 연결로 옮긴다. `EnginesResponse.accounts`는 이번 릴리스 동안 늘 `[]`.
+- **D21 Codex 요청 거르기**: Responses `POST …/responses`만, 도구는 `function`·`web_search` 계열만(namespace 안까지), 원격 MCP·코드 실행·파일 검색·컴퓨터 사용·이미지 생성·URL 이미지/파일·`background`·저장된 대화/프롬프트·`service_tier`(auto/default 말고)는 403, 모델은 잠금 카탈로그 안의 것만, `store`는 false로 강제, 검사한 객체를 다시 직렬화해서 보냄, WebSocket 업그레이드는 400.
+- **D22 배포 허용 목록** `engine.credentialKinds`(server.json): 코드는 네 종류를 모두 지원하고 기본값도 네 종류(self-host·사무실·개발). **owner 지시(2026-10-22)**: 클라우드 등록(다른 작업 흐름이 server.json을 씀)은 `["anthropic-api-key","openai-api-key"]`를 쓸 수 있다. 이유: Anthropic의 Claude Code 법률 문서가 제3자 운영자의 소비자 구독 자격 증명 수집·저장·중개를 허용하지 않는다. 그 값이면 구독 종류는 추가할 수 없고, 이미 있는 연결은 "이 서버에서 꺼짐"으로 보이며 지워지지 않는다(해석에서 빠짐). 최종 결정은 owner가 한다.
+- **D23 사실 안내**: 종류 고르기에서 엔진마다 API 키를 먼저 보이고, 구독 종류(Claude 구독, ChatGPT 플랜)는 안내 문구 아래 확인 칸을 체크해야 저장된다. 서버도 `acknowledgedPlanNotice: true`를 요구한다(ChatGPT는 계약에서 literal true).
+
+### 명세와 다르게 하거나 명세에 없던 것
+
+- **"없음"과 "모두 못 씀"의 경계**: 명세 3.3 표의 "T 꺼짐 → carol 없음(reason none)"과 알고리즘(꺼진 것도 후보로 셈)이 서로 달랐다. 표를 따랐다: 남은 후보가 모두 꺼짐·이 서버에서 꺼진 종류면 `none`("AI 연결이 없습니다")이고, 거절·만료·한도처럼 관리자가 손봐야 하는 이유가 하나라도 있으면 `all_unusable`.
+- **`onUnauthorized`의 반환값**: 명세는 boolean. ChatGPT 갱신이 "일시 실패"인 경우를 구분하려고 `'retry' | 'refused' | 'temporary'`로 했다. 일시 실패면 엔진에 502(연결 상태는 그대로), 영구면 403 + `needs_reconnect` 사건.
+- **ChatGPT 연결의 "다시 확인"**: 토큰을 쓰지 않는 확인 호출이 문서에 없어서, 갱신(single-flight)으로 확인한다. refresh token이 살아 있는지가 곧 연결 상태다.
+- **Codex 요청 거르기의 깊이 규칙**: 명세의 "중첩 8단계"를 처음에 JSON 단계로 셌더니 **실제 Codex 0.163.0의 요청이 막혔다**(tests/engine/managed-real.ts로 발견). 콘텐츠 목록 단계(입력 → 메시지 내용 → 함수 결과 내용 …)로 8, 전체 JSON 단계는 64로 바꿨다.
+- **도구 목록의 위치**: 실제 Codex 0.163.0은 "responses lite" 모델(지금 기본 모델 포함)에서 도구 목록을 최상위 `tools`가 아니라 입력 항목 `{type: "additional_tools", role: "developer", tools: […]}`로 보낸다(`codex-rs/core/src/client.rs`). 명세의 도구 검사가 최상위만 봤으면 통째로 빠지는 구멍이었다. 입력 안의 모든 `tools` 배열에 같은 규칙을 건다(단위 시험 포함). 팀 도구는 `namespace`(`mcp__team`) 안의 `function`으로 온다.
+- **실제 Codex로 확인한 것(가짜 상위, 계정 없음)**: `bun tests/engine/managed-real.ts` — 실제 `codex-cli 0.163.0`이 잠금 인자 + 가짜 auth.json + 사용자 정의 공급자로 우리 프록시에 붙고, 프록시가 진짜 값(가짜 상위가 받은 Authorization·ChatGPT-Account-ID)을 넣고, Codex가 갱신을 한 번도 시도하지 않고 auth.json을 다시 쓰지 않으며, 실제 실행기(가짜 로그인 검사·주소 검사 통과)와 우리 MCP 팀 도구(`mcp__team.list`)까지 한 턴이 끝난다(18/18). 남은 것은 실제 chatgpt.com·api.openai.com이 이 구성의 요청을 받는지뿐이다(스파이크 S1, OWNER-TODO).
+- **월 한도 금액**: 구독은 금액이 0이라 USD 한도는 API 키에만 의미가 있다(화면에서도 API 키에만 금액 칸).
+- **`credential_limited` 알림 조건**: 명세의 "같은 연결에 쓸 다른 연결이 없는 사람이 있을 때만"을 사람마다 계산하는 대신, 그 계열에 쓸 수 있는 팀 연결이 하나도 남지 않았을 때(또는 개인 연결일 때) 알린다. 시간당 한 번.
+- **OpenAI 캐시 쓰기 가격**: usage에 쓰기 토큰 이름이 있으면 그 수만큼 입력 가격의 25%를 더한다(30분 쓰기 = 입력 1.25배). 없으면 넣지 않는다(명세대로 최대 25% 낮게 나올 수 있음).
+- **턴의 연결**: `turns.credential_id`는 마지막 시도의 연결이다(사용량 화면 "연결별"). 연결 카드의 "이번 달"은 요청 단위(`credential_usage_daily`)라 둘이 조금 다를 수 있다(화면에 한 줄).
+- **열쇠 버전**: 버전 N>1의 열쇠는 `credentials.key.N`. 서버는 폴더에 있는 가장 높은 버전으로 새 값을 암호화한다(`credentials-rekey` 뒤 재시작해도 새 열쇠를 씀).
+- **파일 토큰 가져오기**: `secrets/claude-oauth-token`(사무실은 `config/`)은 시작할 때와 5분마다 본다. 지문이 마지막으로 가져온 것과 같으면 아무것도 하지 않는다(owner가 그 연결을 지웠으면 같은 파일로 되살리지 않음). 새 토큰이면 가져온 연결의 비밀값을 바꾼다.
+- **실행기 주소 검사**: `base_url=`·`chatgpt_base_url=` 같은 인자는 `--proxy-port`가 있으면 모든 턴에서 `http://127.0.0.1:<port>/`로 시작해야 한다. managed Codex 턴은 `--proxy-port`가 없으면 거부(fail closed). 점으로 시작하는 채팅 폴더 이름은 거부. 매 턴 시작 전에 `<chat>/.codex`를 지운다(`--codex-auth-dir`가 없어도).
+- **로그인은 팀에 한 번에 하나**, 16분, 서버를 다시 시작하면 사라진다. 끝난 로그인은 30분 뒤 잊는다(그 뒤 GET은 404).
+- **시험 하네스**: B 하네스·보안 인스턴스의 가짜 엔진도 managed로 돈다(팀 연결 = 가짜 API 키, 상위는 닫힌 포트). 그래서 기존 채팅 시험이 모두 실제 해석·토큰 묶음·프록시 경로를 지난다.
+
+### 가격표 갱신 절차
+
+릴리스마다: https://platform.claude.com/docs/en/about-claude/pricing 와 https://developers.openai.com/api/docs/pricing 를 열어 `server/src/credentials/prices.ts`의 표를 맞추고 `PRICES_AS_OF`를 바꾼다. `tests/unit/a-prices.test.ts`가 고정 별칭·시험 카탈로그 모델이 표에 있는지, 경계(하이쿠 5.5의 100,000, OpenAI 272k)를 확인하고, 90일이 지나면 경고 줄을 찍는다.
+
+### 하지 않은 것과 이유
+
+- **CR-00 스파이크 S1(실제 ChatGPT·OpenAI)·CR-01 스파이크 S2(실제 setup-token)**: owner 계정이 필요하다. 실행 파일은 준비했다(`tests/engine/codex-managed-spike.ts`, `tests/e2e/g-subscription-real-claude.ts --real`). OWNER-TODO 11번.
+- **CR-19 F1 대안**: S1이 실패할 때만. 가짜 상위로는 주 설계가 실제 Codex에서 동작함을 확인했다. 옛 agent-own 경로(턴마다 로그인 복사, 전역 세마포어, CONNECT 터널)는 코드에 남겨 두어 F1의 바탕으로 쓸 수 있다.
+- **CR-21 다음 릴리스 정리**: 설치기·사무실이 `managed`를 쓰기, 옛 파일·`codex-export`·`accounts` 필드·옛 문구 지우기.
+
+## 클라우드·리눅스 서버: 배포 형태, 요금제 한도, 팀 시간대, 저장 공간, 리눅스 진단, 업데이트 (feat/cloud-linux-server, 2026-10-22)
+
+명세: 리눅스 런타임 명세 §4.2의 L02·L05·L06·L07·L08·L09·L10·L14·L15·L16·L17·L20·L27, 검토 UX-06·07·08·14, SEC-01~03, BIZ-01~03.
+네이티브(실행기·샌드박스·mycel-ctl·설치기·번들)와 자격 증명(웹 AI 로그인·프록시)은 다른 브랜치가 맡는다. 이 절은 서버·웹 쪽에서
+정한 것과 명세에서 바꾼 것을 적는다.
+
+- **배포 형태 `deployment`는 명세 D24 그대로 `"self" | "hosted"`**(기본 `self`, `server.json` 또는 `MYCEL_DEPLOYMENT`; 호스팅의
+  `server.json`은 운영자 소유이고 팀 계정은 읽기만, 등록 도구 `mycel-enroll`이 `"hosted"`를 씀). 처음에는 검토 UX-08의 네 값
+  (`cloud`/`selfhost`/`office`/`dev`)으로 만들었다가 리드 결정(2026-10-22)으로 바꿨다: 다른 브랜치(중계 등록, mycel-enroll)가 이미
+  이 이름을 쓴다. **사무실 모드와 dev는 지금의 `office`·`mode` 스위치가 정한다**: 둘과 `deployment`를 합친 실행 형태
+  (`runKindOf`: hosted · selfhost · office · dev)로 기능 표(연결 변경, 앱 안 업데이트, 사무실 업데이트, 연결 폴더, API 엔진 아무 주소,
+  기계 수준 진단)를 고른다. 모두 `server/src/system/deployment.ts` 한 파일(`Deployment`, `deploymentOf`, `isHosted`는 다른 브랜치와
+  같은 이름·모양)이고, `GET /api/me`의 `server.deployment`(`self`|`hosted`)와 `server.features`로 웹에 간다. 키가 없으면 지금과
+  같은 자체 설치라 맥 역할 계정·사무실 설치의 동작은 그대로다. `hosted`이면서 `office: true`는 시작을 거부한다.
+- **클라우드에서 서버가 거부하는 것(409)**: 연결 방식·중계 주소 변경(`server.json`은 운영자 것), 업데이트·되돌리기(컨트롤 플레인이
+  함), 사무실 업데이트, 연결 폴더 추가·동기화(목록은 `available:false`, 지우기는 허용). 화면은 같은 표로 버튼을 숨긴다.
+- **API 엔진 주소(SEC-01)**: 클라우드에서는 https이고 이름을 푼 모든 주소가 공개 인터넷 주소일 때만(web_fetch와 같은 주소 규칙:
+  사설·루프백·링크 로컬·CGNAT·예약·이 기계의 주소 거부). 저장할 때 400, 그리고 **부를 때마다** 다시 확인하고 redirect를 따르지
+  않는다(공개 주소가 307로 메타데이터 주소를 가리킬 수 있음). 이 규칙은 프로세스 설정(한 프로세스 = 한 팀)으로 시스템 라우트가
+  시작할 때 정한다. 이름 확인과 연결 사이의 DNS 바꿔치기는 테넌트의 서버 계정 nftables(네이티브 브랜치)가 두 번째 벽이다.
+  자체 설치·사무실은 그대로 아무 http(s)(로컬 Ollama).
+- **요금제 파일 `<base>/root/plan.json`(명세 D23)**: 검토 BIZ-01의 `MYCEL_PLAN` 환경 변수 대신 root 소유 파일로 정했다. 서버 계정이
+  자기 한도를 올릴 수 없고, 바꿔도 재시작이 필요 없다(60초마다 mtime 확인). `MYCEL_PLAN_FILE`이 우선. 명세 스키마에 `maxSeats`
+  (BIZ-01)와 `manageUrl`(요금제 바꾸는 https 주소, UX-14의 링크)을 더했다. 깨진 파일은 경고만 하고 **마지막 유효 값을 유지**한다
+  (잘못 쓴 파일이 한도를 풀면 안 됨). 파일이 없으면 한도 없음(자체 설치). 계산(턴 메모리 등)은 명세 표와 같은 값을 내도록 시험.
+- **동시 실행 수 = min(관리자 설정, 요금제)**: 저장한 설정은 그대로 두고(요금제를 올리면 관리자가 고른 값이 돌아옴) 대기열과
+  진단이 같은 함수 `effectiveConcurrency`를 쓴다. `PATCH /api/admin/engines`와 `PATCH /api/admin/settings`의 `concurrency`가
+  요금제보다 크면 400(`params.reason = concurrency_over_plan`). 응답에 `concurrencyMax`.
+- **좌석(BIZ-01, UX-14)**: 활성 계정 수(비활성·삭제는 안 셈, owner 포함). 초대 링크 만들기, 초대 수락(쓰기 트랜잭션 안에서 다시 셈:
+  마지막 자리를 둘이 동시에 못 가짐, 링크는 쓰이지 않은 채 남음), 직접 추가, 비활성 계정 다시 켜기가 넘으면 409
+  (`params.reason = seat_limit`, `limit`, `manageUrl`), 문구는 ko/en/id. Basic 5·Team 12·Pro 20 같은 숫자는 컨트롤 플레인이
+  `plan.json`에 쓴다.
+- **팀 시간대(명세 D16)는 앱 안 설정이다**: 검토 UX-06은 "env만, 앱 설정은 v1에 없음"이었지만 지시에 따라 명세대로 팀 설정
+  `timeZone`(IANA)을 만들었다. 첫 설정 화면이 브라우저 시간대를 보내고, 없으면 `MYCEL_TEAM_TZ`(컨트롤 플레인) → 프로세스 시간대 →
+  UTC. 모르는 이름은 400. 예산의 하루·한 달 경계, 하루별 사용량, 예약 작업(바꾸면 켜진 예약의 다음 실행을 다시 계산), 충돌 사본
+  이름, 야간 백업 시각이 이 시간대를 따른다. 엔진에는 `TZ`로 주되 **프로세스 시간대와 다를 때만** 넣는다(맥의 실행 요청은 글자
+  하나 바뀌지 않음). 시간대 계산은 `server/src/system/time-zone.ts` 한 곳(예약 작업의 함수를 옮기고 다시 내보냄). `chat/turn.ts`를
+  고치지 않으려고 엔진 시간대는 채팅 런타임이 등록하는 프로세스 설정으로 읽는다.
+- **대기열 상한(L07)**: 팀 대기 ≥ max(10, 4×동시 실행) 또는 한 사람 대기 ≥ 3이면 429 + `Retry-After: 30`. 명세는 새 오류 코드
+  세 개를 더하라고 했지만 **기존 `rate_limited`(429)에 `params.reason`(`queue_full`·`queue_full_user`·`jobs_full`)**으로 정했다:
+  클라이언트가 이미 429와 `retryAfter`를 다루고, 공유 계약은 꼭 필요할 때만 넓힌다. 예약 실행이 막히면 채팅을 만들기 전에
+  확인해(빈 "⏰" 채팅이 남지 않음) 1분 뒤로 미루고 감사 `schedule.deferred`. 작업(받아쓰기·내보내기)은 한 사람 대기+실행 5개.
+- **저장 공간(L17, BIZ-03)**: 진실은 팀 폴더 파일 시스템의 `statfs`(명세 D20). 검토 BIZ-03의 "쿼터 = 팀 폴더+버전+휴지통+DB" 장부
+  대신 이것을 택했다: 호스팅 테넌트의 디스크가 곧 요금제 크기이고, 장부는 어긋나며, 로컬 백업은 요금제 보존일(클라우드 3일)로
+  묶인다. 단계 80%(owner·관리자 알림 24시간에 한 번, 재시작해도 설정 표에 기억, 감사 `storage.warn`) · 90%(진단 경고) ·
+  95%(진단 실패). 남은 공간 − 쓸 크기 < max(512 MiB, 2%)면 **507 `storage_full`(새 오류 코드, UX-14)**: 파일 저장, 업로드, 조각
+  업로드, 첨부, AI의 write·edit·make_file(도구 오류). 거부는 리눅스나 요금제가 있는 곳에서만(맥은 지금의 1 GB·2 GB 여유 검사
+  그대로). `GET /api/admin/storage`(owner·관리자)는 명세가 `admin.ts`(A)에 두라 했지만 진단처럼 G 그룹(`shared/src/api/system.ts`,
+  `routes/system.ts`)에 두었다: 주인이 G이고 자격 증명 브랜치가 고치는 `admin.ts`와 겹치지 않는다. 응답에 항목별 크기(시작 5분 뒤,
+  그다음 1시간마다 측정)와 요금제(좌석 사용/한도, 동시 실행, 요금제 주소)가 있어 관리자 › 시스템의 "서비스" 카드가 된다(UX-07).
+- **보존 기간 정리(L08)**: 이전 `701_g_retention_indexes.sql`(G 범위 700–799의 첫 번호; A가 101로 시작한 것과 같은 규칙).
+  `tool_events_at`·`file_events_at`은 이미 있어 `IF NOT EXISTS`가 아무것도 안 하고, `turns_ended`·`proxy_tokens_expires`·
+  `proxy_tokens_revoked`·`jobs_finished`를 더했다. 한 시간마다 표마다 5000행씩 2초 안에서. 채팅마다 마지막 턴은 남긴다.
+- **야간 백업 시각(L09)**: 팀 시간대 03:00(전과 같음). 분산(02:00 + 설치 id 해시 % 180분)은 **클라우드이거나 요금제가 있을 때만**
+  (명세는 리눅스 전체): 자체 리눅스 설치는 호스트에 팀이 하나라 몰릴 일이 없고, 03:00 안내 문구도 그대로 맞다. 설치 id =
+  `MYCEL_INSTALL_ID`(컨트롤 플레인의 테넌트 id) 또는 설정 `system.installId`(처음 쓸 때 만듦). 로컬 백업 보존일은 요금제
+  `localBackupRetentionDays`(없으면 14).
+- **스레드·읽기 한도(L10)**: 리눅스이거나 요금제가 있을 때(`limitsActive`): ripgrep `--threads min(2, 요금제 코어)`, whisper
+  `max(1, min(4, 코어−1))`, ONNX `intraOp ≤ 2`, `inter 1`, typst `--jobs 2`(리눅스 번들의 typst만), 서버 안에서 파싱하는
+  xlsx·xls·ods·hwp·hwpx는 32 MiB 넘으면 거부. `read` 한도는 요금제 `readMaxMiB`(없으면 200 MiB, 전과 같음), grep 문서 캐시는
+  min(50 MiB, 그 값). 요금제 없는 맥은 모두 전과 같다.
+- **의미 검색(L14)**: 폴더를 먼저 비교하고 새로 넣을 파일이 없으면 모델을 올리지 않는다(지운 파일 정리는 모델 없이). 15분 쓰지
+  않으면 내리고(쓰는 중에는 안 내림) 다음에 다시 올린다. 이 둘은 모든 플랫폼(보이는 동작 변화 없음). `MYCEL_MODELS_DIR/semantic`·
+  `/whisper`의 읽기 전용 공유 모델은 해시가 맞을 때만 쓰고 쓰지 않는다(프로세스당 파일 버전마다 한 번 확인). 첫 색인 지연
+  10–15분(설치 id로 분산)은 `limitsActive`일 때만(맥은 20초 그대로).
+- **연결 폴더(L15)**: 리눅스 자체 설치는 `/mnt`·`/media`·`/srv` 아래만(그 폴더 자체는 안 됨), 설치 폴더·그 상위·`/home`·숨은 폴더는
+  거부, 문구는 리눅스판. 클라우드는 끔.
+- **진단(L16)**: `hostKind` = mac·linux·hosted. 맥 문구는 `hostMessages('mac')`가 `M` 그 자체를 돌려 바이트 단위로 같다.
+  리눅스는 `run/firewall.json`(공유 스키마 `FirewallStatus`), systemd·journalctl 명령, 실행기의 `{"op":"status"}` 보고
+  (`shared/src/engine.ts` `LauncherStatus`, 모르는 필드 허용; 모르는 실행기·응답 없음은 샌드박스 "알 수 없음"), 커널 격리
+  (`ptrace_scope ≥ 1`, cgroup 위임, 사용자 ns), cron/at(없으면 정상), 디스크는 저장 공간 단계로. 호스팅 문구는 명령 대신 관리자
+  화면·지원팀을 가리키고, 괜찮을 때의 소켓 경로 줄은 숨긴다. 관리자 › AI 엔진의 상태 문구도 같은 방식(`engineStatusMessages`).
+  맥 배치를 가정한 기존 진단 시험은 `platform: 'darwin'`을 명시해 리눅스 CI에서도 같은 결과를 낸다.
+- **업데이트(L20)**: 릴리스 공개 키는 `server/src/system/release-keys.ts` 한 곳(사무실 피드와 서버 피드가 같은 키). 키가 생기면
+  맥의 서명 없는 설치에서 준비·되돌리기가 깨지므로 서명 없는 묶음의 기본 허용은 "`MYCEL_ALLOW_UNSIGNED=1` 또는 지금 도는 버전에
+  서명이 없음"(명세 3.6.3 그대로). 피드에 `rollout`(더하기만), `UpdateStatus`에 `needsRoot`·`auto`·`managed`. root가 필요한
+  릴리스는 앱에서 설치하지 않고(409, `sudo mycel-ctl update` 안내, 진단 경고). 업데이트 한 번의 순서는 `system/update-job.ts`
+  하나를 버튼과 자동 업데이트가 같이 쓰고, 유지 보수 잠금은 ops 서비스의 것 하나다. 자동 업데이트는 자체 설치의 `update.auto`일 때만:
+  한 시간마다 피드 → 더 새 버전·앱만·롤아웃 안·팀 시간대의 업데이트 창(기본 03:00–05:00) 안·도는 답 없음 → 적용. bootstrap이
+  되돌린 버전(또는 자동으로 시도해 바꾼 버전)은 7일 동안 다시 하지 않는다. 클라우드는 자동 업데이트도 버튼도 없다.
+- **미룬 것**: `scripts/release/publish.ts --server`(서버 피드 올리기)는 리눅스 번들(L19, 네이티브 브랜치)이 생긴 뒤에 그 산출물
+  형식에 맞춰 더한다. `mycel-ctl`·설치기·실행기의 `status`·`forget` 구현과 서버 계정 nftables도 네이티브 브랜치. 웹의 "서비스"
+  화면 중 결제·오프사이트 백업 시각·지원 연락처(UX-07)는 컨트롤 플레인이 생긴 뒤.
+- **이름**: 사용자에게 보이는 "클라우드" 문구는 `${PRODUCT.displayName} Cloud`로 만든다(제품 이름은 `shared/src/product.ts` 한 곳).
+  아래 글의 "클라우드"는 `deployment: "hosted"`를 말한다.
+- **시험 환경 메모**: 이 작업 트리 경로가 길어 기본 작업 폴더(`tests/.work`)에서는 맥 소켓 경로(103바이트)를 넘는 시험이 있다.
+  `MYCEL_WORK=~/.mw-cls bun test tests/unit`처럼 짧은 작업 폴더로 돌린다(기존 시험의 문제, 코드 변경 없음).
+
+## 리눅스 런타임 (feat/cloud-linux-native, 2026-10-22)
+
+명세 `linux-runtime.md`(W1·W5·W6)를 구현하며 정한 것. 맥 역할 계정 모드·사무실 모드는 동작이 바뀌지 않는다(모든 변경은 `process.platform === 'linux'` / Go `_linux.go` 빌드 태그 / 새 설정 키 뒤).
+
+### 턴 격리와 실행기
+- **실행기의 채팅 폴더 안 심볼릭 링크 결함(D27)을 두 플랫폼에서 고쳤다.** 세션 수집·복원·턴 파일 쓰기·Codex 로그인 되읽기가 엔진이 심은 링크를 따라가 다른 채팅·`codex-auth/auth.json`을 읽거나 지웠다. 이제 실행기의 채팅 폴더 안 모든 파일 작업은 `native/cmd/mycel-launcher/safepath*.go`를 쓴다(리눅스 `openat2 RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS`, openat2가 없거나 구형 컨테이너 seccomp가 막으면 구성 요소별 `O_NOFOLLOW` 걷기; 맥도 구성 요소별 `O_NOFOLLOW`). 맥 `g-sandbox.test.ts`에 옛 실행기에서 실패하는 종단 시험을 더했다.
+- **D7(세션 id): bwrap에 `--new-session`을 주지 않는다.** 스파이크 S2를 데비안 13 bwrap 0.12.0에서 실행해 감시자·init·명령이 모두 실행기가 만든 세션·그룹(= `started.pid`)에 남음을 확인했다(`ps -o pid,pgid,sid`). 관문의 `peer.sid == turn.pgid`와 프록시 확인이 그대로 맞는다. fd 3 전달과 `--remount-ro /` 뒤 `CHAT_DIR` 쓰기도 확인.
+- **cgroup 진입: `CLONE_INTO_CGROUP`(Go `SysProcAttr.UseCgroupFD`)를 쓰되, clone3를 막는 구형 컨테이너 seccomp에서는 `mycel-sandbox cgexec`로 대체한다.** 실행기가 시작할 때 clone3+cgroup을 한 번 탐지해 고른다(`cgroup_linux.go probeCgroupFD`). 둘 다 안 되고 `--cgroup required`면 거부.
+- **실패 시 닫힘(3.3.9)**은 `native/internal/fwstatus`(방화벽 상태 신선도·uid·포트)와 플랜 동시 턴 상한, 샌드박스 파일 소유자·모드 재확인, 프록시 포트 선점 검사로 구현. 프록시 포트를 엔진 uid가 선점했으면 그 프로세스를 죽이고 턴을 `proxy_port_taken`으로 거부한다.
+
+### mycel-sandbox (L03, fork A)
+- **seccomp 거부 목록에 `open_tree_attr`(6.15+ 마운트 계열)를 더했고, `lookup_dcookie`·`nfsservctl`은 arm64에도 번호가 있어 두 아키텍처 모두 거부한다.**
+- **`mycel-sandbox exec`의 `--landlock` 기본값은 `required`(실패 시 닫힘)이고, `--exec-allow` 경로가 없으면 best-effort만 건너뛰고 나머지는 종료 70이다.** 모든 거부는 종료 70 + 표준 에러 `mycel-sandbox: …`. 동적 링크 엔진(Claude Code)은 `--exec-allow`에 ELF 로더의 실제 경로가 필요하고 정적 엔진(Codex·다리)은 아니다(실측으로 확인).
+
+### OCR (L13, fork C)
+- **HEIC는 ffmpeg 대신 libheif의 `heif-dec`로 PNG로 바꾼다.** 데비안 13 ffmpeg 7.1 CLI는 휴대폰 타일 HEIC에서 첫 타일만 꺼내 글자를 조용히 잃는다(실측). `install-linux.sh`의 apt 목록에 `libheif-examples`를 더한다.
+- **pdftoppm은 144dpi로 그리되 긴 변이 4000px를 넘는 쪽만 `-scale-to 4000`을 쓴다**(`-scale-to`가 `-r`을 덮어쓰기 때문, Swift판과 같은 의미). PDF 인식은 200초 안에서 멈추고 `[… N more pages not read]`를 붙인다(서버가 240초에 죽이면 읽은 쪽까지 모두 잃기 때문). 투명 PNG는 tesseract가 흰 바탕으로 합성하므로 따로 처리하지 않는다.
+- **스파이크 S5**: 데비안 13 tesseract 5.5 `kor+eng`, 2코어에서 10쪽 한국어 스캔 PDF가 25초(쪽당 2.5초), 글자 정확도 표본 ~97%. 60초 기준 안이라 `-r 144`·리눅스 `OCR_PAGES_MAX 50`을 유지한다.
+
+### mycel-ctl (L04·L21, fork B)
+- **실행기는 서버 계정만 받으므로 `mycel-ctl update`는 턴 수를 알기 위해 자기 자신을 서버 계정으로 실행해 `{"op":"status"}`를 묻는다.** 답이 없으면 엔진 계정의 실행기 외 프로세스 수로 대신한다.
+- **번들 tar.zst는 `zstd -dc` + Go `archive/tar`로 풀고 일반 파일·폴더만 받는다**(링크·`..`·특수 파일 거부). root가 신뢰할 수 없는 압축을 풀 때 링크를 따라가는 경로를 없앴다.
+- **hosted 서버 사슬은 `/etc/resolv.conf`의 사설 대역 이름 서버만 53번을 허용한다.** 169.254/16 이름 서버는 메타데이터 대역과 함께 막힌다.
+- 추가 하위 명령 `render-units`, `codex-login --status|--logout`, `update --pubkey`; `update --json`에 `appUpdated`·`skipped`·`notes`.
+
+### 번들 (L19, fork D1)
+- **리눅스 amd64 번들의 bun은 `bun-linux-x64-baseline`이다**(테넌트 vCPU는 x86-64-v2까지만 보장, 일반 x64 빌드는 AVX2 필요). whisper는 두 벌(AVX2판·SSE4.2판)을 두고 서버가 `/proc/cpuinfo`로 고른다.
+- **번들 `root/`에 `codex-catalog.mjs`를 더했다**(설치기 `--codex-models`용, 서명 범위 안). 키트는 최상위 폴더 하나로 묶는다. whisper 빌드는 `GGML_OPENMP=OFF`로 libgomp 의존을 없앤다. 리눅스 번들은 `--whisper-dir` 또는 `--no-whisper`를 꼭 받는다.
+- **공개(main) 빌드 서명은 CI에 `RELEASE_KEY_PEM` 비밀이 있을 때만 한다**(릴리스 키는 현재 owner 맥에만 있음). 그 전까지 main 빌드는 서명 없음.
+
+### systemd 유닛 하드닝 (스파이크 S1, 설치 L22)
+- **S1을 데비안 13(systemd 257, bwrap 0.12.0) 컨테이너에서 실행해 실행기 유닛의 지시어를 하나씩 확인했다.** 명세 3.2.2 목록에서 둘을 뺀다: `ProtectHostname`(seccomp가 `sethostname`을 막아 bwrap `--hostname`이 EPERM), `RestrictSUIDSGID`(systemd가 `openat2`의 mode를 볼 수 없어 ENOSYS로 답하고, bwrap 0.12는 바인드 원본을 `openat2`로 열며 대체 경로가 없음 → "Can't open source /usr/lib: Function not implemented"). 서버 유닛도 변환기가 bwrap을 쓰므로 `RestrictSUIDSGID`를 뺀다(`ProtectHostname`은 변환기가 `--hostname`을 쓰지 않아 남김). 샌드박스 안 바인드는 모두 nosuid이고 `NoNewPrivileges`가 남으므로 잃는 것이 없다. 나머지 지시어는 통과. 실행기의 `safepath`는 `openat2`가 ENOSYS면 구성 요소별 걷기로 내려가므로 이 필터 아래에서도 맞다. LXC·KVM에서의 S1은 pve-ci에서 다시 확인한다.
+- **AppArmor bwrap 프로필은 bwrap이 정말 사용자 ns를 못 만들 때만 새로 넣는다**(이미 넣은 자기 프로필은 갱신). AppArmor 정책은 커널 전체에 하나라, `/usr/bin/bwrap`에 붙는 프로필이 둘이면(같은 호스트의 다른 `--id`, 배포판 프로필, 커널을 나누는 다른 테넌트) 붙일 대상이 모호해져 둘 다 적용되지 않고 모든 설치가 깨진다(시험 설치 둘을 동시에 돌릴 때 실제로 일어남). 명세 3.5.1 4단계의 "bwrap을 허용하는 프로필이 없으면"을 이렇게 구현했다.
+
+### 시험·CI (L23·L26)
+- **T1 공격 시험은 실제 bwrap·nftables·cgroup 아래에서 돈다**(`docker run --privileged --cgroupns=private`). 가짜 엔진이 자기 엔진 폴더(`MYCEL_FAKE_ENGINE_DIR`)에서 돌고, 격리 확인은 엔진을 통한 양성(benign) 도달성 보고(파일 stat/read, TCP 연결)로 하고 드라이버가 막혔음을 단언한다. 시스템 호출 단위 차단(seccomp errno, Landlock EACCES)은 `mycel-sandbox`의 Go 시험이, 방화벽은 `mycel-ctl`의 Docker 시험이 따로 확인한다.
+- **GitHub Actions가 결제로 멈춰 있어**(OWNER-TODO) CI 작업은 정의만 하고 `scripts/linux/ci-local.sh`가 pve-ci 테넌트에서 check·T1·T2·T3를 차례로 돌려 결과 JSON을 남긴다.
+- **T3(실제 엔진 잠금, `linux-lockdown.yml`)는 정의만 했다.** 필요한 L25(설치본 모드 `tests/lib/engines.ts`, `scripts/linux/lockdown-setup.sh`, pve-ci 러너와 시험용 로그인)가 아직 없어서, 작업은 그 하네스가 없으면 이유를 말하고 실패하고 `ci-local.sh`는 T3를 건너뛴다.
+- **T1은 커널 전체 상태(AppArmor 정책)를 다른 시험과 나눈다.** T2처럼 bwrap 프로필을 넣고 빼는 시험과 동시에 돌리면 서로 깨진다. CI는 러너마다 작업 하나라 문제없고, 로컬에서는 차례로 돌린다.
+
+## 통합 정리: 클라우드 가지 합치기 (feat/cloud-integrate, 2026-10-22)
+
+호스트·중계·AI 연결·리눅스 서버 가지를 합치고 컨트롤 플레인 SV-1–SV-3를 더하면서, 서로 어긋난 것을 이렇게 정했다.
+**이 절이 위의 절들보다 우선한다**(위의 글은 기록으로 둔다).
+
+1. **plan.json 스키마는 하나**: `shared/src/cloud-protocol/files.ts`의 `PlanFile`. 서버(`server/src/system/limits.ts`)도 그것으로
+   읽는다. 리눅스 서버 절의 `maxSeats`·`manageUrl`은 `maxActiveMembers`·`links.account`로 바뀌었다(컨트롤 플레인은 처음부터 이
+   이름으로 써서, 합치기 전에는 호스팅에서 인원 한도가 꺼져 있었다). `turnPidsMax`는 64–4096(Go `native/internal/plan`과 같게),
+   `updatedAt`은 선택(손으로 쓴 자체 설치 파일). 한도를 넘으면 **409 새 오류 코드 `plan_limit`**(`params.reason` =
+   `seat_limit` | `concurrency_over_plan`, `params.manageUrl`): 리눅스 서버 절의 409 `conflict`·400 `validation` 대신.
+2. **SV-1–SV-3**: `server/src/system/managed.ts`가 `<base>/root/notices.json`(`MYCEL_NOTICES_FILE`)을 시작 때·30초마다 mtime·SIGHUP에
+   읽는다. 깨진 파일은 마지막 정상값을 쓰고 진단에 `managed.notices`/`managed.plan` 경고. `GET /api/managed/notices`(로그인한 모두,
+   역할에 맞는 것만, 그 사람 언어, critical 먼저)와 `GET /api/admin/plan`(owner·관리자). 웹: 모든 화면 위 공지 띠(info·warn은
+   브라우저마다 닫기, critical은 닫기 없음), 관리자 › 시스템의 요금제 카드(owner·관리자). `GET /api/admin/storage`의 `plan`은
+   요금제 카드로 옮겼다(중복). 로컬 백업 보관 일수 = plan `localBackupRetentionDays`(클라우드는 CP가 3을 씀, 시험).
+3. **SIGHUP**: 서버는 plan.json·notices.json을 바로 다시 읽는다(전에는 SIGHUP에 프로세스가 끝났다). `mycel-bootstrap`은 SIGHUP을
+   서버 프로세스에만(그룹 아님) 넘긴다. mycel-ctl(CT-1)은 `systemctl kill --kill-whom=main -s HUP <id>-server.service`로 보낸다
+   (`all`이면 변환기 같은 자식이 죽는다). 신호가 없어도 30초(공지)·60초(요금제) 안에 반영된다.
+4. **계약은 한 곳**: tenant 쪽 스키마(`TenantStatus`, `EnrollFile`, `EnrollStatus`, tenantCommand 허용 목록·관문·argv,
+   `PlanResources`, 이름 규칙)의 주인은 `shared/src/cloud-protocol`이고 `ee/cloud/contracts/substrate.ts`는 그것을
+   `@mycel/shared/cloud-protocol`로 가져와 다시 내보낸다. 호스트 절의 "TenantStatus는 당분간 substrate.ts에도 … zod가 모르는 키를
+   버리므로"는 끝났다: **strict**(SH-1 절이 맞음), 모르는 필드가 있으면 hostd는 그 테넌트를 `app: null`로 보고한다. 맞춘 규칙:
+   `TenantId` = ULID, `publicOrigins` = `HttpsUrl`(https, 이 기계만 http), reset-link 사용자 이름 = 서버의 `Username` 규칙(hostd가
+   `kim.lee`를 거절하던 것), stdin도 명령 스키마로 검사, argv 플래그는 kebab-case(`--team-id`, `--local-id`), `PlanResources`는
+   hostd의 범위(strict), `TimeZoneName`·`Locale`(ko/en/id)·`TeamSlug`·`RelayTeamId`(`_` 허용)·`EnrollToken` 하나씩. ee의
+   `ControlPlaneUrl`만 http를 더 받는다(docker 개발 드라이버의 `host.docker.internal`). 컨트롤 플레인이 다시 복사할 파일과
+   커밋: `docs/cloud/CONTRACT-SYNC.md`.
+5. **CP가 찾은 계약 공백**: `createTenant` 결과에 `verify`(복원 시험, enroll-status.json에서), 호스트 등록 응답 `cpKeys`의
+   `use: 'grant'`(hostd가 `cpGrantKeys`로 고정), grant 토큰 형식 `axgrant1.<b64url(JCS)>.<b64url(sig)>`·`verifyGrantToken`
+   (CP의 검증기로 교차 확인한 벡터)·`SupportSessionReport`(`/substrate/v1/hosts/{id}/support-sessions`). `ax-hostd console`
+   명령 자체는 아직 없다.
+6. **등록 요청의 버전**: mycel-enroll은 `appVersion`을 `app/current`에서, 없으면 키트 버전으로 보낸다. 계약은 빈 문자열을
+   `unknown`으로 읽는다(CP C-20의 관용을 계약에 넣음). enroll-status.json 스키마는 mycel-enroll이 쓰는 그대로(`v`,
+   `kitVersion`, `verify.schemaVersion` null 가능).
+7. **reattach는 로컬**(호스트 절이 맞음): mycel-enroll은 CP를 부르지 않는다. 계약의 `/enroll` reattach 모드는 나중을 위해 남기고,
+   `enroll.json`의 reattach는 `relayTeamId` 없이도 유효하다(hostd는 모르고 데이터 디스크에 있다).
+8. **인증 모드**: 호스팅 등록은 `engine.authMode = "managed"`를 쓴다(키가 없는 키트 시드가 local-login으로 뜨지 않게). 호스팅
+   테넌트는 이 릴리스부터 시작하므로 D18의 "이번 릴리스는 `subscription`"(옛 판으로 되돌릴 때를 위한 것)이 필요 없다. 맥
+   설치기·사무실은 D18 그대로. 운영 채팅 절의 "'proxy'(회사 키)는 거절"·Codex 베타·회사 키 경로(66, 134–136, 549–570행)는
+   D18–D20으로 끝났다. 더 만들어지지 않던 오류 코드 `proxy_mode`·`setup_token_missing`·`codex_beta`와 그 문구는 지웠다.
+9. **AI 연결 종류**: 호스팅 기본은 API 키 두 종류(ADDENDUM 3). `engine.credentialKinds`가 없는 hosted `server.json`도 서버가 API
+   키만 허용한다(`allowedCredentialKinds`, mycel-enroll과 같은 목록 `CLOUD_DEFAULT_CREDENTIAL_KINDS`). CP가 목록을 보내면 그것
+   (CP C-21 함대 전환). D22의 "최종 결정은 owner"는 이 기본을 넓힐지의 결정이다. 자체 설치·사무실은 네 종류.
+10. **시간**: 호스팅 팀의 시간대는 가입 때 고른 `MYCEL_TEAM_TZ`가 첫 설정 화면의 브라우저 시간대보다 우선한다(owner가 설정에서 바꿀
+    수 있음; host의 백업 창이 그 시간대 기준). 야간 백업 시작은 hostd가 정한 `MYCEL_BACKUP_WINDOW_START_MIN`(enroll.json →
+    `/etc/default/mycel`), 없으면 리눅스 서버 절의 02:00 + 설치 id 해시.
+11. **중계**: `relay.officialAvailable` 기본은 true(중계 절, 601행의 false는 옛 값). 공식 중계는 등록이 닫혀 있어 자체 설치는
+    계정 콘솔의 연결 코드를 넣는다(INSTALL-LINUX 7장을 고침). 호스팅은 `registration.json`을 기다린다.
+12. **문서**: INSTALL-LINUX의 요금제 예(`maxActiveMembers`), AI 연결(관리자 › AI 연결이 먼저, CLI는 대체), 설치 코드
+    `setup/code` = `data/setup-token`(설치기가 둘 다 씀; 웹은 `?token=`·`#token=` 둘 다 받음).
+13. **CT-1(linux-native 병합 뒤 이 가지에서 함)**: `mycel-ctl`에 tenant 명령 전부(`notices-set`, `set-server-config`,
+    `relay-registration-set`, `relay-key-proof`, `idle-wait`, `prepare-stop`, `backup-prepare`/`backup-upload`, `export`,
+    `reset-link`, `setup-token-rotate`, `credentials-escrow-out`; `native/cmd/mycel-ctl/tenant.go`). 계약의 argv 그대로(`--json`,
+    kebab-case 플래그, 공유 벡터가 그대로 파싱됨), 인자·stdin을 한 번 더 확인, 성공이면 JSON 객체 하나(1 MiB 이하), 실패면
+    stdout 없이 0 아닌 종료. 앱 일은 서버 계정으로 `admin.js`(새 명령 `cloud-status`, `reset-link`, `credentials-escrow-out`,
+    `server/src/system/cloud-tenant.ts`), 서버 계정 폴더에 쓰는 일(`config/server.json` 병합, `data/relay/registration.json`)은
+    mycel-ctl을 서버 계정으로 다시 실행해서 한다: root가 자기 것이 아닌 경로에 쓰지 않는다. `status --json`은 이제 strict
+    `TenantStatus`(앱 부분은 `admin.js cloud-status`, 나머지는 /api/health·/proc·statfs·업데이트 잠금), 설치 보고서는
+    `status --detail --json`. `apply-plan`은 `--json`을 받고 서버에 SIGHUP. Go `plan.Parse`는 CP의 `maxActiveMembers`·
+    `display`·`links`를 받는다(다른 모르는 키는 여전히 거부). 열쇠 보관본(`credentials-escrow-out`)의 평문은 키 줄이고, rekey 뒤에는
+    파일 이름이 앞에 붙어(`credentials.key.<N> <base64>`) mycel-enroll이 그 이름으로 복원한다(전에는 늘 `credentials.key`로 써서
+    rekey한 팀의 AI 연결이 복원 뒤 열리지 않았다). 실제 리눅스 확인: `bash tests/cloud/tenant-commands-docker.sh`(실제 mycel-ctl +
+    실제 admin.js + 돌아가는 팀 서버, 출력은 계약 zod로 검사).
+14. **시험 메모**: 새 작업 트리에서는 `bash native/build.sh`를 먼저 돌린다. 권한 매트릭스와 채팅 시험이 실행기·게이트·브리지
+    바이너리를 쓰고, 없으면 모든 턴이 오류로 끝나 무관한 실패처럼 보인다.
+
+### 통합: L18 서버 쪽 (D)
+- **영구 삭제된 채팅의 엔진 폴더는 실행기 `forget`으로 지운다**(`server/src/chat/forget.ts`). 휴지통 보관 기간이 지난 채팅(`ChatRuntime.purgeTrash`)과 지운 계정의 채팅(`auth/sweeper.ts`)이 DB에서 빠진 뒤에만 부르고, 휴지통에 있거나 살아 있는 채팅은 절대 부르지 않는다. 실행기 소켓은 `engine.launcherSock`, 없으면 운영 경로(`<runDir>/launcher.sock`); dev는 없음(엔진이 서버 사용자라 바로 지움). 실패해도 삭제는 막지 않는다: 남은 id는 설정 `chat.forgetPending`(최대 500)에 두고 매시 정리와 시작 30초 뒤에 다시 보낸다. 실행기가 응답하지 않으면 남은 id를 한꺼번에 미룬다(id마다 기다리지 않음). 목록에서 밀려난 것은 실행기의 30일 미사용 폴더 정리가 지운다.
+- **`oom`·`disk_limit` 턴 종료는 자기 오류다**(`chat/i18n.ts turnLimitError`, `turn.ts stoppedAtLimit`): 코드 `payload_too_large`(한 답변에 너무 큰 일, 긴 대화와 같은 갈래) + `params.reason` `turn_memory_limit`|`turn_disk_limit`, 요금제가 있으면 `limitMiB`(턴 메모리 = `planLimits().turnMaxMiB`, 디스크 = `turnDiskMaxMiB`)와 그 숫자를 넣은 ko/en/id 문구. 같은 일은 같은 한도에 걸리므로 다시 시도하지 않는다. 웹은 서버 문구를 그대로 보인다.
+
+### 통합: 실행기 Codex 경로·T1 관리 모드 (B, C)
+- 실행기가 채팅 폴더 안에서 하는 파일 일(관리형·자기 계정 Codex의 `.codex`·`.home` 만들기·쓰기·지우기, `.turn`·`.tmp` 준비, `token`·`system.md`·`mcp.json`, 남은 `.codex` 지우기)은 모두 채팅 폴더의 열린 루트(`safepath.go`, 링크를 따라가지 않음)로 한다. 실제 구멍 하나를 막았다: 턴 중의 `os.Remove(<chat>/.turn/system.md)`가 엔진이 링크로 바꿔 둔 `.turn`을 따라가 다른 채팅의 `.turn/system.md`를 지울 수 있었다. `.codex` 쪽은 Go `os.RemoveAll`·`O_EXCL|O_NOFOLLOW` 덕에 경쟁 창 밖에서는 따라가지 않았지만, 확인과 쓰기 사이에 경로가 바뀌는 경우까지 막으려고 같은 루트로 옮겼다(링크를 `.codex`·`.home`·`.turn`·`.tmp`에, `.codex` 안에 심은 Go 시험).
+- T1(리눅스 Docker)에 관리 모드 턴을 더했다: 서버 전체(관리 모드, 팀 API 키 연결), 모델 프록시는 엔진 계정이 갈 수 있는 유일한 포트(19176), 실행기는 bwrap, 가짜 상위 서버는 다른 루프백 포트. Claude·Codex 모두 답이 프록시를 거쳐 오고, 상위가 받은 요청에는 프록시가 바꿔 끼운 진짜 키만, 엔진의 환경·argv·파일에는 진짜 키가 없고, 엔진은 상위·서버 API 포트에 직접 닿지 못한다. 관리형 Codex는 프록시의 평문 HTTP 주소를 쓰고 CONNECT는 403. 가짜 엔진은 `b-fake-engine.ts`를 `bun build --compile`로 `/opt/fake-engine/{claude,codex}`에 둔다(턴 샌드박스는 엔진 폴더만 보여 줌). 19176의 루트 대기 리스너는 없애고 드라이버가 앞부분에서 대신 듣는다. Dockerfile은 `ee/cloud/package.json`도 복사한다(없으면 `--frozen-lockfile`이 실패: 통합 브랜치에서 ee/cloud가 `@mycel/shared`에 기댄다).
+
+## 클라우드의 AI 연결 종류: 네 가지 모두 (2026-10-22, owner 결정)
+
+- 클라우드(hosted)도 자체 설치와 같이 **네 종류 모두**(Claude 구독, Claude API 키, ChatGPT, OpenAI API 키)를 기본으로 연다. owner 판단: 우리는 팀마다 VM을 빌려 주고, 팀이 자기 계정을 연결한다.
+- 바뀐 곳: `shared/src/cloud-protocol/common.ts` `CLOUD_DEFAULT_CREDENTIAL_KINDS`(서버의 hosted 기본값도 이것), `native/cmd/mycel-enroll/enroll.go`, 컨트롤 플레인 `CP_ENGINE_CREDENTIAL_KINDS` 기본값, 관련 시험.
+- 그대로인 것: 구독 종류를 추가할 때의 안내와 확인 칸(D23, 서버가 `acknowledgedPlanNotice`를 요구). 컨트롤 플레인의 함대 전체 스위치(`set-server-config`)로 언제든 API 키만으로 좁힐 수 있다. 위험 기록은 `docs/SECURITY-AUDIT.md`·credentials 명세 7장에 남긴다.

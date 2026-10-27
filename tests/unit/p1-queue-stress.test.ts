@@ -44,7 +44,8 @@ test('80 overlapping requests on 8 chats settle cleanly', async () => {
           await api.call(API.deleteChat, { params: { id: c.id } })
           await api.call(API.restoreChat, { params: { id: c.id } })
         }
-      } catch (e) { if (!/conflict|409|turn|not_found|validation/i.test(String((e as Error).message) + JSON.stringify((e as any).body ?? ''))) throw e }
+      // rate_limited: one person may have at most 3 questions waiting (chat/runtime.ts checkQueueRoom), a refusal like the others
+      } catch (e) { if (!/conflict|409|turn|not_found|validation|rate_limited|429/i.test(String((e as Error).message) + JSON.stringify((e as any).body ?? ''))) throw e }
     })()
     ops.push(p)
     await Bun.sleep(rnd(30))

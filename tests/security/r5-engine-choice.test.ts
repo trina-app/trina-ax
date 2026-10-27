@@ -10,7 +10,7 @@ import { buildWorld, type World } from './lib/world'
 setDefaultTimeout(120_000)
 let W: World
 let inst: Instance
-beforeAll(async () => { inst = await startInstance('r5-engine-choice'); W = await buildWorld(inst) })
+beforeAll(async () => { inst = await startInstance('r5-engine-choice'); W = await buildWorld(inst, { sharedSubscriptions: true }) })
 afterAll(async () => { for (const s of Object.values(W?.sockets ?? {})) s.close(); await inst?.close() })
 
 const turns = (chatId: string) => (inst.ctx.db.query('SELECT COUNT(*) AS n FROM turns WHERE chat_id = ?').get(chatId) as { n: number }).n

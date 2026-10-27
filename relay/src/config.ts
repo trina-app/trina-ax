@@ -13,8 +13,11 @@ export interface RelayConfig {
   dev: boolean
   host: string
   port: number
-  /** team addresses are <team>.<domain> */
+  /** team addresses are <team>.<domain>: the first of `domains` (registration answers, the team server's address) */
   domain: string
+  /** every domain this relay serves team addresses under (`--domain a.com,b.com`; the first is the default). A second
+   * domain lets teams move to a dedicated team-address domain (Public Suffix List) without breaking old links. */
+  domains: string[]
   /** scheme and port of the public team address (dev: http + 19161; production: https behind Cloudflare) */
   publicProto: 'http' | 'https'
   publicPort: number | null
@@ -56,6 +59,41 @@ export interface RelayConfig {
   devNames: string[]
   /** registrations per IP per hour (memory only, never stored) */
   registerPerIpPerHour: number
+  /**
+   * public self-registration with proof of work (RELAY_OPEN_REGISTRATION; default: on with --dev, else off). Off (the
+   * production relay, control-plane D17): POST /teams needs a claim code; cloud teams are made by the operator API.
+   */
+  openRegistration: boolean
+  /** the relay terminates TLS itself (Cloudflare Origin CA certificate): RELAY_TLS_CERT / RELAY_TLS_KEY (PEM files).
+   * clientCa (RELAY_TLS_CLIENT_CA): only TLS clients with a certificate from this CA get in (Cloudflare Authenticated
+   * Origin Pulls with our own zone certificate). null = plain HTTP (behind a tunnel / in development). */
+  tls: { cert: string; key: string; clientCa: string | null } | null
+  /** private listener (RELAY_PRIVATE_LISTEN=<tailnet ip>:8090): operator API /ops/v1/* and /metrics. null = none */
+  privateListen: { host: string; port: number } | null
+  /** loopback health port of THIS process (RELAY_HEALTH_LISTEN=127.0.0.1:18091): the a/b deploy script asks the new
+   * instance directly (both instances share the public port through reusePort). null = none */
+  healthListen: { host: string; port: number } | null
+  /** operator-keys.json (RELAY_OPERATOR_KEYS_FILE): [{ keyId, publicKey, label, scopes }]; re-read when it changes */
+  operatorKeysFile: string | null
+  /** Strict-Transport-Security on team responses that have none (only for https team addresses) */
+  hsts: boolean
+}
+
+/** "host:port", "[v6]:port" or ":port" (all addresses) */
+export function parseListen(v: string | undefined, what: string): { host: string; port: number } | null {
+  if (v === undefined || v === '' || v === 'none') return null
+  const m = /^(?:\[([0-9a-fA-F:.]+)\]|([^:\s]*)):(\d{1,5})$/.exec(v.trim())
+  if (!m) throw new Error(`${what} must be host:port (got ${v})`)
+  const port = Number(m[3])
+  if (port < 0 || port > 65535) throw new Error(`${what}: bad port ${m[3]}`)
+  return { host: m[1] ?? (m[2] || '0.0.0.0'), port }
+}
+
+function flag01(v: string | undefined, d: boolean): boolean {
+  if (v === undefined || v === '') return d
+  if (v === '1' || v === 'true') return true
+  if (v === '0' || v === 'false') return false
+  throw new Error(`expected 0 or 1, got ${v}`)
 }
 
 function num(v: string | undefined, d: number): number {
@@ -78,8 +116,13 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
   }
   const get = (flag: string, envName: string) => flags.get(flag) ?? env[envName]
   const dev = bool.has('dev') || env.RELAY_DEV === '1'
-  const domain = (get('domain', 'RELAY_DOMAIN') ?? (dev ? 'localhost' : '')).toLowerCase()
+  const domains = (get('domain', 'RELAY_DOMAIN') ?? env.RELAY_DOMAINS ?? (dev ? 'localhost' : '')).toLowerCase().split(',').map((d) => d.trim().replace(/\.$/, '')).filter(Boolean)
+  const domain = domains[0] ?? ''
   if (!domain) throw new Error('set the team address domain: --domain treesoop.com (or RELAY_DOMAIN), or --dev')
+  for (const d of domains) if (!/^[a-z0-9.-]{1,253}$/.test(d)) throw new Error(`not a domain name: ${d}`)
+  const tlsCert = get('tls-cert', 'RELAY_TLS_CERT'), tlsKey = get('tls-key', 'RELAY_TLS_KEY'), tlsCa = get('tls-client-ca', 'RELAY_TLS_CLIENT_CA')
+  if (!!tlsCert !== !!tlsKey) throw new Error('RELAY_TLS_CERT and RELAY_TLS_KEY go together')
+  if (tlsCa && !tlsCert) throw new Error('RELAY_TLS_CLIENT_CA needs RELAY_TLS_CERT / RELAY_TLS_KEY')
   const port = num(get('port', 'RELAY_PORT'), dev ? DEV_RELAY_PORT : 8080)
   const local = domain === 'localhost' || domain.endsWith('.localhost')
   const publicProto = (get('public-proto', 'RELAY_PUBLIC_PROTO') ?? (local ? 'http' : 'https')) as 'http' | 'https'
@@ -90,6 +133,7 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     host: get('host', 'RELAY_HOST') ?? (dev ? '127.0.0.1' : '0.0.0.0'),
     port,
     domain,
+    domains,
     publicProto,
     publicPort: pp !== undefined ? (pp === '' || pp === 'none' ? null : num(pp, 0)) : local ? port : null,
     dataDir: path.resolve(get('data', 'RELAY_DATA_DIR') ?? (dev ? path.join(REPO_ROOT, '.dev', 'relay') : '/var/lib/mycel-relay')),
@@ -112,12 +156,19 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     reserved: (env.RELAY_RESERVED ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     devNames: dev ? (env.RELAY_DEV_NAMES ?? 'demo').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : [],
     registerPerIpPerHour: num(env.RELAY_REGISTER_PER_IP, dev ? 1000 : 10),
+    openRegistration: flag01(get('open-registration', 'RELAY_OPEN_REGISTRATION'), dev),
+    tls: tlsCert && tlsKey ? { cert: path.resolve(tlsCert), key: path.resolve(tlsKey), clientCa: tlsCa ? path.resolve(tlsCa) : null } : null,
+    privateListen: parseListen(get('private-listen', 'RELAY_PRIVATE_LISTEN'), 'RELAY_PRIVATE_LISTEN'),
+    healthListen: parseListen(get('health-listen', 'RELAY_HEALTH_LISTEN'), 'RELAY_HEALTH_LISTEN'),
+    operatorKeysFile: (() => { const f = get('operator-keys', 'RELAY_OPERATOR_KEYS_FILE'); return f ? path.resolve(f) : null })(),
+    hsts: flag01(env.RELAY_HSTS, true) && publicProto === 'https',
   }
 }
 
-/** Public address of a team, e.g. https://acme.treesoop.com or http://acme.localhost:19161 */
-export function teamAddress(cfg: Pick<RelayConfig, 'domain' | 'publicProto' | 'publicPort'>, name: string): string {
+/** Public address of a team, e.g. https://acme.treesoop.com or http://acme.localhost:19161 (`domain`: one of the
+ * relay's domains, default the first) */
+export function teamAddress(cfg: Pick<RelayConfig, 'domain' | 'publicProto' | 'publicPort'>, name: string, domain: string = cfg.domain): string {
   const def = cfg.publicProto === 'https' ? 443 : 80
   const port = cfg.publicPort && cfg.publicPort !== def ? `:${cfg.publicPort}` : ''
-  return `${cfg.publicProto}://${name}.${cfg.domain}${port}`
+  return `${cfg.publicProto}://${name}.${domain}${port}`
 }

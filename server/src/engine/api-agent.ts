@@ -10,6 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EngineEvent } from '@mycel/shared'
+import { apiEngineFetch } from '../system/egress'
 
 export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null }
 
@@ -100,7 +101,8 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
  * (the MCP handler), until the model answers without tools (or 30 rounds). Events go to `emit` like a parsed engine's.
  */
 export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string; message: string; rpc: Rpc; emit: (e: EngineEvent) => void; signal: AbortSignal; fetchFn?: typeof fetch; maxSteps?: number }): Promise<void> {
-  const fetchFn = o.fetchFn ?? fetch
+  // the hosted cloud: every call's address is checked first (public https only, system/egress.ts)
+  const fetchFn = apiEngineFetch(o.fetchFn ?? fetch)
   const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
   const tools = (listed?.result?.tools ?? []).map((t: { name: string; description: string; inputSchema: unknown }) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
   const messages: ChatMessage[] = [{ role: 'system', content: o.systemPrompt }, { role: 'user', content: o.message }]

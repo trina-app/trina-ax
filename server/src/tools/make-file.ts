@@ -19,7 +19,7 @@ import ExcelJS from 'exceljs'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
 import type { AppContext } from '../context'
-import { teamDefaultLocale } from '../admin/settings'
+import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext } from '../files/extract'
 import type { ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
@@ -34,6 +34,8 @@ import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, runIsolated } from './isolate'
 import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
 import { PRODUCT } from '@mycel/shared'
+import { typstJobs } from '../system/limits'
+import { assertStorageRoomForAI } from '../system/storage'
 
 type Input = z.output<typeof MakeFileInput>
 export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string }
@@ -235,7 +237,8 @@ export class MakeFile {
       '',
     ].join('\n')
     fs.writeFileSync(path.join(work, 'doc.typ'), pre + fs.readFileSync(path.join(work, 'body.typ'), 'utf8'))
-    const r = await runIsolated({ cmd: this.conv.typst, args: ['compile', '--root', work, 'doc.typ', 'out.pdf'], workDir: work, timeoutMs: 120_000 })
+    const jobs = typstJobs() // Linux bundle's typst: at most 2 threads (system/limits.ts)
+    const r = await runIsolated({ cmd: this.conv.typst, args: ['compile', ...(jobs ? ['--jobs', String(jobs)] : []), '--root', work, 'doc.typ', 'out.pdf'], workDir: work, timeoutMs: 120_000 })
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
@@ -282,6 +285,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   const cfg = ctx.engineConfig
   const size = fs.statSync(produced).size
   if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+  assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   const rules = files.rules()
   let conflictOf: string | undefined
@@ -304,7 +308,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
     } else {
       // never overwrite a file the AI has not read in this turn: keep both
       const dir = segs.slice(0, -1)
-      let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db))
+      let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db), teamTimeZone(ctx.db))
       if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
       name = freeName(path.join(fx.root, ...dir), name)
       target = authorize(fx, rules, c.user, [...dir, name].join('/'), 'write', { mustExist: false }).segs

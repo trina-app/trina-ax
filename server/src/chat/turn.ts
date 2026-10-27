@@ -9,7 +9,7 @@ import crypto from 'node:crypto'
 import { TEAM_TOOL_PREFIX, type EngineEvent } from '@mycel/shared'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
-import { buildCodexLaunch, prepareCodexTurn, type CodexConf } from '../engine/codex'
+import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
@@ -24,8 +24,12 @@ import { TurnFiles } from '../files/service'
 import { buildTurnContext, buildTurnPrompt, skillBlock, type PromptInput } from './prompt'
 import { invokedSkill, listSkills, skillFolder } from './skills'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
-import { codexBetaAllowed, codexIsBeta, safeModel } from './engines'
-import { engineError, stepLabel, tr } from './i18n'
+import { safeModel } from './engines'
+import { engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { recordSkillUse } from '../admin/skill-usage'
+import { notificationsOf } from '../notifications/service'
+import { validateTemplateTurn } from './schedule-templates'
+import { currentPlan, planLimits } from '../system/limits'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
@@ -37,7 +41,7 @@ import { audit as auditLog } from '../admin/audit'
 import { ANY_CONTENT, editedText, inSkills } from '../skills/guard'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
-import { parseSkill as parseSkillHeader } from './skills'
+import { parseSkill as parseSkillHeader, skillFileKind } from './skills'
 import type { SkillWritePreview } from '@mycel/shared/api'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { budgetBlock } from '../admin/budgets'
@@ -45,15 +49,21 @@ import { ENGINE_LABELS } from '../admin/engines'
 import { limitFallbackOn } from '../admin/engine-choice'
 import { runApiAgent } from '../engine/api-agent'
 import { makeHandler } from '../mcp/protocol'
+import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
+import { credentialsOf, getRow, metaOf } from '../credentials/store'
+import { dummyAuthJson } from '../credentials/codex-home'
+import { afterUsage } from '../admin/budget-watch'
+import type { QueueTiming } from './fair-queue'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
 /** Launcher hard stop: the active-time limit above is enforced by the server; this only catches a stuck server. */
 export const LAUNCHER_BACKSTOP_MS = 3 * 60 * 60_000
+export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
 export const SESSION_STASH_MAX = 20 * 1024 * 1024
 
-export interface TurnSpec {
+export interface TurnSpec extends QueueTiming {
   turnId: string
   chatId: string
   userId: string
@@ -85,6 +95,7 @@ export class TurnExec {
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
   principal: Principal | null = null
+  private templateScope = false
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
@@ -102,6 +113,13 @@ export class TurnExec {
   private dirty = false
   private saver: ReturnType<typeof setInterval> | null = null
   private clock: ReturnType<typeof setInterval> | null = null
+  private wallClock: ReturnType<typeof setTimeout> | null = null
+  private stopGrace: ReturnType<typeof setTimeout> | null = null
+  private readonly wallEndsAt: number
+  private activeCore: Running | null = null
+  private terminationUnconfirmed = false
+  private quarantined = false
+  private timeoutSource: 'active' | 'wall' | null = null
   private activeMs = 0
   private humanWaits = 0
   private requests = new Map<string, OpenRequest>()
@@ -115,9 +133,17 @@ export class TurnExec {
   /** set by the model proxy (upstream 401, budget used up, subscription limit): ends the turn with this error */
   private proxyError: ApiErrorBody | null = null
   private proxyUnsubscribe: (() => void) | null = null
+  /** the attempt's AI connection was refused / at its limit (proxy event): the turn may go on with another one */
+  private credentialFailure: { id: string; reason: 'limited' | 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone'; retryAt: string | null } | null = null
+  /** the AI connection of the latest attempt (audit of the Codex fallback) */
+  private lastCredential: string | null = null
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
+    const limit = rt.wallTimeoutMs ?? 45 * 60_000
+    const remaining = spec.wallDeadlineAt ? Date.parse(spec.wallDeadlineAt) - Date.now() : limit
+    // A wall-clock rollback cannot extend this process's deadline. Persisted deadlines survive retries/recovery.
+    this.wallEndsAt = performance.now() + (Number.isFinite(remaining) ? Math.max(0, Math.min(limit, remaining)) : 0)
   }
 
   get id() { return this.spec.turnId }
@@ -134,8 +160,10 @@ export class TurnExec {
     this.status = 'running'
     this.saver = setInterval(() => this.save(), SAVE_INTERVAL_MS)
     this.clock = setInterval(() => this.tick(), 1000)
+    this.wallClock = setTimeout(() => this.expireWall(), this.remainingWallMs())
     try {
-      await this.execute()
+      if (this.remainingWallMs() <= 0) this.expireWall()
+      if (!this.stopReason) await this.execute()
     } catch (e) {
       if (!this.error) {
         if (e instanceof CoreUnavailableError) this.error = { ...engineError('engine_missing', this.spec.locale) }
@@ -150,18 +178,39 @@ export class TurnExec {
 
   /** Stop button / chat deleted / shutdown. */
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
-    if (this.stopReason) return
+    if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
     this.abort.abort()
+    // Stop authorizing tools/model requests immediately, even if process termination takes longer.
+    this.activeCore?.turns.invalidate(this.id)
+    try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
-    this.handle?.kill()
+    try { this.handle?.kill() } catch { this.quarantine() }
+    this.stopGrace = setTimeout(() => {
+      if (this.status !== 'finished') this.quarantine()
+    }, TURN_STOP_GRACE_MS)
+  }
+
+  private remainingWallMs() { return Math.max(0, Math.ceil(this.wallEndsAt - performance.now())) }
+  private expireWall() {
+    if (this.status === 'finished' || this.stopReason) return
+    this.timeoutSource = 'wall'
+    this.rt.log.info('turn timed out', { turn: this.id, source: 'wall' })
+    this.stop('timeout')
+  }
+  private quarantine() {
+    if (this.quarantined) return
+    this.quarantined = true
+    this.rt.log.error('turn termination unconfirmed; execution slot retained', { turn: this.id })
+    this.rt.turnQuarantined(this)
   }
 
   private tick() {
     if (this.humanWaits > 0 || this.status !== 'running') return
     this.activeMs += 1000
     if (this.activeMs >= this.rt.turnTimeoutMs && !this.stopReason) {
-      this.rt.log.info('turn timed out', { turn: this.id })
+      this.timeoutSource = 'active'
+      this.rt.log.info('turn timed out', { turn: this.id, source: 'active' })
       this.stop('timeout')
     }
   }
@@ -169,6 +218,7 @@ export class TurnExec {
   private async execute() {
     const { rt, spec } = this
     try { this.principal = rt.files.principal(spec.userId) } catch { this.error = engineError('user_disabled', spec.locale); return }
+    this.templateScope = spec.clientKind === 'schedule' && validateTemplateTurn(rt.ctx, spec.userId, spec.turnId)
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
@@ -177,8 +227,8 @@ export class TurnExec {
     const codex = spec.engine === 'codex' ? confs.codex : null
     const api = spec.engine === 'api' ? confs.api ?? null : null
     if (problem || (!claude && !codex && !api)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
-    if (codex && codexIsBeta(rt.ctx) && !codexBetaAllowed(rt.db, this.principal)) { this.error = engineError('codex_beta', spec.locale); return }
     const core = await rt.core()
+    this.activeCore = core
     if (this.stopReason) return
 
     const chat = rt.store.chatRow(spec.chatId)
@@ -186,6 +236,7 @@ export class TurnExec {
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
 
     this.browser = spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    if (this.stopReason) return
     const toolSet = buildToolSet(this)
     const extraTools = toolSet.list().map((t) => t.name)
 
@@ -230,6 +281,11 @@ export class TurnExec {
     const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, spec.model, spec.turnId)
     this.registered = true
+    if (invoked) {
+      // Reporting is auxiliary: keep permission checks outside this boundary and omit file/body/error details.
+      try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill: invoked.skill, source: 'command' }) }
+      catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
+    }
     turn.files = this.files
     turn.tools = toolSet
     const chatDir = path.join(core.cfg.agentRoot, spec.chatId)
@@ -246,9 +302,15 @@ export class TurnExec {
       const tunnelPort = !claude.modelProxy && claude.connectProxy ? core.proxy?.port ?? null : null
       if (!claude.modelProxy && claude.connectProxy && !core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
       if (!resume) sid = crypto.randomUUID()
-      // subscription mode: Opus unless someone chose (also makes the refusal retry's "other model" really another one)
-      let model = safeModel(spec.model) ? spec.model : claude.modelProxy?.kind === 'oauth' ? SUBSCRIPTION_DEFAULT_MODEL : undefined
+      // a team / chat / personal model if someone chose one; else a Claude subscription connection runs on Opus (set
+      // where the attempt picks its connection below; main's subscription-mode rule, v0.2.2), an API key keeps Claude
+      // Code's own default
+      let model = safeModel(spec.model) ? spec.model : undefined
       const retried = new Set<string>()
+      // managed: each attempt runs on one AI connection of this person (credentials/resolve.ts); a refused or limited
+      // one moves the turn to the next (at most 2 switches, counted apart from the attempts below)
+      const managed = !!(claude.modelProxy && core.proxy)
+      const exclude = new Set<string>()
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
@@ -256,16 +318,33 @@ export class TurnExec {
         // the engine's credential for the model proxy: this turn and person only, revoked when the turn ends; a retry
         // gets a new one and the previous attempt's (its engine has exited) stops working at once
         if (claude.modelProxy || tunnelPort !== null) revokeProxyTokens(rt.db, spec.turnId)
-        const proxyToken = claude.modelProxy || tunnelPort !== null ? issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 }) : undefined
-        const lr = buildClaudeLaunch({
+        let proxyToken: string | undefined
+        let tokenKind: 'oauth' | 'api-key' = 'oauth'
+        if (managed) {
+          const c = this.pickCredential('claude-code', exclude)
+          if (!c) break
+          tokenKind = c.kind === 'anthropic-api-key' ? 'api-key' : 'oauth'
+          // with our per-turn token on fd 3 Claude Code cannot tell the plan and starts on Sonnet: a subscription runs on
+          // Opus unless someone chose (also makes the refusal retry's "other model" really another one)
+          if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
+          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic' })
+        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 })
+        const lr = buildClaudeLaunch({ webSearch: !this.templateScope,
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken,
+          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         if (exit?.session?.b64) this.stashSession(sid, exit.session.b64)
         if (this.stopReason) break
+        if (this.stoppedAtLimit(exit)) break
+        if (managed && this.switchCredential('claude-code', exclude)) {
+          // another account: never continue its session (signed thinking blocks, caches): fresh, with the history
+          resume = false; sid = crypto.randomUUID()
+          attempt--
+          continue
+        }
         if (this.proxyError) { this.error = this.proxyError; break }
         const noConversation = /No conversation found/i.test(stderr + JSON.stringify(parser.result ?? ''))
         if (resume && noConversation && !retried.has('resume')) { // stash unusable -> fresh session from the DB history
@@ -314,17 +393,61 @@ export class TurnExec {
     if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: prompt(true), message, extraTools })
   }
 
-  /** Codex: one turn (a crash without output is tried once more). */
+  /** The AI connection for this attempt (credentials/resolve.ts), or null with the turn's error set: none for this
+   * person, or all of them unusable now (a limit with a time to retry is a rate limit, so the Codex fallback can
+   * follow, D15). */
+  private pickCredential(engine: CredEngine, exclude: ReadonlySet<string>): { credentialId: string; kind: import('@mycel/shared/api').CredentialKind } | null {
+    const { rt, spec } = this
+    const r = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
+    if (r.ok) { this.lastCredential = r.credentialId; return r }
+    if (this.proxyError) this.error = this.proxyError
+    else if (r.reason === 'none') this.error = engineError('no_credential', spec.locale)
+    else if (r.retryAt) this.error = engineError('rate_limit', spec.locale, Math.max(1, Math.ceil((Date.parse(r.retryAt) - Date.now()) / 1000)))
+    else this.error = engineError('credential_unusable', spec.locale)
+    return null
+  }
+
+  private switches = 0
+  /** The attempt's connection was refused or hit a limit (proxy event): go on with the next one of the same family
+   * (D15: at most twice per turn, a step and an audit entry say so). false = no other connection: the error stands. */
+  private switchCredential(engine: CredEngine, exclude: Set<string>): boolean {
+    const { rt, spec } = this
+    const f = this.credentialFailure
+    if (!f || this.stopReason || this.switches >= 2) return false
+    exclude.add(f.id)
+    const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
+    if (!next.ok) return false
+    this.switches++
+    this.credentialFailure = null
+    this.proxyError = null
+    const label = tr(f.reason === 'limited' || f.reason === 'over_limit' ? 'credentialSwitchLimit' : 'credentialSwitchInvalid', spec.locale)
+    this.addStep({ kind: 'tool', tool: 'engine', label, status: 'ok' })
+    rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_credential_switch', message: label } })
+    audit(rt.db, { actor: spec.userId, action: 'engine.credential_switch', target: spec.turnId, detail: { from: f.id, to: next.credentialId, reason: f.reason } })
+    rt.log.info('AI connection switch', { turn: this.id, reason: f.reason })
+    if (this.content && !this.content.endsWith('\n\n')) this.appendText('\n\n')
+    return true
+  }
+
+  /** Codex: one turn (a crash without output is tried once more; managed: a refused / limited connection moves the
+   * turn to the next one, like Claude). */
   private async runCodex(core: Running, codex: CodexConf, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[]; model: string | undefined }) {
     const { rt, spec } = this
     const { chatDir, token, model } = o
-    // the engine account (production) reaches OpenAI only through the model proxy's CONNECT tunnel, with a proxy
+    const managed = codex.auth === 'managed'
+    // agent-own (F1): the engine account reaches OpenAI only through the model proxy's CONNECT tunnel, with a proxy
     // token of this turn (revoked when the turn ends; the proxy also checks the turn is running)
     let proxy: { port: number; token: string } | undefined
     if (codex.auth === 'agent-own') {
       if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
       proxy = { port: core.proxy.port, token: issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS }) }
     }
+    if (managed) {
+      // managed: plain HTTP to the proxy's /codex path with a placeholder login; no proxy, no turn (fail closed)
+      if (!core.proxy?.ready) { this.error = engineError('proxy_down', spec.locale); return }
+      if (!this.proxyUnsubscribe) this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
+    }
+    const exclude = new Set<string>()
     try {
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
@@ -332,7 +455,19 @@ export class TurnExec {
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
-        const lr = buildCodexLaunch({ turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy }, codex)
+        let m: Parameters<typeof buildCodexLaunch>[0]['managed']
+        if (managed) {
+          revokeProxyTokens(rt.db, spec.turnId)
+          const c = this.pickCredential('codex', exclude)
+          if (!c) break
+          const t = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'openai' })
+          const row = getRow(rt.db, c.credentialId)
+          const meta = row ? metaOf(row) : {}
+          const kind = c.kind === 'chatgpt' ? 'chatgpt' as const : 'openai-api-key' as const
+          m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
+            authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
+        }
+        const lr = buildCodexLaunch({ webSearch: !this.templateScope, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
@@ -340,8 +475,10 @@ export class TurnExec {
         // to swap it (design tab 2 "로그인 파일")
         for (const n of notes) { audit(rt.db, { actor: null, action: 'engine.codex_auth', target: spec.turnId, detail: { note: n.slice(0, 300) } }); rt.log.warn('codex login note', { turn: this.id, note: n }) }
         if (this.stopReason) break
+        if (this.stoppedAtLimit(exit)) break
+        if (managed && this.switchCredential('codex', exclude)) { attempt--; continue }
         if (this.proxyError) { this.error = this.proxyError; break }
-        // the engine account has no Codex login yet (the owner runs the codex-login command once)
+        // agent-own: the engine account has no Codex login yet (the owner runs the codex-login command once)
         if (exit?.ev === 'error' && /codex_not_signed_in|codex_not_configured/.test(String(exit.message))) { this.error = engineError('auth', spec.locale); rt.log.warn('codex: engine account not signed in', { turn: this.id, message: exit.message }); break }
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || !!exit?.code)
@@ -352,7 +489,7 @@ export class TurnExec {
         break
       }
     } finally {
-      if (proxy) revokeProxyTokens(rt.db, spec.turnId)
+      if (proxy || managed) revokeProxyTokens(rt.db, spec.turnId)
     }
   }
 
@@ -367,14 +504,15 @@ export class TurnExec {
     const confs = rt.engines.get()
     const codex = confs.codex
     if (!codex || confs.problems.codex) return
-    if (codexIsBeta(rt.ctx) && (!this.principal || !codexBetaAllowed(rt.db, this.principal))) return
+    if (codex.auth === 'managed' && !hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)) return
     const label = tr('limitFallback', spec.locale, { from: ENGINE_LABELS['claude-code'], to: ENGINE_LABELS.codex })
     this.addStep({ kind: 'tool', tool: 'engine', label, status: 'ok' })
     rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_limit_fallback', message: label } })
-    audit(rt.db, { actor: spec.userId, action: 'engine.limit_fallback', target: spec.turnId, detail: { from: 'claude-code', to: 'codex', model: spec.model } })
+    audit(rt.db, { actor: spec.userId, action: 'engine.limit_fallback', target: spec.turnId, detail: { from: 'claude-code', to: 'codex', model: spec.model, ...(this.lastCredential ? { credentialFrom: this.lastCredential } : {}) } })
     rt.log.info('claude limit: answering with codex', { turn: this.id })
     this.error = null
     this.proxyError = null
+    this.credentialFailure = null
     if (this.content && !this.content.endsWith('\n\n')) this.appendText('\n\n')
     // the answer and the turn are Codex's now (usage, the "answered by" label); the Claude session lacks this answer,
     // so the next Claude turn starts fresh from the history
@@ -387,38 +525,80 @@ export class TurnExec {
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
    * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
   private onProxyEvent(ev: ProxyTurnEvent) {
+    // the attempt's AI connection failed: remembered so the turn can go on with another one (switchCredential)
+    if (ev.type === 'credential') this.credentialFailure ??= { id: ev.credentialId, reason: ev.reason, retryAt: null }
+    else if (ev.type === 'rate_limit' && ev.credentialId) this.credentialFailure ??= { id: ev.credentialId, reason: 'limited', retryAt: ev.retryAt }
     if (this.proxyError) return
     const L = this.spec.locale
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
     else if (ev.type === 'budget') this.proxyError = { code: 'budget_exceeded', message: budgetBlock(this.rt.db, this.spec.userId, L)?.message ?? tr('errBudget', L) }
-    else {
+    else if (ev.type === 'credential') {
+      this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
+    } else {
       const secs = ev.retryAt ? Math.max(1, Math.ceil((Date.parse(ev.retryAt) - Date.now()) / 1000)) : undefined
       this.proxyError = engineError('rate_limit', L, secs)
     }
+    // stop the engine at once: it must not retry or refresh by itself on a refused / limited connection
     if (ev.type !== 'auth') this.handle?.kill()
+  }
+
+  /** The Linux launcher ended the attempt at the turn's memory limit ("oom") or the chat folder's size limit
+   * ("disk_limit"): that is the answer's error, never retried (the same work would hit the same limit). */
+  private stoppedAtLimit(exit: { ev?: string; signal?: unknown } | null): boolean {
+    if (exit?.ev !== 'exit') return false
+    const plan = currentPlan()
+    const err = turnLimitError(exit.signal, this.spec.locale, { turnMemoryMiB: plan ? planLimits(plan).turnMaxMiB : null, turnDiskMiB: plan ? plan.turnDiskMaxMiB : null })
+    if (!err) return false
+    this.error = err
+    this.rt.log.warn('turn stopped at its limit', { turn: this.id, signal: exit.signal })
+    return true
   }
 
   /** launch through the launcher; stdout lines to `onLine`; bind the engine session to the turn */
   private async launch(core: Running, lr: LaunchRequest, onLine: (l: string) => void) {
+    if (this.remainingWallMs() <= 0) this.expireWall()
+    if (this.stopReason) return { exit: null, stderr: '', notes: [] as string[] }
     if (!core.launcher) throw new CoreUnavailableError('engine launcher not running')
+    lr = { ...lr, timeoutMs: Math.min(lr.timeoutMs ?? LAUNCHER_BACKSTOP_MS, this.remainingWallMs()) }
     const h = core.launcher.launch(lr)
     this.handle = h
+    this.terminationUnconfirmed = true
     if (this.stopReason) h.kill()
     // stdout chunks are cut wherever the pipe read stopped: decode as one stream so split characters stay whole
     const out = new Utf8Lines()
     const err = new Utf8Text(20000)
     const notes: string[] = []
     let exit: any = null
+    try {
     for await (const e of h.events) {
       if (e.ev === 'started') core.turns.bind(this.id, e.pgid)
       else if (e.ev === 'stdout') { for (const l of out.push(Buffer.from(e.b64, 'base64'))) if (l.trim()) onLine(l) }
       else if (e.ev === 'stderr') err.push(Buffer.from(e.b64, 'base64'))
-      else if (e.ev === 'exit' || e.ev === 'error') exit = e
+      else if (e.ev === 'exit' || e.ev === 'error') {
+        exit = e
+        // Native terminal replies are emitted after cleanup (including sandbox startup failures).
+        // SocketLauncher synthesizes transport errors with this prefix; a broken socket proves nothing.
+        if (e.ev === 'exit' || !e.message.startsWith('launcher: ')) this.terminationUnconfirmed = false
+      }
       else if (e.ev === 'note') notes.push(e.message)
     }
     for (const l of out.end()) if (l.trim()) onLine(l)
-    this.handle = null
+    if (this.terminationUnconfirmed) {
+      this.error = engineError('crash', this.spec.locale)
+      throw new Error('launcher ended without a termination acknowledgement')
+    }
     return { exit, stderr: err.text, notes }
+    } catch (error) {
+      if (this.terminationUnconfirmed) {
+        // A reader/parser failure must still request termination while we retain the handle.
+        // A successful kill request alone cannot release the execution slot.
+        this.stop('stopped')
+        this.quarantine()
+      }
+      throw error
+    } finally {
+      this.handle = null
+    }
   }
 
   // ---------------- engine events -> answer ----------------
@@ -681,11 +861,11 @@ export class TurnExec {
     }
     const approval = after === null ? ANY_CONTENT : sha256(Buffer.from(after, 'utf8'))
     if (this.files.skillApprovals.get(r.rel) === approval) return null // already confirmed (a retried call)
-    const skill = after !== null && r.rel.toLowerCase().endsWith('.md') ? parseSkillHeader(after) : null
-    const isMd = r.rel.toLowerCase().endsWith('.md')
+    const kind = after !== null ? skillFileKind(fs_.fx.root, r.rel, after) : 'other'
+    const skill = after !== null && kind === 'skill' ? parseSkillHeader(after, r.rel) : null
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
     const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? '').toUpperCase() }) : st('whatFile', L)
-    const what = skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : isMd ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
+    const what = skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : kind === 'rule' ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: st('confirm', L, { path: r.rel, what }),
@@ -706,11 +886,15 @@ export class TurnExec {
   // ---------------- people answering (ask_user, browser site) ----------------
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+    if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) return Promise.resolve(null)
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') return Promise.resolve(null)
     return new Promise((resolve) => {
-      const timer = setTimeout(() => this.closeRequest(request.requestId, null, 'timeout'), o.timeoutMs)
+      const timer = setTimeout(() => {
+        if (this.remainingWallMs() <= 0) this.expireWall()
+        this.closeRequest(request.requestId, null, 'timeout')
+      }, Math.min(o.timeoutMs, this.remainingWallMs()))
       this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null })
       this.humanWaits++
       const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } }
@@ -808,14 +992,18 @@ export class TurnExec {
   private async finish() {
     if (this.saver) clearInterval(this.saver)
     if (this.clock) clearInterval(this.clock)
+    if (this.wallClock) clearTimeout(this.wallClock)
+    if (this.stopGrace) clearTimeout(this.stopGrace)
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
     this.rt.relay.cancelTurn(this.id)
     this.proxyUnsubscribe?.()
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const s of this.steps) if (s.status === 'running') { s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
-    if (this.stopReason === 'timeout' && !this.error) this.error = engineError('timeout', this.spec.locale)
+    if (this.stopReason === 'timeout' && !this.error) this.error = this.timeoutSource === 'wall'
+      ? { ...engineError('timeout', this.spec.locale), message: tr('errWallTimeout', this.spec.locale) }
+      : engineError('timeout', this.spec.locale)
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
-    const status: MessageStatus = this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
+    const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const files = this.fileSummary()
     const db = this.rt.db
@@ -824,7 +1012,7 @@ export class TurnExec {
       db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.steps), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         new Date().toISOString(), this.spec.assistantId)
-      const core = this.registered ? await this.rt.core().catch(() => null) : null
+      const core = this.registered ? this.activeCore : null
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)
       else db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(turnStatus, new Date().toISOString(), this.error?.message ?? null, this.id)
       if (this.usage.seen) {
@@ -836,8 +1024,12 @@ export class TurnExec {
     } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
     }
+    if (this.spec.clientKind === 'schedule') notificationsOf(this.rt.ctx).afterTurn(this.id)
+    // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
+    try { if (this.registered) afterUsage(db, this.spec.userId, credentialsOf(this.rt.ctx).notify) } catch (e) { this.rt.log.warn('budget notices failed', { err: e }) }
     this.status = 'finished'
-    this.rt.turnFinished(this)
+    if (this.terminationUnconfirmed) this.quarantine()
+    else this.rt.turnFinished(this)
     const row = this.rt.store.messageRow(this.spec.assistantId)
     if (row) this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message: this.rt.store.toMessage(row) } })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')

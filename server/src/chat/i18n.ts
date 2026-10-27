@@ -34,21 +34,29 @@ export const TEXT = {
   errRateLimit: t('AI 사용 한도에 잠시 도달했습니다. 조금 뒤 다시 시도해 주세요.', 'The AI usage limit was reached for now. Try again a bit later.', 'Batas penggunaan AI tercapai untuk sementara. Coba lagi nanti.'),
   errContext: t('대화가 너무 길어졌습니다. 새 채팅에서 이어 가 주세요.', 'This conversation got too long. Please continue in a new chat.', 'Percakapan ini terlalu panjang. Lanjutkan di chat baru.'),
   errTimeout: t('시간 제한을 넘겨 답변을 멈췄습니다.', 'The answer was stopped because it took too long.', 'Jawaban dihentikan karena terlalu lama.'),
+  errWallTimeout: t('확인 대기를 포함한 전체 실행 시간 제한을 넘겨 답변을 멈췄습니다.', 'The answer reached its total time limit, including time waiting for confirmation.', 'Jawaban mencapai batas waktu total, termasuk waktu menunggu konfirmasi.'),
   errRefused: t('AI가 이 요청에 답하지 않았습니다. 표현을 바꿔 다시 시도해 주세요.', 'The AI declined this request. Try rephrasing it.', 'AI menolak permintaan ini. Coba ubah kalimatnya.'),
   errCrash: t('AI 엔진이 예기치 않게 멈췄습니다. 다시 시도해 주세요.', 'The AI engine stopped unexpectedly. Please try again.', 'Mesin AI berhenti tiba-tiba. Coba lagi.'),
   errInterrupted: t('서버가 다시 시작되어 답변이 중단되었습니다.', 'The answer was interrupted because the server restarted.', 'Jawaban terputus karena server dimulai ulang.'),
   errEngineMissing: t('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).'),
-  errProxyMode: t('회사 API 키 모드는 이 버전에서 아직 켤 수 없습니다. 구독 로그인 모드를 써 주세요.', 'Company API key mode cannot be turned on in this version yet. Use the subscription login mode.', 'Mode kunci API perusahaan belum bisa diaktifkan di versi ini. Gunakan mode login langganan.'),
-  errSetupToken: t('팀의 Claude 구독이 아직 연결되지 않았습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단).', "The team's Claude subscription is not connected yet. Let the team owner know (Admin > System > Diagnostics).", 'Langganan Claude tim belum terhubung. Beri tahu pemilik tim (Admin > Sistem > Diagnostik).'),
   errProxyDown: t('AI 연결 통로(모델 프록시)가 아직 준비되지 않았습니다. 잠시 뒤 다시 시도하고, 계속되면 팀장에게 알려 주세요.', 'The AI connection (model proxy) is not ready. Try again in a moment; if it keeps happening, let the team owner know.', 'Koneksi AI (proxy model) belum siap. Coba lagi sebentar lagi; jika terus terjadi, beri tahu pemilik tim.'),
   errBudget: t('AI 사용 한도를 다 썼습니다. 더 필요하면 관리자에게 말해 주세요.', 'The AI usage limit is used up. Ask an admin if you need more.', 'Batas penggunaan AI sudah habis. Minta admin jika perlu lebih.'),
-  errCodexBeta: t('Codex는 이 서버에서 아직 시험 중(베타)이라 owner와 owner가 고른 사람만 쓸 수 있습니다. Claude Code로 바꿔 보내 주세요.', 'Codex is still in beta on this server: only the owner and the people the owner picked can use it. Switch to Claude Code and send again.', 'Codex masih beta di server ini: hanya owner dan orang yang dipilih owner yang bisa memakainya. Ganti ke Claude Code lalu kirim lagi.'),
   errUserDisabled: t('계정을 사용할 수 없습니다.', 'This account is not active.', 'Akun ini tidak aktif.'),
+  errNoCredential: t('이 엔진에 쓸 AI 연결이 없습니다. 관리자에게 알려 주세요.', 'There is no AI connection for this engine. Let your admin know.', 'Tidak ada koneksi AI untuk mesin ini. Beri tahu admin Anda.'),
+  // the Linux launcher stopped the turn at its limits (linux-runtime 3.3.7: the turn's memory, the chat folder's size)
+  errTurnMemory: t('이 답변이 한 답변에 쓸 수 있는 메모리를 넘어 멈췄습니다. 질문을 나누거나, 큰 파일은 한 번에 하나씩 다뤄 달라고 해 보세요.', 'This answer stopped because it needed more memory than one answer may use. Try splitting the question, or ask for big files one at a time.', 'Jawaban ini berhenti karena butuh memori lebih dari yang boleh dipakai satu jawaban. Coba pecah pertanyaannya, atau minta berkas besar diproses satu per satu.'),
+  errTurnMemoryPlan: t('이 답변이 팀 요금제에서 한 답변에 쓸 수 있는 메모리(약 {mb} MB)를 넘어 멈췄습니다. 질문을 나누거나, 큰 파일은 한 번에 하나씩 다뤄 달라고 해 보세요.', 'This answer stopped because it needed more memory than one answer may use on this team\'s plan (about {mb} MB). Try splitting the question, or ask for big files one at a time.', 'Jawaban ini berhenti karena butuh memori lebih dari yang boleh dipakai satu jawaban di paket tim ini (sekitar {mb} MB). Coba pecah pertanyaannya, atau minta berkas besar diproses satu per satu.'),
+  errTurnDisk: t('이 답변이 만든 작업 파일이 한 답변에 저장할 수 있는 크기를 넘어 멈췄습니다. 작업 공간은 비웠습니다. 결과를 작게 나눠 만들어 달라고 해 보세요.', 'This answer stopped because the working files it made grew past what one answer may store. Its workspace was emptied. Try asking for the result in smaller parts.', 'Jawaban ini berhenti karena berkas kerja yang dibuatnya melebihi batas penyimpanan satu jawaban. Ruang kerjanya sudah dikosongkan. Coba minta hasilnya dalam bagian yang lebih kecil.'),
+  errTurnDiskPlan: t('이 답변이 만든 작업 파일이 한 답변에 저장할 수 있는 크기({mb} MB)를 넘어 멈췄습니다. 작업 공간은 비웠습니다. 결과를 작게 나눠 만들어 달라고 해 보세요.', 'This answer stopped because the working files it made grew past what one answer may store ({mb} MB). Its workspace was emptied. Try asking for the result in smaller parts.', 'Jawaban ini berhenti karena berkas kerja yang dibuatnya melebihi batas penyimpanan satu jawaban ({mb} MB). Ruang kerjanya sudah dikosongkan. Coba minta hasilnya dalam bagian yang lebih kecil.'),
+  errCredentialUnusable: t('AI 연결을 쓸 수 없습니다(거절되었거나 다시 연결이 필요해요). 관리자에게 알려 주세요.', 'The AI connection cannot be used (refused, or it needs to be connected again). Let your admin know.', 'Koneksi AI tidak bisa dipakai (ditolak, atau perlu dihubungkan lagi). Beri tahu admin Anda.'),
+  errCredentialLimit: t('이 AI 연결의 이번 달 한도를 다 썼습니다. 더 필요하면 관리자에게 말해 주세요.', 'This month\'s limit of the AI connection is used up. Ask an admin if you need more.', 'Batas bulan ini untuk koneksi AI sudah habis. Minta admin jika perlu lebih.'),
 
   // steps
   refusedRetry: STEP_TEXT.refusedRetry,
   engineOffDefault: STEP_TEXT.engineOffDefault,
   limitFallback: STEP_TEXT.limitFallback,
+  credentialSwitchLimit: STEP_TEXT.credentialSwitchLimit,
+  credentialSwitchInvalid: STEP_TEXT.credentialSwitchInvalid,
   attachChanged: STEP_TEXT.attachChanged,
   attachMoved: STEP_TEXT.attachMoved,
   attachUnavailable: STEP_TEXT.attachUnavailable,
@@ -79,7 +87,9 @@ export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, 
 }
 
 /** Engine error -> message.error (stable code + localized text). */
-export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_mode' | 'setup_token_missing' | 'proxy_down' | 'user_disabled' | 'codex_beta', locale: Locale, retryAfter?: number): ApiErrorBody {
+// (the older codes proxy_mode, setup_token_missing and codex_beta are gone: company keys and the owner's token are AI
+// connections now, Codex is out of beta — credentials D18–D20; stored message errors keep their own text)
+export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_down' | 'user_disabled' | 'no_credential' | 'credential_unusable', locale: Locale, retryAfter?: number): ApiErrorBody {
   const map: Record<string, [ErrorCode, keyof typeof TEXT]> = {
     auth: ['engine_unavailable', 'errAuth'],
     rate_limit: ['rate_limited', 'errRateLimit'],
@@ -89,14 +99,29 @@ export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_miss
     crash: ['internal', 'errCrash'],
     interrupted: ['unavailable', 'errInterrupted'],
     engine_missing: ['engine_unavailable', 'errEngineMissing'],
-    proxy_mode: ['engine_unavailable', 'errProxyMode'],
-    setup_token_missing: ['engine_unavailable', 'errSetupToken'],
     proxy_down: ['engine_unavailable', 'errProxyDown'],
     user_disabled: ['forbidden', 'errUserDisabled'],
-    codex_beta: ['forbidden', 'errCodexBeta'],
+    no_credential: ['engine_unavailable', 'errNoCredential'],
+    credential_unusable: ['engine_unavailable', 'errCredentialUnusable'],
   }
   const [c, k] = map[code] ?? ['internal', 'errCrash']
   return { code: c, message: tr(k, locale), ...(retryAfter !== undefined ? { retryAfter } : {}) }
+}
+
+/** The launcher ended the turn at a Linux limit (LaunchEvent exit.signal "oom" | "disk_limit", shared/src/engine.ts):
+ * the answer's error, with the plan's number when there is a plan (system/limits.ts; without one the launcher
+ * derives the limit from the machine, which the server does not know). payload_too_large: the work was too big for
+ * one answer, like a too long conversation; params.reason tells the two apart. null for any other end. */
+export function turnLimitError(signal: unknown, locale: Locale, limits: { turnMemoryMiB: number | null; turnDiskMiB: number | null }): ApiErrorBody | null {
+  if (signal === 'oom') {
+    const mb = limits.turnMemoryMiB
+    return { code: 'payload_too_large', message: mb ? tr('errTurnMemoryPlan', locale, { mb: String(mb) }) : tr('errTurnMemory', locale), params: { reason: 'turn_memory_limit', ...(mb ? { limitMiB: mb } : {}) } }
+  }
+  if (signal === 'disk_limit') {
+    const mb = limits.turnDiskMiB
+    return { code: 'payload_too_large', message: mb ? tr('errTurnDiskPlan', locale, { mb: String(mb) }) : tr('errTurnDisk', locale), params: { reason: 'turn_disk_limit', ...(mb ? { limitMiB: mb } : {}) } }
+  }
+  return null
 }
 
 /** Short human label of a tool step ("Search "invoice" · finance/"). Never the raw input. The words live in

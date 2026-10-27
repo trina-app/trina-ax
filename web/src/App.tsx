@@ -22,6 +22,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
 const Skills = lazy(() => import('./pages/Skills'))
+const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
 
 function Splash() {
   const t = useT()
@@ -106,6 +107,7 @@ function Gate() {
           <Route path="admin/:section" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
+          <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
         <Route path="/setup" element={<Navigate to="/" replace />} />

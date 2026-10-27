@@ -14,6 +14,7 @@ import { fail } from '../http/errors'
 import { loadSettings } from '../office/settings'
 import { readUpdateState, requestUpdate, updateLabel, updateView, writeUpdateSettings } from '../office/update'
 import type { RouteModule } from './module'
+import { feature } from '../system/deployment'
 
 const T = {
   notOffice: { ko: '자동 업데이트는 사무실 모드 설치에서만 씁니다.', en: 'Automatic updates are part of an office mode installation.', id: 'Pembaruan otomatis hanya untuk instalasi mode kantor.' },
@@ -51,6 +52,7 @@ export const officeUpdateRoutes: RouteModule = {
 
     kit.handle(API.officeUpdateAction, async ({ c, body, auth }) => {
       const locale = c.get('locale')
+      if (!feature(ctx.config, 'officeUpdate')) fail('conflict', tr(locale, T.notOffice)) // the hosted cloud, self-host, dev
       const home = officeHomeOf(ctx.config)
       if (!home) fail('conflict', tr(locale, T.notOffice))
       const v = view(home!)

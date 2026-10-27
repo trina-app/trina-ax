@@ -14,6 +14,7 @@ import { linkBase, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
+import { assertSeatFree } from '../system/limits'
 import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
 import { afterAccessChange, captureState, resetEngineSessions } from './folders'
@@ -75,6 +76,7 @@ export async function createUser(c: Context<AppEnv>, ctx: AppContext, b: In<type
     // meanwhile) cannot take it between the check and the insert
     ctx.db.transaction(() => {
       if (usernameTaken(ctx.db, b.username)) throw new UniqueTaken('body.username')
+      assertSeatFree(ctx.db, locale) // the plan's seats (system/limits.ts), inside the write
       id = b.id ?? deriveUserId(ctx.db, b.username, ctx.files.fx.root)
       insertUser(ctx.db, { id, username: b.username, name: b.name, email: b.email ?? null, passwordHash, role: b.role, locale: b.locale ?? null, mustChangePassword: true, tempPasswordExpiresAt: tempPasswordExpiry(authOf(ctx).now()), groupIds: groups })
       audit(ctx.db, { actor: auth.user.id, action: 'user.create', target: id, detail: { role: b.role, groupIds: groups } })
@@ -99,6 +101,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   const before = captureState(ctx.db)
   const changed: Record<string, unknown> = {}
   ctx.db.transaction(() => {
+    // enabling a disabled account takes a seat again (system/limits.ts; disabled accounts do not count)
+    if (b.status === 'active' && target.status !== 'active') assertSeatFree(ctx.db, locale)
     const sets: string[] = []
     const args: (string | null)[] = []
     const set = (col: string, v: string | null, key: string) => { sets.push(`${col} = ?`); args.push(v); changed[key] = v }

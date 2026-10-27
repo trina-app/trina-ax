@@ -1,7 +1,8 @@
 // Which engine binaries / profiles chat turns use. Dev runs "local-login": Claude Code with the owner's own CLI login,
-// Codex CLI with the owner's ChatGPT login (locked profile, stage 1). Production runs "subscription": Claude Code as
-// the engine account behind the model proxy, which adds the owner's `claude setup-token` token (proxy/subscription.ts).
-// Company-key mode ("proxy") exists as code only and is refused here with a clear message.
+// Codex CLI with the owner's ChatGPT login (locked profile, stage 1). Production runs "managed": Claude Code and Codex
+// as the engine account behind the model proxy, which puts the real credential of the turn's AI connection on each
+// request (docs/DECISIONS.md "AI 연결"; credentials/*). Whether someone has a connection is decided per turn
+// (chat/turn.ts: no connection = a clear answer error), not here.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,8 +14,6 @@ import { catalogModels, codexCatalogFor, writeLockedCatalog, type CodexConf } fr
 import { findCodexBin } from '../config'
 import type { AppContext } from '../context'
 import { DEFAULT_PROXY_PORT } from '../app-config'
-import { resolveLayout } from '../system/layout'
-import { subscriptionTokenStatus } from '../proxy/subscription'
 
 export interface EngineConfs {
   claude: ClaudeConf | null
@@ -22,7 +21,7 @@ export interface EngineConfs {
   /** the team's OpenAI-compatible API engine (engine/api-agent.ts), when configured */
   api?: ApiEngineConf | null
   /** why an engine can't run (shown as the answer error) */
-  problems: Partial<Record<EngineId, 'engine_missing' | 'proxy_mode' | 'setup_token_missing'>>
+  problems: Partial<Record<EngineId, 'engine_missing'>>
   /** models the Codex catalog offers (first = default) */
   codexModels: string[]
 }
@@ -48,16 +47,11 @@ export class LocalEngines implements EngineProvider {
     const { config, engineConfig } = this.ctx
     const problems: EngineConfs['problems'] = {}
     let claude: ClaudeConf | null = null
-    if (config.engine.authMode === 'proxy') {
-      // company key mode: the model proxy has to be configured and started (owner decision: not offered for now)
-      problems['claude-code'] = 'proxy_mode'
-    } else if (config.engine.authMode === 'subscription') {
-      // the owner's subscription token behind the model proxy; no token = no turn (the engine would only get a 401)
-      const st = subscriptionTokenStatus(resolveLayout(config).secretsDir, null)
+    if (config.engine.authMode === 'managed') {
+      // the team's AI connections behind the model proxy; a person without one gets a clear error from the turn
       if (!fs.existsSync(engineConfig.claudeBin)) problems['claude-code'] = 'engine_missing'
-      else if (st.state === 'missing' || st.state === 'malformed') problems['claude-code'] = 'setup_token_missing'
-      else claude = { bin: engineConfig.claudeBin, authMode: 'subscription', agentHome: path.join(config.dataDir, 'agent-home'),
-        modelProxy: { baseUrl: `http://127.0.0.1:${config.engine.proxyPort ?? DEFAULT_PROXY_PORT}`, kind: 'oauth' } }
+      else claude = { bin: engineConfig.claudeBin, authMode: 'managed', agentHome: path.join(config.dataDir, 'agent-home'),
+        modelProxy: { baseUrl: `http://127.0.0.1:${config.engine.proxyPort ?? DEFAULT_PROXY_PORT}` } }
     } else if (fs.existsSync(engineConfig.claudeBin)) {
       // office mode: through the CONNECT tunnel of the local proxy (startLocalCore starts it, security round 4b)
       claude = { bin: engineConfig.claudeBin, authMode: 'local-login', agentHome: path.join(config.dataDir, 'agent-home'), ...(config.office ? { connectProxy: true } : {}) }
@@ -66,15 +60,15 @@ export class LocalEngines implements EngineProvider {
     let codex: CodexConf | null = null
     let codexModels: string[] = []
     if (config.mode === 'prod') {
-      // role-account install ("agent-own"): the installer's engine (engine.codexBin, never a PATH lookup: the launcher
-      // allows only that file) and the locked catalog it wrote next to it. The engine account's login lives in
-      // <agent root>/codex-auth, which only the launcher touches (it copies it into each turn's chat folder).
+      // installed server ("managed"): the installer's engine (engine.codexBin, never a PATH lookup: the launcher allows
+      // only that file) and the locked catalog it wrote next to it. Each turn gets a placeholder login in its chat
+      // folder (the launcher writes it) and talks to the model proxy, which adds the AI connection's real credential.
       const bin = config.engine.codexBin
       if (bin && fs.existsSync(bin)) {
         const catalog = codexCatalogFor(bin)
         try {
           codexModels = catalogModels(catalog)
-          codex = { bin, codexHome: '{CHAT_DIR}/.codex', agentHome: '{CHAT_DIR}/.home', catalog, model: codexModels[0] ?? 'gpt-5', auth: 'agent-own' }
+          codex = { bin, codexHome: '{CHAT_DIR}/.codex', agentHome: '{CHAT_DIR}/.home', catalog, model: codexModels[0] ?? 'gpt-5', auth: 'managed' }
         } catch (e) {
           this.ctx.log.warn('codex catalog missing or not locked: Codex turns are off', { catalog, err: e })
           problems.codex = 'engine_missing'
@@ -106,21 +100,14 @@ export class LocalEngines implements EngineProvider {
   }
 }
 
-/** Codex on the engine account (production) was "beta" until the open checks of design tab 2 "Codex 네트워크" passed:
- * on the staging install 2026-10-22 (pf on, the engine account without direct internet) real turns, the team tools,
- * a forced token refresh written back to codex-auth, and web search all worked through the tunnel. While beta it is
- * labelled beta, cannot be the team default, and only the owner plus the people in the setting `codexUsers` (ids;
- * empty by default) may use it. Dev mode (the owner's own login) is not affected. */
+/** Codex on the engine account was "beta" (owner only, never the team default) while its real token sat in the
+ * turn's folder. main lifted it after the staging checks (2026-10-22: real turns, team tools, a forced token refresh and
+ * web search through the proxy tunnel); with managed mode the engine also holds only a placeholder and the proxy adds
+ * the credential (docs/DECISIONS.md "AI 연결" D9/D19). No beta either way; `codexUsers` is not read any more and these
+ * stay for one release (removed in the next). */
 export const CODEX_PROD_BETA = false
 export const codexIsBeta = (ctx: { config: { mode: 'dev' | 'prod' } }) => CODEX_PROD_BETA && ctx.config.mode === 'prod'
-export function codexBetaAllowed(db: Database, user: { id: string; role: string }): boolean {
-  if (user.role === 'owner') return true
-  try {
-    const r = db.query("SELECT value FROM settings WHERE key = 'codexUsers'").get() as { value: string } | null
-    const v = r ? JSON.parse(r.value) : []
-    return Array.isArray(v) && v.includes(user.id)
-  } catch { return false }
-}
+export function codexBetaAllowed(_db: Database, _user: { id: string; role: string }): boolean { return true }
 
 /** Fixed engines (tests: fake engines). */
 export class StaticEngines implements EngineProvider {

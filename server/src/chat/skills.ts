@@ -1,19 +1,13 @@
-// Team skills: reusable workflows kept as Markdown files under skills/ (any depth), so the folder rules decide who
-// may use one (skills/재무/ can be the finance group's) and who may write one. A skill file starts with a header:
-//
-//   ---
-//   name: 주간 보고서
-//   description: shared/회의록의 이번 주 회의록으로 주간 보고서 docx를 만든다
-//   ---
-//   (the steps)
-//
-// A .md in skills/ without that header stays a team rule (read every turn, prompt.ts teamRules). A skill is used when
-// the person starts a message with "/<name>" (the server puts the skill into that turn) or when the AI picks it from
-// the list in its instructions and reads it.
+// Team skills: legacy Markdown files and Agent Skills folders with a SKILL.md entry point.
+// Folder rules still govern every read/write. Resources are read on demand through the ordinary file tools;
+// discovering a manifest never executes scripts or grants tools named in its metadata.
 import fs from 'node:fs'
 import path from 'node:path'
+import { isMap, isScalar, parseDocument } from 'yaml'
 import type { FileService } from '../files/service'
+import { readRegular } from '../files/store'
 import type { Principal } from '../policy/access'
+import { authorize } from '../policy/authorize'
 
 export interface SkillInfo { path: string; name: string; description: string }
 export interface Skill extends SkillInfo { body: string }
@@ -22,64 +16,144 @@ const SKILLS_DIR = 'skills'
 const MAX_DEPTH = 3
 const MAX_FILES = 200
 export const SKILL_BODY_MAX = 16_000
-const NAME_MAX = 60
-const DESCRIPTION_MAX = 300
+export const SKILL_FILE_MAX_BYTES = 128 * 1024
+const HEADER_MAX = 8 * 1024
+export const SKILL_NAME_MAX = 64
+const LEGACY_NAME_MAX = 60
+const LEGACY_DESCRIPTION_MAX = 300
+const DESCRIPTION_MAX = 1024
 
-/** The header of a skill file, or null when the file has none (a team rule) or no usable name. */
-export function parseSkill(text: string): { name: string; description: string; body: string } | null {
-  const t = text.replace(/^﻿/, '')
-  const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(t)
-  if (!m) return null
-  const fields: Record<string, string> = {}
+export const isSkillManifest = (rel: string) => path.posix.basename(rel) === 'SKILL.md'
+const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(text)
+
+/** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
+ * optional metadata string map may be collections. The bounded header also limits parser work before validation. */
+function standardFields(header: string): Map<string, string> | null {
+  try {
+    const doc = parseDocument(header, { strict: true, uniqueKeys: true, schema: 'core', version: '1.2', prettyErrors: false, logLevel: 'silent' })
+    if (doc.errors.length || doc.warnings.length || !isMap(doc.contents) || doc.contents.anchor || doc.contents.tag) return null
+    const fields = new Map<string, string>()
+    const scalar = (v: unknown): v is import('yaml').Scalar<string> => isScalar(v) && typeof v.value === 'string' && !v.anchor && !v.tag
+    for (const item of doc.contents.items) {
+      if (!scalar(item.key)) return null
+      const key = item.key.value
+      if (key === 'metadata') {
+        if (!isMap(item.value) || item.value.anchor || item.value.tag) return null
+        for (const pair of item.value.items) if (!scalar(pair.key) || !scalar(pair.value)) return null
+      } else {
+        if (!scalar(item.value)) return null
+        fields.set(key, item.value.value)
+      }
+    }
+    return fields
+  } catch { return null }
+}
+
+/** Legacy files keep their Korean/display-name format. A SKILL.md needs its actual path: the standard name must
+ * match its parent folder. Invalid frontmatter is never a fallback team rule. Optional metadata grants nothing. */
+export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string } | null {
+  if (Buffer.byteLength(text, 'utf8') > SKILL_FILE_MAX_BYTES) return null
+  const t = text.replace(/^\uFEFF/, '')
+  const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(t.slice(0, HEADER_MAX + 16))
+  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) return null
+  if (rel !== undefined && isSkillManifest(rel)) {
+    const parts = rel.split('/')
+    if (parts[0] !== SKILLS_DIR || parts.length < 3 || parts.length > MAX_DEPTH + 1) return null
+    const fields = standardFields(m[1]!)
+    if (!fields) return null
+    const name = fields.get('name'), description = fields.get('description')
+    if (!name || name.length > SKILL_NAME_MAX || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name !== parts.at(-2)) return null
+    if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return null
+    const compatibility = fields.get('compatibility')
+    if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return null
+    return { name, description: description.trim(), body: t.slice(m[0].length) }
+  }
+  const fields: Record<string, string> = Object.create(null)
   for (const line of m[1]!.split(/\r?\n/)) {
     const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
     if (kv) fields[kv[1]!.toLowerCase()] = kv[2]!.trim().replace(/^(["'])(.*)\1$/, '$2')
   }
   const name = (fields.name ?? '').replace(/\s+/g, ' ').trim()
-  // a name can't start with "/" or hold another slash command, and must fit one line in the picker
-  if (!name || name.length > NAME_MAX || name.includes('/')) return null
-  return { name, description: (fields.description ?? '').slice(0, DESCRIPTION_MAX), body: t.slice(m[0].length) }
+  if (!name || name.length > LEGACY_NAME_MAX || name.includes('/')) return null
+  return { name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
 }
 
-/** Every skill file under skills/ the person can read, sorted by name. Symlinks and hard-linked files are skipped. */
-export function listSkills(files: FileService, user: Principal): Skill[] {
-  const rules = files.rules()
-  const root = files.fx.root
-  const out: Skill[] = []
-  let seen = 0
-  const walk = (rel: string[], depth: number) => {
-    let names: string[]
-    try { names = fs.readdirSync(path.join(root, ...rel)).sort() } catch { return }
-    for (const n of names) {
-      if (seen >= MAX_FILES || n.startsWith('.')) continue
-      const segs = [...rel, n]
-      if (rules.access(user, segs) === 'none') continue
-      let st: fs.Stats
-      try { st = fs.lstatSync(path.join(root, ...segs)) } catch { continue }
-      if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(segs, depth + 1); continue }
-      if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md')) continue
-      seen++
-      let text: string
-      try { text = fs.readFileSync(path.join(root, ...segs), 'utf8').slice(0, SKILL_BODY_MAX + 2000) } catch { continue }
-      const s = parseSkill(text)
-      if (s) out.push({ path: segs.join('/'), name: s.name, description: s.description, body: s.body.slice(0, SKILL_BODY_MAX) })
+/** Even an invalid or unreadable manifest reserves its folder: resource files must not become separate skills.
+ * This checks names only, never reads a manifest that the caller cannot access. */
+function isSkillResource(root: string, rel: string): boolean {
+  const parts = rel.split('/')
+  for (let n = 2; n < parts.length; n++) {
+    if (n === parts.length - 1 && isSkillManifest(rel)) continue
+    try { fs.lstatSync(path.join(root, ...parts.slice(0, n), 'SKILL.md')); return true } catch (e: any) {
+      if (e.code !== 'ENOENT') return true
     }
   }
-  try { if (fs.lstatSync(path.join(root, SKILLS_DIR)).isDirectory()) walk([SKILLS_DIR], 1) } catch {}
+  return false
+}
+
+/** Shared by discovery, usage, edit previews and change history, so resources and invalid entries agree. */
+export function skillFileKind(root: string, rel: string, text: string): 'skill' | 'rule' | 'other' {
+  if (!rel.endsWith('.md') || isSkillResource(root, rel)) return 'other'
+  if (parseSkill(text, rel)) return 'skill'
+  return isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
+}
+
+/** Read exactly one authorized entry using the same link/size checks as the file tools. */
+export function readSkill(files: FileService, user: Principal, inputPath: string): Skill | null {
+  try {
+    const r = authorize(files.fx, files.rules(), user, inputPath, 'read')
+    if (r.segs[0] !== SKILLS_DIR || r.segs.length > MAX_DEPTH + 1 || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
+    const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+    const skill = parseSkill(text, r.rel)
+    return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX) } : null
+  } catch { return null }
+}
+
+/** Accessible legacy files and folder entry points, capped and sorted. Never descend into a skill package. */
+export function listSkills(files: FileService, user: Principal): Skill[] {
+  const out: Skill[] = []
+  let seen = 0
+  const walk = (rel: string, depth: number) => {
+    let names: string[]
+    try {
+      const r = authorize(files.fx, files.rules(), user, rel, 'list')
+      if (!r.st?.isDirectory()) return
+      names = fs.readdirSync(r.abs).sort()
+    } catch { return }
+    if (depth > 1 && names.includes('SKILL.md')) {
+      if (seen++ < MAX_FILES) {
+        const skill = readSkill(files, user, `${rel}/SKILL.md`)
+        if (skill) out.push(skill)
+      }
+      return
+    }
+    for (const n of names) {
+      if (seen >= MAX_FILES) break
+      if (n.startsWith('.')) continue
+      const child = `${rel}/${n}`
+      let st: fs.Stats
+      try { st = authorize(files.fx, files.rules(), user, child, 'list').st! } catch { continue }
+      if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, depth + 1); continue }
+      if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md')) continue
+      seen++
+      const skill = readSkill(files, user, child)
+      if (skill) out.push(skill)
+    }
+  }
+  walk(SKILLS_DIR, 1)
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
 }
 
-/**
- * The skill a message starts with ("/주간 보고서 이번 주 것"), matched against the person's skills by name (longest name
- * first, so "/보고서 요약" beats "/보고서") or by file name without .md. Returns the skill and the text after it.
- */
+/** Longest explicit name wins, then file aliases. Folder skills never acquire a shared /SKILL alias. */
 export function invokedSkill(skills: Skill[], content: string): { skill: Skill; input: string } | null {
   const t = content.trimStart()
   if (!t.startsWith('/')) return null
   const rest = t.slice(1)
   const fold = (s: string) => s.normalize('NFC').toLowerCase()
-  const candidates = skills.flatMap((s) => [{ s, key: s.name }, { s, key: path.posix.basename(s.path, '.md') }])
-    .sort((a, b) => b.key.length - a.key.length)
+  const candidates = skills.flatMap((s) => [
+    { s, key: s.name, alias: false },
+    { s, key: isSkillManifest(s.path) ? path.posix.basename(path.posix.dirname(s.path)) : path.posix.basename(s.path, '.md'), alias: true },
+  ]).sort((a, b) => b.key.length - a.key.length || Number(a.alias) - Number(b.alias) || a.s.path.localeCompare(b.s.path))
   for (const { s, key } of candidates) {
     const head = rest.slice(0, key.length)
     const next = rest.charAt(key.length)

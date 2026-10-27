@@ -24,7 +24,9 @@ export type ConnectedFolder = z.infer<typeof ConnectedFolder>
 export const AddConnectedBody = z.object({ name: z.string().min(1).max(60), source: z.string().min(1).max(1000), password: z.string().min(1).max(256) })
 
 export const CONNECTED = {
-  listConnected: endpoint({ method: 'GET', path: '/api/admin/connected', auth: 'owner', owner: 'A', response: z.object({ items: z.array(ConnectedFolder) }), summary: 'Connected folders and their last sync.' }),
+  listConnected: endpoint({ method: 'GET', path: '/api/admin/connected', auth: 'owner', owner: 'A', response: z.object({ items: z.array(ConnectedFolder),
+    /** false on the hosted cloud (server/src/system/deployment.ts): the card is hidden and adding one is refused (409). Absent from older servers = true. */
+    available: z.boolean().optional() }), summary: 'Connected folders and their last sync.' }),
   addConnected: endpoint({ method: 'POST', path: '/api/admin/connected', auth: 'owner-reauth', owner: 'A', status: 201, body: AddConnectedBody, response: ConnectedFolder, summary: 'Connect a folder of the server Mac as connected/<name> (everyone can read it; first sync starts).' }),
   syncConnected: endpoint({ method: 'POST', path: '/api/admin/connected/:id/sync', auth: 'owner', owner: 'A', response: ConnectedFolder, summary: 'Start a sync now (runs in the background).' }),
   removeConnected: endpoint({ method: 'DELETE', path: '/api/admin/connected/:id', auth: 'owner', owner: 'A', response: empty, status: 204, summary: 'Disconnect: the mirrored files go away, anything people added stays.' }),

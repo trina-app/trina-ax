@@ -1,4 +1,4 @@
-// Minimal SQLite interface for the registry. The relay runs on Node 25 (node:sqlite); unit tests run the same code
+// Minimal SQLite interface for the registry. The relay runs on Node 26 (24+, node:sqlite); unit tests run the same code
 // in Bun (bun:sqlite). Positional parameters only, so both drivers behave the same.
 import fs from 'node:fs'
 import path from 'node:path'

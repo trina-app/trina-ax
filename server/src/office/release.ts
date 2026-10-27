@@ -14,12 +14,13 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 import { compareVersions, keyId } from '../system/update'
 import { PRODUCT } from '@mycel/shared'
+import { RELEASE_KEYS } from '../system/release-keys'
 
 /** the only address the office updater contacts unless config/office.env sets TEAMAX_UPDATE_FEED (tests) */
 export const DEFAULT_FEED = 'https://updates.treesoop.com'
 
 /** Ed25519 release public keys (raw 32 bytes, base64). The private key: ~/.config/teamax-release/release-key.pem. */
-export const OFFICE_RELEASE_KEYS: readonly string[] = ['aBlaqvK85shocX702pWi4gM/aYEzGS56Yy9h7Pj4KF4=' /* key id 84b790c8b6439e8b, made 2026-10-21 */]
+export const OFFICE_RELEASE_KEYS: readonly string[] = RELEASE_KEYS // system/release-keys.ts: the same key signs the server feed
 
 export const CHANNELS = ['stable', 'beta'] as const
 export type Channel = (typeof CHANNELS)[number]

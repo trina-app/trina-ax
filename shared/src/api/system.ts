@@ -33,7 +33,13 @@ export const Diagnostics = z.object({
   version: z.string(),
   host: z.object({ os: z.string(), arch: z.string(), hostname: z.string() }),
   disk: z.object({ teamFolderFreeBytes: z.number().int().nonnegative(), dataFreeBytes: z.number().int().nonnegative() }),
-  queue: z.object({ running: z.number().int(), queued: z.number().int(), concurrency: z.number().int() }),
+  queue: z.object({ running: z.number().int(), queued: z.number().int(), concurrency: z.number().int(),
+    queuePolicyVersion: z.number().int().optional(), waitingUsers: z.number().int().optional(), oldestWaitMs: z.number().nonnegative().optional(),
+    maxRunningPerUser: z.number().int().optional(), quarantined: z.number().int().optional(), deferredSchedules: z.number().int().optional(),
+    deferredOldestWaitMs: z.number().nonnegative().optional(),
+    recovery: z.enum(['ready', 'checking_launcher', 'launcher_unreachable', 'launcher_busy', 'launcher_unknown']).optional(),
+    rejected: z.object({ queue_full: z.number().int(), queue_full_user: z.number().int(), draining: z.number().int() }).optional(),
+  }),
   checks: z.array(DiagnosticCheck),
   generatedAt: IsoTime,
 })
@@ -49,6 +55,13 @@ export const UpdateStatus = z.object({
   /** false: this server has no release feed (update.feedUrl null) or no release key, so it never looks for new
    * versions online; a new version comes from re-running the installer. Absent from older servers. */
   feed: z.boolean().optional(),
+  /** the available version also changes root-owned parts (Linux: launcher, sandbox helper, units): the server does
+   * not apply it; `sudo mycel-ctl update` (or the update timer / the hosted cloud) does. Absent from older servers. */
+  needsRoot: z.boolean().optional(),
+  /** this server applies app-only releases by itself inside the team's update window (Linux self-host update.auto) */
+  auto: z.boolean().optional(),
+  /** the hosted cloud: TreeSoop installs updates; the in-app update and roll-back are off */
+  managed: z.boolean().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 export const ReauthBody = z.object({ password: z.string().min(1).max(256) })
@@ -99,6 +112,9 @@ export const UpdateConnectionBody = z.object({
   relayUrl: z.url().optional(),
   /** team name at the relay (self-relay: required unless one is set already) */
   teamName: RelayTeamName.optional(),
+  /** claim code from the account console (the official relay add-on, control-plane 3.13): registers the address
+   * without proof of work at a relay with closed registration. Used once, at the next start. */
+  claimCode: z.string().trim().min(16).max(64).regex(/^[A-Za-z0-9 -]+$/).optional(),
   password: z.string().min(1).max(256),
 })
 
@@ -123,6 +139,77 @@ export const LanFailureCode = z.enum(['unreachable', 'cert_mismatch', 'timeout']
 export type LanFailureCode = z.infer<typeof LanFailureCode>
 export const LanFailureBody = z.object({ code: LanFailureCode })
 
+// ---------------- storage (server/src/system/storage.ts) ----------------
+export const StorageLevel = z.enum(['ok', 'warn', 'high', 'full'])
+export type StorageLevel = z.infer<typeof StorageLevel>
+const Bytes = z.number().nonnegative()
+export const StorageBreakdown = z.object({ team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
+export type StorageBreakdown = z.infer<typeof StorageBreakdown>
+export const StorageStatus = z.object({
+  /** statfs of the team folder's disk (the hosted cloud: the plan's disk) */
+  totalBytes: Bytes, usedBytes: Bytes, freeBytes: Bytes,
+  /** used / (used + available), 0–100 */
+  percent: z.number().min(0).max(100),
+  /** ok < 80% <= warn < 90% <= high < 95% <= full */
+  level: StorageLevel,
+  /** writes are refused when the free space would drop under this */
+  reserveBytes: Bytes,
+  /** saves, uploads and the AI's writes are refused now (507 storage_full) */
+  writesRefused: z.boolean(),
+  /** what uses the space (measured hourly; null until the first measurement) */
+  breakdown: StorageBreakdown.nullable(),
+  measuredAt: IsoTime.nullable(),
+  /** the plan's disk (the hosted cloud), else null. The rest of the plan: GET /api/admin/plan */
+  planDiskGiB: z.number().nullable(),
+})
+export type StorageStatus = z.infer<typeof StorageStatus>
+
+// ---------------- the plan and the operator's notices (server/src/system/limits.ts, managed.ts; control-plane 3.5.6) ----------------
+/** Admin > System > Plan: what plan.json allows and what the team uses of it. null plan = no plan file (self-hosted,
+ * no limits beyond the admin's settings). */
+export const PlanStatus = z.object({
+  plan: z.object({
+    /** plan id (basic, team, pro, ...) */
+    id: z.string(),
+    /** the plan's display name in the caller's language (plan.json display.name), else the id */
+    name: z.string(),
+    maxConcurrency: z.number().int(),
+    /** answers at the same time now: min(the admin's setting, maxConcurrency) */
+    concurrency: z.number().int(),
+    /** active accounts allowed (owner included, disabled ones not); null = no limit */
+    maxActiveMembers: z.number().int().nullable(),
+    activeMembers: z.number().int(),
+    diskGiB: z.number(),
+    memoryMiB: z.number().int(),
+    cpuCores: z.number().int(),
+    /** local backups are kept this many days (the hosted cloud: 3, the off-site copy is the long one) */
+    localBackupRetentionDays: z.number().int(),
+    /** account = where the owner changes the plan; status page; support (a mail address or a URL) */
+    links: z.object({ account: z.string(), status: z.string(), support: z.string() }).nullable(),
+    updatedAt: IsoTime.nullable(),
+  }).nullable(),
+})
+export type PlanStatus = z.infer<typeof PlanStatus>
+
+export const NoticeLevel = z.enum(['info', 'warn', 'critical'])
+export type NoticeLevel = z.infer<typeof NoticeLevel>
+/** One notice of the operator (<base>/root/notices.json, written by `mycel-ctl notices-set`), already in the caller's
+ * language and only when it is meant for the caller's role. */
+export const ManagedNotice = z.object({
+  id: z.string(),
+  level: NoticeLevel,
+  text: z.string(),
+  /** https link to more (status page, billing, changelog) */
+  link: z.string().nullable(),
+  /** shown until then; null = until the operator removes it */
+  until: IsoTime.nullable(),
+  /** info and warn: the person may hide it on this browser; critical stays */
+  dismissible: z.boolean(),
+})
+export type ManagedNotice = z.infer<typeof ManagedNotice>
+export const ManagedNotices = z.object({ items: z.array(ManagedNotice) })
+export type ManagedNotices = z.infer<typeof ManagedNotices>
+
 export const SYSTEM = {
   health: endpoint({ method: 'GET', path: '/api/health', auth: 'public', owner: 'G', response: Health, summary: 'Liveness for the menubar app, relay and update check. No private data.' }),
   diagnostics: endpoint({ method: 'GET', path: '/api/admin/diagnostics', auth: 'owner', owner: 'G', response: Diagnostics, summary: 'Relay, disk, engine keys, queue, pf anchor, sandbox, backups.' }),
@@ -136,4 +223,7 @@ export const SYSTEM = {
   connectInfo: endpoint({ method: 'GET', path: '/api/connect-info', auth: 'user', owner: 'G', response: ConnectInfo, summary: 'Office-network address and certificate fingerprint for the desktop app (pinning).' }),
   lanFailure: endpoint({ method: 'POST', path: '/api/connect-info/lan-failure', auth: 'user', owner: 'G', status: 204, body: LanFailureBody, response: empty, summary: 'The desktop app could not use the office address (shown in Diagnostics).' }),
   updateConnection: endpoint({ method: 'PUT', path: '/api/admin/connection', auth: 'owner-reauth', owner: 'G', body: UpdateConnectionBody, response: ConnectionStatus, summary: 'Change the connection mode.' }),
+  storage: endpoint({ method: 'GET', path: '/api/admin/storage', auth: 'admin', owner: 'G', response: StorageStatus, summary: 'Storage use of the team disk (statfs), what uses it, the plan\'s disk when there is one.' }),
+  plan: endpoint({ method: 'GET', path: '/api/admin/plan', auth: 'admin', owner: 'G', response: PlanStatus, summary: 'The plan (plan.json): limits, what the team uses of them, where to change it. null without a plan file.' }),
+  managedNotices: endpoint({ method: 'GET', path: '/api/managed/notices', auth: 'user', owner: 'G', response: ManagedNotices, summary: 'The operator\'s notices (notices.json) meant for the caller\'s role, in the caller\'s language.' }),
 } as const

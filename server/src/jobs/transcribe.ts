@@ -12,6 +12,7 @@ import { which } from '../config'
 import type { JobHandle } from '../services'
 import { runIsolated } from '../tools/isolate'
 import { JobFailure } from './service'
+import { whisperThreads } from '../system/limits'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -34,6 +35,9 @@ const NATIVE = new Set(['wav', 'mp3', 'flac', 'ogg'])
 export interface ModelSpec { file: string; size: number; sha256: string }
 export interface TranscribeConfig {
   modelDir: string
+  /** read-only model folder shared by the teams of a host ($MYCEL_MODELS_DIR/whisper): used when the file there has the
+   * right size and hash, never written */
+  sharedModelDir?: string | null
   model: WhisperModel
   /** tests: a different (small, fake) model file instead of WHISPER_MODELS[model] */
   modelOverride?: ModelSpec
@@ -50,12 +54,14 @@ export function transcribeConfig(dataDir: string, env: Record<string, string | u
   const m = env.MYCEL_WHISPER_MODEL as WhisperModel | undefined
   return {
     modelDir: env.MYCEL_WHISPER_MODEL_DIR ?? path.join(dataDir, 'models', 'whisper'),
+    sharedModelDir: env.MYCEL_MODELS_DIR ? path.join(env.MYCEL_MODELS_DIR, 'whisper') : null,
     model: m && m in WHISPER_MODELS ? m : DEFAULT_WHISPER_MODEL,
     whisperBin: env.MYCEL_WHISPER_BIN ?? which('whisper-cli'),
     ffmpegBin: which('ffmpeg'),
     baseUrl: env.MYCEL_WHISPER_BASE_URL ?? MODEL_BASE_URL,
     workBase: path.join(dataDir, 'work'),
-    threads: Math.max(1, Math.min(8, os.availableParallelism() - 1)),
+    // min(8, cores − 1) as before; where limits apply max(1, min(4, plan cores − 1)) (system/limits.ts)
+    threads: whisperThreads(),
   }
 }
 
@@ -77,8 +83,27 @@ const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHI
 let downloading: Promise<string> | null = null
 
 /** Path of the model file, downloading it first if needed (one download at a time). */
+/** sha256 of a shared model file, checked once per file version per process (the small model is 488 MB) */
+const sharedOk = new Map<string, string>()
+async function sharedModel(cfg: TranscribeConfig, spec: ModelSpec): Promise<string | null> {
+  if (!cfg.sharedModelDir) return null
+  const f = path.join(cfg.sharedModelDir, spec.file)
+  let st: fs.Stats
+  try { st = fs.statSync(f) } catch { return null }
+  if (!st.isFile() || st.size !== spec.size) return null
+  const key = `${st.size}:${st.mtimeMs}`
+  if (sharedOk.get(f) === key) return f
+  const h = crypto.createHash('sha256')
+  for await (const c of fs.createReadStream(f)) h.update(c as Buffer)
+  if (h.digest('hex') !== spec.sha256) return null
+  sharedOk.set(f, key)
+  return f
+}
+
 export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'progress' | 'signal'>, locale: Locale = DEFAULT_LOCALE): Promise<string> {
   const spec = modelSpec(cfg)
+  const shared = await sharedModel(cfg, spec)
+  if (shared) return shared
   const file = path.join(cfg.modelDir, spec.file)
   try { if (fs.statSync(file).size === spec.size) return file } catch { /* not there yet */ }
   if (!downloading) downloading = download(cfg, file, h, locale).finally(() => { downloading = null })

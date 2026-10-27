@@ -5,7 +5,7 @@ import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, ReadInput, WriteInput } from '@mycel/shared'
 import type { ServerConfig } from '../config'
-import { teamDefaultLocale } from '../admin/settings'
+import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { authorize, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -16,6 +16,8 @@ import { globFiles, grepFiles, OfficeCache } from './search'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
+import { readMaxBytes } from '../system/limits'
+import { assertStorageRoomForAI } from '../system/storage'
 
 void ENGINE_BUILTIN_ALLOWED
 
@@ -32,6 +34,7 @@ export class TurnFiles {
 }
 
 export interface ToolCtx {
+  signal?: AbortSignal
   user: Principal
   turnId: string | null
   files: TurnFiles
@@ -134,7 +137,8 @@ export class FileService {
   async read(ctx: ToolCtx, a: { file_path: string; offset?: number; limit?: number }): Promise<ToolOutput> {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
-    const { bytes } = readRegular(r.abs)
+    // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
+    const { bytes } = readRegular(r.abs, readMaxBytes())
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr })
     ctx.files.readHashes.set(r.rel, sha256(bytes))
     ctx.files.readPaths.add(r.rel)
@@ -223,6 +227,7 @@ export class FileService {
 
   private limits(ctx: ToolCtx, rel: string, size: number) {
     if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+    assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
     if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
   }
 
@@ -231,8 +236,9 @@ export class FileService {
     const rel = segs.join('/')
     const dir = segs.slice(0, -1)
     const loc = teamDefaultLocale(this.db)
-    let name = conflictCopyName(segs[segs.length - 1], ctx.user.name, new Date(), loc)
-    for (let i = 2; fs.existsSync(path.join(this.fx.root, ...dir, name)); i++) name = conflictCopyName(segs[segs.length - 1], `${ctx.user.name} ${i}`, new Date(), loc)
+    const tz = teamTimeZone(this.db)
+    let name = conflictCopyName(segs[segs.length - 1], ctx.user.name, new Date(), loc, tz)
+    for (let i = 2; fs.existsSync(path.join(this.fx.root, ...dir, name)); i++) name = conflictCopyName(segs[segs.length - 1], `${ctx.user.name} ${i}`, new Date(), loc, tz)
     if (badSegment(name)) name = `conflict-${Date.now()}-${segs[segs.length - 1]}`
     const copy = [...dir, name]
     // the card showed the save at `rel`: its conflict copy right next to it is that same save

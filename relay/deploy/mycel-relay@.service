@@ -1,0 +1,54 @@
+# Team AX relay, one instance of the a/b pair (control-plane 3.6.1). relay-deploy.sh starts the idle instance on the
+# new release, checks it, then stops the running one: both listen on the same ports meanwhile (SO_REUSEPORT), team
+# servers get GOAWAY(restart) and reconnect at once, browser WebSockets get 1012 and resume.
+#
+#   /opt/mycel-relay/instance-a -> releases/<version>    (each instance runs its own release link)
+#   /etc/mycel-relay/relay.env                          shared settings (relay.env.example)
+#   /etc/mycel-relay/instance-<a|b>.env                 RELAY_HEALTH_LISTEN=127.0.0.1:1809<1|2>
+#   /etc/mycel-relay/credentials/                       origin.pem, origin.key, aop-ca.pem (root 0600; LoadCredential)
+#   /var/lib/mycel-relay/registry.db                    the registry (Litestream replicates it)
+[Unit]
+Description=Team AX relay (instance %i)
+Documentation=https://github.com/potenlab/team-ax/blob/main/relay/README.md
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mycel-relay
+Group=mycel-relay
+EnvironmentFile=/etc/mycel-relay/relay.env
+EnvironmentFile=-/etc/mycel-relay/instance-%i.env
+LoadCredential=tls-cert:/etc/mycel-relay/credentials/origin.pem
+LoadCredential=tls-key:/etc/mycel-relay/credentials/origin.key
+LoadCredential=aop-ca:/etc/mycel-relay/credentials/aop-ca.pem
+Environment=RELAY_TLS_CERT=%d/tls-cert RELAY_TLS_KEY=%d/tls-key RELAY_TLS_CLIENT_CA=%d/aop-ca
+ExecStart=/opt/node-26/bin/node --disable-warning=ExperimentalWarning /opt/mycel-relay/instance-%i/relay/src/main.ts --port 443 --data /var/lib/mycel-relay --trusted-proxies cloudflare
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=1
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mycel-relay
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+LimitNOFILE=1048576
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

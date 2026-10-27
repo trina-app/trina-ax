@@ -1,5 +1,5 @@
 // Route module "system" — owner: component G (docs/WORKPLAN.md).
-// Implements: SYSTEM (health, diagnostics, update, backups, restore, export, connection).
+// Implements: SYSTEM (health, diagnostics, update, backups, restore, export, connection, storage, plan, notices).
 // Contract: shared/src/api/system.ts. Health is implemented by the foundation (the dev server, CI smoke test and
 // the menubar app need it from day one); G implements the rest. The work itself is in server/src/system/*.
 import { API, type Health, type Locale } from '@mycel/shared/api'
@@ -11,13 +11,16 @@ import { JobFailure } from '../jobs/service'
 import type { JobService } from '../services'
 import { BackupError } from '../system/backup'
 import { connectInfo } from '../system/connect-info'
-import { ConnectionChangeError, connectionStatus, modeOf, saveConnectionMode } from '../system/connection'
+import { ConnectionChangeError, connectionStatus, modeOf, saveClaimCodeFor, saveConnectionMode } from '../system/connection'
 import { runExport } from '../system/export'
 import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
-import { UpdateError } from '../system/update'
+import { runUpdate } from '../system/update-job'
 import type { RouteModule } from './module'
+import { feature, isHosted } from '../system/deployment'
+import { noticesFor, planStatus } from '../system/managed'
+import { setApiEnginePublicOnly } from '../system/egress'
 
 const opsByCtx = new WeakMap<AppContext, OpsService>()
 /** The ops service of a running server (tests, CLI). */
@@ -48,12 +51,18 @@ export const T = {
   relayUnavailable: { ko: `${PRODUCT.displayName} 중계 서버는 아직 운영되지 않아 고를 수 없습니다. 자체 중계 서버나 사무실 안 연결을 쓰세요.`, en: `The ${PRODUCT.displayName} relay is not running yet, so it cannot be chosen. Use your own relay server or the office network only.`, id: `Relay ${PRODUCT.displayName} belum berjalan, jadi belum bisa dipilih. Gunakan server relay sendiri atau jaringan kantor saja.` },
   teamNameMissing: { ko: '중계 서버에 등록할 팀 이름을 입력해 주세요(영문 소문자·숫자·하이픈).', en: 'Enter the team name to register at the relay (lowercase letters, digits and hyphens).', id: 'Masukkan nama tim untuk didaftarkan di relay (huruf kecil, angka, dan tanda hubung).' },
   badRelayUrl: { ko: '자체 중계 서버 주소는 wss://로 시작하는 주소여야 합니다.', en: 'The self-hosted relay address must be a wss:// address.', id: 'Alamat relay sendiri harus berupa alamat wss://.' },
+  // the hosted cloud (server/src/system/deployment.ts): the operator owns server.json, the relay registration and the updates
+  cloudConnection: { ko: `${PRODUCT.displayName} Cloud에서는 연결 방식을 바꿀 수 없습니다. 팀 주소는 TreeSoop이 관리합니다.`, en: `The connection cannot be changed on ${PRODUCT.displayName} Cloud. TreeSoop manages the team address.`, id: `Koneksi tidak bisa diubah di ${PRODUCT.displayName} Cloud. TreeSoop mengelola alamat tim.` },
+  needsRoot: { ko: '이 업데이트는 서버의 관리자 권한이 필요합니다. 서버에서 `sudo mycel-ctl update`를 실행해 주세요(docs/INSTALL-LINUX.md).', en: 'This update needs administrator rights on the server. Run `sudo mycel-ctl update` there (docs/INSTALL-LINUX.md).', id: 'Pembaruan ini memerlukan hak administrator di server. Jalankan `sudo mycel-ctl update` di sana (docs/INSTALL-LINUX.md).' },
+  cloudUpdate: { ko: `${PRODUCT.displayName} Cloud의 업데이트와 되돌리기는 TreeSoop이 점검 시간에 합니다.`, en: `On ${PRODUCT.displayName} Cloud, TreeSoop installs updates (and rolls them back) during the maintenance window.`, id: `Di ${PRODUCT.displayName} Cloud, TreeSoop memasang pembaruan (dan mengembalikannya) saat jendela pemeliharaan.` },
 }
 
 export const systemRoutes: RouteModule = {
   name: 'system',
   owner: 'G',
   init(ctx) {
+    // the team API engine's calls: public https only on the hosted cloud (system/egress.ts; one team per process)
+    setApiEnginePublicOnly(!feature(ctx.config, 'apiEngineAnyUrl'))
     const ops = new OpsService(ctx, systemTestHooks.opsOptions ?? {})
     opsByCtx.set(ctx, ops)
     ops.start()
@@ -62,15 +71,14 @@ export const systemRoutes: RouteModule = {
   register(kit, ctx) {
     const ops = () => opsByCtx.get(ctx)!
     let fallbackJobs: LocalJobService | null = null
-    let busy: string | null = null
     const jobs = (): JobService => ctx.services.jobs ?? (fallbackJobs ??= new LocalJobService(ctx))
-    /** one maintenance operation (backup / restore / update / export) at a time */
+    /** one maintenance operation (backup / restore / update / export) at a time; the lock is the ops service's, which
+     * the automatic update (Linux self-host) takes too */
     const exclusive = (name: string, locale: Locale, fn: () => string): string => {
-      if (busy) fail('busy', tr(locale, T.busy))
-      busy = name
-      try { return fn() } catch (e) { busy = null; throw e }
+      if (!ops().tryLock(name)) fail('busy', tr(locale, T.busy))
+      try { return fn() } catch (e) { ops().unlock(); throw e }
     }
-    const release = () => { busy = null }
+    const release = () => { ops().unlock() }
 
     kit.handle(API.health, ({ c, auth }): Health => {
       let dbOk = true
@@ -89,47 +97,36 @@ export const systemRoutes: RouteModule = {
 
     kit.handle(API.diagnostics, ({ c }) => ops().diagnostics(c.get('locale')))
 
+    kit.handle(API.storage, () => ops().storage.status())
+
+    // the plan (plan.json) and the operator's notices (notices.json): system/limits.ts, system/managed.ts
+    kit.handle(API.plan, ({ c }) => planStatus(ctx.db, c.get('locale')))
+    kit.handle(API.managedNotices, ({ c, auth }) => ({ items: noticesFor(auth.user.role, c.get('locale')) }))
+
     kit.handle(API.updateStatus, () => {
       const u = ops().updates
       const last = u.status().lastCheckedAt
       if (u.installed && u.feedUsable && (!last || Date.now() - Date.parse(last) > 24 * 3600_000)) void u.checkFeed()
-      return u.status()
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate') }
     })
 
     kit.handle(API.startUpdate, ({ c, body, auth }) => {
       const locale = c.get('locale')
+      if (!feature(ctx.config, 'selfUpdate')) fail('conflict', tr(locale, T.cloudUpdate))
       const u = ops().updates
       if (!u.installed) fail('conflict', tr(locale, T.devOnly))
       const st = u.status()
       const target = body.rollback ? st.previous : body.version ?? st.available?.version ?? null
       if (!target) fail('conflict', tr(locale, body.rollback ? T.noPrevious : T.noUpdate))
       const staged = u.stagedVersions().includes(target!)
+      // a release that also changes root-owned parts is installed by `sudo mycel-ctl update` (Linux), not from here
+      if (!staged && !body.rollback && u.status().needsRoot) fail('conflict', tr(locale, T.needsRoot))
       const jobId = exclusive('update', locale, () => jobs().start({
         kind: 'update', userId: auth.user.id,
         run: async (h) => {
           try {
-            // 1) let running answers finish (tab 6: up to 10 minutes; what is still running then is interrupted)
-            const deadline = Date.now() + 10 * 60_000
-            for (let q = ops().queue(); q.running > 0 && Date.now() < deadline; q = ops().queue()) {
-              h.progress(null, tr(locale, T.waitingTurns(q.running)))
-              await Bun.sleep(2000)
-            }
-            // 2) DB backup (an update never rolls the DB back by itself)
-            h.progress(0.2, stepText(locale, 'backup'))
-            await ops().backups.run({ kind: 'pre-update', scope: 'db' })
-            // 3) bring the version in
-            if (!staged) {
-              h.progress(0.3, stepText(locale, 'download'))
-              const feed = await u.checkFeed()
-              if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
-              await u.download(feed, (f) => h.progress(0.3 + 0.5 * f, stepText(locale, 'download')))
-            }
-            // 4) switch and restart; the bootstrap health-checks and rolls back on failure
-            h.progress(0.9, stepText(locale, 'switch'))
-            const r = await u.switchTo(target!)
-            h.progress(1, tr(locale, T.restarting))
-            scheduleRestart(ctx, `update to ${target}`)
-            return { fromVersion: r.from, toVersion: r.to, rolledBack: !!body.rollback }
+            return await runUpdate({ updates: u, backups: ops().backups, running: () => ops().queue().running, restart: (why) => scheduleRestart(ctx, why), locale, progress: (p, m) => h.progress(p, m) },
+              target!, { staged, rollback: !!body.rollback })
           } finally { release() }
         },
       }))
@@ -200,11 +197,15 @@ export const systemRoutes: RouteModule = {
 
     kit.handle(API.updateConnection, ({ c, body }) => {
       const locale = c.get('locale')
+      if (isHosted(ctx.config)) fail('conflict', tr(locale, T.cloudConnection))
       // office mode: server.json is rewritten by its supervisor at every start, and no relay is part of it
       if (ctx.config.office) fail('conflict', tr(locale, T.officeMode))
       try {
         const url = saveConnectionMode(ctx.config.configFile, body.mode, { relayUrl: body.relayUrl, teamName: body.teamName, officialAvailable: !!ctx.config.relay.officialAvailable })
-        ctx.log.info('connection mode changed', { mode: body.mode, teamName: body.teamName ?? null })
+        // a claim code (official relay add-on) is kept next to the team key until the registration at the next start
+        // uses it (never in server.json, never logged)
+        if (url && body.claimCode) saveClaimCodeFor(ctx.config.dataDir, url, body.teamName ?? ctx.config.relay.teamName ?? '', body.claimCode)
+        ctx.log.info('connection mode changed', { mode: body.mode, teamName: body.teamName ?? null, claimCode: !!body.claimCode })
         const now = connectionStatus(ctx)
         if (ops().layout.appDir) scheduleRestart(ctx, 'connection change')
         return { ...now, mode: modeOf(url), state: url ? ('connecting' as const) : ('disabled' as const), detail: tr(locale, T.afterRestart), teamName: body.teamName ?? now.teamName ?? null }

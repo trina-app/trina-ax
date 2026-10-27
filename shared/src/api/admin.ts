@@ -101,8 +101,9 @@ export const EngineStatus = z.object({
   id: EngineId,
   label: z.string(),
   enabled: z.boolean(),
-  /** local-login: owner's own CLI login (dev / subscription); proxy: company key behind the model proxy; agent-own: engine account's own login */
-  authMode: z.enum(['local-login', 'proxy', 'agent-own']),
+  /** local-login: owner's own CLI login (dev / office); managed: the team's AI connections behind the model proxy
+   * (Admin > AI connections); proxy / agent-own: older servers (read only) */
+  authMode: z.enum(['local-login', 'proxy', 'agent-own', 'managed']),
   installed: z.boolean(),
   version: z.string().nullable(),
   status: z.enum(['ok', 'not_installed', 'not_logged_in', 'version_unsupported', 'lockdown_failed', 'error', 'unknown']),
@@ -131,6 +132,9 @@ export const EnginesResponse = z.object({
   defaultEngine: EngineId,
   defaultModel: z.string().nullable(),
   concurrency: z.number().int(),
+  /** the highest concurrency that may be set: the plan's (the hosted cloud), else 16. Absent from older servers. */
+  concurrencyMax: z.number().int().min(1).optional(),
+  /** deprecated (company keys are AI connections now, shared/src/api/credentials.ts): always empty; removed next release */
   accounts: z.array(EngineAccount),
   memberChoice: MemberEngineChoice,
   /** "Claude 한도에 닿으면 Codex로 넘기기" (off by default): a turn that hits the Claude subscription limit is answered by
@@ -148,8 +152,6 @@ export const UpdateEnginesBody = z.object({
   memberChoice: MemberEngineChoice.optional(),
   limitFallback: z.boolean().optional(),
 })
-/** Company API key (proxy mode; code-only for now). The secret is stored outside the DB; only a reference + hint stay. */
-export const AddEngineAccountBody = z.object({ engine: z.enum(['anthropic', 'openai']), label: z.string().max(100).optional(), secret: z.string().min(10).max(500) })
 
 // ---------------- budgets, settings, usage, audit ----------------
 export const BudgetBody = z.object({
@@ -164,7 +166,8 @@ export const UpdateSettingsBody = TeamSettings.partial()
 export const UsageQuery = z.object({
   from: IsoTime.optional(),
   to: IsoTime.optional(),
-  groupBy: z.enum(['user', 'engine', 'model', 'day', 'group']).default('user'),
+  /** credential: per AI connection (turns.credential_id; a removed connection shows as one row) */
+  groupBy: z.enum(['user', 'engine', 'model', 'day', 'group', 'credential', 'skill']).default('user'),
 })
 export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number() })
 export const UsageResponse = z.object({ from: IsoTime, to: IsoTime, rows: z.array(UsageRow), totals: UsageRow.omit({ key: true, label: true }) })
@@ -206,8 +209,6 @@ export const ADMIN = {
   putApiEngine: endpoint({ method: 'PUT', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', body: ApiEngineBody, response: ApiEngineConfig, summary: 'Set the team API engine: OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep.' }),
   updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex.' }),
   checkEngine: endpoint({ method: 'POST', path: '/api/admin/engines/:id/check', auth: 'admin', owner: 'A', response: EngineStatus, summary: 'Re-check one engine now (bounded, no model call unless needed).' }),
-  addEngineAccount: endpoint({ method: 'POST', path: '/api/admin/engines/accounts', auth: 'owner', owner: 'A', status: 201, body: AddEngineAccountBody, response: EngineAccount, summary: 'Company API key for proxy mode (code-only for now).' }),
-  deleteEngineAccount: endpoint({ method: 'DELETE', path: '/api/admin/engines/accounts/:id', auth: 'owner', owner: 'A', response: empty, status: 204, summary: 'Remove a company key.' }),
 
   listBudgets: endpoint({ method: 'GET', path: '/api/admin/budgets', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Budget) }), summary: 'Budgets with current spend.' }),
   createBudget: endpoint({ method: 'POST', path: '/api/admin/budgets', auth: 'admin', owner: 'A', status: 201, body: BudgetBody, response: Budget, summary: 'New budget.' }),
@@ -216,6 +217,6 @@ export const ADMIN = {
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings (team name change also renames the relay address: owner only).' }),
-  usage: endpoint({ method: 'GET', path: '/api/admin/usage', auth: 'admin', owner: 'A', query: UsageQuery, response: UsageResponse, summary: 'Usage and cost per person / engine / model / day.' }),
+  usage: endpoint({ method: 'GET', path: '/api/admin/usage', auth: 'admin', owner: 'A', query: UsageQuery, response: UsageResponse, summary: 'Usage and cost per person / engine / model / day / group / AI connection / skill. Skill rows attribute the entire turn and may overlap.' }),
   audit: endpoint({ method: 'GET', path: '/api/admin/audit', auth: 'admin', owner: 'A', query: AuditQuery, response: page(AuditEntry), summary: 'Admin actions, file changes, tool calls, sign-ins.' }),
 } as const

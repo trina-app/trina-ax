@@ -1,9 +1,9 @@
 // Personal settings: profile, language and theme, password, signed-in devices, what the AI remembers, scheduled tasks, apps
-// (install as an app / desktop app download). There is no screen for connecting a personal AI account: the owner
-// connects the engines once in the admin screens.
+// (install as an app / desktop app download), about (version, license, source code), and the member's own AI connections
+// when the team allows them (the team's connections are made by the owner in Admin > AI connections).
 import clsx from 'clsx'
-import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Bell, Brain, CalendarClock, Download, Info, KeyRound, Laptop, Monitor, Plug, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { EngineId, Memory, Schedule, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -17,28 +17,48 @@ import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
+import { MyCredentials } from './admin/Credentials'
 import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { SourceCodeLink, serverVersion } from '../components/SourceCodeLink'
+import { DriveConnection } from '../components/settings/DriveConnection'
+import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
+import { Notifications } from '../components/settings/Notifications'
+import ConnectorConnections from './ConnectorConnections'
 
 const TABS: { id: string; label: MessageKey; icon: typeof User }[] = [
   { id: 'profile', label: 'settings.profile', icon: User },
   { id: 'security', label: 'settings.security', icon: Laptop },
   { id: 'memory', label: 'settings.memory', icon: Brain },
+  { id: 'drive', label: 'drive.title', icon: Download },
+  { id: 'connectors', label: 'connectors.title', icon: Plug },
   { id: 'schedules', label: 'settings.schedules', icon: CalendarClock },
+  { id: 'notifications', label: 'notifications.title', icon: Bell },
   { id: 'apps', label: 'settings.apps', icon: Download },
+  { id: 'about', label: 'settings.about', icon: Info },
 ]
+
+/** Settings > AI connections: shown while the team lets members add their own (or one is still there) */
+const CREDENTIALS_TAB = { id: 'credentials', label: 'settings.credentials' as MessageKey, icon: KeyRound }
 
 export default function Settings() {
   const t = useT()
+  const me = useMeStrict()
   const { tab = 'profile' } = useParams()
+  const [own, setOwn] = useState<boolean | null>(null)
+  useEffect(() => {
+    api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
+  }, [])
+  const tabs = own ? [...TABS.slice(0, 3), CREDENTIALS_TAB, ...TABS.slice(3)] : TABS
   // an old or mistyped link (/settings/devices) would show an empty page: open the profile instead
-  if (!TABS.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
+  if (tab === 'credentials' && own === null) return null
+  if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('settings.title')} />
       <div className="flex flex-col gap-6 p-4 sm:p-6 md:flex-row">
         {/* phones: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
         <nav aria-label={t('settings.title')} className="scroll-thin -mx-4 flex gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:w-48 md:flex-col md:px-0">
-          {TABS.map((x) => (
+          {tabs.map((x) => (
             <NavLink key={x.id} to={`/settings/${x.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover', (isActive || (x.id === 'profile' && tab === 'profile')) && 'bg-hover font-medium')}>
               <x.icon size={15} aria-hidden /> {t(x.label)}
             </NavLink>
@@ -48,8 +68,13 @@ export default function Settings() {
           {tab === 'profile' && <Profile />}
           {tab === 'security' && <Security />}
           {tab === 'memory' && <Memories />}
-          {tab === 'schedules' && <Schedules />}
+          {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
+          {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+          {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
+          {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
           {tab === 'apps' && <Apps />}
+          {tab === 'credentials' && <MyCredentials />}
+          {tab === 'about' && <About />}
         </div>
       </div>
     </div>
@@ -275,34 +300,46 @@ function Schedules() {
   const [items, setItems] = useState<Schedule[] | null>(null)
   const [tz, setTz] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const life = useRef(0), revision = useRef(0)
   const load = async () => {
+    const generation = life.current, rev = ++revision.current
     try {
       const r = await api.call(API.listSchedules)
+      if (generation !== life.current || rev !== revision.current) return
       setItems(r.items)
       setTz(r.timeZone)
       setError(null)
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      if (generation === life.current && rev === revision.current) setError(errorText(e, locale, t('error.network')))
     }
   }
   useEffect(() => {
+    life.current++
     void load()
+    return () => { life.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
   const when = (s: Schedule) => t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekday(s.weekday ?? 0) })
   const toggle = async (s: Schedule) => {
+    const generation = life.current
     try {
       const u = await api.call(API.updateSchedule, { params: { id: s.id }, body: { enabled: !s.enabled } })
+      if (generation !== life.current) return
+      revision.current++
       setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
   const remove = async (s: Schedule) => {
+    const generation = life.current
     if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
+    if (generation !== life.current) return
     try {
       await api.call(API.deleteSchedule, { params: { id: s.id } })
+      if (generation !== life.current) return
+      revision.current++
       setItems((cur) => cur?.filter((x) => x.id !== s.id) ?? null)
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -310,6 +347,7 @@ function Schedules() {
   }
   return (
     <Section title={t('settings.schedules')} desc={t('schedules.desc')}>
+      <ScheduleTemplates onCreated={schedule => { revision.current++; setItems(current => [schedule, ...(current ?? []).filter(item => item.id !== schedule.id)]) }} />
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={3} />}
       {items && !items.length && <EmptyState icon={<CalendarClock size={26} />} title={t('schedules.empty')} />}
@@ -320,11 +358,13 @@ function Schedules() {
               <li key={s.id} className="flex items-start gap-3 px-4 py-3 text-sm">
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2 font-medium">
-                    {s.title}
+                    {s.templateId === 'daily-file-index' || s.templateId === 'weekly-summary' ? t(`scheduleTemplates.${s.templateId}`) : s.title}
                     {!s.enabled && <Badge>{t('schedules.paused')}</Badge>}
                   </span>
                   <span className="mt-0.5 block text-xs text-muted">{when(s)}</span>
-                  <span className="mt-1 line-clamp-2 block text-xs text-faint">{s.prompt}</span>
+                  <span className="mt-1 line-clamp-2 block text-xs text-faint">{s.templateId ? `${s.sourcePath} → ${s.outputPath}` : s.prompt}</span>
+                  {s.pendingDueAt && <span className="mt-1 block text-xs text-muted">{t('scheduleTemplates.deferred', { time: formatDateTime(s.retryAt ?? s.pendingDueAt, locale) })}</span>}
+                  {s.lastOutcome && <span className="mt-1 block text-xs text-muted">{t(`scheduleTemplates.outcome.${s.lastOutcome}`)}</span>}
                   <span className="mt-1 block text-xs text-faint">
                     {s.enabled && s.nextRunAt && t('schedules.next', { time: formatDateTime(s.nextRunAt, locale) })}
                     {s.lastChatId && (
@@ -430,6 +470,24 @@ function Memories() {
           </div>
         </>
       )}
+    </Section>
+  )
+}
+
+/** Version, license and where the source code is (AGPL-3.0 §13). */
+function About() {
+  const t = useT()
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void serverVersion().then((v) => { if (live) setVersion(v) })
+    return () => { live = false }
+  }, [])
+  return (
+    <Section title={t('settings.about')}>
+      {version && <p className="text-sm" data-testid="about-version">{t('about.version', { version })}</p>}
+      <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
+      <SourceCodeLink className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>
   )
 }

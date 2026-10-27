@@ -55,7 +55,7 @@ describe('translations', () => {
   })
   test('format, fallback and locale choice: own choice, else the team default, else English', () => {
     expect(format('{a} and {b}', { a: 1 })).toBe('1 and {b}')
-    expect(translate('en', 'chat.queued', { n: 3 })).toBe('Waiting (3 ahead)')
+    expect(translate('en', 'chat.queued', { n: 3 })).toBe('Waiting · estimated position 3')
     expect(pickLocale(null, 'ko')).toBe('ko')
     expect(pickLocale('id', 'ko')).toBe('id')
     expect(pickLocale(null, null)).toBe('en')

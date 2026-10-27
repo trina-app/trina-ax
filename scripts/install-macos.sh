@@ -464,9 +464,11 @@ const cfg = {
   listen: { host: "127.0.0.1", port: Number(e.MYCEL_I_PORT) },
   tls: e.MYCEL_I_TLS === "0" ? null : { port: Number(e.MYCEL_I_TLS), certFile: b + "/secrets/lan-tls.crt", keyFile: b + "/secrets/lan-tls.key", managed: true },
   teamRoot: b + "/team", dataDir: b + "/data", logDir: e.MYCEL_I_LOGS,
-  // subscription: the engine account talks to the model proxy (127.0.0.1:proxyPort, the only address pf allows it),
-  // which adds the owner token from secrets/claude-oauth-token and tunnels Codex HTTPS. Earlier installers wrote
-  // "proxy" (company key, which the server refuses), so that value is replaced too; a hand-set "local-login" is kept.
+  // the engine account talks to the model proxy (127.0.0.1:proxyPort, the only address pf allows it), which puts an
+  // AI connection of the team (Admin > AI connections; secrets/claude-oauth-token is imported as one) on each request.
+  // "subscription" is the older name of "managed" (docs/DECISIONS.md, AI connections D18): this release still writes it so a
+  // rollback to the previous release starts; the next release writes "managed". "proxy" (older installers) becomes
+  // it too; a hand-set "local-login" is kept.
   engine: { ...engineOld, authMode: old.engine?.authMode === "local-login" ? "local-login" : "subscription",
     ...(e.MYCEL_I_CLAUDE ? { claudeBin: e.MYCEL_I_CLAUDE } : {}), ...(e.MYCEL_I_CODEX ? { codexBin: e.MYCEL_I_CODEX } : {}),
     proxyPort: Number(e.MYCEL_I_PROXY_PORT),

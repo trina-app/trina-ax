@@ -148,7 +148,7 @@ export const chatsRoutes: RouteModule = {
 작업 폴더(시험용 임시 파일)는 `tests/.work/<컴포넌트 문자>-*`(`MYCEL_WORK`로 바꿀 수 있음). 시험 파일 이름도 `tests/unit/<a|b|c…>-*.test.ts`처럼 컴포넌트 문자로 시작한다.
 
 ### A — server-auth-admin (포트 19110–19119)
-- 소유: `server/src/routes/auth.ts`, `server/src/routes/admin.ts`, `server/src/auth/*`, `server/src/admin/*`, `shared/src/api/auth.ts`, `shared/src/api/admin.ts`, 마이그레이션 100–199, `tests/unit/a-*.test.ts`.
+- 소유: `server/src/routes/auth.ts`, `server/src/routes/admin.ts`, `server/src/routes/credentials.ts`(admin 모듈이 등록), `server/src/auth/*`, `server/src/admin/*`, `server/src/credentials/*`(AI 연결: 보관·봉인·해석·브로커·ChatGPT 갱신·로그인·옮기기), `server/src/proxy/*`(모델 프록시, Codex 경로, CONNECT), `shared/src/api/auth.ts`, `shared/src/api/admin.ts`, `shared/src/api/credentials.ts`, 마이그레이션 100–199(106: AI 연결), `tests/unit/a-*.test.ts`.
 - 구현: AUTH + ADMIN 엔드포인트 전부. `SessionService`(쿠키 `__Host-sid`, 개발 http에서는 `DEV_SESSION_COOKIE`; Bearer; 토큰은 해시만 저장; 30일; 비밀번호 변경·비활성화 시 그 사람 세션 전부 폐기 + `realtime.disconnectUser`), argon2id(`Bun.password`), 로그인 횟수 제한(IP·계정별, IP는 `info.ip`만), 첫 설정(`config.setupToken`, 사용자가 없을 때만), 초대 링크(메일 없음, 링크 복사), 폴더 규칙 저장·"누가 무엇을 보나" 미리보기(권한 계산은 `server/src/policy`), 규칙으로 접근을 잃은 사람의 채팅 엔진 세션 초기화 표시(H7), 엔진 상태(설치·로그인·버전·잠금 시험 결과), 예산·설정·사용량·감사 기록.
 - 엔진 상태에서 "구독 장기 토큰 없음"(무권한 `_axagent` 모드에 필요한 `claude setup-token`)은 상태 문구로 보여 준다 — owner 계정이 필요한 일이라 이번에는 막혀 있음.
 - 관리자도 다른 사람의 대화·메모리를 볼 수 없다. "다른 사람으로 로그인" 없음. 비밀번호 초기화는 감사 기록.

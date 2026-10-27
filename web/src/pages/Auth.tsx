@@ -1,8 +1,9 @@
-// Sign-in, first-run setup (/setup?token=), invite acceptance (/invite/:token) and the forced password change.
+// Sign-in, first-run setup (/setup#token=… or /setup?token=), invite acceptance (/invite/:token) and the forced
+// password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { InviteInfo, Locale, PasswordResetInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -12,7 +13,10 @@ import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocale
 import { useMe, useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
+import { readSetupLink } from '../lib/setupLink'
+import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
+import { browserTimeZone } from '../lib/time-zones'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -55,6 +59,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {children}
         </div>
         {switcher && <LanguageSwitcher />}
+        <SourceCodeLink className="mt-4 block text-center text-xs text-faint hover:text-muted" />
       </main>
     </div>
   )
@@ -139,11 +144,15 @@ export function Setup() {
   const setLocale = useLocaleStore((s) => s.setLocale)
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
-  const [params] = useSearchParams()
-  const [form, setForm] = useState({ setupToken: params.get('token') ?? '', teamName: '', name: '', username: '', password: '', password2: '' })
+  // the link from the account console (#token=…&team=…&lang=…) or the installer (?token=…), read once
+  const [link] = useState(() => readSetupLink(window.location))
+  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '', password2: '' })
   const { busy, error, run, setError } = useSubmit()
-  // no language picked in this browser yet: start in the browser's own (the team language field follows it)
   useEffect(() => {
+    // the token leaves the address bar (history, screenshots) as soon as it is in the form
+    if (link.cleanUrl) window.history.replaceState(window.history.state, '', link.cleanUrl)
+    // the language the team signed up with; else, with none picked in this browser yet, the browser's own
+    if (link.lang && !storedLocale()) { if (link.lang !== locale) setLocale(link.lang); return }
     if (storedLocale()) return
     const l = browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
     if (l && l !== locale) setLocale(l)
@@ -154,7 +163,9 @@ export function Setup() {
     if (form.password !== form.password2) return setError('auth.passwordMismatch')
     if ([...form.password].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
-      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
+      // the team's time zone starts as this browser's (Admin > Settings changes it)
+      const timeZone = browserTimeZone()
+      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       signedIn(r.me)
       navigate('/', { replace: true })
     })
@@ -163,7 +174,7 @@ export function Setup() {
     // the "Team language" field below is this screen's language switcher too (one picker, not two)
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
       <form onSubmit={submit} className="space-y-3">
-        {!params.get('token') && (
+        {!link.token && (
           <Field label={t('setup.token')} hint={t('setup.tokenHint')}>
             <input className={inputCls} value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
           </Field>

@@ -16,6 +16,14 @@ import { HttpError } from '../http/errors'
 import type { JobHandle, JobService } from '../services'
 
 /** A job failure with a message for the person (in their language). */
+/** waiting + running jobs per person (transcriptions, exports …) */
+export const JOBS_PER_USER = 5
+const JOBS_FULL: Record<string, string> = {
+  ko: '진행 중이거나 기다리는 작업이 5개입니다. 앞의 작업이 끝난 뒤 다시 해 주세요.',
+  en: 'You already have 5 jobs running or waiting. Try again when one of them is done.',
+  id: 'Sudah ada 5 pekerjaan yang berjalan atau menunggu. Coba lagi setelah salah satunya selesai.',
+}
+
 export class JobFailure extends Error {
   constructor(readonly code: ApiErrorBody['code'], readonly messages: Record<Locale, string>) {
     super(messages.en)
@@ -59,6 +67,14 @@ export class JobServiceImpl implements JobService {
   }
 
   start(o: { kind: JobKind; userId: string | null; run: (h: JobHandle) => Promise<unknown>; discard?: () => void }): string {
+    // the job queue is held in memory: one person may have at most JOBS_PER_USER waiting or running (429 + Retry-After)
+    if (o.userId !== null) {
+      const mine = [...this.queue, ...this.active.values()].filter((r) => r.userId === o.userId).length
+      if (mine >= JOBS_PER_USER) {
+        const loc = this.locale(o.userId)
+        throw new HttpError('rate_limited', JOBS_FULL[loc] ?? JOBS_FULL.en, { retryAfter: 30, params: { reason: 'jobs_full' } })
+      }
+    }
     const id = newId()
     this.ctx.db.query("INSERT INTO jobs (id, user_id, kind, status, progress, message, created_at) VALUES (?,?,?,'queued',NULL,NULL,?)").run(id, o.userId, o.kind, new Date().toISOString())
     let done = () => {}

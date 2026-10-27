@@ -1,0 +1,20 @@
+# Team AX engine firewall (linux-runtime spec 3.2.1). Rendered by `mycel-ctl render-units` from <base>/root/systemd/.
+[Unit]
+Description=Team AX engine firewall (@ID@)
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target @ID@-launcher.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=@BASE@/root/mycel-ctl firewall apply --base @BASE@
+# root, fixed arguments only: no input from the server or the launcher (the macOS pf-load.sh:15 principle)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@BASE@/run
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

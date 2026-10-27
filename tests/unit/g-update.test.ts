@@ -36,8 +36,10 @@ setInterval(() => { try { process.kill(parent, 0) } catch { process.exit(0) } },
 Bun.serve({ hostname: '127.0.0.1', port: cfg.listen.port, fetch(req) {
   const u = new URL(req.url)
   if (u.pathname === '/exit') { setTimeout(() => process.exit(0), 30); return new Response('bye') }
-  return Response.json({ ok: B === 'ok', version: V, mode: process.env.MYCEL_MODE })
+  return Response.json({ ok: B === 'ok', version: V, mode: process.env.MYCEL_MODE, pid: process.pid, hups })
 } })
+let hups = 0
+process.on('SIGHUP', () => { hups++ })
 process.on('SIGTERM', () => process.exit(0))
 `)
   for (const [k, c] of Object.entries(extra)) { fs.mkdirSync(path.dirname(path.join(dir, k)), { recursive: true }); fs.writeFileSync(path.join(dir, k), c) }
@@ -173,8 +175,21 @@ describe('bootstrap (native/cmd/mycel-bootstrap)', () => {
   const app = path.join(W, 'boot', 'app')
   const cfgFile = path.join(W, 'boot', 'server.json')
   let proc: ReturnType<typeof Bun.spawn> | null = null
-  afterAll(() => { proc?.kill('SIGKILL') })
-  const health = async () => { try { return (await (await fetch(`http://127.0.0.1:${PORT}/api/health`)).json()) as { ok: boolean; version: string; mode: string } } catch { return null } }
+  // the last server pid the health check saw: a failed run must not leave that server on PORT for the next run (it
+  // would answer in place of the new one), so afterAll stops the bootstrap politely (it passes SIGTERM on) and then
+  // makes sure the server is gone too
+  let serverPid: number | null = null
+  afterAll(async () => {
+    if (proc) { proc.kill('SIGTERM'); await Promise.race([proc.exited, Bun.sleep(5000)]); proc.kill('SIGKILL') }
+    if (serverPid) try { process.kill(serverPid, 'SIGKILL') } catch {}
+  })
+  const health = async () => {
+    try {
+      const h = (await (await fetch(`http://127.0.0.1:${PORT}/api/health`)).json()) as { ok: boolean; version: string; mode: string; pid?: number }
+      if (typeof h.pid === 'number') serverPid = h.pid
+      return h
+    } catch { return null }
+  }
   const state = () => AppState.parse(JSON.parse(fs.readFileSync(path.join(app, 'state.json'), 'utf8')))
   async function until<T>(fn: () => Promise<T> | T, ok: (v: T) => boolean, ms = 15_000): Promise<T> {
     const end = Date.now() + ms
@@ -233,6 +248,13 @@ describe('bootstrap (native/cmd/mycel-bootstrap)', () => {
     await until(state, (s) => s.history.at(-1)?.to === '2.0.0' && /verify failed/.test(s.history.at(-1)?.detail ?? ''))
     await until(health, (h) => h?.version === '2.0.0')
     expect(fs.readFileSync(path.join(W, 'boot', 'update.log'), 'utf8')).toContain('rolled_back')
+
+    // SIGHUP (mycel-ctl after apply-plan / notices-set) reaches the server; the bootstrap and the server keep running
+    const before = (await health()) as unknown as { pid: number; hups: number }
+    proc.kill('SIGHUP')
+    const after = (await until(health, (h) => (h as unknown as { hups: number } | null)?.hups === before.hups + 1)) as unknown as { pid: number }
+    expect(after.pid).toBe(before.pid)
+    expect(proc.exitCode).toBeNull()
 
     // SIGTERM stops the server and the bootstrap
     proc.kill('SIGTERM')

@@ -2,7 +2,7 @@
 // queue position, ask_user cards, artifacts being written. REST gives the state, events keep it current, and after
 // a reconnect that the server could not resume (reset/resync) everything is reloaded from REST.
 import { create } from 'zustand'
-import { uuidv7, type Attachment, type Chat, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
+import { uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
@@ -31,7 +31,7 @@ interface ChatsState {
   chatsCursor: string | null
   chatsLoaded: boolean
   threads: Record<string, Thread>
-  /** messageId -> turns ahead in the queue (0 = running) */
+  /** messageId -> estimated dispatch rank (1 = first queued, 0 = running), not turns ahead */
   queue: Record<string, number>
   /** open ask_user / browser_site cards by requestId */
   requests: Record<string, OpenRequest>
@@ -80,6 +80,17 @@ const outbox = new Map<string, { chatId: string; clientMessageId: string; conten
 const pending = new Map<string, Pending>()
 /** requests closed lately: a listTurnRequests answer computed before the close must not bring the card back */
 const closedRequests = new Set<string>()
+let generation = 0
+let queueEpoch: string | null = null
+const retiredEpochs = new Set<string>()
+type QueueUpdate = Omit<ChatQueueSnapshot, 'epoch' | 'revision'> & { epoch?: string; revision?: number }
+const queueVersions = new Map<string, QueueUpdate>()
+const finishedMessages = new Set<string>()
+const outputMessages = new Set<string>()
+const remember = (set: Set<string>, id: string) => {
+  set.add(id)
+  if (set.size > 512) set.delete(set.values().next().value!)
+}
 const CLOSED_REQUESTS_MAX = 200
 const rememberClosed = (id: string) => {
   closedRequests.add(id)
@@ -161,30 +172,79 @@ export const useChats = create<ChatsState>((set, get) => {
     })
   }
 
-  const afterStarted = (chatId: string, started: TurnStarted, o: { replaceId?: string; cutAt?: string }) => {
+  // Socket revisions and REST snapshots share one ordering. A response from before a new epoch or logout must
+  // never resurrect a completed turn or overwrite the new server's queue.
+  const acceptQueue = (chatId: string, next: QueueUpdate, requestEpoch?: string | null) => {
+    if (next.epoch !== undefined && next.revision !== undefined) {
+      if (retiredEpochs.has(next.epoch)) return false
+      if (requestEpoch !== undefined && requestEpoch !== queueEpoch && next.epoch !== queueEpoch) return false
+      if (queueEpoch !== next.epoch) {
+        if (queueEpoch) { remember(retiredEpochs, queueEpoch) }
+        queueEpoch = next.epoch
+        queueVersions.clear()
+        set({ queue: {} })
+      }
+    }
+    const previous = queueVersions.get(chatId)
+    if (previous?.epoch && (next.epoch === undefined || next.revision === undefined)) return false
+    if (previous?.epoch === next.epoch && previous?.revision !== undefined && next.revision !== undefined && next.revision < previous.revision) return false
+    queueVersions.set(chatId, next)
+    const message = next.messageId ? thread(chatId).messages.find(m => m.id === next.messageId) : undefined
+    const terminal = next.messageId && (finishedMessages.has(next.messageId) || message && message.status !== 'streaming')
+    const output = next.messageId && outputMessages.has(next.messageId)
+    set(s => {
+      const queue = { ...s.queue }
+      if (previous?.messageId) delete queue[previous.messageId]
+      if (next.messageId) {
+        delete queue[next.messageId]
+        if (!terminal && !output && next.position !== null) queue[next.messageId] = next.position
+      }
+      const state = terminal ? 'idle' : output ? 'running' : next.state
+      return { queue, chats: s.chats.map(c => c.id === chatId ? { ...c, runState: state } : c) }
+    })
+    return true
+  }
+
+  const afterStarted = (chatId: string, started: TurnStarted, o: { replaceId?: string; cutAt?: string }, requestEpoch: string | null) => {
+    const existing = thread(chatId).messages.find(m => m.id === started.assistantMessage.id)
+    if (existing && existing.status !== 'streaming') started = { ...started, assistantMessage: existing }
+    else if (existing && started.assistantMessage.status === 'streaming') {
+      const posted = started.assistantMessage
+      const liveSteps = new Map(existing.steps.map(s => [s.id, s]))
+      started = { ...started, assistantMessage: { ...posted,
+        content: existing.content.length > posted.content.length && existing.content.startsWith(posted.content) ? existing.content : posted.content,
+        steps: [...posted.steps.filter(s => !liveSteps.has(s.id)), ...existing.steps],
+      } }
+    }
     setThread(chatId, (t) => ({ ...t, messages: mergeTurnStarted(t.messages, started, o) }))
     // text or steps that raced ahead of this response mean the turn is already running: no queue position
     const early = pending.get(started.assistantMessage.id)
-    if (!early || (!early.deltas.length && !early.steps.length && !early.done)) set((s) => ({ queue: { ...s.queue, [started.assistantMessage.id]: started.queuePosition } }))
+    if (early?.done) remember(finishedMessages, started.assistantMessage.id)
+    if (early?.deltas.length || early?.steps.length) remember(outputMessages, started.assistantMessage.id)
     flushPending(chatId, [started.assistantMessage.id, ...(started.userMessage ? [started.userMessage.id] : [])])
-    const c = get().chats.find((x) => x.id === chatId)
-    if (c) get().upsertChat({ ...c, runState: started.queuePosition > 0 ? 'queued' : 'running', updatedAt: new Date().toISOString() })
+    acceptQueue(chatId, { state: started.queuePosition > 0 ? 'queued' : 'running', turnId: started.turnId,
+      messageId: started.assistantMessage.id, position: started.queuePosition, epoch: started.queueEpoch, revision: started.queueRevision }, requestEpoch)
   }
 
   /** POST the message; on network failure retry with the same clientMessageId until SEND_RETRY_MS has passed. */
   const deliver = async (localId: string) => {
+    const session = generation
     const job = outbox.get(localId)
     if (!job) return
     for (let attempt = 0; ; attempt++) {
       try {
+        if (session !== generation || !outbox.has(localId)) return
+        const epoch = queueEpoch
         const started = await api.call(API.sendMessage, {
           params: { id: job.chatId },
           body: { content: job.content, attachmentIds: job.attachmentIds, parentId: job.parentId, engine: job.engine, model: job.model, clientMessageId: job.clientMessageId },
         })
+        if (session !== generation) return
         outbox.delete(localId)
-        afterStarted(job.chatId, started, { replaceId: localId })
+        afterStarted(job.chatId, started, { replaceId: localId }, epoch)
         return
       } catch (e) {
+        if (session !== generation) return
         if (isNetworkError(e) && Date.now() - job.firstTry < SEND_RETRY_MS) {
           await sleep(Math.min(8000, 1000 * 2 ** attempt))
           continue
@@ -211,6 +271,12 @@ export const useChats = create<ChatsState>((set, get) => {
     ...initial(),
 
     reset: () => {
+      generation++
+      queueEpoch = null
+      retiredEpochs.clear()
+      queueVersions.clear()
+      finishedMessages.clear()
+      outputMessages.clear()
       outbox.clear()
       pending.clear()
       closedRequests.clear()
@@ -218,9 +284,11 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async loadChats(reset = true) {
+      const session = generation
       const cursor = reset ? undefined : get().chatsCursor ?? undefined
       if (!reset && !cursor) return
       const page = await api.call(API.listChats, { query: { limit: PAGE, cursor } })
+      if (session !== generation) return
       set((s) => {
         const merged = reset ? page.items : [...s.chats, ...page.items.filter((c) => !s.chats.some((x) => x.id === c.id))]
         return { chats: merged, chatsCursor: page.nextCursor, chatsLoaded: true }
@@ -232,33 +300,45 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     removeChat(id) {
+      const active = queueVersions.get(id)
+      if (active?.messageId) { remember(finishedMessages, active.messageId); clearQueue(active.messageId) }
+      queueVersions.delete(id)
       set((s) => ({ chats: s.chats.filter((c) => c.id !== id) }))
     },
 
     async loadThread(chatId) {
+      const session = generation, epoch = queueEpoch
       // open ask_user / browser site cards come with the thread: after a reload or a resync the events that opened
       // them are not replayed, and the running turn would otherwise wait for an answer nobody can give
       const before = new Set(Object.keys(get().requests))
-      const [page, open] = await Promise.all([
+      const [page, open, queue] = await Promise.all([
         api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE } }),
         api.call(API.listTurnRequests, { params: { id: chatId } }).catch(() => null),
+        api.call(API.getChatQueue, { params: { id: chatId } }).catch(() => null),
       ])
+      if (session !== generation) return
       setThread(chatId, (t) => ({ messages: mergeFresh(t.messages, page.items), nextCursor: page.nextCursor, stale: false }))
       flushPending(chatId, page.items.map((m) => m.id))
+      for (const m of thread(chatId).messages) if (m.role === 'assistant' && m.status !== 'streaming') { remember(finishedMessages, m.id); clearQueue(m.id) }
+      if (queue) acceptQueue(chatId, queue, epoch)
       if (open) set((s) => ({ requests: mergeOpenRequests(s.requests, chatId, open.items, before) }))
     },
 
     async loadOlder(chatId) {
+      const session = generation
       const cur = thread(chatId)
       if (!cur.nextCursor) return
       const page = await api.call(API.listMessages, { params: { id: chatId }, query: { limit: PAGE, cursor: cur.nextCursor } })
+      if (session !== generation) return
       setThread(chatId, (t) => ({ ...t, messages: prependPage(t.messages, page.items), nextCursor: page.nextCursor }))
     },
 
     async send(o) {
+      const session = generation
       let chatId = o.chatId
       if (!chatId) {
         const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined } })
+        if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id
         setThread(chatId, () => ({ ...emptyThread() }))
@@ -295,25 +375,31 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async regenerate(chatId, assistantId, engine) {
+      const session = generation, epoch = queueEpoch
       const started = await api.call(API.regenerate, { params: { id: chatId, messageId: assistantId }, body: { engine: engine?.engine, model: engine?.model } })
-      afterStarted(chatId, started, { cutAt: assistantId })
+      if (session === generation) afterStarted(chatId, started, { cutAt: assistantId }, epoch)
     },
 
     async edit(chatId, userMessageId, content, attachments) {
+      const session = generation, epoch = queueEpoch
       // a team file that is no longer available stays out of the edited copy (the server would refuse it)
       const started = await api.call(API.editMessage, { params: { id: chatId, messageId: userMessageId }, body: { content, attachmentIds: attachments.filter((a) => !a.unavailable).map((a) => a.id), clientMessageId: uuidv7() } })
-      afterStarted(chatId, started, { cutAt: userMessageId })
+      if (session === generation) afterStarted(chatId, started, { cutAt: userMessageId }, epoch)
     },
 
     async selectBranch(chatId, messageId) {
+      const session = generation
       const page = await api.call(API.selectBranch, { params: { id: chatId }, body: { messageId } })
+      if (session !== generation) return
       setThread(chatId, () => ({ messages: page.items, nextCursor: page.nextCursor, stale: false }))
     },
 
     async answer(requestId, body) {
+      const session = generation
       const r = get().requests[requestId]
       if (!r) return
       await api.call(API.answerTurn, { params: { id: r.turnId }, body: { ...body, requestId } as never })
+      if (session !== generation) return
       set((s) => {
         const next = { ...s.requests }
         delete next[requestId]
@@ -324,7 +410,6 @@ export const useChats = create<ChatsState>((set, get) => {
     async reloadAll() {
       const open = Object.keys(get().threads)
       await Promise.allSettled([get().loadChats(true), ...open.map((id) => get().loadThread(id))])
-      set({ queue: {} })
     },
 
     handleEvent(ev) {
@@ -343,6 +428,7 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'message.delta': {
           const { chatId, messageId, offset, text } = ev.data
           clearQueue(messageId)
+          remember(outputMessages, messageId)
           if (!get().threads[chatId]) return
           const r = applyDelta(thread(chatId).messages, { messageId, offset, text })
           if (r.kind === 'applied') setThread(chatId, (t) => ({ ...t, messages: r.messages }))
@@ -359,6 +445,7 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'message.step': {
           const { chatId, messageId, step } = ev.data
           clearQueue(messageId)
+          remember(outputMessages, messageId)
           if (!get().threads[chatId]) return
           const r = applyStep(thread(chatId).messages, messageId, step)
           if (r) setThread(chatId, (t) => ({ ...t, messages: r }))
@@ -374,15 +461,16 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'message.done': {
           const { chatId, message } = ev.data
           clearQueue(message.id)
+          remember(finishedMessages, message.id)
           set((s) => ({ artifactsRev: { ...s.artifactsRev, [chatId]: (s.artifactsRev[chatId] ?? 0) + 1 } }))
-          if (!get().threads[chatId]) return
+          if (!get().threads[chatId]) { pendingOf(message.id).done = message; return }
           const r = applyDone(thread(chatId).messages, message)
           if (r) setThread(chatId, (t) => ({ ...t, messages: r }))
           else pendingOf(message.id).done = message
           return
         }
         case 'queue.position':
-          set((s) => ({ queue: { ...s.queue, [ev.data.messageId]: ev.data.position } }))
+          acceptQueue(ev.data.chatId, { ...ev.data, state: ev.data.position > 0 ? 'queued' : 'running' })
           return
         case 'chat.updated': {
           const { chatId, change, chat } = ev.data

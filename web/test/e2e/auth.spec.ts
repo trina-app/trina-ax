@@ -49,6 +49,24 @@ test.describe('first-run setup in an English browser', () => {
   })
 })
 
+test.describe('first-run setup in a browser in Jakarta', () => {
+  test.use({ locale: 'en-US', timezoneId: 'Asia/Jakarta' })
+  test('the team\'s time zone starts as the browser\'s', async ({ page }) => {
+    await reset(page, { setup: true, teamLocale: 'en' })
+    await page.goto('/')
+    await page.getByLabel('Setup token').fill('setup-token-0123456789')
+    await page.getByTestId('setup-team').fill('Acme')
+    await page.getByLabel('Name', { exact: true }).fill('Kim Owner')
+    await page.getByLabel('Username').fill('kim')
+    await page.getByLabel('Password', { exact: true }).fill('a long password 1')
+    await page.getByLabel('Confirm password').fill('a long password 1')
+    await page.getByRole('button', { name: 'Create team and start' }).click()
+    await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
+    await page.goto('/admin/settings')
+    await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
+  })
+})
+
 test('wrong password shows the error; sign out returns to the sign-in page', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

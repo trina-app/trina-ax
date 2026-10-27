@@ -7,7 +7,7 @@
 // only (the API and the OAuth refresh of Claude Code 2.1.306; WebSearch runs at Anthropic). Dev (no proxy) unchanged.
 // Part 3 drives the real office engine core (startLocalCore: sandboxed launcher + proxy) with the scripted engine on a
 // fake HOME (the after-turn ~/.claude.json cleanup runs on it, never on the real one).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
@@ -72,8 +72,8 @@ describe('2. the proxy\'s CONNECT for Claude turns: the Claude hosts only', () =
     await new Promise<void>((r) => echo.listen(0, '127.0.0.1', () => r()))
     const dial = (host: string, port: number) => { dialed.push(`${host}:${port}`); return net.connect((echo.address() as net.AddressInfo).port, '127.0.0.1') }
     const base = { dial, turnSession: (t: string) => sessions[t] ?? null, peerSession: async () => peer }
-    office = await startModelProxy({ db, upstream: null, connect: { ...base, claudeHosts: CLAUDE_CONNECT_HOSTS } })
-    prod = await startModelProxy({ db, upstream: null, connect: base })
+    office = await startModelProxy({ db, broker: null, connect: { ...base, claudeHosts: CLAUDE_CONNECT_HOSTS } })
+    prod = await startModelProxy({ db, broker: null, connect: base })
   })
   afterAll(async () => { await office?.stop(); await prod?.stop(); echo.close() })
 
@@ -112,10 +112,26 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
   const realHome = process.env.HOME
   let h: Harness
   let alice: TestSocket
+  let upstream: net.Server
+  let connectSpy: ReturnType<typeof spyOn>
+  const dialed: string[] = []
   async function freePort(): Promise<number> {
     return new Promise((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)) }) })
   }
   beforeAll(async () => {
+    // Keep the actual allow-list and peer checks, but terminate accepted tunnels at a local stand-in.
+    // No test may reach api.anthropic.com, even on an internet-connected developer machine.
+    upstream = net.createServer(c => { c.on('error', () => {}); c.end() })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    const localPort = (upstream.address() as net.AddressInfo).port
+    const connectOriginal = net.connect.bind(net)
+    connectSpy = spyOn(net, 'connect').mockImplementation(((...args: any[]) => {
+      if (args[0] === 443 && args[1] === 'api.anthropic.com') {
+        dialed.push('api.anthropic.com:443')
+        return connectOriginal(localPort, '127.0.0.1')
+      }
+      return (connectOriginal as (...args: any[]) => net.Socket)(...args)
+    }) as typeof net.connect)
     // a fake HOME for the server side of the turn (session folder, the after-turn ~/.claude.json cleanup)
     fs.rmSync(FAKE_HOME, { recursive: true, force: true })
     fs.mkdirSync(path.join(FAKE_HOME, '.claude', 'projects'), { recursive: true })
@@ -134,7 +150,9 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
     alice = await h.ws('alice', { windowId: 'win-r4b-net' })
     await alice.next('hello')
   })
-  afterAll(async () => { alice?.close(); await h?.close(); process.env.HOME = realHome })
+  afterAll(async () => {
+    alice?.close(); await h?.close(); connectSpy?.mockRestore(); upstream?.close(); process.env.HOME = realHome
+  })
 
   test('office local-login starts the CONNECT proxy; other modes do not', async () => {
     const core = await h.ctx.core()
@@ -150,10 +168,11 @@ describe.skipIf(!sbAvailable)('3. office engine core: a Claude turn gets HTTPS_P
     const chat2 = await h.api('alice').call(API.createChat, { body: {} })
     const r2 = await ask(h, alice, 'alice', chat2.id, fake({ connect: '10.0.0.5:443' }), { ms: 30_000 })
     expect(r2.done.content).toBe('HTTP/1.1 403 Forbidden')
-    // the allow-list passes (200 with a network, 502 without one): not refused
+    // The allow-list passes, and the accepted tunnel reaches only the local stand-in.
     const chat3 = await h.api('alice').call(API.createChat, { body: {} })
     const r3 = await ask(h, alice, 'alice', chat3.id, fake({ connect: 'api.anthropic.com:443' }), { ms: 30_000 })
-    expect(String(r3.done.content)).toMatch(/^HTTP\/1\.1 (200|502) /)
+    expect(String(r3.done.content)).toBe('HTTP/1.1 200 Connection Established')
+    expect(dialed).toEqual(['api.anthropic.com:443'])
     // the turn's token died with the turn
     const toks = h.ctx.db.query('SELECT revoked_at FROM proxy_tokens WHERE turn_id = ?').all(r.started.turnId) as { revoked_at: string | null }[]
     expect(toks.length).toBe(1); expect(toks[0]!.revoked_at).not.toBeNull()

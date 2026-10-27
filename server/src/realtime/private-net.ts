@@ -96,6 +96,8 @@ export async function isPrivateHost(host: string, resolve: (h: string) => Promis
 async function defaultResolve(host: string): Promise<string[]> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const t = new Promise<string[]>((_, rej) => { timer = setTimeout(() => rej(new Error('dns timeout')), 1500) })
-  const r = dns.lookup(host, { all: true }).then((xs) => xs.map((x) => x.address))
-  try { return await Promise.race([r, t]) } finally { clearTimeout(timer) }
+  try {
+    const r = dns.lookup(host, { all: true }).then((xs) => xs.map((x) => x.address))
+    return await Promise.race([r, t])
+  } finally { clearTimeout(timer) }
 }

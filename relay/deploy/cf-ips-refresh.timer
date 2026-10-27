@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly refresh of the relay firewall's Cloudflare ranges
+
+[Timer]
+OnCalendar=Mon *-*-* 03:17:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -3,10 +3,16 @@
 //   team server ──(2-4 authenticated control WebSockets, wss://relay.<domain>/connect)──► relay
 //   browser ──https://<team>.<domain>/...──► relay ──(stream on a control connection)──► team server (app.fetch)
 //
-// Runs on Node 25 with node:http + ws: Bun.serve has no backpressure on streaming bodies (REPORT, "Bun problems").
-// The same code runs in Bun for unit tests. The relay stores nothing it forwards and logs only team ids, byte
-// counts and timestamps; the real client IP goes to the team server in the OPEN frame and nowhere else.
+// Runs on Node 26 (24+) with node:http + ws: Bun.serve has no backpressure on streaming bodies (REPORT, "Bun
+// problems"). The same code runs in Bun for unit tests. The relay stores nothing it forwards and logs only team ids,
+// byte counts and timestamps; the real client IP goes to the team server in the OPEN frame and nowhere else.
+//
+// Listeners: the public one (team addresses + the relay's own address; TLS with an Authenticated Origin Pulls client
+// certificate when RELAY_TLS_* is set), the private one (RELAY_PRIVATE_LISTEN: operator API /ops/v1 and /metrics, on
+// the Tailscale address) and the per-process loopback health port (RELAY_HEALTH_LISTEN, for the a/b deploy).
+import fs from 'node:fs'
 import http from 'node:http'
+import https from 'node:https'
 import type { Duplex } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { isIP } from 'node:net'
@@ -20,11 +26,13 @@ import {
 import { teamAddress, type RelayConfig } from './config.ts'
 import { handleRegistryApi } from './api.ts'
 import type { RelayLog } from './log.ts'
-import { PAGE_STATUS, htmlPage, pageMessage, pickLang, type PageKind } from './pages.ts'
+import { renderMetrics, type MetricsSource } from './metrics.ts'
+import { OpsApi } from './ops-api.ts'
+import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, htmlPage, pageMessage, pickLang, type PageKind, type PageLinks } from './pages.ts'
 import { ipInRanges, unmapIp } from './proxies.ts'
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
 
-export const RELAY_VERSION = '0.1.0'
+export const RELAY_VERSION = '0.2.0'
 /** biggest WebSocket message (one control-connection message carries one frame; a little room for batching) */
 const MAX_CTL_MESSAGE = 4 * (HDR + MAX_PAYLOAD)
 /** Node's `ws` sends message fragments (send with fin: false); Bun's built-in `ws` module does not */
@@ -88,7 +96,15 @@ export class RelayServer {
   readonly cfg: RelayConfig
   readonly registry: Registry
   readonly log: RelayLog
+  /** the public listener (an https.Server when the relay terminates TLS; same API) */
   readonly server: http.Server
+  /** operator API + metrics (RELAY_PRIVATE_LISTEN) */
+  private privateServer: http.Server | null = null
+  /** loopback health of this process (RELAY_HEALTH_LISTEN) */
+  private healthServer: http.Server | null = null
+  readonly ops: OpsApi
+  /** where the cloud pages send people (account console, status page) */
+  pageLinks: PageLinks = { ...DEFAULT_PAGE_LINKS }
   /** browser WebSockets (messages up to the client cap) */
   private wss: WebSocketServer
   /** team-server control connections: frames are at most 64 KB, so an unauthenticated peer can't make us buffer more */
@@ -96,7 +112,7 @@ export class RelayServer {
   private teams = new Map<string, TeamState>()
   private clientSockets = new Set<WebSocket>()
   private tracks = new Set<StreamTrack>()
-  private nameCache = new Map<string, { row: TeamRow | undefined; at: number }>()
+  private nameCache = new Map<string, { row: TeamRow | undefined; movedTo: string | null; at: number }>()
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private startedAt = Date.now()
   private stopping = false
@@ -105,6 +121,8 @@ export class RelayServer {
   readonly counters = {
     ctlConnects: 0, ctlDrops: 0, silentDrops: 0, stallDrops: 0, authFail: 0, replaced: 0,
     http: 0, httpOffline: 0, ws: 0, wsOffline: 0, notifications: 0,
+    httpSuspended: 0, httpUnknown: 0, httpMaintenance: 0, httpRedirect: 0, wsSuspended: 0, wsUnknown: 0,
+    bytesIn: 0, bytesOut: 0, regPow: 0, regClaim: 0, regOperator: 0, tlsClientErrors: 0,
   }
 
   constructor(cfg: RelayConfig, registry: Registry, log: RelayLog) {
@@ -116,13 +134,27 @@ export class RelayServer {
       handleProtocols: (protocols, req) => this.handleProtocols(protocols, req),
     })
     this.ctlWss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: MAX_CTL_MESSAGE })
-    this.server = http.createServer((req, res) => {
+    const onReq = (req: http.IncomingMessage, res: http.ServerResponse) => {
       this.onRequest(req, res).catch((e) => {
         // never an unhandled rejection (Node would exit and take every team offline)
         this.log.error('request_failed', { error: errorName(e) })
         try { if (!res.headersSent) this.sendPage(req, res, 'bad_gateway'); else res.destroy() } catch { res.destroy() }
       })
-    })
+    }
+    if (cfg.tls) {
+      // Cloudflare Origin CA certificate; with clientCa only Cloudflare (Authenticated Origin Pulls, our own zone
+      // certificate) completes the handshake: someone who finds the origin address gets no TLS session at all
+      const clientCa = cfg.tls.clientCa ? fs.readFileSync(cfg.tls.clientCa) : null
+      this.server = https.createServer({
+        cert: fs.readFileSync(cfg.tls.cert), key: fs.readFileSync(cfg.tls.key),
+        ...(clientCa ? { ca: clientCa, requestCert: true, rejectUnauthorized: true } : {}),
+        minVersion: 'TLSv1.2',
+      }, onReq) as unknown as http.Server
+      this.server.on('tlsClientError', () => { this.counters.tlsClientErrors++ })
+    } else {
+      this.server = http.createServer(onReq)
+    }
+    this.ops = new OpsApi(this, cfg.operatorKeysFile)
     this.server.requestTimeout = 0
     this.server.headersTimeout = 30_000
     this.server.keepAliveTimeout = 65_000
@@ -137,16 +169,67 @@ export class RelayServer {
   }
 
   async listen(): Promise<number> {
-    await new Promise<void>((resolve, reject) => {
-      this.server.once('error', reject)
-      this.server.listen({ port: this.cfg.port, host: this.cfg.host, ...(process.platform === 'linux' ? { reusePort: true } : {}) }, () => resolve())
+    const listenOn = (srv: http.Server, port: number, host: string) => new Promise<number>((resolve, reject) => {
+      srv.once('error', reject)
+      // Linux: SO_REUSEPORT, so the next version (a/b deploy) can start on the same ports before this one stops
+      srv.listen({ port, host, ...(process.platform === 'linux' ? { reusePort: true } : {}) }, () => {
+        srv.off('error', reject)
+        const a = srv.address()
+        resolve(typeof a === 'object' && a ? a.port : port)
+      })
     })
+    const port = await listenOn(this.server, this.cfg.port, this.cfg.host)
+    if (this.cfg.privateListen) {
+      this.privateServer = http.createServer((req, res) => {
+        this.onPrivate(req, res).catch((e) => {
+          this.log.error('private_request_failed', { error: errorName(e) })
+          try { if (!res.headersSent) sendJson(res, 500, { error: { code: 'internal', message: 'internal error' } }); else res.destroy() } catch { res.destroy() }
+        })
+      })
+      this.privateServer.headersTimeout = 10_000
+      this.privatePort = await listenOn(this.privateServer, this.cfg.privateListen.port, this.cfg.privateListen.host)
+      if (!this.cfg.operatorKeysFile) this.log.warn('ops_no_keys', { note: 'RELAY_OPERATOR_KEYS_FILE is not set: the operator API refuses every request' })
+    }
+    if (this.cfg.healthListen) {
+      this.healthServer = http.createServer((req, res) => {
+        if ((req.url ?? '').split('?')[0] === '/healthz') return sendJson(res, 200, { ok: true, version: RELAY_VERSION, pid: process.pid, startedAt: new Date(this.startedAt).toISOString() })
+        sendJson(res, 404, { error: { code: 'not_found', message: 'not found' } })
+      })
+      // never reusePort here: each instance has its own health port, which is the point
+      await new Promise<void>((resolve, reject) => { this.healthServer!.once('error', reject); this.healthServer!.listen(this.cfg.healthListen!.port, this.cfg.healthListen!.host, () => resolve()) })
+    }
     this.startedAt = Date.now()
     this.sweepTimer = setInterval(() => this.sweep(), 1000)
-    const addr = this.server.address()
-    const port = typeof addr === 'object' && addr ? addr.port : this.cfg.port
-    this.log.info('relay_started', { port, runtime: process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`, version: RELAY_VERSION })
+    this.log.info('relay_started', { port, privatePort: this.privatePort, tls: !!this.cfg.tls, clientCert: !!this.cfg.tls?.clientCa, openRegistration: this.cfg.openRegistration, runtime: process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`, version: RELAY_VERSION })
     return port
+  }
+
+  /** the private listener's port (tests listen on port 0) */
+  privatePort: number | null = null
+
+  /** Private listener: operator API (signed, ops-api.ts), Prometheus metrics, health. Nothing else. */
+  private async onPrivate(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const p = (req.url ?? '/').split('?')[0]!
+    if (p === '/healthz' && req.method === 'GET') return sendJson(res, 200, { ok: true, version: RELAY_VERSION })
+    if (p === '/metrics' && req.method === 'GET') {
+      const body = renderMetrics(this.metricsSource())
+      res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(body)
+      return
+    }
+    if (p.startsWith('/ops/v1/')) return this.ops.handle(req, res)
+    sendJson(res, 404, { error: { code: 'not_found', message: 'not found' } })
+  }
+
+  metricsSource(): MetricsSource {
+    const live = this.liveCounts()
+    let streams = 0
+    for (const t of this.teams.values()) streams += t.streams
+    return {
+      teams: this.registry.counts(), teamsOnline: live.online, ctlConnections: live.conns, openStreams: streams,
+      clientWebsockets: this.clientSockets.size,
+      counters: { ...this.counters, opsRequests: this.ops.counters.requests, opsAuthFailures: this.ops.counters.authFailures + this.ops.counters.replays },
+    }
   }
 
   /**
@@ -157,6 +240,8 @@ export class RelayServer {
     if (this.stopping) return
     this.stopping = true
     this.server.close()
+    this.privateServer?.close()
+    this.healthServer?.close()
     for (const t of this.teams.values()) for (const c of t.conns) { c.draining = true; c.mux?.goaway({ reason: 'restart' }) }
     for (const ws of this.clientSockets) ws.close(ClientClose.RESTART, 'relay restarting')
     const until = Date.now() + graceMs
@@ -165,6 +250,8 @@ export class RelayServer {
     for (const t of this.teams.values()) for (const c of t.conns) c.ws.close(ClientClose.RESTART, 'relay restarting')
     for (const ws of this.clientSockets) ws.terminate()
     this.server.closeAllConnections()
+    this.privateServer?.closeAllConnections()
+    this.healthServer?.closeAllConnections()
     this.log.info('relay_stopped', {})
   }
 
@@ -186,21 +273,63 @@ export class RelayServer {
     return !!t && [...t.conns].some((c) => c.mux && !c.mux.closed && !c.draining)
   }
 
-  // ------------------------------------------------------------------ routing
-
-  private lookupName(name: string): TeamRow | undefined {
-    const hit = this.nameCache.get(name)
-    if (hit && Date.now() - hit.at < NAME_CACHE_MS) return hit.row
-    const row = this.registry.teamByName(name)
-    this.nameCache.set(name, { row, at: Date.now() })
-    if (this.nameCache.size > 10_000) this.nameCache.clear()
-    return row
+  /** For the operator API: online + live control connections of one team in THIS process. */
+  teamStatus(teamId: string): { online: boolean; conns: number } {
+    const t = this.teams.get(teamId)
+    const conns = t ? [...t.conns].filter((c) => c.mux && !c.mux.closed && !c.draining).length : 0
+    return { online: conns > 0, conns }
   }
 
-  /** null: the relay's own address (API, /connect); else the team name in the Host header. */
-  private teamName(req: http.IncomingMessage): string | null {
-    const name = teamFromHost(req.headers.host ?? '', this.cfg.domain)
-    return name === 'relay' ? null : name
+  liveCounts(): { online: number; conns: number; clientSockets: number; uptimeS: number } {
+    let online = 0
+    let conns = 0
+    for (const t of this.teams.values()) {
+      const n = [...t.conns].filter((c) => c.mux && !c.mux.closed && !c.draining).length
+      if (n) online++
+      conns += n
+    }
+    return { online, conns, clientSockets: this.clientSockets.size, uptimeS: Math.round((Date.now() - this.startedAt) / 1000) }
+  }
+
+  /** Suspended through the operator API: drain and close the team's connections now (not at the next 5 s sweep). */
+  suspendNow(teamId: string): void {
+    this.invalidateNames()
+    const t = this.teams.get(teamId)
+    if (!t) return
+    for (const c of t.conns) { c.draining = true; c.mux?.goaway({ reason: 'suspended' }); c.ws.close(ControlClose.SUSPENDED, 'team suspended') }
+  }
+
+  /** An operator notice to the connected team server (EVENT notice). false when it is not connected. */
+  sendNotice(teamId: string, ev: Extract<RelayEvent, { type: 'notice' }>): boolean {
+    const t = this.teams.get(teamId)
+    const c = t ? this.pick(t) ?? [...t.conns].find((o) => o.mux && !o.mux.closed) : undefined
+    if (!c?.mux) return false
+    this.counters.notifications++
+    c.mux.event(ev)
+    return true
+  }
+
+  // ------------------------------------------------------------------ routing
+
+  /** The live team of a name; for a name with none, where it moved to (renamed within 90 days), else null. */
+  private lookupName(name: string): { row: TeamRow | undefined; movedTo: string | null } {
+    const hit = this.nameCache.get(name)
+    if (hit && Date.now() - hit.at < NAME_CACHE_MS) return hit
+    const row = this.registry.teamByName(name)
+    const movedTo = row ? null : this.registry.renamedTo(name)?.name ?? null
+    const entry = { row, movedTo, at: Date.now() }
+    this.nameCache.set(name, entry)
+    if (this.nameCache.size > 10_000) this.nameCache.clear()
+    return entry
+  }
+
+  /** null: the relay's own address (API, /connect); else the team name in the Host header and the domain it is under. */
+  private teamName(req: http.IncomingMessage): { name: string; domain: string } | null {
+    for (const domain of this.cfg.domains) {
+      const name = teamFromHost(req.headers.host ?? '', domain)
+      if (name !== null) return name === 'relay' ? null : { name, domain }
+    }
+    return null
   }
 
   /**
@@ -223,21 +352,42 @@ export class RelayServer {
   }
 
   private async onRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const name = this.teamName(req)
-    if (name === null) {
+    const host = this.teamName(req)
+    if (host === null) {
       if (req.url === '/_stats' && this.cfg.stats && isLoopback(req.socket.remoteAddress)) return sendJson(res, 200, this.stats())
+      // the operator API and the metrics live on the private listener only: nothing about them on the public one
+      const p = (req.url ?? '/').split('?')[0]!
+      if (p === '/ops' || p.startsWith('/ops/') || p === '/metrics') return sendJson(res, 404, { error: { code: 'not_found', message: 'not found' } })
       return handleRegistryApi(this, req, res)
     }
-    const row = this.lookupName(name)
-    if (!row) return this.sendPage(req, res, 'team_unknown')
-    if (row.status === 'suspended') return this.sendPage(req, res, 'team_suspended')
+    const { row, movedTo } = this.lookupName(host.name)
+    if (!row) {
+      if (movedTo) {
+        // renamed address (control-plane D40): 308 keeps the method and body, so bookmarks and the desktop app follow
+        this.counters.httpRedirect++
+        const target = teamAddress(this.cfg, movedTo, host.domain) + (req.url?.startsWith('/') ? req.url : '/')
+        res.writeHead(308, { location: target, 'cache-control': 'no-store', 'content-length': '0', ...(this.cfg.hsts ? { 'strict-transport-security': HSTS } : {}) })
+        res.end()
+        return
+      }
+      this.counters.httpUnknown++
+      return this.sendPage(req, res, 'team_unknown')
+    }
+    if (row.status === 'suspended') {
+      this.counters.httpSuspended++
+      return this.sendPage(req, res, row.suspend_reason === 'billing' || row.suspend_reason === 'canceled' ? 'team_suspended_billing' : 'team_suspended')
+    }
     const ctl = await this.connFor(row.id, req)
     if (res.destroyed || req.destroyed) return
     if (!ctl) {
-      this.counters.httpOffline++
       const t = this.teams.get(row.id)
+      if (row.maintenance_until && Date.parse(row.maintenance_until) > Date.now()) {
+        this.counters.httpMaintenance++
+        return this.sendPage(req, res, 'team_maintenance')
+      }
+      this.counters.httpOffline++
       const lastSeen = t?.offlineAt ?? (row.last_connected_at ? Date.parse(row.last_connected_at) : null)
-      return this.sendPage(req, res, this.teams.get(row.id)?.conns.size ? 'team_busy' : 'team_offline', lastSeen ? Date.now() - lastSeen : null)
+      return this.sendPage(req, res, t?.conns.size ? 'team_busy' : row.origin === 'cloud' ? 'team_offline_cloud' : 'team_offline', lastSeen ? Date.now() - lastSeen : null)
     }
     const meta = this.meta(req, 'http')
     if (!meta) { res.shouldKeepAlive = false; return this.sendPage(req, res, 'bad_request') }
@@ -294,15 +444,17 @@ export class RelayServer {
     const status = PAGE_STATUS[kind]
     const wantsHtml = !(req.url ?? '').startsWith('/api/') && /text\/html/.test(req.headers.accept ?? '')
     const extra: Record<string, string> = { 'cache-control': 'no-store', 'x-relay-error': kind }
-    if (status === 503) extra['retry-after'] = '5'
+    const retryAfter = status === 503 ? PAGE_RETRY_AFTER[kind] ?? 5 : null
+    if (retryAfter !== null) extra['retry-after'] = String(retryAfter)
+    if (this.cfg.hsts && this.teamName(req)) extra['strict-transport-security'] = HSTS
     if (wantsHtml) {
       res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', ...extra })
-      res.end(htmlPage(kind, lang, offlineForMs))
+      res.end(htmlPage(kind, lang, offlineForMs, this.pageLinks))
       return
     }
     // codes from the app's ErrorCode list (shared/src/api/common.ts), so the web client handles relay answers alike
-    const code = kind === 'team_unknown' || kind === 'not_found' ? 'not_found' : kind === 'team_suspended' ? 'forbidden' : kind === 'bad_request' || kind === 'request_timeout' ? 'bad_request' : 'unavailable'
-    sendJson(res, status, { error: { code, message: pageMessage(kind, lang, offlineForMs), reason: kind, ...(status === 503 ? { retryAfter: 5 } : {}) } }, extra)
+    const code = kind === 'team_unknown' || kind === 'not_found' ? 'not_found' : kind === 'team_suspended' || kind === 'team_suspended_billing' ? 'forbidden' : kind === 'bad_request' || kind === 'request_timeout' ? 'bad_request' : 'unavailable'
+    sendJson(res, status, { error: { code, message: pageMessage(kind, lang, offlineForMs), reason: kind, ...(retryAfter !== null ? { retryAfter } : {}) } }, extra)
   }
 
   /**
@@ -376,6 +528,8 @@ export class RelayServer {
       team.streams--
       team.bytesIn += reqBytes
       team.bytesOut += resBytes
+      this.counters.bytesIn += reqBytes
+      this.counters.bytesOut += resBytes
       this.log.info('stream', { team: team.id, kind: 'http', bytesIn: reqBytes, bytesOut: resBytes, ms: Date.now() - t0 })
     }
 
@@ -412,7 +566,15 @@ export class RelayServer {
       // the body, so this connection can't safely carry another request
       if (!reqEnded) res.shouldKeepAlive = false
       const flat: string[] = []
-      for (const [k, v] of forwardResponseHeaders(h.headers)) flat.push(k, k.toLowerCase() === 'set-cookie' ? hostOnlyCookie(v) : v)
+      let hsts = false
+      for (const [k, v] of forwardResponseHeaders(h.headers)) {
+        const lk = k.toLowerCase()
+        if (lk === 'strict-transport-security') hsts = true
+        flat.push(k, lk === 'set-cookie' ? hostOnlyCookie(v) : v)
+      }
+      // HSTS when the team server sent none (https team addresses only; never includeSubDomains: the parent domain
+      // also serves other things)
+      if (!hsts && this.cfg.hsts) flat.push('strict-transport-security', HSTS)
       try {
         res.writeHead(h.status, flat)
       } catch {
@@ -454,8 +616,8 @@ export class RelayServer {
   private async onUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     socket.on('error', () => {})
     if (this.stopping) { socket.destroy(); return }
-    const name = this.teamName(req)
-    if (name === null) {
+    const host = this.teamName(req)
+    if (host === null) {
       if ((req.url ?? '').split('?')[0] === '/connect') {
         this.ctlWss.handleUpgrade(req, socket, head, (ws) => this.onControl(ws, this.clientIp(req)))
         return
@@ -463,9 +625,10 @@ export class RelayServer {
       rawHttp(socket, 404)
       return
     }
-    const row = this.lookupName(name)
-    if (!row) { rawHttp(socket, 404); return }
-    if (row.status === 'suspended') { rawHttp(socket, 403); return }
+    // a renamed address is not followed for WebSockets (the page that opens them follows the 308 first)
+    const { row } = this.lookupName(host.name)
+    if (!row) { this.counters.wsUnknown++; rawHttp(socket, 404); return }
+    if (row.status === 'suspended') { this.counters.wsSuspended++; rawHttp(socket, 403); return }
     const ctl = await this.connFor(row.id, req)
     if (socket.destroyed) return
     if (!ctl) {
@@ -499,6 +662,8 @@ export class RelayServer {
       team.streams--
       team.bytesIn += inBytes
       team.bytesOut += outBytes
+      this.counters.bytesIn += inBytes
+      this.counters.bytesOut += outBytes
       this.log.info('stream', { team: team.id, kind: 'ws', bytesIn: inBytes, bytesOut: outBytes, ms: Date.now() - t0 })
     }
     const openTimer = setTimeout(() => {
@@ -849,6 +1014,9 @@ function closeClient(ws: WebSocket, code: number, reason: string): void {
   const valid = (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) || (code >= 3000 && code <= 4999)
   try { ws.close(valid ? code : ClientClose.INTERNAL, reason.slice(0, 120)) } catch { ws.terminate() }
 }
+
+/** HSTS the relay adds to team responses that carry none: one year, this host only */
+export const HSTS = 'max-age=31536000'
 
 export function isLoopback(a: string | undefined): boolean {
   return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'

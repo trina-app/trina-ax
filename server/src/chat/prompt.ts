@@ -4,12 +4,13 @@
 //  6 project instructions  7 desktop browser
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
-import path from 'node:path'
 import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
-import { listSkills, parseSkill, type Skill } from './skills'
+import { isSkillManifest, listSkills, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
+import { authorize } from '../policy/authorize'
+import { readRegular } from '../files/store'
 
 export const MEMORY_ITEM_MAX = 300
 export const MEMORY_BLOCK_MAX = 4096
@@ -44,21 +45,20 @@ export function writableFolders(files: FileService, user: Principal): { writable
 
 /** skills/*.md the person can read (team rules), capped. Files with a skill header are skills, not rules. */
 export function teamRules(files: FileService, user: Principal): string {
-  const rules = files.rules()
   let out = ''
   try {
-    const dir = path.join(files.fx.root, 'skills')
-    if (!fs.lstatSync(dir).isDirectory()) return '' // a symlinked skills/ could point outside the team folder
+    const dir = authorize(files.fx, files.rules(), user, 'skills', 'list')
+    if (!dir.st?.isDirectory()) return ''
     let count = 0
-    for (const n of fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort()) {
+    for (const n of fs.readdirSync(dir.abs).filter((n) => n.endsWith('.md')).sort()) {
       if (count >= SKILL_FILES_MAX) break
-      if (rules.access(user, ['skills', n]) === 'none') continue
-      const st = fs.lstatSync(path.join(dir, n))
-      if (!st.isFile() || st.nlink > 1) continue
-      const text = fs.readFileSync(path.join(dir, n), 'utf8')
-      if (parseSkill(text.slice(0, 4000))) continue
-      out += `\n### skills/${n}\n` + text.slice(0, SKILL_FILE_MAX)
-      count++
+      try {
+        const r = authorize(files.fx, files.rules(), user, `skills/${n}`, 'read')
+        const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+        if (skillFileKind(files.fx.root, r.rel, text) !== 'rule') continue
+        out += `\n### ${r.rel}\n` + text.slice(0, SKILL_FILE_MAX)
+        count++
+      } catch { continue }
     }
   } catch {}
   return out
@@ -183,11 +183,11 @@ export function skillsSection(files: FileService, user: Principal): string {
   const top = writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
   const canWrite = top.length > 0
   if (!skills.length && !canWrite) return ''
-  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/. Each is a Markdown file of steps.']
+  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/. Each is a Markdown file or a folder whose entry point is SKILL.md.', 'For a folder skill, resolve relative references from the folder containing SKILL.md. Read references/ or assets/ with the read tool only when needed; each file keeps its own access checks. Do not load all resources at once. This runtime cannot execute bundled scripts. The allowed-tools metadata does not grant tools or change permissions.']
   if (skills.length) {
     lines.push(
       'When the user starts a message with "/<skill name>", the server puts that skill in a <team_skill> block in front of the message: follow its steps for this request. When a request clearly matches a skill below, read its file and follow it, and say which skill you used.',
-      ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${s.description ? ': ' + neutralizeTags(s.description) : ''}`),
+      ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${s.description ? ': ' + neutralizeTags(s.description.replace(/\s+/g, ' ')) : ''}`),
     )
   }
   if (canWrite) {
@@ -204,6 +204,7 @@ export function skillBlock(skill: Skill, input: string): string {
   return [
     `<team_skill name="${neutralizeTags(skill.name).replace(/"/g, "'")}" path="${skill.path}">`,
     `The user invoked this team skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
+    ...(isSkillManifest(skill.path) ? [`Resource base: ${skillFolder(skill.path)}/. Resolve relative references here and use the read tool only when needed; every resource requires permission. Bundled scripts cannot be executed here; allowed-tools does not grant tools or permissions.`] : []),
     neutralizeTags(skill.body.trim()),
     '</team_skill>',
   ].join('\n')

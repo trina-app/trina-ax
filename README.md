@@ -15,6 +15,20 @@ unblock:** [docs/OWNER-TODO.md](docs/OWNER-TODO.md). Decisions and deviations fr
 [docs/DECISIONS.md](docs/DECISIONS.md); who owns which part: [docs/WORKPLAN.md](docs/WORKPLAN.md).
 Test environments (a clean macOS VM for fresh-install tests, the staging install): [docs/TEST-ENV.md](docs/TEST-ENV.md).
 
+## Three ways to run (same code)
+
+| | Team AX Cloud | Your own Linux server | Mac mini in the office |
+|---|---|---|---|
+| Who runs it | we host it (one tenant per team), monthly subscription | you, free (AGPL) | you, free (AGPL) |
+| Install | sign up | `sudo ./install-linux.sh install` ([docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md)) | office zip ([docs/OFFICE.md](docs/OFFICE.md)) or the role-account installer ([docs/INSTALL.md](docs/INSTALL.md)) |
+| Updates | TreeSoop, in the maintenance window | the server applies app-only releases itself in the team's update window; root parts with `mycel-ctl update` | nightly signed office update / re-run the installer |
+| Limits | the plan file: seats, answers at the same time, disk | none unless you add a plan file | none |
+| Connected folders, connection change | off (managed) | on (`/mnt`, `/media`, `/srv`) | on |
+
+One server process is one team. `server.json` `deployment` (`self`, the default, or `hosted` for Team AX Cloud) together
+with the existing `office` / `mode` switches decides what each way may do (`server/src/system/deployment.ts`); the
+team's time zone is a team setting. See docs/DECISIONS.md "클라우드·리눅스 서버".
+
 ## Architecture
 
 ```
@@ -25,7 +39,7 @@ Test environments (a clean macOS VM for fresh-install tests, the staging install
         │  https://<team>.treesoop.com (relay)          or   office network: direct TLS (pinned cert)
         ▼                        ▼
   ┌─────────────────────────────────────┐
-  │ relay (Node 25, Linux)              │  frames v2: OPEN/DATA/WINDOW/…, per-stream 256 KB windows,
+  │ relay (Node 26, Linux)              │  frames v2: OPEN/DATA/WINDOW/…, per-stream 256 KB windows,
   │ stores nothing, logs no client IPs  │  Ed25519 team keys; the team server dials OUT (no open ports)
   └──────────────────┬──────────────────┘
                      │ 2–4 control WebSockets
@@ -58,7 +72,7 @@ server/   Bun + Hono + bun:sqlite: route modules (auth, admin, chats, ws, files,
           function, file tools (ripgrep), MCP over a Unix socket, engine runners (Claude Code, Codex CLI), relay client
 web/      React + Vite web app, built to web/dist and served by the server (also the PWA)
 desktop/  Electron app: the team's web page plus the in-app browser pane the AI can drive
-relay/    relay server (Node 25): https://<team>.<domain> for every team server, without opening ports
+relay/    relay server (Node 26 LTS; 24+): https://<team>.<domain> for every team server, without opening ports
 native/   Go: mycel-gate, mycel-bridge, mycel-launcher, mycel-bootstrap
 scripts/  dev runner, dev LaunchAgent, demo seeder, test runner, macOS installer, release bundle;  menubar/  Swift menubar app
 tests/    unit + integration (tests/unit), relay conformance (tests/relay), fuzzers, ReDoS, grep benchmark, Linux
@@ -119,7 +133,7 @@ bun run demo:seed           # (other terminal) demo team: dion / admin1 / alice 
 
 - the team server on **http://localhost:19100**, serving the web app, in DEV mode: Claude Code and the Codex CLI run
   as you, with your own logins (`local-login`, no model proxy);
-- the relay on Node 25, with the team registered as `demo`: **http://demo.localhost:19161** (the remote address);
+- the relay on Node 24+ (production: 26), with the team registered as `demo`: **http://demo.localhost:19161** (the remote address);
 - with `--vite`, also the hot-reloading web dev server on http://localhost:19140.
 
 Data lives in `~/.team-ax-dev` (team folder, database, relay registry); delete it to start over. On the first start
@@ -136,14 +150,14 @@ bun run dev:service install | status | logs | restart | stop | start | uninstall
 
 Desktop app: `cd desktop && bun run app` (development) or `bun run dist:mac` (unsigned .dmg in `desktop/release/`).
 
-Needs Bun, Go, Node 25 (relay), `rg`, `pandoc`, `pdftotext`, `ffmpeg`, `whisper-cli` (Homebrew), Docker for the Linux
+Needs Bun, Go, Node 24+ (relay; production pins 26), `rg`, `pandoc`, `pdftotext`, `ffmpeg`, `whisper-cli` (Homebrew), Docker for the Linux
 job, and for real chats a logged-in `claude` and/or `codex`.
 
 ## Tests
 
 ```sh
 bun run typecheck             # server, shared, relay, tests, scripts + web + desktop
-bun run test                  # unit + integration, web unit, relay conformance (Node 25); test:fast skips the relay
+bun run test                  # unit + integration, web unit, relay conformance (Node 24+); test:fast skips the relay
 bun run build                 # native helpers (darwin + linux) and web/dist
 bun run test:stage1:fast      # typecheck, native build, unit, path fuzzers, ReDoS, 20k-file grep benchmark
 bun run test:stage1           # + real engines (local claude / codex logins) and the Linux Docker job
@@ -160,7 +174,7 @@ scripts/vm/macos-vm.sh fresh && scripts/vm/macos-vm.sh up && \
 ```
 
 Engines are never called for real by `bun run test`. CI (`.github/workflows/ci.yml`) runs typecheck, the native build
-+ `go vet`, unit tests, the fast fuzzers, web unit tests and build, the relay suite on Node 25 and the Linux Docker
++ `go vet`, unit tests, the fast fuzzers, web unit tests and build, the relay suite on Node 26 and the Linux Docker
 job. As of 2026-10-21 the GitHub Actions jobs of this repository do not start at all ("recent account payments have
 failed or your spending limit needs to be increased"), so every red run on `main` is that, not a test failure; run
 `bun run typecheck && bun run test` locally until the billing is fixed.

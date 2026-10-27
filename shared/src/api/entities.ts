@@ -424,5 +424,8 @@ export const TeamSettings = z.object({
   fileHistoryRetentionDays: z.number().int().min(1).max(3650),
   trashRetentionDays: z.number().int().min(1).max(365),
   chatTrashRetentionDays: z.number().int().min(1).max(365),
+  /** the team's time zone (IANA, e.g. Asia/Seoul): "today" / "this month" of budgets and usage, schedules, the nightly
+   * backup. Changing it moves the current day / month boundaries (the data stays). */
+  timeZone: z.string().min(1).max(64).refine((tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true } catch { return false } }, 'unknown time zone'),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>
