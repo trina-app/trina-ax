@@ -165,8 +165,8 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 1. 판매판 채널을 적용한다(`docs/EDITION-RELEASE.md`): 그 제품의 서명 키, `editions/<name>/branding/release-channel.json`, `edition-release.ts --apply`.
 2. 그 레포에 비밀값 두 개를 넣는다. 키는 그 제품의 `keyDir`, 토큰은 그 제품 zone·bucket이 있는 Cloudflare 계정 것이다.
    ```sh
-   gh secret set RELEASE_SIGNING_KEY --repo potenlab/trina-ax < ~/.config/<트리나 keyDir>/release-key.pem
-   gh secret set CLOUDFLARE_API_TOKEN --repo potenlab/trina-ax
+   gh secret set RELEASE_SIGNING_KEY --repo trina-app/trina-ax < ~/.config/<트리나 keyDir>/release-key.pem
+   gh secret set CLOUDFLARE_API_TOKEN --repo trina-app/trina-ax
    ```
    다른 제품 키를 넣으면 prepare가 멈춘다(key id만 보여 준다).
 3. 그 제품의 업데이트 주소를 만든다: `bun scripts/release/hosting.ts setup`(그 레포 작업본에서, 그 계정 토큰으로).
