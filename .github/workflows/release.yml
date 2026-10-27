@@ -1,0 +1,360 @@
+# Release (docs/RELEASE-CI.md): pushing a version tag builds, tests, signs and publishes everything. People only tag.
+#
+#   v0.3.0 (stable) / v0.3.0-beta.1 (beta), = server/package.json's version
+#     prepare     the tag is the version; the release key is one this product's builds trust (RELEASE_CHANNEL.keys)
+#     test        ci.yml on the tagged commit (every job of a normal push)        } in parallel
+#     build-*     Linux kits amd64 + arm64, the office zip (macOS, universal),     } no secrets
+#                 the Windows installer + latest.yml
+#     publish     sign the Linux builds, office feed (publish.ts), server feed (publish-server.ts), SHA256SUMS + .sig
+#     github-release  the tag's GitHub Release with the kits, the office zip, the Windows installer and SHA256SUMS(.sig)
+#
+# Secrets (repository secrets, set by the owner: docs/RELEASE-CI.md): RELEASE_SIGNING_KEY (the Ed25519 PEM) and
+# CLOUDFLARE_API_TOKEN. Only `prepare` (checks the key) and `publish` see them, only in the steps that use them; the
+# key lives in a 600 file under $RUNNER_TEMP that is removed whatever happens. Nothing here runs for pull requests.
+# The Mac desktop dmg is not built: it has no Apple signature and notarization yet.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing release tag to run again (e.g. v0.3.0). Choose the same tag under 'Use workflow from'."
+        required: true
+        type: string
+
+# one release at a time (the feed's "never back" check reads what the previous one published)
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# bash -eo pipefail everywhere (also on Windows: Git Bash)
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  prepare:
+    name: Tag, version and release key
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Which tag
+        id: which
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then tag="$INPUT_TAG"; else tag="$REF_NAME"; fi
+          if ! [[ "$tag" =~ ^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+){0,3})?$ ]]; then
+            echo "::error::not a release tag (v0.3.0 or v0.3.0-beta.1 form)"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ steps.which.outputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: The tag is server/package.json's version
+        id: release
+        env:
+          TAG: ${{ steps.which.outputs.tag }}
+        run: |
+          bun scripts/release/release-ci.ts tag "$TAG" | tee -a "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+      - name: Release notes (the annotated tag's message; empty for a lightweight tag)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.which.outputs.tag }}
+        run: |
+          mkdir -p notes
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
+          if [ "$(jq -r .object.type <<<"$ref")" = tag ]; then
+            gh api "repos/$GITHUB_REPOSITORY/git/tags/$(jq -r .object.sha <<<"$ref")" --jq .message > notes/notes.md
+          else
+            : > notes/notes.md
+          fi
+          wc -c notes/notes.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: notes/notes.md
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: 30
+      # fail now, not after an hour of builds: both secrets are there and the key is this product's
+      - name: The release key is one this product's builds trust
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then echo "::error::secret RELEASE_SIGNING_KEY is not set (docs/RELEASE-CI.md)"; exit 1; fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "::error::secret CLOUDFLARE_API_TOKEN is not set (docs/RELEASE-CI.md)"; exit 1; fi
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release-key.pem"
+          bun scripts/release/release-ci.ts check-key "$RUNNER_TEMP/release-key.pem"
+      - name: Remove the release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release-key.pem"
+
+  test:
+    name: Tests
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  build-linux:
+    name: Linux kit (${{ matrix.arch }})
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      ARCH: ${{ matrix.arch }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: native/go.mod
+          cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-notes
+          path: notes
+      - name: whisper-cli (static, this arch)
+        run: bash scripts/linux/build-whisper.sh --arch "$ARCH" --out dist/whisper
+      - run: bun install --frozen-lockfile
+      - name: Native helpers (linux ${{ matrix.arch }})
+        run: ARCHS="$ARCH" bash native/build.sh
+      - run: bun run build:web
+      - name: Linux bundle and kit (--strict, unsigned; publish signs it)
+        run: |
+          notes=()
+          if [ -s notes/notes.md ]; then notes=(--notes notes/notes.md); fi
+          bun scripts/build-bundle.ts --os linux --arch "$ARCH" --version "$VERSION" --whisper-dir dist/whisper --strict "${notes[@]}" --out dist/linux
+          # tar keeps the file modes (an artifact does not); the unsigned packs are not needed
+          tar -C dist/linux -cf "dist/release-linux-$ARCH.tar" app install-linux.sh VERSION product.env
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/release-linux-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: 7
+
+  build-office:
+    name: Office zip (macOS, universal)
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: native/go.mod
+          cache: false
+      - run: bun install --frozen-lockfile
+      - name: Office zip (native helpers for both Mac processors, mycel-ocr with swiftc, web, bundle)
+        run: |
+          swiftc --version | head -1
+          bun run build:office -- --version "$VERSION"
+          ls -l dist/office/*-mac.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-office
+          path: dist/office/*-mac.zip
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: 7
+
+  build-windows:
+    name: Windows installer
+    needs: prepare
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: NSIS installer and latest.yml (unsigned; electron-builder skips signing without a certificate)
+        run: |
+          bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$VERSION"
+          ls -l desktop/release
+          tr -d '\r' < desktop/release/latest.yml | grep -qx "version: $VERSION"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-windows
+          path: |
+            desktop/release/*-Setup-*-win-x64.exe
+            desktop/release/latest.yml
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: 7
+
+  publish:
+    name: Sign and publish to the update feed
+    needs: [prepare, test, build-linux, build-office, build-windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CHANNEL: ${{ needs.prepare.outputs.channel }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - name: The tag still names the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          got=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          if [ "$got" != "$SHA" ]; then echo "::error::$TAG now names $got, not the tested $SHA: tag a new version"; exit 1; fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # the release scripts need the packages (zod, …); no package's install script runs in the job that holds the key
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: in
+      - name: Unpack the Linux builds
+        run: |
+          for a in amd64 arm64; do
+            mkdir -p "build/linux-$a"
+            tar -xpf "in/release-linux-$a/release-linux-$a.tar" -C "build/linux-$a"
+          done
+          ls -l in/release-office in/release-windows
+      - name: Release key (from the secret, never printed)
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release-key.pem"
+          echo "TEAMAX_RELEASE_KEY=$RUNNER_TEMP/release-key.pem" >> "$GITHUB_ENV"
+          bun scripts/release/release-ci.ts check-key "$RUNNER_TEMP/release-key.pem"
+      - name: Sign the Linux builds (manifest.sig; update archive and install kit)
+        run: |
+          mkdir -p build/server
+          for a in amd64 arm64; do
+            bun scripts/release/release-ci.ts sign-linux "build/linux-$a" "$a" "$TEAMAX_RELEASE_KEY"
+            mv "build/linux-$a/"*.tar.zst "build/linux-$a/"*.tar.gz build/server/
+          done
+          ls -l build/server
+      - name: Office feed (zip + Windows installer)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          zip=$(ls in/release-office/*-mac.zip)
+          exe=$(ls in/release-windows/*-Setup-*-win-x64.exe)
+          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md
+          # a stable release is also the beta channel's newest, unless beta is already ahead
+          if [ "$CHANNEL" = stable ]; then
+            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md
+          fi
+      - name: Server feed (Linux)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          bun scripts/release/publish-server.ts --channel "$CHANNEL" --version "$VERSION" --dir build/server --notes-file in/release-notes/notes.md
+          if [ "$CHANNEL" = stable ]; then
+            bun scripts/release/publish-server.ts --channel beta --if-newer --version "$VERSION" --dir build/server --notes-file in/release-notes/notes.md
+          fi
+      - name: SHA256SUMS and its signature
+        run: |
+          mkdir -p assets
+          cp build/server/*.tar.gz in/release-office/*-mac.zip in/release-windows/*-Setup-*-win-x64.exe assets/
+          bun scripts/release/release-ci.ts sums assets "$TEAMAX_RELEASE_KEY" assets/*
+          bun scripts/release/release-ci.ts verify-sums assets/SHA256SUMS
+      - name: Remove the release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release-key.pem"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: assets/
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: 30
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Create the release (or add the files to it on a re-run)
+        run: |
+          got=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          if [ "$got" != "$SHA" ]; then echo "::error::$TAG now names $got, not the published $SHA"; exit 1; fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
+          flags=(--verify-tag --title "$TAG")
+          if [ -s notes/notes.md ]; then flags+=(--notes-file notes/notes.md); else flags+=(--generate-notes); fi
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" "${flags[@]}"

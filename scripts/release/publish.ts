@@ -4,7 +4,7 @@
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
 //       [--office dist/office/<officeBundle>-X-mac.zip]
 //       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
-//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
+//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--if-newer] [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
 //
 // --build first builds both (bun run build:office with --version X; the Windows app with version X): otherwise the
 // files are taken as given (default: dist/office/<officeBundle>-<version>-mac.zip and, when it exists,
@@ -12,13 +12,16 @@
 //   1. checks the files: the zip holds <officeBundle>-<version>/app/VERSION = version; latest.yml names the installer
 //      with its sha512 and size
 //   2. refuses to go back: the channel's current manifest (if any) must be older (the same version only re-uploads
-//      identical files), and a file already published under <dir>/<version>/ is never replaced by a different one
+//      identical files; --if-newer: a newer channel is left as it is, no error), and a file already published under
+//      <dir>/<version>/ is never replaced by a different one (compared by content, not size)
 //   3. uploads <dir>/<version>/<files> to the R2 bucket, then signs (~/.config/<keyDir>/release-key.pem) and
 //      uploads <dir>/<channel>.json last, so the manifest never names a file that is not there
 //   4. reads the manifest back through the feed and verifies it like an office does
 // --out DIR writes the feed into a folder instead (tests: a feed on this Mac, whose address --feed names, served to an
 // install switched to it with `teamax update feed`); --dry-run checks and signs, uploads nothing.
 // The API token (CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env) and the release key are never printed.
+// The release workflow (.github/workflows/release.yml, docs/RELEASE-CI.md) runs it with the built files and
+// TEAMAX_RELEASE_KEY / CLOUDFLARE_API_TOKEN from its secrets; nothing here asks anything.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -26,6 +29,7 @@ import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
 import { readReleaseKey } from './keygen'
+import { remoteHash } from './sign'
 import { PRODUCT } from '../../shared/src/product'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 
@@ -137,14 +141,17 @@ async function main() {
   const cur = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null)
   if (cur?.ok) {
     const prev = verifyRelease(await cur.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
-    if (compareVersions(version, prev.version) < 0) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
+    if (compareVersions(version, prev.version) < 0) {
+      if (process.argv.includes('--if-newer')) { console.log(`${channel} is at ${prev.version}, newer than ${version}: left as it is`); return }
+      throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
+    }
     console.log(`${channel} is at ${prev.version} now`)
   } else if (cur && cur.status !== 404) throw new Error(`${manifestUrl(feed, channel)}: HTTP ${cur.status}`)
   for (const a of arts) {
-    const h = await fetch(a.meta.url, { method: 'HEAD', signal: AbortSignal.timeout(20_000) }).catch(() => null)
-    if (h?.ok) {
-      const same = Number(h.headers.get('content-length')) === a.meta.size
-      if (!same) throw new Error(`${a.meta.url} is already published with another size: publish a new version instead`)
+    // by content: a rebuilt zip of the same version has the same size but other bytes, and the manifest names the hash
+    const have = await remoteHash(`${a.meta.url}?t=${Date.now()}`)
+    if (have) {
+      if (have.sha256 !== a.meta.sha256 || have.size !== a.meta.size) throw new Error(`${a.meta.url} is already published with other content: publish a new version instead`)
       ;(a as Artifact & { skip?: boolean }).skip = true
     }
   }

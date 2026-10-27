@@ -1,13 +1,20 @@
-// The office release feed (docs/OFFICE.md "자동 업데이트"), a Cloudflare Worker on the feed's host in front of the
-// private R2 bucket (binding BUCKET); both are the product's release channel (shared/src/release-channel.ts).
-// Deployed by scripts/release/hosting.ts, which sets DIR to RELEASE_CHANNEL.officeDir.
+// The release feed (docs/OFFICE.md "자동 업데이트", docs/INSTALL-LINUX.md "업데이트"), a Cloudflare Worker on the feed's
+// host in front of the private R2 bucket (binding BUCKET); both are the product's release channel
+// (shared/src/release-channel.ts). Deployed by scripts/release/hosting.ts, which sets DIR to RELEASE_CHANNEL.officeDir.
 //
-// Read-only: GET / HEAD of <DIR>/<channel>.json (the signed manifest, never cached) and <DIR>/<version>/<file>
-// (immutable once published), with Range for resumed downloads. Nothing is listed; every other path is 404. The
-// signature and the hashes in the manifest are what the offices trust, not this server.
+// Read-only: GET / HEAD of
+//   <DIR>/<channel>.json                   the office's signed manifest                       never cached
+//   <DIR>/<version>/<file>                 office zip, Windows installer, latest.yml          immutable
+//   server/<channel>.json and .sig         the Linux servers' channel head and its signature  never cached
+//   server/<version>/<file>.json and .sig  release.json, the bundles' file lists, signatures  never cached
+//   server/<version>/<file>                update archives and install kits                   immutable
+// with Range for resumed downloads. Nothing is listed; every other path is 404. The signatures and the hashes in the
+// manifests are what the installations trust, not this server (scripts/release/publish.ts, publish-server.ts).
 const DIR = 'office'
-const KEY = new RegExp(`^${DIR}\\/(?:(?:stable|beta)\\.json|\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+){0,3})?\\/[A-Za-z0-9][A-Za-z0-9._+-]{0,150})$`)
-const MANIFEST = new RegExp(`^${DIR}\\/(?:stable|beta)\\.json$`)
+const VERSION = '\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+){0,3})?'
+const FILE = '[A-Za-z0-9][A-Za-z0-9._+-]{0,150}'
+const KEY = new RegExp(`^(?:${DIR}\\/(?:(?:stable|beta)\\.json|${VERSION}\\/${FILE})|server\\/(?:(?:stable|beta)\\.json(?:\\.sig)?|${VERSION}\\/${FILE}))$`)
+const MANIFEST = new RegExp(`^(?:${DIR}\\/(?:stable|beta)\\.json|server\\/.*\\.(?:json|sig))$`)
 
 const text = (status, body, extra = {}) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...extra } })
@@ -18,7 +25,8 @@ export default {
     const url = new URL(req.url)
     let key
     try { key = decodeURIComponent(url.pathname).replace(/^\/+/, '') } catch { return text(404, 'Not found\n') }
-    if (key === '') return text(200, 'Office updates\n')
+    // publish-server.ts checks this line before it uploads: a Worker deployed before server/ was served says only "Office updates"
+    if (key === '') return text(200, `Updates: ${DIR}/, server/\n`)
     if (!KEY.test(key)) return text(404, 'Not found\n')
     const obj = await env.BUCKET.get(key, { range: req.headers, onlyIf: req.headers })
     if (obj === null) return text(404, 'Not found\n')

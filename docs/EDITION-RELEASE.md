@@ -43,6 +43,8 @@
 
 4. 각 빌드를 다시 한다. 웹, 서버 묶음, 사무실 zip, `mycel-ctl`이 모두 새 값을 받아야 한다.
 
+5. 태그로 배포하려면 그 레포에 비밀값 `RELEASE_SIGNING_KEY`(이 채널의 키)와 `CLOUDFLARE_API_TOKEN`을 넣는다(`docs/RELEASE-CI.md` 9장). 워크플로가 비밀값의 키가 `keys`에 있는지 먼저 확인한다.
+
 ## 필드
 
 | 필드 | 뜻 |

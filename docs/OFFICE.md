@@ -265,6 +265,7 @@ bash ~/Downloads/"${Z%-mac.zip}"/office-install.sh
 (`office-uninstall.sh`)하면 함께 지워집니다.
 
 ### 릴리스 내보내기 (TreeSoop, 개발 맥에서)
+보통은 버전 태그 하나로 GitHub Actions가 빌드·서명·업로드까지 한다(`docs/RELEASE-CI.md`). 아래는 손으로 할 때다.
 서명 키는 한 번 만들어 `~/.config/teamax-release/release-key.pem`(600)에만 둡니다(`bun scripts/release/keygen.ts`,
 저장소·zip·로그에 넣지 않음). 피드는 Cloudflare R2 버킷 `teamax-updates` 앞의 Worker(`scripts/release/worker.js`,
 `bun scripts/release/hosting.ts setup|status`)입니다. 새 버전은 먼저 beta로, 확인한 뒤 stable로:

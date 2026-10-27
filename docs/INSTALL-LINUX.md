@@ -94,6 +94,8 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 - **root 부분(실행기·샌드박스·유닛)이 바뀌는 릴리스**: 관리자 › 시스템 › 업데이트에 "관리자 권한 필요"가 보이고 진단이 경고한다.
   `mycel-update.timer`(매일 04:30 ± 90분)가 처리하거나 직접 `sudo mycel-ctl update`.
 - 끄기: 설치 때 `--no-auto-update`(타이머 끔), `server.json`의 `update.auto`를 `false`(앱 자동 업데이트 끔).
+- 릴리스는 버전 태그로 나간다(`docs/RELEASE-CI.md`): 피드의 `server/<채널>.json` + `.sig`, 버전마다 업데이트 묶음과 kit.
+  `needsRoot`(root 부분이 바뀌었는지)는 배포 스크립트가 두 채널의 현재 버전과 비교해 정한다.
 
 ## 9. 요금제 파일(선택)과 자원 한도
 
