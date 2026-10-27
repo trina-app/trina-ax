@@ -122,6 +122,43 @@ export function concurrencyMax(): number { return currentPlan()?.maxConcurrency 
  * plan later gives back what the admin chose. One function for the queue (chat/runtime.ts) and diagnostics. */
 export function effectiveConcurrency(db: Database): number { return Math.min(concurrencySetting(db), concurrencyMax()) }
 
+// ---------------- memory: queued answers wait while the machine is short of it ----------------
+/** what one answer is expected to take when no plan says so (Claude Code + its tools; an estimate, not measured yet) */
+export const TURN_MEMORY_ESTIMATE_MIB = 768
+/** kept free for the server, converters and the kernel before another answer starts */
+export const MEMORY_HEADROOM_MIB = 256
+let memoryOverride: { mib: number | null } | null = null
+/** Tests: a fixed available memory in MiB (null = unknown); undefined = back to the machine's. */
+export function setAvailableMemoryForTests(mib: number | null | undefined) { memoryOverride = mib === undefined ? null : { mib } }
+
+/** Memory that can still be used without swapping: MemAvailable of /proc/meminfo (counts reclaimable cache), null
+ * where it is not known. A Mac returns null: os.freemem() leaves out the cache macOS reclaims, so it would hold
+ * answers back on a machine that has room. */
+export function availableMemoryMiB(): number | null {
+  if (memoryOverride) return memoryOverride.mib
+  if ((platformOverride ?? process.platform) !== 'linux') return null
+  try {
+    const m = /^MemAvailable:\s+(\d+) kB$/m.exec(fs.readFileSync('/proc/meminfo', 'utf8'))
+    return m ? Math.floor(Number(m[1]) / 1024) : null
+  } catch { return null }
+}
+/** one answer's expected memory: the plan's per-turn high mark, else TURN_MEMORY_ESTIMATE_MIB */
+export function turnMemoryEstimateMiB(): number {
+  const p = currentPlan()
+  return p ? planLimits(p).turnHighMiB : TURN_MEMORY_ESTIMATE_MIB
+}
+/** How many answers may run now, given `running` already do and the concurrency `limit`: fewer than the limit when
+ * the memory left would not hold another answer. Never below the ones running (lowering never stops a turn), and one
+ * always may run when none do, so a small machine still answers. Only where the resource limits apply (Linux or a
+ * plan) and the available memory is known; elsewhere the limit as before. */
+export function memoryAdmission(running: number, limit: number): number {
+  if (!limitsActive()) return limit
+  const avail = availableMemoryMiB()
+  if (avail === null) return limit
+  const more = Math.max(0, Math.floor((avail - MEMORY_HEADROOM_MIB) / turnMemoryEstimateMiB()))
+  return Math.min(limit, Math.max(running === 0 ? 1 : running, running + more))
+}
+
 /** CPU the server's own helpers may use: the plan's cores (a container may show the host's cores), else this machine's. */
 export function cpuBudget(): number {
   const cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length
