@@ -40,6 +40,13 @@ test('team address preserves only an explicit invite path; edition settings cann
   expect(mobileProduct({ name: 'Example Team', accent: '#123456', url: 'https://evil.example', capabilities: ['shell'] })).toEqual({ name: 'Example Team', accent: '#123456', userAgent: 'TeamAX-Mobile', scheme: 'teamax-mobile', bundleId: 'app.teamax.mobile.dev' })
 })
 
+test('edition install identity preserves a valid two-segment app id and rejects malformed ids', () => {
+  expect(mobileProduct({ bundleId: 'app.example' }).bundleId).toBe('app.example')
+  for (const bundleId of ['single', 'app..example', 'app.0example', 'app.example/path', 'https://example', 'app.example\n']) {
+    expect(mobileProduct({ bundleId }).bundleId).toBe('app.teamax.mobile.dev')
+  }
+})
+
 test('navigation blocks custom/opaque schemes and external frames while permitting same-origin child blob previews', async () => {
   const { navigationDecision } = await import('../../mobile/src/protocol')
   for (const url of ['intent://launch', 'tel:123', 'file:///secret', 'data:text/html,body', 'about:blank', 'javascript:alert(1)']) expect(navigationDecision('https://team.example', url, true)).toBe('deny')
