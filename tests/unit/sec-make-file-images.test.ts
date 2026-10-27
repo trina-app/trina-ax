@@ -12,6 +12,7 @@ import { API } from '@mycel/shared/api'
 import { readScope } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
 import { makeHandler } from '../../server/src/mcp/protocol'
+import { findConverters, missingConverter } from '../../server/src/tools/make-file'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
 setDefaultTimeout(60_000)
@@ -80,10 +81,29 @@ describe('make_file: embedded images are sources of the new file', () => {
 
   test('the PDF path is checked the same way', async () => {
     const r = await turn(fake({ tool: 'make_file', args: { format: 'pdf', content: '# Q\n\n![c](groups/finance/secret-chart.png)\n', output: 'shared/q-update.pdf' }, sayResult: true }), 'skip')
+    expect(exists('shared/q-update.pdf')).toBe(false)
+    if (!findConverters(null).typst) {
+      // no typst on this machine (a Mac without `brew install typst`, a Linux test box without the release bundle): no
+      // PDF can be made. The person is asked only about a file the server can make, so the call ends before the card,
+      // with nothing written and advice that fits this platform. The card itself needs typst (macOS with Homebrew's
+      // typst; the Linux bundle ships it: MYCEL_TYPST_BIN).
+      expect(r.content).toContain(missingConverter('typst'))
+      expect(r.cards.length).toBe(0)
+      if (process.platform !== 'darwin') expect(r.content).not.toContain('brew')
+      return
+    }
     expect(r.content).toContain('did not allow saving')
     expect(r.cards.length).toBe(1)
     expect(r.cards[0]!.question).toContain('groups/finance/')
-    expect(exists('shared/q-update.pdf')).toBe(false)
+  })
+
+  test('a missing converter: Homebrew advice on a Mac only; a Linux server gets it with its bundle', () => {
+    expect(missingConverter('typst', 'darwin')).toContain('brew install typst')
+    for (const t of ['typst', 'pandoc'] as const) {
+      expect(missingConverter(t, 'linux')).toContain(`${t} is not installed on the server`)
+      expect(missingConverter(t, 'linux')).toContain('Linux server bundle')
+      expect(missingConverter(t, 'linux')).not.toContain('brew')
+    }
   })
 
   test('an image relative to the source file counts too', async () => {
