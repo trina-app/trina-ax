@@ -202,8 +202,12 @@ function publish(files: Map<string, Uint8Array | string>, version: string, zip: 
 
 describe('a whole update run (fake bundle, fake health)', () => {
   const short = { healthWaitMs: 10_000, stableMs: 1000, idleWaitMs: 1000, keys: KEYS }
+  // Office mode is one Mac (docs/OFFICE.md): the updater unpacks the office zip with /usr/bin/ditto (update.ts
+  // unpack) and the fake bundle is made with it too. Linux servers update through system/update.ts (tar + zstd), with
+  // its own tests (g-update*.test.ts). The runs that need a release zip are macOS only; the rest run everywhere.
+  const withZip = test.skipIf(process.platform !== 'darwin')
 
-  test('newer version: check, backup, install, health with the new version; data/, team/, tls/, config/ untouched', async () => {
+  withZip('newer version: check, backup, install, health with the new version; data/, team/, tls/, config/ untouched', async () => {
     const home = makeHome('run-ok', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
     publish(files, '0.3.0', makeZip('0.3.0'))
@@ -228,7 +232,7 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect((await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).kind).toBe('up-to-date')
   })
 
-  test('downgrade and minFrom: refused, nothing downloaded or installed', async () => {
+  withZip('downgrade and minFrom: refused, nothing downloaded or installed', async () => {
     const home = makeHome('run-down', '0.3.0')
     const files = new Map<string, Uint8Array | string>()
     publish(files, '0.2.5', makeZip('0.2.5'))
@@ -254,7 +258,7 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(r).toMatchObject({ kind: 'up-to-date', version: '0.2.0' })
   })
 
-  test('a manifest that does not verify installs nothing', async () => {
+  withZip('a manifest that does not verify installs nothing', async () => {
     const home = makeHome('run-badsig', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
     publish(files, '0.3.0', makeZip('0.3.0'))
@@ -265,7 +269,7 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(f.calls).toEqual([])
   })
 
-  test('the new version does not answer: rolled back to the old one, data intact; the nightly run does not retry it, "now" does', async () => {
+  withZip('the new version does not answer: rolled back to the old one, data intact; the nightly run does not retry it, "now" does', async () => {
     const home = makeHome('run-rollback', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
     publish(files, '0.3.0', makeZip('0.3.0'))
@@ -296,7 +300,7 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(fs.existsSync(path.join(home, 'app.failed'))).toBe(false)
   })
 
-  test('an installer that fails before changing anything: the old version is started again, app untouched', async () => {
+  withZip('an installer that fails before changing anything: the old version is started again, app untouched', async () => {
     const home = makeHome('run-installfail', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
     publish(files, '0.3.0', makeZip('0.3.0', { failInstall: true }))
@@ -308,7 +312,7 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(fs.existsSync(path.join(home, 'app.failed'))).toBe(false)
   })
 
-  test('paused: the nightly run does nothing; a zip that is not the release is refused before installing', async () => {
+  withZip('paused: the nightly run does nothing; a zip that is not the release is refused before installing', async () => {
     const home = makeHome('run-paused', '0.2.0')
     const files = new Map<string, Uint8Array | string>()
     publish(files, '0.3.0', makeZip('0.3.0'))
