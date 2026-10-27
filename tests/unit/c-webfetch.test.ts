@@ -3,6 +3,7 @@
 // network, proxies from the environment, limits, and the page -> text conversion.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
+import nodeNet from 'node:net'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { htmlToText, isPublicAddress, resolveTarget, webFetch, wrapExternal, type FetchOptions } from '../../server/src/tools/web-fetch'
@@ -81,6 +82,7 @@ describe('fetching (local test servers stand in for public sites)', () => {
         case '/pdf': return new Response(Buffer.from(makePdf(['Quarterly PDF report', 'line two'])), { headers: { 'content-type': 'application/pdf' } })
         case '/image': return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { 'content-type': 'image/png' } })
         case '/slow': return new Promise((r) => setTimeout(() => r(new Response('late')), 5000))
+        case '/late': return new Promise((r) => setTimeout(() => r(new Response('a slow handler')), 200))
         case '/404': return new Response('no', { status: 404 })
         case '/to-private': return Response.redirect('http://10.0.0.1/admin', 302)
         case '/to-metadata': return Response.redirect('http://169.254.169.254/latest/meta-data/', 301)
@@ -128,6 +130,22 @@ describe('fetching (local test servers stand in for public sites)', () => {
     const bomb = await webFetch(H('/bomb'), T)
     expect(bomb.truncated).toBe(true)
     expect(bomb.text.length).toBe(40_000)
+  })
+  test('the answer ends at its Content-Length or last chunk, also when the server keeps the socket open', async () => {
+    // Bun.serve leaves the socket open after a handler that waited, despite "Connection: close"
+    const t0 = Date.now()
+    expect((await webFetch(H('/late'), { ...T, timeoutMs: 2000 })).text).toBe('a slow handler')
+    // a raw server that never closes: chunked in pieces, the last chunk and the empty line apart
+    const open = nodeNet.createServer((c) => c.once('data', () => {
+      c.write('HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n4\r\npart\r\n')
+      setTimeout(() => c.write('4\r\n two\r\n0\r\n'), 30)
+      setTimeout(() => c.write('\r\n'), 60)
+    }))
+    await new Promise<void>((r) => open.listen(0, '127.0.0.1', r))
+    try {
+      expect((await webFetch(`http://fetch.test:${(open.address() as nodeNet.AddressInfo).port}/`, { ...T, timeoutMs: 2000 })).text).toBe('part two')
+    } finally { open.close() }
+    expect(Date.now() - t0).toBeLessThan(1500)
   })
   test('limits: time limit', async () => {
     await expect(webFetch(H('/slow'), { ...T, timeoutMs: 500 })).rejects.toThrow(/in time/)

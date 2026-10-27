@@ -207,6 +207,10 @@ export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promis
 // ---------------- HTTP/1.1 GET over a pinned socket ----------------
 export interface RawResponse { status: number; headers: Record<string, string>; body: Buffer; truncated: boolean }
 
+/** One HTTP/1.1 GET over a socket pinned to the resolved address (no proxy from the environment, no second DNS lookup),
+ * `Connection: close`. The answer ends when the socket closes or, sooner, when its Content-Length or last chunk has
+ * arrived: a server that keeps the socket open despite `Connection: close` (Bun.serve after a slow handler does) is
+ * not a timeout. */
 export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean }): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const remaining = o.deadline - Date.now()
@@ -221,6 +225,8 @@ export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; in
     const chunks: Buffer[] = []
     let size = 0
     let truncated = false
+    let head: ReturnType<typeof framingOf> = null
+    let tail = Buffer.alloc(0)
     const done = () => { clearTimeout(timer); try { resolve(parseResponse(Buffer.concat(chunks), truncated)) } catch (e) { reject(e) } }
     sock.once(t.url.protocol === 'https:' ? 'secureConnect' : 'connect', () => sock.write(req))
     sock.on('data', (d: Buffer) => {
@@ -228,6 +234,16 @@ export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; in
       // headers + body; the cap applies to the raw stream (compressed bodies are capped again after decoding)
       if (size > o.maxBytes + 64 * 1024) { truncated = true; chunks.push(d.subarray(0, Math.max(0, d.length - (size - o.maxBytes - 64 * 1024)))); sock.destroy(); return done() }
       chunks.push(d)
+      tail = Buffer.concat([tail, d]).subarray(-4)
+      // the answer may be complete before the socket closes (see pinnedGet)
+      if (!head) head = framingOf(Buffer.concat(chunks))
+      const f = head?.framing ?? 'close'
+      const complete = f === 'close' ? false
+        : f === 'chunked' ? tail.toString('latin1') === '\r\n\r\n' && chunkedComplete(Buffer.concat(chunks), head!.body)
+        : size - head!.body >= f.length
+      // the answer is read on 'close'. Not destroyed inside this callback, and not resolved before the close: either
+      // crashed Bun 1.3.12 when a TLS handshake failed next (web_fetch's certificate test)
+      if (complete) setImmediate(() => sock.destroy())
     })
     sock.on('end', done)
     sock.on('close', () => { if (!truncated) done() })
@@ -236,6 +252,34 @@ export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; in
       reject(new ToolError(/CERT|SSL|TLS|self.signed|altname/i.test(String(e.code) + e.message) ? `TLS certificate problem: ${e.message}` : `could not connect (${e.code ?? e.message})`))
     })
   })
+}
+
+/** How the answer says where it ends, once its head is in (the same reading of the head as parseResponse): its
+ * Content-Length, chunked, or nothing but the close (also a 1xx, which the real answer follows). null: no head yet. */
+type Framing = { length: number } | 'chunked' | 'close'
+function framingOf(buf: Buffer): { framing: Framing; body: number } | null {
+  const end = buf.indexOf('\r\n\r\n')
+  if (end < 0) return null
+  const lines = buf.subarray(0, end).toString('latin1').split('\r\n')
+  const m = /^HTTP\/1\.[01] (\d{3})/.exec(lines[0] ?? '')
+  if (!m || m[1]!.startsWith('1')) return { framing: 'close', body: end + 4 }
+  const values = (name: string) => lines.slice(1).filter((l) => l.indexOf(':') > 0 && l.slice(0, l.indexOf(':')).trim().toLowerCase() === name).map((l) => l.slice(l.indexOf(':') + 1).trim())
+  if (values('transfer-encoding').some((v) => /chunked/i.test(v))) return { framing: 'chunked', body: end + 4 }
+  const len = values('content-length')
+  return { framing: len.length === 1 && /^\d+$/.test(len[0]!) ? { length: Number(len[0]) } : 'close', body: end + 4 }
+}
+
+/** Has a chunked body (from `i`) reached its last chunk and the empty line after the trailers? */
+function chunkedComplete(buf: Buffer, i: number): boolean {
+  for (;;) {
+    const nl = buf.indexOf('\r\n', i)
+    if (nl < 0) return false
+    const n = parseInt(buf.subarray(i, nl).toString('latin1').split(';')[0]!.trim(), 16)
+    if (!Number.isFinite(n)) return false
+    if (n === 0) return buf.indexOf('\r\n\r\n', nl) >= 0
+    i = nl + 2 + n + 2
+    if (i > buf.length) return false
+  }
 }
 
 function parseResponse(buf: Buffer, truncated: boolean): RawResponse {
