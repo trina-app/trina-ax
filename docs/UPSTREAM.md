@@ -186,3 +186,16 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
   - 비밀값 `RELEASE_SIGNING_KEY`(`~/.config/trina-ax-release/release-key.pem`)와 `CLOUDFLARE_API_TOKEN`(trina.app zone, R2 쓰기)
   - `bun scripts/release/hosting.ts setup`(`updates.trina.app`)
 - 맥 검증: typecheck 통과. 배포·채널·업데이트 시험 80 / 0(Trina 값으로).
+
+## 2026-10-28 레포 이전과 코어 수정 반입
+
+- 정식 레포를 `trina-app/trina-ax`로 옮겼다(대표 결정). `potenlab/trina-ax`는 같은 기록(`414212d`)에서 멈추고 archive한다. 로컬 원격: `origin` = `git@github-trina:trina-app/trina-ax.git`, 옛 레포는 `potenlab-archived`.
+- 받은 것(코어 main)
+  - `4dcf81a` → `ff3ab93`: web_fetch 응답이 Content-Length나 마지막 chunk에서 끝난다.
+  - PR #14 `9140ea1` → `fc3ae79`: 메모리가 부족하면 답변이 대기열에서 기다린다.
+  - `f309e04` → `dcb8a7c`: 배포 문서의 Trina 레포 이름.
+- 충돌 없음. 작성자 이메일은 공개 기록 규칙(mailmap)대로 `dev@potenlab.dev`로 맞췄다.
+- 검증
+  - 코어 쪽: 리눅스 컨테이너에서 대기열·채팅·한도·web_fetch 시험 167/1. 실패 1개는 web_fetch PDF 시험으로, 수정 전에도 같은 컨테이너에서 실패한다(환경).
+  - 이 레포: 맥 typecheck와 관련 시험.
+- 남은 것: `shared/src/source.ts`의 소스 링크(`repository`)는 아직 코어 주소다. 공개 전에 Trina 공개 레포 주소로 바꾸는 확장 지점이 코어에 필요하다(AGPL 소스 제공).
