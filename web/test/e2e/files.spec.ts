@@ -35,9 +35,13 @@ test('cancelling a chunked upload drops its session on the server', async ({ pag
   await page.goto('/files?path=marketing')
   // hold the second chunk so the upload is still running when the person cancels
   await page.route(/\/api\/upload-sessions\/[^/]+\/chunks\/1$/, () => {})
+  // the page asks for the second chunk once the first is stored. Waiting for that request, not 10 s of polling: the
+  // page hashes the 9 MB first and sends an 8 MB chunk, which took 15-28 s on a 2-CPU Linux machine
+  const second = page.waitForRequest(/\/api\/upload-sessions\/[^/]+\/chunks\/1$/, { timeout: 40_000 })
   await page.getByTestId('files-input').setInputFiles([{ name: 'cancel-me.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(9 * 1024 * 1024, 3) }])
   const list = page.getByTestId('upload-list')
-  await expect.poll(async () => ((await (await page.request.post('/__test/log')).json()) as string[]).some((l) => /\/chunks\/0$/.test(l))).toBe(true)
+  await second
+  expect(((await (await page.request.post('/__test/log')).json()) as string[]).some((l) => /\/chunks\/0$/.test(l))).toBe(true)
   await list.getByRole('button', { name: '취소' }).click()
   await expect(list).toHaveCount(0)
   await expect.poll(async () => ((await (await page.request.post('/__test/log')).json()) as string[]).some((l) => /^DELETE \/api\/upload-sessions\//.test(l))).toBe(true)
