@@ -1,6 +1,7 @@
-// The release feed's hosting (docs/OFFICE.md "자동 업데이트"): the feed's host (RELEASE_CHANNEL.feed) = the Worker
-// scripts/release/worker.js in front of the private R2 bucket RELEASE_CHANNEL.hosting.bucket. Run once on the owner's
-// Mac (again after changing worker.js or the channel); it changes nothing else in the account or the zone.
+// The release feed's hosting (docs/OFFICE.md "자동 업데이트", docs/RELEASE-CI.md): the feed's host (RELEASE_CHANNEL.feed) =
+// the Worker scripts/release/worker.js (office folder and server/) in front of the private R2 bucket
+// RELEASE_CHANNEL.hosting.bucket. Run once on the owner's Mac (again after changing worker.js or the channel); it
+// changes nothing else in the account or the zone.
 //
 //   bun scripts/release/hosting.ts setup     bucket (if missing), Worker with the bucket binding, custom domain
 //                                            (the feed's host; Cloudflare makes its DNS record), no workers.dev

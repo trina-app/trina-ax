@@ -395,18 +395,26 @@ export async function buildLinuxBundle(o: {
   // the product's names and release feed for install-linux.sh (a new install updates from <feed>/server/)
   fs.writeFileSync(path.join(o.out, 'product.env'), productEnv({ RELEASE_FEED: RELEASE_CHANNEL.feed }))
   fs.rmSync(scratch, { recursive: true, force: true })
-  const top = kitName(o.version, arch)
+  const kit = await packLinuxKit(o.out, o.version, arch)
+  return { os: 'linux' as const, dir, archive, size: packed.size, sha256: packed.sha256, kit: kit.file, kitSize: kit.size, kitSha256: kit.sha256, arch, engines: { claude: lock.claude.version, codex: lock.codex.version }, missing, notices: { publicClear: false, pending: notices.pending.length, manifest: 'licenses/manifest.json' } }
+}
+
+/** The install kit <out>/<kit>-<version>-linux-<arch>.tar.gz: <out> itself (install-linux.sh, VERSION, product.env,
+ * app/<version>/) under one top folder. Also used by scripts/release/release-ci.ts after it signs a CI build. */
+export async function packLinuxKit(out: string, version: string, arch: LinuxArch): Promise<{ file: string; size: number; sha256: string }> {
+  const dir = path.join(out, 'app', version)
+  const top = kitName(version, arch)
   const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755 }]
   for (const f of ['install-linux.sh', 'VERSION', 'product.env']) {
-    if (fs.existsSync(path.join(o.out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(o.out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644 })
+    if (fs.existsSync(path.join(out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644 })
   }
-  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755 }, { name: `${top}/app/${o.version}`, type: 'dir', mode: 0o755 })
+  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755 }, { name: `${top}/app/${version}`, type: 'dir', mode: 0o755 })
   const { files, dirs } = await walkTree(dir)
-  for (const d of dirs) entries.push({ name: `${top}/app/${o.version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
-  for (const f of files) entries.push({ name: `${top}/app/${o.version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode })
-  const kitFile = path.join(o.out, `${top}.tar.gz`)
-  const kit = await writeAtomic(gzip(tarStream(entries)), kitFile, 0o644)
-  return { os: 'linux' as const, dir, archive, size: packed.size, sha256: packed.sha256, kit: kitFile, kitSize: kit.size, kitSha256: kit.sha256, arch, engines: { claude: lock.claude.version, codex: lock.codex.version }, missing, notices: { publicClear: false, pending: notices.pending.length, manifest: 'licenses/manifest.json' } }
+  for (const d of dirs) entries.push({ name: `${top}/app/${version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
+  for (const f of files) entries.push({ name: `${top}/app/${version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode })
+  const file = path.join(out, `${top}.tar.gz`)
+  const kit = await writeAtomic(gzip(tarStream(entries)), file, 0o644)
+  return { file, size: kit.size, sha256: kit.sha256 }
 }
 
 if (import.meta.main) {
