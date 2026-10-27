@@ -1,7 +1,7 @@
 // OCR for scanned PDFs and images (native/ocr/main.swift → mycel-ocr, server/src/files/extract.ts). The fixtures are
 // made here with macOS tools (cupsfilter: text → PDF, sips: PDF → PNG → image-only PDF); the real-OCR tests run only
 // where mycel-ocr is built (`bash native/build.sh` on a Mac).
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -23,12 +23,17 @@ const pdftotext = which('pdftotext')
 const W = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-ocr-'))
 afterAll(() => fs.rmSync(W, { recursive: true, force: true }))
 
-describe.skipIf(!bin || !fs.existsSync('/usr/sbin/cupsfilter'))('mycel-ocr (Apple Vision, in the converter sandbox)', () => {
+// macOS only: the fixtures are made with cupsfilter and sips, and the recognizer is Apple Vision (Linux's mycel-ocr,
+// tesseract + poppler: tests/unit/g-ocr-linux.test.ts and native/cmd/mycel-ocr). bun still runs a skipped describe's
+// body to collect its tests, so the fixtures are made in beforeAll, which runs only when the tests do.
+describe.skipIf(process.platform !== 'darwin' || !bin || !fs.existsSync('/usr/sbin/cupsfilter'))('mycel-ocr (Apple Vision, in the converter sandbox)', () => {
   const run = (cmd: string, args: string[]) => { const p = Bun.spawnSync([cmd, ...args], { cwd: W }); if (p.exitCode !== 0) throw new Error(`${cmd}: ${p.stderr}`); return p.stdout }
-  fs.writeFileSync(path.join(W, 'note.txt'), '진료 예약 안내\n오전 9시부터 오후 6시까지\nInvoice 2026-10-21 total 15000\n')
-  fs.writeFileSync(path.join(W, 'text.pdf'), run('/usr/sbin/cupsfilter', ['-m', 'application/pdf', 'note.txt']))
-  run('/usr/bin/sips', ['-s', 'format', 'png', 'text.pdf', '--out', 'page.png'])
-  run('/usr/bin/sips', ['-s', 'format', 'pdf', 'page.png', '--out', 'scan.pdf'])
+  beforeAll(() => {
+    fs.writeFileSync(path.join(W, 'note.txt'), '진료 예약 안내\n오전 9시부터 오후 6시까지\nInvoice 2026-10-21 total 15000\n')
+    fs.writeFileSync(path.join(W, 'text.pdf'), run('/usr/sbin/cupsfilter', ['-m', 'application/pdf', 'note.txt']))
+    run('/usr/bin/sips', ['-s', 'format', 'png', 'text.pdf', '--out', 'page.png'])
+    run('/usr/bin/sips', ['-s', 'format', 'pdf', 'page.png', '--out', 'scan.pdf'])
+  })
   const bytes = (f: string) => new Uint8Array(fs.readFileSync(path.join(W, f)))
   const tools = { pandoc: null, pdftotext, ocr: bin }
   const squash = (s: string) => s.replace(/\s+/g, '')
