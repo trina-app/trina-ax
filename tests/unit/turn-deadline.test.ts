@@ -1,15 +1,25 @@
-import { afterEach, expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeAll, expect, spyOn, test } from 'bun:test'
 import { openDb } from '../../server/src/db'
+import { setApiEnginePublicOnly } from '../../server/src/system/egress'
 import { TURN_STOP_GRACE_MS, TurnExec, type TurnSpec } from '../../server/src/chat/turn'
 import { runApiAgent } from '../../server/src/engine/api-agent'
 import type { ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnRegistry } from '../../server/src/turns'
 import { silentLogger } from '../../server/src/log'
 
+// The API-engine test below injects a transport for http://127.0.0.1:1: a self-hosted server, where the API engine may
+// use any address. The cloud's public-https-only check is process-wide (system/egress.ts) and is turned on by any
+// hosted app an earlier test file started in the same bun process; with it on, the call was refused before the
+// transport ran (0 requests). Whether such a file ran first depended on the directory order bun reads (on the Linux
+// server g-cloud-deployment.test.ts ran just before this file).
+beforeAll(() => setApiEnginePublicOnly(false))
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const close of cleanups.splice(0)) close() })
-function setup(ms: number, deadline = new Date(Date.now() + ms).toISOString()) {
+function setup(ms: number, at?: string) {
   const db = openDb(':memory:')
+  // the deadline counts from here, after the migrations: opening the database is not part of the turn's time (it
+  // took ~40 ms of a 60 ms deadline on a 2-vCPU server)
+  const deadline = at ?? new Date(Date.now() + ms).toISOString()
   db.query("INSERT INTO users(id,username,name,role) VALUES('u','u','U','member')").run()
   db.query("INSERT INTO turns(id,chat_id,user_id,engine,status,dispatched_at,wall_deadline_at) VALUES('t','c','u','api','running',?,?)").run(new Date().toISOString(), deadline)
   const events: any[] = [], released: string[] = [], quarantined: string[] = []
