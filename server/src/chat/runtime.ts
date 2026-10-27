@@ -18,7 +18,7 @@ import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
 import { engineError } from './i18n'
 import { forgetPurgedChats, retryPendingForgets } from './forget'
-import { effectiveConcurrency } from '../system/limits'
+import { effectiveConcurrency, memoryAdmission } from '../system/limits'
 import { teamTimeZone } from '../admin/settings'
 import { setTeamTimeZoneSource } from '../system/time-zone'
 import { HttpError } from '../http/errors'
@@ -35,6 +35,8 @@ export const DEFAULT_MAX_ENGINE_TURNS = 50
 export const QUEUE_TEAM_MIN = 10
 export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
+/** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
+export const MEMORY_RECHECK_MS = 2000
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있습니다. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
@@ -127,6 +129,9 @@ export class ChatRuntime {
   private recoveryState: 'ready' | 'checking_launcher' | 'launcher_unreachable' | 'launcher_busy' | 'launcher_unknown' = 'ready'
   private queueRejections = { queue_full: 0, queue_full_user: 0, draining: 0 }
   private lastConcurrency = 0
+  /** queued answers are waiting for memory (schedule() below); the watcher re-checks every MEMORY_RECHECK_MS */
+  private memoryHeld = false
+  private memoryCheckedAt = 0
   private capacityWatcher: ReturnType<typeof setInterval>
   readonly maxEngineTurns: number
   private queued: (TurnSpec & QueueTiming)[] = []
@@ -152,7 +157,10 @@ export class ChatRuntime {
     this.lastConcurrency = this.concurrency()
     // Plan updates can arrive outside the settings route. Lower C never kills existing turns.
     this.capacityWatcher = setInterval(() => {
-      try { if (this.concurrency() !== this.lastConcurrency) this.schedule() }
+      try {
+        if (this.concurrency() !== this.lastConcurrency) this.schedule()
+        else if (this.memoryHeld && Date.now() - this.memoryCheckedAt >= MEMORY_RECHECK_MS) this.schedule()
+      }
       catch (err) { this.log.error('queue capacity refresh failed', { err }) }
     }, 250)
     this.capacityWatcher.unref?.()
@@ -239,7 +247,7 @@ export class ChatRuntime {
   queueDiagnostics() {
     const wait = this.db.query("SELECT MIN(COALESCE(queued_at,started_at)) AS oldest FROM turns WHERE status='queued'").get() as { oldest: string | null }
     const deferred = this.db.query('SELECT COUNT(*) n,MIN(pending_due_at) oldest FROM schedules WHERE pending_due_at IS NOT NULL').get() as { n: number; oldest: string | null }
-    return { queuePolicyVersion: 1, recovery: this.recoveryState, waitingUsers: new Set(this.queued.map(s => s.userId)).size,
+    return { queuePolicyVersion: 1, recovery: this.recoveryState, waitingForMemory: this.memoryHeld, waitingUsers: new Set(this.queued.map(s => s.userId)).size,
       oldestWaitMs: wait.oldest ? Math.max(0, Date.now() - Date.parse(wait.oldest)) : 0,
       maxRunningPerUser: Math.max(0, ...this.activeCounts().values()), quarantined: this.quarantined.size, deferredSchedules: deferred.n,
       deferredOldestWaitMs: deferred.oldest ? Math.max(0, Date.now() - Date.parse(deferred.oldest)) : 0,
@@ -280,7 +288,10 @@ export class ChatRuntime {
         WHERE t.id=? AND t.status='queued' AND u.status='active' AND u.deleted_at IS NULL AND c.deleted_at IS NULL`).get(s.turnId)
       if (!valid) this.stopChat(s.chatId)
     }
-    while (this.running.size < limit && this.queued.length) {
+    // short of memory: the rest wait in the queue and the capacity watcher looks again (system/limits.ts)
+    const room = this.queued.length && this.running.size < limit ? memoryAdmission(this.running.size, limit) : limit
+    this.memoryCheckedAt = Date.now()
+    while (this.running.size < room && this.queued.length) {
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
       const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
       if (!head) break
@@ -294,6 +305,12 @@ export class ChatRuntime {
       this.running.set(spec.turnId, exec)
       this.publishChat(spec.userId, spec.chatId, 'updated')
       void exec.run()
+    }
+    const held = this.queued.length > 0 && this.running.size < limit && this.running.size >= room
+    if (held !== this.memoryHeld) {
+      if (held) this.log.warn('queued answers wait for memory', { running: this.running.size, concurrency: limit, queued: this.queued.length })
+      else this.log.info('memory is back; queued answers run again')
+      this.memoryHeld = held
     }
     this.publishPositions()
     } catch (err) {

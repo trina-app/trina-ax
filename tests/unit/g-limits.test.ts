@@ -7,8 +7,9 @@ import path from 'node:path'
 import { extractText, TOO_BIG_IN_PROCESS } from '../../server/src/files/extract'
 import { rgArgv } from '../../server/src/files/search'
 import {
-  Plan, backupRetentionDays, concurrencyMax, configurePlan, cpuBudget, currentPlan, effectiveConcurrency, inProcessParseMax, limitsActive, onnxThreads,
-  planFileProblem, planLimits, readMaxBytes, rgThreads, seatsUsed, setLimitsPlatformForTests, setPlanForTests, typstJobs, whisperThreads,
+  MEMORY_HEADROOM_MIB, Plan, TURN_MEMORY_ESTIMATE_MIB, availableMemoryMiB, backupRetentionDays, concurrencyMax, configurePlan, cpuBudget, currentPlan,
+  effectiveConcurrency, inProcessParseMax, limitsActive, memoryAdmission, onnxThreads, planFileProblem, planLimits, readMaxBytes, rgThreads, seatsUsed,
+  setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests, turnMemoryEstimateMiB, typstJobs, whisperThreads,
 } from '../../server/src/system/limits'
 import { setSetting } from '../../server/src/admin/settings'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -123,6 +124,44 @@ describe('answers at the same time (L05, SEC-03)', () => {
     setPlanForTests(null)
     expect((await owner.call('GET', '/api/admin/engines')).concurrencyMax).toBe(16)
     expect((await owner.try('PATCH', '/api/admin/engines', { concurrency: 12 })).status).toBe(200)
+  })
+})
+
+describe('memory: queued answers wait while memory is short', () => {
+  afterEach(() => setAvailableMemoryForTests(undefined))
+
+  test('room for another answer = what is left after the headroom, per answer; never below the running ones', () => {
+    setLimitsPlatformForTests('linux')
+    setPlanForTests(null)
+    const est = TURN_MEMORY_ESTIMATE_MIB
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + 10 * est)
+    expect(memoryAdmission(0, 3)).toBe(3) // plenty: the concurrency limit decides
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + est + 1)
+    expect(memoryAdmission(0, 3)).toBe(1)
+    expect(memoryAdmission(2, 3)).toBe(3)
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + est - 1)
+    expect(memoryAdmission(2, 3)).toBe(2) // no room: the running two go on, the third waits
+    setAvailableMemoryForTests(0)
+    expect(memoryAdmission(0, 3)).toBe(1) // nothing runs: one always may, so a small machine still answers
+    expect(memoryAdmission(1, 3)).toBe(1)
+  })
+  test('with a plan the estimate is its per-answer high mark', () => {
+    setPlanForTests(plan({ memoryMiB: 4096, maxConcurrency: 3 }))
+    expect(turnMemoryEstimateMiB()).toBe(planLimits(plan({ memoryMiB: 4096, maxConcurrency: 3 })).turnHighMiB)
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + 2 * turnMemoryEstimateMiB())
+    expect(memoryAdmission(0, 3)).toBe(2)
+  })
+  test('a Mac without a plan, or unknown memory, keeps the concurrency limit', () => {
+    setLimitsPlatformForTests('darwin')
+    setPlanForTests(null)
+    setAvailableMemoryForTests(0)
+    expect(memoryAdmission(0, 3)).toBe(3)
+    setLimitsPlatformForTests('linux')
+    setAvailableMemoryForTests(null)
+    expect(memoryAdmission(1, 3)).toBe(3)
+    setAvailableMemoryForTests(undefined)
+    setLimitsPlatformForTests('darwin')
+    expect(availableMemoryMiB()).toBeNull() // os.freemem() on a Mac leaves out reclaimable cache: not used
   })
 })
 

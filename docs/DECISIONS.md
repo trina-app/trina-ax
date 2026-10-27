@@ -1461,3 +1461,11 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - 클라우드(hosted)도 자체 설치와 같이 **네 종류 모두**(Claude 구독, Claude API 키, ChatGPT, OpenAI API 키)를 기본으로 연다. owner 판단: 우리는 팀마다 VM을 빌려 주고, 팀이 자기 계정을 연결한다.
 - 바뀐 곳: `shared/src/cloud-protocol/common.ts` `CLOUD_DEFAULT_CREDENTIAL_KINDS`(서버의 hosted 기본값도 이것), `native/cmd/mycel-enroll/enroll.go`, 컨트롤 플레인 `CP_ENGINE_CREDENTIAL_KINDS` 기본값, 관련 시험.
 - 그대로인 것: 구독 종류를 추가할 때의 안내와 확인 칸(D23, 서버가 `acknowledgedPlanNotice`를 요구). 컨트롤 플레인의 함대 전체 스위치(`set-server-config`)로 언제든 API 키만으로 좁힐 수 있다. 위험 기록은 `docs/SECURITY-AUDIT.md`·credentials 명세 7장에 남긴다.
+
+## 메모리가 모자라면 답이 대기열에서 기다린다 (feat/memory-aware-queue, 2026-10-27)
+
+- 동시 실행 수(관리자 설정·요금제의 작은 값)는 그대로 두고, **새 턴을 시작하기 전에 남은 메모리를 본다**(`system/limits.ts memoryAdmission`, `chat/runtime.ts schedule`). 남은 메모리 = `/proc/meminfo`의 `MemAvailable`(되찾을 수 있는 캐시 포함). 여유 256 MB(`MEMORY_HEADROOM_MIB`)를 빼고, 턴 하나 예상치(요금제가 있으면 `planLimits().turnHighMiB`, 없으면 768 MB `TURN_MEMORY_ESTIMATE_MIB`)로 나눈 만큼만 더 시작한다. 나머지는 지금처럼 공정 대기열에 남는다(거절하지 않음).
+- 돌고 있는 턴 수 밑으로는 내리지 않고(이미 도는 턴을 멈추지 않음), 아무것도 안 돌 때는 하나는 항상 시작한다(작은 서버도 답함). 대기열 크기(`max(10, 4×동시 실행, …)`)는 설정한 동시 실행 수로 계산한다.
+- 리소스 한도가 걸리는 곳(리눅스 또는 요금제 파일)에서만 쓴다. 맥은 `os.freemem()`이 macOS가 되찾는 캐시를 빼고 보여 줘 여유가 있는데도 막으므로 쓰지 않는다(지금처럼 동시 실행 수만).
+- 메모리 때문에 멈춘 동안은 용량 감시(250 ms)가 2초마다 다시 본다(`MEMORY_RECHECK_MS`). 진단의 queue에 `waitingForMemory`, 로그에 시작·끝 한 줄씩. 화면 표시는 아직 없다.
+- 시험: `tests/unit/g-limits.test.ts`(계산·요금제·맥), `tests/unit/b-chat.test.ts`(동시 실행 3인데 메모리가 없어 두 번째가 대기 → 메모리가 돌아오면 시작). 트리나 AX는 같은 코드라 그대로 받는다. 메디컬은 이 부분이 아직 다르다.

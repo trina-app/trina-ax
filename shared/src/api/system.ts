@@ -40,6 +40,8 @@ export const Diagnostics = z.object({
     queuePolicyVersion: z.number().int().optional(), waitingUsers: z.number().int().optional(), oldestWaitMs: z.number().nonnegative().optional(),
     maxRunningPerUser: z.number().int().optional(), quarantined: z.number().int().optional(), deferredSchedules: z.number().int().optional(),
     deferredOldestWaitMs: z.number().nonnegative().optional(),
+    /** queued answers are held back because the machine is short of memory (server/src/system/limits.ts) */
+    waitingForMemory: z.boolean().optional(),
     recovery: z.enum(['ready', 'checking_launcher', 'launcher_unreachable', 'launcher_busy', 'launcher_unknown']).optional(),
     rejected: z.object({ queue_full: z.number().int(), queue_full_user: z.number().int(), draining: z.number().int() }).optional(),
   }),

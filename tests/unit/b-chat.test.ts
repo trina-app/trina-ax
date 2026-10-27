@@ -7,6 +7,7 @@ import path from 'node:path'
 import { API, ApiError, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -195,6 +196,26 @@ describe('queue', () => {
       expect(seq(t1.assistantMessage.id)).toBeLessThan(seq(t2.assistantMessage.id))
     } finally {
       h.ctx.db.query("DELETE FROM settings WHERE key = 'concurrency'").run()
+    }
+  })
+  test('short of memory: the second answer waits under the concurrency limit and starts once memory is back', async () => {
+    setLimitsPlatformForTests('linux')
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB) // room for nothing more than the one that always may run
+    try {
+      const c1 = await newChat(), c2 = await newChat()
+      const t1 = await h.api('alice').call(API.sendMessage, { params: { id: c1.id }, body: { content: fake({ sleep: 4000 }, { say: 'one' }), clientMessageId: cm(), attachmentIds: [] } })
+      const t2 = await h.api('alice').call(API.sendMessage, { params: { id: c2.id }, body: { content: fake({ say: 'two' }), clientMessageId: cm(), attachmentIds: [] } })
+      expect(t1.queuePosition).toBe(0)
+      expect(t2.queuePosition).toBe(1) // concurrency is 3, memory holds it back
+      expect((await h.api('alice').call(API.getChat, { params: { id: c2.id } })).runState).toBe('queued')
+      setAvailableMemoryForTests(64 * 1024)
+      await alice.next('queue.position', (f) => f.data.turnId === t2.turnId && f.data.position === 0, 10_000)
+      const d2 = await alice.next('message.done', (f) => f.data.messageId === t2.assistantMessage.id, 20_000)
+      expect(d2.data.message.content).toBe('two')
+      await alice.next('message.done', (f) => f.data.messageId === t1.assistantMessage.id, 20_000)
+    } finally {
+      setAvailableMemoryForTests(undefined)
+      setLimitsPlatformForTests(null)
     }
   })
 })
