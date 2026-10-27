@@ -8,8 +8,7 @@
     "web",
     "desktop",
     "relay",
-    "tests",
-    "ee/cloud"
+    "tests"
   ],
   "scripts": {
     "dev": "bun run scripts/dev.ts",
@@ -30,7 +29,6 @@
     "dev:relay": "node --disable-warning=ExperimentalWarning relay/src/main.ts --dev",
     "dev:server:relay": "MYCEL_RELAY_URL=ws://127.0.0.1:19161/connect bun --watch server/src/main.ts",
     "test:relay": "bun test tests/relay",
-    "test:cloud": "bun test ee/cloud",
     "build:bundle": "bun run build && bun scripts/build-bundle.ts",
     "build:bundle:universal": "ARCHS='arm64 amd64' bun run build && bun scripts/build-bundle.ts --arch universal",
     "dist:mac": "bun run --cwd desktop dist:mac",
