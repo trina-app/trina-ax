@@ -79,6 +79,34 @@ test('a failing artifact: "ask the AI to fix it" sends the error', async ({ page
   await expect(page.getByTestId('user-text').last()).toContainText('boom')
 })
 
+test.describe('slow device', () => {
+  // the app's service worker would answer the chunk request itself, past page.route
+  test.use({ serviceWorkers: 'block' })
+  test('the panel opens by itself when the AI starts writing before the new chat\'s page is on screen', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    // the chat page's code arrives late: the first artifact event comes while the app still shows the home page (the
+    // route changes in a transition and waits for the lazy page). The panel was never opened then (a 2-vCPU server).
+    await page.route(/\/assets\/Chat-[^/]+\.js$/, async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      await route.continue()
+    })
+    await ask(page, 'make an artifact')
+    const panel = page.getByTestId('artifact-panel')
+    await expect(panel).toBeVisible()
+    await expect(page.frameLocator('[data-testid="artifact-panel"] iframe').locator('h1')).toHaveText('Hello artifact (ran)')
+    await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+    // used once: closed, then back in the chat from another page, it stays closed
+    await page.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await page.getByTestId('new-chat').click()
+    await expect(page).toHaveURL(/\/$/)
+    await page.getByRole('link', { name: 'make an artifact' }).click()
+    await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+    await expect(panel).toHaveCount(0)
+  })
+})
+
 test('save an artifact into the team folder', async ({ page }) => {
   await reset(page)
   await signIn(page)

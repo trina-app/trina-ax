@@ -57,12 +57,17 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', h)
   }, [navigate, setSearchOpen, setDrawer])
 
-  // the AI started writing an artifact in the chat on screen: open it (Claude parity)
+  // the AI started writing an artifact in the chat on screen: open it (Claude parity). A new chat's first answer can
+  // start before its page is on screen (the chat page loads lazily and the route changes in a transition), so the
+  // request waits for the chat to show and is used once; moving to another chat drops it. Checking only when the
+  // event arrived lost it on slower machines (e2e on a 2-vCPU Linux server).
   useEffect(() => {
     if (!autoOpen) return
-    if (location.pathname === `/c/${autoOpen.chatId}`) openArtifact(autoOpen.chatId, autoOpen.key)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpen])
+    if (location.pathname === `/c/${autoOpen.chatId}`) {
+      openArtifact(autoOpen.chatId, autoOpen.key)
+      useChats.setState({ autoOpen: null })
+    } else if (location.pathname.startsWith('/c/')) useChats.setState({ autoOpen: null })
+  }, [autoOpen, location.pathname])
 
   // a chat's artifact panel doesn't belong to another chat
   useEffect(() => {
