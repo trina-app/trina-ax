@@ -60,7 +60,7 @@ export const UpdateStatus = z.object({
   needsRoot: z.boolean().optional(),
   /** this server applies app-only releases by itself inside the team's update window (Linux self-host update.auto) */
   auto: z.boolean().optional(),
-  /** the hosted cloud: TreeSoop installs updates; the in-app update and roll-back are off */
+  /** the hosted cloud: the hosting provider installs updates; the in-app update and roll-back are off */
   managed: z.boolean().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>

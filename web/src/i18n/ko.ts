@@ -1256,7 +1256,7 @@ export const ko = {
   'engines.concurrencyPlan': '요금제의 최대값: {max}',
   'teamSettings.timeZone': '팀 시간대',
   'teamSettings.timeZoneHint': '오늘·이번 달 사용량, 예약 작업, 야간 백업이 이 시간대를 따라요. 바꾸면 진행 중인 하루·한 달의 경계도 새 시간대로 계산돼요(데이터는 그대로).',
-  'system.updateManaged': '{product} Cloud는 TreeSoop이 점검 시간에 업데이트해요. 여기서 따로 할 일은 없어요.',
+  'system.updateManaged': '{product} Cloud는 호스팅 운영자가 점검 시간에 업데이트해요. 여기서 따로 할 일은 없어요.',
   'system.updateNeedsRoot': '이 버전은 서버의 관리자 권한이 필요해요. 서버에서 `sudo mycel-ctl update`를 실행하거나 자동 업데이트 타이머를 기다려 주세요.',
   'system.updateAuto': '앱만 바뀌는 새 버전은 팀의 업데이트 시간(관리자 > 설정)에 자동으로 설치돼요.',
   'storage.title': '저장 공간',

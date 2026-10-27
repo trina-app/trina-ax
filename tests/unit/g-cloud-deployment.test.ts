@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { PRODUCT } from '@mycel/shared'
 import { FirewallStatus } from '@mycel/shared/install'
 import { ConfigError, allowedCredentialKinds, loadAppConfig, prodBase, prodLogDir } from '../../server/src/app-config'
 import { deploymentOf, featuresOf, hostKind, isHosted, runKindOf } from '../../server/src/system/deployment'
@@ -104,7 +105,7 @@ describe('API engine address on Team AX Cloud (SEC-01)', () => {
     const e = await checkApiEngineUrl({ mode: 'prod', deployment: 'hosted' }, 'https://llm.example.com/v1', 'ko', { lookup: l }).catch((x) => x)
     expect(e).toBeInstanceOf(HttpError)
     expect((e as HttpError).status).toBe(400)
-    expect((e as HttpError).message).toContain('Team AX Cloud')
+    expect((e as HttpError).message).toContain(`${PRODUCT.displayName} Cloud`)
   })
   test('every call is checked again in the cloud, and redirects are not followed', async () => {
     const seen: RequestInit[] = []
@@ -163,7 +164,7 @@ describe('Team AX Cloud refuses what the operator owns (UX-07, SEC-02)', () => {
   test('connection change, update, roll-back and office update: 409', async () => {
     const conn = await owner.try('PUT', '/api/admin/connection', { mode: 'self-relay', relayUrl: 'wss://relay.example.com/connect', teamName: 'acme', password: OWNER_PW })
     expect(conn.status).toBe(409)
-    expect(conn.body.error.message).toContain('Team AX Cloud')
+    expect(conn.body.error.message).toContain(`${PRODUCT.displayName} Cloud`)
     const up = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
     expect(up.status).toBe(409)
     expect((await owner.try('POST', '/api/admin/update', { password: OWNER_PW, rollback: true })).status).toBe(409)
@@ -175,7 +176,7 @@ describe('Team AX Cloud refuses what the operator owns (UX-07, SEC-02)', () => {
     expect(await owner.call('GET', '/api/admin/connected')).toEqual({ items: [], available: false })
     const add = await owner.try('POST', '/api/admin/connected', { name: 'nas', source: '/mnt/nas', password: OWNER_PW })
     expect(add.status).toBe(409)
-    expect(add.body.error.message).toContain('Team AX Cloud')
+    expect(add.body.error.message).toContain(`${PRODUCT.displayName} Cloud`)
     expect((await owner.try('POST', '/api/admin/connected/00000000-0000-7000-8000-000000000000/sync')).status).toBe(409)
   })
   test('the API engine address must be public https', async () => {
@@ -190,7 +191,7 @@ describe('Team AX Cloud refuses what the operator owns (UX-07, SEC-02)', () => {
       const r = await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama' })
       expect(r.status).toBe(200)
       const up = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
-      expect(up.body.error?.message ?? '').not.toContain('Team AX Cloud')
+      expect(up.body.error?.message ?? '').not.toContain(`${PRODUCT.displayName} Cloud`)
     } finally { h.ctx.config.deployment = 'hosted' }
   })
 })

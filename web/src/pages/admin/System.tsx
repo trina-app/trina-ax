@@ -301,7 +301,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
   }
   return (
     // one mode only (office mode: the office network): nothing to change
-    // the hosted cloud: the team address is TreeSoop's to manage (no change button)
+    // the hosted cloud: the team address is managed by the hosting provider (no change button)
     <Card title={t('system.connection')} actions={canChange && modes.length > 1 ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
@@ -530,7 +530,7 @@ function Update() {
               {u.lastCheckedAt && <span className="text-xs text-faint"> · {t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
             </p>
             {u.managed ? (
-              // the hosted cloud: TreeSoop installs updates during the maintenance window (no buttons here)
+              // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
               <p className="text-muted" data-testid="update-managed">{t('system.updateManaged')}</p>
             ) : u.available ? (
               <div className="rounded-lg border border-line p-3">

@@ -1257,7 +1257,7 @@ export const id: Record<MessageKey, string> = {
   'engines.concurrencyPlan': 'Maksimum paket: {max}',
   'teamSettings.timeZone': 'Zona waktu tim',
   'teamSettings.timeZoneHint': 'Pemakaian hari ini dan bulan ini, tugas terjadwal, dan cadangan malam mengikuti zona ini. Mengubahnya menggeser batas hari dan bulan berjalan (datanya tetap).',
-  'system.updateManaged': 'Di {product} Cloud, TreeSoop memasang pembaruan saat jendela pemeliharaan. Tidak ada yang perlu dilakukan di sini.',
+  'system.updateManaged': 'Di {product} Cloud, pengelola layanan memasang pembaruan saat jendela pemeliharaan. Tidak ada yang perlu dilakukan di sini.',
   'system.updateNeedsRoot': 'Versi ini memerlukan hak administrator di server. Jalankan `sudo mycel-ctl update` di sana, atau tunggu timer pembaruan otomatis.',
   'system.updateAuto': 'Versi baru yang hanya mengubah aplikasi terpasang sendiri pada jendela pembaruan tim (Admin > Pengaturan).',
   'storage.title': 'Penyimpanan',
