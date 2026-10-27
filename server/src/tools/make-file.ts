@@ -52,6 +52,15 @@ export const PDF_FONTS = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR
 export interface Converters { pandoc: string | null; typst: string | null }
 export const findConverters = (pandoc: string | null): Converters => ({ pandoc, typst: process.env.MYCEL_TYPST_BIN ?? which('typst') })
 
+/** The tool error when a converter is missing; the AI repeats it to the person. A Mac installs it with Homebrew; a
+ * Linux server (self-hosted or the cloud) gets it with the release bundle (app/<version>/bin), so there a missing one
+ * means an incomplete install, and `brew install` would be wrong advice. */
+export function missingConverter(tool: 'pandoc' | 'typst', platform: NodeJS.Platform = process.platform): string {
+  return platform === 'darwin'
+    ? `${tool} is not installed on the server; ask the owner to run \`brew install ${tool}\``
+    : `${tool} is not installed on the server (the Linux server bundle includes it); ask whoever runs the server to update or reinstall it`
+}
+
 export class MakeFile {
   constructor(private ctx: AppContext, private files: TeamFiles, private conv: Converters) {}
 
@@ -90,7 +99,7 @@ export class MakeFile {
       const produced = path.join(work, 'out.' + a.format)
       if (a.format === 'xlsx') await this.xlsx(text, kind, produced)
       else {
-        if (!this.conv.pandoc) throw new ToolError('pandoc is not installed on the server; ask the owner to run `brew install pandoc`')
+        if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
         let input: string
         let from: 'json' | 'csv'
         let images: string[] = []
@@ -223,7 +232,7 @@ export class MakeFile {
   }
 
   private async pdf(work: string, input: string, from: 'json' | 'csv') {
-    if (!this.conv.typst) throw new ToolError('typst is not installed on the server; ask the owner to run `brew install typst`')
+    if (!this.conv.typst) throw new ToolError(missingConverter('typst'))
     const t = await runIsolated({ cmd: this.conv.pandoc!, args: ['--sandbox', '--fail-if-warnings', '-f', from, '-t', 'typst', '-o', 'body.typ', input], workDir: work, timeoutMs: 120_000 })
     if (t.code !== 0) throw new ToolError(convertError('pandoc', t.stderr, t.killed, work))
     const pre = [
