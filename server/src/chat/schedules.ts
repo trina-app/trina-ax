@@ -11,9 +11,14 @@ import { budgetBlock } from '../admin/budgets'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { ToolError } from '../policy/errors'
+import { HttpError } from '../http/errors'
+import { notificationsOf } from '../notifications/service'
 import type { ChatRuntime } from './runtime'
+import { zonedParts, zonedToUtc } from '../system/time-zone'
 
 export const SCHEDULES_PER_PERSON = 20
+/** a run refused because the queue was full is tried again this much later */
+export const QUEUE_FULL_RETRY_MS = 60_000
 const TICK_MS = 30_000
 
 export const ScheduleInput = z.object({
@@ -35,27 +40,13 @@ export type ScheduleInput = z.infer<typeof ScheduleInput>
 export interface ScheduleRow {
   id: string; user_id: string; title: string; prompt: string; repeat: ScheduleInput['repeat']; time: string
   weekday: number | null; day: number | null; date: string | null; project_id: string | null; enabled: number
+  template_id: string | null; template_version: number | null; template_source_path: string | null; template_output_path: string | null
+  pending_due_at: string | null; retry_at: string | null; deferred_count: number
   next_run_at: string | null; last_run_at: string | null; last_chat_id: string | null; created_at: string
 }
 
-// ---------------- time zone arithmetic ----------------
-/** Calendar parts of an instant in a time zone. */
-export function zonedParts(t: Date, tz: string) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' })
-    .formatToParts(t).map((x) => [x.type, x.value]))
-  return { y: +p.year!, m: +p.month!, d: +p.day!, h: +p.hour!, min: +p.minute!, s: +p.second!, wd: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday!) }
-}
-
-/** The instant of a wall-clock time in a time zone (DST-safe: corrected by the zone's offset at that moment). */
-export function zonedToUtc(y: number, m: number, d: number, h: number, min: number, tz: string): Date {
-  let t = Date.UTC(y, m - 1, d, h, min)
-  for (let i = 0; i < 2; i++) {
-    const p = zonedParts(new Date(t), tz)
-    const shown = Date.UTC(p.y, p.m - 1, p.d, p.h, p.min)
-    t += Date.UTC(y, m - 1, d, h, min) - shown
-  }
-  return new Date(t)
-}
+// ---------------- time zone arithmetic (system/time-zone.ts; re-exported for the callers that import them here) ----------------
+export { zonedParts, zonedToUtc } from '../system/time-zone'
 
 /** The first run strictly after `after` (null: a once-schedule whose time has passed). */
 export function nextRun(s: Pick<ScheduleRow, 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, after: Date, tz: string): Date | null {
@@ -125,7 +116,7 @@ export class Schedules {
     const s = this.get(userId, id)
     if (!s) return null
     const next = enabled ? nextRun(s, now, this.rt.timeZone) : null
-    this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ? WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
+    this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
     return this.get(userId, id)
   }
 
@@ -133,47 +124,93 @@ export class Schedules {
     return this.db.query('DELETE FROM schedules WHERE id = ? AND user_id = ?').run(id, userId).changes > 0
   }
 
-  /** Start every schedule that is due (each at most once per call), and move it to its next time first. */
+  lastOutcome(userId: string, id: string): 'done' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | null {
+    const row = this.db.query(`SELECT code FROM (
+      SELECT status code, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
+      UNION ALL SELECT code,created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId) as { code: 'done' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' } | null
+    return row?.code ?? null
+  }
+
+  /** One pending occurrence per schedule. A retry never changes its original due key. */
   runDue(now = new Date()): string[] {
-    const due = this.db.query('SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at')
-      .all(now.toISOString()) as ScheduleRow[]
+    if (!this.rt.acceptingTurns) return []
+    const due = this.db.query(`SELECT * FROM schedules WHERE enabled=1 AND
+      ((pending_due_at IS NOT NULL AND (retry_at IS NULL OR retry_at <= ?)) OR
+       (pending_due_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?))
+      ORDER BY COALESCE(pending_due_at,next_run_at),id`).all(now.toISOString(), now.toISOString()) as ScheduleRow[]
     const started: string[] = []
     for (const s of due) {
-      // moved on before the run, so a crash or a slow turn never starts the same run twice
+      const originalDue = s.pending_due_at ?? s.next_run_at!
+      // Durable before admission: crash here leaves this exact occurrence pending for the next process.
+      this.db.query('UPDATE schedules SET pending_due_at=COALESCE(pending_due_at,?) WHERE id=?').run(originalDue, s.id)
       const next = s.repeat === 'once' ? null : nextRun(s, now, this.rt.timeZone)
-      this.db.query('UPDATE schedules SET next_run_at = ?, enabled = ?, last_run_at = ? WHERE id = ?')
-        .run(next?.toISOString() ?? null, next ? 1 : 0, now.toISOString(), s.id)
+      const commit = (chatId: string | null) => {
+        this.db.query('UPDATE schedules SET next_run_at=?,enabled=?,last_run_at=?,last_chat_id=COALESCE(?,last_chat_id),pending_due_at=NULL,retry_at=NULL WHERE id=?')
+          .run(next?.toISOString() ?? null, next ? 1 : 0, now.toISOString(), chatId, s.id)
+        if (Date.parse(originalDue) < now.getTime() - TICK_MS)
+          this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.coalesced',?,?)")
+            .run(s.id, JSON.stringify({ originalDue, acceptedAt: now.toISOString() }))
+      }
       try {
-        const chatId = this.start(s, now)
-        if (chatId) { this.db.query('UPDATE schedules SET last_chat_id = ? WHERE id = ?').run(chatId, s.id); started.push(s.id) }
+        const chatId = this.start(s, now, originalDue, commit)
+        if (chatId) started.push(s.id)
+        else this.db.transaction(() => {
+          commit(null)
+          const active = this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
+          if (!active) this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
+          this.db.query('INSERT INTO schedule_outcomes(id,user_id,schedule_id,scheduled_for,code,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+            .run(newId(), s.user_id, s.id, originalDue, active ? 'budget_exceeded' : 'user_unavailable', now.toISOString())
+        })()
+        if (!chatId) { try { notificationsOf(this.rt.ctx).reconcile(s.user_id) } catch { this.rt.log.warn('schedule notification deferred') } }
       } catch (e) {
-        this.rt.log.warn('scheduled task could not start', { schedule: s.id, err: String(e).slice(0, 300) })
+        const retry = new Date(now.getTime() + QUEUE_FULL_RETRY_MS).toISOString()
+        this.db.query('UPDATE schedules SET retry_at=?,deferred_count=deferred_count+1 WHERE id=?').run(retry, s.id)
+        const reason = e instanceof HttpError ? e.extra.params?.reason ?? e.code : 'admission_failed'
+        this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.deferred',?,?)")
+          .run(s.id, JSON.stringify({ reason, originalDue, retryAt: retry }))
+        if (!(e instanceof HttpError)) this.rt.log.warn('scheduled task admission failed; occurrence preserved', { schedule: s.id })
       }
     }
     return started
   }
 
-  /** One run: a new chat of the person with the prompt; null when the person can't run turns now. */
-  private start(s: ScheduleRow, now: Date): string | null {
+  private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void): string | null {
     const user = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id)
     if (!user) return null
     const locale = this.rt.userLocale(s.user_id)
     if (budgetBlock(this.db, s.user_id, locale, now)) { this.rt.log.info('scheduled task skipped: budget used up', { schedule: s.id }); return null }
-    // a project the person can no longer see is dropped (the run goes on without it)
     const project = s.project_id ? this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) : null
-    const engine = this.rt.defaultEngine()
-    const model = this.rt.defaultModel()
+    const engine = this.rt.defaultEngine(), model = this.rt.defaultModel()
     const p = zonedParts(now, this.rt.timeZone)
     const date = `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
-    const id = newId()
-    const ts = now.toISOString()
-    this.db.query('INSERT INTO chats (id, user_id, project_id, title, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
-      .run(id, s.user_id, project ? s.project_id : null, `⏰ ${s.title} · ${date}`, engine, model, ts, ts)
-    this.rt.publishChat(s.user_id, id, 'created')
-    const chat = this.rt.store.chatRow(id)!
-    this.rt.createTurn({ chat, userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine, model,
-      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `schedule-${s.id}-${ts}` } })
-    return id
+    const id = newId(), ts = now.toISOString()
+    const turn = this.rt.createTurn({
+      chat: () => {
+        this.db.query('INSERT INTO chats(id,user_id,project_id,title,engine,model,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+          .run(id, s.user_id, project ? s.project_id : null, `⏰ ${s.title} · ${date}`, engine, model, ts, ts)
+        return this.rt.store.chatRow(id)!
+      },
+      userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine, model,
+      scheduled: { id: s.id, dueAt: originalDue, commit: (chatId) => {
+        commit(chatId)
+        if (s.template_id) this.db.query('UPDATE turns SET template_source_path=?,template_output_path=? WHERE schedule_id=? AND scheduled_for=?')
+          .run(s.template_source_path, s.template_output_path, s.id, originalDue)
+      } },
+      // Keep the client contract <=64 chars; uniqueness is the durable two-column occurrence key.
+      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `s-${s.id}-${Date.parse(originalDue)}` },
+    })
+    return turn.assistantMessage.chatId
+  }
+
+  /** The team's time zone changed (Admin > Settings): every enabled schedule's next run is computed again in it. */
+  recomputeAll(now = new Date()): number {
+    const rows = this.db.query('SELECT * FROM schedules WHERE enabled = 1 AND pending_due_at IS NULL').all() as ScheduleRow[]
+    for (const s of rows) {
+      const next = nextRun(s, now, this.rt.timeZone)
+      this.db.query('UPDATE schedules SET next_run_at = ?, enabled = ? WHERE id = ?').run(next?.toISOString() ?? null, next ? 1 : 0, s.id)
+    }
+    return rows.length
   }
 
   /** The server's loop (not in tests): every 30 s, plus once right away for runs missed while the server was off. */

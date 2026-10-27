@@ -2,10 +2,12 @@
 // a resource the acting person must NOT reach unless the design says so — alice's private chat/file/project, the
 // finance folder, a trashed file — so a correct server answers 401/403/404 (never the data) to the wrong person.
 // The expected allow/deny per persona is computed from the endpoint's auth level and the resource's scope.
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { ChatQueueSnapshot, CSRF_HEADER } from '@mycel/shared/api'
 import type { Client, Resp } from './instance'
 import { authOf, enc, levelExp, type Case, type Exp } from './matrix'
 import { C, USER_OF, WHO, type Who, type World } from './world'
+import { P4_SPECS } from './p4-cases'
+import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -21,13 +23,16 @@ type Scope =
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
+  | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
-interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void; todo?: Partial<Record<Who, string>>;
+export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void; todo?: Partial<Record<Who, string>>;
   /** the request carries intentionally-wrong credentials, or re-logs-in and swaps the client's cookie: a 2xx is not
    *  expected for the legit caller, so it is covered by the deny matrix + world build, not the positive-allow pass. */
   skipPositive?: boolean }
 
 const J = (body: unknown) => ({ headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' } as Record<string, string>, raw: JSON.stringify(body) })
+/** a sealed value of the right shape that opens with no key (the server refuses it after the permission check) */
+const FAKE_SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'B'.repeat(16), ct: 'C'.repeat(40) }
 const cm = () => 'cm-' + crypto.randomUUID()
 
 /** who (besides the auth level) may pass the permission check for each scope */
@@ -39,6 +44,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
+    case 'nobody': return false
   }
 }
 // users/alice/: owner and admin have NO access (design tab 2 rule 2/3)
@@ -53,6 +59,8 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
 
 /** The request builders, keyed by API route name. 'self' builders act on the caller's own newly-made data. */
 export const SPECS: Record<string, Spec> = {
+  ...P4_SPECS,
+  ...REMOTE_MCP_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
@@ -83,6 +91,16 @@ export const SPECS: Record<string, Spec> = {
   chatEngines: { build: (c) => c.get('/api/engines'), scope: 'self',
     check: (r, w, who) => { if (r.status === 200 && (who === 'memberIn' || who === 'other' || who === 'memberOut') && (r.json?.canChoose !== false || r.json?.engines?.length)) throw new Error(`${who} may pick the engine by default`) } },
   getChat: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat' },
+  getChatQueue: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/queue`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who === 'memberIn') {
+        if (r.status !== 200 || !ChatQueueSnapshot.safeParse(r.json).success) throw new Error('chat owner did not receive a valid queue snapshot')
+        return
+      }
+      const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : 404
+      const code = who === 'anon' ? 'unauthorized' : who === 'pwchange' ? 'password_change_required' : 'not_found'
+      if (r.status !== status || r.json?.error?.code !== code) throw new Error(`${who} queue response must be ${status} ${code}`)
+    } },
   updateChat: { build: (c, w) => c.patch(`/api/chats/${w.ids.chatA}`, { title: 'pwned-by-' + crypto.randomUUID().slice(0, 4) }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's chat`) } },
   deleteChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat',
@@ -225,8 +243,30 @@ export const SPECS: Record<string, Spec> = {
   // the request a member would make to let themselves pick the engine (and to send conversations to OpenAI)
   updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },
   checkEngine: { build: (c) => c.post('/api/admin/engines/claude-code/check'), scope: 'byLevel' },
-  addEngineAccount: { build: (c) => c.post('/api/admin/engines/accounts', { engine: 'anthropic', secret: 'sk-test-1234567890' }), scope: 'byLevel' },
-  deleteEngineAccount: { build: (c) => c.del('/api/admin/engines/accounts/none'), scope: 'byLevel' },
+  // AI connections (docs/PERMISSIONS.md): admins see and re-check; only the owner changes them (adding / replacing
+  // with the password again); members only their own. Secrets never appear in any response (matrix.ts ALL).
+  listCredentials: { build: (c) => c.get('/api/admin/credentials'), scope: 'byLevel',
+    check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && !r.text.includes('Team Max')) throw new Error('the team connection is missing from the list') } },
+  createCredential: { skipPositive: true, build: (c) => c.post('/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: FAKE_SEALED, password: 'wrong-pass' }), scope: 'byLevel',
+    check: (r, w, who) => { if (who !== 'owner' && r.status < 300) throw new Error(`${who} added an AI connection`) } },
+  updateCredential: { build: (c, w) => c.patch(`/api/admin/credentials/${w.ids.teamCredential}`, { label: 'Team Max' }), scope: 'byLevel' },
+  replaceCredentialSecret: { skipPositive: true, build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/secret`, { sealed: FAKE_SEALED, password: 'wrong-pass' }), scope: 'byLevel' },
+  deleteCredential: { build: (c) => c.del('/api/admin/credentials/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
+  checkCredential: { build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/check`), scope: 'byLevel' },
+  startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: true, password: 'wrong-pass' }), scope: 'byLevel' },
+  getCredentialLogin: { build: (c) => c.get('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  cancelCredentialLogin: { build: (c) => c.del('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  updateCredentialSettings: { build: (c) => c.patch('/api/admin/credential-settings', { memberOwn: true }), scope: 'byLevel' },
+  sealingKey: { build: (c) => c.get('/api/credentials/sealing-key'), scope: 'self',
+    check: (r) => { if (r.status === 200 && ('d' in (r.json?.publicJwk ?? {}) || /"d"\s*:/.test(r.text))) throw new Error('the sealing key response carries the private part') } },
+  myCredentials: { build: (c) => c.get('/api/me/credentials'), scope: 'self',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceOwnName)) throw new Error(`${who} sees alice's own connection through /api/me`) } },
+  createMyCredential: { skipPositive: true, build: (c) => c.post('/api/me/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: FAKE_SEALED }), scope: 'self',
+    check: (r, w, who) => { if (r.status < 300 && (r.json?.scope !== 'personal' || r.json?.owner?.id !== USER_OF[who])) throw new Error('a personal connection made for someone else') } },
+  deleteMyCredential: { build: (c, w) => c.del(`/api/me/credentials/${w.ids.aliceOwnCredential}`), scope: 'own-alice' },
+  startMyCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/me/credential-logins', { label: '', acknowledgedPlanNotice: true }), scope: 'self' },
+  getMyCredentialLogin: { build: (c) => c.get('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  cancelMyCredentialLogin: { build: (c) => c.del('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   listBudgets: { build: (c) => c.get('/api/admin/budgets'), scope: 'byLevel' },
   createBudget: { build: (c) => c.post('/api/admin/budgets', { subjectType: 'team', subjectId: null, period: 'day', limitUsd: 10, action: 'warn' }), scope: 'byLevel' },
   updateBudget: { build: (c, w) => c.patch(`/api/admin/budgets/${w.ids.budget}`, { limitUsd: 20 }), scope: 'byLevel' },
@@ -242,6 +282,11 @@ export const SPECS: Record<string, Spec> = {
   // ---- system (owner / public) ----
   health: { build: (c) => c.get('/api/health'), scope: 'byLevel' },
   diagnostics: { build: (c) => c.get('/api/admin/diagnostics'), scope: 'byLevel' },
+  // storage use of the team disk + the plan (admin and owner; system/storage.ts)
+  storage: { build: (c) => c.get('/api/admin/storage'), scope: 'byLevel' },
+  // the plan card (admin and owner) and the operator's notices (everyone signed in, filtered by role): system/managed.ts
+  plan: { build: (c) => c.get('/api/admin/plan'), scope: 'byLevel' },
+  managedNotices: { build: (c) => c.get('/api/managed/notices'), scope: 'byLevel' },
   updateStatus: { build: (c) => c.get('/api/admin/update'), scope: 'byLevel' },
   startUpdate: { skipPositive: true, build: (c) => c.post('/api/admin/update', { password: 'wrong-pass' }), scope: 'byLevel' },
   // office mode automatic updates (admin and owner): status is null outside office mode; "now" re-asks the password

@@ -12,7 +12,7 @@ const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 /** Request path for logs: one-time secrets in the path (invite and password reset links: the API and the web pages
  * /invite/<token>, /reset-password/<token> that the links open) are replaced by "***". */
 export function loggablePath(p: string): string {
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests)\/)[^/]+/, '$1***')
 }
 
 /**
@@ -63,7 +63,8 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
     setHeader(c, 'X-Content-Type-Options', 'nosniff')
     // the office public address is https only (Cloudflare's certificate): browsers stay on https for this name
     if (c.get('info')?.tunnel) setHeader(c, 'Strict-Transport-Security', 'max-age=31536000')
-    setHeader(c, 'Referrer-Policy', 'same-origin')
+    // OAuth callbacks carry one-use codes: retain an explicit, stricter route policy.
+    if (c.res.headers.get('Referrer-Policy') !== 'no-referrer') setHeader(c, 'Referrer-Policy', 'same-origin')
     if (c.req.path.startsWith('/api/')) {
       if (!c.res.headers.has('Cache-Control')) setHeader(c, 'Cache-Control', 'no-store')
       // Every team address is the same site (<team>.treesoop.com), so SameSite=Lax sends the session cookie with an

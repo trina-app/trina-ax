@@ -1,24 +1,31 @@
 // Budgets (tab 1 "모델 프록시 예산" / "구독 모드 예산") and usage. Budgets are stored and shown with the current spend.
-// A "block" budget that is used up stops new turns in every mode (chat routes call budgetBlock()): in subscription mode
-// the tokens are what the team shares, and the admin screen offers the limit there too. USD limits only fill up in
-// company-key mode, where turns carry a cost.
+// A "block" budget that is used up stops new turns in every mode (chat routes call budgetBlock()). Tokens count for
+// every AI connection; USD only fills up with API-key connections (subscriptions have no price per request; the model
+// proxy prices API-key requests from credentials/prices.ts). Budget notices: admin/budget-watch.ts.
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
+import { teamTimeZone } from './settings'
+import { zonedDay, zonedParts, zonedToUtc } from '../system/time-zone'
 
 type In<T extends z.ZodType> = z.output<T>
 type UsageRes = z.output<typeof UsageResponse>
 interface BudgetRow { id: string; subject_type: Budget['subjectType']; subject_id: string | null; period: Budget['period']; limit_usd: number; limit_tokens: number | null; action: Budget['action'] }
 
-/** Start of the current period in server-local time (the Mac's time zone). */
-export function periodStart(period: Budget['period'], now = new Date()): Date {
-  const d = new Date(now)
-  d.setHours(0, 0, 0, 0)
-  if (period === 'month') d.setDate(1)
-  return d
+/** Start of the current period in the team's time zone (`tz`: admin/settings.ts teamTimeZone; without one the
+ * process's zone, as before). A Linux server runs in UTC: a Korean team's day starts at 00:00 KST, not 09:00. */
+export function periodStart(period: Budget['period'], now = new Date(), tz?: string): Date {
+  if (!tz) {
+    const d = new Date(now)
+    d.setHours(0, 0, 0, 0)
+    if (period === 'month') d.setDate(1)
+    return d
+  }
+  const p = zonedParts(now, tz)
+  return zonedToUtc(p.y, p.m, period === 'month' ? 1 : p.d, 0, 0, tz)
 }
 
 /** Spend of a subject since `from`: turns of the person / of the group's current members / of everyone. */
@@ -32,7 +39,7 @@ export function spend(db: Database, subjectType: Budget['subjectType'], subjectI
 }
 
 function toBudget(db: Database, r: BudgetRow, now = new Date()): Budget {
-  const used = spend(db, r.subject_type, r.subject_id, periodStart(r.period, now))
+  const used = spend(db, r.subject_type, r.subject_id, periodStart(r.period, now, teamTimeZone(db)))
   return { id: r.id, subjectType: r.subject_type, subjectId: r.subject_id, period: r.period, limitUsd: r.limit_usd, limitTokens: r.limit_tokens, action: r.action, usedUsd: used.usd, usedTokens: used.tokens }
 }
 
@@ -97,12 +104,18 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
 type T3 = Record<Locale, string>
 export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini' }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini' } }
 
-/** When the period of a budget starts again (server-local midnight / the 1st). */
-export function periodEnd(period: Budget['period'], now = new Date()): Date {
-  const d = periodStart(period, now)
-  if (period === 'day') d.setDate(d.getDate() + 1)
-  else d.setMonth(d.getMonth() + 1)
-  return d
+/** When the period of a budget starts again (midnight / the 1st in the team's time zone; `tz` absent: the process's). */
+export function periodEnd(period: Budget['period'], now = new Date(), tz?: string): Date {
+  if (!tz) {
+    const d = periodStart(period, now)
+    if (period === 'day') d.setDate(d.getDate() + 1)
+    else d.setMonth(d.getMonth() + 1)
+    return d
+  }
+  const p = zonedParts(now, tz)
+  // Date.UTC normalises day 32 / month 13; the wall-clock date is then placed in the zone (DST-safe)
+  const next = period === 'day' ? new Date(Date.UTC(p.y, p.m - 1, p.d + 1)) : new Date(Date.UTC(p.y, p.m, 1))
+  return zonedToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, tz)
 }
 
 /**
@@ -112,7 +125,8 @@ export function periodEnd(period: Budget['period'], now = new Date()): Date {
 export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string } | null {
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
-  const at = new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(periodEnd(hit.budget.period, now))
+  const tz = teamTimeZone(db)
+  const at = new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }).format(periodEnd(hit.budget.period, now, tz))
   const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].en
   const message = {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
@@ -123,14 +137,13 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
 }
 
 // ---------------- usage ----------------
-const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-
 /**
- * Usage per calendar day of the server Mac's time zone (like every date the team sees), not per UTC day: in Seoul
- * a UTC day ends at 09:00. Folded here rather than in SQL, so the day follows the same time zone as the rest of
- * the server (SQLite's 'localtime' reads the C library's zone, which can differ from the JavaScript one).
+ * Usage per calendar day of the team's time zone (like every date the team sees), not per UTC day: in Seoul a UTC
+ * day ends at 09:00. Folded here rather than in SQL, so the day follows the same time zone as the rest of the server.
  */
 function usageByLocalDay(db: Database, range: string[]): UsageRes['rows'] {
+  const tz = teamTimeZone(db)
+  const localDay = (d: Date) => zonedDay(d, tz)
   const days = new Map<string, UsageRes['rows'][number]>()
   const rows = db.query('SELECT started_at, input_tokens, output_tokens, cost_usd FROM turns WHERE started_at >= ? AND started_at < ?').all(...range) as { started_at: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number | null }[]
   for (const r of rows) {
@@ -156,10 +169,21 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
     case 'user': sql = `SELECT t.user_id AS key, COALESCE(u.name, t.user_id) AS label, ${agg} FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE t.started_at >= ? AND t.started_at < ? GROUP BY t.user_id ORDER BY costUsd DESC, turns DESC`; break
     case 'engine': sql = `SELECT t.engine AS key, t.engine AS label, ${agg} FROM turns t WHERE t.started_at >= ? AND t.started_at < ? GROUP BY t.engine ORDER BY turns DESC`; break
     case 'model': sql = `SELECT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label, ${agg} FROM turns t WHERE t.started_at >= ? AND t.started_at < ? GROUP BY COALESCE(t.model, '') ORDER BY turns DESC`; break
+    // Skill rows attribute the whole turn. A turn using several skills appears in each row; totals below remain
+    // the unique turn totals. Latest recorded name in this range labels a path even after its file is renamed.
+    case 'skill': sql = `SELECT s.skill_path AS key,
+      (SELECT s2.skill_name FROM turn_skill_usage s2 JOIN turns t2 ON t2.id = s2.turn_id
+        WHERE s2.skill_path = s.skill_path AND t2.started_at >= ? AND t2.started_at < ?
+        ORDER BY t2.started_at DESC, s2.turn_id DESC LIMIT 1) AS label,
+      ${agg} FROM turns t JOIN turn_skill_usage s ON s.turn_id = t.id
+      WHERE t.started_at >= ? AND t.started_at < ? GROUP BY s.skill_path ORDER BY turns DESC, costUsd DESC, s.skill_path`; break
     case 'day': break
     case 'group': sql = `SELECT g.id AS key, g.name AS label, ${agg} FROM turns t JOIN group_members m ON m.user_id = t.user_id JOIN groups g ON g.id = m.group_id WHERE t.started_at >= ? AND t.started_at < ? GROUP BY g.id ORDER BY turns DESC`; break
+    // per AI connection (the connection of each turn's latest attempt); a removed connection keeps its turns under
+    // its id, labelled empty here (the screen says "removed connection"); turns without one (local login) are left out
+    case 'credential': sql = `SELECT t.credential_id AS key, COALESCE(c.label, '') AS label, ${agg} FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE t.started_at >= ? AND t.started_at < ? AND t.credential_id IS NOT NULL GROUP BY t.credential_id ORDER BY costUsd DESC, turns DESC`; break
   }
-  const rows = q.groupBy === 'day' ? usageByLocalDay(db, range) : (db.query(sql).all(...range) as UsageRes['rows'])
+  const rows = q.groupBy === 'day' ? usageByLocalDay(db, range) : (db.query(sql).all(...(q.groupBy === 'skill' ? [...range, ...range] : range)) as UsageRes['rows'])
   const tot = db.query(`SELECT ${agg} FROM turns t WHERE t.started_at >= ? AND t.started_at < ?`).get(...range) as UsageRes['totals']
   return { from: from.toISOString(), to: to.toISOString(), rows, totals: tot }
 }

@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily encrypted copy of the relay registry to R2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mycel-relay/current/deploy/registry-backup.sh

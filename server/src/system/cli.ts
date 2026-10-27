@@ -19,7 +19,23 @@
 //                                                point app/current at a staged version; --restart stops the running
 //                                                server (pid from status/status.json) so root/bootstrap starts it
 //   codex-login | codex-status | codex-logout   the engine account's own Codex (ChatGPT) sign-in, through the launcher:
-//                                                codex-login prints a URL and a one-time code (device auth)
+//                                                codex-login prints a URL and a one-time code (device auth). Older
+//                                                setup: in managed mode ChatGPT is connected from Admin > AI connections
+//   credentials-rekey                            encrypt every AI connection's secret again under a new key file
+//                                                (credentials.key.<N>) and remove the older one; JSON {rekeyed}
+//   drive-rekey                                  rotate personal Drive secrets in their dedicated key directory;
+//                                                retain older keys for backups/in-flight readers; JSON {rekeyed}
+//
+// For the hosted service's root tool (mycel-ctl / mycel-enroll, control-plane 3.5.3, system/cloud-admin.ts):
+//   relay-key [--sign-register <slug> <ts>] [--sign-rotate <teamId>] [--sign-reattach <tenantId> <teamId> <ts>]
+//   setup-status | setup-token-rotate
+//   cloud-backup prepare --kind daily|manual|pre-update|final [--local-id <id>] | cloud-backup upload  (stdin JSON)
+//   archive --passphrase-random --upload         the whole team, age with a random passphrase, to presigned URLs (stdin)
+//   restore-artifacts --dir <chain> --to <dir>   rebuild db/ + team/ from a downloaded, decrypted off-site chain
+//   restore-verify --dir <chain> --expect JSON   the same into a throwaway folder, compared with the backup's totals
+//   cloud-status                                 the app's part of TenantStatus (system/cloud-tenant.ts)
+//   reset-link [--username U]                    one-time reset link at publicOrigins[0] (the owner by default), JSON
+//   credentials-escrow-out --recipient age1…     the AI connections' key age-armored to the CP's escrow recipient
 //
 // Run by scripts/install-macos.sh as root with the admin.js of the bundle it installs (no config, explicit paths only):
 //   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
@@ -30,9 +46,9 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { loadAppConfig } from '../app-config'
-import { SERVER_VERSION } from '../context'
+import { SERVER_VERSION, createContext } from '../context'
 import { openDb } from '../db'
-import { createLogger } from '../log'
+import { createLogger, silentLogger } from '../log'
 import { BackupManager, endSessions, inspectDbCopy, vacuumInto } from './backup'
 import { planInstallState } from './install-plan'
 import { ensureLanCert } from './lan-cert'
@@ -42,6 +58,19 @@ import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCom
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
 import { codexCommand } from './codex-login'
+import { archiveUpload, cloudBackupPrepare, cloudBackupUpload, relayKeyCommand, restoreArtifacts, restoreVerify, rotateSetupToken, setupStatus } from './cloud-admin'
+import { makeCredCtx } from '../credentials/store'
+import { DriveStore } from '../integrations/google-drive/store'
+import { rekeyDrive } from '../integrations/google-drive/rekey'
+import { rekeyCredentials } from '../credentials/rekey'
+import { cloudStatus, credentialsEscrowOut, resetLinkBase } from './cloud-tenant'
+import { createResetLink } from '../auth/accounts'
+import { installAuth } from '../auth/service'
+
+async function stdinJson(): Promise<unknown> {
+  const text = await new Response(Bun.stdin.stream()).text()
+  try { return JSON.parse(text) } catch { throw new Error('stdin must be one JSON object') }
+}
 
 function arg(args: string[], name: string): string | null {
   const i = args.indexOf(name)
@@ -105,6 +134,11 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'archive': {
+      if (args.includes('--upload')) {
+        if (!args.includes('--passphrase-random')) throw new Error('archive --upload needs --passphrase-random (the passphrase is printed once)')
+        out(await archiveUpload({ dbFile, teamRoot: cfg.teamRoot, dataDir: cfg.dataDir }, await stdinJson()))
+        return 0
+      }
       const dest = arg(args, '--out')
       if (!dest) throw new Error('archive needs --out <file>')
       const pw = await readPassword(args)
@@ -180,13 +214,90 @@ export async function main(argv: string[]): Promise<number> {
       }
       return 0
     }
+    case 'relay-key':
+      out(relayKeyCommand(cfg.dataDir, args))
+      return 0
+    case 'setup-status':
+    case 'setup-token-rotate': {
+      const { db } = backups()
+      try { out(cmd === 'setup-status' ? setupStatus(db, cfg.dataDir) : rotateSetupToken(db, cfg.dataDir)) } finally { db.close() }
+      return 0
+    }
+    case 'cloud-backup': {
+      if (args[0] === 'upload') { out(await cloudBackupUpload(cfg.dataDir, await stdinJson())); return 0 }
+      if (args[0] !== 'prepare') throw new Error('cloud-backup prepare --kind K [--local-id ID] | cloud-backup upload < plan.json')
+      const kind = arg(args, '--kind')
+      if (kind !== 'daily' && kind !== 'manual' && kind !== 'pre-update' && kind !== 'final') throw new Error('--kind daily|manual|pre-update|final')
+      const db = openDb(dbFile)
+      try { out(await cloudBackupPrepare({ db, dbFile, layout, dataDir: cfg.dataDir, version: SERVER_VERSION, log }, kind, arg(args, '--local-id'))) } finally { db.close() }
+      return 0
+    }
+    case 'restore-artifacts': {
+      const dir = arg(args, '--dir'), to = arg(args, '--to')
+      if (!dir || !to) throw new Error('restore-artifacts needs --dir <downloaded chain> --to <new folder>')
+      out(await restoreArtifacts(path.resolve(dir), path.resolve(to)))
+      return 0
+    }
+    case 'restore-verify': {
+      const dir = arg(args, '--dir'), expect = arg(args, '--expect')
+      if (!dir || !expect) throw new Error('restore-verify needs --dir <downloaded chain> --expect JSON')
+      const r = await restoreVerify(path.resolve(dir), expect, cfg.dataDir)
+      out(r)
+      return r.ok ? 0 : 4
+    }
+    // the hosted service's tenant commands that need the app (system/cloud-tenant.ts, run by mycel-ctl)
+    case 'cloud-status': {
+      const { db, mgr } = backups()
+      try { out(cloudStatus({ db, config: cfg, dataDir: cfg.dataDir, statusDir: layout.statusDir, secretsDir: layout.secretsDir, backups: mgr.metas() })) } finally { db.close() }
+      return 0
+    }
+    case 'reset-link': {
+      const base = resetLinkBase(cfg)
+      // the same context as the account CLI (auth/cli.ts openCliContext; not imported: that file runs itself as main)
+      const ctx = createContext({ config: cfg, db: openDb(dbFile), log: silentLogger })
+      ctx.onClose(() => ctx.db.close())
+      installAuth(ctx)
+      try {
+        const u = arg(args, '--username')
+        const row = (u
+          ? ctx.db.query("SELECT id, status FROM users WHERE username = ? AND deleted_at IS NULL").get(u)
+          : ctx.db.query("SELECT id, status FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY (status = 'active') DESC, created_at LIMIT 1").get()) as { id: string; status: string } | null
+        if (!row) throw new Error(u ? `no account "${u}"` : 'no owner yet')
+        if (row.status !== 'active') throw new Error('that account is disabled')
+        const link = createResetLink(ctx, row.id, null, base)
+        out({ url: link.url, expiresAt: link.expiresAt })
+      } finally { await ctx.close() }
+      return 0
+    }
+    case 'credentials-escrow-out': {
+      const r = arg(args, '--recipient')
+      if (!r) throw new Error('credentials-escrow-out needs --recipient age1…')
+      out(await credentialsEscrowOut(layout.secretsDir, r))
+      return 0
+    }
     // the engine account's Codex login (server/src/system/codex-login.ts)
     case 'codex-login':
     case 'codex-status':
     case 'codex-logout':
       return codexCommand(cmd, cfg)
+    // Personal Drive uses its own keys, separate from AI credential rotation.
+    case 'drive-rekey': {
+      const db = openDb(dbFile)
+      try { out({ rekeyed: rekeyDrive(new DriveStore(db, path.join(layout.secretsDir, 'integrations', 'google-drive'))) }) }
+      finally { db.close() }
+      return 0
+    }
+    // AI connections: a new key for their secrets (credentials/rekey.ts)
+    case 'credentials-rekey': {
+      const db = openDb(dbFile)
+      try {
+        const cc = makeCredCtx({ db, secretsDir: layout.secretsDir, config: cfg, log })
+        out({ rekeyed: rekeyCredentials(cc) })
+      } finally { db.close() }
+      return 0
+    }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|codex-login|codex-status|codex-logout|lan-cert|install-state|compare-versions (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out (see server/src/system/cli.ts)')
       return 2
   }
 }

@@ -125,6 +125,24 @@ describe('backups', () => {
     e.db.close()
   })
 
+  test('local retention from the plan (SV-3): plan.json localBackupRetentionDays (the hosted cloud: 3) instead of 14', async () => {
+    const e = setup('prune-plan')
+    const { Plan, setPlanForTests } = await import('../../server/src/system/limits')
+    setPlanForTests(Plan.parse({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50, localBackupRetentionDays: 3 }))
+    try {
+      const ids: string[] = []
+      for (const day of ['01', '02', '03', '04']) {
+        e.setClock(new Date(`2026-10-${day}T04:00:00Z`))
+        ids.push((await e.mgr.run({ kind: 'daily', scope: 'full' })).id)
+      }
+      // a chain is at most 3 backups long, so the 4th day starts a new full one
+      expect(e.mgr.metas().find((m) => m.id === ids[3])!.team!.base).toBeNull()
+      e.setClock(new Date('2026-10-07T05:00:00Z')) // the whole first chain is older than 3 days: gone; 14 days would keep it
+      expect(e.mgr.prune().sort()).toEqual(ids.slice(0, 3).sort())
+      expect(e.mgr.metas().map((m) => m.id)).toEqual([ids[3]!])
+    } finally { setPlanForTests(undefined); e.db.close() }
+  })
+
   test('not enough disk space: the backup refuses and the failure is reported', async () => {
     const e = setup('disk')
     const { BackupManager: BM } = await import('../../server/src/system/backup')

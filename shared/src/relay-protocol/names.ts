@@ -20,6 +20,11 @@ export const RESERVED_TEAM_NAMES: readonly string[] = [
   'staging', 'stage', 'preview', 'beta', 'alpha', 'canary', 'test', 'testing', 'demo', 'example', 'invalid',
   'team', 'teams', 'treesoop', 'mycel', 'teamax', 'team-ax', 'anthropic', 'claude', 'openai', 'chatgpt', 'codex',
   'google', 'apple', 'microsoft', 'cloudflare', 'github', 'kakao', 'naver', 'slack',
+  // the hosted service (control-plane RL-7): the control plane's and the operators' own names, mail and billing words, and
+  // the operators' probe team ax-probe (made from the relay host's CLI, which may use a reserved name)
+  'cloud', 'cp', 'ops', 'operator', 'agent', 'agents', 'metrics', 'monitor', 'monitoring', 'grafana', 'prometheus',
+  'backup', 'backups', 'notify', 'bounce', 'mailer', 'invoice', 'invoices', 'receipt', 'receipts', 'checkout', 'legal',
+  'terms', 'privacy', 'trust', 'changelog', 'teamax-cloud', 'ax-probe',
 ]
 
 export type TeamNameProblem = 'too_short' | 'too_long' | 'invalid' | 'reserved'

@@ -12,6 +12,7 @@ import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
 import Composer, { type EngineChoice } from '../components/chat/Composer'
+import { FrequentQuestions } from '../components/FrequentQuestions'
 
 export default function Home() {
   const t = useT()
@@ -100,6 +101,7 @@ export default function Home() {
             autoFocus
           />
           {firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {!projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>

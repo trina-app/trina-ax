@@ -2,10 +2,13 @@
 // be restored too (the web only offered restore below the newest and treated the newest as "the current file").
 // GET /api/files/history now says what the file is now (currentSha256) and whether the caller may restore
 // (canRestore = write access, the same rule POST /api/files/restore applies). Permission rules are unchanged.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('c-history-restore') })

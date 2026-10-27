@@ -1,0 +1,496 @@
+{
+ "format": 1,
+ "key": {
+  "seedHex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "publicKeySpkiB64": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+ },
+ "canonicalJson": [
+  {
+   "in": {
+    "b": 1,
+    "a": [
+     true,
+     null,
+     "x"
+    ],
+    "c": {
+     "z": "é",
+     "y": 0.5
+    }
+   },
+   "out": "{\"a\":[true,null,\"x\"],\"b\":1,\"c\":{\"y\":0.5,\"z\":\"é\"}}"
+  },
+  {
+   "in": {
+    "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+    "op": "tenantCommand",
+    "args": {
+     "command": "status",
+     "args": {}
+    },
+    "notAfter": "2026-10-22T00:10:00Z"
+   },
+   "out": "{\"args\":{\"args\":{},\"command\":\"status\"},\"notAfter\":\"2026-10-22T00:10:00Z\",\"op\":\"tenantCommand\",\"tenantId\":\"01JC8Z5V3Q1X2Y3Z4A5B6C7D8E\"}"
+  }
+ ],
+ "signing": [
+  {
+   "kind": "register",
+   "string": "mycel-relay-register\nacme\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n1761100000000",
+   "sha256": "ecf3af32ec3b7600cdd5911066cd6285eff8dc40b6ac88a4dcda0534cb64d854",
+   "sig": "g3ejmIcH9s8So2lj1U3+UD80/QyflBV/SXiLT/T7qo7Sf8UcaXM6ZGXuo6y68sCmyq1m+1enqDP0gqddz6sDBw=="
+  },
+  {
+   "kind": "rotate",
+   "string": "mycel-relay-rotate\n0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+   "sha256": "8fbb6331df400a4d838d522be4c53c4fe2f92521e51ef86367faeca42d92a5f7",
+   "sig": "AQ3mK49tf2E0d8pkd6MW6stALFLj6TStdAJ5Y23UT3vHprOtP0W16XW4GghJN0gKc2TfexnRWkSHtJAPJEwUAg=="
+  },
+  {
+   "kind": "reattach",
+   "string": "mycel-cloud-reattach-v1\n01JC8Z5V3Q1X2Y3Z4A5B6C7D8E\n0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10\n1761100000000",
+   "sha256": "2e617dd85e57cbfd4664ebca1d3424089d043b96c959cff6da7f4ef2a30c8b60",
+   "sig": "U7WzyN6BpQYgZRgpIQB7eJk2h0He4cVHNhDocpgSpqoViIQRt73YwMhttS1yv2No+89H0MI4XjzGMgVKhAoYCg=="
+  },
+  {
+   "kind": "ops",
+   "method": "POST",
+   "path": "/ops/v1/holds",
+   "ts": 1761100000000,
+   "body": "{\"name\":\"acme\",\"ttlSec\":1800}",
+   "string": "mycel-relay-ops-v1\nPOST\n/ops/v1/holds\n1761100000000\n7da7d1c791df3174fe55b7ca04eac8c52632035ad23603c64f18c29824b43370",
+   "sha256": "a833a0eb91585f8fa1f57cd904fd2eac9e450e4a063b4d3f93d868ba85554587",
+   "sig": "veOx8H6YkC6Jy9iL37iZNQ00azo2N9PYqpldItuQHmoetZKShX5mzKLnguQQ82PAYbEMSTJjjiZYAuj3vmHSCw==",
+   "authorization": "MycelRelayOps key=cp, ts=1761100000000, sig=veOx8H6YkC6Jy9iL37iZNQ00azo2N9PYqpldItuQHmoetZKShX5mzKLnguQQ82PAYbEMSTJjjiZYAuj3vmHSCw=="
+  }
+ ],
+ "tenantCommandArgv": [
+  {
+   "command": "status",
+   "args": {},
+   "argv": [
+    "status",
+    "--json"
+   ]
+  },
+  {
+   "command": "idle-wait",
+   "args": {
+    "max": 600
+   },
+   "argv": [
+    "idle-wait",
+    "--json",
+    "--max",
+    "600"
+   ]
+  },
+  {
+   "command": "reset-link",
+   "args": {
+    "owner": true
+   },
+   "argv": [
+    "reset-link",
+    "--json",
+    "--owner"
+   ]
+  },
+  {
+   "command": "relay-key-proof",
+   "args": {
+    "teamId": "0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10"
+   },
+   "argv": [
+    "relay-key-proof",
+    "--json",
+    "--team-id",
+    "0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10"
+   ]
+  },
+  {
+   "command": "backup-prepare",
+   "args": {
+    "kind": "daily",
+    "localId": "20261022T020000Z-daily"
+   },
+   "argv": [
+    "backup-prepare",
+    "--json",
+    "--kind",
+    "daily",
+    "--local-id",
+    "20261022T020000Z-daily"
+   ]
+  }
+ ],
+ "tenantCommands": {
+  "allowed": [
+   {
+    "command": "status",
+    "args": {},
+    "stdin": null
+   },
+   {
+    "command": "apply-plan",
+    "args": {},
+    "stdin": {
+     "format": 1,
+     "plan": "team",
+     "maxConcurrency": 3,
+     "memoryMiB": 4096,
+     "cpuCores": 3,
+     "diskGiB": 50,
+     "reserveMiB": 768,
+     "turnMemoryMaxMiB": null,
+     "turnPidsMax": 256,
+     "turnDiskMaxMiB": 1024,
+     "readMaxMiB": 128,
+     "convMemoryMaxMiB": null,
+     "localBackupRetentionDays": 3,
+     "updatedAt": "2026-10-22T00:00:00Z",
+     "maxActiveMembers": 12,
+     "display": {
+      "name": {
+       "ko": "팀",
+       "en": "Team",
+       "id": "Tim"
+      }
+     },
+     "links": {
+      "account": "https://account.treesoop.com",
+      "status": "https://status.treesoop.com",
+      "support": "support@treesoop.com"
+     }
+    }
+   },
+   {
+    "command": "idle-wait",
+    "args": {
+     "max": 600
+    },
+    "stdin": null
+   },
+   {
+    "command": "update",
+    "args": {
+     "version": "0.3.1"
+    },
+    "stdin": null
+   },
+   {
+    "command": "reset-link",
+    "args": {
+     "username": "kim"
+    },
+    "stdin": null
+   },
+   {
+    "command": "reset-link",
+    "args": {
+     "username": "kim.lee@acme"
+    },
+    "stdin": null
+   },
+   {
+    "command": "backup-prepare",
+    "args": {
+     "kind": "daily"
+    },
+    "stdin": null
+   },
+   {
+    "command": "set-server-config",
+    "args": {},
+    "stdin": {
+     "publicOrigins": [
+      "https://acme.treesoop.com",
+      "http://acme.localhost:19100"
+     ]
+    }
+   }
+  ],
+  "refused": [
+   {
+    "command": "sh",
+    "args": {},
+    "stdin": null,
+    "why": "not a command"
+   },
+   {
+    "command": "status",
+    "args": {
+     "path": "/etc/shadow"
+    },
+    "stdin": null,
+    "why": "unknown argument"
+   },
+   {
+    "command": "update",
+    "args": {
+     "version": "0.3.1; rm -rf /"
+    },
+    "stdin": null,
+    "why": "version format"
+   },
+   {
+    "command": "apply-plan",
+    "args": {},
+    "stdin": {
+     "format": 1,
+     "plan": "team",
+     "maxConcurrency": 99,
+     "memoryMiB": 4096,
+     "cpuCores": 3,
+     "diskGiB": 50,
+     "reserveMiB": 768,
+     "turnMemoryMaxMiB": null,
+     "turnPidsMax": 256,
+     "turnDiskMaxMiB": 1024,
+     "readMaxMiB": 128,
+     "convMemoryMaxMiB": null,
+     "localBackupRetentionDays": 3,
+     "updatedAt": "2026-10-22T00:00:00Z",
+     "maxActiveMembers": 12,
+     "display": {
+      "name": {
+       "ko": "팀",
+       "en": "Team",
+       "id": "Tim"
+      }
+     },
+     "links": {
+      "account": "https://account.treesoop.com",
+      "status": "https://status.treesoop.com",
+      "support": "support@treesoop.com"
+     }
+    },
+    "why": "stdin schema"
+   },
+   {
+    "command": "status",
+    "args": {},
+    "stdin": {
+     "x": 1
+    },
+    "why": "no stdin for status"
+   },
+   {
+    "command": "__proto__",
+    "args": {},
+    "stdin": null,
+    "why": "not a command"
+   },
+   {
+    "command": "reset-link",
+    "args": {
+     "username": "../root"
+    },
+    "stdin": null,
+    "why": "username rule"
+   },
+   {
+    "command": "set-server-config",
+    "args": {},
+    "stdin": {
+     "publicOrigins": [
+      "http://evil.example"
+     ]
+    },
+    "why": "http to another machine"
+   }
+  ]
+ },
+ "enroll": {
+  "file": {
+   "valid": [
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "controlPlane": "https://cp.treesoop.com",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "mode": "new",
+     "teamSlug": "acme",
+     "relayTeamId": null,
+     "timeZone": "Asia/Seoul",
+     "locale": "ko",
+     "backupWindowStartMin": 150,
+     "maintenanceWindowStartMin": 270
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "controlPlane": "https://cp.treesoop.com",
+     "enrollToken": null,
+     "mode": "reattach",
+     "relayTeamId": "0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10",
+     "timeZone": "Asia/Jakarta",
+     "locale": "id",
+     "backupWindowStartMin": 120,
+     "maintenanceWindowStartMin": 270
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "controlPlane": "https://cp.treesoop.com",
+     "enrollToken": null,
+     "mode": "reattach",
+     "teamSlug": null,
+     "relayTeamId": null,
+     "timeZone": "UTC",
+     "locale": "en",
+     "backupWindowStartMin": 150,
+     "maintenanceWindowStartMin": 270
+    }
+   ],
+   "invalid": [
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "controlPlane": "http://cp.treesoop.com",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "mode": "new",
+     "teamSlug": "acme",
+     "timeZone": "Asia/Seoul",
+     "locale": "ko",
+     "backupWindowStartMin": 150,
+     "maintenanceWindowStartMin": 270
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "controlPlane": "https://cp.treesoop.com",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "timeZone": "Asia/Seoul",
+     "locale": "ko",
+     "backupWindowStartMin": 150,
+     "maintenanceWindowStartMin": 270
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "controlPlane": "https://cp.treesoop.com",
+     "enrollToken": null,
+     "mode": "restore",
+     "relayTeamId": "0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10",
+     "timeZone": "Asia/Seoul",
+     "locale": "ko",
+     "backupWindowStartMin": 150,
+     "maintenanceWindowStartMin": 270
+    }
+   ]
+  },
+  "request": {
+   "valid": [
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "mode": "new",
+     "relayPublicKey": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+     "relayProof": {
+      "kind": "register",
+      "ts": 1761100000000,
+      "sig": "g3ejmIcH9s8So2lj1U3+UD80/QyflBV/SXiLT/T7qo7Sf8UcaXM6ZGXuo6y68sCmyq1m+1enqDP0gqddz6sDBw=="
+     },
+     "oneTimeRecipient": null,
+     "kitVersion": "0.3.0",
+     "appVersion": "0.3.0"
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "enrollToken": null,
+     "mode": "reattach",
+     "relayPublicKey": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+     "relayProof": {
+      "kind": "reattach",
+      "relayTeamId": "0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10",
+      "ts": 1761100000000,
+      "sig": "U7WzyN6BpQYgZRgpIQB7eJk2h0He4cVHNhDocpgSpqoViIQRt73YwMhttS1yv2No+89H0MI4XjzGMgVKhAoYCg=="
+     },
+     "oneTimeRecipient": null,
+     "kitVersion": "0.3.0",
+     "appVersion": "0.3.0"
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "mode": "new",
+     "relayPublicKey": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+     "relayProof": {
+      "kind": "register",
+      "ts": 1761100000000,
+      "sig": "g3ejmIcH9s8So2lj1U3+UD80/QyflBV/SXiLT/T7qo7Sf8UcaXM6ZGXuo6y68sCmyq1m+1enqDP0gqddz6sDBw=="
+     },
+     "oneTimeRecipient": null,
+     "kitVersion": "0.3.0",
+     "appVersion": ""
+    }
+   ],
+   "invalid": [
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "mode": "new",
+     "relayPublicKey": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+     "relayProof": {
+      "kind": "rotate",
+      "relayTeamId": "0f6c2b1e-6a4c-4e0e-9a51-2d1f6f3b7c10",
+      "sig": "AQ3mK49tf2E0d8pkd6MW6stALFLj6TStdAJ5Y23UT3vHprOtP0W16XW4GghJN0gKc2TfexnRWkSHtJAPJEwUAg=="
+     },
+     "oneTimeRecipient": null,
+     "kitVersion": "0.3.0",
+     "appVersion": "0.3.0"
+    },
+    {
+     "v": 1,
+     "tenantId": "01JC8Z5V3Q1X2Y3Z4A5B6C7D8E",
+     "enrollToken": "ent_0123456789abcdefghijKLMN",
+     "mode": "verify",
+     "relayPublicKey": null,
+     "relayProof": null,
+     "oneTimeRecipient": null,
+     "kitVersion": "0.3.0",
+     "appVersion": "0.3.0"
+    }
+   ]
+  },
+  "plan": {
+   "format": 1,
+   "plan": "team",
+   "maxConcurrency": 3,
+   "memoryMiB": 4096,
+   "cpuCores": 3,
+   "diskGiB": 50,
+   "reserveMiB": 768,
+   "turnMemoryMaxMiB": null,
+   "turnPidsMax": 256,
+   "turnDiskMaxMiB": 1024,
+   "readMaxMiB": 128,
+   "convMemoryMaxMiB": null,
+   "localBackupRetentionDays": 3,
+   "updatedAt": "2026-10-22T00:00:00Z",
+   "maxActiveMembers": 12,
+   "display": {
+    "name": {
+     "ko": "팀",
+     "en": "Team",
+     "id": "Tim"
+    }
+   },
+   "links": {
+    "account": "https://account.treesoop.com",
+    "status": "https://status.treesoop.com",
+    "support": "support@treesoop.com"
+   }
+  },
+  "notices": {
+   "format": 1,
+   "issuedAt": "2026-10-22T00:00:00Z",
+   "notices": []
+  }
+ }
+}

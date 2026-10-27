@@ -14,6 +14,8 @@ import { CSRF_HEADER, DEV_SESSION_COOKIE, WS_PROTOCOL } from '@mycel/shared/api'
 import { startInstance, type Instance } from './lib/instance'
 import { buildWorld, freshClient, PW, WHO, type World } from './lib/world'
 import { allCases, SPECS } from './lib/cases'
+import { P4_RAW_COVERED } from './lib/p4-cases'
+import { REMOTE_MCP_RAW_COVERED } from './lib/remote-mcp-cases'
 import { enumerateRoutes, judge } from './lib/matrix'
 
 setDefaultTimeout(180_000)
@@ -25,7 +27,7 @@ describe('coverage', () => {
     const routes = enumerateRoutes(REPO)
     const covered = new Set(Object.keys(SPECS))
     // the two raw routes are exercised separately (ws subscriptions test, web app shell)
-    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\''])
+    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\'', ...P4_RAW_COVERED, ...REMOTE_MCP_RAW_COVERED])
     const missing = routes.filter((r) => (r.startsWith('RAW') ? !rawCovered.has(r) : !covered.has(r)))
     expect(missing, `routes with no matrix case: ${missing.join(', ')}`).toEqual([])
   })
@@ -41,7 +43,7 @@ describe('coverage', () => {
 // every case. Allowed mutating writes are checked on a separate world below.
 let W: World
 let inst: Instance
-beforeAll(async () => { inst = await startInstance('matrix'); W = await buildWorld(inst) })
+beforeAll(async () => { inst = await startInstance('matrix'); W = await buildWorld(inst, { sharedSubscriptions: true }) })
 afterAll(async () => { for (const s of Object.values(W?.sockets ?? {})) s.close(); await inst?.close() })
 
 // Every case runs once, in two phases on the pristine world:

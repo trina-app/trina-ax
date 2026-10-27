@@ -22,6 +22,9 @@ import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPa
 import { accountKey, ipKeys, limitIp, tokenIpKeys, type AccountScope } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { authOf } from './service'
+import { assertSeatFree } from '../system/limits'
+import { isValidTimeZone } from '../system/time-zone'
+import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -90,7 +93,9 @@ export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null;
   return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale }
 }
 
-export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale }
+export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale
+  /** IANA zone (the setup page sends the browser's); unknown or absent = the server's default (system/time-zone.ts) */
+  timeZone?: string | null }
 
 /**
  * Create the team and its owner. Only while no user exists (checked inside an immediate transaction, so two
@@ -101,8 +106,11 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
     if (userCount(ctx.db) > 0) return false
-    // the owner follows the team language they just picked (null), like everyone who has not chosen their own
-    updateTeamSettings(ctx.db, { teamName: o.teamName, defaultLocale: o.locale })
+    // the owner follows the team language they just picked (null), like everyone who has not chosen their own.
+    // The zone: the browser's, except on the hosted service when the control plane set one (MYCEL_TEAM_TZ, chosen at
+    // sign-up; the host's backup window is in that zone) — the owner can still change it in Admin > Settings.
+    const keepCpZone = isHosted(ctx.config) && isValidTimeZone(process.env.MYCEL_TEAM_TZ)
+    updateTeamSettings(ctx.db, { teamName: o.teamName, defaultLocale: o.locale, ...(isValidTimeZone(o.timeZone) && !keepCpZone ? { timeZone: o.timeZone } : {}) })
     insertUser(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, passwordHash, role: 'owner', locale: null, mustChangePassword: false })
     createDefaultFolders(ctx)
     audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName } })
@@ -127,7 +135,7 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   const expected = ctx.config.setupToken
   if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
-  const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale })
+  const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
 }
 
@@ -236,6 +244,8 @@ export function createInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof C
   if (b.role === 'admin' && auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyAdmins', locale))
   const groups = existingGroups(ctx.db, b.groupIds)
   if (groups.length !== new Set(b.groupIds).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.groupIds': 'unknown group' } })
+  // the plan's seats (system/limits.ts): no new link while every seat is taken; accepting checks again
+  assertSeatFree(ctx.db, locale)
   const token = newToken()
   const now = authOf(ctx).now()
   const row: InviteRow = { id: newId(), role: b.role, group_ids: JSON.stringify(groups), created_by: auth.user.id, created_at: new Date(now).toISOString(), expires_at: new Date(now + b.expiresInHours * 3600_000).toISOString(), used_at: null, used_by: null, revoked_at: null }
@@ -301,6 +311,8 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
     // checked again inside the write: the maker may have been demoted, disabled or deleted during the (slow) hash
     const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r!.id) as InviteRow | null
     if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
+    // the plan's seats, inside the write: two accepts at once cannot both take the last one (409, nothing used up)
+    assertSeatFree(ctx.db, locale)
     // one use only, even with concurrent accepts
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
     if (res.changes !== 1) return 'gone'

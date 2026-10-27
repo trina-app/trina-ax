@@ -11,6 +11,7 @@ import { TurnRegistry } from './turns'
 import { startMcpSocket } from './mcp/socket'
 import { SocketLauncher, startGate, startLauncher, type Launcher, type LauncherSandbox } from './native'
 import { ModelProxyService, type ProxyServiceOptions } from './proxy/subscription'
+import type { CredentialBroker } from './credentials/broker'
 
 export interface Running {
   cfg: ServerConfig
@@ -20,8 +21,8 @@ export interface Running {
   toolsSock: string
   launcherSock: string
   launcher: Launcher | null
-  /** the model proxy the engine account talks through: Claude requests (subscription token swapped in) and Codex
-   * HTTPS tunnels (CONNECT). Production and dev subscription mode; null otherwise. */
+  /** the model proxy the engine account talks through: model requests (the turn's AI connection swapped in) and
+   * CONNECT tunnels (office local-login, the ChatGPT sign-in). Production and managed mode; null otherwise. */
   proxy: ModelProxyService | null
   rejected: () => { reason: string }[]
   close(): Promise<void>
@@ -52,12 +53,15 @@ function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 
   }
 }
 
-/** Start the model proxy for a core started without one (tests): Codex tunnels only when `upstreamUrl` is null. Waits
- * for the bind and throws when the port is taken. Stops with srv.close(). */
-export async function startEngineProxy(srv: Running, o: { port?: number; upstreamUrl?: string | null; secretsDir?: string; connectHosts?: string[]; dial?: (host: string, port: number) => import('node:net').Socket }) {
+/** Start the model proxy for a core started without one (tests): tunnels only when `broker` is null. Waits for the
+ * bind and throws when the port is taken. Stops with srv.close(). */
+export async function startEngineProxy(srv: Running, o: {
+  port?: number; broker?: CredentialBroker | null; codexModels?: () => string[]; secretsDir?: string; connectHosts?: string[]; codexTurns?: boolean
+  dial?: (host: string, port: number) => import('node:net').Socket
+}) {
   const svc = new ModelProxyService(coreProxyOptions(srv, {
-    port: o.port ?? 0, upstreamUrl: o.upstreamUrl ?? null, secretsDir: o.secretsDir ?? srv.cfg.dataDir,
-    connect: { ...(o.connectHosts ? { hosts: o.connectHosts } : {}), ...(o.dial ? { dial: o.dial } : {}) },
+    port: o.port ?? 0, broker: o.broker ?? null, secretsDir: o.secretsDir ?? srv.cfg.dataDir, ...(o.codexModels ? { codexModels: o.codexModels } : {}),
+    connect: { ...(o.connectHosts ? { hosts: o.connectHosts } : {}), ...(o.codexTurns ? { codexTurns: true } : {}), ...(o.dial ? { dial: o.dial } : {}) },
   })).start()
   await svc.started
   if (!svc.ready) throw new Error(`model proxy could not listen on 127.0.0.1:${o.port ?? 0}`)

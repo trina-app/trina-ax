@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily encrypted copy of the relay registry to R2
+
+[Timer]
+OnCalendar=*-*-* 18:40:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

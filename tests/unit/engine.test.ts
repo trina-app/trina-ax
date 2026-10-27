@@ -94,10 +94,11 @@ describe('locked engine invocations', () => {
   })
   test('claude proxy modes: own config dir and home in the chat folder, per-turn token for the launcher pipe, never in env', () => {
     const base = { turnId: 't', chatDir, token: 'tok', systemPrompt: 's', message: 'm', sessionId: 'x', resume: false, stash: null, maxTurns: 3, timeoutMs: 1, proxyToken: 'mpx_1' }
-    const k = buildClaudeLaunch(base, { bin: 'c', authMode: 'proxy', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'api-key' } })
+    // the kind follows the turn's AI connection (API key -> the API key descriptor; Claude subscription -> OAuth)
+    const k = buildClaudeLaunch({ ...base, tokenKind: 'api-key' }, { bin: 'c', authMode: 'managed', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9' } })
     expect(k.env).toMatchObject({ HOME: path.join(chatDir, '.home'), CLAUDE_CONFIG_DIR: path.join(chatDir, '.claude'), ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' })
     expect(k.modelToken).toEqual({ kind: 'api-key', value: 'mpx_1' })
-    const o = buildClaudeLaunch(base, { bin: 'c', authMode: 'subscription', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9', kind: 'oauth' } })
+    const o = buildClaudeLaunch({ ...base, tokenKind: 'oauth' }, { bin: 'c', authMode: 'managed', agentHome: '/agent/home', modelProxy: { baseUrl: 'http://127.0.0.1:9' } })
     expect(o.modelToken).toEqual({ kind: 'oauth', value: 'mpx_1' })
     for (const r of [k, o]) {
       expect(JSON.stringify(r.env)).not.toContain('mpx_1'); expect(JSON.stringify(r.args)).not.toContain('mpx_1')

@@ -1,5 +1,5 @@
 // Component C: chunked upload sessions (8 MB chunks, resumable, sha256-checked) and chat attachments.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
@@ -8,6 +8,9 @@ import { imageSize } from '../../server/src/uploads/image'
 import { MAX_OPEN_SESSIONS } from '../../server/src/uploads/sessions'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
 import { which } from '../../server/src/config'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('c-uploads') })

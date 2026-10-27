@@ -3,10 +3,11 @@
 //
 // Where the file is:   --config <path>  >  $MYCEL_CONFIG  >  dev: <repo>/.dev/server.json (optional)
 //                                                           prod: /Library/Application Support/mycel/config/server.json
+//                                                                 (Linux: /var/lib/mycel/config/server.json)
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
-// (1 = the official relay may be offered).
+// (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -15,15 +16,50 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { AuthMode, PRODUCT } from '@mycel/shared'
+import { CredentialKind } from '@mycel/shared/api'
+import { CLOUD_DEFAULT_CREDENTIAL_KINDS } from '@mycel/shared/cloud-protocol'
 
 export const REPO_ROOT = path.resolve(import.meta.dir, '..', '..')
 export const DEV_DIR = path.join(REPO_ROOT, '.dev')
-export const PROD_BASE = `/Library/Application Support/${PRODUCT.id}`
+/** The installed server's base folder: macOS /Library/Application Support/<id>, Linux /var/lib/<id>
+ * (docs/INSTALL-LINUX.md; the Linux installer writes every path into server.json anyway, this is the fallback). */
+export const prodBase = (platform: NodeJS.Platform = process.platform) =>
+  platform === 'linux' ? `/var/lib/${PRODUCT.id}` : `/Library/Application Support/${PRODUCT.id}`
+export const PROD_BASE = prodBase()
+/** default log folder of an installed server: Linux logs to journald only (stdout), macOS to /Library/Logs/<id> */
+export const prodLogDir = (platform: NodeJS.Platform = process.platform): string | null => platform === 'linux' ? null : `/Library/Logs/${PRODUCT.id}`
 /** Foundation dev server port (component port ranges: docs/WORKPLAN.md). */
 export const DEV_PORT = 19100
 /** model proxy port when server.json names none (the installer's default --proxy-port) */
 export const DEFAULT_PROXY_PORT = 47821
 export const ANTHROPIC_API = 'https://api.anthropic.com'
+/** where the model proxy sends each family's requests (engine.modelUpstreams overrides them for tests) */
+export const DEFAULT_UPSTREAMS = {
+  anthropic: ANTHROPIC_API,
+  openai: 'https://api.openai.com/v1',
+  chatgpt: 'https://chatgpt.com/backend-api/codex',
+  openaiAuth: 'https://auth.openai.com',
+} as const
+export type ModelUpstreams = { [K in keyof typeof DEFAULT_UPSTREAMS]: string }
+/** every AI connection kind; engine.credentialKinds narrows it per deployment (docs/DECISIONS.md "AI 연결" D22) */
+export const ALL_CREDENTIAL_KINDS: CredentialKind[] = [...CredentialKind.options]
+
+/** 'subscription' and 'proxy' are older names of 'managed' (credentials D18): a server.json written by either the
+ * previous or the next installer starts this server, and this server's file starts the previous one. */
+export function normalizeAuthMode(v: AuthMode | string | undefined): 'local-login' | 'managed' {
+  return v === undefined || v === 'local-login' ? 'local-login' : 'managed'
+}
+
+/** An address the real credential may be sent to: https, or plain http to this machine only (a fake upstream in
+ * tests); never with user:password in it. */
+const credentialUrl = (u: string) => {
+  try {
+    const x = new URL(u)
+    if (x.username || x.password) return false
+    return x.protocol === 'https:' || (x.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(x.hostname))
+  } catch { return false }
+}
+const UpstreamUrl = z.string().url().refine(credentialUrl, 'model upstreams must be https:// (http:// only for 127.0.0.1 / localhost)')
 /** same port under its production name (installer --proxy-port; pf and the engine sandbox allow the engine account only this) */
 export const PROD_PROXY_PORT = DEFAULT_PROXY_PORT
 
@@ -66,23 +102,23 @@ export const AppConfigFile = z.object({
   logDir: z.string().nullable().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   engine: z.object({
-    /** local-login: owner's own CLI login, engine runs as the current user (dev). subscription: the owner's
-     * `claude setup-token` token in <install>/secrets/claude-oauth-token behind the model proxy (production, written
-     * by scripts/install-macos.sh). proxy: company key (code only, refused). */
+    /** local-login: owner's own CLI login, engine runs as the current user (dev, office). managed: the team's AI
+     * connections (Admin > AI connections) behind the model proxy (production, cloud, Linux). 'subscription' and
+     * 'proxy' (older installers) are read as managed. */
     authMode: AuthMode.default('local-login'),
+    /** AI connection kinds this deployment allows (docs/DECISIONS.md "AI 연결" D22). Default: all four. A kind left out
+     * cannot be added, and existing connections of it are skipped (shown as "off on this server", never deleted).
+     * The hosted cloud's enrollment writes all four (CLOUD_DEFAULT_CREDENTIAL_KINDS); the control plane may narrow it. */
+    credentialKinds: z.array(CredentialKind).min(1).optional(),
+    /** where the model proxy sends each family (tests: fake upstreams). Same rule as modelUpstream. */
+    modelUpstreams: z.object({ anthropic: UpstreamUrl.optional(), openai: UpstreamUrl.optional(), chatgpt: UpstreamUrl.optional(), openaiAuth: UpstreamUrl.optional() }).optional(),
     /** the model proxy's port on 127.0.0.1 (the installer's --proxy-port), the engine account's only network path:
      * Claude requests and Codex tunnels. pf and the launcher's sandbox allow the engine account only this port, so
      * another value here only makes the engine fail closed. */
     proxyPort: z.number().int().min(1).max(65535).optional(),
     /** where the model proxy sends requests (tests point it at a fake upstream). The owner's token goes there, so
      * HTTPS only; plain HTTP only to this Mac (a fake upstream in tests); no user:password in the address. */
-    modelUpstream: z.string().url().refine((u) => {
-      try {
-        const x = new URL(u)
-        if (x.username || x.password) return false
-        return x.protocol === 'https:' || (x.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(x.hostname))
-      } catch { return false }
-    }, 'modelUpstream must be https:// (http:// only for 127.0.0.1 / localhost)').optional(),
+    modelUpstream: z.string().url().refine(credentialUrl, 'modelUpstream must be https:// (http:// only for 127.0.0.1 / localhost)').optional(),
     claudeBin: z.string().optional(),
     codexBin: z.string().optional(),
     /** installed layout (tab 6, written by scripts/install-macos.sh): sockets <runDir>/tools.sock + private/, per-chat
@@ -96,16 +132,24 @@ export const AppConfigFile = z.object({
     /** wss://relay.example/connect; null = no relay */
     url: z.string().nullable().default(null),
     teamName: z.string().nullable().default(null),
-    /** the official relay (wss://relay.treesoop.com/connect) is running and may be offered in Admin > System. Off until
-     * the production relay exists (docs/OWNER-TODO.md 4): selecting it before then never connects. */
-    officialAvailable: z.boolean().default(false),
-  }).default({ url: null, teamName: null, officialAvailable: false }),
+    /** the official relay (wss://relay.treesoop.com/connect) may be offered in Admin > System. On by default from the
+     * release with the official relay add-on (control-plane SV-9: registration there needs a claim code from the
+     * account console); a server.json can still turn it off. */
+    officialAvailable: z.boolean().default(true),
+  }).default({ url: null, teamName: null, officialAvailable: true }),
   update: z.object({
     channel: z.enum(['stable', 'beta']).default('stable'),
     feedUrl: z.string().nullable().default(null),
-  }).default({ channel: 'stable', feedUrl: null }),
+    /** apply app-only releases from the feed by itself, inside the team's update window (Linux self-host; the Mac
+     * installer never sets it, the hosted cloud leaves it off: the control plane updates) */
+    auto: z.boolean().default(false),
+  }).default({ channel: 'stable', feedUrl: null, auto: false }),
   /** check every JSON response against the contract (default: on in dev) */
   validateResponses: z.boolean().optional(),
+  /** how this server is installed (linux-runtime D24, server/src/system/deployment.ts): "self" (a customer's own server,
+   * the default) or "hosted" (the hosted service: the operator owns server.json, the team's server account only reads
+   * it; the control plane writes it at enrolment). Office mode and dev stay what `office` / `mode` say. */
+  deployment: z.enum(['self', 'hosted']).optional(),
 })
 export type AppConfigFile = z.infer<typeof AppConfigFile>
 
@@ -128,10 +172,22 @@ export interface AppConfig {
   dataDir: string
   logDir: string | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  engine: { authMode: 'local-login' | 'proxy' | 'subscription'; claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number; modelUpstream?: string }
+  engine: {
+    authMode: 'local-login' | 'managed'
+    /** the older name the file used ('subscription' / 'proxy'), logged once at start */
+    authModeAlias?: string
+    claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number
+    /** alias of modelUpstreams.anthropic */
+    modelUpstream?: string
+    /** absent = all four kinds */
+    credentialKinds?: CredentialKind[]
+    modelUpstreams?: Partial<ModelUpstreams>
+  }
   relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
-  update: { channel: 'stable' | 'beta'; feedUrl: string | null }
+  update: { channel: 'stable' | 'beta'; feedUrl: string | null; auto?: boolean }
   validateResponses: boolean
+  /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
+  deployment?: 'self' | 'hosted'
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
 }
@@ -167,7 +223,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   const mode = modeHint ?? f.mode ?? 'dev'
   const def = mode === 'dev'
     ? { teamRoot: path.join(DEV_DIR, 'team'), dataDir: path.join(DEV_DIR, 'data'), logDir: null as string | null }
-    : { teamRoot: path.join(PROD_BASE, 'team'), dataDir: path.join(PROD_BASE, 'data'), logDir: `/Library/Logs/${PRODUCT.id}` }
+    : { teamRoot: path.join(PROD_BASE, 'team'), dataDir: path.join(PROD_BASE, 'data'), logDir: prodLogDir() }
 
   const port = env[P + 'PORT'] !== undefined ? Number(env[P + 'PORT']) : f.listen.port
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new ConfigError(`${P}PORT must be a port number`)
@@ -175,6 +231,12 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   if (!['debug', 'info', 'warn', 'error'].includes(level)) throw new ConfigError(`${P}LOG_LEVEL must be debug, info, warn or error`)
   const origins = env[P + 'PUBLIC_ORIGINS'] !== undefined ? env[P + 'PUBLIC_ORIGINS']!.split(',').map((s) => s.trim()).filter(Boolean) : f.publicOrigins
   const logDirRaw = env[P + 'LOG_DIR'] ?? (f.logDir === undefined ? def.logDir : f.logDir)
+  const depEnv = env[P + 'DEPLOYMENT']
+  const dep = depEnv !== undefined && depEnv !== '' ? AppConfigFile.shape.deployment.safeParse(depEnv) : null
+  if (dep && !dep.success) throw new ConfigError(`${P}DEPLOYMENT must be self or hosted`)
+  const deployment = dep?.data ?? f.deployment
+  // the hosted service is never office mode (one Mac in an office): a file that says both is a mistake, not a choice
+  if (deployment === 'hosted' && f.office) throw new ConfigError(`config file ${file}: deployment "hosted" cannot be office mode`)
 
   return {
     mode,
@@ -191,13 +253,17 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     logDir: logDirRaw ? path.resolve(base, logDirRaw) : null,
     logLevel: level,
     engine: {
-      authMode: f.engine.authMode, claudeBin: f.engine.claudeBin, codexBin: f.engine.codexBin,
+      authMode: normalizeAuthMode(f.engine.authMode),
+      ...(f.engine.authMode === 'subscription' || f.engine.authMode === 'proxy' ? { authModeAlias: f.engine.authMode } : {}),
+      claudeBin: f.engine.claudeBin, codexBin: f.engine.codexBin,
       ...(f.engine.runDir ? { runDir: abs(f.engine.runDir) } : {}),
       ...(f.engine.agentRoot ? { agentRoot: abs(f.engine.agentRoot) } : {}),
       ...(f.engine.launcherSock ? { launcherSock: abs(f.engine.launcherSock) } : {}),
       ...(f.engine.agentUid !== undefined ? { agentUid: f.engine.agentUid } : {}),
       ...(f.engine.proxyPort !== undefined ? { proxyPort: f.engine.proxyPort } : {}),
       ...(f.engine.modelUpstream ? { modelUpstream: f.engine.modelUpstream } : {}),
+      ...(f.engine.credentialKinds ? { credentialKinds: [...new Set(f.engine.credentialKinds)] } : {}),
+      ...(f.engine.modelUpstreams ? { modelUpstreams: f.engine.modelUpstreams } : {}),
     },
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
@@ -207,5 +273,30 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     update: f.update,
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
+    ...(deployment ? { deployment } : {}),
   }
 }
+
+/** The AI connection kinds this server allows: engine.credentialKinds, else the deployment's default — all four on a
+ * self-installed server or office Mac and on the hosted service (shared/src/cloud-protocol
+ * CLOUD_DEFAULT_CREDENTIAL_KINDS, the list mycel-enroll writes; owner's decision 2026-10-22). Subscription kinds always
+ * need the D23 notice; the control plane can narrow the list fleet-wide with set-server-config. */
+export function allowedCredentialKinds(config: Pick<AppConfig, 'engine'> & { deployment?: AppConfig['deployment'] }): Set<CredentialKind> {
+  if (config.engine.credentialKinds?.length) return new Set(config.engine.credentialKinds)
+  return new Set(config.deployment === 'hosted' ? CLOUD_DEFAULT_CREDENTIAL_KINDS : ALL_CREDENTIAL_KINDS)
+}
+
+/** Where the model proxy sends each family: engine.modelUpstreams, modelUpstream (= anthropic), the real services. */
+export function modelUpstreams(config: Pick<AppConfig, 'engine'>): ModelUpstreams {
+  const o = config.engine.modelUpstreams ?? {}
+  const trim = (u: string) => u.replace(/\/+$/, '')
+  return {
+    anthropic: trim(o.anthropic ?? config.engine.modelUpstream ?? DEFAULT_UPSTREAMS.anthropic),
+    openai: trim(o.openai ?? DEFAULT_UPSTREAMS.openai),
+    chatgpt: trim(o.chatgpt ?? DEFAULT_UPSTREAMS.chatgpt),
+    openaiAuth: trim(o.openaiAuth ?? DEFAULT_UPSTREAMS.openaiAuth),
+  }
+}
+
+/** managed mode (the team's AI connections behind the model proxy) */
+export const isManaged = (config: Pick<AppConfig, 'engine'>) => config.engine.authMode === 'managed'

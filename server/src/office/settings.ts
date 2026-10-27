@@ -137,7 +137,9 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
   return s
 }
 
-/** TEAMAX_CLAUDE_AUTH: '' / 'local-login' (this Mac's Claude login) or 'subscription' (setup-token behind the proxy) */
+/** TEAMAX_CLAUDE_AUTH: '' / 'local-login' (this Mac's Claude login) or 'subscription' (the team's AI connections behind
+ * the proxy; server.json keeps the name "subscription" this release, which the server reads as "managed", and the
+ * owner's setup-token in config/ becomes the first connection; docs/DECISIONS.md "AI 연결" D18) */
 export function parseClaudeAuth(v: string | undefined): OfficeSettings['claudeAuth'] {
   const t = (v ?? '').trim()
   if (!t || t === 'local-login') return 'local-login'

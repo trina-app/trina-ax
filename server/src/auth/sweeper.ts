@@ -1,8 +1,7 @@
 // Periodic clean-up of component A's data: expired sessions, old sign-in attempts, spent reset links, audit rows past
 // retention, and the chats / memories of deleted accounts after the chat retention period (tab 5 "삭제").
-import fs from 'node:fs'
-import path from 'node:path'
 import type { AppContext } from '../context'
+import { forgetPurgedChats } from '../chat/forget'
 import { purgeAudit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
 import { authOf } from './service'
@@ -22,6 +21,7 @@ export function sweep(ctx: AppContext): SweepResult {
   // retention period; the users row stays as a tombstone so usage and audit keep their names
   const cutoff = new Date(now - s.chatTrashRetentionDays * 86_400_000).toISOString()
   const gone = db.query("SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ? AND (EXISTS (SELECT 1 FROM chats c WHERE c.user_id = users.id) OR EXISTS (SELECT 1 FROM memories m WHERE m.user_id = users.id))").all(cutoff) as { id: string }[]
+  const forgetting: Promise<void>[] = []
   for (const u of gone) {
     const chats = db.query('SELECT id FROM chats WHERE user_id = ?').all(u.id) as { id: string }[]
     db.transaction(() => {
@@ -30,15 +30,15 @@ export function sweep(ctx: AppContext): SweepResult {
       db.query('DELETE FROM chats WHERE user_id = ?').run(u.id)
     })()
     // what the chat left outside the DB: the engine session stash and the engine's working folder of the chat
-    // (the same as purging one chat from the trash)
-    for (const c of chats) {
-      if (!/^[A-Za-z0-9_-]+$/.test(c.id)) continue
-      fs.rmSync(path.join(ctx.config.dataDir, 'sessions', c.id), { recursive: true, force: true })
-      fs.rmSync(path.join(ctx.engineConfig.agentRoot, c.id), { recursive: true, force: true })
-    }
+    // (the same as purging one chat from the trash; in production the launcher removes the folder, chat/forget.ts)
+    forgetting.push(forgetPurgedChats(ctx, chats.map((c) => c.id)))
   }
+  lastSweepForget = Promise.all(forgetting).then(() => {})
   return { sessions, attempts, resets, audit, purgedUsers: gone.length }
 }
+
+/** The launcher's answers for the last sweep's purged chats (tests wait on it; never rejects). */
+export let lastSweepForget: Promise<void> = Promise.resolve()
 
 /** Run now and then every `everyMs` (default hourly) until the context closes. */
 export function startSweeper(ctx: AppContext, everyMs = 3600_000): void {

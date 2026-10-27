@@ -1,6 +1,10 @@
-// Codex network path (design tab 1 "리슨", tab 2 "Codex 네트워크"): the engine account may reach only the local model
-// proxy (pf + engine sandbox). A Codex turn gets HTTPS_PROXY=http://turn:<proxy token>@127.0.0.1:<port>, and the
-// model proxy answers its CONNECT here:
+// CONNECT tunnels of the model proxy (design tab 1 "리슨", tab 2 "Codex 네트워크"): the engine account may reach only
+// the local model proxy (pf / nftables + engine sandbox). Managed Codex turns do NOT tunnel any more (docs/DECISIONS.md
+// "AI 연결" D9: they talk plain HTTP to the proxy's /codex/* path, which puts the real credential on): a Codex turn's
+// token gets 403 here unless `codexTurns` is on (the F1 fallback, D11, and the older agent-own setup). What still
+// tunnels: the ChatGPT sign-in process (codex-login:pid-<pid>, only to auth.openai.com:443) and, in office mode with
+// the Mac user's own Claude login, Claude turns (`claudeHosts`). A tunnelling process gets
+// HTTPS_PROXY=http://turn:<proxy token>@127.0.0.1:<port>, and the model proxy answers its CONNECT here:
 //   - Proxy-Authorization: Basic base64("turn:" + token), a live proxy token (not revoked, not expired) -> else 407
 //   - the token's turn is a RUNNING Codex turn (a Claude turn's token, or a finished turn -> 403), or the engine
 //     account's device login started by the server CLI (codex-login:pid-<pid>)
@@ -21,6 +25,8 @@ import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
 
 export const CODEX_CONNECT_HOSTS = ['chatgpt.com:443', 'auth.openai.com:443']
+/** the ChatGPT device sign-in (`codex login --device-auth`) calls auth.openai.com only (codex-rs/login, C13) */
+export const CODEX_LOGIN_HOSTS = ['auth.openai.com:443']
 /** What Claude Code 2.1.306 with the Mac user's login reaches (office mode, local login): the Messages API (and its
  * profile / usage endpoints on the same host) and the OAuth token refresh (platform.claude.com/v1/oauth/token, the
  * TOKEN_URL in the CLI). WebSearch runs at Anthropic (a server tool) and needs no host here; telemetry, error
@@ -33,8 +39,12 @@ export const CODEX_LOGIN_BOUND = 'codex-login:pid-'
 
 export interface ConnectOpts {
   db: Database
-  /** allowed host:port targets of Codex turns, matched exactly */
+  /** allowed host:port targets of Codex turns (with codexTurns), matched exactly */
   hosts?: string[]
+  /** Codex turns may tunnel (F1 fallback / the older agent-own setup only; managed Codex turns never do) */
+  codexTurns?: boolean
+  /** allowed targets of the ChatGPT sign-in process (default CODEX_LOGIN_HOSTS) */
+  loginHosts?: string[]
   /** allowed host:port targets of Claude turns (office mode with the Mac user's login); absent = Claude turns get no
    * tunnel */
   claudeHosts?: string[]
@@ -69,6 +79,7 @@ function refuse(sock: Duplex, status: 403 | 407 | 502, extra = '') {
 /** The 'connect' listener of the model proxy's node:http server. */
 export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
   const hosts = new Set(o.hosts ?? CODEX_CONNECT_HOSTS)
+  const loginHosts = new Set(o.loginHosts ?? CODEX_LOGIN_HOSTS)
   const claudeHosts = o.claudeHosts ? new Set(o.claudeHosts) : null
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
   // Open tunnels outlive the CONNECT check: a tunnel stays open after its token was revoked (turn over, login CLI
@@ -128,10 +139,12 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
       const pid = r.turn_id.startsWith(CODEX_LOGIN_BOUND) ? Number(r.turn_id.slice(CODEX_LOGIN_BOUND.length)) : NaN
       if (!Number.isInteger(pid) || pid <= 1) return deny(403, 'login token is not bound to the login process', r.user_id, r.turn_id)
       session = pid
+      allowed = loginHosts
     } else {
       const t = o.db.query('SELECT engine, status FROM turns WHERE id = ?').get(r.turn_id) as { engine: string; status: string } | null
       const claude = t?.engine === 'claude-code' && claudeHosts !== null
-      if (!t || (t.engine !== 'codex' && !claude)) return deny(403, 'only Codex turns may open tunnels', r.user_id, r.turn_id)
+      const codex = t?.engine === 'codex' && o.codexTurns === true
+      if (!t || (!codex && !claude)) return deny(403, t?.engine === 'codex' ? 'Codex turns talk to the proxy, not through tunnels' : 'this turn may not open tunnels', r.user_id, r.turn_id)
       if (claude) allowed = claudeHosts!
       if (t.status !== 'running') return deny(403, 'the turn is not running', r.user_id, r.turn_id)
       if (o.turnSession) {

@@ -4,12 +4,18 @@ import path from 'node:path'
 
 export const FAKE_ENGINE = path.join(import.meta.dir, 'fake-engine.ts')
 
+/** Linux sandbox tests (tests/linux): the fake engine lives in its own engine folder (MYCEL_FAKE_ENGINE_DIR, holding a
+ * copy of bun and fake-engine.ts), the only folder besides the chat folder that the turn sandbox shows. */
+const SANDBOX_ENGINE_DIR = process.env.MYCEL_FAKE_ENGINE_DIR
+export const fakeEngineCmd = () => SANDBOX_ENGINE_DIR ? path.join(SANDBOX_ENGINE_DIR, 'bun') : process.execPath
+const fakeEngineScript = () => SANDBOX_ENGINE_DIR ? path.join(SANDBOX_ENGINE_DIR, 'fake-engine.ts') : FAKE_ENGINE
+
 export async function fakeTurn(srv: Running, user: string, spec: unknown, o: { chatId?: string; onStarted?: (pid: number) => void | Promise<void>; onLine?: (line: any) => void | Promise<void> } = {}) {
   const chatId = o.chatId ?? 'c_' + crypto.randomUUID().slice(0, 8)
   const { turn, token } = srv.turns.create(user, chatId, 'fake')
   const h = srv.launcher!.launch({
-    op: 'run', turnId: turn.id, chatDir: path.join(srv.cfg.agentRoot, chatId), cmd: process.execPath,
-    args: [FAKE_ENGINE, '--mcp-config', '{MCP_CONFIG}'], env: { PATH: '/usr/bin:/bin', HOME: srv.cfg.agentRoot },
+    op: 'run', turnId: turn.id, chatDir: path.join(srv.cfg.agentRoot, chatId), cmd: fakeEngineCmd(),
+    args: [fakeEngineScript(), '--mcp-config', '{MCP_CONFIG}'], env: { PATH: '/usr/bin:/bin', HOME: srv.cfg.agentRoot, ...(SANDBOX_ENGINE_DIR ? { TMPDIR: '{CHAT_DIR}/.tmp' } : {}) },
     token, systemPrompt: 'fake', timeoutMs: 120000, stdin: JSON.stringify(spec),
   })
   let stdout = '', stderr = '', exit: any = null, pending = ''

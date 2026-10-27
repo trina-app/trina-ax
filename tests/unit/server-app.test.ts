@@ -211,7 +211,15 @@ describe('bodies', () => {
 describe('route registry', () => {
   test('every implemented route is in the contract (or a known off-contract route)', () => {
     const contract = new Set(listEndpoints().map(({ ep }) => `${ep.method} ${ep.path}`))
-    const offContract = new Set(['GET *', 'GET /api/ws'])
+    const offContract = new Set([
+      'GET *', 'GET /api/ws',
+      // External OAuth/MCP protocols are tested through their raw contracts, not our app JSON API.
+      'GET /api/integrations/google-drive/callback',
+      'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp',
+      'GET /.well-known/oauth-authorization-server', 'GET /oauth/authorize',
+      'POST /oauth/register', 'POST /oauth/token', 'POST /oauth/revoke',
+      'GET /mcp', 'POST /mcp', 'DELETE /mcp',
+    ])
     for (const [k, mod] of ctx.implemented) if (mod !== 'test') expect(contract.has(k) || offContract.has(k), `${k} (${mod})`).toBe(true)
   })
   test('implementing the same endpoint twice is refused', async () => {

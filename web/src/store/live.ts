@@ -1,5 +1,5 @@
 // Wires the WebSocket to the stores: one RealtimeClient per signed-in window.
-import type { FileChange, Memory, ServerEvent } from '@mycel/shared/api'
+import type { CredentialLogin, FileChange, Memory, ServerEvent } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { openTeamFile } from '../lib/sidePanel'
@@ -20,6 +20,10 @@ export const memoryChanged = new Emitter<{ change: 'created' | 'deleted' | 'clea
 export const accessChanged = new Emitter<void>()
 /** a team skill changed, was suggested or reviewed: the team skills screen and the sidebar count reload */
 export const skillsChanged = new Emitter<void>()
+/** Metadata-only inbox/preferences changed in this person's account. */
+export const notificationsChanged = new Emitter<void>()
+/** a ChatGPT sign-in this person started (Admin / Settings > AI connections): its address, code and result */
+export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
 
@@ -61,7 +65,14 @@ export function dispatch(ev: ServerEvent) {
     case 'memory.changed':
       memoryChanged.emit(ev.data)
       return
+    case 'credential.login':
+      credentialLogin.emit(ev.data)
+      return
     case 'notice':
+      if (ev.data.code === 'notifications.changed') {
+        notificationsChanged.emit()
+        return
+      }
       if (ev.data.code === 'engine_choice_changed') {
         // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
         void useSession.getState().refreshMe()

@@ -1,0 +1,4 @@
+[
+  { "keyId": "cp", "publicKey": "<base64 SPKI Ed25519 public key of the control plane's relay_ops_key>", "label": "control plane", "scopes": ["teams:read", "teams:write", "claims:write", "notice:write"] },
+  { "keyId": "ops-break-glass", "publicKey": "<base64 SPKI Ed25519 public key on the operators' laptop>", "label": "operators (break glass)", "scopes": ["teams:read", "teams:write", "claims:write", "notice:write"] }
+]

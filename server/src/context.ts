@@ -5,12 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
-import { ANTHROPIC_API, DEFAULT_PROXY_PORT, type AppConfig } from './app-config'
+import { DEFAULT_PROXY_PORT, isManaged, type AppConfig } from './app-config'
 import { resolveLayout } from './system/layout'
-import { audit } from './admin/audit'
-import { M, tr } from './system/messages'
-import type { Locale } from '@mycel/shared/api'
 import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
+import { brokerOf, startCredentialMaintenance } from './credentials/maintenance'
+import { codexCatalogFor, lockedCatalogModels } from './engine/codex'
 import { FileService } from './files/service'
 import { trackSkillChanges } from './skills/changes'
 import type { Logger } from './log'
@@ -21,6 +20,8 @@ import { CLAUDE_CONNECT_HOSTS } from './proxy/connect'
 import { noSessions, nullRealtime, type Services } from './services'
 import { engineSockets, socketPathMessage, tooLongSockets, type SocketPathProblem } from './system/sockets'
 import pkg from '../package.json'
+import { hostKind } from './system/deployment'
+import { hostMessages } from './system/messages-linux'
 
 /** Release builds set the version at bundle time (scripts/build-bundle.ts: --define process.env.MYCEL_BUILD_VERSION). */
 export const SERVER_VERSION: string = process.env.MYCEL_BUILD_VERSION || pkg.version
@@ -87,23 +88,23 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
   // without this the gate failed with "bind: invalid argument" and every chat said "the AI engine stopped unexpectedly"
   const long = socketPathProblems(ctx.config, cfg)
   if (long.length) throw new CoreUnavailableError(socketPathMessage(long, ctx.config.mode === 'dev'))
-  const modelProxy = subscriptionProxy(ctx)
+  const modelProxy = managedProxy(ctx)
   if (ctx.config.mode === 'prod') {
     // production: the launcher is a LaunchDaemon as _axagent (component G installs it); we only connect
-    // The model proxy is the engine account's only network path (pf + engine sandbox allow just this port): Claude
-    // requests get the owner's subscription token swapped in, Codex turns tunnel HTTPS through it (CONNECT). It runs
-    // whatever the auth mode (without subscription mode it has no Claude path), so the codex-login CLI works too.
-    const proxy = modelProxy ?? { ...prodProxyBase(ctx), upstreamUrl: null }
+    // The model proxy is the engine account's only network path (pf + engine sandbox allow just this port): model
+    // requests get the turn's AI connection swapped in (Claude /v1, Codex /codex), the ChatGPT sign-in tunnels to
+    // auth.openai.com through it (CONNECT). It runs whatever the auth mode (without managed mode it has no model path).
+    const proxy = modelProxy ?? { ...prodProxyBase(ctx), broker: null }
     return startServer(cfg, { db: ctx.db, files: ctx.files, externalLauncher: ctx.config.engine.launcherSock ?? path.join(cfg.runDir, 'launcher.sock'), toolsSockMode: '0660', modelProxy: proxy })
   }
   const codex = findCodexBin(ctx.config.engine.codexBin)
   const allowCmds = [cfg.claudeBin, ...(codex ? [codex] : [])]
   if (modelProxy) {
-    // dev + subscription ("same user" rehearsal of production, tests/unit/g-subscription.test.ts): the engine runs as
+    // dev + managed ("same user" rehearsal of production, tests/unit/g-subscription.test.ts): the engine runs as
     // the current user under the production sandbox profile (no owner login files, no direct HTTPS, only the proxy
     // port), with the model proxy and the per-turn token exactly as in production; no pf and no separate account
     const s = devEngineSandbox()
-    return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy, launcher: { allowCmds, ...(s ? { sandbox: { ...s, localLogin: false, proxyPort: modelProxy.port } } : {}) } })
+    return startServer(cfg, { db: ctx.db, files: ctx.files, modelProxy, launcher: { allowCmds, proxyPort: modelProxy.port, ...(s ? { sandbox: { ...s, localLogin: false, proxyPort: modelProxy.port } } : {}) } })
   }
   // the Mac user's Codex login opens to engines only when Codex is on (office mode turns it off)
   const sandbox = devEngineSandbox()
@@ -122,7 +123,7 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
  * hosts only; no Claude HTTP path, no credential in it). null in every other mode. */
 export function officeLoginProxy(ctx: AppContext) {
   if (!ctx.config.office || ctx.config.engine.authMode !== 'local-login') return null
-  return { ...prodProxyBase(ctx), upstreamUrl: null, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS } }
+  return { ...prodProxyBase(ctx), broker: null, connect: { claudeHosts: CLAUDE_CONNECT_HOSTS } }
 }
 
 
@@ -130,25 +131,17 @@ function prodProxyBase(ctx: AppContext) {
   return { port: ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT, secretsDir: resolveLayout(ctx.config).secretsDir, log: ctx.log.child({ c: 'model-proxy' }) }
 }
 
-/** subscription mode: the model proxy settings (port, upstream, where the owner's token is); null in other modes */
-export function subscriptionProxy(ctx: AppContext) {
-  if (ctx.config.engine.authMode !== 'subscription') return null
-  let lastNotice = 0
-  return {
-    ...prodProxyBase(ctx),
-    upstreamUrl: ctx.config.engine.modelUpstream ?? ANTHROPIC_API,
-    onAuthRejected() {
-      // the upstream refused the owner's token: every admin is told (at most once an hour), and the audit log keeps it
-      if (Date.now() - lastNotice < 3600_000) return
-      lastNotice = Date.now()
-      ctx.log.warn('the model upstream refused the subscription token (401)')
-      audit(ctx.db, { actor: null, action: 'engine.subscription_rejected', target: 'claude-code' })
-      try {
-        const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active'").all() as { id: string; locale: Locale | null }[]
-        for (const u of admins) ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'error', code: 'subscription_rejected', message: tr(u.locale ?? 'en', M.subscriptionRejected) } })
-      } catch (e) { ctx.log.warn('could not notify the admins', { err: e }) }
-    },
-  }
+/** The locked Codex catalog's models (the proxy's Codex path forwards only these): prod next to the installed engine,
+ * dev the copy chat/engines.ts writes into the data folder. */
+export function codexCatalogModels(ctx: Pick<AppContext, 'config'>): string[] {
+  const c = ctx.config
+  return lockedCatalogModels(c.mode === 'prod' ? (c.engine.codexBin ? codexCatalogFor(c.engine.codexBin) : null) : path.join(c.dataDir, 'codex-catalog.json'))
+}
+
+/** managed mode: the model proxy settings (port, the team's AI connections); null in other modes */
+export function managedProxy(ctx: AppContext) {
+  if (!isManaged(ctx.config)) return null
+  return { ...prodProxyBase(ctx), broker: brokerOf(ctx), codexModels: () => codexCatalogModels(ctx) }
 }
 
 export function createContext(o: ContextOptions): AppContext {
@@ -191,5 +184,9 @@ export function createContext(o: ContextOptions): AppContext {
   }
   // every change under skills/ is audited and announced to the owner and admins (skills/changes.ts)
   trackSkillChanges(ctx)
+  if (config.engine.authModeAlias) log.info(`authMode "${config.engine.authModeAlias}" is read as "managed"`)
+  // managed mode: the older single token file / company keys / Codex login become AI connections (once), the daily
+  // ChatGPT refresh and expiry notices run (credentials/maintenance.ts)
+  if (isManaged(config)) startCredentialMaintenance(ctx)
   return ctx
 }

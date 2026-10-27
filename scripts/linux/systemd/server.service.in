@@ -1,0 +1,44 @@
+# Team AX server (linux-runtime spec 3.2.3): the bootstrap checks the version app/current points to, starts the server
+# as the server account and rolls a failed update back. Rendered by `mycel-ctl render-units` from <base>/root/systemd/.
+# @ALLOW_UNSIGNED_ENV@ is MYCEL_ALLOW_UNSIGNED=1 for --allow-unsigned (development) installs, else empty (spec 3.6.3).
+[Unit]
+Description=Team AX server (@ID@)
+After=network-online.target @ID@-launcher.service
+Wants=network-online.target @ID@-launcher.service
+
+[Service]
+Type=simple
+User=@SRV@
+Group=@SRV@
+ExecStart=@BASE@/root/mycel-bootstrap --app @BASE@/app --config @BASE@/config/server.json @PUBKEYS@
+Environment=PATH=/usr/bin:/bin HOME=@BASE@/data MYCEL_INSTALL_BASE=@BASE@ MYCEL_LABEL=@ID@ \
+  MYCEL_WEB_DIST=@BASE@/app/current/web MYCEL_PLAN_FILE=@BASE@/root/plan.json \
+  MYCEL_SANDBOX_HELPER=@BASE@/root/mycel-sandbox @ALLOW_UNSIGNED_ENV@
+EnvironmentFile=-/etc/default/@ID@
+UMask=0027
+# no RestrictSUIDSGID: it makes openat2 fail with ENOSYS and the converters' bwrap 0.12 needs openat2 (spike S1)
+Restart=always
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=30
+Delegate=memory pids cpu
+OOMPolicy=continue
+TasksMax=1024
+LimitNOFILE=65536
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@BASE@/app @BASE@/data @BASE@/team @BASE@/config @BASE@/secrets @BASE@/setup @BASE@/status @BASE@/run/tools
+ProtectHome=yes
+PrivateTmp=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelModules=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

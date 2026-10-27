@@ -127,7 +127,7 @@ describe('events', () => {
     route = (_m, p) => (p.endsWith('/requests') ? json({ items: [] }) : json({ items: [{ ...a, content: 'abcdefgh' }], nextCursor: null }))
     useChats.getState().handleEvent({ type: 'message.delta', seq: 1, at: 0, data: { chatId: CHAT, messageId: a.id, offset: 6, text: 'gh' } })
     await tick()
-    expect(calls.map((c) => c.path).sort()).toEqual([`/api/chats/${CHAT}/messages`, `/api/chats/${CHAT}/requests`])
+    expect(calls.map((c) => c.path).sort()).toEqual([`/api/chats/${CHAT}/messages`, `/api/chats/${CHAT}/queue`, `/api/chats/${CHAT}/requests`])
     expect(useChats.getState().threads[CHAT]!.messages[0]!.content).toBe('abcdefgh')
   })
 

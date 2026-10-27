@@ -1,6 +1,7 @@
 // Route module "admin" — owner: component A (docs/WORKPLAN.md).
-// Implements: ADMIN (users, invites, groups, folders + rules + preview, engines, budgets, settings, usage, audit)
-// Contract: shared/src/api/admin.ts
+// Implements: ADMIN (users, invites, groups, folders + rules + preview, engines, budgets, settings, usage, audit) and
+// CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
+// Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
 import { API, EngineId, type EngineId as EngineIdT } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -10,7 +11,7 @@ import { createInvite, createResetLink, linkBase, listInvites, revokeInvite } fr
 import { msg } from '../auth/messages'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
-import { EngineStatusCache, addAccount, deleteAccount, engineStatusCache, listAccounts } from '../admin/engines'
+import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
   afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, listFolders, previewRules, replaceRules,
   resolveFolderPath, rulesOf, toFolder, validateRules,
@@ -27,13 +28,18 @@ import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
 import { readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
+import { registerCredentialRoutes } from './credentials'
+import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
+import { checkApiEngineUrl } from '../system/egress'
+import { feature } from '../system/deployment'
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
   const s = getTeamSettings(ctx.db)
   const engines = await Promise.all(EngineId.options.map((id) => cache.get(id, enabled[id], locale)))
   return {
-    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, concurrency: s.concurrency, accounts: listAccounts(ctx),
+    // company keys are AI connections now (Admin > AI connections); the field stays empty until the next release
+    engines, defaultEngine: s.defaultEngine, defaultModel: s.defaultModel, concurrency: s.concurrency, concurrencyMax: concurrencyMax(), accounts: [],
     memberChoice: memberChoice(ctx), limitFallback: limitFallbackOn(ctx), limitFallbackAvailable: limitFallbackAvailable(ctx),
   }
 }
@@ -98,18 +104,23 @@ export const adminRoutes: RouteModule = {
       }
       throw e
     }
+    // the hosted cloud has no connected folders (system/deployment.ts): the list says so, adding or syncing one is refused
+    const connectedOn = () => feature(ctx.config, 'connectedFolders')
     kit.handle(API.listConnected, ({ c }) => {
+      if (!connectedOn()) return { items: [], available: false }
       const cf = connectedFolders(ctx)
-      return { items: cf.list().map((r) => ({ ...connectedOut(r, cf.isSyncing(r.id)), lastError: r.last_error ? msg(`connected_${r.last_error}` as never, c.get('locale')) : null })) }
+      return { items: cf.list().map((r) => ({ ...connectedOut(r, cf.isSyncing(r.id)), lastError: r.last_error ? msg(`connected_${r.last_error}` as never, c.get('locale')) : null })), available: true }
     })
     kit.handle(API.addConnected, ({ c, body, auth }) => {
+      if (!connectedOn()) fail('conflict', msg('connected_unavailable' as never, c.get('locale')))
       const cf = connectedFolders(ctx)
       let row: ConnectedRow
       try { row = cf.add({ name: body.name, source: body.source, actor: auth.user.id }) } catch (e) { return connectedFail(e, c.get('locale')) }
       void cf.sync(row.id).catch(() => {})
       return connectedOut(row, true)
     })
-    kit.handle(API.syncConnected, ({ params }) => {
+    kit.handle(API.syncConnected, ({ c, params }) => {
+      if (!connectedOn()) fail('conflict', msg('connected_unavailable' as never, c.get('locale')))
       const cf = connectedFolders(ctx)
       const row = cf.get(params.id)
       if (!row) return fail('not_found')
@@ -164,7 +175,8 @@ export const adminRoutes: RouteModule = {
       return { baseUrl: conf?.baseUrl ?? null, model: conf?.model ?? null, label: conf?.label ?? null, hasKey: !!conf?.key }
     }
     kit.handle(API.getApiEngine, () => apiConfigOut())
-    kit.handle(API.putApiEngine, ({ body, auth }) => {
+    kit.handle(API.putApiEngine, async ({ c, body, auth }) => {
+      await checkApiEngineUrl(ctx.config, body.baseUrl, c.get('locale')) // the hosted cloud: https to public addresses only
       writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, ...(body.key !== undefined ? { key: body.key } : {}) })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
       engineCache.forget('api')
@@ -174,6 +186,7 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.updateEngines, async ({ c, body, auth }) => {
       const locale = c.get('locale')
+      assertConcurrencyAllowed(body.concurrency, locale) // plan (system/limits.ts)
       const s = getTeamSettings(ctx.db)
       const enabled = { ...enginesEnabled(ctx.db), ...body.enabled }
       const def = body.defaultEngine ?? s.defaultEngine
@@ -218,16 +231,8 @@ export const adminRoutes: RouteModule = {
       return s
     })
 
-    kit.handle(API.addEngineAccount, ({ body, auth }) => {
-      const id = newId()
-      const a = addAccount(ctx, id, body.engine, body.label ?? null, body.secret)
-      audit(ctx.db, { actor: auth.user.id, action: 'engines.account_add', target: id, detail: { engine: body.engine, hint: a.hint } })
-      return a
-    })
-    kit.handle(API.deleteEngineAccount, ({ params, auth }) => {
-      if (!deleteAccount(ctx, params.id)) fail('not_found')
-      audit(ctx.db, { actor: auth.user.id, action: 'engines.account_delete', target: params.id })
-    })
+    // ---------------- AI connections (server/src/credentials, routes/credentials.ts) ----------------
+    registerCredentialRoutes(kit, ctx)
 
     // ---------------- budgets, settings, usage, audit ----------------
     kit.handle(API.listBudgets, () => ({ items: listBudgets(ctx.db) }))
@@ -248,6 +253,7 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.settings, () => getTeamSettings(ctx.db))
     kit.handle(API.updateSettings, ({ c, body, auth }) => {
+      assertConcurrencyAllowed(body.concurrency, c.get('locale')) // plan (system/limits.ts)
       const cur = getTeamSettings(ctx.db)
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
       if (body.defaultEngine !== undefined && !engineOn(ctx, body.defaultEngine)) fail('conflict', msg('engineDisabled', c.get('locale')))
@@ -257,6 +263,9 @@ export const adminRoutes: RouteModule = {
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })
       // everyone's screen shows "Team default (…)", and people without their own language switch with it
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
+      // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
+      if ('timeZone' in changed) { try { getChatRuntime(ctx).schedules.recomputeAll() } catch {} }
+      if ('concurrency' in changed) getChatRuntime(ctx).schedule()
       return next
     })
 

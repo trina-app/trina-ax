@@ -11,7 +11,12 @@ export const API_SIG_MAX_SKEW_MS = 60_000
 /** Released / renamed-away names are not given to another team for this long. */
 export const NAME_HOLD_MS = 366 * 24 * 3600_000
 
-export interface PowInfo { bits: number; maxAgeMs: number }
+export interface PowInfo {
+  bits: number
+  maxAgeMs: number
+  /** false: public registration is closed (production relay); POST /teams needs a claim code. Absent = open (older relays). */
+  open?: boolean
+}
 
 export interface RegisterRequest {
   name: string
@@ -19,10 +24,16 @@ export interface RegisterRequest {
   /** base64 SPKI DER of the Ed25519 public key */
   publicKey: string
   ts: number
-  /** proof of work: sha256(registerSigningString(...) + "\n" + nonce) starts with `bits` zero bits */
-  nonce: string
+  /** proof of work: sha256(registerSigningString(...) + "\n" + nonce) starts with `bits` zero bits (not needed with
+   * a claim code) */
+  nonce?: string
   /** base64 Ed25519 signature of registerSigningString(name, publicKey, ts) by that key */
   sig: string
+  /**
+   * claim code from the official relay add-on (control-plane 3.13): replaces the proof of work. A relay with closed
+   * registration (RELAY_OPEN_REGISTRATION=0, the production relay) accepts only registrations that carry one.
+   */
+  claimCode?: string
 }
 export interface RegisterResponse {
   teamId: string
@@ -53,6 +64,9 @@ export interface RegistryError { error: { code: RegistryErrorCode; message: stri
 export type RegistryErrorCode =
   | 'invalid_request' | 'invalid_name' | 'name_reserved' | 'name_taken' | 'key_in_use' | 'bad_pow' | 'bad_signature'
   | 'unauthorized' | 'not_found' | 'rate_limited' | 'suspended' | 'internal'
+  /** closed registration (production relay) without a claim code / a claim code that is unknown, used, expired or
+   * for another name / an operator API signature seen before / a request that clashes with the registry's state */
+  | 'registration_closed' | 'bad_claim' | 'replayed' | 'conflict' | 'forbidden'
 
 export function registerSigningString(name: string, publicKey: string, ts: number): string {
   return `mycel-relay-register\n${name}\n${publicKey}\n${ts}`
@@ -84,7 +98,7 @@ function leadingZeroBits(d: Uint8Array): number {
 export function powInput(r: Pick<RegisterRequest, 'name' | 'publicKey' | 'ts'>, nonce: string): string {
   return `${registerSigningString(r.name, r.publicKey, r.ts)}\n${nonce}`
 }
-export function powOk(r: Pick<RegisterRequest, 'name' | 'publicKey' | 'ts' | 'nonce'>, bits: number): boolean {
+export function powOk(r: Pick<RegisterRequest, 'name' | 'publicKey' | 'ts'> & { nonce: string }, bits: number): boolean {
   if (!/^[A-Za-z0-9]{1,32}$/.test(r.nonce)) return false
   return leadingZeroBits(createHash('sha256').update(powInput(r, r.nonce)).digest()) >= bits
 }

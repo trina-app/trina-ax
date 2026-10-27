@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh the relay firewall's Cloudflare ranges
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mycel-relay/current/deploy/cf-ips-refresh.sh

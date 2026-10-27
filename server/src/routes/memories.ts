@@ -9,6 +9,12 @@ import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { listSkills } from '../chat/skills'
+import { popularSkills } from '../skills/popular'
+import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
+import { installNotifications } from '../notifications/service'
+import { registerNotifications } from './notifications'
+import { registerPush } from './push'
+import { installPush } from '../notifications/push-service'
 import type { ScheduleRow } from '../chat/schedules'
 import { approveSuggestion, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview } from '../skills/suggestions'
 
@@ -17,8 +23,12 @@ type Row = { id: string; text: string; source_chat_id: string | null; created_at
 export const memoriesRoutes: RouteModule = {
   name: 'memories',
   owner: 'B',
+  init(ctx) { installNotifications(ctx); installPush(ctx) },
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
+    registerNotifications(kit, ctx)
+    registerPush(kit, ctx)
+    kit.handle(API.popularSkills, ({ auth }) => popularSkills(ctx.db, ctx.files, ctx.files.principal(auth.user.id)))
     kit.handle(API.listMemories, ({ query, auth }) => {
       const limit = query.limit ?? 50
       const cur = decodeCursor(query.cursor, ['t', 'id'])
@@ -40,7 +50,11 @@ export const memoriesRoutes: RouteModule = {
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'cleared', memory: null } })
     })
     const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date,
-      projectId: s.project_id, enabled: !!s.enabled, nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id })
+      projectId: s.project_id, enabled: !!s.enabled, nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
+      templateId: s.template_id, templateVersion: s.template_version, sourcePath: s.template_source_path, outputPath: s.template_output_path,
+      pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, lastOutcome: rt.schedules.lastOutcome(s.user_id, s.id) })
+    kit.handle(API.listScheduleTemplates, () => ({ items: [...SCHEDULE_TEMPLATES], timeZone: rt.timeZone }))
+    kit.handle(API.createScheduleFromTemplate, ({ auth, body }) => scheduleOut(createFromTemplate(ctx, rt, auth.user.id, body)))
     kit.handle(API.listSchedules, ({ auth }) => ({ items: rt.schedules.list(auth.user.id).map(scheduleOut), timeZone: rt.timeZone }))
     kit.handle(API.updateSchedule, ({ params, body, auth }) => {
       const s = rt.schedules.setEnabled(auth.user.id, params.id, body.enabled)

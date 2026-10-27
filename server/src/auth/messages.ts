@@ -1,5 +1,6 @@
 // User-facing messages of component A that are more specific than the default per-code messages (ko / en / id).
 import type { Locale } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
 
 export const AUTH_MESSAGES = {
   badLogin: { ko: '아이디 또는 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.' },
@@ -44,6 +45,11 @@ export const AUTH_MESSAGES = {
   connected_name_taken: { ko: '같은 이름의 연결 폴더가 이미 있습니다.', en: 'A connected folder with that name already exists.', id: 'Sudah ada folder tersambung dengan nama itu.' },
   connected_permission: { ko: 'macOS가 읽기를 막았습니다. 시스템 설정 › 개인정보 보호 및 보안 › 전체 디스크 접근 권한에서 bun을 허용한 뒤 다시 시도해 주세요.', en: 'macOS blocked reading it. Allow bun in System Settings › Privacy & Security › Full Disk Access, then try again.', id: 'macOS memblokir pembacaan. Izinkan bun di System Settings › Privacy & Security › Full Disk Access, lalu coba lagi.' },
   connected_unreadable: { ko: '폴더를 읽을 수 없습니다.', en: 'The folder can\'t be read.', id: 'Folder tidak bisa dibaca.' },
+  // Linux self-host (team-files/connected.ts LINUX_ROOTS) and the hosted cloud (no connected folders)
+  connected_not_absolute_linux: { ko: '서버의 전체 경로를 입력해 주세요(예: /mnt/nas/공유).', en: 'Enter the full path on the server (e.g. /mnt/nas/share).', id: 'Masukkan path lengkap di server (mis. /mnt/nas/share).' },
+  connected_not_found_linux: { ko: '그 경로가 서버에 없습니다. 공유 폴더가 /mnt 등에 마운트되어 있는지 확인해 주세요.', en: 'That path doesn\'t exist on the server. Check that the share is mounted (e.g. under /mnt).', id: 'Path itu tidak ada di server. Pastikan share sudah di-mount (mis. di bawah /mnt).' },
+  connected_not_allowed_linux: { ko: '연결할 수 있는 곳: /mnt, /media, /srv 아래의 폴더(예: /mnt/nas/공유). 설치 폴더와 /home은 연결할 수 없습니다.', en: 'Folders that can be connected: below /mnt, /media or /srv (e.g. /mnt/nas/share). The install folder and /home cannot be connected.', id: 'Yang bisa disambungkan: folder di bawah /mnt, /media atau /srv (mis. /mnt/nas/share). Folder instalasi dan /home tidak bisa.' },
+  connected_unavailable: { ko: `${PRODUCT.displayName} Cloud에서는 연결 폴더를 쓸 수 없습니다. 파일은 팀 폴더에 올려 주세요.`, en: `Connected folders are not available on ${PRODUCT.displayName} Cloud. Upload the files to the team folder instead.`, id: `Folder tersambung tidak tersedia di ${PRODUCT.displayName} Cloud. Unggah berkas ke folder tim.` },
 } satisfies Record<string, Record<Locale, string>>
 
 export type MessageKey = keyof typeof AUTH_MESSAGES

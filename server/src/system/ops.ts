@@ -1,23 +1,37 @@
 // Operations service of component G: diagnostics (tab 7 "진단 화면"), the menubar status file (tab 6 "상태 읽기"),
 // the nightly backup schedule, and the managers for backups and updates. One instance per server (routes/system.ts).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Locale } from '@mycel/shared/api'
-import { PfStatus, type StatusFile } from '@mycel/shared/install'
-import { teamDefaultLocale } from '../admin/settings'
+import { FirewallStatus, PfStatus, type StatusFile } from '@mycel/shared/install'
+import type { LauncherStatus } from '@mycel/shared'
+import { getTeamSettings, installId, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import type { AppContext } from '../context'
-import { DEFAULT_PROXY_PORT } from '../app-config'
+import { allowedCredentialKinds, DEFAULT_PROXY_PORT, isManaged } from '../app-config'
+import { teamCredentialSummary } from '../credentials/resolve'
+import { Vault } from '../credentials/vault'
 import { engineSandboxProfile } from '../config'
 import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
-import { codexLoginState } from '../native'
+import { codexLoginState, launcherStatus } from '../native'
 import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
-import { M, tr, uptimeText } from './messages'
+import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { UpdateManager } from './update'
+import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
+import { configureNotices, noticesFileProblem } from './managed'
+import { feature, hostKind, isHosted } from './deployment'
+import { pruneOld } from './retention'
+import { configureStorageGuard, levelOf, snapshotOf, storageRoom, StorageMonitor } from './storage'
+import { hostMessages, ML } from './messages-linux'
+import { audit } from '../admin/audit'
+import { autoUpdateDecision, runUpdate } from './update-job'
+import { zonedParts } from './time-zone'
+import { getChatRuntime } from '../chat/runtime'
 
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
@@ -33,8 +47,17 @@ export interface OpsOptions {
   tmutil?: (p: string) => Promise<boolean | null>
   now?: () => Date
   allowUnsignedUpdates?: boolean
-  /** folder with cron.deny / at.deny (tests) */
+  /** folder with cron.deny / at.deny (tests; macOS /var/at, Linux /etc) */
   atDir?: string
+  /** which diagnostics an installed server shows (tests; default process.platform): darwin = pf, LaunchDaemons, Time
+   * Machine; linux = nftables, systemd, the launcher's sandbox report */
+  platform?: NodeJS.Platform
+  /** the launcher's status report (tests) */
+  launcherStatus?: (sock: string) => Promise<LauncherStatus | null>
+  /** /proc/sys (tests): kernel.yama.ptrace_scope, user.max_user_namespaces */
+  procSysDir?: string
+  /** planned restart after an automatic update (tests; default: SIGTERM to this process, the bootstrap starts it again) */
+  restart?: (why: string) => void
 }
 
 /** Reported failures of the desktop app's office-network direct connection (POST /api/connect-info/lan-failure). */
@@ -49,19 +72,78 @@ export class OpsService {
   private lanFailures: { at: number; code: LanFailureCode }[] = []
   readonly backups: BackupManager
   readonly updates: UpdateManager
+  readonly storage: StorageMonitor
   private engineCache: { at: number; v: EngineLogin[]; stamp: string } | null = null
   private timers: ReturnType<typeof setInterval>[] = []
+  /** the one maintenance operation running now (backup / restore / update / export), routes/system.ts and autoUpdateTick */
+  private busy: string | null = null
 
   constructor(private ctx: AppContext, private o: OpsOptions = {}) {
     this.layout = o.layout ?? resolveLayout(ctx.config)
+    // the root-owned plan file of an installed server (system/limits.ts); $MYCEL_PLAN_FILE wins
+    configurePlan({ file: this.layout.planFile, log: ctx.log.child({ c: 'plan' }) })
+    // the operator's notices for the web banner (system/managed.ts); $MYCEL_NOTICES_FILE wins
+    configureNotices({ file: this.layout.noticesFile, log: ctx.log.child({ c: 'notices' }) })
     this.backups = new BackupManager({ db: ctx.db, dbFile: path.join(ctx.config.dataDir, 'app.db'), layout: this.layout, log: ctx.log.child({ c: 'backup' }), version: ctx.version, now: o.now })
     this.updates = new UpdateManager({
       appDir: this.layout.appDir, dataDir: ctx.config.dataDir, version: ctx.version, channel: ctx.config.update.channel,
       feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates,
     })
+    // the team disk (system/storage.ts): writes are refused near full where the resource limits apply
+    configureStorageGuard({ root: this.layout.teamRoot })
+    this.storage = new StorageMonitor({
+      db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
+      audit: (detail) => audit(ctx.db, { actor: null, action: 'storage.warn', target: null, detail }),
+      notify: (m) => {
+        try {
+          const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string; locale: Locale | null }[]
+          for (const u of admins) ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'warn', code: 'storage_warn', message: m[u.locale ?? 'en'] ?? m.en } })
+        } catch (e) { ctx.log.warn('could not tell the admins about the storage', { err: e }) }
+      },
+    })
   }
 
   private now() { return this.o.now?.() ?? new Date() }
+
+  /** Take the maintenance lock (false: another operation runs). */
+  tryLock(name: string): boolean { if (this.busy) return false; this.busy = name; return true }
+  unlock() { this.busy = null }
+  get busyWith() { return this.busy }
+
+  /** This server applies app-only releases by itself (Linux self-host: server.json update.auto, never the hosted cloud). */
+  get autoUpdates(): boolean { return !!this.ctx.config.update.auto && feature(this.ctx.config, 'selfUpdate') && this.updates.installed }
+
+  private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
+
+  /** One automatic-update check (hourly): the feed, the roll-out, the team's update window, no running answer; then the
+   * same run as "update now". Returns what it decided (tests, the log). */
+  async autoUpdateTick(): Promise<string> {
+    if (!this.autoUpdates) return 'off'
+    if (!this.updates.feedUsable) return 'no_feed'
+    const feed = await this.updates.checkFeed()
+    let last: { version: string; at: string } | null = null
+    try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
+    const s = getTeamSettings(this.ctx.db)
+    const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
+      window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last })
+    if (!d.go) return d.why
+    if (!this.tryLock('update')) return 'busy'
+    const log = this.ctx.log.child({ c: 'update' })
+    log.info('automatic update', { to: d.version })
+    try {
+      await runUpdate({ updates: this.updates, backups: this.backups, running: () => this.queue().running, locale: teamDefaultLocale(this.ctx.db),
+        restart: (why) => {
+          // remembered before the restart: when the bootstrap rolls it back, this version waits 7 days (update-job.ts)
+          fs.writeFileSync(this.autoFile(), JSON.stringify({ version: d.version, at: this.now().toISOString() }), { mode: 0o600 })
+          if (this.o.restart) this.o.restart(why)
+          else setTimeout(() => process.kill(process.pid, 'SIGTERM'), 1500)
+        } }, d.version, { staged: false, rollback: false })
+      return 'updated'
+    } catch (e) {
+      log.warn('automatic update failed', { to: d.version, err: String(e).slice(0, 300) })
+      return 'failed'
+    } finally { this.unlock() }
+  }
 
   /** role-account install: the engine runs as another account (launcher LaunchDaemon) */
   get roleAccount() { return this.ctx.config.mode === 'prod' && this.ctx.config.engine.agentUid !== undefined && this.ctx.config.engine.agentUid !== process.getuid?.() }
@@ -73,8 +155,10 @@ export class OpsService {
     if (this.engineCache && Date.now() - this.engineCache.at < 5 * 60_000 && this.engineCache.stamp === stamp) return this.engineCache.v
     const cfg = this.ctx.config.engine
     const which = (n: string) => { for (const d of (process.env.PATH ?? '').split(':').concat(['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin')])) { const p = path.join(d, n); if (fs.existsSync(p)) return p } return null }
+    const allowed = allowedCredentialKinds(this.ctx.config)
     const v = await checkEngines({
       authMode: cfg.authMode, roleAccount: this.roleAccount,
+      ...(isManaged(this.ctx.config) ? { managed: { 'claude-code': teamCredentialSummary(this.ctx.db, 'anthropic', allowed), codex: teamCredentialSummary(this.ctx.db, 'openai', allowed) } } : {}),
       claudeBin: cfg.claudeBin ?? this.ctx.engineConfig.claudeBin ?? which('claude'),
       // role-account install: only the installer's Codex (the launcher allows nothing else), login asked of the launcher
       codexBin: this.roleAccount ? cfg.codexBin ?? null : cfg.codexBin ?? which('codex'),
@@ -90,21 +174,26 @@ export class OpsService {
     let f = 'none', r = 'none'
     try { const st = fs.lstatSync(tokenFile(this.layout.secretsDir)); f = `${st.ino}:${st.size}:${st.mtimeMs}` } catch {}
     try { r = (this.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(REJECTED_KEY) as { value: string } | null)?.value ?? 'none' } catch {}
-    return `${f}|${r}`
+    // managed: any change of an AI connection (added, refused, limited, removed)
+    let c = 'none'
+    try { const x = this.ctx.db.query('SELECT COUNT(*) AS n, MAX(updated_at) AS u, MAX(COALESCE(limited_until, \'\')) AS l FROM engine_credentials').get() as { n: number; u: string | null; l: string }; c = `${x.n}:${x.u}:${x.l}` } catch {}
+    return `${f}|${r}|${c}`
   }
 
-  queue(): { running: number; queued: number; concurrency: number } {
+  queue(): Diagnostics['queue'] {
     let running = 0, queued = 0, concurrency = 3
     try {
       for (const r of this.ctx.db.query("SELECT status, COUNT(*) AS n FROM turns WHERE status IN ('running','queued') GROUP BY status").all() as { status: string; n: number }[]) {
         if (r.status === 'running') running = r.n
         else queued = r.n
       }
-      const s = this.ctx.db.query("SELECT value FROM settings WHERE key = 'concurrency'").get() as { value: string } | null
-      const n = s ? Number(JSON.parse(s.value)) : NaN
-      if (Number.isInteger(n) && n >= 1 && n <= 16) concurrency = n
+      // the same number the queue uses: min(admin setting, plan), system/limits.ts
+      concurrency = effectiveConcurrency(this.ctx.db)
     } catch {}
-    return { running, queued, concurrency }
+    try {
+      const rt = getChatRuntime(this.ctx)
+      return { running: rt.runningCount(), queued: rt.queuedCount(), concurrency, ...rt.queueDiagnostics() }
+    } catch { return { running, queued, concurrency } }
   }
 
   connection(): ConnectionStatus { return connectionStatus(this.ctx) }
@@ -153,14 +242,22 @@ export class OpsService {
     } catch { return null }
   }
 
+  private platform(): NodeJS.Platform { return this.o.platform ?? process.platform }
+
   async diagnostics(locale: Locale): Promise<Diagnostics> {
     const L = this.layout
+    // the Mac's wording as it always was; a Linux server and the hosted cloud get theirs (system/messages-linux.ts)
+    const host = hostKind(this.ctx.config, this.platform())
+    const M = hostMessages(host, { id: L.label ?? path.basename(L.base), base: L.base })
     const t = (x: Parameters<typeof tr>[1]) => tr(locale, x)
     const checks: DiagnosticCheck[] = []
     const add = (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => checks.push({ id, group, label, status, detail })
     const prod = this.ctx.config.mode === 'prod'
 
     add('server', 'server', t(M.server), 'ok', t(M.serverDetail(this.ctx.version, uptimeText((Date.now() - this.ctx.startedAt) / 1000, locale))))
+    // plan.json / notices.json that did not parse: the previous values stay in force (system/limits.ts, managed.ts)
+    const managedBad = [['plan.json', planFileProblem()], ['notices.json', noticesFileProblem()]] as const
+    for (const [file, p] of managedBad) if (p) add(`managed.${file.split('.')[0]}`, 'server', t(ML.managedFiles), 'warn', t(ML.managedFileBad(file, p.error.slice(0, 120), host === 'hosted')))
 
     // connection
     const c = this.connection()
@@ -182,8 +279,11 @@ export class OpsService {
       else if (pct < 15) add(id, 'disk', label, 'warn', t(M.diskLow(d.free, pct)))
       else add(id, 'disk', label, 'ok', t(M.diskOk(d.free, pct)))
     }
-    diskCheck('disk.team', t(M.diskTeam), team)
-    diskCheck('disk.data', t(M.diskData), data)
+    if (this.platform() === 'linux' && prod) this.linuxStorage(add, t, team, data)
+    else {
+      diskCheck('disk.team', t(M.diskTeam), team)
+      diskCheck('disk.data', t(M.diskData), data)
+    }
 
     // engines
     for (const e of await this.engines()) {
@@ -191,19 +291,24 @@ export class OpsService {
       const label = t(e.engine === 'claude-code' ? M.engineClaude : M.engineCodex)
       const id = `engine.${e.engine}`
       if (e.loggedIn && e.reason === 'setup_token_expiring' && e.expiresAt) add(id, 'engines', label, 'warn', t(M.engineSetupTokenExpiring(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium' }).format(new Date(e.expiresAt)))))
+      else if (e.loggedIn && e.reason === 'credential_expiring') add(id, 'engines', label, 'warn', t(M.engineCredentialExpiring))
+      else if (e.loggedIn && e.method?.startsWith('AI connections: ')) add(id, 'engines', label, 'ok', t(M.engineCredentials(Number(e.method.slice(16)))))
       else if (e.loggedIn) add(id, 'engines', label, 'ok', t(M.engineOk(e.method)))
       else if (e.reason === 'setup_token_expired') add(id, 'engines', label, 'fail', t(M.engineSetupTokenExpired))
       else if (e.reason === 'setup_token_invalid') add(id, 'engines', label, 'fail', t(M.engineSetupTokenInvalid))
       else if (e.reason === 'not_installed') add(id, 'engines', label, e.engine === 'codex' ? 'warn' : 'fail', t(M.engineNotInstalled))
       else if (e.reason === 'setup_token_missing') add(id, 'engines', label, 'fail', t(M.engineSetupToken))
       else if (e.reason === 'engine_login_missing') add(id, 'engines', label, 'warn', t(M.engineCodexLogin))
+      else if (e.reason === 'credential_none') add(id, 'engines', label, e.engine === 'codex' ? 'warn' : 'fail', t(M.engineCredentialNone))
+      else if (e.reason === 'credential_limited') add(id, 'engines', label, 'warn', t(M.engineCredentialLimited))
+      else if (e.reason === 'credential_unusable') add(id, 'engines', label, 'fail', t(M.engineCredentialUnusable))
       else if (e.reason === 'check_failed') add(id, 'engines', label, 'unknown', t(M.engineCheckFailed))
       else add(id, 'engines', label, 'fail', t(M.engineNotLoggedIn))
     }
 
     // model proxy (subscription mode; production always runs it for Codex too): listening, or its port taken by
     // another program (design tab 1 "리슨")
-    if (this.ctx.config.engine.authMode === 'subscription' || prod) {
+    if (isManaged(this.ctx.config) || prod) {
       const port = this.ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT
       const st = this.ctx.services.modelProxy?.state ?? null
       if (st === 'listening') add('model_proxy', 'engines', t(M.modelProxy), 'ok', t(M.modelProxyOk(port)))
@@ -211,12 +316,21 @@ export class OpsService {
       else add('model_proxy', 'engines', t(M.modelProxy), 'unknown', t(M.modelProxyNotStarted))
     }
 
+    // the key of the AI connections' secrets (managed): a regular 0600 file of the server account, or not made yet
+    if (isManaged(this.ctx.config)) {
+      const v = new Vault(this.layout.secretsDir).check()
+      const n = (this.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credentials').get() as { n: number }).n
+      if (v.state === 'ok') add('credentials_key', 'engines', t(M.credentialsKey), 'ok', t(M.credentialsKeyOk))
+      else if (v.state === 'missing') add('credentials_key', 'engines', t(M.credentialsKey), n ? 'fail' : 'ok', t(n ? M.credentialsKeyMissing : M.credentialsKeyNone))
+      else add('credentials_key', 'engines', t(M.credentialsKey), 'fail', t(M.credentialsKeyUnsafe(v.detail ?? '')))
+    }
+
     // engine sockets: a path that does not fit in a Unix socket address (long data folder) stops every engine turn
     const runDir = this.ctx.engineConfig.runDir
     const long = tooLongSockets(engineSockets(runDir, prod ? this.ctx.config.engine.launcherSock ?? path.join(runDir, 'launcher.sock') : null))
     if (long.length) add('sockets', 'engines', t(M.sockets), 'fail', t(M.socketsTooLong(long.map((x) => `${x.path} (${x.bytes})`).join(', '), long[0]!.max, !prod)))
     else if (process.platform === 'darwin' && !prod && underSandboxDeniedTmp(runDir)) add('sockets', 'engines', t(M.sockets), 'warn', t(M.socketsTmp(L.dataDir)))
-    else add('sockets', 'engines', t(M.sockets), 'ok', t(M.socketsOk(maxSocketPathBytes())))
+    else if (host !== 'hosted') add('sockets', 'engines', t(M.sockets), 'ok', t(M.socketsOk(maxSocketPathBytes())))
 
     // office-network direct connection (TLS): failures the desktop apps reported
     const tls = this.ctx.config.tls
@@ -239,6 +353,8 @@ export class OpsService {
     } else if (!prod || !L.rootDir) {
       add('pf_anchor', 'pf_anchor', t(M.firewall), 'unknown', t(M.firewallDev))
       add('sandbox', 'sandbox', t(M.sandbox), 'unknown', t(M.sandboxDev))
+    } else if (this.platform() === 'linux') {
+      await this.linuxChecks(add, t, M, host === 'hosted')
     } else {
       const pf = this.pfStatus()
       if (!fs.existsSync(path.join(L.rootDir, 'pf.anchor'))) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallMissing))
@@ -288,11 +404,14 @@ export class OpsService {
 
     // updates
     if (this.ctx.config.office) add('update', 'update', t(M.update), 'ok', t(M.updateOffice(this.ctx.version)))
+    else if (host === 'hosted') add('update', 'update', t(M.update), 'ok', t(ML.updateManaged(this.ctx.version)))
     else if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
     else {
       const h = this.updates.history().at(-1)
       if (h && h.result !== 'ok' && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000) add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
+      const us = this.updates.status()
+      if (us.needsRoot && us.available) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version)))
       const cur = this.updates.currentLinkTarget()
       const signed = !!cur && fs.existsSync(path.join(this.layout.appDir!, 'versions', cur, 'manifest.sig'))
       add('release_signature', 'update', t(M.releaseSig), signed ? 'ok' : 'warn', t(signed ? M.releaseSigned : M.releaseUnsigned))
@@ -305,6 +424,87 @@ export class OpsService {
       queue: q,
       checks,
       generatedAt: this.now().toISOString(),
+    }
+  }
+
+  private firewallStatus(): FirewallStatus | null {
+    try { return FirewallStatus.parse(JSON.parse(fs.readFileSync(this.layout.firewallStatusFile, 'utf8'))) } catch { return null }
+  }
+
+  private readProcSys(rel: string): string | null {
+    try { return fs.readFileSync(path.join(this.o.procSysDir ?? '/proc/sys', rel), 'utf8').trim() } catch { return null }
+  }
+
+  /** Linux: the team disk by its levels (system/storage.ts) instead of the Mac's absolute 10 GB rule. */
+  private linuxStorage(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
+    team: { free: number; total: number }, data: { free: number; total: number }) {
+    const one = (id: string, d: { free: number; total: number }) => {
+      let s
+      try { s = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { s = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      const lvl = levelOf(s.percent)
+      const pct = Math.round(s.percent)
+      const refused = id === 'disk.team' && storageRoom(0)?.ok === false
+      if (lvl === 'full' || refused) add(id, 'disk', t(ML.storage), 'fail', t(ML.storageFull(s.freeBytes, pct)))
+      else if (lvl === 'high') add(id, 'disk', t(ML.storage), 'warn', t(ML.storageHigh(s.freeBytes, pct)))
+      else add(id, 'disk', t(ML.storage), 'ok', t(ML.storageOk(s.freeBytes, pct)))
+      return s
+    }
+    const s = one('disk.team', team)
+    // the data folder is on the same disk in every Linux install; a separate one gets its own line
+    if (data.total !== team.total || data.free !== team.free) one('disk.data', data)
+    const plan = planDiskBytes()
+    if (plan && Math.abs(s.totalBytes - plan) / plan > 0.1) add('disk.plan', 'disk', t(ML.storage), 'warn', t(ML.storagePlanMismatch(s.totalBytes / 1024 ** 3, plan / 1024 ** 3)))
+  }
+
+  /** Linux install: nftables, the launcher (systemd) and its sandbox report, kernel isolation, cron/at. */
+  private async linuxChecks(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
+    M: typeof MAC_M, hosted: boolean) {
+    const L = this.layout
+    const fw = this.firewallStatus()
+    if (!fs.existsSync(L.firewallStatusFile)) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallMissing))
+    else if (!fw || this.now().getTime() - Date.parse(fw.at) > 15 * 60_000) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallStale))
+    else if (!fw.loaded || fw.rules === 0) add('pf_anchor', 'pf_anchor', t(M.firewall), 'fail', t(M.firewallOff(fw.error ?? (fw.loaded ? 'no rules' : 'not loaded'))))
+    else add('pf_anchor', 'pf_anchor', t(M.firewall), 'ok', t(ML.firewallOkLinux(fw.rules, fw.proxyPort)))
+
+    let st: LauncherStatus | null = null
+    const sock = this.ctx.config.engine.launcherSock
+    if (sock) {
+      const r = await probeSocket(sock).catch(() => 'error' as const)
+      if (r === 'ok') add('launcher', 'launcher', t(M.launcher), 'ok', t(M.launcherOk))
+      else if (r === 'missing' || r === 'refused') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherNotRunning(L.label, null, L.unitDir)))
+      else if (r === 'denied') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDenied))
+      else if (r === 'timeout') add('launcher', 'launcher', t(M.launcher), 'warn', t(M.launcherTimeout))
+      else if (r !== 'too_long') add('launcher', 'launcher', t(M.launcher), 'fail', t(M.launcherDown))
+      if (r === 'ok') st = await (this.o.launcherStatus ?? launcherStatus)(sock).catch(() => null)
+    }
+    const bad: CheckStatus = hosted ? 'fail' : 'warn'
+    if (!st) add('sandbox', 'sandbox', t(M.sandbox), 'unknown', t(ML.sandboxUnknown))
+    else if (st.sandbox !== 'bwrap' || st.seccomp === false) add('sandbox', 'sandbox', t(M.sandbox), 'fail', t(ML.sandboxNone(hosted)))
+    else if (!st.landlockAbi) add('sandbox', 'sandbox', t(M.sandbox), bad, t(ML.kernelMissing(['Landlock'], hosted)))
+    else if (st.scoped === false) add('sandbox', 'sandbox', t(M.sandbox), bad, t(ML.sandboxNotScoped(hosted)))
+    else add('sandbox', 'sandbox', t(M.sandbox), 'ok', t(ML.sandboxLinuxOk(st.bwrapVersion ?? null, st.landlockAbi ?? null, true)))
+
+    // kernel: Yama ptrace_scope >= 1, cgroup delegation (the launcher's report), unprivileged user namespaces (bwrap)
+    const missing: string[] = []
+    const ptrace = Number(this.readProcSys('kernel/yama/ptrace_scope') ?? 'NaN')
+    if (!(ptrace >= 1)) missing.push('kernel.yama.ptrace_scope >= 1')
+    if (st && st.cgroup !== undefined && st.cgroup !== 'delegated') missing.push('cgroup v2 delegation')
+    const userns = this.readProcSys('user/max_user_namespaces')
+    if (userns !== null && Number(userns) === 0) missing.push('user namespaces')
+    if (missing.length) add('kernel_isolation', 'sandbox', t(ML.kernel), bad, t(ML.kernelMissing(missing, hosted)))
+    else add('kernel_isolation', 'sandbox', t(ML.kernel), 'ok', t(ML.kernelOk))
+
+    const agentUid = this.ctx.config.engine.agentUid
+    if (agentUid !== undefined) {
+      const dir = this.o.atDir ?? '/etc'
+      const files = [path.join(dir, 'cron.deny'), path.join(dir, 'at.deny')].filter((f) => fs.existsSync(f))
+      if (!files.length) add('cron_deny', 'sandbox', t(M.cronDeny), 'ok', t(ML.cronAbsent))
+      else {
+        const name = Bun.spawnSync(['id', '-nu', String(agentUid)], { stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim()
+        const listed = (f: string) => { try { return fs.readFileSync(f, 'utf8').split('\n').map((l) => l.trim()).includes(name) } catch { return false } }
+        const ok = !!name && files.every(listed)
+        add('cron_deny', 'sandbox', t(M.cronDeny), ok ? 'ok' : 'warn', t(ok ? M.cronDenyOk : M.cronDenyMissing))
+      }
     }
   }
 
@@ -331,6 +531,7 @@ export class OpsService {
       lastBackupAt: this.backups.latest()?.createdAt ?? null,
       overall: worst(d.checks.filter((x) => x.status !== 'unknown').map((x) => x.status)),
       problems: d.checks.filter((x) => x.status === 'fail' || x.status === 'warn').map((x) => `${x.label}: ${x.detail ?? x.status}`).slice(0, 20),
+      checks: d.checks.map((x) => ({ id: x.id.slice(0, 64), status: x.status })).slice(0, 100),
       locale,
     }
   }
@@ -345,7 +546,19 @@ export class OpsService {
     fs.renameSync(tmp, f)
   }
 
-  /** Nightly backup: once a day after 03:00 local time (or any time when the last one is over 30 h old). */
+  /** Minutes after midnight (team time) the nightly backup may start: 03:00 as before; on the hosted cloud (or any install
+   * with a plan file: many teams per host) the window ax-hostd gave this tenant (MYCEL_BACKUP_WINDOW_START_MIN, which
+   * mycel-enroll writes to /etc/default/mycel from enroll.json: the host spreads its tenants), else 02:00 plus 0–179
+   * minutes from the install id, so the teams on one host do not all compress their folders at the same moment. */
+  backupStartMinute(env: Record<string, string | undefined> = process.env): number {
+    if (!isHosted(this.ctx.config) && !currentPlan()) return 180
+    const w = env.MYCEL_BACKUP_WINDOW_START_MIN
+    if (w !== undefined && /^\d{1,4}$/.test(w.trim()) && Number(w) <= 1439) return Number(w)
+    return 120 + (crypto.createHash('sha256').update(installId(this.ctx.db)).digest().readUInt16BE(0) % 180)
+  }
+
+  /** Nightly backup: once a day after the start time in the team's time zone (or any time when the last one is over
+   * 30 h old). */
   shouldRunDailyBackup(): boolean {
     const now = this.now()
     const last = this.backups.metas().filter((m) => m.kind === 'daily').at(-1)
@@ -356,7 +569,8 @@ export class OpsService {
     const err = this.backups.lastError()
     const errAt = err ? Date.parse(err.at) : NaN
     if (Number.isFinite(errAt) && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
-    return now.getHours() >= 3 || age > 30 * 3600_000
+    const p = zonedParts(now, teamTimeZone(this.ctx.db))
+    return p.h * 60 + p.min >= this.backupStartMinute() || age > 30 * 3600_000
   }
 
   start() {
@@ -368,6 +582,19 @@ export class OpsService {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))
     }, 10 * 60_000))
+    // storage: what uses the space 5 minutes after start, then hourly; the 80% notice is checked every 10 minutes
+    const measure = () => this.storage.measure().catch((e) => log.warn('storage measurement failed', { err: e }))
+    const firstMeasure = setTimeout(measure, 5 * 60_000)
+    ;(firstMeasure as unknown as { unref?: () => void }).unref?.()
+    this.timers.push(firstMeasure as unknown as ReturnType<typeof setInterval>)
+    this.timers.push(setInterval(measure, 60 * 60_000))
+    this.timers.push(setInterval(() => { try { this.storage.checkAlert() } catch (e) { log.warn('storage check failed', { err: e }) } }, 10 * 60_000))
+    // Linux self-host: app-only releases from the feed, inside the team's update window (system/update-job.ts)
+    if (this.autoUpdates) this.timers.push(setInterval(() => { void this.autoUpdateTick().catch((e) => log.warn('automatic update check failed', { err: e })) }, 60 * 60_000))
+    // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
+    this.timers.push(setInterval(() => {
+      try { const r = pruneOld(this.ctx.db); if (Object.values(r).some((n) => n > 0)) log.info('retention sweep', { ...r }) } catch (e) { log.warn('retention sweep failed', { err: e }) }
+    }, 60 * 60_000))
     for (const t of this.timers) (t as unknown as { unref?: () => void }).unref?.()
   }
 

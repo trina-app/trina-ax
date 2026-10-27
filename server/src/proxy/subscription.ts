@@ -1,12 +1,16 @@
-// Subscription mode (engine.authMode "subscription", the production default): the owner's long-lived Claude token
-// (`claude setup-token`) lives in <install>/secrets/claude-oauth-token (server account, 600; the engine account can
-// not read the folder). The server runs the model proxy on 127.0.0.1:<engine.proxyPort>, the only address pf lets the
-// engine account reach, and every Claude turn talks to it with a per-turn token (design tab 1 "프록시 동작").
+// The model proxy as a server component (ModelProxyService), and the older single-token file. Managed mode
+// (engine.authMode "managed", formerly "subscription"): the team's AI connections live in the database
+// (credentials/*); the server runs the model proxy on 127.0.0.1:<engine.proxyPort>, the only address the firewall and
+// the engine sandbox let the engine account reach, and every turn talks to it with a per-turn token (design tab 1
+// "프록시 동작"). The owner's token file <install>/secrets/claude-oauth-token (root/set-claude-token, office
+// --claude-token-file) is imported into an AI connection at start and when it changes (credentials/migrate.ts);
+// TokenReader / TOKEN_RE / fingerprint below serve that import and the diagnostics.
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { startModelProxy, type ModelProxy, type ProxyOpts, type ProxyTurnEvent } from './model-proxy'
+import type { CredentialBroker } from '../credentials/broker'
 
 /** File in <install>/secrets that holds the owner's long-lived Claude subscription token (`claude setup-token`). The
  * proxy, the admin engine screen and the diagnostics all use this one name; root/set-claude-token writes it. */
@@ -80,34 +84,35 @@ export type ProxyState = 'starting' | 'listening' | 'port_in_use' | 'stopped'
 export interface ProxyServiceOptions {
   db: Database
   port: number
-  /** the Anthropic API (or a test upstream); null = no Claude path on this proxy (503), Codex tunnels only */
-  upstreamUrl: string | null
+  /** the team's AI connections; null = no model path on this proxy (503), CONNECT tunnels only (office local-login,
+   * the ChatGPT sign-in) */
+  broker: CredentialBroker | null
+  /** the locked Codex catalog (models the Codex path forwards) */
+  codexModels?: () => string[]
   secretsDir: string
   peerCheck?: ProxyOpts['peerCheck']
-  /** Codex turns' HTTPS tunnels through the same port (production: the engine account's only network path) */
+  /** CONNECT tunnels through the same port (office local-login Claude, the ChatGPT sign-in process) */
   connect?: ProxyOpts['connect']
-  /** the upstream refused the owner's token (401): tell the admins to connect the subscription again */
-  onAuthRejected?: () => void
   log?: { warn(msg: string, f?: Record<string, unknown>): void; info(msg: string, f?: Record<string, unknown>): void }
   /** bind retry (design tab 1 "리슨": every 10 s, no restart loop) */
   retryMs?: number
 }
 
 /**
- * The model proxy as a server component: binds 127.0.0.1:<port> without reusePort. When the port is taken, no Claude
+ * The model proxy as a server component: binds 127.0.0.1:<port> without reusePort. When the port is taken, no engine
  * turn starts (fail closed, `ready` false, diagnostics say so) and the bind is tried again every 10 s. Turns subscribe
- * to what the proxy sees for their requests (upstream 401, budget, subscription limit).
+ * to what the proxy sees for their requests (a refused or limited connection, budget).
  */
 export class ModelProxyService {
   state: ProxyState = 'starting'
   private proxy: ModelProxy | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private listeners = new Map<string, (ev: ProxyTurnEvent) => void>()
-  readonly tokens: TokenReader
 
-  constructor(private o: ProxyServiceOptions) {
-    this.tokens = new TokenReader(tokenFile(o.secretsDir))
-  }
+  constructor(private o: ProxyServiceOptions) {}
+
+  /** the AI connections behind this proxy (null: none, see ProxyServiceOptions.broker) */
+  get broker() { return this.o.broker }
 
   get ready() { return this.state === 'listening' }
   get baseUrl() { return `http://127.0.0.1:${this.port}` }
@@ -120,15 +125,12 @@ export class ModelProxyService {
   start(): this {
     if (this.state === 'stopped') return this
     this.started = startModelProxy({
-      db: this.o.db, port: this.o.port, ...(this.o.log ? { log: this.o.log } : {}),
-      upstream: this.o.upstreamUrl === null ? null : { baseUrl: this.o.upstreamUrl, kind: 'oauth', secret: () => this.tokens.read() },
+      db: this.o.db, port: this.o.port, broker: this.o.broker,
+      ...(this.o.codexModels ? { codexModels: this.o.codexModels } : {}),
+      ...(this.o.log ? { log: this.o.log } : {}),
       peerCheck: this.o.peerCheck,
       ...(this.o.connect ? { connect: this.o.connect } : {}),
       onTurnEvent: (turnId, ev) => this.listeners.get(turnId)?.(ev),
-      onAuthRejected: (secret) => {
-        if (secret) markTokenRejected(this.o.db, secret)
-        this.o.onAuthRejected?.()
-      },
     }).then((p) => {
       if (this.state === 'stopped') { void p.stop(); return }
       this.proxy = p
@@ -136,7 +138,7 @@ export class ModelProxyService {
       this.state = 'listening'
     }, (e) => {
       if (this.state === 'stopped') return
-      if (this.state !== 'port_in_use') this.o.log?.warn('model proxy port in use; Claude turns wait until it is free', { port: this.o.port, err: (e as Error).message })
+      if (this.state !== 'port_in_use') this.o.log?.warn('model proxy port in use; engine turns wait until it is free', { port: this.o.port, err: (e as Error).message })
       this.state = 'port_in_use'
       this.timer = setTimeout(() => { this.timer = null; this.start() }, this.o.retryMs ?? 10_000)
       ;(this.timer as { unref?: () => void }).unref?.()

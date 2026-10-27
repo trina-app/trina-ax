@@ -131,3 +131,101 @@ export async function rawTeam(url: string, teamId: string, kp: TeamKeyPair, onOp
   })
   return { ws, mux: mux!, closed }
 }
+
+// ------------------------------------------------------------------ operator API (control-plane RL-2)
+
+export interface OpsKeySet { file: string; keys: Record<string, TeamKeyPair> }
+
+/** operator-keys.json with the given keys (a fresh Ed25519 pair each) */
+export function writeOpsKeys(file: string, defs: { keyId: string; scopes: string[] }[]): OpsKeySet {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const keys: Record<string, TeamKeyPair> = {}
+  const json = defs.map((d) => { const kp = generateTeamKey(); keys[d.keyId] = kp; return { keyId: d.keyId, publicKey: kp.publicKey, label: d.keyId, scopes: d.scopes } })
+  fs.writeFileSync(file, JSON.stringify(json, null, 1))
+  return { file, keys }
+}
+
+let lastOpsTs = 0
+/** A signed operator API call (as the control plane makes it). `o.raw` sends a prepared Authorization header. */
+export async function opsCall(base: string, keyId: string, kp: TeamKeyPair, method: string, pathq: string, body?: unknown, o: { ts?: number; auth?: string | null; sign?: string } = {}): Promise<{ status: number; json: unknown; text: string; auth: string }> {
+  const { opsAuthorizationHeader, opsSigningString } = await import('@mycel/shared/cloud-protocol/relay-ops')
+  const text = body === undefined ? '' : JSON.stringify(body)
+  // a strictly increasing timestamp, as a real client must keep: the same request signed in the same millisecond is
+  // byte-for-byte the same signature (Ed25519 is deterministic), which the relay refuses as a replay
+  const ts = o.ts ?? (lastOpsTs = Math.max(Date.now(), lastOpsTs + 1))
+  const sig = signB64(loadPrivateKey(kp.privatePem), opsSigningString(method, pathq, ts, o.sign ?? text))
+  const auth = o.auth === undefined ? opsAuthorizationHeader(keyId, ts, sig) : o.auth
+  const res = await fetch(base + pathq, { method, headers: { ...(auth ? { authorization: auth } : {}), ...(text ? { 'content-type': 'application/json' } : {}) }, body: text || undefined })
+  const t = await res.text()
+  let json: unknown = null
+  try { json = t ? JSON.parse(t) : null } catch {}
+  return { status: res.status, json, text: t, auth: auth ?? '' }
+}
+
+/** fields the operator API needs to create a team with this key (the tenant signs at enroll time) */
+export function opsCreateBody(name: string, kp: TeamKeyPair, externalRef: string, ts = Date.now()) {
+  return { name, publicKey: kp.publicKey, ts, sig: signB64(loadPrivateKey(kp.privatePem), registerSigningString(name, kp.publicKey, ts)), region: 'kr-seoul-1', origin: 'cloud', externalRef }
+}
+
+// ------------------------------------------------------------------ TLS test certificates (RL-5)
+
+export interface TestPki { dir: string; caCrt: string; srvCrt: string; srvKey: string; aopCaCrt: string; cliCrt: string; cliKey: string; otherCrt: string; otherKey: string }
+
+/**
+ * A throwaway PKI with the openssl CLI: a server CA + server certificate for localhost / 127.0.0.1 (the Origin CA
+ * certificate's part), a client CA + client certificate (Cloudflare's Authenticated Origin Pulls certificate, which
+ * we make and upload), and a client certificate from another CA (someone else's Cloudflare account / anyone).
+ */
+export function makeTestPki(dir: string): TestPki {
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.mkdirSync(dir, { recursive: true })
+  const f = (n: string) => path.join(dir, n)
+  const run = (args: string[]) => {
+    const p = Bun.spawnSync(['openssl', ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe' })
+    if (p.exitCode !== 0) throw new Error(`openssl ${args[0]}: ${p.stderr.toString()}`)
+  }
+  const ec = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-pkeyopt', 'ec_param_enc:named_curve', '-nodes', '-sha256']
+  // an explicit config: LibreSSL (macOS) otherwise makes a version-1 CA without basicConstraints, which OpenSSL 3 refuses
+  fs.writeFileSync(f('ca.cnf'), '[req]\ndistinguished_name = dn\nx509_extensions = v3_ca\n[dn]\n[v3_ca]\nbasicConstraints = critical,CA:TRUE\nkeyUsage = critical,keyCertSign,cRLSign\nsubjectKeyIdentifier = hash\n')
+  const ca = (name: string) => run(['req', '-x509', '-config', f('ca.cnf'), ...ec, '-keyout', f(`${name}.key`), '-out', f(`${name}.crt`), '-days', '2', '-subj', `/CN=${name}`])
+  const leaf = (name: string, caName: string, ext: string) => {
+    fs.writeFileSync(f(`${name}.ext`), ext)
+    run(['req', ...ec, '-keyout', f(`${name}.key`), '-out', f(`${name}.csr`), '-subj', `/CN=${name}`])
+    run(['x509', '-req', '-sha256', '-in', f(`${name}.csr`), '-CA', f(`${caName}.crt`), '-CAkey', f(`${caName}.key`), '-CAcreateserial', '-CAserial', f(`${caName}.srl`), '-out', f(`${name}.crt`), '-days', '2', '-extfile', f(`${name}.ext`)])
+  }
+  ca('origin-ca')
+  ca('aop-ca')
+  ca('other-ca')
+  leaf('srv', 'origin-ca', 'subjectAltName=DNS:localhost,DNS:*.localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n')
+  leaf('cli', 'aop-ca', 'extendedKeyUsage=clientAuth\n')
+  leaf('other', 'other-ca', 'extendedKeyUsage=clientAuth\n')
+  return { dir, caCrt: f('origin-ca.crt'), srvCrt: f('srv.crt'), srvKey: f('srv.key'), aopCaCrt: f('aop-ca.crt'), cliCrt: f('cli.crt'), cliKey: f('cli.key'), otherCrt: f('other.crt'), otherKey: f('other.key') }
+}
+
+// ------------------------------------------------------------------ old registry files (RL-1)
+
+/** the registry file as the first relay version (before user_version steps) wrote it */
+const OLD_SCHEMA = `
+CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, recovery_code_hash TEXT NOT NULL, region TEXT NOT NULL DEFAULT 'default',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','released')), created_at TEXT NOT NULL,
+  last_heartbeat_at TEXT, last_connected_at TEXT, last_version TEXT, member_count INTEGER);
+CREATE UNIQUE INDEX teams_live_name ON teams(name) WHERE status != 'released';
+CREATE TABLE team_keys (id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE, public_key TEXT NOT NULL,
+  created_at TEXT NOT NULL, last_seen_at TEXT, revoked_at TEXT);
+CREATE UNIQUE INDEX team_keys_one_live ON team_keys(team_id) WHERE revoked_at IS NULL;
+CREATE UNIQUE INDEX team_keys_public ON team_keys(public_key);
+CREATE TABLE reservations (name TEXT PRIMARY KEY, team_id TEXT, reason TEXT NOT NULL CHECK (reason IN ('released','reclaimed','blocked','reserved')), hold_until TEXT);
+`
+
+export function writeOldRegistry(file: string, kp: TeamKeyPair): void {
+  const { Database } = require('bun:sqlite') as typeof import('bun:sqlite')
+  fs.rmSync(file, { force: true })
+  const d = new Database(file, { create: true })
+  d.exec('PRAGMA journal_mode = WAL')
+  d.exec(OLD_SCHEMA)
+  d.query("INSERT INTO teams (id, name, recovery_code_hash, region, status, created_at, last_version, member_count) VALUES ('team-old-1', 'oldteam', 'x', 'default', 'suspended', '2026-01-01T00:00:00.000Z', '0.2.1', 4)").run()
+  d.query("INSERT INTO team_keys (id, team_id, public_key, created_at) VALUES ('k1', 'team-old-1', ?, '2026-01-01T00:00:00.000Z')").run(kp.publicKey)
+  d.query("INSERT INTO reservations (name, team_id, reason, hold_until) VALUES ('gone', 'team-old-1', 'released', '2027-01-01T00:00:00.000Z')").run()
+  d.close()
+}
+

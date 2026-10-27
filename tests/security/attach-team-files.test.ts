@@ -10,7 +10,7 @@ import { buildWorld, C, type World } from './lib/world'
 setDefaultTimeout(180_000)
 let W: World
 let inst: Instance
-beforeAll(async () => { inst = await startInstance('attach-team-files'); W = await buildWorld(inst) })
+beforeAll(async () => { inst = await startInstance('attach-team-files'); W = await buildWorld(inst, { sharedSubscriptions: true }) })
 afterAll(async () => { for (const s of Object.values(W?.sockets ?? {})) s.close(); await inst?.close() })
 
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')

@@ -1,10 +1,14 @@
-// Production subscription mode end to end, as the current user ("same user" rehearsal; the role-account run is
-// tests/install/g-macos-install.ts with sudo): engine.authMode "subscription" -> the real engine core starts the model
-// proxy on engine.proxyPort and the launcher under the production sandbox profile (LOCAL_LOGIN=0, only the proxy port
-// reachable); every Claude turn gets a per-turn token on fd 3; the proxy swaps in the owner's setup-token from
-// <install>/secrets/claude-oauth-token. A fake upstream checks that the real token arrives and the per-turn one never
-// leaves. The engine is the scripted fake (tests/lib/b-fake-engine.ts) with its own copy of bun in one folder, so it
-// runs inside the sandbox like the real Claude Code binary; it calls the model the way Claude Code does.
+// Production managed mode end to end with a Claude subscription connection, as the current user ("same user"
+// rehearsal; the role-account run is tests/install/g-macos-install.ts with sudo): engine.authMode "managed" -> the real
+// engine core starts the model proxy on engine.proxyPort and the launcher under the production sandbox profile
+// (LOCAL_LOGIN=0, only the proxy port reachable); every Claude turn gets a per-turn token on fd 3, bound to the team's
+// AI connection; the proxy swaps in the connection's token. The connection comes from the owner's token file
+// <install>/secrets/claude-oauth-token (root/set-claude-token), imported like at start (credentials/migrate.ts). A fake
+// upstream checks that the real token arrives and the per-turn one never leaves. The engine is the scripted fake
+// (tests/lib/b-fake-engine.ts) with its own copy of bun in one folder, so it runs inside the sandbox like the real
+// Claude Code binary; it calls the model the way Claude Code does.
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -15,7 +19,9 @@ import { WORK } from '../lib/env'
 import { waitFor } from '../lib/wait'
 import { LocalEngines } from '../../server/src/chat/engines'
 import { issueProxyToken } from '../../server/src/proxy/model-proxy'
-import { subscriptionTokenStatus, tokenFile } from '../../server/src/proxy/subscription'
+import { tokenFile } from '../../server/src/proxy/subscription'
+import { importTokenFile } from '../../server/src/credentials/migrate'
+import { credentialsOf, getRow, listRows } from '../../server/src/credentials/store'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
 import { checkEngine, engineEnv } from '../../server/src/admin/engines'
@@ -87,12 +93,15 @@ beforeAll(async () => {
   const proxyPort = await freePort()
   h = await startHarness({
     name: 'g-subscription', turnTimeoutMs: 60_000,
-    realCore: { engine: { authMode: 'subscription', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '/nonexistent/codex', proxyPort, modelUpstream: `http://127.0.0.1:${upstream.port}` } },
+    realCore: { engine: { authMode: 'managed', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '/nonexistent/codex', proxyPort, modelUpstream: `http://127.0.0.1:${upstream.port}` } },
+    credentials: [],
   })
-  // the owner stores the setup-token (root/set-claude-token in production)
+  // the owner stores the setup-token (root/set-claude-token in production); the server imports it as an AI connection
   const secrets = resolveLayout(h.ctx.config).secretsDir
   fs.mkdirSync(secrets, { recursive: true, mode: 0o700 })
   fs.writeFileSync(tokenFile(secrets), REAL + '\n', { mode: 0o600 })
+  expect(importTokenFile(credentialsOf(h.ctx), secrets)).toBe('imported')
+  setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true) // importing alone is not consent; this fixture opts in
   alice = await h.ws('alice', { windowId: 'win-alice' })
   carol = await h.ws('carol', { windowId: 'win-carol' })
   await alice.next('hello'); await carol.next('hello')
@@ -101,7 +110,7 @@ afterAll(async () => { alice?.close(); carol?.close(); await h?.close(); upstrea
 
 const newChat = () => h.api('alice').call(API.createChat, { body: {} })
 
-describe.skipIf(!mac)('subscription mode (same user): engine -> fd token -> model proxy -> owner setup-token', () => {
+describe.skipIf(!mac)('managed mode (same user): engine -> fd token -> model proxy -> the team\'s Claude subscription connection', () => {
   test('a turn streams the model answer; the upstream saw only the real token; usage counted by the proxy', async () => {
     const chat = await newChat()
     const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ model: 'hi' }), { ms: 30_000 })
@@ -144,7 +153,7 @@ describe.skipIf(!mac)('subscription mode (same user): engine -> fd token -> mode
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ model: 'slow' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     expect(await waitFor(() => releaseSlow !== null, { timeoutMs: 20_000 })).toBe(true)
     const core = await h.ctx.core()
-    const stolen = issueProxyToken(h.ctx.db, r.turnId, 'alice')
+    const stolen = issueProxyToken(h.ctx.db, r.turnId, 'alice', { credentialId: listRows(h.ctx.db)[0]!.id, family: 'anthropic' })
     const res = await fetch(`${core.proxy!.baseUrl}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer ' + stolen, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'x' }] }) })
     expect(res.status).toBe(403)
     expect((await res.json()).error.message).toBe('caller is not part of this turn')
@@ -172,43 +181,48 @@ describe.skipIf(!mac)('subscription mode (same user): engine -> fd token -> mode
     } finally { h.ctx.db.query("DELETE FROM budgets WHERE id = 'b-sub'").run() }
   })
 
-  test('upstream 401 (revoked token): the turn ends with the auth error, admins are told, diagnostics say "refused"', async () => {
+  test('upstream 401 (revoked token): the connection is marked refused, the turn ends, admins are told, diagnostics say so', async () => {
     const chat = await newChat()
     const { done } = await ask(h, alice, 'alice', chat.id, fake({ model: 'revoked' }), { ms: 30_000 })
     expect(done.status).toBe('error')
     expect(done.error?.code).toBe('engine_unavailable')
     expect(done.error?.message).toContain('AI connection')
-    await carol.next('notice', (f) => f.data.code === 'subscription_rejected', 5000)
-    const secrets = resolveLayout(h.ctx.config).secretsDir
-    expect(subscriptionTokenStatus(secrets, h.ctx.db).state).toBe('invalid')
+    await carol.next('notice', (f) => f.data.code === 'credential_rejected', 5000)
+    const cred = listRows(h.ctx.db)[0]!
+    expect(cred.status).toBe('invalid')
     const ops = new OpsService(h.ctx)
     const login = (await ops.engines()).find((e) => e.engine === 'claude-code')!
-    expect(login).toMatchObject({ loggedIn: false, reason: 'setup_token_invalid' })
+    expect(login).toMatchObject({ loggedIn: false, reason: 'credential_unusable' })
     const diag = await ops.diagnostics('en')
     expect(diag.checks.find((c) => c.id === 'engine.claude-code')).toMatchObject({ status: 'fail' })
     expect(diag.checks.find((c) => c.id === 'model_proxy')).toMatchObject({ status: 'ok' })
+    expect(diag.checks.find((c) => c.id === 'credentials_key')).toMatchObject({ status: 'ok' })
     const admin = await checkEngine('claude-code', engineEnv(h.ctx), true, 'en')
     expect(admin.status).toBe('not_logged_in')
-    // a new token (the owner runs set-claude-token again) works at once, no restart
+    // a new token in the file (the owner runs set-claude-token again) replaces the same connection's, no restart
+    const secrets = resolveLayout(h.ctx.config).secretsDir
     const NEW = 'sk-ant-oat01-' + 'T'.repeat(60)
     fs.writeFileSync(tokenFile(secrets), NEW + '\n', { mode: 0o600 })
-    expect(subscriptionTokenStatus(secrets, h.ctx.db).state).toBe('ok')
+    expect(importTokenFile(credentialsOf(h.ctx), secrets)).toBe('updated')
+    expect(getRow(h.ctx.db, cred.id)!.status).toBe('ok')
     const n = auths.length
     const again = await ask(h, alice, 'alice', chat.id, fake({ model: 'x' }), { ms: 30_000 })
     expect(auths.slice(n)).toEqual(['Bearer ' + NEW]) // the fake upstream refuses it (it only knows REAL): proves the swap
     expect(again.done.status).toBe('error')
     fs.writeFileSync(tokenFile(secrets), REAL + '\n', { mode: 0o600 })
+    expect(importTokenFile(credentialsOf(h.ctx), secrets)).toBe('updated')
   })
 
-  test('no token stored: Claude turns are refused before the engine starts', async () => {
-    const secrets = resolveLayout(h.ctx.config).secretsDir
-    fs.renameSync(tokenFile(secrets), tokenFile(secrets) + '.off')
+  test('no usable connection: the Claude turn is refused before the engine starts, with a clear message', async () => {
+    h.ctx.db.query('UPDATE engine_credentials SET disabled = 1').run()
     try {
       const e = new LocalEngines(h.ctx).get()
-      expect(e.claude).toBeNull()
-      expect(e.problems['claude-code']).toBe('setup_token_missing')
-    } finally { fs.renameSync(tokenFile(secrets) + '.off', tokenFile(secrets)) }
-    const e = new LocalEngines(h.ctx).get()
-    expect(e.claude?.authMode).toBe('subscription')
+      expect(e.claude?.authMode).toBe('managed')
+      const n = auths.length
+      const r = await ask(h, alice, 'alice', (await newChat()).id, fake({ model: 'x' }), { ms: 30_000 })
+      expect(r.done.error?.code).toBe('engine_unavailable')
+      expect(r.done.error?.message).toMatch(/no AI connection/i)
+      expect(auths.length).toBe(n)
+    } finally { h.ctx.db.query('UPDATE engine_credentials SET disabled = 0').run() }
   })
 })

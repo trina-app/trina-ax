@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { startInstance, SETUP_TOKEN, type Client, type Instance, type Socket } from './lib/instance'
+import { sealSecret } from '../../web/src/lib/seal'
 
 setDefaultTimeout(60_000)
 let inst: Instance
@@ -53,6 +54,9 @@ beforeAll(async () => {
   inst = await startInstance('r4-attach-session-after-move')
   owner = inst.client('dana')
   await owner.ok('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'T', locale: 'en', owner: { username: 'dana', name: 'Dana', password: 'Owner-pw-123456!' } })
+  // turns run on the team's AI connection (the model proxy in front, docs/DECISIONS.md "AI 연결"): one team API key
+  const key = await owner.ok('GET', '/api/credentials/sealing-key')
+  await owner.ok('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'Team key', sealed: await sealSecret(key, ('sk-ant-api03-' + 'r4-attach-test-key-0000000000000000'), 'credential.create'), password: 'Owner-pw-123456!' })
   const u = await owner.ok('POST', '/api/admin/users', { username: 'alice', name: 'Alice', role: 'member', id: 'alice', locale: 'en' })
   alice = inst.client('alice')
   await alice.login('alice', u.temporaryPassword)

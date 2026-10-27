@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "claude": {
+    "version": "2.1.305",
+    "linux-amd64": {
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.305/linux-x64/claude",
+      "sha256": "86cb722ab68348877dba7971e4d0c659919e05e6228c05e006e83da320e656ef",
+      "size": 290532720
+    },
+    "linux-arm64": {
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.305/linux-arm64/claude",
+      "sha256": "5265a60217e667b75e126e887b49ac0f168ad8bb13c605c3e3df528519876dc0",
+      "size": 290447544
+    }
+  },
+  "codex": {
+    "version": "0.163.0",
+    "linux-amd64": {
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4",
+      "member": "codex-x86_64-unknown-linux-musl",
+      "size": 112589966
+    },
+    "linux-arm64": {
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-aarch64-unknown-linux-musl.tar.gz",
+      "sha256": "a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4",
+      "member": "codex-aarch64-unknown-linux-musl",
+      "size": 104950609
+    },
+    "modelCatalog": "engines/codex-0.163.0.model_catalog.json"
+  }
+}

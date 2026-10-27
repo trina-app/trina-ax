@@ -1,29 +1,27 @@
 // AI engines: per engine install / login / lockdown status (what is missing, in plain words), re-check, enable;
 // team defaults (engine, model, turns at the same time); who else may pick the engine ("팀원이 엔진 고르기 허용", off:
 // owner and admins only) and the optional Claude-limit fallback to Codex (off; warns that data then also goes to
-// OpenAI; unavailable while Codex is off); usage limits; and, folded under "advanced", company API keys for proxy
-// mode (owner only, off by default — this version runs on the owner's subscriptions).
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
+// OpenAI; unavailable while Codex is off); usage limits. The accounts the engines use (Claude subscription tokens,
+// API keys, ChatGPT sign-ins) are on Admin > AI connections (Credentials.tsx); company keys moved there.
+import { AlertTriangle, CheckCircle2, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Budget, EngineId, EnginesResponse, EngineStatus, Group, MemberEngineChoice, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, Field, IconButton, Modal, Switch, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 import { useEngines } from '../../store/engines'
 
 export default function Engines() {
   const t = useT()
-  const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
   const state = useLoad(() => api.call(API.engines))
   const [checking, setChecking] = useState<EngineId | null>(null)
   const [defaults, setDefaults] = useState<{ defaultEngine: EngineId; defaultModel: string | null; concurrency: number } | null>(null)
-  const [advanced, setAdvanced] = useState(false)
-  const [addKey, setAddKey] = useState(false)
 
   useEffect(() => {
     if (state.data) setDefaults({ defaultEngine: state.data.defaultEngine, defaultModel: state.data.defaultModel, concurrency: state.data.concurrency })
@@ -87,7 +85,9 @@ export default function Engines() {
                   </select>
                 </Field>
                 <Field label={t('engines.concurrency')} hint={t('engines.concurrencyHint')}>
-                  <input className={inputCls} type="number" min={1} max={16} value={defaults.concurrency} onChange={(e) => setDefaults({ ...defaults, concurrency: Math.max(1, Math.min(16, Number(e.target.value) || 1)) })} />
+                  {/* the plan's maximum on the hosted cloud (concurrencyMax; older servers: 16) */}
+                  <input className={inputCls} type="number" min={1} max={state.data?.concurrencyMax ?? 16} data-testid="engines-concurrency" value={defaults.concurrency} onChange={(e) => setDefaults({ ...defaults, concurrency: Math.max(1, Math.min(state.data?.concurrencyMax ?? 16, Number(e.target.value) || 1)) })} />
+                  {state.data?.concurrencyMax !== undefined && state.data.concurrencyMax < 16 && <span className="mt-1 block text-xs text-faint">{t('engines.concurrencyPlan', { max: state.data.concurrencyMax })}</span>}
                 </Field>
               </div>
               <Button variant="primary" className="mt-3" onClick={saveDefaults}>
@@ -97,58 +97,6 @@ export default function Engines() {
           )}
           <MemberChoice data={d} onSaved={(r) => state.setData(r)} />
           <Budgets />
-          {isOwner(me) && (
-            <section className="mb-6">
-              <button type="button" aria-expanded={advanced} onClick={() => setAdvanced((v) => !v)} className="flex items-center gap-1 text-sm font-medium text-muted hover:text-ink">
-                {advanced ? <ChevronDown size={15} aria-hidden /> : <ChevronRight size={15} aria-hidden />} {t('engines.advanced')}
-              </button>
-              {advanced && (
-                <Card
-                  title={t('engines.keys')}
-                  desc={t('engines.keysDesc')}
-                  actions={
-                    <Button size="sm" onClick={() => setAddKey(true)}>
-                      <Plus size={14} aria-hidden /> {t('engines.addKey')}
-                    </Button>
-                  }
-                >
-                  {!d.accounts.length ? (
-                    <p className="text-sm text-faint">{t('engines.noKeys')}</p>
-                  ) : (
-                    <ul className="divide-y divide-line text-sm">
-                      {d.accounts.map((a) => (
-                        <li key={a.id} className="flex items-center gap-2 py-2">
-                          <span className="min-w-0 flex-1">
-                            {a.label ?? a.engine} <span className="text-xs text-faint">…{a.hint}</span>
-                          </span>
-                          <Badge tone={a.status === 'ok' ? 'ok' : 'danger'}>{t(a.status === 'ok' ? 'engines.keyOk' : 'engines.keyInvalid')}</Badge>
-                          {a.checkedAt && <span className="text-xs text-faint">{formatDateTime(a.checkedAt, locale)}</span>}
-                          <IconButton
-                            label={t('common.delete')}
-                            onClick={async () => {
-                              if (!(await confirmDialog({ title: t('engines.deleteKey'), confirm: t('common.delete'), danger: true }))) return
-                              if ((await act(() => api.call(API.deleteEngineAccount, { params: { id: a.id } }))) !== undefined) void state.reload()
-                            }}
-                          >
-                            <Trash2 size={15} />
-                          </IconButton>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </Card>
-              )}
-            </section>
-          )}
-          {addKey && (
-            <AddKey
-              onClose={() => setAddKey(false)}
-              onAdded={() => {
-                setAddKey(false)
-                void state.reload()
-              }}
-            />
-          )}
         </>
       )}
     </Loadable>
@@ -180,6 +128,9 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
       {e.detail && (
         <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm" data-testid="engine-detail">
           {e.detail}
+          {e.authMode === 'managed' && e.status === 'not_logged_in' && (
+            <Link to="/admin/credentials" className="ml-2 font-medium text-accent underline" data-testid="engine-go-credentials">{t('engines.goCredentials')}</Link>
+          )}
         </p>
       )}
       {e.models.length > 0 && <p className="mt-2 text-xs text-faint">{t('engines.models', { list: e.models.map((m) => m.label).join(', ') })}</p>}
@@ -188,58 +139,6 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
         {e.checkedAt && <span className="text-xs text-faint">{t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })}</span>}
       </div>
     </section>
-  )
-}
-
-function AddKey({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const t = useT()
-  const act = useAction()
-  const [engine, setEngine] = useState<'anthropic' | 'openai'>('anthropic')
-  const [label, setLabel] = useState('')
-  const [secret, setSecret] = useState('')
-  const [busy, setBusy] = useState(false)
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t('engines.addKey')}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant="primary"
-            busy={busy}
-            disabled={secret.trim().length < 10}
-            onClick={async () => {
-              setBusy(true)
-              const r = await act(() => api.call(API.addEngineAccount, { body: { engine, label: label.trim() || undefined, secret: secret.trim() } }))
-              setBusy(false)
-              if (r) onAdded()
-            }}
-          >
-            {t('common.save')}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <p className="text-xs text-warn">{t('engines.keysDesc')}</p>
-        <Field label={t('engines.provider')}>
-          <select className={inputCls} value={engine} onChange={(e) => setEngine(e.target.value as 'anthropic' | 'openai')}>
-            <option value="anthropic">Anthropic</option>
-            <option value="openai">OpenAI</option>
-          </select>
-        </Field>
-        <Field label={t('engines.keyLabel')}>
-          <input className={inputCls} value={label} onChange={(e) => setLabel(e.target.value)} maxLength={100} />
-        </Field>
-        <Field label={t('engines.secret')} hint={t('engines.secretHint')}>
-          <input className={inputCls} type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} />
-        </Field>
-      </div>
-    </Modal>
   )
 }
 
@@ -462,6 +361,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
         <div className="border-t border-line pt-4">
           <Switch checked={fallback && data.limitFallbackAvailable} disabled={!data.limitFallbackAvailable} onChange={setFallback} label={t('engines.fallback')} />
           <p className="mt-1 text-xs text-muted">{t(data.limitFallbackAvailable ? 'engines.fallbackDesc' : 'engines.fallbackUnavailable')}</p>
+          {data.limitFallbackAvailable && <p className="mt-1 text-xs text-muted">{t('engines.fallbackHint2')}</p>}
           {fallback && data.limitFallbackAvailable && (
             <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="fallback-warning">
               <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden /> {t('engines.fallbackWarning')}

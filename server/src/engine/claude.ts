@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { ENGINE_BUILTIN_ALLOWED, FILE_TOOLS, TEAM_TOOL_PREFIX, type AuthMode, type LaunchRequest } from '@mycel/shared'
+import { engineTimeZone } from '../system/time-zone'
 
 /** environment switches that close file mentions, attachments, CLAUDE.md, bundled skills, background tasks, telemetry */
 export const CLAUDE_LOCK_ENV: Record<string, string> = {
@@ -29,8 +30,8 @@ export interface ClaudeConf {
   authMode: AuthMode
   /** unused by proxy modes (HOME is <chat>/.home, inside the sandbox); local-login uses the real home */
   agentHome: string
-  /** subscription / company-key mode: the model proxy's address and the kind of credential behind it */
-  modelProxy?: { baseUrl: string; kind: 'api-key' | 'oauth' }
+  /** managed mode: the model proxy's address (the kind of credential is the turn's AI connection's, per attempt) */
+  modelProxy?: { baseUrl: string }
   /** local-login in office mode: the engine's HTTPS goes through the proxy's CONNECT tunnel (HTTPS_PROXY with a
    * per-turn token; the sandbox allows no other network, security round 4b) */
   connectProxy?: boolean
@@ -67,15 +68,20 @@ export const MCP_TOOL_TIMEOUT_MS = 1_800_000
 export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
+  /** the kind of the turn's AI connection: the engine then behaves as with that kind of credential (subscription
+   * defaults for a Claude subscription token, x-api-key for an API key); default oauth */
+  tokenKind?: 'oauth' | 'api-key'
   /** local-login through the CONNECT tunnel (office mode): the proxy port and this attempt's proxy token */
   tunnel?: { port: number; token: string }
   /** our MCP tools besides the six file tools offered to this turn (remember, ask_user, browser tools, make_file ...) */
   extraTools?: string[]
+  /** False for approved local-folder templates; normal chat keeps the existing built-in search. */
+  webSearch?: boolean
 }, conf: ClaudeConf): LaunchRequest {
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events',
-    '--tools', ENGINE_BUILTIN_ALLOWED.join(','),
-    '--allowedTools', [...CLAUDE_ALLOWED_TOOLS, ...(i.extraTools ?? []).map((t) => TEAM_TOOL_PREFIX + t)].join(','),
+    '--tools', (i.webSearch === false ? [] : ENGINE_BUILTIN_ALLOWED).join(','),
+    '--allowedTools', [...CLAUDE_ALLOWED_TOOLS.filter(t => i.webSearch !== false || t !== 'WebSearch'), ...(i.extraTools ?? []).map((t) => TEAM_TOOL_PREFIX + t)].join(','),
     '--strict-mcp-config', '--mcp-config', '{MCP_CONFIG}',
     '--setting-sources', '',
     '--settings', JSON.stringify(CLAUDE_LOCK_SETTINGS),
@@ -91,6 +97,8 @@ export function buildClaudeLaunch(i: {
   const tmp = path.join(i.chatDir, '.tmp') // created by the launcher
   const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', TMPDIR: tmp, CLAUDE_CODE_TMPDIR: tmp, ...CLAUDE_LOCK_ENV,
     MCP_TOOL_TIMEOUT: String(MCP_TOOL_TIMEOUT_MS) }
+  const tz = engineTimeZone() // the team's time zone (system/time-zone.ts): a Linux server itself runs in UTC
+  if (tz) env.TZ = tz
   if (conf.authMode === 'local-login') {
     // dev/test: the CLI's own login. Its macOS keychain entry is tied to the default config dir and the
     // user, so HOME stays the real home and CLAUDE_CONFIG_DIR is not set in this mode.
@@ -100,7 +108,7 @@ export function buildClaudeLaunch(i: {
     // turn's engine session: the proxy checks the TCP peer through the launcher)
     if (i.tunnel) env.HTTPS_PROXY = turnProxyUrl(i.tunnel.port, i.tunnel.token)
   } else {
-    // subscription / company key: everything of the CLI stays in the chat folder (the only place the sandbox lets the
+    // managed: everything of the CLI stays in the chat folder (the only place the sandbox lets the
     // engine write); the launcher creates .home. The per-turn proxy token goes to the launcher, which hands it to the
     // engine on an inherited pipe (fd 3), never in the environment (other processes of the engine account can read it).
     env.HOME = path.join(i.chatDir, '.home')
@@ -108,7 +116,7 @@ export function buildClaudeLaunch(i: {
     env.ANTHROPIC_BASE_URL = conf.modelProxy!.baseUrl
   }
   const loc = sessionLocation(conf, i.chatDir)
-  const modelToken = conf.authMode !== 'local-login' && i.proxyToken ? { kind: conf.modelProxy!.kind, value: i.proxyToken } : undefined
+  const modelToken = conf.authMode !== 'local-login' && i.proxyToken ? { kind: i.tokenKind ?? 'oauth', value: i.proxyToken } : undefined
   return {
     op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt,
     stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}),

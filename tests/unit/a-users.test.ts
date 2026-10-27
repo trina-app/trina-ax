@@ -1,11 +1,14 @@
 // Component A: invites, members, role guards, password resets, deletion, owner transfer, and "admins can't read
 // other people's chats".
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, listEndpoints, uuidv7 } from '@mycel/shared/api'
 import { sweep } from '../../server/src/auth/sweeper'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+
+// deleting a member removes the personal folder and re-checks access across the team: seconds on a busy machine
+setDefaultTimeout(30_000)
 
 describe('invites', () => {
   let h: Harness

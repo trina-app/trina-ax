@@ -823,7 +823,7 @@ sudo scripts/uninstall-macos.sh ; bun run dev:service install</pre>
     <tr><td>AI 엔진 카드가 “지원하지 않는 버전”</td><td>Claude Code가 2.1.305가 아닌 버전이에요. 개발 모드는 그대로 써도 돼요. 정식 설치는 1-2의 고정 버전으로 되돌린 뒤 2-5를 다시 실행해요.</td></tr>
     <tr><td>엔진이 “로그인 필요” (개발 모드)</td><td>같은 맥 사용자로 <code>claude</code>(또는 <code>codex login</code>)를 실행해 로그인 → 관리자 → AI 엔진의 새로 고침.</td></tr>
     <tr><td>Codex 명령이 “An unknown error occurred”로 끝나요 (정식)</td><td>명령 앞의 <code>cd / &amp;&amp;</code>를 빠뜨렸어요. 2-7의 명령을 그대로 붙여 넣어요.</td></tr>
-    <tr><td>“relay skipped: it needs Node 25+”</td><td><code>brew install node</code>로 Node 25 이상. 직접 주소는 그대로 돼요.</td></tr>
+    <tr><td>“relay skipped: it needs Node 24+”</td><td><code>brew install node</code>로 Node 24 이상(26 권장). 직접 주소는 그대로 돼요.</td></tr>
     <tr><td>포트가 이미 쓰이고 있어요 / 서버가 안 떠요</td><td><code>lsof -nP -iTCP:19100 -sTCP:LISTEN</code>으로 누가 쓰는지 봐요. 개발: 19100, 19161. 정식: 47820, 8443, 47821. 개발 서비스가 돌고 있으면 <code>bun run dev:service stop</code>.</td></tr>
     <tr><td>정식 설치 후 서버가 답하지 않아요</td><td><code>/Library/Logs/mycel/crash/server.log</code>를 보고, 아래 “설치 다시 하기”를 해요.</td></tr>
     <tr><td>진단: “AI 엔진 실행기”가 멈춤, “실행기에 연결할 수 없습니다” (정식)</td><td>2-9의 <code>sudo launchctl kickstart -k system/app.treesoop.mycel.launcher</code>로 다시 켜요. 계속되면 <code>/Library/Logs/mycel/crash/launcher.log</code>.</td></tr>

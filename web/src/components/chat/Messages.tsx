@@ -286,7 +286,7 @@ export function AssistantMessage({
         )}
         {streaming && queuePos !== undefined && queuePos > 0 && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="queue-position">
-            {t('chat.queued', { n: queuePos })}
+            {t('chat.queued', { n: queuePos })} <span className="text-muted-foreground">{t('chat.queueHint')}</span>
           </p>
         )}
         <Steps steps={m.steps} streaming={streaming} />

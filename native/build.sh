@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap},
-# plus bin/darwin-<arch>/mycel-ocr (Swift, Apple Vision; only when built on a Mac with swiftc).
+# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl,mycel-ocr} (ee/cloud/README.md; linux-runtime
+# spec 3.3.4, 3.6.5, 3.7.1) and bin/darwin-<arch>/mycel-ocr (Swift, Apple Vision; only when built on a Mac with swiftc).
 #   bash native/build.sh                     arm64 (this repo's default; dev on Apple silicon)
 #   ARCHS=amd64 bash native/build.sh         Intel
 #   ARCHS="arm64 amd64" bash native/build.sh both, plus bin/darwin-universal (lipo) for a universal release bundle
@@ -12,10 +13,12 @@ for arch in $ARCHS; do
   case "$arch" in arm64|amd64) ;; *) echo "native/build.sh: ARCHS takes arm64 and/or amd64, not $arch" >&2; exit 2 ;; esac
 done
 CMDS="mycel-bridge mycel-gate mycel-launcher mycel-bootstrap"
+LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-ocr"
 for os in darwin linux; do
   for arch in $ARCHS; do
     out="bin/$os-$arch"; mkdir -p "$out"
-    for c in $CMDS; do
+    cmds="$CMDS"; if [[ $os == linux ]]; then cmds="$CMDS $LINUX_CMDS"; fi
+    for c in $cmds; do
       CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$out/$c" "./cmd/$c"
     done
     echo "built $out"

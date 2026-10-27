@@ -15,8 +15,10 @@ import { createLogger, type Logger } from './log'
 import { applyPendingRestore } from './system/backup'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
+import { reloadManagedFiles } from './system/managed'
 import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
 import { guardOfficeClaudeJson } from './engine/claude-json-guard'
+import { setupServerCgroups } from './system/cgroups'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -67,6 +69,7 @@ export function checkSocketPaths(ctx: AppContext, log: Logger): string | null {
 export interface Started { ctx: AppContext; servers: ReturnType<typeof Bun.serve>[]; url: string; stop(): Promise<void> }
 
 export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
+  setupServerCgroups({ log, mode: cfg.mode }) // Linux production: S/main + S/conv before any child process (no-op elsewhere)
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
@@ -184,6 +187,9 @@ if (import.meta.main) {
   }
   process.on('SIGINT', () => void shutdown('SIGINT'))
   process.on('SIGTERM', () => void shutdown('SIGTERM'))
+  // mycel-ctl apply-plan / notices-set: read plan.json and notices.json again now (system/managed.ts). Without this
+  // handler SIGHUP would end the process.
+  process.on('SIGHUP', () => { reloadManagedFiles(); log.info('SIGHUP: plan and notices files are read again') })
   // under mycel-bootstrap (production): the server runs in its own process group, so a bootstrap killed outright
   // (launchd's SIGKILL, `launchctl kill 9`) left it running, holding the port with the old version while every new
   // bootstrap failed to start one (found by the medical fork, docs/UPSTREAM-CANDIDATES.md there, item 6)

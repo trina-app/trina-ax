@@ -1,7 +1,7 @@
 // web_fetch SSRF rules (design tab 3): URL / port / name rules, the address allow-list (decimal / octal / hex IPv4,
 // IPv4-mapped IPv6, metadata addresses), DNS answers with private addresses (rebinding), redirects into the office
 // network, proxies from the environment, limits, and the page -> text conversion.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -10,6 +10,9 @@ import { makeHandler } from '../../server/src/mcp/protocol'
 import { makePdf } from '../lib/pdf'
 import { WORK } from '../lib/env'
 import { makeCApp, type CApp } from '../lib/c-app'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 const PUBLIC = '93.184.215.14'
 const pub = async () => [{ address: PUBLIC, family: 4 }]

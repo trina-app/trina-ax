@@ -44,14 +44,27 @@ export class TurnRegistry {
    * instead of inserted. */
   create(userId: string, chatId: string, engine = 'claude-code', model: string | null = null, existingId?: string): { turn: Turn; token: string } {
     const id = existingId ?? uuidv7()
+    if (this.byId.has(id)) throw new Error('turn already registered')
     const token = crypto.randomBytes(32).toString('base64url')
     const turn: Turn = { id, userId, chatId, tokenHash: h(token), files: new TurnFiles(), pgid: null, revoked: false, waiters: [] }
-    this.byId.set(id, turn); this.byHash.set(turn.tokenHash, turn)
-    if (existingId) this.db.query("UPDATE turns SET status = 'running', started_at = ?, engine = ?, model = ? WHERE id = ?").run(new Date().toISOString(), engine, model, id)
+    if (existingId) {
+      const updated = this.db.query("UPDATE turns SET status = 'running', started_at = COALESCE(dispatched_at, started_at), engine = ?, model = ? WHERE id = ? AND user_id = ? AND chat_id = ? AND status IN ('queued','running')").run(engine, model, id, userId, chatId)
+      if (updated.changes !== 1) throw new Error('turn is not available for registration')
+    }
     else this.db.query('INSERT INTO turns (id, chat_id, user_id, engine, model) VALUES (?,?,?,?,?)').run(id, chatId, userId, engine, model)
+    // Publish no usable token until the durable row accepted this execution.
+    this.byId.set(id, turn); this.byHash.set(turn.tokenHash, turn)
     return { turn, token }
   }
   get(id: string) { return this.byId.get(id) }
+  /** Revoke access now; the runtime records the final status after actual termination. */
+  invalidate(turnId: string) {
+    const t = this.byId.get(turnId)
+    if (!t) return
+    t.revoked = true
+    this.byHash.delete(t.tokenHash)
+    t.waiters.splice(0).forEach(f => f())
+  }
   bind(turnId: string, pgid: number) {
     const t = this.byId.get(turnId); if (!t || t.revoked) return false
     t.pgid = pgid; t.waiters.splice(0).forEach((f) => f()); return true

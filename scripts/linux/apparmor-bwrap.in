@@ -1,0 +1,9 @@
+# Ubuntu 24.04+ restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1). This profile
+# lets /usr/bin/bwrap (and only it) create one, the way Ubuntu documents for a single program (linux-runtime spec
+# 3.5.1 step 4); the global sysctl stays on. Written by scripts/install-linux.sh as /etc/apparmor.d/@ID@-bwrap.
+abi <abi/4.0>,
+include <tunables/global>
+profile @ID@-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/@ID@-bwrap>
+}

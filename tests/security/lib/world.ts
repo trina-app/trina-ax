@@ -15,6 +15,7 @@
 // Every private thing carries a canary string; a "deny" case also fails when its response contains one.
 import { API } from '@mycel/shared/api'
 import { componentC } from '../../../server/src/team-files/component'
+import { sealSecret } from '../../../web/src/lib/seal'
 import { SETUP_TOKEN, type Client, type Instance, type Socket } from './instance'
 
 export const PW: Record<string, string> = {
@@ -49,6 +50,11 @@ export const C = {
   falconPlan: 'SEC-FALCON-PLAN-1aa',        // projects/falcon (alice write, finance read)
   falconInstr: 'SEC-FALCON-INSTR-7c3',
   aliceSuggestion: 'SEC-ALICE-SKILLSUGGEST-3f8', // a skill alice suggested: alice + the managers of skills/ (owner, admin)
+  // AI connections: their secrets reach nobody, ever (any response, any persona); alice's own connection's name is
+  // seen by alice (Settings) and by the owner and admins (Admin > AI connections lists that it exists), not by members
+  teamSecret: ('sk-ant-oat01-' + 'SECCANARYTEAMTOKEN0a1b2c3d4e5f60718293a4b5c6d'),
+  aliceSecret: ('sk-ant-api03-' + 'SECCANARYALICEKEY0a1b2c3d4e5f60718293a4b5c6d'),
+  aliceOwnName: 'ALICE-OWN-CANARY',
 } as const
 
 export type Who = 'owner' | 'admin' | 'memberIn' | 'other' | 'memberOut' | 'pwchange' | 'anon'
@@ -68,6 +74,7 @@ export interface World {
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
     budget: string; bobChat: string; suggestion: string
+    teamCredential: string; aliceOwnCredential: string
   }
   sockets: Record<'alice' | 'bob' | 'carol' | 'dana' | 'erin', Socket>
 }
@@ -100,7 +107,7 @@ async function save(c: Client, p: string, content: string) {
   return c.ok('PUT', '/api/files/content', { path: p, content, baseSha256: base })
 }
 
-export async function buildWorld(inst: Instance): Promise<World> {
+export async function buildWorld(inst: Instance, options: { sharedSubscriptions?: boolean } = {}): Promise<World> {
   const as = Object.fromEntries(WHO.map((w) => [w, inst.client(w)])) as Record<Who, Client>
   const owner = as.owner
   // first owner (setup token), then everyone else through the admin API
@@ -126,6 +133,14 @@ export async function buildWorld(inst: Instance): Promise<World> {
   const finFolder = folderList.find((f) => f.path.startsWith('groups/') && f.path.includes('finance'))!.path
   await owner.ok('POST', '/api/admin/folders', { path: `${mktFolder}/salaries`, create: true, rules: [rule('group', mk.id, 'none')] })
   const folders = Object.fromEntries(((await owner.ok('GET', '/api/admin/folders')).items as { id: string; path: string }[]).map((f) => [f.path, f.id]))
+
+  // ---------------- AI connections (sealed in the "browser" like the web app does) ----------------
+  // Only callers explicitly testing a shared team subscription opt in; the factory preserves default-off otherwise.
+  if (options.sharedSubscriptions === true) await owner.ok('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })
+  const key = await owner.ok('GET', '/api/credentials/sealing-key')
+  const teamCredential = (await owner.ok('POST', '/api/admin/credentials', { kind: 'anthropic-oauth', label: 'Team Max', sealed: await sealSecret(key, C.teamSecret, 'credential.create'), acknowledgedPlanNotice: true, password: PW.dana })).id
+  await owner.ok('PATCH', '/api/admin/credential-settings', { memberOwn: true })
+  const aliceOwnCredential = (await as.memberIn.ok('POST', '/api/me/credentials', { kind: 'anthropic-api-key', label: C.aliceOwnName, sealed: await sealSecret(key, C.aliceSecret, 'credential.create') })).id
 
   // ---------------- files ----------------
   const { alice, bob, carol, dana } = { alice: as.memberIn, bob: as.memberOut, carol: as.admin, dana: as.owner }
@@ -210,7 +225,7 @@ export async function buildWorld(inst: Instance): Promise<World> {
       chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId,
       artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
-      resetToken: reset.token, budget, bobChat, suggestion,
+      resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential,
     },
   }
 }

@@ -1,0 +1,19 @@
+# Debian / Ubuntu packages a Linux install needs (linux-runtime spec 3.5.1 step 3, D10), each with the lowest version
+# accepted: the oldest supported release, Debian 12 (Ubuntu 24.04 and Debian 13 have newer ones). scripts/install-linux.sh
+# installs them with apt-get and checks every line with `dpkg --compare-versions <installed> ge <min>` (epochs written
+# as Debian does). One "package" or "package>=version" per line; '#' starts a comment. Copied into the bundle as
+# app/<version>/deps.txt (covered by the bundle's signed manifest).
+bubblewrap>=0.8.0
+nftables>=1.0.6
+poppler-utils>=22.12.0
+tesseract-ocr>=5.3.0
+tesseract-ocr-kor>=1:4.1.0
+tesseract-ocr-eng>=1:4.1.0
+ffmpeg>=7:5.1
+libheif-examples>=1.15.1
+ca-certificates>=20230311
+curl>=7.88.1
+gnupg>=2.2.40
+file>=1:5.44
+zstd>=1.5.4
+util-linux>=2.38.1

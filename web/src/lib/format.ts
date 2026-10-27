@@ -69,3 +69,10 @@ export function fmtDuration(s: number) {
 export function localDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
+/** Inclusive date inputs -> [from, to) API range. Calendar arithmetic preserves DST boundaries. */
+export function localDayRange(from: string, to: string): { from: string; to: string } {
+  const end = new Date(`${to}T00:00:00`)
+  end.setDate(end.getDate() + 1)
+  return { from: new Date(`${from}T00:00:00`).toISOString(), to: end.toISOString() }
+}

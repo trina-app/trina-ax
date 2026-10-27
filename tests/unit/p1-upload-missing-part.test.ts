@@ -2,11 +2,14 @@
 // <data>/uploads): every chunk answered 500 "internal error" (ENOENT from open). The web client retried, gave up, and on
 // the next try resumed the same session (GET still found it), so that file could not be uploaded for 24 hours. Now the
 // session ends and the chunk is answered 410 gone; the next try finds no session and starts a new one.
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { UPLOAD_CHUNK_SIZE } from '@mycel/shared/api'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('p1-upload-missing-part') })

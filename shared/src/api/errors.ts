@@ -20,6 +20,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, Record<Locale, string>> = {
   busy: { ko: '지금은 처리할 수 없습니다. 진행 중인 작업이 끝난 뒤 다시 시도해 주세요.', en: 'Busy right now. Try again when the running work is done.', id: 'Sedang sibuk. Coba lagi setelah pekerjaan yang berjalan selesai.' },
   unavailable: { ko: '팀 서버가 잠시 사용할 수 없습니다.', en: 'The team server is temporarily unavailable.', id: 'Server tim sementara tidak tersedia.' },
   internal: { ko: '서버 오류가 발생했습니다.', en: 'Something went wrong on the server.', id: 'Terjadi kesalahan pada server.' },
+  storage_full: { ko: '저장 공간이 가득 찼습니다. 휴지통을 비우거나 파일을 정리해 주세요.', en: 'The storage is full. Empty the trash or clean up files.', id: 'Penyimpanan penuh. Kosongkan tempat sampah atau rapikan berkas.' },
+  plan_limit: { ko: '요금제 한도를 넘습니다. 요금제를 바꾸거나 쓰지 않는 계정을 꺼 주세요.', en: 'This goes over the plan. Change the plan, or disable an account that is no longer used.', id: 'Ini melebihi batas paket. Ubah paket, atau nonaktifkan akun yang tidak dipakai lagi.' },
 }
 
 export function errorMessage(code: ErrorCode, locale: Locale): string {

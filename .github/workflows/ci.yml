@@ -43,10 +43,12 @@ jobs:
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - name: Native build (darwin + linux, amd64 + arm64) and go vet
+      - name: Native build (darwin + linux, amd64 + arm64), go vet and go test
         run: |
           ARCHS="amd64 arm64" bash native/build.sh
-          cd native && go vet ./...
+          # go test covers the seccomp filter (errnos on a child), the Landlock probe, the bwrap argv golden, the
+          # nft rule golden, plan / firewall-status parsing, the bundle verifier and the launcher symlink fix
+          cd native && go vet ./... && go test ./...
       - name: Unit tests
         run: bun run test:unit
       - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
@@ -57,8 +59,9 @@ jobs:
           bun run build:web
       - uses: actions/setup-node@v4
         with:
-          node-version: 25
-      - name: Relay conformance and hardening (real Node 25 relay)
+          # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
+          node-version: 26.12.1
+      - name: Relay conformance and hardening (real Node 26 relay)
         run: bun run test:relay
       - uses: actions/upload-artifact@v4
         with:
@@ -67,8 +70,15 @@ jobs:
           retention-days: 7
 
   linux-docker:
-    name: Linux job (separate server / engine / person accounts)
-    runs-on: ubuntu-24.04
+    name: Linux attack suite (T1, bwrap + nftables + cgroups in Docker)
+    # amd64 and arm64: the seccomp table, the whisper CPU pick and bwrap's behaviour differ by architecture.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -79,7 +89,70 @@ jobs:
         with:
           go-version-file: native/go.mod
           cache-dependency-path: native/go.sum
-      - name: Native build (linux amd64)
-        run: ARCHS=amd64 bash native/build.sh
-      - name: Build and run the Docker job
+      - name: Native build (linux ${{ matrix.arch }})
+        run: ARCHS=${{ matrix.arch }} bash native/build.sh
+      - name: Build and run the Docker job (T1)
+        # tests/linux/run.ts runs the container --privileged --cgroupns=private (bwrap userns + mounts, nft
+        # CAP_NET_ADMIN, a writable cgroup tree). GitHub's runners allow --privileged.
         run: bun run tests/linux/run.ts
+
+  linux-bundle:
+    name: Linux release bundle (L19) + verify-bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "${{ env.BUN_VERSION }}" }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: native/go.mod, cache-dependency-path: native/go.sum }
+      - name: whisper-cli (static, this arch)
+        run: bash scripts/linux/build-whisper.sh --arch ${{ matrix.arch }} --out dist/whisper
+      - run: bun install --frozen-lockfile
+      - name: Native build (linux ${{ matrix.arch }})
+        run: ARCHS=${{ matrix.arch }} bash native/build.sh
+      - name: Build the Linux bundle and the install kit
+        run: |
+          V=$(bun -e 'console.log(require("./server/package.json").version)')-ci.${{ github.run_number }}
+          bun scripts/build-bundle.ts --os linux --arch ${{ matrix.arch }} --version "$V" --whisper-dir dist/whisper --out dist/linux-${{ matrix.arch }}
+      - name: verify-bundle and list the contents
+        run: |
+          V=$(cat dist/linux-${{ matrix.arch }}/VERSION)
+          dist/linux-${{ matrix.arch }}/app/$V/root/mycel-ctl verify-bundle "dist/linux-${{ matrix.arch }}/app/$V" --allow-unsigned
+          find "dist/linux-${{ matrix.arch }}/app/$V" -maxdepth 2 -printf '%P\n' | sort
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-kit-${{ matrix.arch }}
+          path: dist/linux-${{ matrix.arch }}/TeamAX-server-*-linux-${{ matrix.arch }}.tar.gz
+          retention-days: 7
+
+  linux-install:
+    name: Linux install test (T2, systemd on a VM runner)
+    # paths filter and the daily schedule are enforced in the real feed; here the job just has to be correct.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "${{ env.BUN_VERSION }}" }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: native/go.mod, cache-dependency-path: native/go.sum }
+      - run: bun install --frozen-lockfile
+      - name: Native build (linux ${{ matrix.arch }})
+        run: ARCHS=${{ matrix.arch }} bash native/build.sh
+      # the runner is a real VM: systemd, cgroup delegation and the Ubuntu 24.04 AppArmor userns restriction are
+      # exercised for real (install-linux.sh step 4). The test builds its own kits (--no-whisper) and fake engine.
+      - name: Install, units, firewall, turns, plan, updates, roll-back, uninstall, purge (T2)
+        run: sudo env "PATH=$PATH" bun tests/install/g-linux-install.ts

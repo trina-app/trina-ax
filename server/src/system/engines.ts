@@ -1,4 +1,5 @@
 // Engine login status for the diagnostics screen (design tab 6 step 4, tab 7 "진단 화면"). Component G.
+// managed (production, cloud): the team's AI connections per engine family (Admin > AI connections), no logins.
 // local-login (dev / this run): the owner's own CLI logins — `claude auth status` (JSON) and `codex login status`.
 // Role-account mode (_axagent): Claude needs the owner's long-lived subscription token (`claude setup-token`) in
 // secrets/claude-oauth-token; Codex needs a separate device-auth login of the engine account. Never returns account
@@ -16,8 +17,10 @@ export interface EngineLogin {
   loggedIn: boolean | null
   /** e.g. claude.ai, ChatGPT, setup-token */
   method: string | null
-  /** machine-readable reason when not logged in (setup_token_expiring: logged in, but the token ends within 14 days) */
-  reason: 'not_installed' | 'not_logged_in' | 'setup_token_missing' | 'setup_token_expired' | 'setup_token_invalid' | 'setup_token_expiring' | 'engine_login_missing' | 'check_failed' | null
+  /** machine-readable reason when not logged in (setup_token_expiring / credential_expiring: logged in, but a token
+   * ends within 14 days). credential_*: managed mode, the team's AI connections of the engine's family. */
+  reason: 'not_installed' | 'not_logged_in' | 'setup_token_missing' | 'setup_token_expired' | 'setup_token_invalid' | 'setup_token_expiring' | 'engine_login_missing' | 'check_failed'
+    | 'credential_none' | 'credential_unusable' | 'credential_limited' | 'credential_expiring' | null
   /** subscription token: when it stops working (one year after it was stored) */
   expiresAt?: string | null
 }
@@ -42,8 +45,13 @@ async function run(cmd: string[], timeoutMs: number): Promise<{ code: number; ou
   }
 }
 
+/** the team's AI connections of one family (credentials/resolve.ts teamCredentialSummary) */
+export interface CredentialSummary { total: number; usable: number; expiring: number; reasons: string[] }
+
 export interface EngineCheckOptions {
-  authMode: 'local-login' | 'proxy' | 'subscription'
+  authMode: 'local-login' | 'managed'
+  /** managed mode: the team's usable AI connections per engine (instead of logins) */
+  managed?: { 'claude-code': CredentialSummary; codex: CredentialSummary }
   /** role-account install: the engine runs as another account, local logins do not apply */
   roleAccount: boolean
   claudeBin: string | null
@@ -56,12 +64,19 @@ export interface EngineCheckOptions {
   codexLogin?: () => Promise<{ loggedIn: boolean } | null>
 }
 
+function fromConnections(engine: EngineLogin['engine'], s: CredentialSummary): EngineLogin {
+  if (s.usable > 0) return { engine, installed: true, loggedIn: true, method: `AI connections: ${s.usable}`, reason: s.expiring > 0 ? 'credential_expiring' : null }
+  const reason = s.total === 0 ? 'credential_none' : s.reasons.length && s.reasons.every((r) => r === 'limited' || r === 'over_limit') ? 'credential_limited' : 'credential_unusable'
+  return { engine, installed: true, loggedIn: false, method: null, reason }
+}
+
 export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]> {
   const exists = (p: string | null) => !!p && (() => { try { fs.accessSync(p, fs.constants.X_OK); return true } catch { return false } })()
   const out: EngineLogin[] = []
   // Claude Code
   if (!exists(o.claudeBin)) out.push({ engine: 'claude-code', installed: false, loggedIn: null, method: null, reason: 'not_installed' })
-  else if (o.roleAccount || o.authMode === 'subscription') {
+  else if (o.managed) out.push(fromConnections('claude-code', o.managed['claude-code']))
+  else if (o.roleAccount) {
     // the owner's setup-token behind the model proxy: present, not older than a year, not refused by the upstream
     const st = subscriptionTokenStatus(o.secretsDir, o.db ?? null)
     const reason = ({ missing: 'setup_token_missing', malformed: 'setup_token_invalid', invalid: 'setup_token_invalid', expired: 'setup_token_expired', expiring: 'setup_token_expiring', ok: null } as const)[st.state]
@@ -78,6 +93,7 @@ export async function checkEngines(o: EngineCheckOptions): Promise<EngineLogin[]
   }
   // Codex CLI
   if (!exists(o.codexBin)) out.push({ engine: 'codex', installed: false, loggedIn: null, method: null, reason: 'not_installed' })
+  else if (o.managed) out.push(fromConnections('codex', o.managed.codex))
   else if (o.roleAccount) {
     // the engine account's own login lives in its folder, which the server account cannot read by design: ask the
     // launcher (it never returns the token)

@@ -1,11 +1,15 @@
 // Component A: first-run setup, sign-in (cookie / bearer), CSRF, sessions, password change, rate limits.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwords'
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+
+// argon2id with 64 MiB per hash, 4 at a time (auth/passwords.ts): the rate-limit cases hash dozens of passwords and take
+// about 2 s alone, more on a busy machine; the 5 s default cut them off there
+setDefaultTimeout(30_000)
 
 describe('first-run setup', () => {
   let h: Harness

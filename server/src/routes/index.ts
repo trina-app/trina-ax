@@ -14,6 +14,7 @@ import { relayRoutes } from './relay'
 import { systemRoutes } from './system'
 import { webRoutes } from './web'
 import { wsRoutes } from './ws'
+import { remoteMcpRoutes } from './remote-mcp'
 
 export type { RouteModule } from './module'
 
@@ -30,5 +31,6 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   artifactsRoutes, // C
   jobsRoutes, // C
   relayRoutes, // F
+  remoteMcpRoutes, // Optional external apps, separate OAuth audience and core file permissions.
   webRoutes, // D (catch-all, keep last)
 ]

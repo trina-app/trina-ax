@@ -4,7 +4,7 @@
 // getChatRuntime(ctx).
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_LOCALE, type Attachment, type ChatRunState, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
@@ -17,18 +17,38 @@ import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
 import { engineError } from './i18n'
+import { forgetPurgedChats, retryPendingForgets } from './forget'
+import { effectiveConcurrency } from '../system/limits'
+import { teamTimeZone } from '../admin/settings'
+import { setTeamTimeZoneSource } from '../system/time-zone'
+import { HttpError } from '../http/errors'
+import { fairOrder, selectFairHead, type QueueTiming } from './fair-queue'
+import { QueueStore } from './queue-store'
+import { launcherStatus } from '../native'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
 export const MAX_ASK_USER_TIMEOUT_MS = 15 * 60_000
 export const DEFAULT_CHAT_TRASH_DAYS = 7
 export const DEFAULT_MAX_ENGINE_TURNS = 50
+/** Queue capacity is separate from execution capacity; supports all 60 people asking three times. */
+export const QUEUE_TEAM_MIN = 10
+export const QUEUE_PER_USER = 3
+export const QUEUE_RETRY_AFTER_S = 30
+const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
+  ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있습니다. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
+  en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
+  id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' },
+}
 
 export interface ChatRuntimeOptions {
   engines?: EngineProvider
   hub?: HubOptions
   relay?: BrowserRelayOptions
   turnTimeoutMs?: number
+  wallTimeoutMs?: number
+  /** Status-only polling while installed startup waits for an idle launcher. */
+  recoveryPollMs?: number
   askUserTimeoutMs?: number
   timeZone?: string
   maxEngineTurns?: number
@@ -94,9 +114,22 @@ export class ChatRuntime {
   readonly relay: BrowserRelay
   readonly engines: EngineProvider
   readonly turnTimeoutMs: number
+  readonly wallTimeoutMs: number
+  readonly queueStore: QueueStore
+  readonly queueEpoch = newId()
+  private queueRevision = 0
+  private quarantined = new Set<string>()
+  private dispatching = false
+  private recovering = false
+  private recoveryTask: Promise<void> | null = null
+  private recoveryRetry: ReturnType<typeof setTimeout> | null = null
+  private recoveryAbort = new AbortController()
+  private recoveryState: 'ready' | 'checking_launcher' | 'launcher_unreachable' | 'launcher_busy' | 'launcher_unknown' = 'ready'
+  private queueRejections = { queue_full: 0, queue_full_user: 0, draining: 0 }
+  private lastConcurrency = 0
+  private capacityWatcher: ReturnType<typeof setInterval>
   readonly maxEngineTurns: number
-  readonly timeZone: string
-  private queued: TurnSpec[] = []
+  private queued: (TurnSpec & QueueTiming)[] = []
   private running = new Map<string, TurnExec>()
   private positions = new Map<string, number>()
   private closing = false
@@ -114,16 +147,32 @@ export class ChatRuntime {
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
+    this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000
+    this.queueStore = new QueueStore(ctx.db)
+    this.lastConcurrency = this.concurrency()
+    // Plan updates can arrive outside the settings route. Lower C never kills existing turns.
+    this.capacityWatcher = setInterval(() => {
+      try { if (this.concurrency() !== this.lastConcurrency) this.schedule() }
+      catch (err) { this.log.error('queue capacity refresh failed', { err }) }
+    }, 250)
+    this.capacityWatcher.unref?.()
     this.maxEngineTurns = o.maxEngineTurns ?? DEFAULT_MAX_ENGINE_TURNS
-    this.timeZone = o.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
+    // the engines get the team's zone as TZ (engine/claude.ts, engine/codex.ts; one team per server process)
+    if (!o.timeZone) setTeamTimeZoneSource(() => teamTimeZone(ctx.db))
     this.schedules = new Schedules(this.db, this)
     if (process.env.NODE_ENV !== 'test') this.schedules.startLoop(ctx)
     this.purger = setInterval(() => { try { this.purgeTrash() } catch (e) { this.log.error('chat purge failed', { err: e }) } }, o.purgeIntervalMs ?? 60 * 60_000)
     ;(this.purger as { unref?: () => void }).unref?.()
+    // engine folders a launcher did not take before the last stop (chat/forget.ts)
+    const retry = setTimeout(() => { void retryPendingForgets(ctx) }, 30_000)
+    ;(retry as { unref?: () => void }).unref?.()
+    ctx.onClose(() => clearTimeout(retry))
     ctx.onClose(() => this.shutdown())
   }
 
   get db() { return this.ctx.db }
+  /** the team's time zone (Admin > Settings, admin/settings.ts teamTimeZone); a test may fix one */
+  get timeZone(): string { return this.o.timeZone ?? teamTimeZone(this.ctx.db) }
   get files() { return this.ctx.files }
   get log() { return this.ctx.log }
 
@@ -135,7 +184,8 @@ export class ChatRuntime {
   }
 
   // ---------------- settings ----------------
-  concurrency(): number { return readSetting(this.db, 'concurrency', isInt(1, 16), DEFAULT_CONCURRENCY) }
+  /** min(the admin's setting, the plan's maxConcurrency): system/limits.ts, the same number diagnostics show */
+  concurrency(): number { return effectiveConcurrency(this.db) }
   askUserTimeoutMs(): number {
     if (this.o.askUserTimeoutMs !== undefined) return this.o.askUserTimeoutMs
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
@@ -165,10 +215,35 @@ export class ChatRuntime {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
     return undefined
   }
-  queuePosition(turnId: string): number {
+  queuePosition(turnId: string): number | null {
     if (this.running.has(turnId)) return 0
-    const i = this.queued.findIndex((s) => s.turnId === turnId)
-    return i < 0 ? 0 : i + 1
+    const i = this.orderedQueue().findIndex((s) => s.turnId === turnId)
+    return i < 0 ? null : i + 1
+  }
+  queueSnapshot(chatId: string): ChatQueueSnapshot {
+    const id = this.activeTurn(chatId)
+    const spec = id ? this.running.get(id)?.spec ?? this.queued.find(s => s.turnId === id) : null
+    return { state: this.runState(chatId), turnId: id, messageId: spec?.assistantId ?? null, position: id ? this.queuePosition(id) : null,
+      epoch: this.queueEpoch, revision: this.queueRevision }
+  }
+  private activeCounts() {
+    const counts = new Map<string, number>()
+    for (const e of this.running.values()) counts.set(e.spec.userId, (counts.get(e.spec.userId) ?? 0) + 1)
+    return counts
+  }
+  private queueEntries() { return this.queued.map((s, i) => ({ ...s, queueSeq: s.queueSeq ?? i + 1 })) }
+  private orderedQueue() {
+    return fairOrder(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), new Set([...this.running.values()].map(e => e.spec.chatId)))
+  }
+  get acceptingTurns() { return !this.closing && !this.recovering }
+  queueDiagnostics() {
+    const wait = this.db.query("SELECT MIN(COALESCE(queued_at,started_at)) AS oldest FROM turns WHERE status='queued'").get() as { oldest: string | null }
+    const deferred = this.db.query('SELECT COUNT(*) n,MIN(pending_due_at) oldest FROM schedules WHERE pending_due_at IS NOT NULL').get() as { n: number; oldest: string | null }
+    return { queuePolicyVersion: 1, recovery: this.recoveryState, waitingUsers: new Set(this.queued.map(s => s.userId)).size,
+      oldestWaitMs: wait.oldest ? Math.max(0, Date.now() - Date.parse(wait.oldest)) : 0,
+      maxRunningPerUser: Math.max(0, ...this.activeCounts().values()), quarantined: this.quarantined.size, deferredSchedules: deferred.n,
+      deferredOldestWaitMs: deferred.oldest ? Math.max(0, Date.now() - Date.parse(deferred.oldest)) : 0,
+      rejected: { ...this.queueRejections } }
   }
   runningCount() { return this.running.size }
   /** The person's engine sessions were reset (access shrank) while these turns ran: they end without stashing. */
@@ -180,52 +255,83 @@ export class ChatRuntime {
   queuedCount() { return this.queued.length }
   /** Stop every running and queued turn of one person (account disabled / deleted). */
   stopUserTurns(userId: string): number {
+    this.db.query('UPDATE schedules SET pending_due_at=NULL, retry_at=NULL, enabled=0 WHERE user_id=?').run(userId)
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
     let n = 0
     for (const chatId of chats) if (this.stopChat(chatId)) n++
     return n
   }
 
-  private enqueue(spec: TurnSpec) {
+  private enqueue(spec: TurnSpec & QueueTiming) {
     this.queued.push(spec)
-    this.schedule()
+    this.queueRevision++
   }
 
   schedule() {
-    if (this.closing) return
+    if (!this.acceptingTurns || this.dispatching) return
+    this.dispatching = true
+    try {
     const limit = this.concurrency()
+    if (limit !== this.lastConcurrency) { this.lastConcurrency = limit; this.queueRevision++ }
+    // Invalid queued state is terminal, never a permanent head blocking another user.
+    for (const s of [...this.queued]) {
+      const valid = this.db.query(`SELECT 1 FROM turns t JOIN users u ON u.id=t.user_id JOIN chats c ON c.id=t.chat_id
+        JOIN messages a ON a.id=t.message_id JOIN messages m ON m.id=t.user_message_id
+        WHERE t.id=? AND t.status='queued' AND u.status='active' AND u.deleted_at IS NULL AND c.deleted_at IS NULL`).get(s.turnId)
+      if (!valid) this.stopChat(s.chatId)
+    }
     while (this.running.size < limit && this.queued.length) {
       const busy = new Set([...this.running.values()].map((e) => e.spec.chatId))
-      const i = this.queued.findIndex((s) => !busy.has(s.chatId))
-      if (i < 0) break
+      const head = selectFairHead(this.queueEntries(), this.activeCounts(), this.queueStore.tickets(), busy)
+      if (!head) break
+      const i = this.queued.findIndex(s => s.turnId === head.turnId)
+      const timing = this.queueStore.claim(head.turnId, head.userId, this.wallTimeoutMs)
       const spec = this.queued.splice(i, 1)[0]!
+      this.queueRevision++
+      if (!timing) { this.queueStore.settle(spec.userId); continue }
+      Object.assign(spec, timing)
       const exec = new TurnExec(this, spec)
       this.running.set(spec.turnId, exec)
       this.publishChat(spec.userId, spec.chatId, 'updated')
       void exec.run()
     }
     this.publishPositions()
+    } catch (err) {
+      // A committed claim is never automatically replayed after a failed in-memory transition.
+      this.closing = true
+      this.log.error('queue dispatch halted; recovery required', { err })
+      throw err
+    } finally { this.dispatching = false }
   }
 
   private publishPositions() {
     const now = new Map<string, number>()
     for (const e of this.running.values()) now.set(e.id, 0)
-    this.queued.forEach((s, i) => now.set(s.turnId, i + 1))
+    this.orderedQueue().forEach((s, i) => now.set(s.turnId, i + 1))
     const all = new Map([...this.running.values()].map((e) => [e.id, e.spec] as const))
     for (const s of this.queued) all.set(s.turnId, s)
     for (const [id, pos] of now) {
       if (this.positions.get(id) === pos) continue
       const s = all.get(id)!
-      this.hub.publish(s.userId, { type: 'queue.position', data: { chatId: s.chatId, messageId: s.assistantId, turnId: id, position: pos } })
+      this.hub.publish(s.userId, { type: 'queue.position', data: { chatId: s.chatId, messageId: s.assistantId, turnId: id, position: pos, epoch: this.queueEpoch, revision: this.queueRevision } })
     }
     this.positions = now
   }
 
   /** called by TurnExec.finish */
   turnFinished(exec: TurnExec) {
+    if (this.running.get(exec.id) !== exec) return
     this.running.delete(exec.id)
+    this.quarantined.delete(exec.id)
+    this.queueRevision++
     this.positions.delete(exec.id)
     this.schedule()
+  }
+  /** An engine whose termination is unproven still owns its slot until turnFinished confirms it. */
+  turnQuarantined(exec: TurnExec) {
+    if (this.running.get(exec.id) !== exec || this.quarantined.has(exec.id)) return
+    this.quarantined.add(exec.id)
+    this.log.error('turn slot quarantined: termination unconfirmed', { turn: exec.id })
   }
 
   /** Stop the running or queued turn of a chat. */
@@ -233,14 +339,20 @@ export class ChatRuntime {
     for (const e of this.running.values()) if (e.spec.chatId === chatId) { e.stop('stopped'); return e.id }
     const i = this.queued.findIndex((s) => s.chatId === chatId)
     if (i < 0) return null
-    const spec = this.queued.splice(i, 1)[0]!
-    this.positions.delete(spec.turnId)
+    const spec = this.queued[i]!
     const now = new Date().toISOString()
-    this.db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ?").run(now, spec.turnId)
-    this.db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ?").run(now, spec.assistantId)
+    this.db.transaction(() => {
+      this.db.query("UPDATE turns SET status = 'stopped', ended_at = ? WHERE id = ? AND status='queued'").run(now, spec.turnId)
+      this.db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ? AND status='streaming'").run(now, spec.assistantId)
+      this.queueStore.settle(spec.userId)
+    })()
+    this.queued.splice(i, 1)
+    this.positions.delete(spec.turnId)
+    this.queueRevision++
     const row = this.store.messageRow(spec.assistantId)
     if (row) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: this.store.toMessage(row) } })
     this.publishChat(spec.userId, chatId, 'updated')
+    this.schedule()
     this.publishPositions()
     return spec.turnId
   }
@@ -251,39 +363,89 @@ export class ChatRuntime {
    * `user` = new user message (send / edit); `answerTo` = existing user message (regenerate).
    */
   createTurn(o: {
-    chat: ChatRow; userId: string; locale: Locale; windowId: string | null; clientKind: string | null
+    /** Scheduled runs create their chat inside the admission transaction, after the capacity check. */
+    chat: ChatRow | (() => ChatRow); userId: string; locale: Locale; windowId: string | null; clientKind: string | null
     engine: EngineId; model: string | null
-    /** the chat's engine was off: this turn runs on the team default and says so in a step */
     substitutedFrom?: EngineId
     user?: { parentId: string | null; content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
+    scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
   }): TurnStarted {
-    const turnId = newId()
-    const now = new Date().toISOString()
-    let userMessageId = o.answerTo?.id ?? ''
-    let assistantId = ''
+    // A resend is a read even during drain or at capacity. It never gets a new ticket.
+    if (typeof o.chat !== 'function' && o.user) {
+      const existing = this.existingTurn(o.chat.id, o.user.clientMessageId)
+      if (existing) return existing
+    }
+    if (o.scheduled) {
+      const existing = this.db.query('SELECT chat_id, user_message_id FROM turns WHERE schedule_id=? AND scheduled_for=? AND user_id=?')
+        .get(o.scheduled.id, o.scheduled.dueAt, o.userId) as { chat_id: string; user_message_id: string } | null
+      if (existing) {
+        const message = this.store.messageRow(existing.user_message_id)
+        if (!message?.client_message_id) throw new Error('scheduled occurrence lost its message')
+        const result = this.existingTurn(existing.chat_id, message.client_message_id)
+        if (!result) throw new Error('scheduled occurrence lost its turn')
+        this.db.transaction(() => o.scheduled!.commit(existing.chat_id))()
+        return result
+      }
+    }
+    const turnId = newId(), now = new Date().toISOString()
+    let userMessageId = o.answerTo?.id ?? '', assistantId = '', queueSeq = 0
+    let chat!: ChatRow
     this.db.transaction(() => {
+      this.checkQueueRoom(o.userId, o.locale)
+      chat = typeof o.chat === 'function' ? o.chat() : o.chat
+      if (this.activeTurn(chat.id) || this.db.query("SELECT 1 FROM turns WHERE chat_id=? AND status IN ('queued','running')").get(chat.id))
+        throw new HttpError('conflict')
+      queueSeq = this.queueStore.admit(o.userId)
       if (o.user) {
-        userMessageId = this.store.insertMessage({ chatId: o.chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
+        userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId })
       }
-      assistantId = this.store.insertMessage({ chatId: o.chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
+      assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
-      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind)
-        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?)`).run(turnId, o.chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind)
-      const title = o.chat.title || (o.user ? titleFrom(o.user.content, o.user.attachments) : '')
+      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for)
+        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
+      const title = chat.title || (o.user ? titleFrom(o.user.content, o.user.attachments) : '')
       this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
-        .run(assistantId, title, o.engine, o.model, now, o.chat.id)
+        .run(assistantId, title, o.engine, o.model, now, chat.id)
+      o.scheduled?.commit(chat.id)
     })()
-    const spec: TurnSpec = { turnId, chatId: o.chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
-      ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
+    const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
+      queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
     const userMessage = o.user ? this.store.toMessage(this.store.messageRow(userMessageId)!) : null
     const assistantMessage = this.store.toMessage(this.store.messageRow(assistantId)!)
-    if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: o.chat.id, message: userMessage } })
-    this.hub.publish(o.userId, { type: 'message.created', data: { chatId: o.chat.id, message: assistantMessage } })
+    // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
-    this.publishChat(o.userId, o.chat.id, 'updated')
-    return { userMessage, assistantMessage: this.store.toMessage(this.store.messageRow(assistantId)!), turnId, queuePosition: this.queuePosition(turnId) }
+    try {
+    if (o.scheduled) this.publishChat(o.userId, chat.id, 'created')
+    if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
+    this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })
+    } finally { this.schedule() }
+    this.publishChat(o.userId, chat.id, 'updated')
+    return { userMessage, assistantMessage: this.store.toMessage(this.store.messageRow(assistantId)!), turnId,
+      queuePosition: this.queuePosition(turnId) ?? 0, queueEpoch: this.queueEpoch, queueRevision: this.queueRevision }
+  }
+
+  /**
+   * The queue is held in memory: it may not grow without end (docs/DECISIONS.md "클라우드 리눅스 서버"). The team may
+   * have at most max(10, 4 × concurrency, 3 × min(active people,100)) waiting, one person at most 3; above that the send is refused with
+   * 429 and Retry-After (the composer keeps the text). Running turns do not count.
+   */
+  checkQueueRoom(userId: string, locale: Locale): void {
+    if (!this.acceptingTurns) {
+      this.queueRejections.draining++
+      throw new HttpError('unavailable', undefined, { retryAfter: QUEUE_RETRY_AFTER_S, params: { reason: this.recovering ? 'queue_recovery' : 'draining' } })
+    }
+    const counts = this.db.query("SELECT COUNT(*) team, COALESCE(SUM(user_id = ?),0) mine FROM turns WHERE status='queued'").get(userId) as { team: number; mine: number }
+    // Conservatively include an in-memory item until reconciliation, including after a failed DB write.
+    const team = Math.max(counts.team, this.queued.length)
+    const mine = Math.max(counts.mine, this.queued.filter((s) => s.userId === userId).length)
+    const people = (this.db.query("SELECT COUNT(*) n FROM users WHERE status='active' AND deleted_at IS NULL").get() as { n: number }).n
+    const teamMax = Math.max(QUEUE_TEAM_MIN, 4 * this.concurrency(), QUEUE_PER_USER * Math.min(people, 100))
+    if (team < teamMax && mine < QUEUE_PER_USER) return
+    const reason = team >= teamMax ? 'queue_full' : 'queue_full_user'
+    this.queueRejections[reason]++
+    throw new HttpError('rate_limited', (QUEUE_FULL[locale] ?? QUEUE_FULL.en)[reason], { retryAfter: QUEUE_RETRY_AFTER_S, params: { reason } })
   }
 
   /** The turn that answers a client message id (idempotent resend). */
@@ -294,7 +456,7 @@ export class ChatRuntime {
     const user = this.store.messageRow(u.id)
     const answer = t ? this.store.messageRow(t.message_id) : null
     if (!t || !user || !answer) return null
-    return { userMessage: this.store.toMessage(user), assistantMessage: this.liveMessage(answer), turnId: t.id, queuePosition: this.queuePosition(t.id) }
+    return { userMessage: this.store.toMessage(user), assistantMessage: this.liveMessage(answer), turnId: t.id, queuePosition: this.queuePosition(t.id) ?? 0, queueEpoch: this.queueEpoch, queueRevision: this.queueRevision }
   }
 
   /** A message as the API returns it: a streaming answer carries the live text, not the last 0.3 s save. */
@@ -359,18 +521,43 @@ export class ChatRuntime {
   // ---------------- start / stop ----------------
   /** Server start: turns that were running are interrupted (never re-run: tools may have written files);
    * queued turns start again in order (tab 3 "서버 재시작"). */
-  recover() {
+  async recover() {
+    // A blocked startup retries only the launcher status, never the DB recovery writes or ticket repair.
+    if (this.recovering) return this.recoveryTask ?? Promise.resolve()
+    this.recoveryTask = this.recoverState()
+    try { await this.recoveryTask } finally { this.recoveryTask = null }
+  }
+
+  private async recoverState() {
+    if (this.recoveryAbort.signal.aborted) return
+    if (this.running.size) throw new Error('cannot recover over live turn executions')
+    this.recovering = true
+    this.queued = []
     const now = new Date().toISOString()
+    this.db.query("UPDATE schedules SET enabled=0,pending_due_at=NULL,retry_at=NULL WHERE user_id NOT IN (SELECT id FROM users WHERE status='active' AND deleted_at IS NULL)").run()
     const running = this.db.query("SELECT id, message_id, user_id FROM turns WHERE status = 'running'").all() as { id: string; message_id: string | null; user_id: string }[]
-    for (const t of running) {
+    this.db.transaction(() => { for (const t of running) {
       const locale = this.userLocale(t.user_id)
       this.db.query("UPDATE turns SET status = 'interrupted', ended_at = ?, error = 'interrupted' WHERE id = ?").run(now, t.id)
       if (t.message_id) this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ? AND status = 'streaming'").run(JSON.stringify(engineError('interrupted', locale)), now, t.message_id)
       this.db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ? AND revoked_at IS NULL').run(now, t.id)
-    }
-    const queued = this.db.query(`SELECT t.id, t.chat_id, t.user_id, t.message_id, t.user_message_id, t.window_id, t.client_kind, t.engine, t.model
-      FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.status = 'queued' AND c.deleted_at IS NULL ORDER BY COALESCE(t.queued_at, t.started_at), t.id`).all() as {
-      id: string; chat_id: string; user_id: string; message_id: string | null; user_message_id: string | null; window_id: string | null; client_kind: string | null; engine: string; model: string | null }[]
+    } })()
+    // Invalid users/chats/messages never survive a restart as runnable work.
+    this.db.transaction(() => {
+      const bad = this.db.query(`SELECT t.id,t.message_id FROM turns t WHERE t.status='queued' AND
+        (NOT EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
+         OR NOT EXISTS(SELECT 1 FROM chats c WHERE c.id=t.chat_id AND c.deleted_at IS NULL)
+         OR NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.message_id AND m.chat_id=t.chat_id)
+         OR NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.user_message_id AND m.chat_id=t.chat_id))`).all() as { id: string; message_id: string | null }[]
+      for (const t of bad) {
+        this.db.query("UPDATE turns SET status='stopped',ended_at=? WHERE id=?").run(now,t.id)
+        if (t.message_id) this.db.query("UPDATE messages SET status='stopped',updated_at=? WHERE id=? AND status='streaming'").run(now,t.message_id)
+      }
+      this.queueStore.repair()
+    })()
+    const queued = this.db.query(`SELECT t.id, t.chat_id, t.user_id, t.message_id, t.user_message_id, t.window_id, t.client_kind, t.engine, t.model,t.queue_seq
+      FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.status = 'queued' AND c.deleted_at IS NULL ORDER BY t.queue_seq,t.id`).all() as {
+      id: string; chat_id: string; user_id: string; message_id: string | null; user_message_id: string | null; window_id: string | null; client_kind: string | null; engine: string; model: string | null; queue_seq: number }[]
     // queued turns of chats in the trash never run (stop would have caught them; a crash between writes may not)
     this.db.query(`UPDATE messages SET status = 'stopped', updated_at = ? WHERE status = 'streaming' AND id IN (SELECT t.message_id FROM turns t JOIN chats c ON c.id = t.chat_id
       WHERE t.status = 'queued' AND c.deleted_at IS NOT NULL)`).run(now)
@@ -385,8 +572,10 @@ export class ChatRuntime {
       }
       seen.add(t.chat_id)
       this.queued.push({ turnId: t.id, chatId: t.chat_id, userId: t.user_id, assistantId: t.message_id, userMessageId: t.user_message_id, windowId: t.window_id,
-        clientKind: t.client_kind, engine: t.engine === 'codex' || t.engine === 'api' ? t.engine : 'claude-code', model: t.model, locale: this.userLocale(t.user_id) })
+        clientKind: t.client_kind, engine: t.engine === 'codex' || t.engine === 'api' ? t.engine : 'claude-code', model: t.model, locale: this.userLocale(t.user_id), queueSeq: t.queue_seq })
     }
+    this.queueStore.repair()
+    this.queueRevision++
     // answers left streaming without a turn (crash between writes)
     const queuedIds = new Set(this.queued.map((s) => s.assistantId))
     const stale = this.db.query("SELECT id, chat_id FROM messages WHERE status = 'streaming'").all() as { id: string; chat_id: string }[]
@@ -395,7 +584,36 @@ export class ChatRuntime {
       this.db.query("UPDATE messages SET status = 'error', error = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(engineError('interrupted', owner ? this.userLocale(owner) : DEFAULT_LOCALE)), now, m.id)
     }
     if (running.length || this.queued.length) this.log.info('turn queue recovered', { interrupted: running.length, requeued: this.queued.length })
+    if (this.ctx.config.mode === 'prod') {
+      this.recoveryState = 'checking_launcher'
+      await this.checkRecoveryLauncher()
+      return
+    }
+    this.recovering = false
     this.schedule()
+  }
+
+  private async checkRecoveryLauncher(): Promise<void> {
+    if (!this.recovering || this.recoveryAbort.signal.aborted) return
+    const sock = this.ctx.config.engine.launcherSock ?? path.join(this.ctx.engineConfig.runDir, 'launcher.sock')
+    const status = await launcherStatus(sock, 1000, this.recoveryAbort.signal)
+    if (this.recoveryAbort.signal.aborted) return
+    if (status?.liveTurns === 0) {
+      this.recoveryState = 'ready'
+      this.recovering = false
+      this.log.info('queue recovery launcher confirmed idle')
+      this.schedule()
+      return
+    }
+    const state = !status ? 'launcher_unreachable' : status.liveTurns === undefined ? 'launcher_unknown' : 'launcher_busy'
+    if (this.recoveryState !== state) this.log.warn('queue recovery waiting for an idle launcher', { reason: state })
+    this.recoveryState = state
+    // Schedule only after this probe finished: one outstanding connect, no overlapping recovery attempts.
+    this.recoveryRetry = setTimeout(() => {
+      this.recoveryRetry = null
+      void this.checkRecoveryLauncher().catch(err => this.log.error('queue recovery check failed', { err }))
+    }, this.o.recoveryPollMs ?? 1000)
+    this.recoveryRetry.unref?.()
   }
 
   userLocale(userId: string): Locale {
@@ -406,17 +624,25 @@ export class ChatRuntime {
     return l === 'en' || l === 'id' || l === 'ko' ? l : DEFAULT_LOCALE
   }
 
+  /** The launcher's answers for the last purge run (tests wait on it; chat/forget.ts never rejects). */
+  lastForget: Promise<void> = Promise.resolve()
+
   /** Delete chats that stayed in the trash past the retention (messages, artifacts, engine session, work folder). */
   purgeTrash(now = Date.now()) {
     const cutoff = new Date(now - this.chatTrashDays() * 86400_000).toISOString()
     const rows = this.db.query('SELECT id, user_id FROM chats WHERE deleted_at IS NOT NULL AND deleted_at < ?').all(cutoff) as { id: string; user_id: string }[]
+    const purged: string[] = []
     for (const c of rows) {
       if (this.activeTurn(c.id)) continue
       this.purgeChat(c.id)
+      purged.push(c.id)
       this.publishChat(c.user_id, c.id, 'purged')
     }
+    // the engine folders of these chats (the launcher's, in production) and any the launcher missed before
+    this.lastForget = retryPendingForgets(this.ctx).then(() => forgetPurgedChats(this.ctx, purged))
     return rows.length
   }
+  /** The chat's rows; what it left outside the DB goes with forgetPurgedChats (chat/forget.ts). */
   purgeChat(chatId: string) {
     this.db.transaction(() => {
       this.db.query('DELETE FROM messages WHERE chat_id = ?').run(chatId)
@@ -424,15 +650,13 @@ export class ChatRuntime {
       this.db.query('UPDATE memories SET source_chat_id = NULL WHERE source_chat_id = ?').run(chatId)
       this.db.query('DELETE FROM chats WHERE id = ?').run(chatId)
     })()
-    fs.rmSync(path.join(this.ctx.config.dataDir, 'sessions', chatId), { recursive: true, force: true })
-    fs.rmSync(path.join(this.ctx.engineConfig.agentRoot, chatId), { recursive: true, force: true })
   }
 
   /** Stop taking new turns and wait for the running ones (planned restart / update). */
   async drain(maxMs: number): Promise<boolean> {
     this.closing = true
     const all = Promise.all([...this.running.values()].map((e) => e.done))
-    const r = await Promise.race([all.then(() => true), Bun.sleep(maxMs).then(() => false)])
+    const r = await Promise.race([all.then(() => this.running.size === 0), Bun.sleep(maxMs).then(() => false)])
     return r
   }
   resume() { this.closing = false; this.schedule() }
@@ -442,6 +666,10 @@ export class ChatRuntime {
     if (this.shutdownP) return this.shutdownP
     this.closing = true
     clearInterval(this.purger)
+    clearInterval(this.capacityWatcher)
+    if (this.recoveryRetry) clearTimeout(this.recoveryRetry)
+    this.recoveryRetry = null
+    this.recoveryAbort.abort()
     this.shutdownP = (async () => {
       const execs = [...this.running.values()]
       for (const e of execs) e.stop('shutdown')

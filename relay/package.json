@@ -1,10 +1,10 @@
 {
   "name": "@mycel/relay",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
-  "description": "Relay server (runs on Node 25; protocol v2). Component F.",
+  "description": "Relay server (runs on Node 26 LTS, 24+; protocol v2). Component F.",
   "dependencies": {
     "@mycel/shared": "workspace:*",
     "ws": "8.18.0"
@@ -17,6 +17,6 @@
     "dev:relay": "node --disable-warning=ExperimentalWarning src/main.ts --dev"
   },
   "engines": {
-    "node": ">=25"
+    "node": ">=24"
   }
 }

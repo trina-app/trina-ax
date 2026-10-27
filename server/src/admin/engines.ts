@@ -1,23 +1,27 @@
 // AI engine status for the admin screen ("관리자: AI 엔진", tab 5): installed? which version? logged in? lockdown
 // test passed for this version? which models? Checks run the CLIs with short timeouts and never call a model.
 //
-// Auth modes (owner decision 2026-10-21): local-login (dev / this run: the engine runs as the current user with the
-// owner's own `claude` / `codex` login), proxy (company key behind the model proxy; code-only), agent-own (the
-// unprivileged _axagent account: Claude needs the owner's `claude setup-token` behind the proxy, Codex its own
-// `codex login --device-auth`).
+// Auth modes: local-login (dev / office: the engine runs as the current user with the owner's own `claude` /
+// `codex` login) and managed (production, cloud, Linux: the team's AI connections behind the model proxy, Admin > AI
+// connections; an engine is "signed in" when the team has a usable connection of its family). agent-own is how an
+// older prod server without managed mode is shown.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { EngineAccount, EngineId, EngineStatus, Locale } from '@mycel/shared/api'
+import type { EngineId, EngineStatus, Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { which } from '../config'
-import { subscriptionTokenStatus } from '../proxy/subscription'
+import { allowedCredentialKinds } from '../app-config'
+import { teamCredentialSummary } from '../credentials/resolve'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
 import { CODEX_PROD_BETA } from '../chat/engines'
 import { readApiEngine } from '../engine/api-agent'
+import { apiEngineFetch } from '../system/egress'
+import { hostKind, type HostKind } from '../system/deployment'
+import { engineStatusMessages } from '../system/messages-linux'
 
 export const ENGINE_LABELS: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', api: 'API' }
 export const CLAUDE_MODELS = [
@@ -63,15 +67,22 @@ export const T: Record<string, Record<Locale, string>> = {
   codexCatalog: { ko: 'Codex 모델 목록(잠금 카탈로그 model_catalog.json)이 엔진 폴더에 없습니다. 설치 스크립트를 다시 실행하세요.', en: 'The Codex model list (locked catalog model_catalog.json) is missing from the engine folder. Run the installer again.', id: 'Daftar model Codex (katalog terkunci model_catalog.json) tidak ada di folder mesin. Jalankan installer lagi.' },
   launcherDown: { ko: '실행기(엔진 계정 데몬)가 답하지 않습니다.', en: 'The launcher (engine account daemon) does not answer.', id: 'Launcher (daemon akun mesin) tidak menjawab.' },
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없습니다.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.' },
+  managedNone: { ko: 'AI 연결이 없어요. 관리자 > AI 연결에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > AI connections.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Koneksi AI.' },
+  managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > AI 연결을 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > AI connections.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Koneksi AI.' },
   version: { ko: '고정 버전과 다릅니다(잠금 시험을 통과한 버전: {pinned}).', en: 'Differs from the pinned version (lockdown-tested: {pinned}).', id: 'Berbeda dari versi yang dikunci (lulus uji penguncian: {pinned}).' },
   lockdown: { ko: '이 버전의 엔진 잠금 시험이 실패했습니다.', en: 'The engine lockdown test failed for this version.', id: 'Uji penguncian mesin gagal untuk versi ini.' },
   error: { ko: '상태를 확인하지 못했습니다: {e}', en: 'Could not check the status: {e}', id: 'Tidak dapat memeriksa status: {e}' },
 }
 const t = (k: keyof typeof T, l: Locale, vars: Record<string, string> = {}) => T[k]![l].replace(/\{(\w+)\}/g, (_, v: string) => vars[v] ?? '')
+/** t() with the entries that name the server Mac replaced for a Linux server or the hosted cloud */
+const hostT = (env: EngineEnv): typeof t => {
+  const over = env.host && env.host !== 'mac' ? engineStatusMessages(env.host, env.base ?? '') : {}
+  return (k, l, vars = {}) => (over[k]?.[l] ?? T[k]![l]).replace(/\{(\w+)\}/g, (_, v: string) => vars[v] ?? '')
+}
 
 export interface EngineEnv {
   mode: 'dev' | 'prod'
-  authMode: 'local-login' | 'proxy' | 'subscription'
+  authMode: 'local-login' | 'managed'
   claudeBin: string
   codexBin: string
   dataDir: string
@@ -84,9 +95,13 @@ export interface EngineEnv {
   /** prod: the engine account's Codex login, asked of the launcher (the server account cannot read it). null = the
    * launcher did not answer. Absent (dev): `codex login status` of the owner's own login. */
   codexLogin?: () => Promise<CodexLoginState | null>
-  hasCompanyKey(engine: 'anthropic' | 'openai'): boolean
-  /** the server's database (the model proxy notes a refused subscription token there) */
+  /** managed: the team's AI connections of a family (usable now / all) */
+  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number }
+  /** the server's database */
   db?: import('bun:sqlite').Database
+  /** which machine the status lines talk about (deployment.ts hostKind; absent = the Mac wording) and the install base */
+  host?: HostKind
+  base?: string
 }
 
 export function engineEnv(ctx: AppContext): EngineEnv {
@@ -107,16 +122,17 @@ export function engineEnv(ctx: AppContext): EngineEnv {
       path.join(ctx.config.dataDir, 'codex-catalog.json'), // written by chat/engines.ts from the owner's models_cache
       path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex'), 'models_cache.json'),
     ],
-    ...(prod ? { codexLogin: () => codexLoginState(sock) } : {}),
-    hasCompanyKey: (engine) => !!ctx.db.query("SELECT 1 FROM engine_accounts WHERE engine = ? AND status = 'ok'").get(engine),
+    ...(prod && ctx.config.engine.authMode !== 'managed' ? { codexLogin: () => codexLoginState(sock) } : {}),
+    ...(ctx.config.engine.authMode === 'managed' ? { credentials: (family: 'anthropic' | 'openai') => teamCredentialSummary(ctx.db, family, allowedCredentialKinds(ctx.config)) } : {}),
     db: ctx.db,
+    host: hostKind(ctx.config), base: resolveLayout(ctx.config).base,
   }
 }
 
 /** auth mode as shown to the admin */
 export function shownAuthMode(env: EngineEnv): EngineStatus['authMode'] {
-  if (env.authMode === 'proxy') return 'proxy'
-  return env.mode === 'prod' || env.authMode === 'subscription' ? 'agent-own' : 'local-login'
+  if (env.authMode === 'managed') return 'managed'
+  return env.mode === 'prod' ? 'agent-own' : 'local-login'
 }
 
 function pinned(env: EngineEnv, id: EngineId): string | null {
@@ -147,8 +163,9 @@ const versionOf = (s: string) => /(\d+\.\d+\.\d+)/.exec(s)?.[1] ?? null
 
 export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean, locale: Locale): Promise<EngineStatus> {
   if (id === 'api') return checkApiEngine(env, enabled, locale)
+  const t = hostT(env) // Linux / the hosted cloud wording (system/messages-linux.ts); the Mac's stays as above
   const base = { id, label: ENGINE_LABELS[id], enabled, authMode: shownAuthMode(env), checkedAt: new Date().toISOString(),
-    ...(id === 'codex' && env.mode === 'prod' && CODEX_PROD_BETA ? { beta: true } : {}) }
+    ...(id === 'codex' && env.mode === 'prod' && CODEX_PROD_BETA && env.authMode !== 'managed' ? { beta: true } : {}) }
   const bin = id === 'claude-code' ? env.claudeBin : env.codexBin
   const v = await runCli(bin, ['--version'], { timeoutMs: 10_000 })
   const version = v.code === 0 ? versionOf(v.stdout + v.stderr) : null
@@ -163,14 +180,14 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
 
   // login
   const mode = shownAuthMode(env)
-  if (mode === 'proxy') {
-    if (!env.hasCompanyKey(id === 'claude-code' ? 'anthropic' : 'openai')) return out('not_logged_in', t('companyKey', locale))
+  if (mode === 'managed') {
+    // the team's AI connections of this engine's family (Admin > AI connections): none, or none usable now
+    const c = env.credentials?.(id === 'claude-code' ? 'anthropic' : 'openai') ?? { total: 0, usable: 0 }
+    if (!c.usable) return out('not_logged_in', t(c.total ? 'managedNoneDetail' : 'managedNone', locale))
   } else if (id === 'claude-code') {
     if (mode === 'agent-own') {
-      const st = subscriptionTokenStatus(env.secretsDir, env.db ?? null)
-      if (st.state === 'missing') return out('not_logged_in', t('setupToken', locale))
-      if (st.state === 'expired') return out('not_logged_in', t('setupTokenExpired', locale))
-      if (st.state === 'invalid' || st.state === 'malformed') return out('not_logged_in', t('setupTokenInvalid', locale))
+      // an installed server that is not in managed mode (hand-set local-login): the engine account has no login of its own
+      return out('not_logged_in', t('setupToken', locale))
     } else {
       const s = await runCli(bin, ['auth', 'status', '--json'], { timeoutMs: 15_000 })
       let logged: boolean | null = null
@@ -208,7 +225,7 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
     // list would leave a working Claude API engine out of the composer (admin/engine-choice.ts readyEngines)
     const anthropic = /^https:\/\/api\.anthropic\.com\//.test(conf.baseUrl + '/')
     const headers: Record<string, string> = conf.key ? { Authorization: `Bearer ${conf.key}`, ...(anthropic ? { 'x-api-key': conf.key, 'anthropic-version': '2023-06-01' } : {}) } : {}
-    const r = await fetch(`${conf.baseUrl}/models`, { headers, signal: AbortSignal.timeout(10_000) })
+    const r = await apiEngineFetch()(`${conf.baseUrl}/models`, { headers, signal: AbortSignal.timeout(10_000) })
     if (r.status === 401 || r.status === 403) return { ...base, installed: true, status: 'not_logged_in', detail: t('apiKey', locale) }
     return { ...base, installed: true, status: 'ok', detail: null }
   } catch (e) {
@@ -248,31 +265,4 @@ export function engineStatusCache(ctx: AppContext): EngineStatusCache {
   let c = caches.get(ctx)
   if (!c) { c = new EngineStatusCache(() => engineEnv(ctx)); caches.set(ctx, c) }
   return c
-}
-
-// ---------------- company keys (proxy mode; code-only for now) ----------------
-interface AccountRow { id: string; engine: 'anthropic' | 'openai'; secret_ref: string; label: string | null; status: 'ok' | 'invalid'; checked_at: string | null; hint: string | null }
-export function listAccounts(ctx: AppContext): EngineAccount[] {
-  return (ctx.db.query('SELECT id, engine, secret_ref, label, status, checked_at, hint FROM engine_accounts ORDER BY id').all() as AccountRow[])
-    .filter((r) => r.engine === 'anthropic' || r.engine === 'openai')
-    .map((r) => ({ id: r.id, engine: r.engine, label: r.label, status: r.status, checkedAt: r.checked_at, hint: r.hint }))
-}
-
-/** The secret goes to <data>/secrets/<id>.key (0600, folder 0700); the DB keeps only the file name and a hint. */
-export function addAccount(ctx: AppContext, id: string, engine: 'anthropic' | 'openai', label: string | null, secret: string): EngineAccount {
-  const dir = path.join(ctx.config.dataDir, 'secrets')
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const file = `${id}.key`
-  fs.writeFileSync(path.join(dir, file), secret, { mode: 0o600 })
-  const hint = secret.slice(-4)
-  ctx.db.query("INSERT INTO engine_accounts (id, engine, secret_ref, label, status, checked_at, hint) VALUES (?, ?, ?, ?, 'ok', NULL, ?)").run(id, engine, file, label, hint)
-  return { id, engine, label, status: 'ok', checkedAt: null, hint }
-}
-
-export function deleteAccount(ctx: AppContext, id: string): boolean {
-  const r = ctx.db.query('SELECT secret_ref FROM engine_accounts WHERE id = ?').get(id) as { secret_ref: string } | null
-  if (!r) return false
-  ctx.db.query('DELETE FROM engine_accounts WHERE id = ?').run(id)
-  if (/^[A-Za-z0-9_.-]+$/.test(r.secret_ref)) fs.rmSync(path.join(ctx.config.dataDir, 'secrets', r.secret_ref), { force: true })
-  return true
 }

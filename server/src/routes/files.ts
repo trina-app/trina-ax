@@ -11,6 +11,8 @@ import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
 import type { RouteModule } from './module'
+import { assertStorageRoom } from '../system/storage'
+import { registerDriveRoutes } from './drive'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
@@ -20,6 +22,7 @@ export const filesRoutes: RouteModule = {
     registerCTools(ctx)
   },
   register(kit, ctx) {
+    registerDriveRoutes(kit, ctx)
     const C = componentC(ctx)
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
@@ -37,7 +40,8 @@ export const filesRoutes: RouteModule = {
       return r
     }))
 
-    kit.handle(API.saveContent, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.save(auth.user.id, body.path, body.content, body.baseSha256)), { jsonLimit: 25 * 1024 * 1024 })
+    // the team disk near full (system/storage.ts; Linux / a plan): 507 storage_full before anything is written
+    kit.handle(API.saveContent, ({ c, body, auth }) => mapErrors(c.get('locale'), () => { assertStorageRoom(Buffer.byteLength(body.content)); return svc.save(auth.user.id, body.path, body.content, body.baseSha256) }), { jsonLimit: 25 * 1024 * 1024 })
 
     kit.handle(API.download, ({ c, query, auth }) => mapErrors(c.get('locale'), () => {
       const f = svc.fileForDownload(auth.user.id, query.path)
@@ -45,6 +49,7 @@ export const filesRoutes: RouteModule = {
     }))
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try {
         return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha)
@@ -67,6 +72,7 @@ export const filesRoutes: RouteModule = {
 
     // ---------------- attachments ----------------
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try { return await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha) } finally { fs.rmSync(p, { force: true }) }
     }, 'name'))
@@ -87,7 +93,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
 
     // ---------------- chunked uploads ----------------
-    kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))
+    kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => { assertStorageRoom(body.size); return C.uploads.create(auth.user.id, body.target, body.size, body.sha256) }, 'target'))
     kit.handle(API.uploadChunk, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.putChunk(auth.user.id, params.id, Number(params.n), body)))
     kit.handle(API.getUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.get(auth.user.id, params.id)))
     kit.handle(API.completeUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.complete(auth.user.id, params.id)))

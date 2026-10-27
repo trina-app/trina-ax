@@ -398,5 +398,5 @@ describe.skipIf(!mac || !fs.existsSync(NATIVE))('release bundle (scripts/build-b
     const cmp = (x: string, y: string) => run([bun, admin, 'compare-versions', x, y]).out.trim()
     expect([cmp('0.9.0-test.5', '0.9.0-test.4'), cmp('1.0.0', '1.0.0'), cmp('1.0.0-rc.9', '1.0.0-rc.10')]).toEqual(['1', '0', '-1'])
     expect(JSON.parse(fs.readFileSync(path.join(W, 'state.out.json'), 'utf8'))).toMatchObject({ previous: '0.8.0', pending: '0.9.0-unit.1' })
-  }, 120_000)
+  }, 400_000) // the bundle build alone takes 1–4 minutes here (bun build of every server entry, the web app copy)
 })

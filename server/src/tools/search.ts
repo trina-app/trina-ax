@@ -2,6 +2,7 @@
 // file names the AI doesn't know ("where did we decide the refund policy?"). Results are passages of files the person
 // can read (the same visibility check as grep); the AI reads the files it needs. Not registered when it is off
 // (MYCEL_SEMANTIC=off), and it says so when the model can't run here; grep stays the tool for exact words.
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { z } from 'zod'
 import type { AppContext } from '../context'
@@ -9,6 +10,8 @@ import { authorize, visiblePath } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { localEmbedder, SemanticIndex } from '../search/semantic'
 import type { ToolRegistry } from './registry'
+import { installId } from '../admin/settings'
+import { limitsActive } from '../system/limits'
 
 export const SearchInput = z.object({
   query: z.string().min(2).max(500).describe('What to find, in plain words (Korean or English), e.g. "the meeting where we decided the refund policy"'),
@@ -20,6 +23,13 @@ const SNIPPET = 400
 const REFRESH_MS = 3000
 const BACKGROUND_EVERY_MS = 5 * 60_000
 
+/** The first background indexing after a start: 20 s as before; where the limits apply (Linux, a plan: many teams on one
+ * host restart together after an update) 10 minutes plus 0–5 minutes from the install id. */
+export function firstRefreshMs(id: string): number {
+  if (!limitsActive()) return 20_000
+  return 10 * 60_000 + (createHash('sha256').update(id).digest().readUInt16BE(0) % 300) * 1000
+}
+
 export function semanticEnabled(): boolean {
   return process.env.MYCEL_SEMANTIC !== 'off'
 }
@@ -28,11 +38,14 @@ export function semanticEnabled(): boolean {
 export function registerSearch(ctx: AppContext, reg: ToolRegistry): boolean {
   if (!semanticEnabled()) return false
   const dataDir = ctx.engineConfig.dataDir
-  const index = new SemanticIndex({ dataDir, root: ctx.files.fx.root, office: ctx.files.office, embedder: localEmbedder(path.join(dataDir, 'models'), ctx.log) })
-  ctx.onClose(() => index.db.close())
+  // a host's read-only model folder ($MYCEL_MODELS_DIR/semantic, the hosted cloud) is used when it matches; else <data>/models
+  const shared = process.env.MYCEL_MODELS_DIR ? path.join(process.env.MYCEL_MODELS_DIR, 'semantic') : null
+  const embedder = localEmbedder(path.join(dataDir, 'models'), ctx.log, { sharedDir: shared })
+  const index = new SemanticIndex({ dataDir, root: ctx.files.fx.root, office: ctx.files.office, embedder })
+  ctx.onClose(() => { index.db.close(); void embedder.unload() })
   if (process.env.NODE_ENV !== 'test') {
     const tick = () => { void index.refresh(60_000).catch((e) => ctx.log.warn('semantic index refresh failed', { err: String(e) })) }
-    const first = setTimeout(tick, 20_000)
+    const first = setTimeout(tick, firstRefreshMs(installId(ctx.db)))
     const every = setInterval(tick, BACKGROUND_EVERY_MS)
     first.unref?.(); every.unref?.()
     ctx.onClose(() => { clearTimeout(first); clearInterval(every) })

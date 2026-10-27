@@ -1,11 +1,14 @@
 // Component C: the file screen API (tree, content, save, folders, move / rename, trash, history, downloads, small
 // uploads, files.changed) on the shared fixture: alice = member (marketing), bob = member (finance), carol = admin,
 // dana = owner, erin = member (marketing).
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiClient, type FileEntry } from '@mycel/shared/api'
 import { exists, jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('c-files') })

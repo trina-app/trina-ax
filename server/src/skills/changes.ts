@@ -10,7 +10,8 @@ import type { AppContext } from '../context'
 import { audit, redactPersonal } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
 import { onFileEvent, readRegular, type FileEventInput } from '../files/store'
-import { parseSkill } from '../chat/skills'
+import { skillFileKind, SKILL_FILE_MAX_BYTES } from '../chat/skills'
+import { verifyChain } from '../policy/resolve'
 import { inSkills } from './guard'
 import { st } from './text'
 
@@ -45,12 +46,13 @@ export function skillChangeOf(e: FileEventInput): (ChangeDetail & { path: string
   }
 }
 
-/** skill (a name header), rule (a .md without one), folder or other, read from the file as it is now. */
+/** Use the same entry-point/resource classification as discovery and the confirmation card. */
 function kindOf(ctx: AppContext, rel: string): SkillChange['kind'] {
   if (!rel.toLowerCase().endsWith('.md')) return 'other'
   try {
-    const { bytes } = readRegular(path.join(ctx.files.fx.root, ...rel.split('/')), 1024 * 1024)
-    return parseSkill(bytes.subarray(0, 8000).toString('utf8')) ? 'skill' : 'rule'
+    verifyChain(ctx.files.fx.root, rel.split('/'))
+    const { bytes } = readRegular(path.join(ctx.files.fx.root, ...rel.split('/')), SKILL_FILE_MAX_BYTES)
+    return skillFileKind(ctx.files.fx.root, rel, bytes.toString('utf8'))
   } catch { return null }
 }
 

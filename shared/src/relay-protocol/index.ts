@@ -1,4 +1,4 @@
-// Relay protocol v2, shared by the relay (relay/, Node 25) and the team server's relay client (server/src/relay-client).
+// Relay protocol v2, shared by the relay (relay/, Node 26) and the team server's relay client (server/src/relay-client).
 // Import as '@mycel/shared/relay-protocol'. Node loads these files with type stripping: keep them erasable TypeScript.
 export * from './frames.ts'
 export * from './messages.ts'

@@ -13,6 +13,7 @@ import { egressOf } from './egress'
 import { registerHiggsfield } from './higgsfield'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
+import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
 import { resolveTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 
@@ -121,6 +122,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
   // scheduled tasks (tools/schedules.ts)
   registerScheduleTools(ctx, reg)
   for (const name of SCHEDULE_TOOL_NAMES) exposeToTurns(name)
+  if (registerDriveTools(ctx, reg)) for (const name of DRIVE_TOOL_NAMES) exposeToTurns(name)
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')
 }

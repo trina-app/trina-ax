@@ -13,10 +13,11 @@ import { createContext, type AppContext } from '../../../server/src/context'
 import { openDb } from '../../../server/src/db'
 import { createLogger, silentLogger } from '../../../server/src/log'
 import { ROUTE_MODULES } from '../../../server/src/routes'
-import { startServer } from '../../../server/src/server'
+import { startEngineProxy, startServer } from '../../../server/src/server'
+import { brokerOf } from '../../../server/src/credentials/maintenance'
 import { configureChat, getChatRuntime } from '../../../server/src/chat/runtime'
 import { StaticEngines } from '../../../server/src/chat/engines'
-import { fakeEngineBin, fakeEngines } from '../../lib/b-harness'
+import { fakeEngineBin, fakeEngines, freePort } from '../../lib/b-harness'
 import { WORK } from '../../lib/env'
 
 export const SETUP_TOKEN = 'sec-matrix-setup-token-0123456789abcdef'
@@ -129,16 +130,27 @@ export async function startInstance(name: string): Promise<Instance> {
   const team = path.join(base, 'team'), dataDir = path.join(base, 'data')
   for (const d of [team, dataDir]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   const port = nextPort++
+  // a model service that accepts every check (the world's AI connections are verified against it) and answers
+  // nothing else: no request of a test ever reaches a real provider
+  const provider = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: (req) => (/\/(models|count_tokens)$/.test(new URL(req.url).pathname) ? Response.json({ data: [], input_tokens: 1 }) : new Response('no', { status: 503 })) })
+  const up = `http://127.0.0.1:${provider.port}`
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port }, tls: null, publicOrigins: [],
-    teamRoot: team, dataDir, logDir: null, logLevel: 'error', engine: { authMode: 'local-login' },
+    teamRoot: team, dataDir, logDir: null, logLevel: 'error',
+    engine: { authMode: 'local-login', modelUpstreams: { anthropic: up, openai: up + '/v1', chatgpt: up, openaiAuth: up } },
     relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: SETUP_TOKEN,
   }
   const db = openDb(path.join(dataDir, 'app.db'))
   const bin = fakeEngineBin(path.join(base, 'bin'))
   const ctx = createContext({
     config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'sec' }) : silentLogger,
-    startCore: (c) => startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin], sessionRoots: [] } }),
+    // the production engine path: per-turn tokens bound to the team's AI connections, the model proxy in front
+    startCore: async (c) => {
+      const proxyPort = await freePort()
+      const srv = await startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin], sessionRoots: [], proxyPort } })
+      await startEngineProxy(srv, { port: proxyPort, broker: brokerOf(c), codexModels: () => ['fake-1', 'fake-2'] })
+      return srv
+    },
   })
   ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-sec-')
   configureChat(ctx, { engines: new StaticEngines(fakeEngines(bin, dataDir)), askUserTimeoutMs: 120_000, turnTimeoutMs: 120_000 })
@@ -152,6 +164,7 @@ export async function startInstance(name: string): Promise<Instance> {
     client: (label, o) => new Client(inst, label, o),
     async close() {
       server.stop(true)
+      provider.stop(true)
       await ctx.close()
       db.close()
       fs.rmSync(runDir, { recursive: true, force: true })

@@ -19,6 +19,8 @@ import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
+import { deploymentOf, featuresOf } from '../system/deployment'
+import { cancelPushSession } from '../notifications/push-events'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -104,6 +106,7 @@ export class AuthService implements SessionService {
         // a window still open on this session must not keep receiving team events
         this.ctx.services.realtime.disconnectSession?.(row.sid, 'expired')
       }
+      cancelPushSession(this.ctx, row.sid)
       return null
     }
     if (now - Date.parse(row.s_seen) > TOUCH_MS) {
@@ -163,6 +166,7 @@ export class AuthService implements SessionService {
   /** Delete one session and close its sockets (logout, "sign out this device"). */
   revokeSession(sessionId: string, reason: EndReason = 'logout'): void {
     this.db.query('DELETE FROM sessions WHERE id = ?').run(sessionId)
+    cancelPushSession(this.ctx, sessionId)
     this.ctx.services.realtime.disconnectSession?.(sessionId, reason)
   }
 
@@ -173,6 +177,7 @@ export class AuthService implements SessionService {
   endUserSessions(userId: string, reason: EndReason, keep?: string): number {
     const ids = (this.db.query('SELECT id FROM sessions WHERE user_id = ? AND id IS NOT ?').all(userId, keep ?? null) as { id: string }[]).map((r) => r.id)
     this.db.query('DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?').run(userId, keep ?? null)
+    for (const id of ids) cancelPushSession(this.ctx, id)
     const rt = this.ctx.services.realtime
     if (keep) { for (const id of ids) rt.disconnectSession?.(id, reason) }
     else rt.disconnectUser(userId, reason)
@@ -189,7 +194,7 @@ export class AuthService implements SessionService {
     const at = this.iso()
     const ids = (this.db.query('SELECT id FROM sessions WHERE expires_at <= ?').all(at) as { id: string }[]).map((r) => r.id)
     const n = this.db.query('DELETE FROM sessions WHERE expires_at <= ?').run(at).changes
-    for (const id of ids) this.ctx.services.realtime.disconnectSession?.(id, 'expired')
+    for (const id of ids) { cancelPushSession(this.ctx, id); this.ctx.services.realtime.disconnectSession?.(id, 'expired') }
     return n
   }
 
@@ -233,7 +238,8 @@ export class AuthService implements SessionService {
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
-      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office },
+      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
+        deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }
   }

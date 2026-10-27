@@ -6,7 +6,7 @@ import os from 'node:os'
 import net from 'node:net'
 import path from 'node:path'
 import { nativeBinDir } from '../../server/src/config'
-import { codexDeviceLogin, SocketLauncher } from '../../server/src/native'
+import { codexDeviceLogin, codexSignIn, SocketLauncher } from '../../server/src/native'
 import { WORK } from '../lib/env'
 
 const mac = process.platform === 'darwin' && fs.existsSync('/usr/bin/sandbox-exec') && !!Bun.which('cc')
@@ -267,6 +267,47 @@ describe.skipIf(!mac)('mycel-launcher --sandbox-profile', () => {
     expect(await turn('chat1', ['realpath', '{CHAT_DIR}/mine.txt'])).toBe(0)
   })
 
+  // D27 (linux-runtime spec 3.3.8, both platforms): the launcher runs outside the sandbox as the engine account and
+  // used to follow links the engine planted in its chat folder: the session collection read
+  // .claude/projects/x/<sid>.jsonl -> codex-auth/auth.json (the team's ChatGPT login went to the server and back into
+  // the chat), RemoveAll(<chat>/.claude/projects) through .claude -> <other chat> deleted another chat's sessions, and
+  // the session restore wrote through the same link.
+  test('links the engine plants in its chat folder are never followed by the launcher (D27)', async () => {
+    const secret = path.join(W, 'codex-auth-standin.json')
+    fs.writeFileSync(secret, 'CANARY-CODEXAUTH')
+    const run = async (chat: string, args: string[], extra: Partial<Parameters<SocketLauncher['launch']>[0]>) => {
+      const h = new SocketLauncher(sock).launch({ op: 'run', turnId: 'ts' + Math.random().toString(36).slice(2, 8), chatDir: path.join(AGENT, chat), cmd: PROBE, args, env: {}, token: 'x', systemPrompt: '', stdin: '', timeoutMs: 10_000, ...extra })
+      for await (const ev of h.events) {
+        if (ev.ev === 'exit') return ev
+        if (ev.ev === 'error') return ev
+      }
+      throw new Error('no exit event')
+    }
+    const projects = path.join(CHAT, '.claude', 'projects')
+    // 1) the transcript name is a link to the login file
+    fs.rmSync(path.join(CHAT, '.claude'), { recursive: true, force: true })
+    fs.mkdirSync(path.join(projects, 'x'), { recursive: true })
+    const e1 = await run('chat1', ['symlink', secret, '{CHAT_DIR}/.claude/projects/x/sid.jsonl'], { sessionCollect: { dir: projects, name: 'sid.jsonl', removeDir: true } })
+    expect(e1.ev).toBe('exit')
+    expect(e1.ev === 'exit' && e1.code).toBe(0)
+    expect(e1.ev === 'exit' && e1.session).toBeFalsy()
+    expect(fs.readFileSync(secret, 'utf8')).toBe('CANARY-CODEXAUTH')
+    // 2) .claude is a link to another chat: its projects folder must survive removeDir
+    fs.mkdirSync(path.join(OTHER, 'projects', 'p'), { recursive: true })
+    fs.writeFileSync(path.join(OTHER, 'projects', 'p', 's.jsonl'), 'CANARY-OTHER-CHAT')
+    fs.rmSync(path.join(CHAT, '.claude'), { recursive: true, force: true })
+    const e2 = await run('chat1', ['symlink', OTHER, '{CHAT_DIR}/.claude'], { sessionCollect: { dir: projects, name: 's.jsonl', removeDir: true } })
+    expect(e2.ev === 'exit' && e2.session).toBeFalsy()
+    expect(fs.readFileSync(path.join(OTHER, 'projects', 'p', 's.jsonl'), 'utf8')).toBe('CANARY-OTHER-CHAT')
+    // 3) the restore does not write through that link (the link is replaced by the chat's own folder)
+    const e3 = await run('chat1', ['read', '{CHAT_DIR}/.claude/projects/restored/r.jsonl'], { sessionRestore: { dir: path.join(projects, 'restored'), name: 'r.jsonl', b64: Buffer.from('mine').toString('base64') } })
+    expect(e3.ev === 'exit' && e3.code).toBe(0)
+    expect(fs.existsSync(path.join(OTHER, 'projects', 'restored'))).toBe(false)
+    expect(fs.lstatSync(path.join(CHAT, '.claude')).isDirectory()).toBe(true)
+    fs.rmSync(path.join(CHAT, '.claude'), { recursive: true, force: true })
+    fs.rmSync(path.join(OTHER, 'projects'), { recursive: true, force: true })
+  })
+
   // security audit r2 (os-layer #1, re-attack): any process of the engine account may read another process's argv
   // (KERN_PROCARGS2) and walk every pid one by one (KERN_PROC_PID); the sandbox cannot stop either (not even a bare
   // `(deny sysctl-read)` does: the kernel only checks the uid). The argv of other turns carried their chat folder:
@@ -398,6 +439,40 @@ int main(void) { const char *h = getenv("CODEX_HOME"); char r[PATH_MAX];
       expect({ code: res.code, out }).toEqual({ code: 0, out: '' })
       expect(fs.existsSync(path.join(auth, 'auth.json'))).toBe(true)
     } finally { p5.kill() }
+  })
+
+  // the same for an AI connection's ChatGPT sign-in (codex-login v2: <agent>/.codex-login/<loginId>): it ran with
+  // absolute paths too and would have failed the same way under the profile
+  test('ChatGPT sign-in for an AI connection under the profile: the CLI can resolve its CODEX_HOME', async () => {
+    const dir = path.join(W, 'codexsignin')
+    const agent = path.join(dir, 'agent')
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.mkdirSync(agent, { recursive: true, mode: 0o700 })
+    const src = path.join(dir, 'codex.c')
+    fs.writeFileSync(src, `#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+int main(void) { const char *h = getenv("CODEX_HOME"); char r[PATH_MAX];
+  if (!h || !realpath(h, r)) { perror("canonicalize CODEX_HOME"); return 1; }
+  char f[PATH_MAX]; snprintf(f, sizeof f, "%s/auth.json", r); FILE *o = fopen(f, "w"); if (!o) { perror("auth.json"); return 1; }
+  fputs("{}", o); fclose(o); return 0; }
+`)
+    const eng = path.join(dir, 'engine')
+    fs.mkdirSync(eng)
+    expect(Bun.spawnSync(['cc', '-O2', '-o', path.join(eng, 'codex'), src]).exitCode).toBe(0)
+    const sock6 = path.join(W, 'launcher6.sock')
+    const p6 = Bun.spawn([path.join(nativeBinDir(), 'mycel-launcher'), '--listen', sock6, '--agent-root', agent, '--bridge', '/nonexistent/bridge',
+      '--tools-sock', path.join(W, 'tools.sock'), '--allow-cmd', path.join(eng, 'codex'), '--sandbox-profile', PROFILE, '--proxy-port', String(PROXY)],
+      { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' })
+    try {
+      const r = p6.stdout.getReader()
+      expect(new TextDecoder().decode((await r.read()).value)).toContain('ready')
+      r.releaseLock()
+      let out = ''
+      const { done } = codexSignIn(sock6, { cmd: path.join(eng, 'codex'), proxy: `http://turn:${'t'.repeat(32)}@127.0.0.1:${PROXY}`, loginId: 'login-0123456789abcdef' }, { output: (t) => { out += t } })
+      expect({ ...(await done), out }).toEqual({ code: 0, out: '' })
+      expect(fs.existsSync(path.join(agent, '.codex-login', 'login-0123456789abcdef'))).toBe(false) // removed in every case
+    } finally { p6.kill() }
   })
 
   // security audit r1: the server starts the launcher with an empty environment; USER_HOME came from $HOME, so it was

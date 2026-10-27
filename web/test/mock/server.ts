@@ -18,6 +18,10 @@ import fs from 'node:fs'
 import * as XLSX from 'xlsx'
 import { makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
+import { Sealer } from '../../../server/src/credentials/seal'
+import type { Credential, CredentialKind, CredentialLogin } from '@mycel/shared/api'
+import os from 'node:os'
+import path from 'node:path'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
@@ -88,6 +92,8 @@ export class MockServer {
   /** open cards by turn (GET /api/chats/:id/requests after a reload) */
   openAsks = new Map<string, { turnId: string; chatId: string; messageId: string; request: TurnRequest }>()
   stopped = new Set<string>()
+  queuePositions = new Map<string, number>()
+  queueRevision = 0
   settings: TeamSettings = defaultSettings()
   /** every request the client made (method + path), for assertions */
   log: string[] = []
@@ -101,6 +107,14 @@ export class MockServer {
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
   codexEnabled = true
+  /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
+  credentials: Credential[] = []
+  credMemberOwn = true
+  credSharedSubscriptions = false
+  credLogins = new Map<string, CredentialLogin & { userId: string; personal: boolean; label: string }>()
+  sealer = new Sealer(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-mock-seal-')))
+  /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
+  cloud = false
 
   constructor(o: { setup?: boolean } = {}) {
     this.reset(o)
@@ -116,6 +130,7 @@ export class MockServer {
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
+    this.cloud = false
     this.epoch = uuidv7()
     this.seq = 0
     this.buffer = []
@@ -147,12 +162,18 @@ export class MockServer {
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
     this.limitFallback = false
     this.codexEnabled = true
+    this.credentials = []
+    this.credMemberOwn = true
+    this.credSharedSubscriptions = false
+    this.credLogins.clear()
     this.settings = defaultSettings()
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
     this.openAsks.clear()
     this.stopped.clear()
+    this.queuePositions.clear()
+    this.queueRevision = 0
     this.revoked.clear()
     this.connection = defaultConnection()
     if (!this.setupNeeded) this.seed()
@@ -279,7 +300,12 @@ export class MockServer {
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
       team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
-      server: { version: this.serverVersion, dev: true },
+      server: {
+        version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
+        features: this.cloud
+          ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false }
+          : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true },
+      },
       passwordReset: this.resets.get(u.id) ?? null,
     }
     void sid
@@ -343,7 +369,12 @@ export class MockServer {
     const slow = /slow/i.test(prompt)
     const step = (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>): Step => ({ status: 'running', startedAt: now(), endedAt: null, ...s })
     await sleep(60)
-    pub({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId, position: 0 } })
+    while ((this.queuePositions.get(chatId) ?? 0) > 0 && !this.stopped.has(turnId)) {
+      if (gen !== this.generation) return
+      await sleep(20)
+    }
+    this.queuePositions.delete(chatId)
+    pub({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId, position: 0, epoch: this.epoch, revision: ++this.queueRevision } })
     const s1 = step({ id: 's1', kind: 'tool', tool: 'grep', label: 'grep "plan" in marketing/' })
     assistant.steps = [s1]
     pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s1 } })
@@ -448,6 +479,7 @@ export class MockServer {
     chat.runState = 'idle'
     chat.updatedAt = now()
     if (!chat.title) chat.title = prompt.slice(0, 30)
+    this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
     pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
     void user
@@ -458,7 +490,9 @@ export class MockServer {
     const turnId = uuidv7()
     const assistant = this.message({ chatId, role: 'assistant', parentId, status: 'streaming', turnId, engine: chat.engine })
     this.activeLeaf.set(chatId, assistant.id)
-    chat.runState = 'running'
+    if (/queue-hold/.test(prompt)) this.queuePositions.set(chatId, 3)
+    chat.runState = this.queuePositions.has(chatId) ? 'queued' : 'running'
+    this.queueRevision++
     const gen = this.generation
     // a reset in between abandons the turn (its chat is gone)
     this.runTurn(chatId, user, prompt, assistant).catch((e) => { if (gen === this.generation) console.error('mock turn failed', e) })
@@ -467,6 +501,8 @@ export class MockServer {
 
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
+    frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
+    popularSkills: () => ({ items: [], days: 30 }),
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {
@@ -475,6 +511,8 @@ export class MockServer {
       this.setupNeeded = false
       this.settings.teamName = c.body.teamName
       this.settings.defaultLocale = c.body.locale
+      // like the server: the browser's time zone becomes the team's
+      if (typeof c.body.timeZone === 'string') this.settings.timeZone = c.body.timeZone
       const u = this.addUser({ id: c.body.owner.username.toLowerCase().replace(/[^a-z0-9_-]/g, ''), username: c.body.owner.username, name: c.body.owner.name, role: 'owner', groupIds: [] }, c.body.owner.password)
       this.files.set('users', { type: 'folder', mtime: now() })
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
@@ -554,6 +592,12 @@ export class MockServer {
       return { status: 201, body: chat }
     },
     getChat: (c) => this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404),
+    getChatQueue: (c) => {
+      const assistant = this.messages.find(m => m.chatId === c.params.id && m.status === 'streaming')
+      const position = assistant ? this.queuePositions.get(c.params.id!) ?? 0 : null
+      return { state: position === null ? 'idle' : position > 0 ? 'queued' : 'running',
+        turnId: assistant?.turnId ?? null, messageId: assistant?.id ?? null, position, epoch: this.epoch, revision: this.queueRevision }
+    },
     updateChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       this.guardEngine('updateChat', c.user, c.body, chat)
@@ -587,7 +631,7 @@ export class MockServer {
       ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
       if (/^fail-send/.test(c.body.content)) fail('internal', 500, 'send failed on purpose')
       const assistant = this.startTurn(chat.id, c.user, c.body.content, user.id)
-      return { status: 202, body: { userMessage: this.view(user), assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0 } }
+      return { status: 202, body: { userMessage: this.view(user), assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: this.queuePositions.get(chat.id) ?? 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } }
     },
     stop: (c) => {
       const running = this.messages.find((m) => m.chatId === c.params.id && m.status === 'streaming')
@@ -981,10 +1025,10 @@ export class MockServer {
       this.publish({ type: 'notice', data: { level: 'info', code: 'engine_choice_changed', message: '' } })
       return this.enginesResponse()
     },
-    // the team's API engine (Admin > AI engines, owner): not set up in the mock
+    checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
+    // the team's API engine: not set up (like a fresh server)
     getApiEngine: () => ({ baseUrl: null, model: null, label: null, hasKey: false }),
     putApiEngine: (c) => ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
-    checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
     listBudgets: () => ({ items: this.budgets }),
     createBudget: (c) => {
       const b: Budget = { id: uuidv7(), subjectType: c.body.subjectType, subjectId: c.body.subjectId, period: c.body.period, limitUsd: c.body.limitUsd, limitTokens: c.body.limitTokens ?? null, action: c.body.action, usedUsd: 0, usedTokens: 1234 }
@@ -1004,10 +1048,36 @@ export class MockServer {
       if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)
       return this.settings
     },
-    usage: () => ({ from: now(), to: now(), rows: [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }], totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
+    usage: (c) => ({ from: c.query.from ?? now(), to: c.query.to ?? now(), rows: c.query.groupBy === 'skill'
+      ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
+      : c.query.groupBy === 'model'
+        ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
+        : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }],
+      totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
     audit: () => ({ items: [{ id: 'a1', source: 'admin', at: now(), actor: { id: 'olga', name: 'Olga' }, action: 'invite.create', target: 'member', turnId: null, detail: { role: 'member' } } satisfies AuditEntry], nextCursor: null }),
     diagnostics: () => ({ version: this.serverVersion, host: { os: 'darwin', arch: 'arm64', hostname: 'mac-mini' }, disk: { teamFolderFreeBytes: 500e9, dataFreeBytes: 500e9 }, queue: { running: 0, queued: 0, concurrency: 2 }, checks: [{ id: 'relay', group: 'relay', label: 'Relay connection', status: 'warn', detail: 'Relay not configured (dev)' }, { id: 'disk', group: 'disk', label: 'Disk space', status: 'ok', detail: null }], generatedAt: now() }),
-    updateStatus: () => ({ current: this.serverVersion, channel: 'stable', available: null, lastCheckedAt: now(), previous: null }),
+    updateStatus: () => ({ current: this.serverVersion, channel: 'stable', available: null, lastCheckedAt: now(), previous: null, managed: this.cloud }),
+    // like server/src/system/storage.ts: a 50 GB disk, 41 GB used (over 80%); the plan on Team AX Cloud
+    storage: () => ({
+      totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false,
+      breakdown: { team: 30 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
+      measuredAt: now(), planDiskGiB: this.cloud ? 50 : null,
+    }),
+    // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
+    plan: (c) => ({
+      plan: this.cloud ? {
+        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
+        maxActiveMembers: 12, activeMembers: this.users.filter((u) => u.status === 'active').length, diskGiB: 50, memoryMiB: 4096, cpuCores: 3,
+        localBackupRetentionDays: 3, links: { account: 'https://app.teamax.example/billing', status: 'https://status.teamax.example', support: 'support@teamax.example' },
+        updatedAt: now(),
+      } : null,
+    }),
+    managedNotices: (c) => ({
+      items: !this.cloud ? [] : [
+        ...(c.user.role === 'owner' ? [{ id: 'grant-1', level: 'critical' as const, text: '지원팀이 11월 6일 18시까지 진단 접근 권한을 가지고 있어요', link: null, until: null, dismissible: false }] : []),
+        { id: 'maint-1', level: 'info' as const, text: '오늘 밤 2시에 점검이 있어요', link: 'https://status.teamax.example', until: null, dismissible: true },
+      ],
+    }),
     listBackups: () => ({ items: [{ id: 'b1', kind: 'daily', createdAt: now(), size: 123456, scope: 'full' }] }),
     startBackup: (c) => {
       const id = uuidv7()
@@ -1032,10 +1102,133 @@ export class MockServer {
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
     officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없습니다.'),
+    // ---------------- AI connections (like server/src/routes/credentials.ts) ----------------
+    listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
+    sealingKey: () => this.sealer.publicKey(),
+    createCredential: async (c) => {
+      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' })
+      return { status: 201, body: await this.addCredential(c.user, c.body, false) }
+    },
+    createMyCredential: async (c) => {
+      if (!this.credMemberOwn) fail('forbidden', 403)
+      return { status: 201, body: await this.addCredential(c.user, c.body, true) }
+    },
+    updateCredential: (c) => {
+      const x = this.credentials.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
+      if (c.body.label !== undefined) x.label = c.body.label
+      if (c.body.priority !== undefined) x.priority = c.body.priority
+      if (c.body.disabled !== undefined) { x.disabled = c.body.disabled; x.state = x.disabled ? 'disabled' : 'ok' }
+      if (c.body.assignments) x.assignments = c.body.assignments.map((a: { subjectType: 'group' | 'user'; subjectId: string }) => ({ ...a, name: a.subjectType === 'group' ? this.groups.find((g) => g.id === a.subjectId)?.name ?? a.subjectId : this.users.find((u) => u.id === a.subjectId)?.name ?? a.subjectId }))
+      if (c.body.spendLimit) x.spendLimit = c.body.spendLimit
+      this.credentials.sort((a, b) => a.priority - b.priority)
+      return x
+    },
+    replaceCredentialSecret: async (c) => {
+      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
+      const x = this.credentials.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
+      await this.sealer.unseal(c.body.sealed, 'credential.replace').catch(() => fail('validation', 400))
+      x.state = 'ok'; x.detail = null
+      return x
+    },
+    deleteCredential: (c) => {
+      if (!this.credentials.some((x) => x.id === c.params.id)) fail('not_found', 404)
+      this.credentials = this.credentials.filter((x) => x.id !== c.params.id)
+      return undefined
+    },
+    deleteMyCredential: (c) => {
+      const x = this.credentials.find((y) => y.id === c.params.id && y.owner?.id === c.user.id) ?? fail('not_found', 404)
+      this.credentials = this.credentials.filter((y) => y.id !== x.id)
+      return undefined
+    },
+    checkCredential: (c) => {
+      const x = this.credentials.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
+      if (x.state === 'unverified') { x.state = 'ok'; x.detail = null; x.checkedAt = now() }
+      return x
+    },
+    updateCredentialSettings: (c) => {
+      if (c.body.sharedSubscriptions === true && !this.credSharedSubscriptions && c.body.acknowledgedSharedSubscriptionRisk !== true) fail('validation', 400)
+      if (c.body.memberOwn !== undefined) this.credMemberOwn = c.body.memberOwn
+      if (c.body.sharedSubscriptions !== undefined) this.credSharedSubscriptions = c.body.sharedSubscriptions
+      return { memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions }
+    },
+    myCredentials: (c) => ({ allowed: this.credMemberOwn, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
+    startCredentialLogin: (c) => {
+      if (!this.credSharedSubscriptions) fail('forbidden', 403)
+      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
+      return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId) }
+    },
+    startMyCredentialLogin: (c) => {
+      if (!this.credMemberOwn) fail('forbidden', 403)
+      return { status: 202, body: this.startLogin(c.user, c.body.label, true) }
+    },
+    getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
+    getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
+    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+    cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+
     // nothing connected, no scheduled tasks yet
     listConnected: () => ({ items: [] }),
     listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
+    listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
+    listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
+    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true }),
+    getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
+    listRemoteConnectors: () => ({ configured: false, resource: null, items: [] }),
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
+  }
+
+  // ---------------- AI connections ----------------
+  credentialView(c: Credential): Credential {
+    return !c.owner && !c.disabled && (c.kind === 'anthropic-oauth' || c.kind === 'chatgpt') && !this.credSharedSubscriptions
+      ? { ...c, state: 'sharing_off', detail: 'Shared subscriptions are off.' } : c
+  }
+  async addCredential(user: User, body: { kind: CredentialKind; label: string; sealed: never; acknowledgedPlanNotice?: boolean; assignments?: { subjectType: 'group' | 'user'; subjectId: string }[] }, personal: boolean): Promise<Credential> {
+    if (!personal && (body.kind === 'anthropic-oauth' || body.kind === 'chatgpt') && !this.credSharedSubscriptions) fail('forbidden', 403)
+    const secret = await this.sealer.unseal(body.sealed, 'credential.create').catch(() => fail('validation', 400, '보낸 값을 열 수 없어요.'))
+    const re = body.kind === 'anthropic-oauth' ? /^sk-ant-oat\d{2}-/ : body.kind === 'anthropic-api-key' ? /^sk-ant-api\d{2}-/ : /^sk-(?!ant-)/
+    if (!re.test(secret)) fail('validation', 400, '이 종류의 토큰·키가 아니에요.', { 'body.sealed': 'not a token of this kind' })
+    if (body.kind === 'anthropic-oauth' && body.acknowledgedPlanNotice !== true) fail('validation', 400, '구독 요금제 안내를 확인해 주세요.')
+    const c = this.newCredential(user, body.kind, body.label, personal, secret.includes('unverified') ? 'unverified' : 'ok')
+    c.assignments = (body.assignments ?? []).map((a) => ({ ...a, name: a.subjectType === 'group' ? this.groups.find((g) => g.id === a.subjectId)?.name ?? a.subjectId : this.users.find((u) => u.id === a.subjectId)?.name ?? a.subjectId }))
+    if (body.kind.endsWith('api-key')) c.hint = secret.slice(-4)
+    this.credentials.push(c)
+    return c
+  }
+  newCredential(user: User, kind: CredentialKind, label: string, personal: boolean, state: Credential['state']): Credential {
+    return {
+      id: uuidv7(), kind, label, scope: personal ? 'personal' : 'team', owner: personal ? { id: user.id, name: user.name } : null, assignments: [],
+      priority: (this.credentials.length + 1) * 10, disabled: false, state, detail: state === 'unverified' ? '첫 질문 때 확인돼요.' : null, hint: null, planType: kind === 'chatgpt' ? 'pro' : null,
+      expiresAt: kind === 'anthropic-oauth' ? new Date(Date.now() + 365 * 86400_000).toISOString() : null, limitedUntil: null, checkedAt: state === 'ok' ? now() : null, lastUsedAt: null,
+      spendLimit: { usd: null, tokens: null, action: 'block' }, month: { usd: 0, tokens: 0, requests: 0 }, createdAt: now(),
+    }
+  }
+  /** a ChatGPT sign-in: the code after a moment, then the connection */
+  startLogin(user: User, label: string, personal: boolean, reconnectId?: string): CredentialLogin {
+    const loginId = 'login' + uuidv7().replace(/-/g, '')
+    const l = { loginId, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label }
+    this.credLogins.set(loginId, l)
+    const pub = () => { const { userId: _u, personal: _p, label: _l, ...data } = l; this.publish({ type: 'credential.login', data }) }
+    setTimeout(() => { if (l.state !== 'starting') return; l.state = 'code'; l.url = 'https://auth.openai.com/codex/device'; l.code = 'WXYZ-12AB3'; pub() }, 150)
+    setTimeout(() => {
+      if (l.state !== 'code') return
+      if (!(personal ? this.credMemberOwn : this.credSharedSubscriptions)) { l.state = 'failed'; l.reason = 'policy_changed'; pub(); return }
+      if (reconnectId) { const x = this.credentials.find((y) => y.id === reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
+      else { const c = this.newCredential(user, 'chatgpt', label, personal, 'ok'); this.credentials.push(c); l.credential = c }
+      l.state = 'done'; pub()
+    }, 1200)
+    const { userId: _u, personal: _p, label: _l, ...data } = l
+    return data
+  }
+  loginOf(id: string, user: User): CredentialLogin {
+    const l = this.credLogins.get(id)
+    if (!l || l.userId !== user.id) return fail('not_found', 404)
+    const { userId: _u, personal: _p, label: _l, ...data } = l
+    return data
+  }
+  cancelLogin(id: string, user: User) {
+    const l = this.credLogins.get(id)
+    if (!l || l.userId !== user.id) fail('not_found', 404)
+    if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; const { userId: _u, personal: _p, label: _l, ...data } = l!; this.publish({ type: 'credential.login', data }) }
   }
 
   enginesResponse() {
@@ -1046,7 +1239,7 @@ export class MockServer {
       ],
       defaultEngine: this.settings.defaultEngine,
       defaultModel: this.settings.defaultModel,
-      concurrency: this.settings.concurrency,
+      concurrency: this.settings.concurrency, concurrencyMax: this.cloud ? 3 : 16,
       accounts: [],
       memberChoice: this.memberChoice,
       limitFallback: this.limitFallback,
@@ -1140,10 +1333,18 @@ export class MockServer {
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
+    else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/log') return Response.json(this.log)
     else if (p === '/__test/engine-requests') return Response.json(this.engineRequests)
     else if (p === '/__test/member-choice') this.memberChoice = MemberEngineChoice.parse(body)
+    else if (p === '/__test/queue') {
+      const chatId = String(body.chatId), position = Number(body.position)
+      const assistant = this.messages.find(m => m.chatId === chatId && m.status === 'streaming')
+      if (!assistant?.turnId || !Number.isInteger(position) || position < 0) return Response.json({ ok: false }, { status: 400 })
+      this.queuePositions.set(chatId, position)
+      this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
+    }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))
@@ -1206,7 +1407,7 @@ function mimeOf(path: string): string | null {
 }
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7 }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */

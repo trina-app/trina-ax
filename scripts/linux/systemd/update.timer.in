@@ -1,0 +1,10 @@
+# Daily root-level update check (self-install only; hosted tenants are updated by the control plane, spec 3.2.4).
+[Unit]
+Description=Team AX root-level update check (@ID@)
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=90min
+Persistent=true
+Unit=@ID@-update.service
+[Install]
+WantedBy=timers.target

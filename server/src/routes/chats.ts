@@ -11,6 +11,7 @@ import { fail } from '../http/errors'
 import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
 import { CHAT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
+import { frequentQuestions } from '../chat/frequent-questions'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
@@ -117,13 +118,14 @@ const isClientIdClash = (e: unknown) => /UNIQUE constraint failed: messages\.cha
 export const chatsRoutes: RouteModule = {
   name: 'chats',
   owner: 'B',
-  init(ctx) {
+  async init(ctx) {
     const rt = installChatRuntime(ctx)
     ctx.services.realtime = rt.hub
-    rt.recover()
+    await rt.recover()
   },
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
+    kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
 
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
@@ -165,6 +167,7 @@ export const chatsRoutes: RouteModule = {
     })
 
     kit.handle(API.getChat, ({ params, auth }) => chatOut(rt, ownChat(rt, auth, params.id, { deleted: true })))
+    kit.handle(API.getChatQueue, ({ params, auth }) => rt.queueSnapshot(ownChat(rt, auth, params.id, { deleted: true }).id))
 
     kit.handle(API.updateChat, ({ c, params, body, auth }) => {
       const chat = ownChat(rt, auth, params.id)

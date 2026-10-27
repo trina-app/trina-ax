@@ -1,5 +1,5 @@
 // Relay protocol v2: binary frames multiplexing many streams over one WebSocket control connection between the
-// relay (Node 25) and a team server (Bun). Design tab 6 "중계 프로토콜" + spike report (spike-relay/REPORT.md).
+// relay (Node 26) and a team server (Bun). Design tab 6 "중계 프로토콜" + spike report (spike-relay/REPORT.md).
 //
 // Frame: [type u8][streamId u32 BE][flags u8][len u32 BE][payload: len bytes], header 10 bytes, payload <= 64 KB.
 // One or more frames per WebSocket binary message (senders put one; the decoder accepts several).

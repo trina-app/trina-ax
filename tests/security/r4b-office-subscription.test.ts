@@ -6,6 +6,8 @@
 // Office mode now offers it: office-install.sh / teamax configure --claude-token-file FILE. Tested here against a fake
 // upstream with the production subscription path (the same as tests/unit/g-subscription.test.ts); a real Anthropic
 // answer through this path still needs the owner's real setup-token (docs/SECURITY-AUDIT.md 4차).
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -18,6 +20,8 @@ import { configure } from '../../server/src/office/cli'
 import { officePaths, parseEnvFile, serverConfig, settingsFrom } from '../../server/src/office/settings'
 import { resolveLayout } from '../../server/src/system/layout'
 import { subscriptionTokenStatus, tokenFile } from '../../server/src/proxy/subscription'
+import { importTokenFile } from '../../server/src/credentials/migrate'
+import { credentialsOf } from '../../server/src/credentials/store'
 import { loadAppConfig } from '../../server/src/app-config'
 
 setDefaultTimeout(60_000)
@@ -107,13 +111,18 @@ describe.skipIf(!mac)('office subscription mode end to end (fake upstream): no M
     const proxyPort = await new Promise<number>((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)) }) })
     h = await startHarness({
       name: 'r4b-office-sub', turnTimeoutMs: 60_000,
-      realCore: { office: true, engine: { authMode: 'subscription', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '', proxyPort, modelUpstream: `http://127.0.0.1:${upstream.port}` } },
+      // the office "subscription" choice is managed mode (server.json keeps the older name this release, D18)
+      realCore: { office: true, engine: { authMode: 'managed', claudeBin: path.join(ENGINE_DIR, 'claude'), codexBin: '', proxyPort, modelUpstream: `http://127.0.0.1:${upstream.port}` } },
+      credentials: [],
     })
-    // what configure --claude-token-file writes: <office home>/config/claude-oauth-token
+    // what configure --claude-token-file writes: <office home>/config/claude-oauth-token; the server imports it as the
+    // team's AI connection (at start and every 5 minutes)
     const secrets = resolveLayout(h.ctx.config).secretsDir
     expect(path.basename(secrets)).toBe('config')
     fs.mkdirSync(secrets, { recursive: true, mode: 0o700 })
     fs.writeFileSync(tokenFile(secrets), REAL + '\n', { mode: 0o600 })
+    expect(importTokenFile(credentialsOf(h.ctx), secrets)).toBe('imported')
+    setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true) // importing alone is not consent; this fixture opts in
     alice = await h.ws('alice', { windowId: 'win-r4b-sub' })
     await alice.next('hello')
   })

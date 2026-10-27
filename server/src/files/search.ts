@@ -10,6 +10,7 @@ import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
 import { extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
 import { readRegular } from './store'
+import { readMaxBytes, rgThreads } from '../system/limits'
 
 export const RG_BASE = ['--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--max-filesize', '50M',
   '--regex-size-limit', '20M', '--dfa-size-limit', '50M', '--max-columns', '2000', '--max-columns-preview', '--no-messages']
@@ -49,8 +50,14 @@ export const excludeArgs = (excludes: string[]) => excludes.flatMap((x) => ['--g
 
 interface RgResult { code: number | null; killed: null | 'cap' | 'timeout'; err: string }
 /** Run rg; `onRecord` gets each NUL- or newline-terminated record; return false to stop (result cap). */
+/** ripgrep's argv: --threads where the resource limits apply (system/limits.ts rgThreads; else ripgrep's own choice) */
+export function rgArgv(rg: string, args: string[]): string[] {
+  const t = rgThreads()
+  return t ? [rg, '--threads', String(t), ...args] : [rg, ...args]
+}
+
 export async function runRg(rg: string, args: string[], cwd: string, sep: '\n' | '\0', onRecord: (r: string) => boolean | void, timeoutMs: number): Promise<RgResult> {
-  const p = Bun.spawn([rg, ...args], { cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: { PATH: '/usr/bin:/bin' } })
+  const p = Bun.spawn(rgArgv(rg, args), { cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: { PATH: '/usr/bin:/bin' } })
   let killed: RgResult['killed'] = null
   const t = setTimeout(() => { killed = 'timeout'; p.kill('SIGKILL') }, timeoutMs)
   const errP = new Response(p.stderr).text()
@@ -88,7 +95,7 @@ export class OfficeCache {
     const running = this.inflight.get(rel); if (running) return running
     const job = (async () => {
       const abs = path.join(this.fx.root, ...rel.split('/'))
-      const { bytes, st } = readRegular(abs, 50 * 1024 * 1024)
+      const { bytes, st } = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes()))
       let text: string
       try { text = await extractText(rel, bytes, this.tools) } catch { text = '' }
       const dst = this.cachePath(rel)

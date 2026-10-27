@@ -1,0 +1,14 @@
+# Team AX data disk (isolation.md §5.1, decision L1): ext4 label "axdata", mounted at BASE = /var/lib/mycel.
+# Not enabled on purpose: at first boot the disk is still blank (mycel-enroll formats it and starts this unit), and an
+# enabled mount would make multi-user.target wait for a device that does not exist yet. After enrollment the mycel
+# units pull it in through RequiresMountsFor=/var/lib/mycel (drop-ins in mycel-*.service.d/10-ax-data.conf), so a
+# tenant whose data disk is missing never starts its services on the empty OS-disk directory.
+[Unit]
+Description=Team AX data disk (label axdata)
+
+[Mount]
+What=/dev/disk/by-label/axdata
+Where=/var/lib/mycel
+Type=ext4
+Options=defaults,noatime,nofail
+TimeoutSec=90

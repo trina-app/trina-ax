@@ -17,6 +17,7 @@ import { afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFol
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { badSegment } from '../policy/names'
+import { resolveLayout } from '../system/layout'
 
 export const CONNECTED_ROOT = 'connected'
 const FILE_MAX = 100 * 1024 * 1024
@@ -40,25 +41,38 @@ export function checkName(name: string): string {
   return n
 }
 
+/** Linux self-host (docs/INSTALL-LINUX.md "연결 폴더"): only mounted storage under these folders. /home is not seen by
+ * the server unit (ProtectHome=yes) and the hosted cloud has no connected folders at all (server/src/system/deployment.ts). */
+export const LINUX_ROOTS = ['/mnt', '/media', '/srv']
+
 /**
- * The source must be a folder that is meant for sharing: under /Volumes (mounted disks and NAS shares),
- * ~/Library/CloudStorage (Google Drive, OneDrive, Dropbox …), /Users/Shared, or a visible folder in the home (not the
- * home itself, nothing hidden, not ~/Library otherwise), and never the team folder or the server's data.
+ * The source must be a folder that is meant for sharing, and never the team folder or the server's data.
+ * macOS: under /Volumes (mounted disks and NAS shares), ~/Library/CloudStorage (Google Drive, OneDrive, Dropbox …),
+ * /Users/Shared, or a visible folder in the home (not the home itself, nothing hidden, not ~/Library otherwise).
+ * Linux: a folder below /mnt/<name>, /media/<name> or /srv/<name> (a mount point itself counts), outside the install.
  */
-export function checkSource(raw: string, o: { home?: string; teamRoot: string; dataDir: string }): string {
+export function checkSource(raw: string, o: { home?: string; teamRoot: string; dataDir: string; platform?: NodeJS.Platform; linuxRoots?: string[]; installBase?: string | null }): string {
+  const linux = (o.platform ?? process.platform) === 'linux'
   raw = raw.trim()
-  if (raw === '~' || raw.startsWith('~/')) raw = path.join(o.home ?? os.homedir(), raw.slice(1))
-  if (!path.isAbsolute(raw)) throw new ConnectedError('not_absolute')
+  if (!linux && (raw === '~' || raw.startsWith('~/'))) raw = path.join(o.home ?? os.homedir(), raw.slice(1))
+  if (!path.isAbsolute(raw)) throw new ConnectedError(linux ? 'not_absolute_linux' : 'not_absolute')
   let real: string
-  try { real = fs.realpathSync(raw) } catch { throw new ConnectedError('not_found') }
+  try { real = fs.realpathSync(raw) } catch { throw new ConnectedError(linux ? 'not_found_linux' : 'not_found') }
   if (!fs.statSync(real).isDirectory()) throw new ConnectedError('not_folder')
-  const home = fs.realpathSync(o.home ?? os.homedir())
   const inside = (p: string, root: string) => p === root || p.startsWith(root + '/')
-  for (const own of [o.teamRoot, o.dataDir]) {
-    const r = fs.realpathSync(own)
+  const own = [o.teamRoot, o.dataDir, ...(o.installBase ? [o.installBase] : [])]
+  for (const x of own) {
+    let r: string
+    try { r = fs.realpathSync(x) } catch { r = path.resolve(x) }
     if (inside(real, r) || inside(r, real)) throw new ConnectedError('team_folder')
   }
   if (real.split('/').some((s) => s.startsWith('.'))) throw new ConnectedError('hidden')
+  if (linux) {
+    const roots = (o.linuxRoots ?? LINUX_ROOTS).map((r) => { try { return fs.realpathSync(r) } catch { return r } })
+    if (!roots.some((r) => real.startsWith(r + '/'))) throw new ConnectedError('not_allowed_linux')
+    return real
+  }
+  const home = fs.realpathSync(o.home ?? os.homedir())
   const cloud = path.join(home, 'Library', 'CloudStorage')
   const ok = (real.startsWith('/Volumes/') && real.split('/').length >= 3)
     || (real.startsWith(cloud + '/'))
@@ -73,8 +87,8 @@ type Manifest = Map<string, ManifestRow>
 
 export class ConnectedFolders {
   private running = new Map<string, Promise<SyncResult>>()
-  /** home: the Mac user's home folder (tests point it at a temporary folder) */
-  constructor(private ctx: AppContext, private o: { home?: string } = {}) {}
+  /** home: the Mac user's home folder; platform / linuxRoots: the Linux rules (tests point them at temporary folders) */
+  constructor(private ctx: AppContext, private o: { home?: string; platform?: NodeJS.Platform; linuxRoots?: string[] } = {}) {}
   private get db(): Database { return this.ctx.db }
   private get root() { return this.ctx.files.fx.root }
 
@@ -85,7 +99,9 @@ export class ConnectedFolders {
   /** Connect a folder: everyone in the team can read it by default (change it in Folder permissions). */
   add(o: { name: string; source: string; actor: string }): ConnectedRow {
     const name = checkName(o.name)
-    const source = checkSource(o.source, { home: this.o.home, teamRoot: this.root, dataDir: this.ctx.engineConfig.dataDir })
+    const source = checkSource(o.source, { home: this.o.home, teamRoot: this.root, dataDir: this.ctx.engineConfig.dataDir,
+      ...(this.o.platform ? { platform: this.o.platform } : {}), ...(this.o.linuxRoots ? { linuxRoots: this.o.linuxRoots } : {}),
+      installBase: this.ctx.config.mode === 'prod' ? resolveLayout(this.ctx.config).base : null })
     if (this.db.query('SELECT 1 FROM connected_folders WHERE name = ?').get(name)) throw new ConnectedError('name_taken')
     const rel = `${CONNECTED_ROOT}/${name}`
     const abs = path.join(this.root, CONNECTED_ROOT, name)

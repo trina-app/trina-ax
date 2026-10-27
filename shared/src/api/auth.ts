@@ -36,7 +36,19 @@ export const Me = z.object({
      * while mustChangePassword) */
     tempLogin: z.boolean().optional(),
   }),
-  server: z.object({ version: z.string(), dev: z.boolean() }),
+  server: z.object({
+    version: z.string(), dev: z.boolean(),
+    /** how this server is installed (server/src/system/deployment.ts, linux-runtime D24): self or hosted (the hosted
+     * service). Office mode and dev are told by `dev` and `features`. Absent from older servers. */
+    deployment: z.enum(['self', 'hosted']).optional(),
+    /** what this deployment offers (the same table the server enforces): the web hides what is off */
+    features: z.object({
+      connectionChange: z.boolean(), selfUpdate: z.boolean(), officeUpdate: z.boolean(), connectedFolders: z.boolean(),
+      apiEngineAnyUrl: z.boolean(), hostDiagnostics: z.boolean(),
+    }).optional(),
+    /** the team's time zone (IANA, Admin > Settings): dates and schedules follow it */
+    timeZone: z.string().optional(),
+  }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),
 })
@@ -93,6 +105,9 @@ export const SetupBody = z.object({
   teamName: z.string().trim().min(1).max(100),
   /** the team's default language (the owner follows it until they pick their own) */
   locale: Locale.default(DEFAULT_LOCALE),
+  /** the team's time zone (IANA, e.g. Asia/Seoul): the setup page sends the browser's. Omitted or unknown = the
+   * server's default (MYCEL_TEAM_TZ, else its own zone, else UTC) */
+  timeZone: z.string().min(1).max(64).optional(),
   owner: z.object({ username: Username, name: PersonName, password: Password, email: z.email().optional() }),
 })
 

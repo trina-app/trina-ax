@@ -26,7 +26,8 @@ export interface Case {
 const ALICE_OWN = [C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
   C.aliceMemory, C.aliceQuestion, C.aliceAttName, C.aliceProjInstr, C.aliceUploadName, C.aliceTranscript]
 const FIN = [C.finFile, C.finFileOld, C.finTrashName, C.finName]
-const ALL = [...ALICE_OWN, ...FIN, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion]
+// the AI connections' secrets are in no persona's VISIBLE list: any response that carries one fails, for everyone
+const ALL = [...ALICE_OWN, ...FIN, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
 export const VISIBLE: Record<Who, string[]> = {
   // a skill alice suggested reaches the managers of its target folder (skills/: owner and admins), nobody else
   owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
@@ -72,13 +73,13 @@ export function levelExp(route: string, who: Who): Exp {
   return who === 'owner' ? 'allow' : 'deny' // owner, owner-reauth
 }
 
-/** Every route the server registers, read from server/src/routes/*.ts (kit.handle(API.x) and kit.raw(M, P)). */
+/** Every route the server registers, read from server/src/routes/*.ts (kit.handle(API.x / named endpoint bundles) and kit.raw(M, P)). */
 export function enumerateRoutes(repoRoot: string): string[] {
   const dir = path.join(repoRoot, 'server', 'src', 'routes')
   const out = new Set<string>()
   for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.ts') && n !== 'module.ts' && n !== 'index.ts')) {
     const src = fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n')
-    for (const m of src.matchAll(/kit\.handle\(\s*API\.(\w+)/g)) out.add(m[1]!)
+    for (const m of src.matchAll(/kit\.handle\(\s*[A-Za-z_$][\w$]*\.(\w+)/g)) out.add(m[1]!)
     for (const m of src.matchAll(/kit\.raw\(\s*'(\w+)'\s*,\s*([^,]+),/g)) out.add(`RAW ${m[1]} ${m[2]!.trim()}`)
   }
   return [...out].sort()

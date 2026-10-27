@@ -1,0 +1,53 @@
+# Team AX engine launcher (linux-runtime spec 3.2.2): runs every engine turn as the engine account inside bwrap +
+# Landlock + seccomp, in its own cgroup. Rendered by `mycel-ctl render-units` from <base>/root/systemd/.
+[Unit]
+Description=Team AX engine launcher (@ID@)
+After=@ID@-firewall.service
+Wants=@ID@-firewall.service
+
+[Service]
+Type=simple
+User=@AGT@
+Group=@AGT@
+ExecStart=@BASE@/root/mycel-launcher \
+  --listen @BASE@/run-launcher/launcher.sock --mode 0660 --agent-root @BASE@/agent \
+  --bridge @BASE@/app/current/native/mycel-bridge --tools-sock @BASE@/run/tools/tools.sock \
+  --server-uid @SRV_UID@ --dedicated-account \
+  --sandbox bwrap --bwrap /usr/bin/bwrap --sandbox-helper @BASE@/root/mycel-sandbox \
+  --sandbox-etc @BASE@/root/sandbox-etc --ca-bundle @CA_BUNDLE@ --landlock @LANDLOCK@ \
+  --proxy-port @PROXY_PORT@ --codex-auth-dir @BASE@/agent/codex-auth \
+  --firewall-status @BASE@/run/firewall.json --plan-file @BASE@/root/plan.json --cgroup @CGROUP@ \
+  @ENGINE_ARGS@
+Environment=PATH=/usr/bin:/bin HOME=@BASE@/agent/home
+UMask=0077
+Restart=always
+RestartSec=1
+KillMode=control-group
+TimeoutStopSec=10
+Delegate=memory pids cpu
+OOMPolicy=continue
+TasksMax=4096
+LimitNOFILE=65536
+# hardening that works together with bwrap (not: ProtectKernelTunables, ProtectKernelLogs, ProtectProc, ProcSubset,
+# PrivateDevices, PrivateUsers, RestrictNamespaces, ProtectControlGroups, MemoryDenyWriteExecute, SystemCallFilter:
+# spec 3.2.2 "넣지 않는 것"; and, found by spike S1 on Debian 13 systemd 257 / bwrap 0.12.0 (docs/DECISIONS.md):
+# not ProtectHostname — its seccomp filter blocks sethostname, so bwrap --hostname fails with EPERM; not
+# RestrictSUIDSGID — it answers openat2 with ENOSYS (systemd cannot inspect openat2's mode), and bwrap 0.12 opens every
+# bind source with openat2 without a fallback ("Can't open source /usr/lib: Function not implemented"). Inside the
+# sandbox every bind is nosuid and NoNewPrivileges stays, so a set-id file of the engine account gains nothing.)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@BASE@/agent @BASE@/run-launcher
+ProtectHome=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectKernelModules=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

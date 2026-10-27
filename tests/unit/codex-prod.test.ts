@@ -1,15 +1,20 @@
-// Codex CLI in production (engine account, "agent-own"): one login folder (<agent root>/codex-auth) the launcher
-// copies into each turn and writes back after a refresh, the locked catalog next to the engine, the model proxy's
-// CONNECT tunnel (the only network path of the engine account), the codex-login / -status / -logout commands, and
-// the beta gating. Everything here runs without root: the launcher runs as the current user; the role-account,
-// sandbox and pf parts are covered by tests/install/g-macos-install.ts (sudo).
+// Codex CLI in production. Managed (docs/DECISIONS.md "AI 연결" D9): each turn gets a placeholder login holding only
+// its proxy token, the provider "teamax" points at the model proxy, which puts the turn's AI connection's real
+// credential on the request; no CONNECT tunnel for Codex turns. Also: the locked catalog next to the engine, the
+// CONNECT handler (the ChatGPT sign-in, and the older agent-own tunnels kept for the F1 fallback), and the older
+// codex-login / -status / -logout commands of the engine account. Everything here runs without root: the launcher runs
+// as the current user; the role-account, sandbox and pf parts are covered by tests/install/g-macos-install.ts (sudo).
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { API, ApiError } from '@mycel/shared/api'
-import { ask, FAKE_CODEX_AUTH, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { ask, HARNESS_KEYS, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { credentialsOf, getRow } from '../../server/src/credentials/store'
+import { addCred, chatgptSecret } from '../lib/credentials'
 import { makeEnv, WORK } from '../lib/env'
 import { catalogModels, CODEX_CATALOG_FILE, codexAuthDir, codexCatalogFor, writeLockedCatalog } from '../../server/src/engine/codex'
 import { lockCatalog } from '../../scripts/macos/codex-catalog.mjs'
@@ -98,7 +103,8 @@ describe('model proxy CONNECT (Codex tunnels)', () => {
   let peer: number | null = 4242
   let proxy: Awaited<ReturnType<typeof startModelProxy>>
   beforeAll(async () => {
-    proxy = await startModelProxy({ db, upstream: null, connect: { dial, turnSession: (t) => sessions[t] ?? null, peerSession: async () => peer, loginBindWaitMs: 400 } })
+    // codexTurns: the older agent-own tunnels (F1 fallback); managed Codex turns never tunnel (tested below)
+    proxy = await startModelProxy({ db, broker: null, connect: { dial, codexTurns: true, turnSession: (t) => sessions[t] ?? null, peerSession: async () => peer, loginBindWaitMs: 400 } })
   })
   afterAll(async () => { await proxy.stop() })
   const refusals = () => (db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'proxy.connect_refused'").get() as { n: number }).n
@@ -150,25 +156,37 @@ describe('model proxy CONNECT (Codex tunnels)', () => {
     expect(await connect(proxy.port, 'auth.openai.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
     peer = 4242
   })
-  test('the Claude path of a proxy without a Claude credential answers 503, never forwards', async () => {
-    const r = await fetch(proxy.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': issueProxyToken(db, 'cl1', 'alice'), 'content-type': 'application/json' }, body: '{}' })
+  test('the Claude path of a proxy without AI connections answers 503, never forwards', async () => {
+    const r = await fetch(proxy.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': issueProxyToken(db, 'cl1', 'alice', { family: 'anthropic' }), 'content-type': 'application/json' }, body: '{}' })
     expect(r.status).toBe(503)
   })
-  test('the Claude path refuses a Codex turn\'s token and the codex-login token (the owner\'s Claude credential is for Claude turns)', async () => {
-    const p = await startModelProxy({ db, upstream: { baseUrl: 'http://127.0.0.1:1', kind: 'oauth', secret: 'real-claude-token' } })
+  test('the Claude path refuses a Codex turn\'s token and the sign-in token; the Codex path a Claude turn\'s token (S-16)', async () => {
+    const p = await startModelProxy({ db, broker: null })
     try {
-      for (const tok of [issueProxyToken(db, 'cx1', 'alice'), issueProxyToken(db, CODEX_LOGIN_BOUND + '4242', 'codex-login-cli')]) {
+      for (const tok of [issueProxyToken(db, 'cx1', 'alice', { family: 'openai' }), issueProxyToken(db, CODEX_LOGIN_BOUND + '4242', 'codex-login-cli')]) {
         const r = await fetch(p.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': tok, 'content-type': 'application/json' }, body: '{}' })
         expect(r.status).toBe(403)
       }
       const last = db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' ORDER BY id DESC LIMIT 1").get() as { detail: string }
       expect(JSON.parse(last.detail).reason).toBe('not a Claude turn')
+      const r = await fetch(p.url + '/codex/chatgpt/responses', { method: 'POST', headers: { authorization: 'Bearer ' + issueProxyToken(db, 'cl1', 'alice', { family: 'anthropic' }), 'content-type': 'application/json' }, body: '{}' })
+      expect(r.status).toBe(403)
+    } finally { await p.stop() }
+  })
+  test('managed (no codexTurns): a Codex turn\'s token opens no tunnel at all (S-16); the sign-in token only to auth.openai.com', async () => {
+    const p = await startModelProxy({ db, broker: null, connect: { dial, turnSession: (t) => sessions[t] ?? null, peerSession: async () => 4242, loginBindWaitMs: 400 } })
+    try {
+      const tok = issueProxyToken(db, 'cx1', 'alice', { family: 'openai' })
+      for (const h of ['chatgpt.com:443', 'auth.openai.com:443', 'api.openai.com:443']) expect(await connect(p.port, h, `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
+      const login = issueProxyToken(db, CODEX_LOGIN_BOUND + '4242', 'codex-login-cli')
+      expect(await connect(p.port, 'chatgpt.com:443', `turn:${login}`)).toMatch(/^HTTP\/1\.1 403/)
+      expect(await connect(p.port, 'auth.openai.com:443', `turn:${login}`)).toBe('HTTP/1.1 200 Connection Established')
     } finally { await p.stop() }
   })
   test('open tunnels are closed once the token is revoked, the turn stops running, or the proxy stops', async () => {
     db.query("INSERT OR REPLACE INTO turns (id, chat_id, user_id, engine, status) VALUES ('cx3', 'c', 'alice', 'codex', 'running')").run()
     sessions.cx3 = 4242
-    const p = await startModelProxy({ db, upstream: null, connect: { dial, turnSession: (t) => sessions[t] ?? null, peerSession: async () => 4242, sweepMs: 50 } })
+    const p = await startModelProxy({ db, broker: null, connect: { dial, codexTurns: true, turnSession: (t) => sessions[t] ?? null, peerSession: async () => 4242, sweepMs: 50 } })
     /** an open tunnel; resolves `closed` when the proxy closes it */
     const tunnel = (tok: string) => new Promise<{ status: string; closed: Promise<void> }>((res) => {
       const c = net.connect(p.port, '127.0.0.1')
@@ -201,7 +219,7 @@ describe('model proxy CONNECT (Codex tunnels)', () => {
     } finally { await p.stop().catch(() => {}); db.query("UPDATE turns SET status = 'done' WHERE id = 'cx3'").run() }
   })
   test('a proxy without tunnels refuses CONNECT', async () => {
-    const p = await startModelProxy({ db, upstream: null })
+    const p = await startModelProxy({ db, broker: null })
     expect(await connect(p.port, 'chatgpt.com:443', `turn:${issueProxyToken(db, 'cx1', 'alice')}`)).toMatch(/^HTTP\/1\.1 403/)
     await p.stop()
   })
@@ -225,7 +243,7 @@ describe('launcher: codex-status / codex-logout / codex-login, and the admin CLI
     fs.writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${path.resolve(import.meta.dir, '../lib/fake-codex-login.ts')}" "$@"\n`, { mode: 0o755 })
     // the proxy first (its port goes to the launcher, which accepts only logins through it)
     const l = new SocketLauncher(sock)
-    proxy = await startModelProxy({ db: env.db, upstream: null, connect: { dial, peerSession: async (cp, sp) => (await l.tcpPeer(cp, sp))?.sid ?? null } })
+    proxy = await startModelProxy({ db: env.db, broker: null, connect: { dial, peerSession: async (cp, sp) => (await l.tcpPeer(cp, sp))?.sid ?? null } })
     launcher = await startLauncher(nativeBinDir(), { listen: sock, agentRoot: agent, toolsSock: path.join(R, 't.sock'), allowCmds: [bin], codexAuthDir: authDir, proxyPort: proxy.port })
     cfg = { mode: 'prod', dataDir: env.fx.data, engine: { authMode: 'local-login', launcherSock: sock, codexBin: bin, proxyPort: proxy.port } } as unknown as AppConfig
   })
@@ -295,89 +313,126 @@ describe('launcher: codex-status / codex-logout / codex-login, and the admin CLI
 })
 
 // ---------------------------------------------------------------------------------------------------------------
-describe('Codex turns of the engine account (fake Codex through the real launcher and proxy)', () => {
+// a fake chatgpt.com / api.openai.com Responses endpoint: records what reached it, answers with SSE
+const codexSeen: { path: string; headers: Record<string, string>; body: any }[] = []
+const respond = (text: string) => {
+  const ev = (o: unknown) => `event: x\ndata: ${JSON.stringify(o)}\n\n`
+  return new Response(ev({ type: 'response.created', response: { id: 'r1' } }) + ev({ type: 'response.output_text.delta', delta: text })
+    + ev({ type: 'response.completed', response: { id: 'r1', model: 'gpt-5.4', output: [{ type: 'message' }, { type: 'web_search_call' }], usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 200 }, output_tokens: 50 } } }),
+  { headers: { 'content-type': 'text/event-stream', 'x-codex-primary-used-percent': '12' } })
+}
+const codexUp = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
+  const u = new URL(req.url)
+  let body: any = null
+  try { body = await req.json() } catch {}
+  codexSeen.push({ path: u.pathname, headers: Object.fromEntries(req.headers), body })
+  const prompt = body?.input?.[0]?.content?.[0]?.text ?? ''
+  return respond(`answer(${prompt})`)
+} })
+afterAll(() => { codexUp.stop(true) })
+
+describe('managed Codex turns (fake Codex through the real launcher and the model proxy)', () => {
   let h: Harness
   let alice: TestSocket
   let dana: TestSocket
+  const REAL = chatgptSecret('acc-real-123', { access: 'eyJ.REAL-ACCESS.sig', refresh: 'rt-REAL-REFRESH' })
+  let chatgptId = ''
   beforeAll(async () => {
-    h = await startHarness({ name: 'codex-prod', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000, proxyDial: dial })
+    const up = `http://127.0.0.1:${codexUp.port}`
+    h = await startHarness({ name: 'codex-prod', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000, proxyDial: dial, upstreams: { chatgpt: up + '/backend-api/codex', openai: up + '/v1', openaiAuth: up } })
+    setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true) // explicit shared-subscription fixture, not the product default
+    // the team's ChatGPT plan (a subscription comes before the harness's OpenAI key of the same priority)
+    chatgptId = addCred(credentialsOf(h.ctx), 'chatgpt', REAL, { label: 'Team ChatGPT', plan: 'pro' })
     alice = await h.ws('alice', { windowId: 'win-alice-cx' }); await alice.next('hello')
     dana = await h.ws('dana', { windowId: 'win-dana-cx' }); await dana.next('hello')
   })
   afterAll(async () => { alice?.close(); dana?.close(); await h?.close() })
-  const authFile = () => path.join(codexAuthDir(h.ctx.engineConfig.agentRoot), 'auth.json')
-  const auth = () => JSON.parse(fs.readFileSync(authFile(), 'utf8'))
   const newChat = (user = 'alice') => h.api(user).call(API.createChat, { body: { engine: 'codex' } })
+  const realStrings = [REAL.accessToken, REAL.refreshToken, REAL.idToken, 'acc-real-123', HARNESS_KEYS.openai]
 
-  test('the turn gets a copy of the engine account\'s login, an empty HOME, the proxy and the file credential store; nothing stays behind', async () => {
+  test('the turn gets a placeholder login (its own proxy token), an empty HOME and the provider at the proxy; no tunnel, nothing stays behind', async () => {
     const chat = await newChat()
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'codexEnv' }))
     const e = JSON.parse(r.done.content)
-    expect(e).toMatchObject({ codexHome: '.codex', account: 'acc-team', homeEmpty: true, proxyUser: 'turn', sslCertFile: '/etc/ssl/cert.pem', credStore: true })
-    expect(e.proxyHost).toBe(`127.0.0.1:${(await h.ctx.core()).proxy!.port}`)
+    const port = (await h.ctx.core()).proxy!.port
+    expect(e).toMatchObject({ codexHome: '.codex', authMode: 'chatgpt', turnToken: true, refresh: 'teamax-no-refresh', homeEmpty: true, credStore: true,
+      provider: 'teamax', baseUrl: `http://127.0.0.1:${port}/codex/chatgpt`, chatgptBaseUrl: `http://127.0.0.1:${port}/codex/backend/`,
+      refreshOverride: `http://127.0.0.1:${port}/codex/oauth/token`, proxyUser: null, proxyHost: null, apiKeyEnv: null })
+    expect(e.account).toMatch(/^teamax-[0-9a-f]{12}$/)
     const chatDir = path.join(h.ctx.engineConfig.agentRoot, chat.id)
     expect(fs.existsSync(path.join(chatDir, '.codex'))).toBe(false)
     expect(fs.existsSync(path.join(chatDir, '.home'))).toBe(false)
-    // the turn's proxy token is revoked with the turn
     const live = h.ctx.db.query('SELECT COUNT(*) n FROM proxy_tokens WHERE turn_id = ? AND revoked_at IS NULL').get(r.started.turnId) as { n: number }
     expect(live.n).toBe(0)
   })
-  test('a tunnel to chatgpt.com works during the turn; other hosts are refused', async () => {
+  test('S-1: nothing in the chat folder during the turn holds a real token, refresh token, account id or key', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ connect: 'chatgpt.com:443' }, { say: ' | ' }, { connect: 'example.com:443' }))
-    expect(r.done.content).toBe('HTTP/1.1 200 Connection Established | HTTP/1.1 403 Forbidden')
+    const r = await ask(h, alice, 'alice', chat.id, fake({ dumpHome: true }))
+    const dump = Buffer.from(r.done.content, 'base64').toString('utf8')
+    expect(dump).toContain('.codex/auth.json')
+    for (const x of realStrings) expect(dump).not.toContain(x)
   })
-  test('a refreshed login of the same account is written back', async () => {
+  test('S-2: the answer goes through the proxy with the real access token and account; the turn token never leaves; usage counted', async () => {
+    codexSeen.length = 0
     const chat = await newChat()
-    const before = auth().tokens.refresh_token
-    await ask(h, alice, 'alice', chat.id, fake({ refreshAuth: 'acc-team' }))
-    const after = auth()
-    expect(after.tokens.account_id).toBe('acc-team')
-    expect(after.tokens.refresh_token).not.toBe(before)
-    expect(after.tokens.refresh_token.startsWith('rt-')).toBe(true)
+    const r = await ask(h, alice, 'alice', chat.id, fake({ codexModel: 'hi' }))
+    expect(r.done.status).toBe('done')
+    expect(r.done.content).toBe('answer(hi)')
+    expect(codexSeen.length).toBe(1)
+    const s0 = codexSeen[0]!
+    expect(s0.path).toBe('/backend-api/codex/responses')
+    expect(s0.headers.authorization).toBe('Bearer ' + REAL.accessToken)
+    expect(s0.headers['chatgpt-account-id']).toBe('acc-real-123')
+    expect(s0.body.store).toBe(false)
+    expect(JSON.stringify(s0)).not.toContain('mpx_')
+    expect(JSON.stringify(s0)).not.toContain('teamax-')
+    const t = h.ctx.db.query('SELECT input_tokens, output_tokens, cost_usd, usage_source, credential_id FROM turns WHERE id = ?').get(r.started.turnId) as any
+    expect(t).toMatchObject({ input_tokens: 1000, output_tokens: 50, cost_usd: 0, usage_source: 'proxy', credential_id: chatgptId })
   })
-  test('a login of another account, or a link, is not written back and is audited', async () => {
+  test('S-16: a Codex turn can neither tunnel nor use the Claude path', async () => {
     const chat = await newChat()
-    const before = fs.readFileSync(authFile(), 'utf8')
-    await ask(h, alice, 'alice', chat.id, fake({ refreshAuth: 'acc-attacker' }))
-    expect(fs.readFileSync(authFile(), 'utf8')).toBe(before)
-    const victim = path.join(os.tmpdir(), `mycel-cx-victim-${process.pid}.json`); fs.writeFileSync(victim, JSON.stringify({ tokens: { account_id: 'acc-team', refresh_token: 'stolen' } }))
-    await ask(h, alice, 'alice', chat.id, fake({ linkAuth: victim }))
-    expect(fs.readFileSync(authFile(), 'utf8')).toBe(before)
-    expect(fs.lstatSync(authFile()).isFile()).toBe(true)
-    fs.rmSync(victim)
-    const notes = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'engine.codex_auth'").all() as { detail: string }[]).map((r) => JSON.parse(r.detail).note)
-    expect(notes.some((n) => /another ChatGPT account/.test(n))).toBe(true)
-    expect(notes.some((n) => /not a plain file|symbolic|too many levels|loop/i.test(n))).toBe(true)
+    const r = await ask(h, alice, 'alice', chat.id, fake({ connect: 'chatgpt.com:443' }, { say: ' | ' }, { claudeCall: true }))
+    expect(r.done.content).toBe('HTTP/1.1 403 Forbidden | 403')
   })
-  test('a Codex turn\'s proxy token does not open the Claude path (403), its tunnels still work', async () => {
-    const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ claudeCall: true }))
-    expect(r.done.content).toBe('403')
+  test('an OpenAI API key connection: placeholder "apikey" login, the real key only on the way out, cost at list price', async () => {
+    h.ctx.db.query('UPDATE engine_credentials SET disabled = 1 WHERE id = ?').run(chatgptId)
+    try {
+      codexSeen.length = 0
+      const chat = await newChat()
+      const e = JSON.parse((await ask(h, alice, 'alice', chat.id, fake({ echo: 'codexEnv' }))).done.content)
+      expect(e).toMatchObject({ authMode: 'apikey', turnToken: true })
+      expect(e.baseUrl).toContain('/codex/openai')
+      const r = await ask(h, alice, 'alice', chat.id, fake({ codexModel: 'k' }))
+      expect(r.done.content).toBe('answer(k)')
+      expect(codexSeen[0]!.path).toBe('/v1/responses')
+      expect(codexSeen[0]!.headers.authorization).toBe('Bearer ' + HARNESS_KEYS.openai)
+      expect(codexSeen[0]!.headers['chatgpt-account-id']).toBeUndefined()
+      const t = h.ctx.db.query('SELECT cost_usd FROM turns WHERE id = ?').get(r.started.turnId) as any
+      // gpt-5.4: 800 uncached x 2.5 + 200 cached x 0.25 + 50 out x 15, per million, + 1 web search ($10 / 1000)
+      expect(t.cost_usd).toBeCloseTo((800 * 2.5 + 200 * 0.25 + 50 * 15) / 1e6 + 0.01, 8)
+    } finally { h.ctx.db.query('UPDATE engine_credentials SET disabled = 0 WHERE id = ?').run(chatgptId) }
   })
-  test('a Codex login copy left in a chat folder (launcher crash) is gone before a turn of another engine starts there', async () => {
+  test('a Codex folder left in a chat folder (launcher crash) is gone before a turn of another engine starts there', async () => {
     const chat = await newChat()
     await ask(h, alice, 'alice', chat.id, fake({ say: 'codex first' }))
     const chatDir = path.join(h.ctx.engineConfig.agentRoot, chat.id)
-    // what a crashed launcher leaves behind
     fs.mkdirSync(path.join(chatDir, '.codex'), { recursive: true, mode: 0o700 })
-    fs.writeFileSync(path.join(chatDir, '.codex', 'auth.json'), JSON.stringify(FAKE_CODEX_AUTH), { mode: 0o600 })
-    // the chat switches to Claude: its next turn runs in the same folder
+    fs.writeFileSync(path.join(chatDir, '.codex', 'auth.json'), '{"auth_mode":"chatgpt"}', { mode: 0o600 })
     await h.api('alice').call(API.updateChat, { params: { id: chat.id }, body: { engine: 'claude-code' } })
     const r = await ask(h, alice, 'alice', chat.id, fake({ exists: '.codex/auth.json' }))
     expect(r.done.content).toBe('false')
     expect(fs.existsSync(path.join(chatDir, '.codex'))).toBe(false)
   })
-  test('without a login the answer says the AI connection needs the admin (no crash, no retry loop)', async () => {
-    const saved = fs.readFileSync(authFile())
-    fs.rmSync(authFile())
+  test('without a Codex connection the answer says there is none (no crash, no engine run)', async () => {
+    h.ctx.db.query("UPDATE engine_credentials SET disabled = 1 WHERE kind IN ('chatgpt','openai-api-key')").run()
     try {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'never' }))
       expect(r.done.status).toBe('error')
       expect(r.done.error?.code).toBe('engine_unavailable')
+      expect(r.done.error?.message).toMatch(/no AI connection/i)
       expect(r.done.content).toBe('')
-    } finally { fs.writeFileSync(authFile(), saved, { mode: 0o600 }) }
+    } finally { h.ctx.db.query('UPDATE engine_credentials SET disabled = 0').run() }
   })
   test('production: Codex is no longer beta (CODEX_PROD_BETA off): every member may use it and it may be the team default', async () => {
     expect(CODEX_PROD_BETA).toBe(false)
@@ -391,12 +446,15 @@ describe('Codex turns of the engine account (fake Codex through the real launche
       await h.api('dana').call(API.updateEngines, { body: { defaultEngine: 'claude-code' } })
     } finally { cfg.mode = 'dev' }
   })
-  test('the fake login stays the harness\'s (sanity)', () => { expect(auth().tokens.account_id).toBe(FAKE_CODEX_AUTH.tokens.account_id) })
+  test('the real ChatGPT login stays only in the database, encrypted (sanity)', () => {
+    const row = getRow(h.ctx.db, chatgptId)!
+    for (const x of realStrings.slice(0, 3)) expect(row.secret_enc).not.toContain(x)
+  })
 })
 
 // ---------------------------------------------------------------------------------------------------------------
 describe('production engine core: connects to the launcher daemon and opens the model proxy on the configured port', () => {
-  test('startLocalCore (prod) starts the gate and the proxy (CONNECT answered), with no Claude credential', async () => {
+  test('startLocalCore (prod, managed) starts the gate and the proxy (CONNECT answered), with no AI connection', async () => {
     const env = makeEnv('codex-prod-core')
     env.db.close()
     const R = fs.mkdtempSync('/tmp/mycel-cc-')
@@ -405,7 +463,7 @@ describe('production engine core: connects to the launcher daemon and opens the 
     const port = 19730
     const config = {
       mode: 'prod', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [], teamRoot: env.fx.team, dataDir: env.fx.data, logDir: null, logLevel: 'error',
-      engine: { authMode: 'proxy', runDir: path.join(R, 'run'), agentRoot: path.join(R, 'agent'), launcherSock: sock, proxyPort: port },
+      engine: { authMode: 'managed', runDir: path.join(R, 'run'), agentRoot: path.join(R, 'agent'), launcherSock: sock, proxyPort: port },
       relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: false, setupToken: null,
     } as AppConfig
     const { createContext } = await import('../../server/src/context')

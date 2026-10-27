@@ -11,3 +11,4 @@ tests/out/
 .dev/
 tests/.cache/
 dist/
+__pycache__/

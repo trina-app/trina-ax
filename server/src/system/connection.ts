@@ -6,6 +6,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionMode, ConnectionStatus } from '@mycel/shared/api'
 import type { AppContext } from '../context'
+import { relayApiBase } from '../relay-client/client'
+import { saveClaimCode } from '../relay-client/registration'
 
 /** Our relay (tab 6: wss://relay.treesoop.com/connect). The production relay is not running yet (WORKPLAN "막힌 것"). */
 export const OFFICIAL_RELAY_URL = 'wss://relay.treesoop.com/connect'
@@ -71,6 +73,11 @@ export interface SaveConnectionOptions {
   teamName?: string
   /** the official relay may be chosen (config relay.officialAvailable) */
   officialAvailable?: boolean
+}
+
+/** Keep a claim code for the relay at `relayUrl` (wss://…/connect) and the team name it was issued for. */
+export function saveClaimCodeFor(dataDir: string, relayUrl: string, teamName: string, code: string): void {
+  saveClaimCode(dataDir, { relayApi: relayApiBase(relayUrl), name: teamName.trim().toLowerCase(), code: code.trim() })
 }
 
 /** Write the new relay settings into the server's config file. Returns the URL now configured. */

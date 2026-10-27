@@ -15,6 +15,8 @@ import { tr } from './i18n'
 import type { TurnExec } from './turn'
 import { extractUrls, gateUrl, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
+import { recordSkillRead } from '../admin/skill-usage'
+import { templateToolRefusal } from './schedule-templates'
 
 interface Tool {
   name: string
@@ -35,6 +37,7 @@ export const B_TOOL_DESCRIPTIONS = {
 
 export function buildToolSet(exec: TurnExec): TurnToolSet {
   const tools = new Map<string, Tool>()
+  const templateWrites = new Set<string>()
   const add = (t: Tool) => {
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return }
     tools.set(t.name, t)
@@ -49,6 +52,8 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args) {
+      const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
+      if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
       if (name === 'make_file') {
@@ -68,8 +73,15 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
       exec.afterTool()
       return { content: out.content, isError: out.isError, summary: out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}` }
     },
-    afterFileTool: (name, _isError, args) => { exec.noteTaint(name, args); exec.noteReads(); exec.afterTool() },
+    afterFileTool: (name, isError, args) => {
+      exec.noteTaint(name, args); exec.noteReads(); exec.afterTool()
+      const filePath = (args as { file_path?: unknown } | null)?.file_path
+      if (!isError && name === 'read' && typeof filePath === 'string')
+        recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
+    },
     beforeFileTool: async (name, args) => {
+      const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
+      if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args)
@@ -100,6 +112,7 @@ function toolContext(exec: TurnExec): TurnToolContext {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
     files: {
+      signal: exec.abort.signal,
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       confirmWidening: (target, sources) => exec.confirmWidening(target, sources),

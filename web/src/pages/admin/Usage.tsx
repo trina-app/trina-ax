@@ -1,12 +1,16 @@
-// Usage per person / engine / model / day / group: turns and tokens (cost only means something in company-key mode).
-import { useMemo, useState } from 'react'
-import { api, API } from '../../lib/api'
-import { formatNumber, formatUsd, localDay } from '../../lib/format'
+// Usage per person / engine / model / day / group / AI connection: turns and tokens (amounts are list-price estimates
+// for API key connections only).
+import { useEffect, useMemo, useState } from 'react'
+import type { z } from 'zod'
+import type { UsageResponse } from '@mycel/shared/api'
+import { api, API, errorText, saveBlob } from '../../lib/api'
+import { formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Field, inputCls } from '../../components/ui'
-import { Card, Loadable, useLoad } from './common'
+import { Button, Field, inputCls } from '../../components/ui'
+import { Card, Loadable } from './common'
+import { usageCsv } from '../../lib/usage-csv'
 
-type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group'
+type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group' | 'credential' | 'skill'
 
 export default function Usage() {
   const t = useT()
@@ -14,15 +18,34 @@ export default function Usage() {
   const [groupBy, setGroupBy] = useState<GroupBy>('user')
   const [from, setFrom] = useState(() => localDay(new Date(Date.now() - 29 * 86400_000)))
   const [to, setTo] = useState(() => localDay(new Date()))
-  const range = useMemo(() => ({ from: new Date(`${from}T00:00:00`).toISOString(), to: new Date(`${to}T23:59:59`).toISOString() }), [from, to])
-  const state = useLoad(() => api.call(API.usage, { query: { groupBy, ...range } }), [groupBy, range])
+  const range = useMemo(() => localDayRange(from, to), [from, to])
+  const queryKey = JSON.stringify([groupBy, range.from, range.to])
+  const [retry, setRetry] = useState(0)
+  const [report, setReport] = useState<{ key: string; data: z.output<typeof UsageResponse> | null; error: string | null }>({ key: '', data: null, error: null })
+  useEffect(() => {
+    let cancelled = false
+    setReport({ key: queryKey, data: null, error: null })
+    api.call(API.usage, { query: { groupBy, ...range } }).then((data) => {
+      if (!cancelled) setReport({ key: queryKey, data, error: null })
+    }, (error) => {
+      if (!cancelled) setReport({ key: queryKey, data: null, error: errorText(error, locale, t('error.network')) })
+    })
+    return () => { cancelled = true }
+    // A response must belong to the selected query, including when older requests finish later.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, retry, locale])
+  const state = { ...(report.key === queryKey ? report : { data: null, error: null }), reload: async () => { setRetry((n) => n + 1) } }
   const max = Math.max(1, ...(state.data?.rows.map((r) => r.inputTokens + r.outputTokens) ?? [1]))
   return (
-    <Card title={t('admin.usage')} desc={t('usage.desc')}>
+    <Card title={t('admin.usage')} desc={t('usage.desc')} actions={
+      <Button size="sm" disabled={!state.data} data-testid="usage-csv" onClick={() => {
+        if (state.data) saveBlob(new Blob([usageCsv(state.data, groupBy)], { type: 'text/csv;charset=utf-8' }), `usage-${groupBy}-${from}-${to}.csv`)
+      }}>{t('usage.exportCsv')}</Button>
+    }>
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Field label={t('usage.groupBy')}>
           <select className={inputCls} value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
-            {(['user', 'group', 'engine', 'model', 'day'] as GroupBy[]).map((g) => (
+            {(['user', 'group', 'engine', 'model', 'day', 'credential', 'skill'] as GroupBy[]).map((g) => (
               <option key={g} value={g}>
                 {t(`usage.by.${g}`)}
               </option>
@@ -36,6 +59,7 @@ export default function Usage() {
           <input className={inputCls} type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} />
         </Field>
       </div>
+      {groupBy === 'skill' && <p className="mb-3 text-xs text-muted" data-testid="usage-skill-note">{t('usage.skillNote')}</p>}
       <Loadable state={state}>
         {(d) =>
           !d.rows.length ? (
@@ -59,7 +83,7 @@ export default function Usage() {
                     const tok = r.inputTokens + r.outputTokens
                     return (
                       <tr key={r.key}>
-                        <td className="py-2 pr-3">{r.label}</td>
+                        <td className="py-2 pr-3">{groupBy === 'credential' && !r.label ? <span className="text-faint">{t('usage.deletedCredential')}</span> : r.label}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(r.turns, locale)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(tok, locale)}</td>
                         <td className="w-32 py-2 pr-3" aria-hidden>
@@ -83,6 +107,7 @@ export default function Usage() {
                 </tfoot>
               </table>
               <p className="mt-2 text-xs text-faint">{t('usage.costNote')}</p>
+              {groupBy === 'credential' && <p className="mt-1 text-xs text-faint">{t('usage.credentialNote')}</p>}
             </div>
           )
         }

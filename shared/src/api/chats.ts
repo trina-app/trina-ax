@@ -38,6 +38,11 @@ export const ChatEngines = z.object({
 })
 export type ChatEngines = z.infer<typeof ChatEngines>
 export const DeletedChat = z.object({ id: Uuid7, deletedAt: IsoTime, purgeAt: IsoTime })
+export const FrequentQuestions = z.object({
+  items: z.array(z.object({ question: z.string().max(2000), count: z.number().int().min(2), lastUsedAt: IsoTime })).max(10),
+  days: z.literal(30), sampled: z.boolean(),
+})
+export type FrequentQuestions = z.infer<typeof FrequentQuestions>
 
 // ---------------- messages ----------------
 /**
@@ -68,10 +73,19 @@ export const TurnStarted = z.object({
   /** the new assistant message, status 'streaming', empty content */
   assistantMessage: Message,
   turnId: Uuid7,
-  /** 0 = running now, n = n turns ahead in the queue */
+  /** 0 = execution slot assigned; n >= 1 = advisory fair-queue rank (not an ETA). */
   queuePosition: z.number().int().nonnegative(),
+  queueEpoch: z.string().optional(),
+  queueRevision: z.number().int().nonnegative().optional(),
 })
 export type TurnStarted = z.infer<typeof TurnStarted>
+
+export const ChatQueueSnapshot = z.object({
+  state: z.enum(['queued', 'running', 'idle']),
+  turnId: Uuid7.nullable(), messageId: Uuid7.nullable(), position: z.number().int().nonnegative().nullable(),
+  epoch: z.string(), revision: z.number().int().nonnegative(),
+})
+export type ChatQueueSnapshot = z.infer<typeof ChatQueueSnapshot>
 
 export const RegenerateBody = z.object({
   engine: EngineId.optional(),
@@ -142,10 +156,12 @@ export const UpdateProjectBody = z.object({
 })
 
 export const CHATS = {
+  frequentQuestions: endpoint({ method: 'GET', path: '/api/questions/frequent', auth: 'user', owner: 'B', response: FrequentQuestions, summary: 'Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts.' }),
   listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats, newest first (search with q, trash with trash=1).' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project).' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat.' }),
+  getChatQueue: endpoint({ method: 'GET', path: '/api/chats/:id/queue', auth: 'user', owner: 'B', response: ChatQueueSnapshot, summary: 'Own chat queue snapshot; advisory rank and epoch/revision for reconnect recovery.' }),
   updateChat: endpoint({ method: 'PATCH', path: '/api/chats/:id', auth: 'user', owner: 'B', body: UpdateChatBody, response: Chat, summary: 'Rename, move to a project, change engine/model.' }),
   deleteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id', auth: 'user', owner: 'B', response: DeletedChat, summary: 'Move to chat trash (purged after 7 days). Stops a running turn.' }),
   restoreChat: endpoint({ method: 'POST', path: '/api/chats/:id/restore', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat back from the trash.' }),

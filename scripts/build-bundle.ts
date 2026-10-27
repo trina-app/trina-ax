@@ -20,11 +20,32 @@
 // downloaded once from the Bun GitHub release, checked against its SHASUMS256.txt, and cached in dist/.cache/.
 // Without --sign-key the bundle is unsigned (no release key exists yet): the installer then runs the bootstrap with
 // --allow-unsigned and diagnostics say so.
+//
+// --os linux (default: this computer's OS) builds the Linux server bundle instead (linux-runtime spec 3.6.1, D10, D11;
+// buildLinuxBundle below; the macOS path above is unchanged):
+//
+//   bun scripts/build-bundle.ts --os linux --version 0.3.0 --out dist/linux [--arch amd64|arm64] [--sign-key release.pem]
+//                               [--notes NOTES.md] (--whisper-dir DIR | --no-whisper) [--strict]
+//
+// Only on a Linux machine of the bundle's arch (onnxruntime-node's and sharp's Linux binaries must be the ones `bun
+// install` put there). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
+// with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
+// native/{mycel-gate,mycel-bridge,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
+// so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
+// engines/codex-<v>.model_catalog.json, deps.txt, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
+// <version>-linux-<arch>.tar.zst (the version folder, for updates) and <kit>-<version>-linux-<arch>.tar.gz (the kit).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import zlib from 'node:zlib'
 import { packBundle, signManifest, writeManifest } from '../server/src/system/bundle'
-import { productEnv } from '../shared/src/product'
+import { walkTree } from '../server/src/system/manifest'
+import { writeAtomic } from '../server/src/system/streams'
+import { tarStream, type TarEntryInput } from '../server/src/system/tar'
+import { PRODUCT, productEnv } from '../shared/src/product'
+import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, type LinuxArch } from './linux/downloads'
+import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -34,11 +55,6 @@ export const hostArch = (): 'arm64' | 'amd64' => (process.arch === 'arm64' ? 'ar
 export const ROOT_FILES = ['mycel-bootstrap', 'mycel-launcher', 'mycel-account', 'engine.sb', 'pf-load'] as const
 /** server entry points: source -> bundled file in server/src/ */
 const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js']]
-
-function arg(name: string): string | null {
-  const i = process.argv.indexOf(name)
-  return i >= 0 ? process.argv[i + 1] ?? null : null
-}
 
 export async function buildBundle(o: { version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string; bunFor?: (arch: 'arm64' | 'amd64') => Promise<string> }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
@@ -55,24 +71,10 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   fs.mkdirSync(path.join(dir, 'bin'), { recursive: true, mode: 0o755 })
 
   // server: one self-contained file per entry point; migrations next to it (db.ts reads ../migrations)
-  for (const [src, out] of ENTRIES) {
-    const res = await Bun.build({
-      entrypoints: [path.join(REPO, 'server', 'src', src)],
-      target: 'bun',
-      outdir: path.join(dir, 'server', 'src'),
-      naming: out,
-      external: SEMANTIC_EXTERNAL,
-      define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(o.version) },
-      minify: false,
-    })
-    if (!res.success) throw new Error(res.logs.map(String).join('\n'))
-  }
+  await buildServerEntries(dir, o.version)
   // search by meaning: its runtime next to the server files (scripts/vendor-semantic.ts; arm64 / universal)
   if (arch !== 'amd64') vendorSemantic(path.join(dir, 'server'))
-  fs.mkdirSync(path.join(dir, 'server', 'migrations'), { recursive: true })
-  for (const f of fs.readdirSync(path.join(REPO, 'server', 'migrations'))) {
-    if (f.endsWith('.sql')) fs.copyFileSync(path.join(REPO, 'server', 'migrations', f), path.join(dir, 'server', 'migrations', f))
-  }
+  copyMigrations(dir)
   // runtime: the pinned bun that runs this script (versions.json), for the bundle's arch
   const bunFor = o.bunFor ?? bunBinary
   const bunOut = path.join(dir, 'bin', 'bun')
@@ -109,6 +111,30 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   // the product's name for install-macos.sh (the role accounts' full names): shared/src/product.ts
   fs.writeFileSync(path.join(o.out, 'product.env'), productEnv())
   return { dir, archive: path.join(o.out, `${o.version}.tar.zst`), size: packed.size, sha256: packed.sha256, root, arch }
+}
+
+/** The server's entry points as self-contained files in <dir>/server/src (both OS bundles). */
+async function buildServerEntries(dir: string, version: string): Promise<void> {
+  for (const [src, out] of ENTRIES) {
+    const res = await Bun.build({
+      entrypoints: [path.join(REPO, 'server', 'src', src)],
+      target: 'bun',
+      outdir: path.join(dir, 'server', 'src'),
+      naming: out,
+      external: SEMANTIC_EXTERNAL,
+      define: { 'process.env.MYCEL_BUILD_VERSION': JSON.stringify(version) },
+      minify: false,
+    })
+    if (!res.success) throw new Error(res.logs.map(String).join('\n'))
+  }
+}
+
+/** server/migrations/*.sql next to the server files (db.ts reads ../migrations). */
+function copyMigrations(dir: string): void {
+  fs.mkdirSync(path.join(dir, 'server', 'migrations'), { recursive: true })
+  for (const f of fs.readdirSync(path.join(REPO, 'server', 'migrations'))) {
+    if (f.endsWith('.sql')) fs.copyFileSync(path.join(REPO, 'server', 'migrations', f), path.join(dir, 'server', 'migrations', f))
+  }
 }
 
 /** A bun executable of this bun's version for `arch`: this one, or the release download (checked, cached). */
@@ -156,9 +182,234 @@ function* walkDirs(d: string): Generator<string> {
   for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory()) yield* walkDirs(path.join(d, e.name))
 }
 
+// ======================= Linux server bundle (linux-runtime spec 3.6.1) =======================
+
+/** native/bin/linux-<arch>/ programs: in the version folder's native/ (run by the server) */
+export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-ocr'] as const
+/** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
+export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
+/** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */
+export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
+  ['scripts/linux/account.sh', 'mycel-account'],
+  ['scripts/linux/set-claude-token.sh', 'set-claude-token'],
+  ['scripts/linux/safe-fs.sh', 'safe-fs.sh'],
+  ['scripts/linux/apparmor-bwrap.in', 'apparmor-bwrap.in'],
+  ['scripts/macos/codex-catalog.mjs', 'codex-catalog.mjs'],
+]
+/** executables among the root files (the rest are read: templates, sourced helpers, the catalog locker run by bun) */
+const LINUX_ROOT_EXEC = new Set<string>([...LINUX_ROOT_NATIVE, 'mycel-account', 'set-claude-token'])
+/** the bundled tools in app/<v>/bin/ besides whisper (scripts/linux/downloads.ts) */
+export const LINUX_TOOLS = ['bun', 'rg', 'pandoc', 'typst'] as const
+/** the install kit's name: <kit>-<version>-linux-<arch>.tar.gz (the office zip's naming, PRODUCT.officeBundle) */
+export const SERVER_KIT = PRODUCT.officeBundle.replace(/-office$/, '-server')
+export const kitName = (version: string, arch: LinuxArch) => `${SERVER_KIT}-${version}-linux-${arch}`
+
+export interface BundleArgs {
+  os: 'darwin' | 'linux'
+  version: string | null
+  out: string | null
+  arch: string | null
+  signKey: string | null
+  notes: string | null
+  whisperDir: string | null
+  noWhisper: boolean
+  strict: boolean
+}
+
+/** The command line (pure; --os defaults to this computer's). */
+export function parseBundleArgs(argv: string[], platform: string = process.platform): BundleArgs {
+  const val = (name: string): string | null => {
+    const i = argv.indexOf(name)
+    if (i < 0) return null
+    const v = argv[i + 1]
+    if (v === undefined || v.startsWith('--')) throw new Error(`${name} needs a value`)
+    return v
+  }
+  const osArg = val('--os') ?? (platform === 'linux' ? 'linux' : 'darwin')
+  if (osArg !== 'darwin' && osArg !== 'linux') throw new Error(`--os must be darwin or linux, not ${osArg}`)
+  const a: BundleArgs = {
+    os: osArg, version: val('--version'), out: val('--out'), arch: val('--arch'), signKey: val('--sign-key'), notes: val('--notes'),
+    whisperDir: val('--whisper-dir'), noWhisper: argv.includes('--no-whisper'), strict: argv.includes('--strict'),
+  }
+  if (a.os === 'darwin' && (a.whisperDir || a.noWhisper || a.strict)) throw new Error('--whisper-dir, --no-whisper and --strict are for --os linux')
+  if (a.whisperDir && a.noWhisper) throw new Error('give --whisper-dir or --no-whisper, not both')
+  return a
+}
+
+/** A Linux bundle is built on Linux of the same arch (D10: the platform binaries of onnxruntime-node and sharp are
+ * the ones `bun install` put into node_modules there; a Mac has its own). */
+export function assertLinuxHost(arch: string, platform: string = process.platform, host: string = hostArch()): LinuxArch {
+  if (arch !== 'amd64' && arch !== 'arm64') throw new Error(`--arch must be amd64 or arm64 for a Linux bundle, not ${arch}`)
+  if (platform !== 'linux' || arch !== host) {
+    throw new Error(`Linux bundles are built on a Linux runner of the same architecture (리눅스 번들은 같은 아키텍처의 리눅스 러너에서 만드세요): this is ${platform}-${host}, the bundle is linux-${arch}`)
+  }
+  return arch
+}
+
+/** whisper-cli builds of the CI job for `arch`: amd64 has the AVX2/FMA/F16C build and the SSE4.2-only fallback. */
+export const whisperFiles = (arch: LinuxArch) => (arch === 'amd64' ? ['whisper-cli', 'whisper-cli-v2'] : ['whisper-cli'])
+
+/** Every file a Linux version folder must hold (relative paths; the server's own files are checked by name). */
+export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[] }): string[] {
+  return [
+    ...LINUX_TOOLS.map((t) => `bin/${t}`),
+    ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
+    ...LINUX_NATIVE.map((n) => `native/${n}`),
+    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js',
+    ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
+    ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
+    ...o.systemd.map((u) => `root/systemd/${u}`),
+    'engines.lock.json', codexCatalogName(o.codexVersion), 'deps.txt',
+  ]
+}
+
+/** e_machine of an ELF executable: 'amd64' (x86-64), 'arm64' (AArch64), or null (not a 64-bit little-endian ELF). */
+export function elfArch(file: string): LinuxArch | null {
+  const fd = fs.openSync(file, 'r')
+  try {
+    const h = Buffer.alloc(20)
+    if (fs.readSync(fd, h, 0, 20, 0) < 20 || h.readUInt32BE(0) !== 0x7f454c46 || h[4] !== 2 || h[5] !== 1) return null
+    const m = h.readUInt16LE(18)
+    return m === 0x3e ? 'amd64' : m === 0xb7 ? 'arm64' : null
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+function gzip(src: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
+  const z = zlib.createGzip({ level: 9 })
+  const input = Readable.from(src)
+  input.on('error', (e) => z.destroy(e))
+  return input.pipe(z) as unknown as AsyncIterable<Uint8Array>
+}
+
+export async function buildLinuxBundle(o: {
+  version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string | null
+  /** the CI build of whisper.cpp (whisperFiles(arch)); without it, noWhisper must say so */
+  whisperDir?: string | null; noWhisper?: boolean
+  /** release builds: every optional part must be there (web, whisper, the installer and its helpers) */
+  strict?: boolean
+}) {
+  if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
+  const arch = assertLinuxHost(o.arch ?? hostArch())
+  const versions = JSON.parse(fs.readFileSync(path.join(REPO, 'versions.json'), 'utf8')) as Record<string, string>
+  const claudeV = pinnedVersion(versions, 'claude-code'), codexV = pinnedVersion(versions, 'codex-cli')
+  const missing: string[] = []
+  const nativeDir = path.join(REPO, 'native', 'bin', `linux-${arch}`)
+  for (const b of [...LINUX_NATIVE, ...LINUX_ROOT_NATIVE]) {
+    const f = path.join(nativeDir, b)
+    if (!fs.existsSync(f)) throw new Error(`${f} missing: run \`bash native/build.sh\` (ARCHS=${arch})`)
+    if (elfArch(f) !== arch) throw new Error(`${f} is not a linux-${arch} program`)
+  }
+  if (!o.whisperDir && !o.noWhisper) throw new Error('whisper-cli: pass --whisper-dir <the CI build-whisper artifact> or --no-whisper (no voice transcription in this bundle)')
+  if (o.noWhisper && o.strict) throw new Error('--strict (release) bundles carry whisper-cli: pass --whisper-dir')
+  const lockFile = path.join(REPO, 'scripts', 'linux', 'engines.lock.json')
+  const lock = checkEnginesLock(JSON.parse(fs.readFileSync(lockFile, 'utf8')), { claude: claudeV, codex: codexV })
+  const catalogSrc = path.join(REPO, 'scripts', 'linux', codexCatalogName(codexV))
+  checkLockedCatalog(JSON.parse(fs.readFileSync(catalogSrc, 'utf8')))
+
+  const dir = path.join(o.out, 'app', o.version)
+  fs.rmSync(path.join(o.out, 'app'), { recursive: true, force: true })
+  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true, mode: 0o755 })
+  const scratch = path.join(o.out, '.unpack')
+
+  // server: the same files as the macOS bundle, with the Linux runtime of search by meaning
+  await buildServerEntries(dir, o.version)
+  vendorSemantic(path.join(dir, 'server'), { os: 'linux', arch })
+  copyMigrations(dir)
+
+  // tools: pinned downloads (bun is the x64-baseline build on amd64, see scripts/linux/downloads.ts)
+  for (const t of LINUX_TOOLS) {
+    const name = downloadFor(t, arch)
+    extractMember(await cachedDownload(name), LINUX_DOWNLOADS[name]!.member!, path.join(dir, 'bin', t), scratch)
+  }
+  if (o.whisperDir) {
+    for (const w of whisperFiles(arch)) {
+      const f = path.join(o.whisperDir, w)
+      if (!fs.existsSync(f)) throw new Error(`${f} missing (the build-whisper job makes ${whisperFiles(arch).join(' and ')} for linux-${arch})`)
+      fs.copyFileSync(f, path.join(dir, 'bin', w))
+    }
+  } else {
+    console.warn('warning: --no-whisper: this bundle has no whisper-cli (voice and video transcription stay off)')
+  }
+  for (const f of fs.readdirSync(path.join(dir, 'bin'))) {
+    fs.chmodSync(path.join(dir, 'bin', f), 0o755)
+    if (elfArch(path.join(dir, 'bin', f)) !== arch) throw new Error(`bin/${f} is not a linux-${arch} program`)
+  }
+  fs.mkdirSync(path.join(dir, 'native'), { recursive: true })
+  for (const b of LINUX_NATIVE) {
+    fs.copyFileSync(path.join(nativeDir, b), path.join(dir, 'native', b))
+    fs.chmodSync(path.join(dir, 'native', b), 0o755)
+  }
+
+  // root-owned programs and the installer's helpers, inside the signed version folder (spec 3.6.1)
+  const root = path.join(dir, 'root')
+  fs.mkdirSync(path.join(root, 'systemd'), { recursive: true })
+  for (const b of LINUX_ROOT_NATIVE) fs.copyFileSync(path.join(nativeDir, b), path.join(root, b))
+  for (const [src, dst] of LINUX_ROOT_SCRIPTS) {
+    if (fs.existsSync(path.join(REPO, src))) fs.copyFileSync(path.join(REPO, src), path.join(root, dst))
+    else missing.push(src)
+  }
+  const unitDir = path.join(REPO, 'scripts', 'linux', 'systemd')
+  const units = fs.existsSync(unitDir) ? fs.readdirSync(unitDir).filter((f) => f.endsWith('.in')).sort() : []
+  if (!units.length) missing.push('scripts/linux/systemd/*.in')
+  for (const u of units) fs.copyFileSync(path.join(unitDir, u), path.join(root, 'systemd', u))
+  for (const f of fs.readdirSync(root)) if (fs.statSync(path.join(root, f)).isFile()) fs.chmodSync(path.join(root, f), LINUX_ROOT_EXEC.has(f) ? 0o755 : 0o644)
+  for (const u of units) fs.chmodSync(path.join(root, 'systemd', u), 0o644)
+
+  // engines (downloaded by the installer, never bundled: D11), packages, notes, web
+  fs.copyFileSync(lockFile, path.join(dir, 'engines.lock.json'))
+  fs.mkdirSync(path.join(dir, 'engines'), { recursive: true })
+  fs.copyFileSync(catalogSrc, path.join(dir, codexCatalogName(codexV)))
+  fs.copyFileSync(path.join(REPO, 'scripts', 'linux', 'deps.txt'), path.join(dir, 'deps.txt'))
+  if (o.notes) fs.copyFileSync(o.notes, path.join(dir, 'RELEASE_NOTES.md'))
+  const web = path.join(REPO, 'web', 'dist')
+  if (fs.existsSync(web)) fs.cpSync(web, path.join(dir, 'web'), { recursive: true })
+  else missing.push('web/dist (bun run build:web)')
+  const installer = path.join(REPO, 'scripts', 'install-linux.sh')
+  if (!fs.existsSync(installer)) missing.push('scripts/install-linux.sh')
+  if (missing.length && o.strict) throw new Error(`--strict: missing ${missing.join(', ')}`)
+  for (const m of missing) console.warn(`warning: ${m} is missing; the bundle is incomplete`)
+
+  for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
+  const absent = new Set(LINUX_ROOT_SCRIPTS.filter(([src]) => missing.includes(src)).map(([, d]) => `root/${d}`))
+  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units })) {
+    if (!absent.has(f) && !fs.existsSync(path.join(dir, f))) throw new Error(`bundle file ${f} was not written`)
+  }
+  await writeManifest(dir, o.version)
+  if (o.signKey) await signManifest(dir, fs.readFileSync(o.signKey, 'utf8'))
+  const archive = path.join(o.out, `${o.version}-linux-${arch}.tar.zst`)
+  const packed = await packBundle(dir, archive)
+
+  // the kit: <out> itself (install-linux.sh, VERSION, product.env, app/<version>/), packed under one top folder
+  if (fs.existsSync(installer)) { fs.copyFileSync(installer, path.join(o.out, 'install-linux.sh')); fs.chmodSync(path.join(o.out, 'install-linux.sh'), 0o755) }
+  fs.writeFileSync(path.join(o.out, 'VERSION'), o.version + '\n')
+  fs.writeFileSync(path.join(o.out, 'product.env'), productEnv())
+  fs.rmSync(scratch, { recursive: true, force: true })
+  const top = kitName(o.version, arch)
+  const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755 }]
+  for (const f of ['install-linux.sh', 'VERSION', 'product.env']) {
+    if (fs.existsSync(path.join(o.out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(o.out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644 })
+  }
+  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755 }, { name: `${top}/app/${o.version}`, type: 'dir', mode: 0o755 })
+  const { files, dirs } = await walkTree(dir)
+  for (const d of dirs) entries.push({ name: `${top}/app/${o.version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
+  for (const f of files) entries.push({ name: `${top}/app/${o.version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode })
+  const kitFile = path.join(o.out, `${top}.tar.gz`)
+  const kit = await writeAtomic(gzip(tarStream(entries)), kitFile, 0o644)
+  return { os: 'linux' as const, dir, archive, size: packed.size, sha256: packed.sha256, kit: kitFile, kitSize: kit.size, kitSha256: kit.sha256, arch, engines: { claude: lock.claude.version, codex: lock.codex.version }, missing }
+}
+
 if (import.meta.main) {
-  const version = arg('--version') ?? (JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'package.json'), 'utf8')) as { version: string }).version
-  const out = path.resolve(arg('--out') ?? path.join(REPO, 'dist', 'release'))
-  const r = await buildBundle({ version, out, signKey: arg('--sign-key'), notes: arg('--notes'), arch: arg('--arch') ?? undefined })
-  console.log(JSON.stringify(r, null, 1))
+  const a = parseBundleArgs(process.argv.slice(2))
+  const version = a.version ?? (JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'package.json'), 'utf8')) as { version: string }).version
+  if (a.os === 'linux') {
+    const out = path.resolve(a.out ?? path.join(REPO, 'dist', 'linux'))
+    const r = await buildLinuxBundle({ version, out, signKey: a.signKey, notes: a.notes, arch: a.arch, whisperDir: a.whisperDir, noWhisper: a.noWhisper, strict: a.strict })
+    console.log(JSON.stringify(r, null, 1))
+  } else {
+    const out = path.resolve(a.out ?? path.join(REPO, 'dist', 'release'))
+    const r = await buildBundle({ version, out, signKey: a.signKey, notes: a.notes, arch: a.arch ?? undefined })
+    console.log(JSON.stringify(r, null, 1))
+  }
 }

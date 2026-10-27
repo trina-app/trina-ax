@@ -1,12 +1,18 @@
 // Adversarial checks of the subscription model proxy (review of fix/prod-proxy): the owner's token may only ever go to
 // the configured upstream, on the allowed paths, with the body the request filter actually checked; a turn token
 // stops working when its turn ends; a refused or never-issued token gets nothing.
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { afterAll, describe, expect, test } from 'bun:test'
 import { makeEnv } from '../lib/env'
+import path from 'node:path'
 import { issueProxyToken, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
 import { AppConfigFile } from '../../server/src/app-config'
+import { createBroker } from '../../server/src/credentials/broker'
+import { addCred, testCredCtx } from '../lib/credentials'
 
 const env = makeEnv('unit-proxy-attack')
+setSetting(env.db, SHARED_SUBSCRIPTIONS_KEY, true) // explicitly opt in for these shared-subscription proxy checks
 const REAL = 'sk-ant-oat01-' + 'A'.repeat(40)
 const KEY = 'sk-ant-api03-' + 'K'.repeat(40)
 
@@ -30,23 +36,30 @@ const upstream = Bun.serve({
 })
 const turnId = 'atk1'
 env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?, 'c', 'alice', 'claude-code')").run(turnId)
-const oauth = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'oauth', secret: () => REAL } })
-const apiKey = await startModelProxy({ db: env.db, upstream: { baseUrl: `http://127.0.0.1:${upstream.port}`, kind: 'api-key', secret: KEY } })
-afterAll(() => { oauth.stop(); apiKey.stop(); upstream.stop(true); other.stop(true) })
+const { cc } = testCredCtx(env.db, path.join(env.fx.data, 'secrets'), { upstreams: { anthropic: `http://127.0.0.1:${upstream.port}` } })
+const OAUTH = addCred(cc, 'anthropic-oauth', REAL)
+const APIKEY = addCred(cc, 'anthropic-api-key', KEY)
+const proxy = await startModelProxy({ db: env.db, broker: createBroker(cc) })
+/** the proxy with the turn token bound to one connection (url + which connection the token says) */
+const oauth = { url: proxy.url, port: proxy.port, cred: OAUTH }
+const apiKey = { url: proxy.url, port: proxy.port, cred: APIKEY }
+afterAll(() => { proxy.stop(); upstream.stop(true); other.stop(true) })
+const tokFor = (p: { cred: string }, turn = turnId) => issueProxyToken(env.db, turn, 'alice', { credentialId: p.cred, family: 'anthropic' })
 
 const body = (o: Record<string, unknown> = {}) => JSON.stringify({ model: 'claude-sonnet-x', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }], ...o })
 const send = (base: string, tok: string, p = '/v1/messages', b: string = body(), method = 'POST') =>
   fetch(base + p, { method, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, ...(method === 'GET' || method === 'HEAD' ? {} : { body: b }) })
 
 describe('model proxy under attack', () => {
-  const tok = issueProxyToken(env.db, turnId, 'alice')
+  const tok = tokFor(oauth)
 
   test('an upstream redirect is never followed: the credential and the body stay with the configured upstream', async () => {
-    try { for (const [proxy, real] of [[oauth, REAL], [apiKey, KEY]] as const) {
+    try { for (const [p, real] of [[oauth, REAL], [apiKey, KEY]] as const) {
+      const t = tokFor(p)
       for (const loc of [`http://127.0.0.1:${other.port}/steal`, '/v1/files']) {
         redirectTo = loc
         stolen.length = 0; seen.length = 0
-        const r = await send(proxy.url, tok)
+        const r = await send(p.url, t)
         expect(r.status).toBe(502)
         expect(r.headers.get('location')).toBeNull()
         expect(stolen).toEqual([]) // the other server got nothing (not the key, not the prompt)
@@ -107,7 +120,7 @@ describe('model proxy under attack', () => {
   test('a turn token stops working when the turn ends; unknown and empty tokens get nothing', async () => {
     const t2 = 'atk2'
     env.db.query("INSERT INTO turns (id, chat_id, user_id, engine) VALUES (?, 'c', 'alice', 'claude-code')").run(t2)
-    const k = issueProxyToken(env.db, t2, 'alice')
+    const k = tokFor(oauth, t2)
     expect((await send(oauth.url, k)).status).toBe(200)
     revokeProxyTokens(env.db, t2)
     seen.length = 0

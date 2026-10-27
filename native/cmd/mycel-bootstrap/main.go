@@ -14,26 +14,21 @@
 package main
 
 import (
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"mycel/native/internal/bundle"
 )
 
 type multi []string
@@ -130,9 +125,7 @@ func record(st *appState, from *string, to, result, detail string) {
 // ---------- app/current ----------
 
 // a version is a folder name in app/versions/ (shared/src/install.ts BundleManifest.version), never a path
-var versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$`)
-
-func validVersion(v string) bool { return versionRe.MatchString(v) && v != "." && v != ".." }
+func validVersion(v string) bool { return bundle.ValidVersion(v) }
 
 func currentVersion() (string, error) {
 	t, err := os.Readlink(filepath.Join(*appDir, "current"))
@@ -163,123 +156,14 @@ func switchTo(v string) error {
 
 // ---------- manifest ----------
 
-type manifest struct {
-	Format  int    `json:"format"`
-	Version string `json:"version"`
-	Files   map[string]struct {
-		Sha256 string `json:"sha256"`
-		Size   int64  `json:"size"`
-		Mode   int    `json:"mode"`
-	} `json:"files"`
-}
-
-func keyID(pub []byte) string { h := sha256.Sum256(pub); return hex.EncodeToString(h[:8]) }
-
+// verifyVersion checks app/versions/<v> (manifest, signature with --pubkey, every file); the rules live in
+// native/internal/bundle, shared with mycel-ctl verify-bundle / update.
 func verifyVersion(v string) error {
 	if !validVersion(v) {
 		return fmt.Errorf("not a version name: %q", v)
 	}
-	dir := filepath.Join(*appDir, "versions", v)
-	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
-	if err != nil {
-		return fmt.Errorf("manifest: %v", err)
-	}
-	var m manifest
-	if err := json.Unmarshal(raw, &m); err != nil || m.Format != 1 {
-		return fmt.Errorf("manifest: not a format-1 manifest")
-	}
-	if m.Version != v {
-		return fmt.Errorf("manifest says version %q, folder is %q", m.Version, v)
-	}
-	if err := verifySignature(dir, raw); err != nil {
-		return err
-	}
-	seen := map[string]bool{}
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(dir, p)
-		rel = filepath.ToSlash(rel)
-		if rel == "." || rel == "manifest.json" || rel == "manifest.sig" {
-			return nil
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("symlink in bundle: %s", rel)
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return fmt.Errorf("not a regular file: %s", rel)
-		}
-		want, ok := m.Files[rel]
-		if !ok {
-			return fmt.Errorf("file not in manifest: %s", rel)
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return err
-		}
-		h := sha256.New()
-		n, err := io.Copy(h, f)
-		f.Close()
-		if err != nil {
-			return err
-		}
-		if n != want.Size || hex.EncodeToString(h.Sum(nil)) != want.Sha256 {
-			return fmt.Errorf("file changed since release: %s", rel)
-		}
-		seen[rel] = true
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for rel := range m.Files {
-		if !seen[rel] {
-			return fmt.Errorf("file missing: %s", rel)
-		}
-	}
-	return nil
-}
-
-func verifySignature(dir string, raw []byte) error {
-	sigRaw, err := os.ReadFile(filepath.Join(dir, "manifest.sig"))
-	if errors.Is(err, fs.ErrNotExist) {
-		if *allowUnsigned {
-			return nil
-		}
-		return fmt.Errorf("manifest.sig missing (unsigned bundle)")
-	}
-	if err != nil {
-		return err
-	}
-	var s struct {
-		KeyID string `json:"keyId"`
-		Sig   string `json:"sig"`
-	}
-	if json.Unmarshal(sigRaw, &s) != nil {
-		return fmt.Errorf("manifest.sig unreadable")
-	}
-	sig, err := base64.StdEncoding.DecodeString(s.Sig)
-	if err != nil {
-		return fmt.Errorf("manifest.sig unreadable")
-	}
-	for _, k := range pubkeys {
-		pub, err := base64.StdEncoding.DecodeString(k)
-		if err != nil || len(pub) != ed25519.PublicKeySize || keyID(pub) != s.KeyID {
-			continue
-		}
-		if ed25519.Verify(pub, raw, sig) {
-			return nil
-		}
-		return fmt.Errorf("manifest signature does not verify")
-	}
-	if len(pubkeys) == 0 && *allowUnsigned {
-		return nil // no release key configured (test install): integrity only
-	}
-	return fmt.Errorf("manifest signed by an unknown key %s", s.KeyID)
+	_, err := bundle.VerifyDir(filepath.Join(*appDir, "versions", v), v, bundle.Options{Keys: pubkeys, AllowUnsigned: *allowUnsigned})
+	return err
 }
 
 // ---------- health ----------
@@ -342,6 +226,11 @@ func startServer(v string) (*exec.Cmd, error) {
 
 var stopping = make(chan os.Signal, 1)
 
+// hup: SIGHUP is passed on to the server process (not its group: its helpers would die of it). mycel-ctl apply-plan /
+// notices-set send it (systemctl kill --kill-whom=main -s HUP <id>-server.service) so the server reads plan.json and
+// notices.json again at once; without this the bootstrap itself would die of SIGHUP.
+var hup = make(chan os.Signal, 1)
+
 // stop the child: SIGTERM to its process group, SIGKILL after 20 s
 func stopChild(cmd *exec.Cmd, done <-chan error) {
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
@@ -388,6 +277,7 @@ func main() {
 		os.Exit(2)
 	}
 	signal.Notify(stopping, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(hup, syscall.SIGHUP)
 	url := healthURL()
 	var crashes []time.Time
 	for {
@@ -440,6 +330,8 @@ func main() {
 				logf("%v: stopping server", sig)
 				stopChild(cmd, done)
 				os.Exit(0)
+			case <-hup:
+				_ = cmd.Process.Signal(syscall.SIGHUP)
 			case <-healthyCh:
 				if healthy(url, v) {
 					st = readState()

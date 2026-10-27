@@ -16,6 +16,7 @@ export default function FolderPicker({
   initial = '',
   needWrite = true,
   allowCreate = true,
+  selectableRoot,
   onPick,
   onClose,
 }: {
@@ -25,6 +26,8 @@ export default function FolderPicker({
   initial?: string
   needWrite?: boolean
   allowCreate?: boolean
+  /** Optional selection boundary; ancestors stay browsable. The server still authorizes the chosen path. */
+  selectableRoot?: string
   onPick: (path: string) => void
   onClose: () => void
 }) {
@@ -55,7 +58,8 @@ export default function FolderPicker({
   }, [open, path, rev])
 
   const folders = tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? []
-  const canPick = !!tree && (!needWrite || tree.access === 'write')
+  const inRoot = !selectableRoot || path === selectableRoot || path.startsWith(selectableRoot + '/')
+  const canPick = !!tree && tree.access !== 'none' && (!needWrite || tree.access === 'write') && inRoot
 
   const mkdir = async () => {
     const name = await promptDialog({

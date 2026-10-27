@@ -1,0 +1,293 @@
+// The model proxy's Codex path against fake chatgpt.com / api.openai.com / auth.openai.com (docs/DECISIONS.md "AI 연결"
+// D9/D10/D21): the real access token and account go upstream, the turn token never; what the engine sends to choose
+// an account is ignored; the request filter (no remote MCP, code interpreter, file search, computer use, image
+// generation, URL images / files, background, stored state, models outside the catalog; store forced off; the checked
+// body written again); background calls answered locally; the engine's own refresh refused; WebSockets refused; the
+// server's single-flight refresh with the rotated token stored first; invalid_grant -> needs reconnect; 401 -> one
+// refresh and one retry; redirects never followed; 429 kinds. S-2, S-5, S-7, S-12, S-13, S-17.
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
+import net from 'node:net'
+import path from 'node:path'
+import { makeEnv } from '../lib/env'
+import { addCred, chatgptSecret, fakeJwt, testCredCtx } from '../lib/credentials'
+import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
+import { createBroker } from '../../server/src/credentials/broker'
+import { getRow, secretOf } from '../../server/src/credentials/store'
+import { refreshIdle } from '../../server/src/credentials/chatgpt-tokens'
+import { CODEX_CLIENT_ID } from '../../server/src/credentials/openai-oauth'
+
+const env = makeEnv('proxy-codex')
+type Seen = { path: string; headers: Record<string, string>; body: any }
+const seen: Seen[] = []
+const refreshes: any[] = []
+let respMode: 'ok' | '401-old' | '429-usage' | '429-plan' | '429-short' | '429-credit' | 'redirect' | '500' = 'ok'
+let refreshMode: 'ok' | 'invalid_grant' | 'redirect' | 'slow' = 'ok'
+let validAccess = new Set<string>()
+let n429 = 0
+const sse = (o: unknown) => `event: x\ndata: ${JSON.stringify(o)}\n\n`
+const fake = Bun.serve({
+  port: 0, hostname: '127.0.0.1',
+  async fetch(req) {
+    const u = new URL(req.url)
+    const text = await req.text()
+    let body: any = null
+    try { body = JSON.parse(text) } catch {}
+    if (u.pathname === '/oauth/token') {
+      refreshes.push(body)
+      if (refreshMode === 'redirect') return new Response(null, { status: 307, headers: { location: 'http://127.0.0.1:1/x' } })
+      if (refreshMode === 'invalid_grant') return Response.json({ error: 'invalid_grant', error_description: 'reused' }, { status: 400 })
+      if (refreshMode === 'slow') await Bun.sleep(200)
+      const access = fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, n: refreshes.length })
+      validAccess.add(access)
+      return Response.json({ access_token: access, refresh_token: 'rt-rotated-' + refreshes.length, id_token: fakeJwt({ 'https://api.openai.com/auth': { chatgpt_plan_type: 'business', chatgpt_account_id: 'acc-1' } }) })
+    }
+    seen.push({ path: u.pathname, headers: Object.fromEntries(req.headers), body })
+    if (respMode === 'redirect') return new Response(null, { status: 307, headers: { location: 'http://127.0.0.1:1/steal' } })
+    if (respMode === '500') return new Response('down', { status: 500 })
+    if (respMode === '401-old' && !validAccess.has((req.headers.get('authorization') ?? '').slice(7))) return Response.json({ error: { message: 'expired' } }, { status: 401 })
+    if (respMode === '429-usage') return Response.json({ error: { type: 'usage_limit_reached', plan_type: 'plus', resets_at: Math.floor(Date.now() / 1000) + 7200 } }, { status: 429 })
+    if (respMode === '429-plan') return Response.json({ error: { type: 'usage_not_included' } }, { status: 429 })
+    if (respMode === '429-credit') return Response.json({ error: { type: 'insufficient_quota', code: 'insufficient_quota' } }, { status: 429 })
+    if (respMode === '429-short' && n429++ === 0) return Response.json({ error: { type: 'rate_limit_exceeded' } }, { status: 429, headers: { 'retry-after': '1' } })
+    return new Response(sse({ type: 'response.output_text.delta', delta: 'hi' }) + sse({ type: 'response.completed', response: { model: 'gpt-5.4', output: [{ type: 'message' }], usage: { input_tokens: 300, input_tokens_details: { cached_tokens: 100 }, output_tokens: 20 } } }),
+      { headers: { 'content-type': 'text/event-stream', 'x-codex-primary-used-percent': '33' } })
+  },
+})
+const up = `http://127.0.0.1:${fake.port}`
+const t = testCredCtx(env.db, path.join(env.fx.data, 'secrets'), { upstreams: { chatgpt: up + '/backend-api/codex', openai: up + '/v1', openaiAuth: up } })
+env.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES ('cx', 'c', 'alice', 'codex', 'running')").run()
+const OKEY = 'sk-proj-' + 'K'.repeat(40)
+const K = addCred(t.cc, 'openai-api-key', OKEY)
+const events: ProxyTurnEvent[] = []
+const proxy = await startModelProxy({ db: env.db, broker: createBroker(t.cc), codexModels: () => ['gpt-5.4', 'gpt-6.1-sol'], onTurnEvent: (_t, ev) => events.push(ev) })
+afterAll(async () => { await proxy.stop(); fake.stop(true) })
+
+let G = ''
+let REAL = chatgptSecret('acc-1')
+const freshChatgpt = (o: Parameters<typeof chatgptSecret>[1] = {}) => {
+  if (G) env.db.query('DELETE FROM engine_credentials WHERE id = ?').run(G)
+  REAL = chatgptSecret('acc-1', { access: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600, real: 1 }), refresh: 'rt-REAL', ...o })
+  validAccess = new Set([REAL.accessToken])
+  G = addCred(t.cc, 'chatgpt', REAL, { plan: 'pro' })
+}
+freshChatgpt()
+beforeEach(() => {
+  setSetting(env.db, SHARED_SUBSCRIPTIONS_KEY, true) // this suite exercises an explicitly shared ChatGPT connection
+  seen.length = 0; refreshes.length = 0; events.length = 0; respMode = 'ok'; refreshMode = 'ok'; n429 = 0
+  env.db.query("UPDATE engine_credentials SET status = 'ok', status_code = NULL, limited_until = NULL WHERE id = ?").run(K)
+})
+
+const tokFor = (cred: string) => issueProxyToken(env.db, 'cx', 'alice', { credentialId: cred, family: 'openai' })
+const body = (o: Record<string, unknown> = {}) => ({ model: 'gpt-5.4', instructions: 'x', input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }], tools: [{ type: 'function', name: 'team__read', parameters: {} }, { type: 'web_search' }], stream: true, store: false, ...o })
+const post = (mode: 'chatgpt' | 'openai', token: string, b: unknown = body(), extra: Record<string, string> = {}) =>
+  fetch(`${proxy.url}/codex/${mode}/responses`, { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', accept: 'text/event-stream', originator: 'codex_exec', version: '0.163.0', ...extra }, body: typeof b === 'string' ? b : JSON.stringify(b) })
+
+describe('S-2 / S-5: the real credential goes upstream, never the turn token, whatever the engine sends', () => {
+  test('ChatGPT: real access token and account id; engine headers to pick another account dropped; usage counted', async () => {
+    const tok = tokFor(G)
+    const r = await post('chatgpt', tok, body({ store: true }), { 'chatgpt-account-id': 'acc-attacker', 'x-openai-fedramp': 'true', cookie: 'a=b', 'openai-organization': 'org-x' })
+    expect(r.status).toBe(200)
+    const text = await r.text()
+    expect(text).toContain('response.completed')
+    expect(r.headers.get('x-codex-primary-used-percent')).toBe('33')
+    const s = seen[0]!
+    expect(s.path).toBe('/backend-api/codex/responses')
+    expect(s.headers.authorization).toBe('Bearer ' + REAL.accessToken)
+    expect(s.headers['chatgpt-account-id']).toBe('acc-1')
+    expect(s.headers['x-openai-fedramp']).toBeUndefined(); expect(s.headers.cookie).toBeUndefined(); expect(s.headers['openai-organization']).toBeUndefined()
+    expect(s.headers.originator).toBe('codex_exec'); expect(s.headers.version).toBe('0.163.0')
+    expect(s.body.store).toBe(false)
+    expect(JSON.stringify(s)).not.toContain(tok)
+    const turn = env.db.query('SELECT input_tokens, output_tokens, cost_usd FROM turns WHERE id = ?').get('cx') as any
+    expect(turn.input_tokens).toBeGreaterThanOrEqual(300); expect(turn.cost_usd).toBe(0) // a subscription: tokens, no price
+  })
+  test('OpenAI API key: the key as the Bearer, no account header', async () => {
+    const r = await post('openai', tokFor(K))
+    expect(r.status).toBe(200)
+    expect(seen[0]!.path).toBe('/v1/responses')
+    expect(seen[0]!.headers.authorization).toBe('Bearer ' + OKEY)
+    expect(seen[0]!.headers['chatgpt-account-id']).toBeUndefined()
+  })
+  test('the token\'s connection decides the path: a ChatGPT token on /codex/openai is refused', async () => {
+    expect((await post('openai', tokFor(G))).status).toBe(403)
+    expect((await post('chatgpt', tokFor(K))).status).toBe(403)
+    expect(seen).toEqual([])
+  })
+})
+
+describe('S-7: what may reach OpenAI with the team\'s credential', () => {
+  test('refused before anything goes out', async () => {
+    const tok = tokFor(K)
+    const refused: [string, unknown][] = [
+      ['remote MCP', body({ tools: [{ type: 'mcp', server_url: 'https://evil.example/mcp', server_label: 'x' }] })],
+      ['code interpreter', body({ tools: [{ type: 'code_interpreter', container: { type: 'auto' } }] })],
+      ['file search', body({ tools: [{ type: 'file_search', vector_store_ids: ['vs'] }] })],
+      ['computer use', body({ tools: [{ type: 'computer_use_preview', display_width: 1, display_height: 1 }] })],
+      ['image generation', body({ tools: [{ type: 'image_generation' }] })],
+      ['local shell', body({ tools: [{ type: 'local_shell' }] })],
+      ['custom tool', body({ tools: [{ type: 'custom', name: 'x' }] })],
+      ['inside a namespace', body({ tools: [{ type: 'namespace', name: 'ns', tools: [{ type: 'function', name: 'a' }, { type: 'mcp', server_url: 'https://e.example' }] }] })],
+      // Codex 0.163 with a "responses lite" model lists its tools in an input item (found with the real CLI)
+      ['in an additional_tools input item', body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [{ type: 'namespace', name: 'mcp__team', tools: [{ type: 'function', name: 'list' }] }, { type: 'code_interpreter', container: { type: 'auto' } }] }] })],
+      ['image from a URL', body({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'https://evil.example/?d=secret' }] }] })],
+      ['image by file id', body({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_image', file_id: 'file-1' }] }] })],
+      ['file from a URL', body({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_file', file_url: 'https://evil.example/f.pdf' }] }] })],
+      ['file by id', body({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_file', file_id: 'file-1' }] }] })],
+      ['URL image inside a function output', body({ input: [{ type: 'function_call_output', call_id: 'c', output: [{ type: 'input_image', image_url: 'http://x.example/a.png' }] }] })],
+      ['background', body({ background: true })],
+      ['stored conversation', body({ previous_response_id: 'resp_1' })],
+      ['conversation', body({ conversation: 'conv_1' })],
+      ['stored prompt', body({ prompt: { id: 'pmpt_1' } })],
+      ['priority tier', body({ service_tier: 'priority' })],
+      ['model outside the catalog', body({ model: 'o3-pro' })],
+    ]
+    for (const [label, b] of refused) {
+      const r = await post('openai', tok, b)
+      expect(r.status, label).toBe(403)
+      expect((await r.json()).error.message, label).toContain('refused by the team server')
+    }
+    expect(seen).toEqual([])
+    // what the real Codex sends for its team tools passes (namespace of functions in an additional_tools item)
+    expect((await post('openai', tok, body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [{ type: 'namespace', name: 'mcp__team', tools: [{ type: 'function', name: 'list', parameters: {} }] }, { type: 'web_search' }] }] }))).status).toBe(200)
+    // inline data passes
+    const ok = await post('openai', tok, body({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,AA==' }, { type: 'input_file', filename: 'a.pdf', file_data: 'data:application/pdf;base64,AA==' }] }] }))
+    expect(ok.status).toBe(200)
+  })
+  test('nesting: what Codex really sends passes (found with the real CLI, tests/engine/managed-real.ts); absurd nesting does not', async () => {
+    const tok = tokFor(K)
+    const deepOk = body({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'x' }] }, { type: 'reasoning', summary: [{ type: 'summary_text', text: 'r' }], content: null, encrypted_content: null },
+      { type: 'function_call', name: 'f', arguments: '{"a":{"b":{"c":[1,2,{"d":[3]}]}}}', call_id: 'c1' }, { type: 'function_call_output', call_id: 'c1', output: [{ type: 'input_text', text: 'ok' }] }] })
+    expect((await post('openai', tok, deepOk)).status).toBe(200)
+    let nested: unknown = [{ type: 'input_text', text: 'x' }]
+    for (let i = 0; i < 10; i++) nested = [{ type: 'function_call_output', call_id: 'c', output: nested }]
+    expect((await post('openai', tok, body({ input: nested }))).status).toBe(403)
+  })
+  test('the checked body is what goes out (a duplicate key cannot smuggle a refused tool)', async () => {
+    const raw = `{"model":"gpt-5.4","tools":[{"type":"mcp","server_url":"https://evil.example"}],"input":[],"tools":[{"type":"function","name":"a"}],"store":true}`
+    const r = await post('openai', tokFor(K), raw)
+    expect(r.status).toBe(200)
+    expect(seen[0]!.body.tools).toEqual([{ type: 'function', name: 'a' }])
+    expect(JSON.stringify(seen[0]!.body)).not.toContain('evil')
+    expect(seen[0]!.body.store).toBe(false)
+  })
+  test('background calls are answered here; the engine\'s own refresh is refused and audited; unknown paths 404', async () => {
+    expect(await (await fetch(proxy.url + '/codex/backend/wham/config/bundle')).json()).toEqual({})
+    expect((await fetch(proxy.url + '/codex/backend/wham/accounts/check')).status).toBe(404)
+    expect((await fetch(proxy.url + '/codex/backend/codex/analytics-events/events', { method: 'POST', body: '{}' })).status).toBe(404)
+    expect((await fetch(proxy.url + '/codex/openai/models')).status).toBe(404)
+    const ref = await fetch(proxy.url + '/codex/oauth/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: 'teamax-no-refresh' }) })
+    expect(ref.status).toBe(400); expect((await ref.json()).error).toBe('invalid_grant')
+    const a = env.db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(a.detail).reason).toBe('engine refresh attempt')
+    expect(seen).toEqual([]); expect(refreshes).toEqual([])
+  })
+  test('S-17: a WebSocket upgrade is refused; nothing upstream', async () => {
+    const tok = tokFor(G)
+    const status = await new Promise<string>((res) => {
+      const c = net.connect(proxy.port, '127.0.0.1')
+      let b = ''
+      c.on('connect', () => c.write(`GET /codex/chatgpt/responses HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: Bearer ${tok}\r\n\r\n`))
+      c.on('data', (x) => { b += x.toString(); if (b.includes('\r\n')) { c.destroy(); res(b.split('\r\n')[0]!) } })
+      c.on('error', (e) => res('error ' + e.message))
+      c.on('close', () => res(b.split('\r\n')[0] || 'closed'))
+    })
+    expect(status).not.toMatch(/ 101 /)
+    expect(status).toMatch(/ 4\d\d /)
+    expect(seen).toEqual([])
+  })
+})
+
+describe('S-12: the server refreshes ChatGPT sign-ins, one at a time', () => {
+  test('20 requests meet an expiring access token: one refresh, the rotated refresh token is stored first, all use the new token', async () => {
+    freshChatgpt({ access: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 60 }) }) // ends within 5 minutes
+    refreshMode = 'slow'
+    const tok = tokFor(G)
+    const rs = await Promise.all(Array.from({ length: 20 }, () => post('chatgpt', tok)))
+    for (const r of rs) expect(r.status).toBe(200)
+    expect(refreshes.length).toBe(1)
+    expect(refreshes[0]).toEqual({ grant_type: 'refresh_token', client_id: CODEX_CLIENT_ID, refresh_token: 'rt-REAL' })
+    t.cc.cache.clear()
+    const stored = secretOf(t.cc, getRow(env.db, G)! as never) as { refreshToken: string; accessToken: string }
+    expect(stored.refreshToken).toBe('rt-rotated-1')
+    expect(new Set(seen.map((s) => s.headers.authorization))).toEqual(new Set(['Bearer ' + stored.accessToken]))
+    expect(JSON.parse(getRow(env.db, G)!.meta).planType).toBe('business') // the new id_token's plan
+    expect(getRow(env.db, G)!.secret_enc).not.toContain('rt-rotated-1')
+  })
+  test('an upstream 401: one refresh (or the one already done), one retry with the new token', async () => {
+    freshChatgpt()
+    respMode = '401-old'
+    validAccess = new Set() // the stored access token was revoked upstream
+    const r = await post('chatgpt', tokFor(G))
+    expect(r.status).toBe(200)
+    expect(refreshes.length).toBe(1)
+    expect(seen.length).toBe(2)
+  })
+  test('invalid_grant: needs reconnect, the owner is told, the turn hears it (403, never 401), the next request does not go out', async () => {
+    freshChatgpt({ access: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 10 }) })
+    refreshMode = 'invalid_grant'; t.notices.length = 0
+    const tok = tokFor(G)
+    const r = await post('chatgpt', tok)
+    expect(r.status).toBe(403)
+    expect(getRow(env.db, G)).toMatchObject({ status: 'needs_reconnect', status_code: 'invalid_grant' })
+    expect(events.at(-1)).toEqual({ type: 'credential', credentialId: G, reason: 'needs_reconnect' })
+    expect(t.notices.map((x) => x.n.code)).toContain('credential_needs_reconnect')
+    expect((env.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'credential.refresh_failed' AND target = ?").get(G) as { n: number }).n).toBe(1)
+    refreshes.length = 0; seen.length = 0
+    expect((await post('chatgpt', tok)).status).toBe(403)
+    expect(refreshes).toEqual([]); expect(seen).toEqual([])
+  })
+  test('a sign-in nobody used for 8 days is refreshed by the daily round', async () => {
+    freshChatgpt({ lastRefresh: new Date(Date.now() - 9 * 86400_000).toISOString() })
+    expect(await refreshIdle(t.cc)).toBe(1)
+    expect(refreshes.length).toBe(1)
+    expect(await refreshIdle(t.cc)).toBe(0)
+  })
+})
+
+describe('S-13 and the upstream\'s answers', () => {
+  test('a redirect of the Responses endpoint or of the refresh is not followed (502)', async () => {
+    freshChatgpt()
+    respMode = 'redirect'
+    expect((await post('chatgpt', tokFor(G))).status).toBe(502)
+    respMode = 'ok'
+    freshChatgpt({ access: fakeJwt({ exp: Math.floor(Date.now() / 1000) + 10 }) })
+    refreshMode = 'redirect'
+    const r = await post('chatgpt', tokFor(G))
+    expect(r.status).toBe(502)
+    expect(getRow(env.db, G)!.status).toBe('ok') // a temporary failure changes nothing
+  })
+  test('429 usage_limit_reached: limited until resets_at, this connection only; passed to the engine', async () => {
+    freshChatgpt()
+    respMode = '429-usage'
+    const r = await post('chatgpt', tokFor(G))
+    expect(r.status).toBe(429)
+    const until = Date.parse(getRow(env.db, G)!.limited_until!)
+    expect(until).toBeGreaterThan(Date.now() + 7000_000)
+    expect(events.at(-1)).toMatchObject({ type: 'rate_limit', credentialId: G })
+    seen.length = 0
+    expect((await post('chatgpt', tokFor(G))).status).toBe(403) // held here now
+    expect(seen).toEqual([])
+    respMode = 'ok'
+    expect((await post('openai', tokFor(K))).status).toBe(200)
+  })
+  test('429 usage_not_included: the plan has no Codex (refused); out of credit: an hour; a short 429 is retried once here', async () => {
+    freshChatgpt()
+    respMode = '429-plan'
+    expect((await post('chatgpt', tokFor(G))).status).toBe(429)
+    expect(getRow(env.db, G)).toMatchObject({ status: 'invalid', status_code: 'usage_not_included' })
+    respMode = '429-credit'
+    expect((await post('openai', tokFor(K))).status).toBe(429)
+    expect(Date.parse(getRow(env.db, K)!.limited_until!)).toBeGreaterThan(Date.now() + 3500_000)
+    env.db.query('UPDATE engine_credentials SET limited_until = NULL WHERE id = ?').run(K)
+    respMode = '429-short'; seen.length = 0
+    expect((await post('openai', tokFor(K))).status).toBe(200)
+    expect(seen.length).toBe(2)
+  })
+  test('a 5xx is a 502 for the engine (it retries); the connection stays as it was', async () => {
+    respMode = '500'
+    expect((await post('openai', tokFor(K))).status).toBe(502)
+    expect(getRow(env.db, K)!.status).toBe('ok')
+  })
+})

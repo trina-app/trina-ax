@@ -17,12 +17,14 @@ export type EngineEvent = z.infer<typeof EngineEvent>
 export type EngineErrorCode = z.infer<typeof EngineErrorCode>
 
 /** How the engine authenticates to the model.
- * - subscription: the owner's long-lived Claude subscription token (`claude setup-token`, <install>/secrets/
- *   claude-oauth-token) stays with the server; the engine talks to the server's model proxy with a per-turn token
- *   and the proxy puts the real one on the request (production / role-account install, design tab 1 "프록시 동작").
- * - proxy: the same with a company API key (code only; refused by chat/engines.ts, owner decision: subscriptions only).
- * - local-login: the engine uses the claude CLI's own existing login on this machine (dev/test only; no proxy). */
-export const AuthMode = z.enum(['proxy', 'local-login', 'subscription'])
+ * - managed: the team's AI connections (server/src/credentials: Claude subscription tokens, API keys, ChatGPT
+ *   sign-ins) stay with the server; the engine talks to the server's model proxy with a per-turn token and the proxy
+ *   puts the real credential of the connection chosen for the turn on the request (production, cloud, Linux, the
+ *   office "subscription" choice; docs/DECISIONS.md "AI 연결").
+ * - subscription, proxy: older names of managed, read as managed (server/src/app-config.ts normalizeAuthMode), so a
+ *   server rolled back to the previous release still starts with a server.json the newer installer wrote.
+ * - local-login: the engine uses the CLI's own existing login on this machine (dev / office; no credential here). */
+export const AuthMode = z.enum(['proxy', 'local-login', 'subscription', 'managed'])
 export type AuthMode = z.infer<typeof AuthMode>
 
 // ---------------- launcher protocol (server <-> native launcher, JSON lines over launcher.sock) ----------------
@@ -51,17 +53,63 @@ export const LaunchRequest = z.object({
    * environment, which other processes of the engine account can read (KERN_PROCARGS2). */
   modelToken: z.object({ kind: z.enum(['oauth', 'api-key']), value: z.string().min(1).max(512) }).optional(),
   /** Codex as the engine account: the launcher copies the account's Codex login (--codex-auth-dir) into
-   * <chatDir>/.codex for this turn and writes a refreshed one back after it (one Codex turn at a time) */
+   * <chatDir>/.codex for this turn and writes a refreshed one back after it (one Codex turn at a time). Older
+   * "agent-own" setup, kept for the F1 fallback (docs/DECISIONS.md "AI 연결" D11) and the one-time migration. */
   codexAuth: z.boolean().optional(),
+  /** managed Codex turn: the launcher writes this placeholder auth.json into a fresh <chatDir>/.codex (0600) and
+   * removes the folder after the turn. It carries only this turn's proxy token (access token / API key) and fixed
+   * placeholders; the launcher refuses anything that looks like a real ChatGPT login (credentials D9). */
+  codexHome: z.object({ authJson: z.string().max(16 * 1024) }).optional(),
+  /** F1 only: the AI connection the turn's real Codex login belongs to (one turn per connection at a time) */
+  credentialId: z.string().max(64).optional(),
 })
 export type LaunchRequest = z.infer<typeof LaunchRequest>
 export const LaunchEvent = z.discriminatedUnion('ev', [
   z.object({ ev: z.literal('started'), pid: z.number(), pgid: z.number() }),
   z.object({ ev: z.literal('stdout'), b64: z.string() }),
   z.object({ ev: z.literal('stderr'), b64: z.string() }),
+  /** signal: "stopped" | "timeout", and on Linux "oom" (the turn cgroup's memory limit) | "disk_limit" (the chat folder
+   * grew past the turn disk limit; the launcher emptied it) — linux-runtime spec 3.3.7 */
   z.object({ ev: z.literal('exit'), code: z.number(), signal: z.string().optional(), session: z.object({ b64: z.string() }).optional() }),
   z.object({ ev: z.literal('error'), message: z.string() }),
   /** something the server should audit (e.g. a refreshed Codex login that was not written back) */
   z.object({ ev: z.literal('note'), message: z.string() }),
 ])
 export type LaunchEvent = z.infer<typeof LaunchEvent>
+
+// ---------------- launcher requests besides turns (linux-runtime spec 3.3.2, both platforms) ----------------
+/** {"op":"status"} from the server account -> one `status` line, then the launcher closes the connection: the engine
+ * sandbox (bwrap + Landlock + seccomp on Linux, sandbox-exec on macOS), the per-turn cgroups and the firewall state the
+ * launcher checks before each turn (docs/INSTALL-LINUX.md). Lenient on purpose: an older or macOS launcher may leave
+ * fields out (the diagnostics then show them as unknown); unknown fields pass through. */
+export const LauncherStatus = z.object({
+  ev: z.literal('status'),
+  os: z.string(),
+  /** "bwrap" | "sandbox-exec" | "none" */
+  sandbox: z.string(),
+  liveTurns: z.number().int().nonnegative().optional(),
+  dedicated: z.boolean().optional(),
+  bwrapVersion: z.string().nullable().optional(),
+  /** Landlock ABI the kernel offers (0 = none) */
+  landlockAbi: z.number().int().nonnegative().nullable().optional(),
+  /** "off" | "best-effort" | "required" | "required-scoped" */
+  landlockMode: z.string().nullable().optional(),
+  /** Landlock ABI 6+: abstract unix sockets and signals scoped to the turn (Linux 6.12+) */
+  scoped: z.boolean().optional(),
+  seccomp: z.boolean().optional(),
+  /** "allowed" | "denied" */
+  listen: z.string().optional(),
+  kernel: z.string().optional(),
+  /** "delegated" | "none" | "off" */
+  cgroup: z.string().optional(),
+  maxLiveTurns: z.number().int().nonnegative().optional(),
+  plan: z.string().optional(),
+  turnMemoryMaxMiB: z.number().int().optional(),
+  planError: z.string().optional(),
+  firewall: z.object({ loaded: z.boolean(), at: z.string().nullable().optional(), rules: z.number().int().optional(), problem: z.string().optional() }).nullable().optional(),
+}).passthrough()
+export type LauncherStatus = z.infer<typeof LauncherStatus>
+/** {"op":"forget","chatId"}: delete <agent root>/<chatId> (the server cannot: the folder is the engine account's).
+ * Answer {"ev":"forgot","ok"} or {"ev":"error","message"} ("busy: …" while a turn of that chat runs). */
+export const LauncherForget = z.object({ op: z.literal('forget'), chatId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/) })
+export type LauncherForget = z.infer<typeof LauncherForget>

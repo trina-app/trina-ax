@@ -9,8 +9,13 @@
 // The DB is never rolled back automatically (tab 6): migrations are additive, a release that is not readable by the
 // previous version says so (needsBackupRestoreToRollBack) and then roll-back means restoring the pre-update backup.
 //
-// Release feed: https://releases.<domain>/<channel>.json + .sig. No release key exists yet (owner/infra, see
-// docs/WORKPLAN.md "막힌 것"), so remote feeds are refused until keys are configured; locally staged bundles work.
+// Release feed: https://updates.treesoop.com/server/<channel>.json + .sig (docs/INSTALL-LINUX.md "업데이트"), signed with
+// the release key (system/release-keys.ts, the same key as the office feed). A feed is used only when server.json
+// names one (the Mac installer leaves update.feedUrl null, so a Mac never looks online).
+//
+// Unsigned bundles: allowed when MYCEL_ALLOW_UNSIGNED=1 (the Linux installer's --allow-unsigned, development bundles),
+// or when the version running now is itself unsigned (every Mac role-account install so far: its staging and roll-back
+// keep working); a signed install refuses unsigned bundles.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -22,9 +27,10 @@ import { SCHEMA_READER_LEVEL } from '../db'
 import type { Logger } from '../log'
 import { readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
+import { RELEASE_KEYS } from './release-keys'
 
-/** Ed25519 release public keys (base64, raw 32 bytes): current + spare. Empty until the release key is made. */
-export const RELEASE_PUBLIC_KEYS: readonly string[] = []
+/** Ed25519 release public keys (base64, raw 32 bytes): system/release-keys.ts. */
+export const RELEASE_PUBLIC_KEYS: readonly string[] = RELEASE_KEYS
 
 export class UpdateError extends Error { name = 'UpdateError' }
 
@@ -135,8 +141,18 @@ export const ReleaseFeed = z.object({
   notes: z.string().default(''),
   publishedAt: z.string(),
   bundles: z.array(z.object({ os: z.string(), arch: z.string(), url: z.url(), sha256: z.string(), size: z.number().int() })),
+  /** staged roll-out for self-installed servers (absent = everyone): an install takes the release automatically when
+   * sha256(salt + install id)'s first two bytes % 100 < percent. the hosted cloud ignores it (the control plane picks). */
+  rollout: z.object({ percent: z.number().min(0).max(100), salt: z.string().max(100) }).optional(),
 })
 export type ReleaseFeed = z.infer<typeof ReleaseFeed>
+
+/** Is this install in the release's roll-out? */
+export function inRollout(feed: Pick<ReleaseFeed, 'rollout'>, installId: string): boolean {
+  if (!feed.rollout) return true
+  const b = crypto.createHash('sha256').update(feed.rollout.salt + installId).digest().readUInt16BE(0) % 100
+  return b < feed.rollout.percent
+}
 
 export interface UpdateManagerOptions {
   appDir: string | null
@@ -146,8 +162,10 @@ export interface UpdateManagerOptions {
   feedUrl: string | null
   log: Logger
   keys?: readonly string[]
-  /** test installs and development bundles have no release signature */
+  /** test installs and development bundles have no release signature. Absent: MYCEL_ALLOW_UNSIGNED=1, or the running
+   * version is itself unsigned (see the header) */
   allowUnsigned?: boolean
+  env?: Record<string, string | undefined>
   fetch?: typeof fetch
 }
 
@@ -160,7 +178,17 @@ export class UpdateManager {
   /** a release feed is configured and this build can verify it (else checkFeed() only records why not) */
   get feedUsable() { return !!this.o.feedUrl && this.keys.length > 0 }
   private get keys() { return this.o.keys ?? RELEASE_PUBLIC_KEYS }
-  private get allowUnsigned() { return this.o.allowUnsigned ?? this.keys.length === 0 }
+  private get allowUnsigned() {
+    if (this.o.allowUnsigned !== undefined) return this.o.allowUnsigned
+    if (this.keys.length === 0 || (this.o.env ?? process.env).MYCEL_ALLOW_UNSIGNED === '1') return true
+    return !this.runningSigned()
+  }
+  /** the version folder that runs now carries a release signature */
+  runningSigned(): boolean {
+    if (!this.o.appDir) return false
+    const cur = this.currentLinkTarget() ?? this.o.version
+    return fs.existsSync(path.join(this.versionsDir(), cur, 'manifest.sig'))
+  }
   private versionsDir() { return path.join(this.o.appDir!, 'versions') }
   private stateFile() { return path.join(this.o.appDir!, 'state.json') }
   private checkFile() { return path.join(this.o.dataDir, 'update-check.json') }
@@ -208,8 +236,12 @@ export class UpdateManager {
       available = { version: chk.feed.version, notes: chk.feed.notes, publishedAt: chk.feed.publishedAt, needsBackupRestoreToRollBack: false }
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
-    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, feed: this.feedUsable }
+    const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && chk.feed.needsRoot)
+    return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, feed: this.feedUsable, needsRoot }
   }
+
+  /** The last verified feed check (null = never checked or it failed). */
+  lastFeed(): ReleaseFeed | null { return this.lastCheck()?.feed ?? null }
 
   /** Unpack a bundle archive (.tar.zst) into app/versions/<version> after verifying it. */
   async stage(archive: string): Promise<BundleManifest> {

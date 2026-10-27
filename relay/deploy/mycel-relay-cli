@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# The relay's operator commands on the relay VM (break glass; the control plane uses the operator API):
+#   mycel-relay-cli teams | suspend <name> --reason billing | unsuspend <name> | maintenance <name> 15 | audit | keys ...
+# Same registry and settings as the running relay (relay.env), run as the relay account.
+set -euo pipefail
+set -a; . /etc/mycel-relay/relay.env; set +a
+exec sudo -u mycel-relay --preserve-env=RELAY_DOMAIN,RELAY_OPERATOR_KEYS_FILE,RELAY_PRIVATE_LISTEN,RELAY_OPEN_REGISTRATION \
+  /opt/node-26/bin/node --disable-warning=ExperimentalWarning /opt/mycel-relay/current/relay/src/main.ts "$@" --data /var/lib/mycel-relay

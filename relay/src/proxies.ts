@@ -1,7 +1,7 @@
 // Which TCP peers may tell the relay the visitor's address (CF-Connecting-IP). Anyone who reaches the relay's origin
 // without going through Cloudflare can send that header too, so it counts only when the socket peer is inside one of
 // these ranges; every other peer is identified by its own socket address. Plain code (no Node/Bun-only APIs) so the
-// relay runs the same under Node 25 and the unit tests under Bun.
+// relay runs the same under Node 26 and the unit tests under Bun.
 import { isIP } from 'node:net'
 
 /**

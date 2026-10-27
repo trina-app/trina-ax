@@ -1,0 +1,17 @@
+# Team AX tenant first boot (isolation.md §5.4): mount/format the data disk, enroll with the control plane, start the
+# mycel units. Started once by cloud-init runcmd (`systemctl start --no-block mycel-enroll.service`) from the snippet
+# ax-hostd writes; no [Install] section on purpose. Reattach after a reimage runs the same unit (mode "reattach").
+[Unit]
+Description=Team AX first-boot enrollment (mycel-enroll)
+ConditionPathExists=/run/ax/enroll.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mycel-enroll
+# restore mode downloads and decrypts a whole team archive (about 15 min for 50 GB)
+TimeoutStartSec=45min
+StandardOutput=journal+console
+StandardError=journal+console
+UMask=0077

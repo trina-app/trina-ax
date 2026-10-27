@@ -1,4 +1,5 @@
 // Real-engine setup for stage 1 tests: owner's local subscription logins (owner decision 2026-10-21).
+import { requireDeveloperEngineMode } from './engine-mode'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,10 +11,13 @@ import { writeLockedCatalog, type CodexConf } from '../../server/src/engine/code
 import type { ClaudeConf } from '../../server/src/engine/claude'
 import { makeEnv } from './env'
 
+// Recheck even if engine-mode was previously imported before installed mode was requested.
+requireDeveloperEngineMode()
 export const CLAUDE_BIN = which('claude', [path.join(os.homedir(), '.local', 'bin')])!
 export const CODEX_BIN = which('codex', [path.join(os.homedir(), '.local', 'bin')])
 
 export async function engineEnv(name: string) {
+  requireDeveloperEngineMode()
   const env = makeEnv(name)
   env.db.close()
   const claude: ClaudeConf = { bin: CLAUDE_BIN, authMode: 'local-login', agentHome: path.join(env.fx.data, 'agent-home') }

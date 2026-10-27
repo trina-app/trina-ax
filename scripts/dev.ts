@@ -3,7 +3,7 @@
 //   server  http://localhost:19100        team server (bun --watch), engines run as you with your own Claude Code /
 //                                         Codex logins (engine.authMode local-login, no model proxy), and it serves
 //                                         the built web app (web/dist) at the same address
-//   relay   http://demo.localhost:19161   the relay on Node 25 (*.localhost routing); the server registers the team
+//   relay   http://demo.localhost:19161   the relay on Node 24+ (*.localhost routing); the server registers the team
 //                                         "demo" there and keeps its control connections, like a real remote address
 //   vite    http://localhost:19140        only with --vite: hot-reloading web dev server (proxies /api to 19100)
 //
@@ -38,7 +38,7 @@ function envPort(name: string, d: number): number {
 }
 const SERVER_PORT = envPort('TEAM_AX_DEV_PORT', 19100)
 const RELAY_PORT = envPort('TEAM_AX_DEV_RELAY_PORT', 19161)
-const RELAY_MIN_NODE = 25
+const RELAY_MIN_NODE = 24
 
 /** plain tags when NO_COLOR is set (the background service of `bun run dev:service` writes to a log file) */
 const COLOR = !process.env.NO_COLOR
@@ -77,7 +77,7 @@ function newest(p: string): number {
   return m
 }
 
-// 1. relay on Node 25 (Bun.serve has no streaming backpressure, see relay/README.md)
+// 1. relay on Node 24+ (Bun.serve has no streaming backpressure, see relay/README.md)
 let relay = !flag('--no-relay')
 if (relay) {
   const node = Bun.which('node')

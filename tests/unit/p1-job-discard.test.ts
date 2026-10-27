@@ -1,12 +1,15 @@
 // A job that never runs (canceled while queued, server shutting down) gives back what was set aside for it. A
 // transcription canceled while it waited behind another one left the person's recording in <data>/work until the
 // next day's sweep.
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { componentC } from '../../server/src/team-files/component'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { waitFor } from '../lib/wait'
+
+// the app setup (database, migrations, team folder, server) takes seconds on a busy machine: room for it and the cases
+setDefaultTimeout(30_000)
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('p1-job-discard') })

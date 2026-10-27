@@ -4,6 +4,7 @@
 // address bar, site prompts and the "AI is using it" frame are drawn by the desktop app next to this page, so a page
 // served through the relay can drive browser tools but can never answer the person's site prompts.
 import { useSyncExternalStore } from 'react'
+import { mobileApp } from './mobile'
 import { getDesktopBridge, type DesktopBridge, type DesktopPaneState } from '@mycel/shared'
 
 export type { DesktopBridge, DesktopPaneState }
@@ -44,4 +45,4 @@ export function usePaneState(): DesktopPaneState {
 
 /** What this window signs in as. The server offers browser tools only to turns sent from a desktop-app session
  * (its window has the pane), so sign-in inside the desktop app must say so. */
-export const clientKind = (): 'web' | 'desktop' => (isDesktop() ? 'desktop' : 'web')
+export const clientKind = (): 'web' | 'desktop' | 'mobile' => (isDesktop() ? 'desktop' : mobileApp() ? 'mobile' : 'web')
