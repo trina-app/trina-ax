@@ -13,6 +13,14 @@
 - 고객 주소 `updates.trina.app`이 생기지 않도록 `update(s)`, `release(s)`, `download(s)`는 고객 주소로 쓸 수 없다(`../domains/names.ts`).
 - Cloudflare의 `updates.trina.app` Worker·R2 bucket(`trina-ax-updates`)은 아직 만들지 않았다. 만들기(`bun scripts/release/hosting.ts setup`)와 첫 배포(`scripts/release/publish.ts`)는 대표 확인 뒤에 한다.
 
+## 소스 코드 링크 (AGPL-3.0)
+
+`source.json`은 Trina AX 앱의 "소스 코드" 링크와 소스 요청 메일 주소다. 코어 `scripts/edition-source.ts`로 적용한다(`--apply`가 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다).
+
+- `repository`: `https://github.com/trina-app/trina-ax`
+- `published`: 레포가 공개되기 전에는 `false`다. 그동안 링크는 메일 요청이 된다. 공개할 때 `true`로 바꾸고 다시 적용한다.
+- `requestEmail`: 지금은 코어와 같은 `support@treesoop.com`이다. Trina 전용 주소가 정해지면 바꾼다.
+
 ## 사이트 자산
 
 P6 후보는 기존 `~/src/trina-ax/website`의 tracked 파일을 복사해 시각 디자인을 유지한다. 실제 사용 자산은 `../website/public`과 `../website/src/assets/fonts`에 두며 중복 배포하지 않는다. 고객 문서·실제 앱 데이터·계정 설정은 복사 대상이 아니다.

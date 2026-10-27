@@ -2,7 +2,7 @@
 import { z } from 'zod'
 
 export const SOURCE_CODE = {
-  repository: 'https://github.com/potenlab/team-ax',
+  repository: 'https://github.com/trina-app/trina-ax',
   /** false while the repository is not public yet (review OSS-01): the link asks for the source by mail instead */
   published: false,
   requestEmail: 'support@treesoop.com',

@@ -199,3 +199,12 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
   - 코어 쪽: 리눅스 컨테이너에서 대기열·채팅·한도·web_fetch 시험 167/1. 실패 1개는 web_fetch PDF 시험으로, 수정 전에도 같은 컨테이너에서 실패한다(환경).
   - 이 레포: 맥 typecheck와 관련 시험.
 - 남은 것: `shared/src/source.ts`의 소스 링크(`repository`)는 아직 코어 주소다. 공개 전에 Trina 공개 레포 주소로 바꾸는 확장 지점이 코어에 필요하다(AGPL 소스 제공).
+
+## 2026-10-28 코어 소스 링크 설정 반입
+
+- 받은 것: 코어 `a8ad812`(판매판이 소스 링크를 정하는 `scripts/edition-source.ts`). 충돌 없음.
+- Trina 적용: `editions/trina/branding/source.json`
+  - repository `https://github.com/trina-app/trina-ax`
+  - published `false`(공개 전)
+  - requestEmail은 아직 `support@treesoop.com`
+- 이제 앱의 소스 링크와 web_fetch User-Agent가 코어 비공개 레포 대신 이 레포를 가리킨다.
