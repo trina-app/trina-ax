@@ -1,0 +1,6 @@
+{
+  "teamDomain": "trina.app",
+  "officialRelayUrl": "wss://relay.trina.app/connect",
+  "accountHost": "account.trina.app",
+  "statusHost": "status.trina.app"
+}

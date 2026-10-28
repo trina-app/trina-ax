@@ -16,7 +16,7 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Teams, invite links, folder permissions, backups | Works |
 | Production install (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf, Claude chats on the owner's `claude setup-token` token | **Not verified on a real install.** Done in code and tests (as the current user), but never run as the real role accounts and no Anthropic answer through the proxy has been seen; run the role-account test first (2.0) |
 | Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, an open owner task) |
-| Public team address `<team>.treesoop.com` | Not available: the production relay is not running |
+| Public team address `<team>.trina.app` | Not available: the production relay is not running |
 | Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |

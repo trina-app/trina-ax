@@ -13,6 +13,10 @@
 - 고객 주소 `updates.trina.app`이 생기지 않도록 `update(s)`, `release(s)`, `download(s)`는 고객 주소로 쓸 수 없다(비공개 `trina-ax-core`의 `editions/trina/domains/names.ts`).
 - Cloudflare의 `updates.trina.app` Worker·R2 bucket(`trina-ax-updates`)은 아직 만들지 않았다. 만들기(`bun scripts/release/hosting.ts setup`)와 첫 배포(`scripts/release/publish.ts`)는 대표 확인 뒤에 한다.
 
+## 호스팅 서비스 주소
+
+`service.json`은 Trina 호스팅 서비스의 주소다: 팀 주소 `<회사>.trina.app`, 공식 중계 `wss://relay.trina.app/connect`, 연결 코드를 받는 `account.trina.app`, 상태 페이지 `status.trina.app`. 코어 `scripts/edition-service.ts`로 적용한다(`--apply`가 `shared/src/service-hosts.ts`의 네 필드만 바꾼다). 코어(Team AX)는 `treesoop.com`을 그대로 쓴다. 설치된 맥의 LaunchDaemon 이름(`app.treesoop.*`)은 바꾸지 않는다.
+
 ## 소스 코드 링크 (AGPL-3.0)
 
 `source.json`은 Trina AX 앱의 "소스 코드" 링크와 소스 요청 메일 주소다. 코어 `scripts/edition-source.ts`로 적용한다(`--apply`가 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다).

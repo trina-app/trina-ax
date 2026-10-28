@@ -4,13 +4,13 @@
 // Contract test vectors (shared/src/cloud-protocol/vectors*) keep their own example hosts on purpose.
 export const SERVICE_HOSTS = {
   /** hosted team addresses are https://<team>.<teamDomain> */
-  teamDomain: 'treesoop.com',
+  teamDomain: 'trina.app',
   /** the official relay the team server may connect to (Admin > System) */
-  officialRelayUrl: 'wss://relay.treesoop.com/connect',
+  officialRelayUrl: 'wss://relay.trina.app/connect',
   /** where people get a claim code and manage the hosted service */
-  accountHost: 'account.treesoop.com',
+  accountHost: 'account.trina.app',
   /** the service status page */
-  statusHost: 'status.treesoop.com',
+  statusHost: 'status.trina.app',
 } as const
 
 /** Is this host the hosted service's own (the official relay, a hosted team address)? */
