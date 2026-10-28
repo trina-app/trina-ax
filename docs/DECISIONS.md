@@ -1625,4 +1625,29 @@ set its own logo as the tab icon; without one it is the product's icon.
 - Native desktop and phone app icons stay the product's.
 - Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/e2e/team-icon.spec.ts`, the
   a11y audit, `tests/security/lib/team-icon-cases.ts`.
+
+## External-service connections: a service that echoes the key (fix/integrations-secret-echo, 2026-10-28)
+
+QA found that a service which repeats what it received (an endpoint that lists the request headers, an error page that
+repeats Authorization, an MCP tool that returns its own token) handed the stored key to the AI in the tool result, and
+from there into files, other services or the chat.
+
+- Every value of the connection's secret (the key; OAuth access and refresh tokens and the client secret, as read for
+  the call, as stored after it, and up to 16 earlier ones per connection seen since the server started) is replaced by
+  `[hidden key]` before an answer reaches the AI, the chat, the steps, logs or `tool_events`
+  (`server/src/integrations/connections/hide.ts`). One exit for every connection tool (`tools.ts` `hiding`), applied
+  before any cut and on the whole answer, not per network chunk; saved MCP tool lists get the same, and a tool named
+  with a secret is left out. `lastError` was already a reason code only.
+- Forms: the value (so `Bearer <value>`), %-escaped in either case, form-encoded, JSON- and HTML-escaped, and base64
+  (standard or URL-safe, padded or not) of any text containing it (`user:<value>` for basic auth) at all three byte
+  alignments. Values under 8 characters are not hidden: they would mangle ordinary words. When a stored secret cannot
+  be read to hide it, the answer is withheld (fail closed).
+- The AI's input cannot place the key: it goes only in the header the connection names; `api_request` has no header
+  field and nothing in the path, query, body or MCP arguments is filled in (test added).
+- Known limit: a service that transforms the secret another way (hashes, hex, case, splits it across fields, double
+  encoding) cannot be caught; a key typed into the connection's address instead of the key field is not a stored
+  secret.
+- Tests: `tests/unit/c-integrations-echo.test.ts` (real turns: headers, encoded forms, MCP text and structured content,
+  errors, streams split inside the key, OAuth tokens refreshed during the call; checks the answer, steps, `tool_events`,
+  logs, the database and every file of the server), the input test in `c-integrations-tools.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.

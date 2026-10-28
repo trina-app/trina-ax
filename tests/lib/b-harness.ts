@@ -116,6 +116,8 @@ export class TestSocket {
 
 export interface HarnessOptions extends ChatRuntimeOptions {
   name: string
+  /** the server's logger (default: silent, or stdout with MYCEL_TEST_LOG); tests that read the log lines pass a sink */
+  log?: import('../../server/src/log').Logger
   /** start the launcher with these extra allowed commands (real engines) */
   allowCmds?: string[]
   sessionRoots?: string[]
@@ -177,7 +179,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const codexBin = o.engineBins?.codex ?? bin
   const ext = o.externalLauncher
   const ctx = createContext({
-    config: cfg, db, log: process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger,
+    config: cfg, db, log: o.log ?? (process.env.MYCEL_TEST_LOG ? createLogger({ level: 'debug', name: 'test' }) : silentLogger),
     ...(o.realCore ? {} : {
     // the fake engines run the production path ("managed"): every turn gets a per-turn proxy token bound to one of
     // the team's AI connections, and the model proxy puts the connection's (fake) credential on the request

@@ -1,7 +1,9 @@
 // A small MCP client over Streamable HTTP (no SDK): JSON-RPC POSTs that accept JSON or an event stream, the server's
 // Mcp-Session-Id kept for the session, MCP-Protocol-Version on every request after initialize.
-// initialize -> notifications/initialized -> tools/list (cursor pages) -> tools/call.
+// initialize -> notifications/initialized -> tools/list (cursor pages) -> tools/call. The server's words that are cut
+// here (an error message, tool descriptions) have the connection's secrets hidden first (hide.ts).
 import crypto from 'node:crypto'
+import { hideDeep } from './hide'
 import { NetError, serviceRequest, type NetOptions } from './net'
 
 export const MCP_PROTOCOL = '2025-06-18'
@@ -44,6 +46,8 @@ function findReply(messages: unknown[], id: string): Record<string, any> | null 
   return null
 }
 const parse = (s: string): unknown => { try { return JSON.parse(s) } catch { return null } }
+type Hide = (text: string) => string
+const keep: Hide = (s) => s
 
 export class McpClient {
   sessionId: string | null = null
@@ -51,7 +55,8 @@ export class McpClient {
   private ready: Promise<void> | null = null
   usedAt = Date.now()
 
-  constructor(readonly url: string, private auth: () => Promise<[string, string][]>, private net: NetOptions) {}
+  /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated them) */
+  constructor(readonly url: string, private auth: () => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
 
   private async post(message: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, any> | null> {
     const id = typeof message.id === 'string' ? message.id : null
@@ -80,7 +85,7 @@ export class McpClient {
       const sid = res.headers['mcp-session-id']
       if (sid && /^[\x21-\x7e]{1,1024}$/.test(sid)) this.sessionId = sid
     }
-    if (reply.error) throw new McpError('rpc', 0, String(reply.error?.message ?? 'error').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300))
+    if (reply.error) throw new McpError('rpc', 0, this.hider()(String(reply.error?.message ?? 'error')).replace(/[\u0000-\u001f]/g, ' ').slice(0, 300))
     return reply.result && typeof reply.result === 'object' ? reply.result : {}
   }
 
@@ -112,8 +117,9 @@ export class McpClient {
       const r = await this.request('tools/list', cursor ? { cursor } : {}, signal)
       const list = Array.isArray(r?.tools) ? r!.tools : null
       if (!list) throw new McpError('not_mcp')
+      const hide = this.hider()
       for (const t of list) {
-        const tool = toolOf(t)
+        const tool = toolOf(t, hide)
         if (!tool || seen.has(tool.name)) continue
         const cost = JSON.stringify(tool.inputSchema).length + tool.description.length
         if (tools.length >= MAX_TOOLS || size + cost > MAX_SCHEMAS_CHARS) { more = true; break }
@@ -133,18 +139,19 @@ export class McpClient {
   }
 }
 
-const clean = (s: unknown, max: number) => (typeof s === 'string' ? s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')
+const clean = (s: unknown, max: number, hide: Hide) => (typeof s === 'string' ? hide(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')
 
-/** One tools/list entry as we keep it, or null when it cannot be offered. */
-export function toolOf(t: unknown): RemoteTool | null {
+/** One tools/list entry as we keep it, or null when it cannot be offered. The AI and the connection's users read it:
+ * the secrets are hidden in its words and schema, and a tool whose name carries one is left out (the name calls it). */
+export function toolOf(t: unknown, hide: Hide = keep): RemoteTool | null {
   if (!t || typeof t !== 'object') return null
   const x = t as Record<string, any>
-  if (typeof x.name !== 'string' || !x.name || x.name.length > 128 || /[\u0000-\u001f]/.test(x.name)) return null
+  if (typeof x.name !== 'string' || !x.name || x.name.length > 128 || /[\u0000-\u001f]/.test(x.name) || hide(x.name) !== x.name) return null
   const schema = x.inputSchema
   if (!schema || typeof schema !== 'object' || Array.isArray(schema) || schema.type !== 'object') return null
   let json: string
-  try { json = JSON.stringify(schema) } catch { return null }
+  try { json = JSON.stringify(hideDeep(schema, hide)) } catch { return null }
   if (json.length > MAX_SCHEMA_CHARS) return null
-  const title = clean(x.title ?? x.annotations?.title, 200) || null
-  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION), readOnly: x.annotations?.readOnlyHint === true, inputSchema: JSON.parse(json) }
+  const title = clean(x.title ?? x.annotations?.title, 200, hide) || null
+  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true, inputSchema: JSON.parse(json) }
 }

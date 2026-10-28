@@ -11,7 +11,8 @@ Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). The
 from the "connectors" of `server/src/connectors/remote-mcp` (claude.ai using this server's files).
 
 Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.ts` requests, `mcp.ts` the MCP client,
-`oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools), `server/src/routes/integrations.ts`, migration
+`oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools, `hide.ts` hiding secrets a service sends
+back), `server/src/routes/integrations.ts`, migration
 `server/migrations/313_c_integrations.sql`. Contract: `shared/src/api/integrations.ts`.
 
 ## Personal and team connections
@@ -40,6 +41,29 @@ Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.
 - No API response, log line, audit entry, error text, tool result or tool description carries a key or token: the API
   says only `hasSecret`. Tests check for canaries in responses, the database, the audit log, `tool_events` and logs.
 - Keys belong in the key field: people who only use a team connection, and the AI, see its address without the query.
+- **The AI's input never places the key.** It goes only in the header the connection names (`Authorization: Bearer`
+  or the key header); `api_request` has no header field and the path, query and body are sent as the AI wrote them
+  (no placeholders are filled in). MCP tool arguments likewise.
+- **What a service sends back has the secrets hidden.** A service may echo them: an endpoint that lists the request's
+  headers, an error page that repeats Authorization, an MCP tool that returns its own token. Before an answer reaches
+  the AI, the chat, the steps, logs or `tool_events`, every value of the connection's secret (the key; OAuth access
+  and refresh tokens and the client secret: as read for the call, as stored after it since a refresh may rotate them,
+  and earlier ones seen since the server started, 16 per connection) is replaced by `[hidden key]` (`hide.ts`):
+  - forms: the value itself (so also `Bearer <value>`); its characters %-escaped (either case, `+` for a space),
+    JSON-escaped (`\/`, `\"`, `\\`, `\uXXXX`) or as HTML entities; base64 (standard or URL-safe, padded or not) of
+    any text that contains it: the value alone, `user:<value>` for basic auth, `<value>:`. Up to two bytes at either
+    edge of an embedded base64 value share a group with the text around them and stay.
+  - where: one exit that every connection tool's result goes through (`tools.ts` `hiding`: `api_request` and MCP
+    `tools/call` answers including structured content, resource links, error answers, our error texts, the summary for
+    `tool_events`, a thrown error); before any cut (the 40,000 characters for the AI, a JSON-RPC error's 300, a tool
+    description's 1,000), so a key across a cut leaves no part; on the whole answer once it is in, never per network
+    chunk (an event stream whose bytes arrive split inside a key is hidden too). Saved MCP tool lists (`tools/list`: titles, descriptions, input
+    schemas) get the same; a tool whose name carries a secret is left out. `lastError` is only ever a reason code.
+  - values shorter than 8 characters are not hidden (they would hide ordinary words); parts of a key in ordinary text
+    stay. When a stored secret cannot be read to hide it, the answer is not shown.
+  - not caught: a service that changes the value in another way (hashes it, hex-encodes it, changes its case, puts
+    its parts in separate fields or events such as two streamed deltas, base64-encodes it twice); a key written into
+    the connection's address instead of the key field.
 - **A stored key is never sent anywhere else.** Changing the address (any part of it) or how the key is sent (`auth`,
   `authHeader`) drops the stored key or sign-in, unless a new key comes in the same change. A key header may not be
   one the request needs itself (Host, Content-Type, Cookie, Mcp-Session-Id …).
@@ -154,7 +178,8 @@ download (binary), per-tool switches, an admin allow-list of hosts, mobile OAuth
 
 ## Tests
 
-`tests/unit/c-integrations-{api,tools,oauth}.test.ts` with `tests/lib/fake-services.ts` (an in-process https MCP server
-with sessions and event streams, an OAuth authorization server with registration, PKCE, refresh and revocation, and a
-REST API; reached through web_fetch's test-only address allowance), and the real-turn test at the end of
+`tests/unit/c-integrations-{api,tools,oauth,echo}.test.ts` with `tests/lib/fake-services.ts` (an in-process https MCP
+server with sessions and event streams, an OAuth authorization server with registration, PKCE, refresh and revocation,
+a REST API, and endpoints and MCP tools that repeat the key they got; reached through web_fetch's test-only address
+allowance), and the real-turn test at the end of
 `tests/unit/i-wiring.test.ts`. No real service is contacted.
