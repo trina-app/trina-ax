@@ -1,9 +1,10 @@
 Trina AX
 
 This repository contains the filtered Team AX core, the shared cloud
-protocols, and the Trina edition and website additions. The separately
-licensed hosting control plane (ee/) is not part of this repository or its
-history. See docs/UPSTREAM.md for provenance and docs/PUBLICATION.md for
+protocols, and the Trina edition branding. The separately licensed hosting
+control plane (ee/), the Trina paid operations code and the trina.app website
+are not part of this repository or its history; they stay in the private
+trina-ax-core repository. See docs/UPSTREAM.md for provenance and docs/PUBLICATION.md for
 publication conditions.
 
 Preserve the copyright notices and authorship of Team AX and incorporated
@@ -19,15 +20,15 @@ Component-specific scope:
   (TRINA_CORE_ROOT); no ee/ code or grant is included here.
 - Saram/chat-proto-derived code: the copyright holder (Potenlab) confirmed
   on 2026-10-27 that it may be published under AGPL-3.0-only.
-- pptx-preview@1.0.7 is used as an npm dependency. Its package metadata says
-  ISC; the author's current repository LICENSE restricts source publication.
-  This is recorded as an open item in docs/PUBLICATION.md.
-- Historical website source retains its Apache-2.0 license and Trina Inc.
-  attribution in editions/trina/branding/. Font notices remain under the
-  website public/fonts/ directory. The modified Korean subsets are named
-  Trina UI; public/fonts/NOTICE-Trina-UI.txt records the naming changes.
-  Website public/licenses/ includes the
-  Apache and AGPL texts and a website-specific notice for static builds.
+- PowerPoint previews use @aiden0z/pptx-renderer@1.4.0 (Apache-2.0). Its
+  bundle includes mtx-decompressor (MPL-2.0, unmodified) and a mechanical
+  subset of ECMA-376 preset-shape definitions under the Ecma copyright notice.
+  The package ships these notices in its THIRD_PARTY_NOTICES.md and licenses/;
+  web builds copy its LICENSE and THIRD_PARTY_NOTICES.md to web/dist/licenses/.
+  It replaces pptx-preview@1.0.7, whose author restricts source publication.
+- The historical website license (Apache-2.0) and Trina Inc. attribution
+  stay in editions/trina/branding/. The website source, its fonts and their
+  notices moved to trina-ax-core with the website.
 
 This is not a complete third-party notice bundle or a certification that
 all distribution requirements have been met. See docs/THIRD-PARTY-NOTICES.md.

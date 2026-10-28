@@ -12,7 +12,7 @@
 | Saram/chat-proto 유래 코드 | DECISIONS.md:292 복사 기록. 권리자(포텐랩)가 2026-10-27 AGPL 공개를 확인 | 원 고지 보존 |
 | ee/ | 레포와 기록에서 제외(비공개 유지). 판매판은 `TRINA_CORE_ROOT`의 별도 사본에서 계약만 읽고, 없으면 `core_contract_unavailable`(503) | 공개본에 ee 코드를 다시 넣지 않는다 |
 | shared/src/cloud-protocol | 폴더 한정 MIT LICENSE 보존 | 원문/저작권 고지 유지. 다른 shared로 MIT를 넓히지 않음 |
-| pptx-preview@1.0.7 | npm 의존성. 설치 metadata ISC, LICENSE 없음. 저자의 현재 LICENSE는 소스 게시·자체 오픈소스화를 제한 | 대표가 2026-10-27 위험을 알고 유지하기로 결정. 권리 불일치는 해결된 것이 아니라 열린 항목으로 남긴다 |
+| @aiden0z/pptx-renderer@1.4.0 | npm 의존성(PowerPoint 미리보기). Apache-2.0. 번들에 mtx-decompressor(MPL-2.0, 수정 없음)와 ECMA-376 도형 정의 일부(Ecma 고지) 포함. 2026-10-28 pptx-preview@1.0.7(저자 LICENSE가 소스 게시·오픈소스화를 제한)을 이것으로 바꿨다 | 패키지의 THIRD_PARTY_NOTICES.md·licenses/를 배포 고지 묶음에 유지 |
 
 ## 배포 형태별 조건
 
