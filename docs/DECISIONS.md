@@ -1469,6 +1469,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - 리소스 한도가 걸리는 곳(리눅스 또는 요금제 파일)에서만 쓴다. 맥은 `os.freemem()`이 macOS가 되찾는 캐시를 빼고 보여 줘 여유가 있는데도 막으므로 쓰지 않는다(지금처럼 동시 실행 수만).
 - 메모리 때문에 멈춘 동안은 용량 감시(250 ms)가 2초마다 다시 본다(`MEMORY_RECHECK_MS`). 진단의 queue에 `waitingForMemory`, 로그에 시작·끝 한 줄씩. 화면 표시는 아직 없다.
 - 시험: `tests/unit/g-limits.test.ts`(계산·요금제·맥), `tests/unit/b-chat.test.ts`(동시 실행 3인데 메모리가 없어 두 번째가 대기 → 메모리가 돌아오면 시작). 트리나 AX는 같은 코드라 그대로 받는다. 메디컬은 이 부분이 아직 다르다.
+
 ## 설정 › 브라우저와 팀의 "모든 웹사이트 허용" 정책 (feat/browser-settings, 2026-10-22)
 
 치과 파일럿: 직원이 AI에게 리뷰 답글을 맡겼더니 로그인하고 도메인을 옮길 때마다 "AI가 ○○을(를) 쓰려고 해요"가 떴다. "모든 웹사이트 허용"은 브라우저 패널의 ⚙ 안에만 있어 아무도 찾지 못했다.
@@ -1479,8 +1480,6 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **반복 확인 힌트**: 같은 턴 안이나 10분 안에 사이트 확인이 세 번째로 뜨면 그 카드에 한 번(패널이 열려 있는 동안 한 번) "계속 뜨면 설정 › 브라우저에서 '모든 웹사이트 허용'을 켤 수 있어요 … '항상 허용'"을 보이고 ⚙을 여는 링크를 단다. 팀이 꺼 두었으면 "항상 허용"만 말한다. 사내망 확인은 세지 않는다("all"이 그것을 덮지 않으므로). `common/site-permissions.ts RepeatPromptHint`.
 - **그대로인 것**: "all"이어도 사내망·이 컴퓨터 주소는 계속 묻거나 막고, 팀 주소는 열지 않고, 비밀번호·카드 입력란은 막는다. 서버의 `web_fetch` 확인(대화에 나온 적 없는 주소)도 그대로다.
 - **시험**: `tests/unit/e-desktop-common.test.ts`(값 저장·복원, 정책 꺼짐이면 묻기로 되돌림·재시작 뒤에도, "all"이어도 사내망·루프백·팀 주소, 힌트 세기, 팀 페이지 통로의 보낸 쪽 확인·"all"은 창 버튼 1 뒤에만), `tests/unit/a-admin.test.ts`(기본 켬, 관리자만, Me에 실림, 알림, 감사), `web/test/unit/browser-settings.test.tsx`(데스크톱 앱에서만 탭, 꺼짐이면 선택지 꺼짐과 이유, 관리자 스위치), `web/test/e2e/browser-settings.spec.ts`(대역 브리지로 설정 화면과 관리자 스위치), `desktop/e2e/settings.spec.ts`(실제 Electron: 세 번째 확인의 힌트, 창 취소·바쁨·확인, ⚙과 서로 반영, 정책 꺼짐의 되돌림·거절·⚙ 꺼짐, 재시작 뒤 유지).
-||||||| parent of 48663d58 (auth: failed sign-ins on a shared address no longer lock the team out)
-- 그대로인 것: 구독 종류를 추가할 때의 안내와 확인 칸(D23, 서버가 `acknowledgedPlanNotice`를 요구). 컨트롤 플레인의 함대 전체 스위치(`set-server-config`)로 언제든 API 키만으로 좁힐 수 있다. 위험 기록은 `docs/SECURITY-AUDIT.md`·credentials 명세 7장에 남긴다.
 
 ## Sign-in: a shared address does not lock the whole team out (fix/signin-ip-lockout, 2026-10-28)
 
@@ -1494,7 +1493,6 @@ refused every sign-in from that address for 15 minutes, also correct passwords o
 - A loopback address that the relay reports is a client on the relay host, not this Mac: it keeps `perIp`.
 - Remaining risk: from the Mac itself or a known network, one address can try up to 300 usernames per 15 minutes.
 - Tests: `tests/unit/a-auth.test.ts` "the shared address of the Mac itself".
-||||||| parent of e4f32202 (desktop: the in-app browser's data belongs to one person)
 
 ## In-app browser data belongs to one person (fix/desktop-browser-per-person, 2026-10-28)
 
