@@ -1,5 +1,5 @@
-// Word / PowerPoint / Excel previews rendered in the page (no server conversion): docx-preview, pptx-preview,
-// SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
+// Word / PowerPoint / Excel previews rendered in the page (no server conversion): docx-preview,
+// @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useT } from '../../i18n'
@@ -18,7 +18,8 @@ function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
   }, deps)
 }
 
-function useRender(render: (el: HTMLDivElement) => Promise<void>, deps: unknown[]) {
+/** render may return a cleanup function; it runs when the file changes or the view closes. */
+function useRender(render: (el: HTMLDivElement) => Promise<void | (() => void)>, deps: unknown[]) {
   const ref = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(true)
@@ -30,11 +31,18 @@ function useRender(render: (el: HTMLDivElement) => Promise<void>, deps: unknown[
     setBusy(true)
     setError(null)
     el.innerHTML = ''
+    let cleanup: (() => void) | undefined
     render(el)
+      .then((done) => {
+        if (typeof done !== 'function') return
+        if (live) cleanup = done
+        else done()
+      })
       .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => live && setBusy(false))
     return () => {
       live = false
+      cleanup?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
@@ -67,9 +75,20 @@ export function PptxView({ blob, width }: { blob: Blob; width: number }) {
   const t = useT()
   const w = Math.max(320, width - 32)
   const { ref, error, busy } = useRender(async (el) => {
-    const { init } = await import('pptx-preview')
-    const previewer = init(el, { width: w, height: Math.round((w * 9) / 16), mode: 'list' })
-    await previewer.preview(await blob.arrayBuffer())
+    const { PptxViewer, RECOMMENDED_ZIP_LIMITS } = await import('@aiden0z/pptx-renderer')
+    // Embedded content only: external media links are not fetched, and the optional PDF.js fallback is off.
+    const viewer = await PptxViewer.open(await blob.arrayBuffer(), el, {
+      width: w,
+      fitMode: 'contain',
+      externalMedia: 'block',
+      pdfjs: false,
+      zipLimits: RECOMMENDED_ZIP_LIMITS,
+      lazySlides: true,
+      lazyMedia: true,
+      renderMode: 'list',
+      listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
+    })
+    return () => viewer.destroy()
   }, [blob, w])
   return (
     <>

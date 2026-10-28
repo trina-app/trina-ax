@@ -16,6 +16,7 @@
     "mock": "bun test/mock/serve.ts"
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "1.4.0",
     "@mycel/shared": "workspace:*",
     "clsx": "2.1.1",
     "docx-preview": "0.4.1",
@@ -26,7 +27,6 @@
     "mermaid": "11.17.2",
     "papaparse": "5.7.0",
     "pdfjs-dist": "6.3.289",
-    "pptx-preview": "1.0.7",
     "qrcode-generator": "2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
