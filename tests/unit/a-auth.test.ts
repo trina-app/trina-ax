@@ -290,6 +290,21 @@ describe('rate limits (per account and per real client IP)', () => {
     const rows = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1").get() as { detail: string }
     expect(JSON.parse(rows.detail)).toEqual({ ip: '2001:db8:0:1::2', via: 'relay' })
   })
+  test('the shared address of the Mac itself: failed sign-ins with any usernames do not lock the team out', async () => {
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    // everyone at the server Mac or on an SSH tunnel signs in from 127.0.0.1
+    for (let i = 0; i < DEFAULT_LIMITS.perIp + 5; i++) expect((await attempt(`ghost-loop${i}`, 'whatever pw 123', '127.0.0.1')).status).toBe(401)
+    expect((await attempt('ben', 'blue ocean wave 22', '127.0.0.1')).status).toBe(200)
+    expect((await attempt('amy', 'apple orange tree 11', '127.0.0.1')).status).toBe(200)
+    // that address still has a (higher) limit across accounts
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    for (let i = 0; i < DEFAULT_LIMITS.perNetIp; i++) h.auth.limiter.fail([{ kind: 'net-ip', id: '127.0.0.1' }])
+    expect((await attempt('ben', 'blue ocean wave 22', '127.0.0.1')).status).toBe(429)
+    // and an address that is not the person's own network keeps the normal limit
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    for (let i = 0; i < DEFAULT_LIMITS.perIp; i++) expect((await attempt(`ghost-net${i}`, 'whatever pw 123', '203.0.113.77')).status).toBe(401)
+    expect((await attempt('ben', 'blue ocean wave 22', '203.0.113.77')).status).toBe(429)
+  })
   test('unknown client IP: only the account limit applies', async () => {
     h.advance(DEFAULT_LIMITS.windowMs + 1000)
     for (let i = 0; i < DEFAULT_LIMITS.perIp + 5; i++) expect((await attempt(`nobody${i}`, 'whatever pw 123', null)).status).toBe(401)

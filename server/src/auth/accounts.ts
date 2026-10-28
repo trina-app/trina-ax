@@ -19,7 +19,7 @@ import { createDefaultFolders } from '../admin/folders'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
-import { accountKey, ipKeys, limitIp, tokenIpKeys, type AccountScope } from './rate-limit'
+import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { authOf } from './service'
 import { assertSeatFree } from '../system/limits'
@@ -152,9 +152,17 @@ export async function login(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Lo
   const scope: AccountScope = net && ((!info.tunnel && isLoopback(ip)) || (known && a.limiter.knownNet(known.id, net)))
     ? { kind: 'net', net }
     : info.tunnel || info.via === 'relay' ? { kind: 'internet' } : { kind: 'office' }
-  const keys = [accountKey(b.username, scope), ...ipKeys(ip)]
+  // A sign-in from the person's own network (`net` scope: the server Mac itself, or a network they signed in from
+  // before) uses a higher per-IP limit (perNetIp) instead of perIp. Many people share one such address (everyone at
+  // the Mac or on an SSH tunnel is 127.0.0.1, an office's desks share its public IP), so before, about 30 failed
+  // sign-ins with any usernames locked the whole team out there for 15 minutes. Its attempts still count toward the
+  // normal IP counter, and the per-account counter (10 per 15 minutes) still applies.
+  // A loopback address reported by the relay is a client on the relay host, not this Mac: it keeps the normal limit.
+  const accountK = accountKey(b.username, scope)
+  const shared = scope.kind === 'net' && !(info.via === 'relay' && isLoopback(ip))
+  const keys = shared ? [accountK, ...netIpKeys(ip)] : [accountK, ...ipKeys(ip)]
   // counted before the (slow) password check, so parallel guesses cannot slip past the limit
-  const hold = a.limiter.hold(keys)
+  const hold = a.limiter.hold(keys, shared ? ipKeys(ip) : [])
   if (hold.wait > 0) {
     // one audit row per client IP (or account, when the IP is unknown) and minute: a flood of refused attempts,
     // even with made-up usernames, cannot fill the disk
