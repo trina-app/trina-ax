@@ -1846,3 +1846,16 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   keep the row; errors still use the existing localized toast. No shared action/API semantics change.
 - Browser coverage checks immediate removal in en/ko/id, no request on cancellation, no list refresh on
   rejection, and a successful retry with one list refresh. Needed in core too; no new strings or dependencies.
+
+## Push notification language (fix/push-locale, 2026-10-29)
+
+- The three existing push events (scheduled task success/failure and connection sign-in needed) use generic
+  ko/en/id language tables. GET /api/push returns the title and bodies in the current recipient account locale;
+  accounts without their own choice follow the team's synchronized default, with English as the system default.
+  The title still uses PRODUCT.displayName in every language.
+- The service worker reads this text during its existing authenticated, no-store eligibility checks. Provider
+  payloads remain opaque IDs and an event code; task names, results, files, errors and credentials are not added.
+  Missing localized text fails closed. New text requires the updated service worker to activate.
+- Coverage checks all events in all supported languages, explicit account choices versus team/browser language,
+  team-default changes and English fallback, service-worker rendering and the existing delivery/privacy guards.
+- Needed in the core too (potenlab/team-ax); no Trina-specific behavior.
