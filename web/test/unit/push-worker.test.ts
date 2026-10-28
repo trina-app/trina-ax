@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { IDBFactory } from 'fake-indexeddb'
+import { Locale, NotificationEventType } from '@mycel/shared/api'
+import { pushMessages } from '../../../server/src/notifications/text'
 
 const source = readFileSync(new URL('../../pwa/sw.js', import.meta.url), 'utf8')
 const payload = { notificationId: 'event-1', subscriptionId: 'subscription-1', code: 'schedule.success' }
@@ -9,7 +11,7 @@ function worker(database = new IDBFactory()) {
   const listeners = new Map<string, (event: any) => void>()
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = []
-  let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1' }
+  let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
   let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true }
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null }
   let status = 200, gate: Promise<void> | null = null
@@ -77,6 +79,26 @@ test('worker rejects revoked subscriptions, disabled preferences, read events an
   ]) {
     const w = worker(); deny(w); await w.push(); expect(w.shown).toHaveLength(0)
   }
+})
+
+test.each(Locale.options)('worker displays server-selected %s title and body for every push event', async locale => {
+  for (const code of NotificationEventType.options) {
+    const w = worker(), messages = pushMessages(locale)
+    w.configure({ messages })
+    w.item({ id: 'event-1', code, readAt: null })
+    await w.push({ ...payload, code, title: 'PRIVATE PROMPT', body: 'PRIVATE FILE', locale: 'en' })
+    expect(w.shown).toHaveLength(1)
+    expect(w.shown[0]!.title).toBe(messages.title)
+    expect(w.shown[0]!.options.body).toBe(messages.bodies[code])
+    expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
+  }
+})
+
+test('worker fails closed if authenticated localized text is missing', async () => {
+  const w = worker()
+  w.configure({ messages: undefined as any })
+  await w.push()
+  expect(w.shown).toHaveLength(0)
 })
 
 test('logout while a delivery awaits authorization suppresses it and closes prior notifications', async () => {

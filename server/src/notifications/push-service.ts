@@ -7,6 +7,9 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { Vault } from '../credentials/vault'
+import { getUser } from '../auth/users'
+import { teamDefaultLocale } from '../admin/settings'
+import { pushMessages } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser } from './push-events'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
@@ -40,7 +43,8 @@ export class PushService {
   settings(userId:string,sessionId:string){
     this.requireSession(userId,sessionId);const c=this.o.config()
     const sub=this.ctx.db.query('SELECT id,config_key FROM push_subscriptions WHERE user_id=? AND session_id=?').get(userId,sessionId) as {id:string;config_key:string}|null
-    return{configured:!!c,enabled:this.enabled(userId),publicKey:c?.publicKey??null,subscriptionId:c&&sub?.config_key===pushConfigKey(c)?sub.id:null}
+    const locale=getUser(this.ctx.db,userId)?.locale??teamDefaultLocale(this.ctx.db)
+    return{configured:!!c,enabled:this.enabled(userId),publicKey:c?.publicKey??null,subscriptionId:c&&sub?.config_key===pushConfigKey(c)?sub.id:null,messages:pushMessages(locale)}
   }
   private safeSecrets(create=false){
     const realData=fs.realpathSync(this.ctx.config.dataDir),team=fs.realpathSync(this.ctx.config.teamRoot)

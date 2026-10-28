@@ -25,6 +25,7 @@ import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
 import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
+import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const HANGUL = /[ㄱ-ㆎ가-힣]/
@@ -62,6 +63,7 @@ describe('server and relay texts', () => {
     checkTable('file moves', FILE_MOVE_TEXT)
     checkTable('external-service connections', INTEGRATION_TEXT)
     checkTable('team logo', TEAM_ICON_TEXT)
+    checkTable('push notifications', PUSH_TEXT)
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
     checkTable('budget periods', PERIOD, 2)
@@ -86,6 +88,7 @@ describe('server and relay texts', () => {
  * `t('…', 'English', 'Indonesian')` / `fail('…', …)` call) may hold Korean, plus the lines a file's own pattern names.
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
+  'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en and id)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en and id)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },

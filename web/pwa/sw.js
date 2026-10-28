@@ -53,7 +53,6 @@ self.addEventListener('fetch', (event) => {
 let pushEpoch = 0
 const pushPending = new Set()
 const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect' }
-const PUSH_BODY = { 'schedule.success': 'A scheduled task completed.', 'schedule.failure': 'A scheduled task needs your attention.', 'connection.reconnect': 'A connection needs you to sign in again.' }
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 
 // Store opaque deduplication receipts, never notification text, prompts, file names or tokens.
@@ -103,7 +102,10 @@ self.addEventListener('push', event => {
       }
       const [settings, preferences, item] = await Promise.all([get('/api/push'), get('/api/notification-preferences'), get(`/api/notifications/${payload.notificationId}`)])
       if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || preferences[PUSH_PREF[payload.code]] !== true || item.id !== payload.notificationId || item.code !== payload.code || item.readAt !== null) return
-      await self.registration.showNotification('__PRODUCT_NAME__', { body: PUSH_BODY[payload.code], tag, renotify: false, data: { notificationId: payload.notificationId } })
+      // The authenticated server selects generic table text in the recipient's current account/team language.
+      const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
+      if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
+      await self.registration.showNotification(title, { body, tag, renotify: false, data: { notificationId: payload.notificationId } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
