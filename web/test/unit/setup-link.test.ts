@@ -33,7 +33,8 @@ describe('setup link', () => {
 
 describe('source code link (AGPL-3.0, SV-8)', () => {
   test('a mail request while the repository is not public; the version tag once it is', () => {
-    const req = sourceCodeLink('0.3.1')
+    // explicit values: an edition's SOURCE_CODE may already be published (shared/src/source.ts)
+    const req = sourceCodeLink('0.3.1', { repository: 'https://github.com/o/r', published: false, requestEmail: 'x@y' })
     expect(req.kind).toBe('request')
     expect(req.href).toStartWith('mailto:')
     expect(decodeURIComponent(req.href)).toContain('version 0.3.1')
