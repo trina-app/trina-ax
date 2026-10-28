@@ -234,3 +234,90 @@ test('open windows of people who follow the team switch when an admin changes th
   await expect(other.getByRole('heading', { name: '설정' })).toBeVisible()
   await expect(other.getByTestId('locale-team')).toHaveText('팀 기본값 (한국어)')
 })
+
+// The app shell is available (as with Electron's cached reload), but account lookup cannot reach the server.
+for (const locale of ['ko', 'en', 'id'] as const) {
+  test(`${locale}: reload and retry keep the account language when the team API is unreachable`, async ({ page }) => {
+    await reset(page, { teamLocale: locale === 'ko' ? 'en' : locale, usersFollowTeam: locale !== 'ko' })
+    await signIn(page)
+    await expect(page.locator('html')).toHaveAttribute('lang', locale)
+    expect(await page.evaluate(() => localStorage.getItem('mycel.locale'))).toBeNull()
+    await page.route('**/api/me', route => route.abort('internetdisconnected'))
+    await page.reload()
+    const text = {
+      ko: { error: '팀 서버에 연결할 수 없어요', retry: '다시 시도' },
+      en: { error: "Can't reach the team server", retry: 'Try again' },
+      id: { error: 'Server tim tidak bisa dihubungi', retry: 'Coba lagi' },
+    }[locale]
+    await expect(page.getByText(text.error, { exact: true })).toBeVisible()
+    await expect(page.locator('html')).toHaveAttribute('lang', locale)
+    await page.getByRole('button', { name: text.retry, exact: true }).click()
+    await expect(page.getByText(text.error, { exact: true })).toBeVisible()
+    await page.unroute('**/api/me')
+    await page.getByRole('button', { name: text.retry, exact: true }).click()
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+    await expect(page.locator('html')).toHaveAttribute('lang', locale)
+  })
+}
+
+test('recovery does not replace an old login pick or pass a previous account language to another person', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await page.goto('/login')
+  await page.getByTestId('auth-locale').selectOption('id')
+  // An old pick is not adopted as an account preference.
+  await page.reload()
+  await signIn(page)
+  await page.goto('/settings/profile')
+  await page.getByTestId('locale-ko').click()
+  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByRole('button', { name: '다시 시도', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('mycel.locale'))).toBe('id')
+  await page.unroute('**/api/me')
+  await page.getByRole('button', { name: '다시 시도', exact: true }).click()
+  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('logout').click()
+  await expect(page.getByRole('heading', { name: 'Masuk' })).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('mycel.recentLocale'))).toBeNull()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await page.goto('/settings/profile')
+  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
+})
+
+test('recovery language is isolated by team origin', async ({ page, context, baseURL }) => {
+  await reset(page, { teamLocale: 'en' })
+  await signIn(page)
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko')
+  const otherOrigin = new URL(baseURL!)
+  otherOrigin.hostname = 'localhost'
+  const other = await context.newPage()
+  await other.goto(otherOrigin.href)
+  await expect(other.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+  expect(await other.evaluate(() => localStorage.getItem('mycel.recentLocale'))).toBeNull()
+  await other.route('**/api/me', route => route.abort('internetdisconnected'))
+  await other.reload()
+  await expect(other.getByText("Can't reach the team server", { exact: true })).toBeVisible()
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByText('팀 서버에 연결할 수 없어요', { exact: true })).toBeVisible()
+})
+
+test('blocked storage falls back safely on an unavailable account lookup', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', { get: () => { throw new DOMException('Blocked', 'SecurityError') } })
+  })
+  await reset(page)
+  await signIn(page)
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko')
+  await page.route('**/api/me', route => route.abort('internetdisconnected'))
+  await page.reload()
+  await expect(page.getByText("Can't reach the team server", { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  await page.unroute('**/api/me')
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko')
+})

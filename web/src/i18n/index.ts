@@ -95,6 +95,25 @@ export function storeLocale(l: Locale | null): void {
   }
 }
 
+const RECENT_KEY = 'mycel.recentLocale'
+/** Last signed-in screen language, scoped to this team origin. Never a sign-in choice to adopt into an account. */
+export function recentLocale(): Locale | null {
+  try {
+    return asLocale(localStorage.getItem(RECENT_KEY))
+  } catch {
+    return null
+  }
+}
+
+export function storeRecentLocale(l: Locale | null): void {
+  try {
+    if (l) localStorage.setItem(RECENT_KEY, l)
+    else localStorage.removeItem(RECENT_KEY)
+  } catch {
+    /* storage blocked: recovery uses the usual sign-in/default language */
+  }
+}
+
 interface LocaleState {
   locale: Locale
   /** show this language now (no reload: every screen reads it through useT / useLocale) */
