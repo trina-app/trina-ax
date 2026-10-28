@@ -22,7 +22,7 @@
 `source.json`은 Trina AX 앱의 "소스 코드" 링크와 소스 요청 메일 주소다. 코어 `scripts/edition-source.ts`로 적용한다(`--apply`가 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다).
 
 - `repository`: `https://github.com/trina-app/trina-ax`
-- `published`: 레포가 공개되기 전에는 `false`다. 그동안 링크는 메일 요청이 된다. 공개할 때 `true`로 바꾸고 다시 적용한다.
+- `published`: `true`(2026-10-28, 공개 준비). 링크는 실행 중인 판의 태그 `/tree/v<판>`을 연다. 공개 전에는 `false`였고 그동안 링크는 메일 요청이었다.
 - `requestEmail`: `contact@trina.app`(2026-10-28 대표 결정).
 
 ## 사이트 자산

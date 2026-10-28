@@ -88,7 +88,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
    > The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings
 
    2026-10-27 현재 이 레포의 CI가 이 상태다(적어도 10-22부터 모든 run이 시작 전에 실패). Settings → Billing and plans에서 결제 수단과 Actions 지출 한도를 고친 뒤 첫 태그를 단다.
-2. **Cloudflare 토큰을 CI 전용으로 새로 만든다.** 권한은 최소로 한다.
+2. **Cloudflare 토큰을 CI 전용으로 새로 만든다**(업데이트 피드를 쓸 때만. `CLOUDFLARE_API_TOKEN`이 없으면 release.yml은 피드를 건너뛰고 GitHub Release만 만든다, 2026-10-28). 권한은 최소로 한다.
    - Zone → Zone → Read: 업데이트 주소의 zone 하나(`RELEASE_CHANNEL.hosting.zone`)
    - Account → Workers R2 Storage → Edit
    - CI는 `hosting.ts setup`을 하지 않으므로 Workers Scripts·Routes 권한은 필요 없다.

@@ -42,7 +42,7 @@ There is **no email** anywhere, by design. Invites and password resets are links
   subscription for Codex is optional.
 - A Mac admin account. Dev mode asks for its password once, in the Homebrew installer; the production install asks on
   every `sudo`.
-- A GitHub account with read access to the repository (private for now).
+- The source code: `git clone https://github.com/trina-app/trina-ax.git` (public, AGPL-3.0-only).
 
 ## 1. Quick try: dev mode on one Mac
 
