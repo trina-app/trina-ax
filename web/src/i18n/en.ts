@@ -555,6 +555,7 @@ export const en: Record<MessageKey, string> = {
   'scheduleTemplates.weekday': 'Weekday',
   'scheduleTemplates.cost': 'Creating a schedule does not run the AI. Each scheduled run uses your AI connection and usage limit.',
   'scheduleTemplates.create': 'Create scheduled task',
+  'scheduleTemplates.limit': 'You can keep up to {n} personal schedules, including paused schedules. Delete an existing schedule to create a new one.',
   'scheduleTemplates.created': 'Scheduled. You can pause or delete it in the list below.',
   'scheduleTemplates.deferred': 'Deferred because the queue is full · retry {time}',
   'scheduleTemplates.outcome.done': 'Last run completed',

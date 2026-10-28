@@ -7,6 +7,7 @@ import { authorize } from '../policy/authorize'
 import { parseInput } from '../policy/resolve'
 import type { ChatRuntime } from './runtime'
 import { SCHEDULES_PER_PERSON } from './schedules'
+import { tr } from './i18n'
 
 export const SCHEDULE_TEMPLATES = [
   { id: 'daily-file-index', version: 1, repeat: 'daily' },
@@ -39,7 +40,7 @@ export function createFromTemplate(ctx: AppContext, rt: ChatRuntime, userId: str
       return existing
     }
     const count = ctx.db.query('SELECT COUNT(*) n FROM schedules WHERE user_id=?').get(userId) as { n: number }
-    if (count.n >= SCHEDULES_PER_PERSON) throw new HttpError('plan_limit')
+    if (count.n >= SCHEDULES_PER_PERSON) throw new HttpError('conflict', tr('scheduleLimit', rt.userLocale(userId), { n: String(SCHEDULES_PER_PERSON) }), { params: { reason: 'schedule_limit', limit: SCHEDULES_PER_PERSON } })
     const scope = validateTemplateFolders(ctx, userId, input.sourcePath, input.outputPath)
     const daily = input.templateId === 'daily-file-index'
     const prompt = [

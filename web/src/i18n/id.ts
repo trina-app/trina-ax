@@ -555,6 +555,7 @@ export const id: Record<MessageKey, string> = {
   'scheduleTemplates.weekday': 'Hari',
   'scheduleTemplates.cost': 'Membuat jadwal tidak menjalankan AI. Setiap eksekusi memakai koneksi AI dan batas penggunaanmu.',
   'scheduleTemplates.create': 'Buat tugas terjadwal',
+  'scheduleTemplates.limit': 'Anda dapat menyimpan hingga {n} jadwal pribadi, termasuk jadwal yang dijeda. Hapus jadwal yang ada untuk membuat jadwal baru.',
   'scheduleTemplates.created': 'Sudah dijadwalkan. Jeda atau hapus melalui daftar di bawah.',
   'scheduleTemplates.deferred': 'Ditunda karena antrean penuh · coba lagi {time}',
   'scheduleTemplates.outcome.done': 'Eksekusi terakhir selesai',

@@ -1,14 +1,19 @@
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { harness, withOwner, type Harness } from './a-lib'
+import { addMember, harness, withOwner, type Harness } from './a-lib'
+import { ERROR_MESSAGES } from '@mycel/shared/api'
+import { HttpError } from '../../server/src/http/errors'
+import { tr } from '../../server/src/chat/i18n'
+import { SCHEDULES_PER_PERSON } from '../../server/src/chat/schedules'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { createFromTemplate, templateToolRefusal, validateTemplateTurn } from '../../server/src/chat/schedule-templates'
 let h: Harness
 const input = () => ({ requestId: crypto.randomUUID(), templateId: 'daily-file-index' as const, version: 1 as const, sourcePath: 'shared', outputPath: 'users/olga/reports', time: '09:00' })
 async function setup() {
-  h = await harness('schedule-templates'); await withOwner(h)
+  h = await harness('schedule-templates'); const owner = await withOwner(h)
   fs.mkdirSync(path.join(h.ctx.config.teamRoot, 'shared'), { recursive: true })
+  return owner
 }
 afterEach(async () => { await h?.close() })
 test('templates are dormant; explicit creation is idempotent and changed input conflicts', async () => {
@@ -51,4 +56,44 @@ test('an existing Markdown source/report is never silently overwritten by a temp
   h.ctx.db.query("INSERT INTO turns(id,chat_id,user_id,engine,status,template_source_path,template_output_path) VALUES('t','c','olga','claude-code','running','shared','users/olga/reports')").run()
   expect(templateToolRefusal(h.ctx, 'olga', 't', 'write', { file_path: 'users/olga/reports/keep.md' })).toBeTruthy()
   expect(fs.readFileSync(path.join(output, 'keep.md'), 'utf8')).toBe('keep original')
+})
+
+test('20 stored schedules include paused ones; capacity is per person and preserves idempotent retries', async () => {
+  const owner = await setup(), rt = getChatRuntime(h.ctx)
+  const member = await addMember(h, owner, { username: 'bob' })
+  expect(SCHEDULES_PER_PERSON).toBe(20)
+  const requests = Array.from({ length: SCHEDULES_PER_PERSON }, input)
+  const made = requests.map(request => createFromTemplate(h.ctx, rt, 'olga', request))
+  for (const schedule of made) rt.schedules.setEnabled('olga', schedule.id, false)
+  expect(rt.schedules.list('olga')).toHaveLength(20)
+  expect(rt.schedules.list('olga').every(schedule => !schedule.enabled)).toBe(true)
+
+  // Existing successful requests are checked before capacity; changed input still conflicts.
+  expect(createFromTemplate(h.ctx, rt, 'olga', requests[0]!).id).toBe(made[0]!.id)
+  expect(() => createFromTemplate(h.ctx, rt, 'olga', { ...requests[0]!, time: '10:00' }))
+    .toThrow(expect.objectContaining({ code: 'conflict', extra: {} }))
+  const rejected = input()
+  for (const locale of ['ko', 'en', 'id'] as const) {
+    await owner.call('PATCH', '/api/me', { locale })
+    const response = await owner.try('POST', '/api/schedule-templates', rejected)
+    expect(response.status).toBe(409)
+    expect(response.body.error).toMatchObject({ code: 'conflict', params: { reason: 'schedule_limit', limit: 20 }, message: tr('scheduleLimit', locale, { n: '20' }) })
+    expect(response.body.error.message).not.toBe(ERROR_MESSAGES.plan_limit[locale])
+    expect(new HttpError('plan_limit').body(locale).message).toBe(ERROR_MESSAGES.plan_limit[locale])
+  }
+  expect(rt.schedules.list('olga')).toHaveLength(20)
+  expect(h.ctx.db.query('SELECT COUNT(*) n FROM schedule_template_requests WHERE user_id=? AND request_id=?').get('olga', rejected.requestId)).toEqual({ n: 0 })
+
+  const other = createFromTemplate(h.ctx, rt, member.id, { ...requests[0]!, outputPath: `users/${member.id}/reports` })
+  expect(rt.schedules.list(member.id)).toHaveLength(1)
+  expect(other.id).not.toBe(made[0]!.id)
+  expect(rt.schedules.list('olga')).toHaveLength(20)
+
+  expect(rt.schedules.delete('olga', made[0]!.id)).toBe(true)
+  const recovered = createFromTemplate(h.ctx, rt, 'olga', rejected)
+  expect(createFromTemplate(h.ctx, rt, 'olga', rejected).id).toBe(recovered.id)
+  expect(rt.schedules.list('olga')).toHaveLength(20)
+  // A late retry cannot resurrect a deleted schedule, even when capacity is full again.
+  expect(() => createFromTemplate(h.ctx, rt, 'olga', requests[0]!)).toThrow(expect.objectContaining({ code: 'gone' }))
+  expect(h.ctx.db.query('SELECT COUNT(*) n FROM turns').get()).toEqual({ n: 0 })
 })
