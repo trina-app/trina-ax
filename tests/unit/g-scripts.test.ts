@@ -227,6 +227,8 @@ describe('Linux root scripts: syntax and rules', () => {
       for (const n of ['launcher.service.in', 'server.service.in']) expect(fs.readFileSync(path.join(dir, n), 'utf8')).not.toContain('\n' + k)
     // systemd's ProtectHostname filters sethostname: bwrap --hostname (the engine sandbox) fails with EPERM (spike S1)
     expect(l).not.toContain('\nProtectHostname=')
+    // the server unit runs the converters' bwrap too: ProtectHostname there breaks its /proc mount
+    expect(fs.readFileSync(path.join(dir, 'server.service.in'), 'utf8')).not.toContain('\nProtectHostname=')
     const srv = fs.readFileSync(path.join(dir, 'server.service.in'), 'utf8')
     expect(srv).toContain('MYCEL_SANDBOX_HELPER=@BASE@/root/mycel-sandbox')
     expect(srv).toContain('KillMode=mixed')

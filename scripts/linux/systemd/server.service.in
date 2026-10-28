@@ -30,7 +30,9 @@ ProtectSystem=strict
 ReadWritePaths=@BASE@/app @BASE@/data @BASE@/team @BASE@/config @BASE@/secrets @BASE@/setup @BASE@/status @BASE@/run/tools
 ProtectHome=yes
 PrivateTmp=yes
-ProtectHostname=yes
+# not ProtectHostname: together with the mount options above it puts read-only files over /proc/sys/kernel/hostname and
+# domainname, and the kernel then refuses a new /proc: the converters' bwrap (PDF, Office text) fails with "Can't mount
+# proc on /proc: Operation not permitted" (Lightsail Debian 13, 2026-10-28). The account has no capabilities anyway.
 ProtectClock=yes
 ProtectKernelModules=yes
 RestrictRealtime=yes
