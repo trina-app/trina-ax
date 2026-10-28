@@ -3,7 +3,7 @@
 //   default      a recording fake model service stands in for api.anthropic.com: checks that Claude Code reads the
 //                per-turn token from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), sends it to
 //                ANTHROPIC_BASE_URL, and that only the connection's token reaches the model service. Costs nothing.
-//   --real       spike S2 (docs/DECISIONS.md "AI 연결" CR-01, docs/OWNER-TODO.md): with the owner's real
+//   --real       spike S2 (docs/DECISIONS.md "AI 연결" CR-01): with the owner's real
 //                `claude setup-token` in TEAMAX_SPIKE_SETUP_TOKEN (never printed): ① the free check the server does
 //                when a token is added (POST /v1/messages/count_tokens with the OAuth token: 200 / 401 / other is
 //                recorded) and ② one managed turn against the real api.anthropic.com (a few tokens of the plan).

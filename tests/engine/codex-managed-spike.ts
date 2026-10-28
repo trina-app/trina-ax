@@ -1,4 +1,4 @@
-// Spike S1 (docs/DECISIONS.md "AI 연결" CR-00, docs/OWNER-TODO.md): does the REAL Codex CLI work against the real
+// Spike S1 (docs/DECISIONS.md "AI 연결" CR-00): does the REAL Codex CLI work against the real
 // ChatGPT / OpenAI backends with the managed setup — a placeholder auth.json holding only a turn token, the custom
 // provider "teamax" pointing at our model proxy, which puts the real credential on each request and refreshes the
 // ChatGPT sign-in itself? Uses the real server pieces (credentials/*, proxy/model-proxy.ts + codex-path.ts) with a

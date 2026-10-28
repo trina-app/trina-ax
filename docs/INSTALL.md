@@ -15,7 +15,7 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Dev mode on one Mac, chats included (Part 1) | Works |
 | Teams, invite links, folder permissions, backups | Works |
 | Production install (`scripts/install-macos.sh`): role accounts, LaunchDaemons, sandbox, pf, Claude chats on the owner's `claude setup-token` token | **Not verified on a real install.** Done in code and tests (as the current user), but never run as the real role accounts and no Anthropic answer through the proxy has been seen; run the role-account test first (2.0) |
-| Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, docs/OWNER-TODO.md 11) |
+| Codex in production | For everyone, through the team's AI connections (2.3a); checked with the real `codex` against a fake model service only, not yet with a real ChatGPT / OpenAI account (spike S1, an open owner task) |
 | Public team address `<team>.treesoop.com` | Not available: the production relay is not running |
 | Signed and notarized apps (Mac, menubar, Windows) | Not available: apps are unsigned, so the OS warns on first launch |
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
@@ -455,7 +455,7 @@ account."
   ChatGPT sign-ins itself. Several Codex turns run at once. Codex is no longer beta: everyone may use it and it can be
   the team default.
   - Verified with the real `codex-cli 0.163.0` against a fake model service (`bun tests/engine/managed-real.ts`).
-  - Not yet verified with a real ChatGPT / OpenAI account: spike S1 (docs/OWNER-TODO.md 11).
+  - Not yet verified with a real ChatGPT / OpenAI account: spike S1 (an open owner task).
 - The older engine-account login (2.5, `agent/codex-auth`, one Codex turn at a time) was checked with a real ChatGPT
   login on a staging install (2026-10-22, sandbox and pf on): sign-in, answers with the team tools, a token refresh
   written back, and web search, all through the proxy.
@@ -794,7 +794,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 2. **Codex with a real ChatGPT / OpenAI account through AI connections is not verified yet.** Managed Codex
    (placeholder login, the proxy adds the AI connection's credential, server-side ChatGPT refresh) runs with the real
    `codex` 0.163.0 against a fake model service (`bun tests/engine/managed-real.ts`). Whether the real backends accept
-   it is spike S1 (docs/OWNER-TODO.md 11); if not, the F1 fallback in docs/DECISIONS.md "AI 연결" applies. The older
+   it is spike S1 (an open owner task); if not, the F1 fallback in docs/DECISIONS.md "AI 연결" applies. The older
    engine-account login (2.5) was checked with a real ChatGPT login and pf on (answers, token refresh, web search).
    Only the single `codex` executable is installed, not its helper files.
 3. **The menubar app has no token step, setup assistant, "Repair firewall", "Reinstall" or uninstall.** The token is
@@ -812,7 +812,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 12. **Dev ports are fixed (19100/19161).** `bun run dev` now names the process holding one before it starts. A second
     instance needs a copy of `scripts/dev.ts` with other ports; a port flag or env var would fix it.
 13. **Owner-blocked items.** Apple and Windows signing, the production relay and CI billing are waiting on the
-    owner; see [OWNER-TODO.md](OWNER-TODO.md). Run `bun run typecheck && bun run test` locally.
+    owner. Run `bun run typecheck && bun run test` locally.
 14. **Code follow-ups from the install-guide review (2026-10-21).** The docs work around each of these; the code
     still needs the change:
     - `set-claude-token` keeps only the first line of its input and needs only 20 characters after `sk-ant-oat01-`:
