@@ -29,6 +29,51 @@ test('browse, previews (CSV, Markdown, HTML in the sandbox), conflict copies, re
   await expect(page.getByTestId('upload-button')).toBeDisabled()
 })
 
+test('Markdown preview hides HTML comments on open and reopen, keeping code examples and HTML inert', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  const text = [
+    '# QA weekly memo',
+    '',
+    'Visible before<!-- QA inline instruction --> and after.',
+    '',
+    '<!-- QA hidden instructions',
+    'These instructions must not appear in the preview.',
+    '-->',
+    '',
+    'Visible after the comment.',
+    '',
+    '`<!-- inline example -->`',
+    '',
+    '```html',
+    '<!-- fenced example -->',
+    '```',
+    '',
+    '<script>document.documentElement.dataset.qaExecuted = "yes"</script>',
+    '',
+    '<img src=x onerror="document.documentElement.dataset.qaExecuted = \'yes\'">',
+  ].join('\n')
+  await page.getByTestId('files-input').setInputFiles({ name: 'qa-weekly-memo.md', mimeType: 'text/markdown', buffer: Buffer.from(text) })
+  const panel = page.getByTestId('file-panel')
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await row(page, 'qa-weekly-memo.md').getByRole('button').first().click()
+    await expect(panel.getByRole('heading', { name: 'QA weekly memo', exact: true })).toBeVisible()
+    await expect(panel).toContainText('Visible before and after.')
+    await expect(panel).toContainText('Visible after the comment.')
+    await expect(panel).not.toContainText('QA inline instruction')
+    await expect(panel).not.toContainText('QA hidden instructions')
+    await expect(panel).not.toContainText('These instructions')
+    await expect(panel.locator('code').filter({ hasText: '<!-- inline example -->' })).toBeVisible()
+    await expect(panel.locator('pre')).toContainText('<!-- fenced example -->')
+    await expect(panel.locator('.answer')).toContainText('<script>')
+    await expect(panel.locator('.answer script, .answer img')).toHaveCount(0)
+    await expect(page.locator('html')).not.toHaveAttribute('data-qa-executed')
+    await panel.getByRole('button', { name: '닫기', exact: true }).click()
+    await expect(panel).toHaveCount(0)
+  }
+})
+
 test('cancelling a chunked upload drops its session on the server', async ({ page }) => {
   await reset(page)
   await signIn(page)
