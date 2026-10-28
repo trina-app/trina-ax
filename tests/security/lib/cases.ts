@@ -8,6 +8,7 @@ import { authOf, enc, levelExp, type Case, type Exp } from './matrix'
 import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
+import { TEAM_ICON_SPECS } from './team-icon-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -62,6 +63,7 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
 export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
+  ...TEAM_ICON_SPECS,
   ...REMOTE_MCP_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },

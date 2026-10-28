@@ -20,6 +20,8 @@ import fs from 'node:fs'
 import * as XLSX from 'xlsx'
 import { makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
+import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
+import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationTool } from '@mycel/shared/api'
@@ -63,6 +65,8 @@ const OWNER_PASSWORD = 'correct horse battery'
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
 /** like server/src/admin/settings.ts BROWSER_POLICY_CHANGED */
 const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', code: 'browser_policy_changed', message: '' } } as const
+/** like server/src/admin/team-icon.ts TEAM_ICON_CHANGED */
+const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
 export class MockServer {
   setupNeeded = false
@@ -101,6 +105,8 @@ export class MockServer {
   queuePositions = new Map<string, number>()
   queueRevision = 0
   settings: TeamSettings = defaultSettings()
+  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
+  teamIcon: TeamIconFile | null = null
   /** every request the client made (method + path), for assertions */
   log: string[] = []
   /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
@@ -181,6 +187,7 @@ export class MockServer {
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
     this.settings = defaultSettings()
+    this.teamIcon = null
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
@@ -320,7 +327,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -1105,6 +1112,24 @@ export class MockServer {
       if (this.settings.browserAllowAll !== policyBefore) this.publish(BROWSER_POLICY_CHANGED)
       return this.settings
     },
+    // like server/src/admin/team-icon.ts: the same checks (shared/src/team-icon.ts) and words
+    putTeamIcon: async (c) => {
+      const bytes = new Uint8Array(await c.req.arrayBuffer())
+      const r = bytes.byteLength > TEAM_ICON_MAX_BYTES ? ({ ok: false, problem: 'too_big' } as const) : checkTeamIcon(bytes, c.query.type)
+      if (!r.ok) {
+        const message = TEAM_ICON_TEXT[r.problem].ko
+        if (r.problem === 'too_big') fail('payload_too_large', 413, message)
+        throw new Fail('validation', 400, message, { body: r.problem }, { reason: r.problem })
+      }
+      this.teamIcon = { bytes, type: r.type, width: r.width, height: r.height, version: sha256Hex(bytes).slice(0, 16) }
+      this.publish(TEAM_ICON_CHANGED)
+      return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
+    },
+    deleteTeamIcon: () => {
+      if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
+      this.teamIcon = null
+      return undefined
+    },
     usage: (c) => ({ from: c.query.from ?? now(), to: c.query.to ?? now(), rows: c.query.groupBy === 'skill'
       ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
       : c.query.groupBy === 'model'
@@ -1466,7 +1491,7 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0 }) ?? new Response('no', { status: 404 }))
+    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 }))
     this.log.push(`${req.method} ${p}`)
     const route = this.routes.find((r) => r.ep.method === req.method && r.re.test(p))
     try {

@@ -32,6 +32,7 @@ import { registerCredentialRoutes } from './credentials'
 import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
 import { checkApiEngineUrl } from '../system/egress'
 import { feature } from '../system/deployment'
+import { readTeamIcon, removeTeamIcon, saveTeamIcon, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
@@ -269,6 +270,22 @@ export const adminRoutes: RouteModule = {
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
       return next
+    })
+
+    // ---------------- the team logo: tab icon and home-screen icon (admin/team-icon.ts, public at /team-icon) ----------------
+    kit.handle(API.putTeamIcon, async ({ c, query, body, auth }) => {
+      const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
+      const icon = await saveTeamIcon(ctx.config.dataDir, body, query.type, c.get('locale'))
+      const info = teamIconInfo(icon)
+      audit(ctx.db, { actor: auth.user.id, action: 'team_icon.set', target: null, detail: { ...info, before } })
+      ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
+      return info
+    })
+    kit.handle(API.deleteTeamIcon, ({ auth }) => {
+      const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
+      if (!removeTeamIcon(ctx.config.dataDir)) return
+      audit(ctx.db, { actor: auth.user.id, action: 'team_icon.remove', target: null, detail: { before } })
+      ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
     })
 
     kit.handle(API.usage, ({ query }) => usage(ctx.db, query))

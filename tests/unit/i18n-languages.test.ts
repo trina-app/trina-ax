@@ -24,6 +24,7 @@ import { RESTORED } from '../../server/src/team-files/place'
 import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
+import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const HANGUL = /[ㄱ-ㆎ가-힣]/
@@ -59,6 +60,7 @@ describe('server and relay texts', () => {
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
     checkTable('external-service connections', INTEGRATION_TEXT)
+    checkTable('team logo', TEAM_ICON_TEXT)
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
     checkTable('budget periods', PERIOD, 2)
@@ -119,6 +121,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en and id)' },
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en and id)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en and id)' },
+  'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en and id)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en and id)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en and id)' },
   'server/src/system/limits.ts': { why: 'plan limit messages: seats, concurrency (ko next to en and id)' },

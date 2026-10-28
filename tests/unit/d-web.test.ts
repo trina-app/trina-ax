@@ -99,6 +99,8 @@ describe('web app serving', () => {
   test('a missing asset is a 404, not the app shell', async () => {
     expect((await get('/assets/gone-123.js')).status).toBe(404)
     expect((await get('/vendor/nope.js')).status).toBe(404)
+    // any other missing file too (a browser asking for /favicon.png must not get the page as an icon)
+    for (const p of ['/favicon.png', '/favicon.ico', '/robots.txt', '/apple-touch-icon.png']) expect({ p, status: (await get(p)).status }).toEqual({ p, status: 404 })
   })
   test('no way out of dist: dotfiles, traversal, encoded slashes, symlinks', async () => {
     for (const p of ['/.hidden', '/%2e%2e/outside/secret.txt', '/assets/..%2f..%2foutside%2fsecret.txt', '/link.txt', '/%E0%A4%A']) {
@@ -119,8 +121,10 @@ describe('web app serving', () => {
     expect(idx.status).toBe(401)
     expect(await idx.text()).not.toContain('TeamAX.dmg')
     expect((await get('/downloads/TeamAX.dmg')).status).toBe(401)
-    // the URL parser folds ".." away: this is just the app shell, never the database
-    expect(await (await get('/downloads/../app.db')).text()).toContain('<div id="root">')
+    // the URL parser folds ".." away: this is /app.db of the web build, a missing file (404), never the database
+    const folded = await get('/downloads/../app.db')
+    expect(folded.status).toBe(404)
+    expect(await folded.text()).not.toContain('SQLite')
     expect(await (await get('/downloads/%2e%2e/app.db')).text()).not.toContain('SQLite')
     expect((await get('/downloads/..%2fapp.db')).status).toBe(401)
     // serveWeb alone (the web client's mock server) never serves the folder
