@@ -4,6 +4,7 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { ACME, bindWindow, chrome, close, launch, newUserData, ROOT, teamPage, welcome } from './helpers'
 
 const menuLabels = (app: Awaited<ReturnType<typeof launch>>) =>
@@ -22,10 +23,21 @@ test('fresh install on a Korean system: English; a pick on the team list applies
     await expect(w.getByTestId('ui-locale')).toHaveValue('en')
     await expect(w.getByTestId('ui-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia'])
     expect(await menuLabels(app)).toContain('View')
+    const expectDomain = async () => {
+      await expect(w.locator('.sub')).toContainText(`acme.${SERVICE_HOSTS.teamDomain}`)
+      await expect(w.locator('.sub')).not.toContainText('{domain}')
+      await expect(w.locator('#address')).toHaveAttribute('placeholder', `acme.${SERVICE_HOSTS.teamDomain}`)
+    }
+    await expectDomain()
     // a half-typed address survives the switch (the screen redraws, it does not reload)
     await w.getByRole('textbox', { name: 'Team address' }).fill('acme.local')
+    await w.getByTestId('ui-locale').selectOption('ko')
+    await expect(w.locator('html')).toHaveAttribute('lang', 'ko')
+    await expectDomain()
+    await expect(w.locator('#address')).toHaveValue('acme.local')
     await w.getByTestId('ui-locale').selectOption('id')
     await expect(w.getByRole('heading', { name: 'Masukkan alamat tim' })).toBeVisible()
+    await expectDomain()
     await expect(w.locator('#address')).toHaveValue('acme.local')
     await expect.poll(() => menuLabels(app)).toContain('Tampilan')
     // the standard items carry the app's language, not the system's (no "Undo" next to "Tampilan")
@@ -38,7 +50,11 @@ test('fresh install on a Korean system: English; a pick on the team list applies
   }
   app = await launch(data)
   try {
-    await expect((await welcome(app)).locator('html')).toHaveAttribute('lang', 'id')
+    const w = await welcome(app)
+    await expect(w.locator('html')).toHaveAttribute('lang', 'id')
+    await expect(w.locator('.sub')).toContainText(`acme.${SERVICE_HOSTS.teamDomain}`)
+    await expect(w.locator('.sub')).not.toContainText('{domain}')
+    await expect(w.locator('#address')).toHaveAttribute('placeholder', `acme.${SERVICE_HOSTS.teamDomain}`)
   } finally {
     await close(app)
   }

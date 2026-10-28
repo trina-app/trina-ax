@@ -1,5 +1,6 @@
 // Tiny DOM helpers and the preload API types for the desktop's own screens (no framework: two small screens).
 import { PRODUCT, type DesktopPaneState } from '@mycel/shared'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { UiKey, UiLocale } from '../common/i18n'
 import type { PaneActivity } from '../common/pane-activity'
 
@@ -89,7 +90,7 @@ export function onLocaleChange(render: () => void) {
 
 export function tr(key: UiKey, params: Record<string, string> = {}): string {
   const s = strings?.[key] ?? key
-  return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? (strings?.['app.name'] ?? PRODUCT.displayName) : (params[k] ?? m)))
+  return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? (strings?.['app.name'] ?? PRODUCT.displayName) : k === 'domain' ? SERVICE_HOSTS.teamDomain : (params[k] ?? m)))
 }
 
 type Attrs = Record<string, string | number | boolean | ((e: Event) => void) | undefined>

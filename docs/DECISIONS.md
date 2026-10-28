@@ -1797,3 +1797,14 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   retries and localized API responses; the existing schedule Playwright suite checks all three languages,
   distinct plan guidance and request reuse, and retains the once-completion and team-time-zone tests.
 - Needed in the core too: the same shared scheduling behavior; nothing here is Trina-specific.
+
+## Desktop welcome address examples (qa2-desktop-domain, 2026-10-29)
+
+- B-W28-1 / R2-DESK-01: the desktop renderer resolves `{domain}` from `SERVICE_HOSTS.teamDomain`, matching
+  the common translator. Both the welcome subtitle and address placeholder show the edition's example address
+  in Korean, English and Indonesian. No brand or domain is hard-coded in the renderer.
+- Reserved app/domain substitutions take precedence over caller parameters. The renderer keeps its supplied
+  app name and product fallback; other caller parameters and unresolved placeholders retain their behavior.
+- Coverage: common translation unit tests and the real Electron welcome screen in the desktop language e2e
+  suite, including language changes with a partially typed address and language persistence after restart.
+- Needed in the core too (potenlab/team-ax): the same renderer change; nothing here is Trina-specific.
