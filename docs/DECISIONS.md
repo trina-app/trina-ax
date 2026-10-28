@@ -1725,3 +1725,19 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   and conservative legacy matching in `tests/unit/i18n-languages.test.ts`; mock-server Playwright chat tests for
   Korean errors, Indonesian/English switches, re-entry/reload, distinct causes, legacy errors and unchanged user text.
 - Needed in the core too (potenlab/team-ax): all changes here are shared chat behavior, with no Trina-specific logic.
+
+## Home keyboard entry keeps the skip link first (fix/qa-keyboard-focus, 2026-10-29)
+
+- B-W1-4 / UI-02: Home used to request composer focus on every mount, so the first Tab after opening the page
+  landed on the attachment button instead of the skip link. Home now requests focus only after an in-app PUSH
+  navigation (including New chat and its shortcut) or choosing an example/frequent question. Document loads and
+  reloads do not request focus, even when a URL supplies a prompt. Browser-history POP navigation does not itself
+  request focus either.
+- The skip link's main landmark has `tabIndex={-1}` so Enter transfers focus there without adding a Tab stop.
+  The composer's existing fine-pointer and open-dialog guards stay in place; touch devices do not gain forced
+  input focus. No UI text changes.
+- Tests: real keyboard focus assertions in `web/test/e2e/a11y.spec.ts` for document entry, skip link → main → input,
+  new-chat navigation and reload, presets, and Escape returning from file-trash confirmation. Touch emulation
+  checks that loading home, choosing a preset and New chat leave the input unfocused; it does not measure a
+  physical phone's software keyboard. These checks supplement axe, which cannot verify Tab order.
+- Needed in the core too (potenlab/team-ax): the same change; nothing here is Trina-specific.

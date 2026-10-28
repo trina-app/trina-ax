@@ -5,6 +5,111 @@ import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
 
+// Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
+for (const address of ['/', '/?prompt=Draft%20from%20a%20link']) {
+  test(`home keyboard entry starts at the skip link (${address})`, async ({ page }) => {
+    await reset(page)
+    await signIn(page, { username: 'bob', password: 'bob password 1' })
+    await page.goto(address)
+    const input = page.getByTestId('composer-input')
+    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(input).not.toBeFocused()
+    if (address.includes('prompt')) await expect(input).toHaveValue('Draft from a link')
+    await page.keyboard.press('Tab')
+    const skip = page.locator('a[href="#main"]')
+    await expect(skip).toBeFocused()
+    await expect(skip).toBeInViewport()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('main')).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(input).toBeFocused()
+    await page.keyboard.type('Keyboard draft')
+    await page.keyboard.press('Shift+Enter')
+    await page.keyboard.type('Second line')
+    await expect(input).toHaveValue(/Keyboard draft\nSecond line/)
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('user-message').last()).toContainText('Second line')
+  })
+}
+
+test('new chat navigation focuses the composer but reloading does not', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files')
+  const newChat = page.getByTestId('new-chat')
+  const input = page.getByTestId('composer-input')
+  await newChat.click()
+  await expect(input).toBeFocused()
+  await input.fill('Keep this draft')
+  await page.goto('/files')
+  await expect(page.getByTestId('file-table')).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+Shift+o')
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('Keep this draft')
+  // A reload after an in-app navigation must not replay its focus request.
+  await page.reload()
+  await expect(input).toBeVisible()
+  await expect(input).not.toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('a[href="#main"]')).toBeFocused()
+})
+
+test('choosing examples and frequent questions focuses the filled composer', async ({ page }) => {
+  await reset(page)
+  await page.route('**/api/questions/frequent', r => r.fulfill({ json: { days: 30, sampled: false, items: [
+    { question: 'Summarize my weekly report', count: 3, lastUsedAt: '2026-10-20T00:00:00.000Z' },
+  ] } }))
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await page.goto('/')
+  const input = page.getByTestId('composer-input')
+  const example = page.getByTestId('example').first()
+  const text = await example.innerText()
+  await example.focus()
+  await page.keyboard.press('Enter')
+  await expect(input).toHaveValue(text)
+  await expect(input).toBeFocused()
+  const question = page.getByTestId('frequent-questions').getByRole('button')
+  await question.focus()
+  await page.keyboard.press('Enter')
+  await expect(input).toHaveValue('Summarize my weekly report')
+  await expect(input).toBeFocused()
+})
+
+test('Escape from the file trash confirmation returns focus to its opener', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await page.getByTestId('file-check').first().check()
+  const opener = page.getByTestId('bulk-delete')
+  await opener.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
+
+test.describe('home focus on touch devices', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('loading home, choosing a preset and starting a chat do not force input focus', async ({ page }) => {
+    await reset(page)
+    await signIn(page, { username: 'bob', password: 'bob password 1' })
+    await page.goto('/')
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    const input = page.getByTestId('composer-input')
+    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(input).not.toBeFocused()
+    const example = page.getByTestId('example').first()
+    const text = await example.innerText()
+    await example.tap()
+    await expect(input).toHaveValue(text)
+    await expect(input).not.toBeFocused()
+    await page.getByRole('main').getByRole('button', { name: '새 채팅', exact: true }).tap()
+    await expect(input).not.toBeFocused()
+  })
+})
+
 async function audit(page: Page, where: string) {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
   const serious = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
