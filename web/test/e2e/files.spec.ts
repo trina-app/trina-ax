@@ -1,6 +1,8 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
+import { formatDateTime } from '../../src/lib/format'
+import { CSRF_HEADER, type TrashItem } from '@mycel/shared/api'
 
 const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ hasText: name })
 async function rowMenu(page: Page, name: string, item: string | RegExp) {
@@ -152,6 +154,64 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
 })
 
 for (const locale of ['ko', 'en', 'id'] as const) {
+  test(`deletion guidance: single and bulk trash keep their saved expiry after retention changes (${locale})`, async ({ page }) => {
+    const t = DICTS[locale]
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    const timeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+    const savedDates = new Map<string, string>()
+    for (const days of [30, 10]) {
+      await page.goto('/admin/settings')
+      await page.getByLabel(t['teamSettings.trashDays'], { exact: true }).fill(String(days))
+      await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+      await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      await page.goto('/files?path=marketing')
+      const names = [`retention-${days}-single.txt`, `retention-${days}-bulk-a.txt`, `retention-${days}-bulk-b.txt`]
+      await page.getByTestId('files-input').setInputFiles(names.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('retention test') })))
+      for (const name of names) await expect(row(page, name)).toBeVisible()
+
+      await rowMenu(page, names[0]!, t['files.moveToTrash'])
+      await expect(page.getByRole('dialog')).toContainText(t['files.deleteBody'])
+      await page.getByTestId('dialog-confirm').click()
+      await expect(row(page, names[0]!)).toHaveCount(0)
+      for (const name of names.slice(1)) await row(page, name).getByTestId('file-check').click()
+      await page.getByTestId('bulk-delete').click()
+      await expect(page.getByRole('dialog')).toContainText(t['files.deleteBody'])
+      await page.getByTestId('dialog-confirm').click()
+      for (const name of names) await expect(row(page, name)).toHaveCount(0)
+
+      await page.getByRole('tab', { name: t['files.trash'], exact: true }).click()
+      await expect(page.getByText(t['files.trashNote'], { exact: true })).toBeVisible()
+      const response = await page.request.get('/api/files/trash')
+      expect(response.ok()).toBe(true)
+      const { items } = await response.json() as { items: TrashItem[] }
+      expect(items).toHaveLength(days === 30 ? 3 : 6)
+      for (const item of items) {
+        if (savedDates.has(item.id)) {
+          // The 30-day items keep their original dates after the team changes to 10 days.
+          expect(item.purgeAt).toBe(savedDates.get(item.id))
+        } else {
+          expect(Math.abs(Date.parse(item.purgeAt) - Date.parse(item.deletedAt) - days * 86400_000)).toBeLessThan(1000)
+          savedDates.set(item.id, item.purgeAt)
+        }
+        const entry = page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: item.originalPath })
+        await expect(entry).toContainText(translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
+      }
+    }
+    // Returning to the original setting must not extend the newer 10-day items either.
+    expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { trashRetentionDays: 30 } })).ok()).toBe(true)
+    await page.reload()
+    await page.getByRole('tab', { name: t['files.trash'], exact: true }).click()
+    await expect(page.getByText(t['files.trashNote'], { exact: true })).toBeVisible()
+    const { items } = await (await page.request.get('/api/files/trash')).json() as { items: TrashItem[] }
+    expect(items).toHaveLength(6)
+    for (const item of items) {
+      expect(item.purgeAt).toBe(savedDates.get(item.id))
+      await expect(page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: item.originalPath }))
+        .toContainText(translate(locale, 'files.purgeAt', { date: formatDateTime(item.purgeAt, locale, timeZone) }))
+    }
+  })
+
   test(`folder names: validation, recovery, rename and cancel (${locale})`, async ({ page }) => {
     const t = DICTS[locale]
     await reset(page, { teamLocale: locale, usersFollowTeam: true })

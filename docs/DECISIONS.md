@@ -1772,3 +1772,13 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   covers initial empty, blur, Enter, whitespace, clearing, invalid names, recovery, folder creation, rename and
   cancellation in all three languages, including accessible errors and absence of invalid mutation requests.
 - Needed in the core too (potenlab/team-ax): the same changes; nothing here is Trina-specific.
+
+## Deletion guidance (qa2-deletion-guidance, 2026-10-29)
+
+- B-W21-1 / R2-PERM-11: en/ko/id member deletion dialogs describe transfer to the owner's private
+  archive and owner-only access, without claiming the original personal folder stays in place.
+- B-W25-2 / R2-ADMIN-08: trash guidance uses the team's retention period at deletion and each item's
+  saved expiry date. Changing retention does not change existing expiry dates. Storage and access rules
+  are unchanged; the browser mock now uses the configured retention period, matching the server.
+- Coverage: translation contracts and localized browser checks for cancel/confirm, single/bulk trash,
+  30/10-day retention and unchanged saved expiry dates. Needed in core too; no Trina-specific behavior.

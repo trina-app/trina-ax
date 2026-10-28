@@ -11,6 +11,26 @@ import { ko } from '../../src/i18n/ko'
 const placeholders = (s: string) => placeholdersOf(s)
 
 describe('translations', () => {
+  test('account deletion describes private archive transfer without a fixed path', () => {
+    for (const loc of ['ko', 'en', 'id'] as const) {
+      const body = translate(loc, 'members.removeBody')
+      expect(placeholders(body)).toEqual([])
+      expect(body).not.toContain('users/')
+    }
+    expect(translate('en', 'members.removeBody')).toContain('moved to an archive in the owner’s personal folder')
+    expect(translate('en', 'members.removeBody')).toContain('Only the owner can read')
+  })
+  test('file deletion guidance uses the team retention policy and each item’s saved date', () => {
+    for (const loc of ['ko', 'en', 'id'] as const) {
+      for (const key of ['files.deleteBody', 'files.trashNote'] as const) {
+        expect(translate(loc, key)).not.toMatch(/\d/)
+        expect(placeholders(translate(loc, key))).toEqual([])
+      }
+      expect(placeholders(DICTS[loc]['files.purgeAt'])).toEqual(['date'])
+    }
+    expect(translate('en', 'files.deleteBody')).toContain('retention period set by your team at the time of deletion')
+    expect(translate('en', 'files.trashNote')).toContain('Changing the retention period does not change dates for items already in the trash')
+  })
   test('Korean engine guidance uses the translated owner role', () => {
     for (const key of ['engines.betaHint', 'engines.choiceDesc'] as const) {
       expect(ko[key]).toContain(ko['role.owner'])
