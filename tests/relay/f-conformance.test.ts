@@ -74,8 +74,9 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
     const buffers = socketBufferMax()
     notes.t2 = { producedMB: +(d.produced / MB).toFixed(2), lastTwoSecondsMB: +((d.produced - a.produced) / MB).toFixed(2), socketBuffersMB: +(buffers / MB).toFixed(1), relayRssGrowthMB: +(rssMb(S.relay.p.pid) - rss0).toFixed(1) }
     // without flow control the producer runs at memory speed (hundreds of MB in a second): here, the reader's pace
-    // plus at most 2 MB (the relay returns window in steps as the socket drains: ~1.5 MB on Linux)
-    expect(d.produced - a.produced).toBeLessThan(read + 2 * MB)
+    // plus at most 3 MB (the relay returns window in steps as the socket drains: ~1.5 MB on Linux; GitHub's Linux
+    // runners hold ~2.2 MB more in their socket buffers). Without flow control this is hundreds of MB.
+    expect(d.produced - a.produced).toBeLessThan(read + 3 * MB)
     // ~4 MB read in 4 s (curl may burst 1 MB more), one window, and this host's socket buffers between relay and reader
     expect(d.produced).toBeLessThan(5 * MB + 256 * 1024 + buffers)
     expect(elapsed).toBeLessThan(5)
