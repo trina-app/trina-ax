@@ -159,7 +159,7 @@ export const chatsRoutes: RouteModule = {
 - 아티팩트 도구 호출 처리(저장·`artifact.updated`)는 C의 서비스(`server/src/tools/artifact*`)를 부른다.
 
 ### C — server-files-tools (포트 19130–19139)
-- 소유: `server/src/routes/files.ts`, `routes/artifacts.ts`, `routes/jobs.ts`, `server/src/tools/*`(파일 도구 말고 나머지: make_file, share_file, artifact, web_fetch), `server/src/jobs/*`, 업로드(`server/src/uploads/*`), `shared/src/api/files.ts`·`artifacts.ts`·`jobs.ts`, 마이그레이션 300–399, `tests/unit/c-*.test.ts`.
+- 소유: `server/src/routes/files.ts`, `routes/artifacts.ts`, `routes/jobs.ts`, `server/src/tools/*`(파일 도구 말고 나머지: make_file, share_file, artifact, web_fetch, move_files·copy_files·rename_file), `server/src/jobs/*`, 업로드(`server/src/uploads/*`), `shared/src/api/files.ts`·`artifacts.ts`·`jobs.ts`, 마이그레이션 300–399, `tests/unit/c-*.test.ts`.
 - 구현: 파일 화면 API 전부(모든 경로는 `ctx.files`/정책 함수를 거친다, "없음"="권한 없음"), 다운로드 스트리밍 + Range(통째로 메모리에 올리지 않기), 작은 업로드(50MB), 첨부(`users/<id>/.attachments/<chatId>/`, 썸네일), 조각 업로드(8MB, sha256, 24시간 만료, 임시 폴더는 `<data>/uploads`), `files.changed` 이벤트(볼 수 있는 사람에게만: `realtime.publishEach`), 버전 기록·되돌리기·휴지통, 아티팩트 저장·조회, `JobService`(재시작 시 진행 중 작업은 failed, 7일 뒤 정리), 받아쓰기(whisper.cpp, 파이썬 없음), make_file(pandoc / SheetJS / typst), web_fetch.
 
 ### D — web (포트 19140–19149)

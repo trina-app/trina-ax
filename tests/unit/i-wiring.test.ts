@@ -3,6 +3,8 @@
 // attachments uploaded through C's POST /api/uploads become part of a message B sends; the realtime hub (B)
 // closes the sockets of exactly one session when A signs that session out.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
@@ -23,7 +25,7 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'edit', 'forget', 'glob', 'grep', 'list', 'make_file', 'read', 'remember', 'schedule_create', 'schedule_delete', 'schedule_list', 'search', 'share_file', 'web_fetch', 'write'])
+    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'copy_files', 'edit', 'forget', 'glob', 'grep', 'list', 'make_file', 'move_files', 'read', 'remember', 'rename_file', 'schedule_create', 'schedule_delete', 'schedule_list', 'search', 'share_file', 'web_fetch', 'write'])
   })
 
   test('artifact from a turn: saved for the answer, artifact.updated, listed over REST, audited with C\'s summary', async () => {
@@ -71,6 +73,30 @@ describe('C attachments in B messages', () => {
     expect(sent.userMessage!.attachments.map((a) => a.id)).toEqual([att.id])
     const done = await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
     expect(done.data.message.content).toContain('attached words')
+  })
+
+  // 2026-10-28: the AI answered "I can only save text files" when asked to put a PDF and images someone attached where
+  // the team can see them. move_files does it, after one card from the server (never the AI's own ask_user).
+  test('an attached image moved into a team folder from a turn: the server asks, the person allows, it moves', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const form = new FormData()
+    form.set('chatId', chat.id)
+    form.set('file', new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])], 'seal.png', { type: 'image/png' }))
+    const up = await h.req('alice', '/api/uploads', { method: 'POST', body: form })
+    expect(up.status).toBe(201)
+    const att = await up.json() as { id: string; path: string }
+    fs.mkdirSync(path.join(h.team, 'shared', 'company'), { recursive: true })
+    const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'move_files', args: { paths: [att.path], to_folder: 'shared/company' }, sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const card = await alice.next('turn.request', (f) => f.data.turnId === sent.turnId)
+    expect(card.data.request).toMatchObject({ kind: 'ask_user', origin: 'server' })
+    expect(card.data.request.question).toContain('shared/company')
+    expect(card.data.request.question).toContain('seal.png')
+    await h.api('alice').call(API.answerTurn, { params: { id: sent.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
+    const done = await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
+    expect(done.data.message.content).toContain('-> shared/company/seal.png')
+    expect(fs.readFileSync(path.join(h.team, 'shared', 'company', 'seal.png'))).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
+    expect(fs.existsSync(path.join(h.team, ...att.path.split('/')))).toBe(false)
+    expect(done.data.message.steps.map((s) => s.label)).toContain('Move files · shared/company')
   })
 })
 

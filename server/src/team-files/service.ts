@@ -47,6 +47,9 @@ interface TrashRow { id: string; original_path: string; storage_path: string; si
 
 export interface Actor { userId: string; turnId?: string | null }
 
+/** Who changes files: a person on the Files screen (default), or the AI in a chat turn (tools/file-moves.ts). */
+type By = { turnId?: string | null; tool?: string }
+
 export class TeamFiles {
   /** sha256 by (path, inode, size, mtime) so repeated previews of big files don't re-hash */
   private shaCache = new Map<string, string>()
@@ -275,7 +278,7 @@ export class TeamFiles {
   }
 
   // ---------------- move / rename ----------------
-  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean } = {}): { entry: FileEntry } {
+  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean } & By = {}): { entry: FileEntry } {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'write', { mustExist: true })
@@ -351,16 +354,38 @@ export class TeamFiles {
         db.query("UPDATE trash_items SET original_path = ? || substr(original_path, length(?) + 1) WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/'")
           .run(toRel, fr.rel, fr.rel, fr.rel)
       }
-      fileEvent(db, { turnId: null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: 'file-screen' } })
-      fileEvent(db, { turnId: null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
+      fileEvent(db, { turnId: o.turnId ?? null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: o.tool ?? 'file-screen' } })
+      fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
       fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
     const after = this.rules()
     this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
     // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
-    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: null }], rules)
+    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
     return { entry: this.entry(user, rules, target) }
+  }
+
+  /**
+   * For the AI's move_files / copy_files (tools/file-moves.ts), before anything changes: how many other active people
+   * could read the items in `toFolder` and cannot read all of them now (added), and, for a move, how many can read one
+   * of them now and could not in `toFolder` (lost). Counted once per person, never named. Every path is checked like
+   * the move / copy itself (a path the caller may not use throws: the tool checks them one by one first).
+   */
+  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const srcs = from.map((f) => authorize(this.fx, rules, user, f, mode === 'move' ? 'write' : 'read', { mustExist: true }).segs)
+    const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: true })
+    if (!to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    let added = 0, lost = 0
+    for (const p of activePeople(this.ctx.db)) {
+      if (p.id === user.id) continue
+      const sees = atLeast(rules.access(p, to.segs), 'read')
+      if (sees && srcs.some((s) => !atLeast(rules.access(p, s), 'read'))) added++
+      if (mode === 'move' && !sees && srcs.some((s) => atLeast(rules.access(p, s), 'read'))) lost++
+    }
+    return { added, lost }
   }
 
   // ---------------- copy: sharing a personal file / project (design tab 2 rule 3, tab 4 POST /api/files/copy) ----------------
@@ -381,7 +406,7 @@ export class TeamFiles {
    * dryRun: nothing is copied; how many more people would see the copy than see the original.
    * A source the caller cannot read answers exactly like a missing one (not_found).
    */
-  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename' } = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
+  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename' } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
@@ -421,10 +446,11 @@ export class TeamFiles {
     const out = copyTeamFile(this.root, fr.abs, r.segs)
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
     // a conflict copy is told to both people and listed in the original's history, like a conflicting save
-    if (conflictOf) recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: conflictOf, copy: r.rel, userId, turnId: null, size: out.size, sha256: sha, tool: 'file-screen' })
-    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool: 'file-screen', ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+    const turnId = o.turnId ?? null, tool = o.tool ?? 'file-screen'
+    if (conflictOf) recordConflictCopy(this.ctx.db, this.ctx.files.events, { original: conflictOf, copy: r.rel, userId, turnId, size: out.size, sha256: sha, tool })
+    fileEvent(this.ctx.db, { turnId, userId, path: r.rel, action: 'create', size: out.size, sha256: sha, detail: { sourcePaths: [fr.rel], widened: added > 0, replaced, tool, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
     this.extractText(r.rel)
-    this.publish([{ path: r.rel, action: replaced ? 'update' : 'create', by: this.by(userId), turnId: null }])
+    this.publish([{ path: r.rel, action: replaced ? 'update' : 'create', by: this.by(userId), turnId }])
     return { path: r.rel, sha256: sha }
   }
 
