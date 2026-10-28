@@ -141,7 +141,9 @@ async function main() {
   sh(['chmod', '-R', 'a+rX', W])
 
   // ---- check (no root) and argument checks: nothing changes ----
-  const chk = sh([path.join(REPO, 'scripts', 'install-linux.sh'), 'check', '--from', kit(1), '--allow-unsigned', '--id', ID, '--server-user', SRV, '--agent-user', AGT, '--engine', `claude=${engine}`], { user: 'nobody' })
+  // as nobody: a copy outside the checkout (CI runners keep the checkout under a home folder nobody cannot enter)
+  const installerCopy = path.join(W, 'install-linux.sh'); fs.copyFileSync(path.join(REPO, 'scripts', 'install-linux.sh'), installerCopy); fs.chmodSync(installerCopy, 0o755)
+  const chk = sh([installerCopy, 'check', '--from', kit(1), '--allow-unsigned', '--id', ID, '--server-user', SRV, '--agent-user', AGT, '--engine', `claude=${engine}`], { user: 'nobody' })
   check('check runs without root and changes nothing', chk.code === 0 && /check: kit 0\.9\.0-test\.1/.test(chk.out) && !fs.existsSync(BASE), tail(chk, 4))
   const badName = installer('install', '--from', kit(1), '--allow-unsigned', '--engine', `fake=${engine}`)
   check('installer refuses an engine name other than claude / codex, before changing anything', badName.code !== 0 && /unknown engine "fake"/.test(badName.err) && !fs.existsSync(BASE), badName.err.trim())
@@ -311,7 +313,8 @@ socket.once('connect', () => {
   // ---- updates ----
   const up2 = installer('update', '--from', kit(2))
   const h2 = await healthIs(V(2))
-  const s2 = readJson(`${BASE}/app/state.json`)
+  // the new version answers before the bootstrap records it as current: wait for state.json too
+  const s2 = await until(() => readJson(`${BASE}/app/state.json`), (s) => s?.current === V(2), 60_000)
   check('installer update: switches to the newer kit, the old one stays for roll-back', up2.code === 0 && h2?.version === V(2) && s2?.current === V(2) && s2?.previous === V(1), `${tail(up2)} ${JSON.stringify(s2)}`)
   check('update keeps the engines and the plan', fs.existsSync(`${BASE}/app/engines/claude/current/claude`) && fs.existsSync(`${BASE}/root/plan.json`))
   const up3 = installer('update', '--from', kit(3))

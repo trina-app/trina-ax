@@ -36,7 +36,8 @@ if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
 else
   echo "native/build.sh: no swiftc (or not macOS): mycel-ocr not built, scanned PDFs and images won't be read" >&2
 fi
-if [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" amd64 "* ]]; then
+# the universal Mac binaries need lipo (macOS only); a Linux CI build of both arches skips them
+if [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" amd64 "* ]] && command -v lipo >/dev/null; then
   mkdir -p bin/darwin-universal
   for c in $CMDS; do lipo -create "bin/darwin-arm64/$c" "bin/darwin-amd64/$c" -output "bin/darwin-universal/$c"; done
   if [[ $OCR == 1 ]]; then lipo -create bin/darwin-arm64/mycel-ocr bin/darwin-amd64/mycel-ocr -output bin/darwin-universal/mycel-ocr; fi
