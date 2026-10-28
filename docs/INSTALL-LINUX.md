@@ -32,13 +32,39 @@ sudo ./install-linux.sh check --from .
 
 ## 3. 키트 받기와 확인
 
+릴리스 키트는 GitHub Releases에 있다(태그 `v<버전>`마다 amd64·arm64 키트, `SHA256SUMS`와 서명).
+
 ```sh
-curl -fLO https://updates.treesoop.com/server/<버전>/TeamAX-server-<버전>-linux-amd64.tar.gz   # arm64면 linux-arm64
-tar xzf TeamAX-server-<버전>-linux-amd64.tar.gz && cd TeamAX-server-<버전>-linux-amd64
-./app/<버전>/root/mycel-ctl verify-bundle ./app/<버전>      # 릴리스 서명 확인(공개 키 내장)
+V=0.2.2   # 받을 버전
+curl -fLO https://github.com/trina-app/trina-ax/releases/download/v$V/TrinaAX-server-$V-linux-amd64.tar.gz   # arm64면 linux-arm64
+tar xzf TrinaAX-server-$V-linux-amd64.tar.gz && cd TrinaAX-server-$V-linux-amd64
+./app/$V/root/mycel-ctl verify-bundle ./app/$V      # 릴리스 서명 확인(공개 키 내장)
 ```
 
 설치기도 같은 확인을 한다(`--allow-unsigned`가 아니면 서명 없는 묶음을 받지 않음).
+
+### 3a. 소스에서 키트 만들기 (릴리스가 없을 때, 개발용)
+
+키트를 만들 리눅스 기계에서(설치할 서버와 같은 아키텍처). 2026-10-28 Lightsail 데비안 13(2 vCPU, 4 GB)에서 확인했다.
+2 vCPU에서 whisper 빌드가 약 10분, 키트 만들기가 몇 분 걸린다.
+
+```sh
+sudo apt-get install -y git curl unzip ca-certificates xz-utils zstd build-essential cmake
+# Go(native/go.mod의 버전, 예: 1.27.x)는 https://go.dev/dl/ 에서 /usr/local/go로, Bun은 고정 버전으로:
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.12"
+export PATH=$HOME/.bun/bin:/usr/local/go/bin:$PATH
+
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile
+ARCHS=amd64 bash native/build.sh                                   # arm64면 ARCHS=arm64
+bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper   # 음성 받아쓰기(없으면 --no-whisper)
+bun run build:web                                                  # 웹 앱. 빠뜨리면 키트에 앱 화면이 없다
+bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.2-dev.1 --whisper-dir dist/whisper --out dist/linux
+cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
+```
+
+- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
+- 스캔 PDF·사진의 글자 읽기(OCR, `mycel-ocr`)는 지금 macOS에서만 빌드된다. 리눅스 서버는 글자가 들어 있는 PDF·문서만 읽는다.
 
 ## 4. 설치
 
@@ -81,7 +107,7 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 
 ## 7. 팀원 연결
 
-- 중계: `https://<팀>.treesoop.com`(관리자 › 시스템 › 연결). 서버는 밖으로만 연결하므로 열 포트가 없다. 공식 중계는
+- 중계: `https://<팀>.trina.app`(관리자 › 시스템 › 연결). 서버는 밖으로만 연결하므로 열 포트가 없다. 공식 중계는
   등록이 닫혀 있어(작업 증명만으로는 `registration_closed`) 계정 콘솔의 공식 중계 애드온에서 받은 **연결 코드**를 함께
   넣는다. 자체 중계(`self-relay`)는 코드 없이 된다.
 - 사무실 안 직접 연결: 설치 때 `--tls-port 8443`. 서버의 방화벽(ufw·firewalld)에서 그 포트를 연다.

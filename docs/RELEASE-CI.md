@@ -104,7 +104,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
    bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/"
    ```
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
-6. (선택) **environment**: GitHub Pro 이상이면 `release` environment를 만들어 비밀값을 거기로 옮기고 `v*` 태그에서만 쓰게 할 수 있다. 이때 release.yml의 prepare와 publish job에 `environment: release`를 더한다(지금은 Free 요금제를 생각해 넣지 않았다).
+6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그로 제한하고 (2) 필요하면 승인자를 정한 뒤, 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다. environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다).
 
 ## 5. beta → stable
 

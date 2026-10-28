@@ -138,6 +138,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Native build (linux ${{ matrix.arch }})
         run: ARCHS=${{ matrix.arch }} bash native/build.sh
+      # the bundle carries the web app (web/dist); without it build-bundle warns and the kit has no app pages
+      - run: bun run build:web
       - name: Build the Linux bundle and the install kit
         run: |
           V=$(bun -e 'console.log(require("./server/package.json").version)')-ci.${{ github.run_number }}
