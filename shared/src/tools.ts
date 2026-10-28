@@ -90,6 +90,12 @@ export const RememberOutput = z.object({ id: z.string() })
 export const ForgetInput = z.strictObject({ id: z.string() })
 export const ForgetOutput = z.object({ ok: z.literal(true) })
 
+/** Name the chat (offered only at the start of a chat whose title is still automatic: server/src/chat/title.ts). */
+export const SetTitleInput = z.strictObject({
+  title: z.string().min(2).max(60).describe('Short title in the user\'s language that says what the person wants (2-60 characters, best under 30). No keys, tokens, passwords, personal data or quotes of the message; no trailing punctuation.'),
+})
+export const SetTitleOutput = z.object({ ok: z.literal(true), title: z.string() })
+
 export const AskUserInput = z.strictObject({
   question: z.string().min(1).max(2000),
   options: z.array(z.strictObject({ label: z.string(), value: z.string() })).max(20).optional(),
@@ -126,6 +132,7 @@ export const OTHER_TOOLS = {
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },
   ask_user: { input: AskUserInput, output: AskUserOutput },
+  set_title: { input: SetTitleInput, output: SetTitleOutput },
   web_fetch: { input: WebFetchInput, output: WebFetchOutput },
 } as const
 

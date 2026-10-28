@@ -187,7 +187,7 @@ export class Schedules {
     const id = newId(), ts = now.toISOString()
     const turn = this.rt.createTurn({
       chat: () => {
-        this.db.query('INSERT INTO chats(id,user_id,project_id,title,engine,model,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+        this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
           .run(id, s.user_id, project ? s.project_id : null, `⏰ ${s.title} · ${date}`, engine, model, ts, ts)
         return this.rt.store.chatRow(id)!
       },

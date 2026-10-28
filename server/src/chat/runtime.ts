@@ -25,6 +25,7 @@ import { HttpError } from '../http/errors'
 import { fairOrder, selectFairHead, type QueueTiming } from './fair-queue'
 import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
+import { maskStoredTitles, placeholderTitle } from './title'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -171,6 +172,11 @@ export class ChatRuntime {
     if (process.env.NODE_ENV !== 'test') this.schedules.startLoop(ctx)
     this.purger = setInterval(() => { try { this.purgeTrash() } catch (e) { this.log.error('chat purge failed', { err: e }) } }, o.purgeIntervalMs ?? 60 * 60_000)
     ;(this.purger as { unref?: () => void }).unref?.()
+    // titles saved before they were checked for secrets (title.ts): once
+    try {
+      const masked = maskStoredTitles(ctx.db)
+      if (masked) this.log.info('chat titles that looked like secrets were masked', { n: masked })
+    } catch (e) { this.log.warn('masking chat titles failed', { err: e }) }
     // engine folders a launcher did not take before the last stop (chat/forget.ts)
     const retry = setTimeout(() => { void retryPendingForgets(ctx) }, 30_000)
     ;(retry as { unref?: () => void }).unref?.()
@@ -422,7 +428,8 @@ export class ChatRuntime {
         turnId, engine: o.engine, model: o.model })
       this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for)
         VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
-      const title = chat.title || (o.user ? titleFrom(o.user.content, o.user.attachments) : '')
+      // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
+      const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments) : '')
       this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
         .run(assistantId, title, o.engine, o.model, now, chat.id)
       o.scheduled?.commit(chat.id)
@@ -696,10 +703,4 @@ export class ChatRuntime {
     })()
     return this.shutdownP
   }
-}
-
-function titleFrom(content: string, atts: Attachment[]): string {
-  // a team file's name is not used: the title outlives the person's access to the file
-  const line = content.split('\n').map((l) => l.trim()).find(Boolean) ?? atts.find((a) => a.source !== 'team')?.name ?? ''
-  return line.length > 60 ? line.slice(0, 59) + '…' : line
 }
