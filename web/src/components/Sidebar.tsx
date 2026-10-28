@@ -66,7 +66,8 @@ export default function Sidebar() {
   return (
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-        <Link to="/" onClick={close} className="text-[17px] font-semibold tracking-tight">
+        <Link to="/" onClick={close} className="flex items-center gap-2 text-[17px] font-semibold tracking-tight">
+          <img src="/favicon.svg" alt="" aria-hidden className="size-6 rounded-md" />
           {PRODUCT.displayName}
         </Link>
       </div>

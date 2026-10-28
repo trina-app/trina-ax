@@ -52,7 +52,10 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
   return (
     <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10">
       <main className="w-full max-w-sm">
-        <p className="mb-6 text-center text-xl font-semibold tracking-tight">{PRODUCT.displayName}</p>
+        <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+          {PRODUCT.displayName}
+        </p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)]">
           <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-muted">{sub}</div>}

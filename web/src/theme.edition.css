@@ -1,0 +1,54 @@
+/* This edition's look: the trina.app brand tokens (Signal Orange on warm paper; warm black in dark), mapped onto the app's
+   --c-* tokens of index.css. Checked: text >= 4.5:1 on canvas, surface and subtle; focus ring and strong borders >= 3:1;
+   ink on the orange buttons >= 4.5:1. Source of the brand values: trina-ax-core editions/trina/website/src/styles/tokens.css. */
+:root {
+  --c-canvas: #fcfbf8;
+  --c-surface: #ffffff;
+  --c-subtle: #f6f2ea;
+  --c-hover: #eee8dd;
+  --c-line: #e9e3d8;
+  --c-line-strong: #8c8378;
+  --c-ink: #14110f;
+  --c-muted: #514b45;
+  --c-faint: #6b645d;
+  --c-accent: #e8521a;
+  --c-accent-hover: #ff5b1f;
+  --c-accent-ink: #14110f;
+  --c-accent-soft: #fdf0e8;
+  --c-accent-text: #b8380a;
+  --c-danger: #b42318;
+  --c-danger-soft: #fdecea;
+  --c-warn: #8a5300;
+  --c-warn-soft: #fdf3e2;
+  --c-ok: #2f7a4f;
+  --c-ok-soft: #e8f3ec;
+  --c-code-bg: #14110f;
+  --c-code-ink: #f6f2ea;
+  --c-shadow: 0 1px 2px rgb(20 17 15 / 0.04), 0 10px 30px -10px rgb(20 17 15 / 0.14);
+}
+
+.dark {
+  --c-canvas: #0e0c0b;
+  --c-surface: #171412;
+  --c-subtle: #1d1916;
+  --c-hover: #26211d;
+  --c-line: #2c2723;
+  --c-line-strong: #6f665d;
+  --c-ink: #f6f2ea;
+  --c-muted: #b3aaa0;
+  --c-faint: #958c82;
+  --c-accent: #ff6a33;
+  --c-accent-hover: #ff8352;
+  --c-accent-ink: #14110f;
+  --c-accent-soft: #2b1a11;
+  --c-accent-text: #ff8a5c;
+  --c-danger: #ff8b7e;
+  --c-danger-soft: #34190f;
+  --c-warn: #f0b45a;
+  --c-warn-soft: #2e2312;
+  --c-ok: #7fcf9a;
+  --c-ok-soft: #16271c;
+  --c-code-bg: #0a0908;
+  --c-code-ink: #f6f2ea;
+  --c-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px -10px rgb(0 0 0 / 0.6);
+}

@@ -1,33 +1,33 @@
 /* The desktop app's own screens: welcome / team list and the browser pane toolbar. */
 :root {
-  --bg: #f7f6f3;
+  --bg: #fcfbf8;
   --panel: #ffffff;
-  --text: #1f1e1c;
-  --muted: #5f5b54;
-  --line: #dedad2;
-  --accent: #0f766e;
-  --accent-text: #ffffff;
+  --text: #14110f;
+  --muted: #514b45;
+  --line: #e9e3d8;
+  --accent: #e8521a;
+  --accent-text: #14110f;
   --danger: #b42318;
   --warn-bg: #fff4e5;
   --warn-line: #f2b45a;
-  --focus: #1d4ed8;
-  --chrome: #eceae4;
+  --focus: #c43d0a;
+  --chrome: #f6f2ea;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1b19;
-    --panel: #26241f;
-    --text: #f2efe9;
-    --muted: #b3ada3;
-    --line: #3a372f;
-    --accent: #2dd4bf;
-    --accent-text: #0b2a27;
+    --bg: #0e0c0b;
+    --panel: #171412;
+    --text: #f6f2ea;
+    --muted: #b3aaa0;
+    --line: #2c2723;
+    --accent: #ff6a33;
+    --accent-text: #14110f;
     --danger: #ff8a7a;
     --warn-bg: #3a2c12;
     --warn-line: #a8792b;
-    --focus: #93b4ff;
-    --chrome: #2b2924;
+    --focus: #ff8a5c;
+    --chrome: #1d1916;
     color-scheme: dark;
   }
 }
