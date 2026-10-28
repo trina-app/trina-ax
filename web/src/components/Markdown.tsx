@@ -3,7 +3,8 @@
 // Sheets/Excel; links to team files open the preview panel; external images never load by themselves.
 import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
-import type { Element, ElementContent } from 'hast'
+import type { Element, ElementContent, Root, RootContent } from 'hast'
+import { fromHtml } from 'hast-util-from-html'
 import { Check, Copy, Download, Eye, ImageOff, ExternalLink } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -268,7 +269,37 @@ const COMPONENTS: Components = {
 // cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
 // particles follow the closing ** directly)
 const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
-const REHYPE = [mathRehype as never]
+
+/** Remove only parsed comments from raw HTML; keep all other HTML escaped by ReactMarkdown as before. */
+function hideHtmlComments() {
+  return (tree: Root) => {
+    function visit(node: Root | RootContent) {
+      if (node.type === 'raw' && node.value.includes('<!--')) {
+        const source = node.value
+        const comments: { start: number; end: number }[] = []
+        function collect(node: Root | RootContent) {
+          if (node.type === 'comment') {
+            const start = node.position?.start.offset
+            const end = node.position?.end.offset
+            if (start !== undefined && end !== undefined && source.startsWith('<!--', start)) comments.push({ start, end })
+          }
+          if ('children' in node) node.children.forEach(collect)
+          if (node.type === 'element' && node.content) collect(node.content)
+        }
+        // Parse for source ranges only: never insert the parsed HTML into the rendered tree. A parser also
+        // distinguishes comments from literal <!-- inside attributes, script text, and other raw-text tags.
+        collect(fromHtml(source, { fragment: true }))
+        for (const { start, end } of comments.sort((a, b) => b.start - a.start)) {
+          node.value = node.value.slice(0, start) + node.value.slice(end)
+        }
+      }
+      if ('children' in node) node.children.forEach(visit)
+    }
+    visit(tree)
+  }
+}
+
+const REHYPE = [hideHtmlComments, mathRehype as never]
 
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
 function urlTransform(url: string): string {
