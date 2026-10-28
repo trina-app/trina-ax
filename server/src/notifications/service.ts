@@ -6,6 +6,7 @@ import { decodeCursor, encodeCursor } from '../chat/store'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
+import { getRow as getIntegration, mayUse as mayUseIntegration } from '../integrations/connections/store'
 import { eventEnabled, getPreferences, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 
@@ -89,6 +90,7 @@ export class Notifications {
           }
           for (const source of readScope(this.ctx.db, chat.id) ?? []) {
             if (source.type === 'user') { if (source.id !== row.user_id) throw new Error('private source revoked'); continue }
+            if (source.type === 'integration') { const c = getIntegration(this.ctx.db, source.id); if (!c || !mayUseIntegration(this.ctx.db, c, row.user_id)) throw new Error('source revoked'); continue }
             let folder = ''
             if (source.type === 'folder') {
               const found = this.ctx.db.query('SELECT path FROM folders WHERE id=?').get(source.id) as { path: string } | null

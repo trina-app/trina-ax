@@ -8,6 +8,8 @@ import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { FakeServices, MCP_KEY } from '../lib/fake-services'
+import { integrationsOf } from '../../server/src/integrations/connections/service'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -143,5 +145,40 @@ describe('A signs out one session, B closes only its sockets', () => {
       const ended = s.frames.find((f) => f.type === 'session.ended')
       expect(ended && 'data' in ended && ended.data).toEqual({ reason: 'disabled' })
     }
+  })
+})
+
+// 2026-10-28: the founder gave the AI an API key for AI PM and asked it to keep using it; it had nowhere to keep it and
+// no tool to send it. A connection made in Settings gives the turn that service's tools; a call that changes something
+// asks on the server's own card first.
+describe('external-service connections in a turn', () => {
+  test('a turn calls a connected MCP server\'s tool; a write asks on the server\'s card; the step names the service', async () => {
+    const services = new FakeServices()
+    try {
+      integrationsOf(h.ctx, { net: services.net() })
+      const c = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Tasks', url: `${services.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY, writePolicy: 'ask' } })
+      expect(c.status).toBe('connected')
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'my_tasks__create_task', args: { title: 'Quarterly plan' }, sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+      const card = await alice.next('turn.request', (f) => f.data.turnId === sent.turnId)
+      const req = card.data.request
+      if (req.kind !== 'ask_user') throw new Error(`expected the server's ask_user card, got ${req.kind}`)
+      expect(req.origin).toBe('server')
+      expect(req.question).toContain('The AI wants to do this at Tasks: create_task')
+      expect(req.question).toContain('Quarterly plan')
+      await h.api('alice').call(API.answerTurn, { params: { id: sent.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'allow' } })
+      const done = await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
+      const [tools, result] = done.data.message.content.split(' | ')
+      expect(tools!.split(',')).toContain('my_tasks__create_task')
+      expect(tools!.split(',')).toContain('my_tasks__search_tasks')
+      expect(result).toContain('created task "Quarterly plan"')
+      expect(result).toContain('<external_data source="Tasks">')
+      expect(services.calls.at(-1)).toMatchObject({ name: 'create_task', args: { title: 'Quarterly plan' } })
+      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · create_task')
+      const audit = h.ctx.db.query('SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = ?').get(sent.turnId, 'my_tasks__create_task') as { summary: string; ok: number }
+      expect(audit).toEqual({ summary: 'my_tasks__create_task -> ok (29 chars) (confirmed by the user)', ok: 1 })
+      expect(JSON.stringify(done.data.message)).not.toContain(MCP_KEY)
+      await h.api('alice').call(API.deleteIntegration, { params: { id: c.id } })
+    } finally { services.stop() }
   })
 })
