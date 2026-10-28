@@ -1824,3 +1824,17 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - Tests cover all three languages, retry and recovery, rejected storage, malformed hints, failed preference
   writes, unauthorized responses, account changes and separate team origins. Needed in the core too: the same
   web session behavior; nothing here is Trina-specific.
+
+## WebM previews retain video tracks (qa2-webm-preview, 2026-10-29)
+
+- QA R2-FMT-12 / B-W27-1: WebM is a container for video and audio, so its extension selects the existing video
+  viewer. The audio viewer hid VP9 frames even when the sound played. Audio-only WebM uses the same native video
+  controls for playback, seeking and volume; no stream inspection or server changes are needed.
+- The existing 60 MB (60 × 1024 × 1024 bytes) media preview limit, download/permission/extraction paths and
+  browser codec support remain unchanged. No user-facing strings change.
+- Tests: preview classification and exact/over-limit bounded reads in `web/test/unit/lib.test.ts`; browser
+  decoding, frame pixels, playback progress, seeking, volume, close/reopen and oversized-file handling in
+  `web/test/e2e/previews.spec.ts`. Fixtures are generated with ffmpeg (VP9/Opus WebM, audio-only Opus WebM,
+  H.264/AAC MP4 and AAC M4A) and removed after the tests.
+- Needed in the core too (potenlab/team-ax): the same classification change; nothing here is Trina-specific.
+
