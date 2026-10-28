@@ -1494,3 +1494,20 @@ refused every sign-in from that address for 15 minutes, also correct passwords o
 - A loopback address that the relay reports is a client on the relay host, not this Mac: it keeps `perIp`.
 - Remaining risk: from the Mac itself or a known network, one address can try up to 300 usernames per 15 minutes.
 - Tests: `tests/unit/a-auth.test.ts` "the shared address of the Mac itself".
+||||||| parent of e4f32202 (desktop: the in-app browser's data belongs to one person)
+
+## In-app browser data belongs to one person (fix/desktop-browser-per-person, 2026-10-28)
+
+QA test (2026-10-27): on a shared desk, raka allowed httpbin.org and a site set a cookie; after raka signed out,
+seungju signed in to the same team and the pane still had raka's cookie and "always allowed" sites.
+
+- `<userData>/teams/<teamId>/browser-owner.json` keeps the user id the pane's data belongs to
+  (`desktop/src/common/browser-owner.ts`).
+- The app reads GET /api/me when the team page loads, when its route changes (sign-in and sign-out are in-page),
+  every minute, and before each AI browser call (at most every 5 s). Another person signed in, a sign-out (401), or
+  data from before this check: the pane ends running calls, closes its tabs, forgets allowed sites, "all" and kept
+  results, and clears its cookies, storage, cache and HTTP logins (`BrowserPane.resetForNewPerson`). The team policy
+  stays.
+- After a clear, the next sign-in keeps what is there: only that person can have used the pane since.
+- Data is still separate per team (partitions), as before.
+- Tests: `tests/unit/e-desktop-common.test.ts`, `desktop/e2e/person.spec.ts` (raka → seungju without a page reload).

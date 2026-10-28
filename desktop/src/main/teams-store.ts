@@ -1,6 +1,7 @@
 // teams.json and per-team files in the app's user data folder:
 //   <userData>/teams.json                       remembered teams (common/teams.ts)
 //   <userData>/teams/<teamId>/permissions.json  the team's in-app browser "allowed sites"
+//   <userData>/teams/<teamId>/browser-owner.json  the person that in-app browser data belongs to (common/browser-owner.ts)
 //   <userData>/window.json                      window size and browser pane width
 //   <userData>/ui-locale.json                   language of the app's own screens (common/i18n.ts)
 // Writes go to a temp file first, then rename (no half-written file after a crash).
@@ -58,6 +59,21 @@ export class TeamsStore {
 
   savePermissions(id: string, p: SavedPermissions) {
     writeAtomic(join(this.teamDir(id), 'permissions.json'), JSON.stringify(p, null, 2))
+  }
+
+  /** null: nobody (cleared); undefined: never recorded */
+  loadBrowserOwner(id: string): string | null | undefined {
+    try {
+      const v = JSON.parse(readText(join(this.teamDir(id), 'browser-owner.json')) ?? 'undefined')
+      if (v && typeof v === 'object' && 'userId' in v) return typeof v.userId === 'string' ? v.userId.slice(0, 100) : null
+    } catch {
+      // missing or broken: never recorded
+    }
+    return undefined
+  }
+
+  saveBrowserOwner(id: string, userId: string | null) {
+    writeAtomic(join(this.teamDir(id), 'browser-owner.json'), JSON.stringify({ userId }))
   }
 
   removeTeamFiles(id: string) {

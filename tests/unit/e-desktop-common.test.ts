@@ -11,6 +11,7 @@ import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
 import { NO_KIT, parseKit } from '../../desktop/src/common/kit'
 import { RepeatPromptHint, REPEAT_HINT_WINDOW_MS, siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
 import { blockedUrl } from '../../desktop/src/common/browser-block'
+import { browserOwnerChange } from '../../desktop/src/common/browser-owner'
 import { publicRequestVerdict, responseSourceVerdict } from '../../desktop/src/common/net-policy'
 import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
 import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
@@ -359,5 +360,29 @@ describe('UI strings', () => {
     for (const l of ['en', 'id'] as const) for (const [k, v] of Object.entries(STRINGS[l])) expect({ l, k, korean: /[\uAC00-\uD7A3]/.test(v) }).toEqual({ l, k, korean: false })
     expect(t('en', 'perm.site.title', { host: 'shop.test' })).toBe('The AI wants to use shop.test')
     expect(t('ko', 'err.notTeamServer')).toBe(`이 주소는 ${PRODUCT.displayName} 팀 서버가 아니에요.`)
+  })
+})
+
+describe('in-app browser data belongs to one person (QA finding 4)', () => {
+  test('another person, a sign-out, or data from before the check clears it; the same person keeps it', () => {
+    expect(browserOwnerChange('u-raka', { signedIn: true, userId: 'u-raka' })).toEqual({ clear: false, owner: 'u-raka' })
+    expect(browserOwnerChange('u-raka', { signedIn: true, userId: 'u-seungju' })).toEqual({ clear: true, owner: 'u-seungju' })
+    expect(browserOwnerChange('u-raka', { signedIn: false })).toEqual({ clear: true, owner: null })
+    expect(browserOwnerChange(null, { signedIn: false })).toEqual({ clear: false, owner: null })
+    expect(browserOwnerChange(null, { signedIn: true, userId: 'u-raka' })).toEqual({ clear: false, owner: 'u-raka' })
+    expect(browserOwnerChange(undefined, { signedIn: true, userId: 'u-raka' })).toEqual({ clear: true, owner: 'u-raka' })
+    expect(browserOwnerChange(undefined, { signedIn: false })).toEqual({ clear: true, owner: null })
+  })
+  test('resetForNewPerson forgets saved and per-turn sites and "all", and keeps the team policy', () => {
+    const p = new SitePermissions({ always: ['httpbin.org'], privateAlways: ['192.168.1.1'], siteAccess: 'all', teamAllowsAll: true })
+    p.grant('site', 'example.com', 'once', 't1')
+    expect(p.isAllowed('site', 'example.com', 't1')).toBe(true)
+    expect(p.resetForNewPerson()).toBe(true)
+    expect(p.toJSON()).toEqual({ always: [], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true })
+    expect(p.isAllowed('site', 'example.com', 't1')).toBe(false)
+    expect(p.resetForNewPerson()).toBe(false)
+    const off = new SitePermissions({ always: ['a.com'], teamAllowsAll: false })
+    off.resetForNewPerson()
+    expect(off.teamAllowsAll).toBe(false)
   })
 })

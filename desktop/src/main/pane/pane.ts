@@ -540,6 +540,42 @@ export class BrowserPane {
     for (const p of [...this.prompts]) if (p.callId === c.callId) p.settle('deny')
   }
 
+  /**
+   * Another person signed in to this team, or the person signed out (common/browser-owner.ts): end running calls,
+   * close every tab, forget allowed sites and kept results, and clear the pane's cookies, storage, cache and HTTP
+   * logins. The pane itself stays.
+   */
+  async resetForNewPerson() {
+    for (const p of [...this.prompts]) p.settle('deny')
+    for (const c of this.calls.values()) this.cancelCtx(c, 'Another person signed in to the team page.')
+    for (const t of Array.from(this.tabs.values())) {
+      try {
+        if (t.wc.debugger.isAttached()) t.wc.debugger.detach()
+      } catch {
+        // already gone
+      }
+      if (t.popup && !t.popup.isDestroyed()) t.popup.destroy()
+      else if (!t.wc.isDestroyed()) {
+        if (!this.host.win.isDestroyed() && this.host.win.contentView.children.includes(t.view)) this.host.win.contentView.removeChildView(t.view)
+        t.wc.close()
+      }
+    }
+    this.tabs.clear()
+    this.activeId = undefined
+    this.results.clear()
+    this.resultBytesKept = 0
+    this.repeatHint = new RepeatPromptHint()
+    this.officeLetThrough.clear()
+    if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
+    await Promise.all([
+      this.session.clearStorageData().catch(() => {}),
+      this.session.clearCache().catch(() => {}),
+      this.session.clearAuthCache().catch(() => {}),
+    ])
+    this.hide()
+    this.emit()
+  }
+
   /** Close every tab (window closing / team switch): detached tabs would otherwise outlive the window. */
   dispose() {
     this.disposed = true

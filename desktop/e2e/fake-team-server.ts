@@ -101,9 +101,12 @@ function sessionCookie(req: Request): string | null {
   return /(?:^|;\s*)(?:__Host-sid|mycel-dev-sid)=([^;]+)/.exec(c)?.[1] ?? null
 }
 
-function me(t: Team): Me {
+/** the person a test session belongs to: /test/login?user=<name> makes a session value "u-<name>.<uuid>" */
+const sessionUser = (req: Request): string => /^u-([a-z0-9-]{1,40})\./.exec(sessionCookie(req) ?? '')?.[1] ?? 'owner'
+
+function me(t: Team, user = 'owner'): Me {
   return {
-    user: { id: 'owner', username: 'owner', name: 'Owner', email: null, role: 'owner', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} as Me['user']['prefs'] },
+    user: { id: user, username: user, name: user === 'owner' ? 'Owner' : user, email: null, role: 'owner', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} as Me['user']['prefs'] },
     groups: [],
     team: { name: `${t.name} Team`, defaultLocale: 'ko', ...(t.browserAllowAll === undefined ? {} : { browserAllowAll: t.browserAllowAll }) },
     session: { id: uuidv7(), client: 'desktop', expiresAt: new Date(Date.now() + 86400_000).toISOString() },
@@ -137,7 +140,7 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
   if (p === '/api/me') {
     if (!sessionCookie(req)) return json({ error: { code: 'unauthorized', message: 'sign in' } }, 401)
     t.meHits++
-    return json(me(t))
+    return json(me(t, sessionUser(req)))
   }
   if (p === '/test/policy' && req.method === 'POST') {
     const b = (await req.json()) as { allowAll?: boolean | null }
@@ -161,8 +164,12 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     return json({ items: [{ platform: 'windows', file: 'Team-AX-Setup-99.0.0-win-x64.exe', version: '99.0.0', size: 1, signed: false }, { platform: 'mac', file: 'Team-AX-99.0.0-mac-universal.dmg', version: '99.0.0', size: 1, signed: false }] })
   }
   if (p === '/test/downloads-hits') return json({ hits: t.downloadHits })
+  if (p === '/test/logout') {
+    return json({ ok: true }, 200, { 'set-cookie': secure ? '__Host-sid=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0' : 'mycel-dev-sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' })
+  }
   if (p === '/test/login') {
-    const v = crypto.randomUUID()
+    const user = url.searchParams.get('user')
+    const v = user && /^[a-z0-9-]{1,40}$/.test(user) ? `u-${user}.${crypto.randomUUID()}` : crypto.randomUUID()
     return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax` })
   }
   if (p === '/test/lan' && req.method === 'POST') {
