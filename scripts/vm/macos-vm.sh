@@ -1,5 +1,5 @@
 #!/bin/bash
-# A throwaway macOS virtual machine for "fresh install on a new Mac mini" tests of office mode (docs/TEST-ENV.md).
+# A throwaway macOS virtual machine for "fresh install on a new Mac mini" tests of office mode.
 # Runs on the developer's Apple silicon Mac with tart (Apple's Virtualization framework); no sudo anywhere.
 #
 #   scripts/vm/macos-vm.sh base                  pull the pinned Cirrus Labs image and (re)make the pristine base VM

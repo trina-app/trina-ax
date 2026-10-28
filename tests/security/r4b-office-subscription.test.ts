@@ -5,7 +5,7 @@
 // home files) and talks only to the model proxy with a per-turn token that the proxy swaps for the real one.
 // Office mode now offers it: office-install.sh / teamax configure --claude-token-file FILE. Tested here against a fake
 // upstream with the production subscription path (the same as tests/unit/g-subscription.test.ts); a real Anthropic
-// answer through this path still needs the owner's real setup-token (docs/SECURITY-AUDIT.md 4차).
+// answer through this path still needs the owner's real setup-token (security audit round 4).
 import { setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Staging install on this Mac (docs/TEST-ENV.md "스테이징 설치"): a second, long-lived production install that stays
+# Staging install on this Mac: a second, long-lived production install that stays
 # next to the dev server — id mycel-stage, role accounts _axssrv / _axsagt, server on 127.0.0.1:19190, model proxy on
 # 19191, no office-network TLS — with the real Claude Code and Codex CLI at the versions pinned in versions.json. It is
 # where real turns run as the engine account (sandbox + pf + model proxy), and where updates, the subscription token and

@@ -11,7 +11,7 @@
 //    docs/DECISIONS.md).
 //  - ~/.codex/auth.json (the Mac user's Codex login) was open although office mode turns Codex off: it opens only with
 //    LOCAL_CODEX=1, which the launcher sets only with --local-codex (a Codex binary is configured).
-// Still open with the Mac user's login (documented residuals, docs/SECURITY-AUDIT.md "4차"): reading the login keychain
+// Still open with the Mac user's login (documented residuals, security audit round 4): reading the login keychain
 // item through /usr/bin/security, ~/.claude.json itself, and direct HTTPS to any host on :443.
 // Port of scratchpad engine-local/repro-fakehome.sh. Probe: tests/lib/g-sbprobe.c.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'

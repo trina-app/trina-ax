@@ -650,7 +650,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   설치에는 `--replace`가 있어야 한다. 사무실 모드 A의 보관본을 새로 설치한 사무실 모드 B에 복원해 팀원이 로그인하고 파일이
   보이는 것을 확인했다.
 - **운영 설치로 옮기기**: 자료 구조가 같다(`data/app.db` + `team/`). 길은 보관본 → 운영 설치의 `admin.js restore-archive`.
-  운영 설치에서 채팅이 되기 전이라 그쪽 복원은 시험하지 않았다(OWNER-TODO 10).
+  운영 설치에서 채팅이 되기 전이라 그쪽 복원은 시험하지 않았다(owner task list, private repo).
 - **시험**: `tests/unit/office.test.ts`(주소·이름, CA 제한과 위반 거부, 재생성, 설정, server.json, Host 421, LAN origin의
   CSRF·`__Host-` Secure 쿠키·실제 IP 감사, 초대 링크 주소, 도우미 허용 목록, plist, 복원 바꿔 넣기, 설치기 확인 경로),
   `tests/install/office-lan.mjs`(실제 설치본에 LAN 주소로: 첫 설정 → 초대 → 팀원 로그인 → 업로드 → wss → 실제 Claude 1턴).
@@ -806,7 +806,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 ## 보안 4차 (sec/r4, 2026-10-21)
 
 첫 시범 고객 전에 사무실 모드(LAN·인터넷 주소·터널 스크립트·엔진)를 다시 공격한 결과를 고쳤다. 표와 남은 위험은
-[SECURITY-AUDIT.md](SECURITY-AUDIT.md) "4차".
+보안 감사 기록(비공개 코어 레포) "4차".
 
 - **복원은 어느 길이든 로그인을 모두 끝낸다(4차 1).** `teamax restore-archive --replace`가 보관본의 세션을 그대로 살려, 보관본을
   만든 뒤 로그아웃했거나 비밀번호를 바꿔 끝난 토큰이 다시 통했다(인터넷 주소로는 어디서나). 관리자 복원에만 있던
@@ -893,7 +893,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   `server/src/engine/claude-json-guard.ts`). 실제 `claude -p` 1턴이 바뀐 프로필(LOCAL_LOGIN=1, LOCAL_CODEX=0)에서 로그인해 답했다.
   **사무실을 구독 setup-token + 모델 프록시로 바꾸지 않은 이유**: 그 한 가지가 8·9·10·11·12를 함께 닫지만, 프록시를 거친
   실제 Anthropic 응답은 아직 한 번도 확인되지 않았고(INSTALL.md "Not verified"), 설치기·사무실 모드 가이드의 로그인 절차도 바뀐다.
-  첫 시범 전날 확인 안 된 길로 바꾸는 것은 안전하지 않다고 봤다. 그래서 남는 위험(8·10·11 일부)은 SECURITY-AUDIT.md 4차와
+  첫 시범 전날 확인 안 된 길로 바꾸는 것은 안전하지 않다고 봤다. 그래서 남는 위험(8·10·11 일부)은 보안 감사 기록(비공개) 4차와
   OFFICE.md 8장에 적었고, 사무실 맥 미니는 Team AX 전용·개인 키체인 항목 없음·`claude`를 `/login` 말고 쓰지 않음으로 운영한다.
   시험: `tests/security/r4-engine-local-login.test.ts`(가짜 홈: 공유 저장소·키체인 새 파일·Codex 로그인 거부, MCP 지우기·감사).
 - **인터넷 주소는 설정 여부를 알려 주지 않는다(4차 14, 검토 중 추가).** `GET /api/setup`이 터널에서 `needed:false`로 고정돼 있었지만
@@ -903,7 +903,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   남지만, 로그인 화면의 언어라서 받아들였다(영어를 고르면 신호 없음). 시험: `tests/security/r4-setup-state-oracle.test.ts`.
 ## 보안 4차 보완: 사무실 엔진의 네트워크·`~/.claude.json`·구독 토큰 (sec/r4b, 2026-10-21)
 
-4차에서 남긴 사무실 엔진 항목 넷(SECURITY-AUDIT.md "4차" 8·9·10·13의 나머지)을 닫거나 닫을 길을 넣었다.
+4차에서 남긴 사무실 엔진 항목 넷(보안 감사 기록 "4차" 8·9·10·13의 나머지)을 닫거나 닫을 길을 넣었다.
 
 - **엔진의 네트워크는 맥 안의 프록시 하나(4차 10, 8의 유출 절반).** 샌드박스 규칙은 호스트 이름을 쓸 수 없어 `*:443`·`udp *:53`을
   열어 두었다(인터넷, 사무실 LAN의 업무 서버·NAS, DNS 이름으로 내보내기). 이제 사무실 모드(`office` + local-login)는 운영 설치의
@@ -1075,7 +1075,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **저장소는 중립**: 사무실 모드 안내서는 `Team-AX-사무실모드-설치가이드.pdf`(전에는 고객 업종 이름), 예시 주소는
   `team.example.com`, 역할은 "대표님"(팀 소유자)·"설치 담당자 맥"(Cloudflare에 로그인하는 맥), 보안 메모는 "민감한 자료".
   그림의 고객 주소·팀 이름은 같은 글꼴로 다시 그린 중립 화면으로 바꿨다(데스크 카드는 `deskCard()`로 다시 찍음).
-  DECISIONS·SECURITY-AUDIT의 기록은 그대로 두고 실제 주소·터널·고객 이름만 "첫 시범의 주소" 같은 자리표시로 바꿨다.
+  DECISIONS·보안 감사 기록은 그대로 두고 실제 주소·터널·고객 이름만 "첫 시범의 주소" 같은 자리표시로 바꿨다.
   시험의 실제 주소는 `example.com` 이름으로(실제 Cloudflare 존을 쓰는 시험은 없음). 비밀번호 차단 목록과 임시 비밀번호
   단어 목록 같은 일반 단어 목록은 그대로.
 - **한 고객용 사본은 같은 원본에서 빌드할 때 만든다**: `docs/install/build-pdf.ts --office|--windows`에 `--team-host`,
@@ -1233,7 +1233,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **ChatGPT 연결의 "다시 확인"**: 토큰을 쓰지 않는 확인 호출이 문서에 없어서, 갱신(single-flight)으로 확인한다. refresh token이 살아 있는지가 곧 연결 상태다.
 - **Codex 요청 거르기의 깊이 규칙**: 명세의 "중첩 8단계"를 처음에 JSON 단계로 셌더니 **실제 Codex 0.163.0의 요청이 막혔다**(tests/engine/managed-real.ts로 발견). 콘텐츠 목록 단계(입력 → 메시지 내용 → 함수 결과 내용 …)로 8, 전체 JSON 단계는 64로 바꿨다.
 - **도구 목록의 위치**: 실제 Codex 0.163.0은 "responses lite" 모델(지금 기본 모델 포함)에서 도구 목록을 최상위 `tools`가 아니라 입력 항목 `{type: "additional_tools", role: "developer", tools: […]}`로 보낸다(`codex-rs/core/src/client.rs`). 명세의 도구 검사가 최상위만 봤으면 통째로 빠지는 구멍이었다. 입력 안의 모든 `tools` 배열에 같은 규칙을 건다(단위 시험 포함). 팀 도구는 `namespace`(`mcp__team`) 안의 `function`으로 온다.
-- **실제 Codex로 확인한 것(가짜 상위, 계정 없음)**: `bun tests/engine/managed-real.ts` — 실제 `codex-cli 0.163.0`이 잠금 인자 + 가짜 auth.json + 사용자 정의 공급자로 우리 프록시에 붙고, 프록시가 진짜 값(가짜 상위가 받은 Authorization·ChatGPT-Account-ID)을 넣고, Codex가 갱신을 한 번도 시도하지 않고 auth.json을 다시 쓰지 않으며, 실제 실행기(가짜 로그인 검사·주소 검사 통과)와 우리 MCP 팀 도구(`mcp__team.list`)까지 한 턴이 끝난다(18/18). 남은 것은 실제 chatgpt.com·api.openai.com이 이 구성의 요청을 받는지뿐이다(스파이크 S1, OWNER-TODO).
+- **실제 Codex로 확인한 것(가짜 상위, 계정 없음)**: `bun tests/engine/managed-real.ts` — 실제 `codex-cli 0.163.0`이 잠금 인자 + 가짜 auth.json + 사용자 정의 공급자로 우리 프록시에 붙고, 프록시가 진짜 값(가짜 상위가 받은 Authorization·ChatGPT-Account-ID)을 넣고, Codex가 갱신을 한 번도 시도하지 않고 auth.json을 다시 쓰지 않으며, 실제 실행기(가짜 로그인 검사·주소 검사 통과)와 우리 MCP 팀 도구(`mcp__team.list`)까지 한 턴이 끝난다(18/18). 남은 것은 실제 chatgpt.com·api.openai.com이 이 구성의 요청을 받는지뿐이다(스파이크 S1, owner 할 일).
 - **월 한도 금액**: 구독은 금액이 0이라 USD 한도는 API 키에만 의미가 있다(화면에서도 API 키에만 금액 칸).
 - **`credential_limited` 알림 조건**: 명세의 "같은 연결에 쓸 다른 연결이 없는 사람이 있을 때만"을 사람마다 계산하는 대신, 그 계열에 쓸 수 있는 팀 연결이 하나도 남지 않았을 때(또는 개인 연결일 때) 알린다. 시간당 한 번.
 - **OpenAI 캐시 쓰기 가격**: usage에 쓰기 토큰 이름이 있으면 그 수만큼 입력 가격의 25%를 더한다(30분 쓰기 = 입력 1.25배). 없으면 넣지 않는다(명세대로 최대 25% 낮게 나올 수 있음).
@@ -1250,7 +1250,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 
 ### 하지 않은 것과 이유
 
-- **CR-00 스파이크 S1(실제 ChatGPT·OpenAI)·CR-01 스파이크 S2(실제 setup-token)**: owner 계정이 필요하다. 실행 파일은 준비했다(`tests/engine/codex-managed-spike.ts`, `tests/e2e/g-subscription-real-claude.ts --real`). OWNER-TODO 11번.
+- **CR-00 스파이크 S1(실제 ChatGPT·OpenAI)·CR-01 스파이크 S2(실제 setup-token)**: owner 계정이 필요하다. 실행 파일은 준비했다(`tests/engine/codex-managed-spike.ts`, `tests/e2e/g-subscription-real-claude.ts --real`). owner 할 일로 남아 있다.
 - **CR-19 F1 대안**: S1이 실패할 때만. 가짜 상위로는 주 설계가 실제 Codex에서 동작함을 확인했다. 옛 agent-own 경로(턴마다 로그인 복사, 전역 세마포어, CONNECT 터널)는 코드에 남겨 두어 F1의 바탕으로 쓸 수 있다.
 - **CR-21 다음 릴리스 정리**: 설치기·사무실이 `managed`를 쓰기, 옛 파일·`codex-export`·`accounts` 필드·옛 문구 지우기.
 
@@ -1378,7 +1378,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 
 ### 시험·CI (L23·L26)
 - **T1 공격 시험은 실제 bwrap·nftables·cgroup 아래에서 돈다**(`docker run --privileged --cgroupns=private`). 가짜 엔진이 자기 엔진 폴더(`MYCEL_FAKE_ENGINE_DIR`)에서 돌고, 격리 확인은 엔진을 통한 양성(benign) 도달성 보고(파일 stat/read, TCP 연결)로 하고 드라이버가 막혔음을 단언한다. 시스템 호출 단위 차단(seccomp errno, Landlock EACCES)은 `mycel-sandbox`의 Go 시험이, 방화벽은 `mycel-ctl`의 Docker 시험이 따로 확인한다.
-- **GitHub Actions가 결제로 멈춰 있어**(OWNER-TODO) CI 작업은 정의만 하고 `scripts/linux/ci-local.sh`가 pve-ci 테넌트에서 check·T1·T2·T3를 차례로 돌려 결과 JSON을 남긴다.
+- **GitHub Actions가 결제로 멈춰 있어**(owner 할 일) CI 작업은 정의만 하고 `scripts/linux/ci-local.sh`가 pve-ci 테넌트에서 check·T1·T2·T3를 차례로 돌려 결과 JSON을 남긴다.
 - **T3(실제 엔진 잠금, `linux-lockdown.yml`)는 정의만 했다.** 필요한 L25(설치본 모드 `tests/lib/engines.ts`, `scripts/linux/lockdown-setup.sh`, pve-ci 러너와 시험용 로그인)가 아직 없어서, 작업은 그 하네스가 없으면 이유를 말하고 실패하고 `ci-local.sh`는 T3를 건너뛴다.
 - **T1은 커널 전체 상태(AppArmor 정책)를 다른 시험과 나눈다.** T2처럼 bwrap 프로필을 넣고 빼는 시험과 동시에 돌리면 서로 깨진다. CI는 러너마다 작업 하나라 문제없고, 로컬에서는 차례로 돌린다.
 
@@ -1460,7 +1460,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 
 - 클라우드(hosted)도 자체 설치와 같이 **네 종류 모두**(Claude 구독, Claude API 키, ChatGPT, OpenAI API 키)를 기본으로 연다. owner 판단: 우리는 팀마다 VM을 빌려 주고, 팀이 자기 계정을 연결한다.
 - 바뀐 곳: `shared/src/cloud-protocol/common.ts` `CLOUD_DEFAULT_CREDENTIAL_KINDS`(서버의 hosted 기본값도 이것), `native/cmd/mycel-enroll/enroll.go`, 컨트롤 플레인 `CP_ENGINE_CREDENTIAL_KINDS` 기본값, 관련 시험.
-- 그대로인 것: 구독 종류를 추가할 때의 안내와 확인 칸(D23, 서버가 `acknowledgedPlanNotice`를 요구). 컨트롤 플레인의 함대 전체 스위치(`set-server-config`)로 언제든 API 키만으로 좁힐 수 있다. 위험 기록은 `docs/SECURITY-AUDIT.md`·credentials 명세 7장에 남긴다.
+- 그대로인 것: 구독 종류를 추가할 때의 안내와 확인 칸(D23, 서버가 `acknowledgedPlanNotice`를 요구). 컨트롤 플레인의 함대 전체 스위치(`set-server-config`)로 언제든 API 키만으로 좁힐 수 있다. 위험 기록은 보안 감사 기록(비공개)·credentials 명세 7장에 남긴다.
 
 ## 메모리가 모자라면 답이 대기열에서 기다린다 (feat/memory-aware-queue, 2026-10-27)
 

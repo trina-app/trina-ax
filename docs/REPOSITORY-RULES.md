@@ -8,4 +8,5 @@
 - 코어 파일에 필요한 변경은 설정·훅 같은 공통 확장 지점을 코어에 먼저 만든다.
 - 코어는 고객 정보를 제거한 거울을 통해서만 받아 오고, `UPSTREAM.md`에 원본/필터 SHA와 충돌 해결을 기록한다.
 - 비밀값은 팀/개인 폴더·프롬프트·로그·커밋에 두지 않는다.
-- GitHub 이름 변경·생성·공개, 기록 재작성·force push, 코어 main 병합·푸시, 메디컬 커밋·치과 접속, 결제·AWS·Cloudflare 계정 변경은 대표 승인 뒤에 한다.
+- GitHub 이름 변경·생성·공개, 기록 재작성·force push, 코어 main 병합·푸시, 고객 서버 접속, 결제·AWS·Cloudflare 계정 변경은 대표 승인 뒤에 한다.
+- 코어에서 받아 올 때 다음 경로는 가져오지 않는다(비공개 코어에만 둔다): 코어의 `CLAUDE.md`, `docs/OWNER-TODO.md`, `docs/TODO.md`, `docs/TEST-ENV.md`, `docs/PUBLIC-MIRROR.md`, `docs/SECURITY-AUDIT.md`, `scripts/public-mirror/`, `scripts/check-public-mirror.sh`, `scripts/sync-public-mirror.sh`, `tests/public-mirror/`, `ee/`, `editions/trina/`(단 `branding/` 제외).

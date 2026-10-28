@@ -46,7 +46,7 @@ export interface OfficeSettings {
   codexBin: string | null
   /** 'local-login': Claude Code with this Mac's own login (the engine can read it); 'subscription': the owner's
    * setup-token in config/claude-oauth-token behind the model proxy, per-turn tokens, HOME without the login (closes
-   * SECURITY-AUDIT.md 4차 #8) */
+   * security audit round 4, item 8) */
   claudeAuth: 'local-login' | 'subscription'
   /** the local proxy port (127.0.0.1) */
   proxyPort: number
