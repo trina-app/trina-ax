@@ -1754,3 +1754,16 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   checks that loading home, choosing a preset and New chat leave the input unfocused; it does not measure a
   physical phone's software keyboard. These checks supplement axe, which cannot verify Tab order.
 - Needed in the core too (potenlab/team-ax): the same change; nothing here is Trina-specific.
+
+## Name dialog validation and Korean owner wording (qa-ui-polish, 2026-10-29)
+
+- A fresh empty prompt starts without an error. Editing, leaving the input, or submitting reveals the caller's
+  validation message, including after clearing a previously entered name. Each new dialog resets this interaction
+  state. Blank and invalid values still cannot be confirmed; cancel still returns no value.
+- Folder creation and rename reuse the existing `files.name.empty` translation in Korean, English and Indonesian.
+  Prompts without a validator keep their existing behavior. Korean engine guidance uses the same owner role name
+  as `role.owner`, without changing permissions.
+- Regression coverage: `web/test/unit/i18n.test.ts` checks the Korean role wording; `web/test/e2e/files.spec.ts`
+  covers initial empty, blur, Enter, whitespace, clearing, invalid names, recovery, folder creation, rename and
+  cancellation in all three languages, including accessible errors and absence of invalid mutation requests.
+- Needed in the core too (potenlab/team-ax): the same changes; nothing here is Trina-specific.

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { DICTS } from '../../src/i18n'
 
 const row = (page: Page, name: string) => page.getByTestId('file-row').filter({ hasText: name })
 async function rowMenu(page: Page, name: string, item: string | RegExp) {
@@ -149,6 +150,97 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
   await page.getByTestId('trash-list').getByRole('button', { name: '되돌리기' }).click()
   await expect(page.getByText('marketing/renamed.txt(으)로 되돌렸어요.')).toBeVisible()
 })
+
+for (const locale of ['ko', 'en', 'id'] as const) {
+  test(`folder names: validation, recovery, rename and cancel (${locale})`, async ({ page }) => {
+    const t = DICTS[locale]
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    const dialog = page.getByRole('dialog')
+    const input = dialog.getByRole('textbox')
+    const confirm = dialog.getByTestId('dialog-confirm')
+    const error = dialog.getByRole('alert')
+    const mutations = async () => ((await (await page.request.post('/__test/log')).json()) as string[])
+      .filter((line) => /^POST \/api\/files\/(mkdir|move)$/.test(line))
+    const before = await mutations()
+
+    // Both blur and Enter validate an untouched empty input. Reopening resets the feedback.
+    for (const key of ['Tab', 'Enter']) {
+      await page.getByRole('button', { name: t['files.newFolder'], exact: true }).click()
+      await expect(input).toHaveValue('')
+      await expect(input).toBeFocused()
+      await expect(error).toHaveCount(0)
+      await expect(confirm).toBeDisabled()
+      await input.press(key)
+      await expect(error).toHaveText(t['files.name.empty'])
+      await expect(input).toHaveAttribute('aria-invalid', 'true')
+      await expect(input).toHaveAccessibleDescription(t['files.name.empty'])
+      await expect(confirm).toBeDisabled()
+      await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+      await expect(dialog).toHaveCount(0)
+    }
+
+    await page.getByRole('button', { name: t['files.newFolder'], exact: true }).click()
+    await expect(error).toHaveCount(0)
+    for (const [value, message] of [
+      ['   ', t['files.name.empty']],
+      ['a:b', t['files.name.chars']],
+      ['drafts.', t['files.name.dots']],
+    ] as const) {
+      await input.fill(value)
+      await input.press('Enter')
+      await expect(error).toHaveText(message)
+      await expect(confirm).toBeDisabled()
+    }
+    for (const key of ['Tab', 'Enter']) {
+      await input.fill('drafts')
+      await expect(error).toHaveCount(0)
+      await expect(confirm).toBeEnabled()
+      await input.fill('')
+      await expect(error).toHaveText(t['files.name.empty'])
+      await input.press(key)
+      await expect(error).toHaveText(t['files.name.empty'])
+      await expect(confirm).toBeDisabled()
+    }
+    expect(await mutations()).toEqual(before)
+
+    await input.fill('drafts')
+    await expect(error).toHaveCount(0)
+    await expect(input).not.toHaveAttribute('aria-invalid', 'true')
+    await input.press('Enter')
+    await expect(dialog).toHaveCount(0)
+    await expect(row(page, 'drafts')).toBeVisible()
+
+    await rowMenu(page, 'drafts', t['files.rename'])
+    await expect(input).toHaveValue('drafts')
+    await expect(error).toHaveCount(0)
+    await input.fill('')
+    await input.press('Enter')
+    await expect(error).toHaveText(t['files.name.empty'])
+    await expect(confirm).toBeDisabled()
+    await input.fill('drafts-renamed')
+    await expect(error).toHaveCount(0)
+    await confirm.click()
+    await expect(dialog).toHaveCount(0)
+    await expect(row(page, 'drafts-renamed')).toBeVisible()
+    const afterRename = await mutations()
+    expect(afterRename.slice(before.length)).toEqual(['POST /api/files/mkdir', 'POST /api/files/move'])
+
+    await rowMenu(page, 'drafts-renamed', t['files.rename'])
+    await input.fill('cancelled-rename')
+    await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+    await page.getByRole('button', { name: t['files.newFolder'], exact: true }).click()
+    await expect(input).toHaveValue('')
+    await expect(error).toHaveCount(0)
+    await input.fill('cancelled-folder')
+    await input.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(row(page, 'drafts-renamed')).toBeVisible()
+    await expect(row(page, 'cancelled-')).toHaveCount(0)
+    expect(await mutations()).toEqual(afterRename)
+  })
+}
 
 test('version history with restore; start a chat with a file', async ({ page }) => {
   await reset(page)

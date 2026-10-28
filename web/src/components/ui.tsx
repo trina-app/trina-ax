@@ -236,8 +236,10 @@ export function DialogHost() {
   const req = useDialogs((s) => s.req)
   const setReq = useDialogs((s) => s.set)
   const [value, setValue] = useState('')
+  const [touched, setTouched] = useState(false)
   useEffect(() => {
     if (req?.kind === 'prompt') setValue(req.initial)
+    setTouched(false)
   }, [req])
   if (!req) return null
   const close = (ok: boolean) => {
@@ -267,11 +269,12 @@ export function DialogHost() {
         <form
           onSubmit={(e) => {
             e.preventDefault()
+            setTouched(true)
             if (value.trim() && !problem) close(true)
           }}
         >
-          <Field label={req.label} error={value && problem ? problem : null}>
-            <input data-autofocus className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} />
+          <Field label={req.label} error={value || touched ? problem : null}>
+            <input data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
           </Field>
         </form>
       )}
