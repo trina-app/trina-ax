@@ -1694,3 +1694,17 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - Deletion continues to remove only the schedule, preserving its result chat. Tests cover timezone/date/DST
   boundaries, terminal-state rejection, future/recurring resumption, and Settings in Jakarta/UTC browsers in
   all three languages, including result-chat preservation after deletion.
+
+## Automatic update windows: validate clock ranges (fix/qa-update-window, 2026-10-29)
+
+- `HH:mm-HH:mm` requires hours 00–23 and minutes 00–59 at both endpoints. The settings API and admin UI use
+  the same shared schema; invalid input shows a translated field error and cannot be saved.
+- `inWindow` rejects invalid values before comparing times. Starts remain inclusive and ends exclusive; overnight
+  windows are supported and equal endpoints remain closed all day. `null` still means 03:00–05:00 in the team's
+  time zone, with no running answer. The help text in ko/en/id now describes this existing default correctly.
+- Old invalid stored windows read as `00:00-00:00`, a valid closed window, instead of falling back to `null` and
+  accidentally enabling automatic updates. Reads leave the stored value untouched. Admins can still load settings,
+  replace the closed window or clear it to explicitly restore the default; no migration is needed.
+- Tests: shared contracts, automatic-update boundaries and legacy settings read/repair in `tests/unit`, and admin
+  Playwright input/blur errors, blocked saves and valid recovery in all three languages.
+- Needed in the core too (potenlab/team-ax); nothing here is Trina-specific.

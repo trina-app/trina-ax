@@ -4,6 +4,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { TeamSettings } from '@mycel/shared/api'
+import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { OFFICE_RELEASE_KEYS } from '../../server/src/office/release'
 import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
@@ -67,6 +69,20 @@ describe('roll-out, window, decision', () => {
     expect(inWindow('23:00-01:00', new Date('2026-10-21T00:30:00Z'), 'UTC')).toBe(true)
     expect(inWindow('23:00-01:00', new Date('2026-10-21T01:30:00Z'), 'UTC')).toBe(false)
   })
+  test('window starts are inclusive, ends exclusive, including midnight and the null default', () => {
+    const at = (time: string) => new Date(`2026-10-21T${time}:00Z`)
+    for (const [window, start, end] of [['00:00-23:59', '00:00', '23:59'], ['23:59-00:00', '23:59', '00:00'], ['23:00-01:00', '23:00', '01:00'], [null, '03:00', '05:00']] as const) {
+      expect(inWindow(window, at(start), 'UTC')).toBe(true)
+      expect(inWindow(window, at(end), 'UTC')).toBe(false)
+    }
+  })
+  test('invalid stored windows and equal endpoints stay closed throughout the day', () => {
+    for (const window of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60', '24:00-00:00', '00:00-24:00', '', 'bad', '00:00-00:00', '12:34-12:34']) {
+      for (let minute = 0; minute < 1440; minute++) {
+        expect(inWindow(window, new Date(Date.UTC(2026, 9, 21, 0, minute)), 'UTC'), window).toBe(false)
+      }
+    }
+  })
   test('take it only when newer, app-only, in the roll-out, not held, in the window, nothing running', () => {
     const now = new Date('2026-10-21T18:30:00Z')
     const base = { feed: feed(), current: '1.0.0', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [] }
@@ -79,6 +95,7 @@ describe('roll-out, window, decision', () => {
     expect(autoUpdateDecision({ ...base, history: rolledBack })).toMatchObject({ why: 'held' })
     expect(autoUpdateDecision({ ...base, history: [{ ...rolledBack[0]!, at: new Date(now.getTime() - 8 * 86_400_000).toISOString() }] })).toEqual({ go: true, version: '1.1.0' })
     expect(autoUpdateDecision({ ...base, lastAttempt: { version: '1.1.0', at: now.toISOString() } })).toMatchObject({ why: 'held' })
+    expect(autoUpdateDecision({ ...base, window: '00:00-25:00' })).toMatchObject({ go: false, why: 'outside_window' })
     expect(autoUpdateDecision({ ...base, tz: 'UTC' })).toMatchObject({ why: 'outside_window' })
     expect(autoUpdateDecision({ ...base, running: 1 })).toMatchObject({ why: 'busy' })
   })
@@ -97,6 +114,38 @@ describe('through the app', () => {
   })
   afterAll(() => { systemTestHooks.opsOptions = null; h.close() })
 
+  test('settings reject invalid windows without storing them and accept valid windows or null', async () => {
+    await owner.call('PATCH', '/api/admin/settings', { updateWindow: '23:00-01:00' })
+    for (const updateWindow of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60']) {
+      expect((await owner.try('PATCH', '/api/admin/settings', { updateWindow })).status).toBe(400)
+      expect(getSetting<string | null>(h.ctx.db, 'updateWindow')).toBe('23:00-01:00')
+    }
+    for (const updateWindow of ['00:00-23:59', '23:59-00:00', '12:34-12:34', null]) {
+      expect((await owner.call('PATCH', '/api/admin/settings', { updateWindow })).updateWindow).toBe(updateWindow)
+      expect((await owner.call('GET', '/api/admin/settings')).updateWindow).toBe(updateWindow)
+    }
+  })
+  test('legacy invalid settings remain readable and closed until replaced or cleared', async () => {
+    for (const legacy of ['25:00-26:00', '23:60-01:00', '00:00-25:00']) {
+      for (const replacement of ['23:00-01:00', null]) {
+        setSetting(h.ctx.db, 'updateWindow', legacy)
+        const settings = await owner.call('GET', '/api/admin/settings')
+        expect(TeamSettings.safeParse(settings).success).toBe(true)
+        expect(settings.updateWindow).toBe('00:00-00:00')
+        expect(inWindow(settings.updateWindow, new Date('2026-10-21T03:30:00Z'), 'UTC')).toBe(false)
+        expect(getSetting<string | null>(h.ctx.db, 'updateWindow')).toBe(legacy) // a read never rewrites the DB
+        expect((await owner.call('PATCH', '/api/admin/settings', { updateWindow: replacement })).updateWindow).toBe(replacement)
+        expect(getSetting<string | null>(h.ctx.db, 'updateWindow')).toBe(replacement)
+      }
+    }
+  })
+  test('corrupt window JSON also stays closed and can be cleared', async () => {
+    h.ctx.db.query("UPDATE settings SET value = ? WHERE key = 'updateWindow'").run('{broken')
+    const settings = await owner.call('GET', '/api/admin/settings')
+    expect(settings.updateWindow).toBe('00:00-00:00')
+    expect(inWindow(settings.updateWindow, new Date('2026-10-21T03:30:00Z'), 'UTC')).toBe(false)
+    expect((await owner.call('PATCH', '/api/admin/settings', { updateWindow: null })).updateWindow).toBeNull()
+  })
   test('a release that needs root is shown (needsRoot) and not installed from here (409)', async () => {
     fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0', needsRoot: true }) }))
     const st = await owner.call('GET', '/api/admin/update')

@@ -2,7 +2,7 @@
 // (system/ops.ts autoUpdateTick): wait for running answers (up to 10 minutes; what still runs then is interrupted),
 // back up the DB, bring the version in, switch app/current and restart. The bootstrap health-checks the new version
 // and rolls back to the previous one when it does not come up (native/cmd/mycel-bootstrap). Component G.
-import type { Locale } from '@mycel/shared/api'
+import { TeamSettings, type Locale } from '@mycel/shared/api'
 import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
 import { enPlural, stepText, tr } from './messages'
@@ -64,6 +64,7 @@ type History = z.infer<typeof UpdateHistoryEntry>[]
 
 /** "HH:mm-HH:mm" in the team's zone; a window may pass midnight ("23:00-01:00"). */
 export function inWindow(window: string | null, now: Date, tz: string): boolean {
+  if (!TeamSettings.shape.updateWindow.safeParse(window).success) return false
   const m = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(window ?? DEFAULT_UPDATE_WINDOW)
   if (!m) return false
   const from = +m[1]! * 60 + +m[2]!, to = +m[3]! * 60 + +m[4]!
