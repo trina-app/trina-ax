@@ -21,8 +21,7 @@ COPY tests/package.json /opt/mycel/tests/package.json
 COPY web/package.json /opt/mycel/web/package.json
 COPY desktop/package.json /opt/mycel/desktop/package.json
 COPY relay/package.json /opt/mycel/relay/package.json
-# every workspace of the root package.json, or the frozen lockfile does not match (ee/cloud depends on @mycel/shared)
-COPY ee/cloud/package.json /opt/mycel/ee/cloud/package.json
+# every workspace of the root package.json, or the frozen lockfile does not match (this repository has no ee/)
 RUN cd /opt/mycel && bun install --frozen-lockfile
 COPY tests /opt/mycel/tests
 # the browser's sealing code: the credential store test seals with it and opens on the server side
