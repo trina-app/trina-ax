@@ -25,10 +25,11 @@ import path from 'node:path'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
+const parentOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 /** like a server whose relay.officialAvailable is off: the official relay is not offered */
 const defaultConnection = (): ConnectionStatus => ({ mode: 'self-relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null }, teamName: 'acme', availableModes: ['self-relay', 'direct-only'] })
 class Fail extends Error {
-  constructor(public code: ErrorCode, public status: number, msg?: string, public fields?: Record<string, string>) {
+  constructor(public code: ErrorCode, public status: number, msg?: string, public fields?: Record<string, string>, public params?: Record<string, string | number | boolean>) {
     super(msg ?? ERROR_MESSAGES[code].ko)
   }
 }
@@ -221,6 +222,14 @@ export class MockServer {
     this.users.push(user)
     this.passwords.set(user.username, password)
     return user
+  }
+
+  /** "name (2).ext", "name (3).ext", …: the first one not taken (onExists rename) */
+  freePath(p: string): string {
+    for (let i = 2; ; i++) {
+      const q = p.replace(/(\.[^./]+)?$/, (ext: string) => ` (${i})${ext}`)
+      if (!this.files.has(q)) return q
+    }
   }
 
   putFile(path: string, content: string | Uint8Array) {
@@ -741,15 +750,48 @@ export class MockServer {
       return { status: 201, body: this.entry(c.body.path, this.files.get(c.body.path)!, c.user) }
     },
     move: (c) => {
-      const n = this.files.get(c.body.from) ?? fail('not_found', 404)
-      if (this.files.has(c.body.to)) fail('conflict', 409)
+      const from: string = c.body.from
+      const n = this.files.get(from) ?? fail('not_found', 404)
+      if (this.access(from, c.user) !== 'write') fail('forbidden', 403)
+      let to: string = c.body.to
+      if (to === from) return { entry: this.entry(from, n, c.user) }
+      if (this.files.has(to)) {
+        if (c.body.onExists !== 'rename') fail('conflict', 409)
+        to = this.freePath(to)
+      }
+      if (this.access(parentOf(to), c.user) !== 'write') fail('forbidden', 403)
+      // like server/src/team-files/service.ts: into the mover's own users/<id>/ while other people can read it now
+      const own = `users/${c.user.id}/`
+      if (to.startsWith(own) && !from.startsWith(own) && !c.body.confirm) {
+        const lost = this.users.filter((u) => u.id !== c.user.id && this.access(from, u) !== 'none' && this.access(to, u) === 'none').length
+        if (lost > 0) throw new Fail('conflict', 409, undefined, undefined, { reason: 'audience_narrowed', lostViewers: lost })
+      }
       for (const [p, v] of [...this.files.entries()]) {
-        if (p === c.body.from || p.startsWith(c.body.from + '/')) {
+        if (p === from || p.startsWith(from + '/')) {
           this.files.delete(p)
-          this.files.set(c.body.to + p.slice(c.body.from.length), v)
+          this.files.set(to + p.slice(from.length), v)
         }
       }
-      return { entry: this.entry(c.body.to, n, c.user) }
+      return { entry: this.entry(to, n, c.user) }
+    },
+    // share by copying (server/src/team-files/service.ts copy): files only; dryRun counts who would see it in addition
+    copy: (c) => {
+      const from: string = c.body.from
+      const n = this.files.get(from)
+      if (!n || this.access(from, c.user) === 'none') return fail('not_found', 404)
+      if (n.type !== 'file') fail('validation', 400, 'a folder cannot be copied')
+      let to: string = c.body.to
+      const parent = parentOf(to)
+      if (parent && this.files.get(parent)?.type !== 'folder') fail('not_found', 404)
+      if (this.access(parent, c.user) !== 'write') fail('forbidden', 403)
+      const viewersAdded = this.users.filter((u) => u.id !== c.user.id && this.access(to, u) !== 'none' && this.access(from, u) === 'none').length
+      if (c.body.dryRun) return { viewersAdded }
+      if (this.files.has(to)) {
+        if (c.body.onExists === 'fail') fail('conflict', 409)
+        if (c.body.onExists === 'rename') to = this.freePath(to)
+      }
+      this.putFile(to, n.data!)
+      return { path: to, sha256: sha256Hex(n.data!) }
     },
     remove: (c) => {
       const n = this.files.get(c.query.path!) ?? fail('not_found', 404)
@@ -1326,7 +1368,7 @@ export class MockServer {
       const checked = (ep.response as z.ZodType).parse(o.body)
       return new Response(JSON.stringify(checked), { status, headers })
     } catch (e) {
-      if (e instanceof Fail) return new Response(JSON.stringify(ApiErrorResponse.parse({ error: { code: e.code, message: e.message, ...(e.fields ? { fields: e.fields } : {}) } })), { status: e.status, headers: { 'content-type': 'application/json' } })
+      if (e instanceof Fail) return new Response(JSON.stringify(ApiErrorResponse.parse({ error: { code: e.code, message: e.message, ...(e.fields ? { fields: e.fields } : {}), ...(e.params ? { params: e.params } : {}) } })), { status: e.status, headers: { 'content-type': 'application/json' } })
       console.error('mock error', req.method, p, e)
       return new Response(JSON.stringify({ error: { code: 'internal', message: String(e) } }), { status: 500, headers: { 'content-type': 'application/json' } })
     }
