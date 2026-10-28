@@ -10,6 +10,7 @@ export const RELEASE_CHANNEL = {
    *  replaced by adding the new one first, shipping that build, then signing with the new key. */
   keys: [
     "jdltMFlx7RlZaB2fHZoplBVCE0drUl1Xycw1lXPNquk=", // key id 086478d11148fd06
+    "FA6/4xpI1X0VWQ5wQNyK4yVFMl3Jr+R8FTPk4F2BS00=", // key id a8f40309cdceb532
   ] as readonly string[],
   /** the product field of a signed office manifest */
   officeProduct: "trina-ax-office",

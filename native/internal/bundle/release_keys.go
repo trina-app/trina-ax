@@ -6,4 +6,5 @@ package bundle
 // shared/src/release-channel.ts (spec D12: one release key for office and server feeds).
 var ReleaseKeys = []string{
 	"jdltMFlx7RlZaB2fHZoplBVCE0drUl1Xycw1lXPNquk=", // key id 086478d11148fd06
+	"FA6/4xpI1X0VWQ5wQNyK4yVFMl3Jr+R8FTPk4F2BS00=", // key id a8f40309cdceb532
 }

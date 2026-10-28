@@ -1,8 +1,15 @@
 {
   "feed": "https://updates.trina.app",
-  "keys": ["jdltMFlx7RlZaB2fHZoplBVCE0drUl1Xycw1lXPNquk="],
+  "keys": [
+    "jdltMFlx7RlZaB2fHZoplBVCE0drUl1Xycw1lXPNquk=",
+    "FA6/4xpI1X0VWQ5wQNyK4yVFMl3Jr+R8FTPk4F2BS00="
+  ],
   "officeProduct": "trina-ax-office",
   "officeDir": "office",
   "keyDir": "trina-ax-release",
-  "hosting": { "zone": "trina.app", "bucket": "trina-ax-updates", "worker": "trina-ax-updates" }
+  "hosting": {
+    "zone": "trina.app",
+    "bucket": "trina-ax-updates",
+    "worker": "trina-ax-updates"
+  }
 }
