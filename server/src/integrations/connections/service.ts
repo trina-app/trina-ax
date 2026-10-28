@@ -1,7 +1,8 @@
 // External-service connections (docs/INTEGRATIONS.md): personal ones (a member's own account, used only in their chats)
 // and team ones (an admin's, used by the people the admin chose). Creating, changing, checking, signing in at an MCP
 // server (OAuth), and the calls the AI's tools make (integrations/connections/tools.ts). Nothing here ever returns,
-// logs or audits a key or a token; a check stores a reason code, never the service's own words.
+// logs or audits a key or a token; a check stores a reason code, never the service's own words. What a service sends
+// back has the connection's secrets hidden (hider, hide.ts) before anyone sees it.
 import crypto from 'node:crypto'
 import path from 'node:path'
 import net from 'node:net'
@@ -14,6 +15,7 @@ import { fail } from '../../http/errors'
 import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
+import { secretHider } from './hide'
 import { McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
@@ -28,6 +30,10 @@ export const MAX_TEAM = 50
 const FLOW_TTL = 10 * 60_000
 const FLOWS_PER_HOUR = 20
 const CLIENT_IDLE_MS = 10 * 60_000
+/** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
+const RECENT_SECRETS = 16
+/** what is shown instead of an answer when the connection's secret cannot be read to hide it */
+export const WITHHELD = '(not shown: this answer could not be checked for the connection\'s key)'
 /** headers a connection's key may not be sent in (they would break the request or our own MCP headers) */
 const RESERVED_HEADERS = new Set(['host', 'content-length', 'content-type', 'transfer-encoding', 'connection', 'upgrade', 'te', 'trailer', 'expect', 'accept',
   'accept-encoding', 'user-agent', 'cookie', 'mcp-session-id', 'mcp-protocol-version', 'proxy-authorization', 'keep-alive'])
@@ -82,6 +88,7 @@ export class Integrations {
   readonly now: () => number
   private clients = new Map<string, McpClient>()
   private refreshes = new Map<string, Promise<string>>()
+  private recent = new Map<string, string[]>()
 
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
     this.now = deps.now ?? Date.now
@@ -219,6 +226,7 @@ export class Integrations {
     // local first: the tokens are gone even when the service cannot be told
     this.db.query('DELETE FROM integrations WHERE id = ?').run(id)
     this.dropClient(id)
+    this.recent.delete(id)
     audit(this.db, { actor: viewer.id, action: 'integration.delete', target: id, detail: auditDetail(row) })
     if (old?.type === 'oauth') await this.revokeTokens(old)
   }
@@ -296,6 +304,36 @@ export class Integrations {
     this.refreshes.set(row.id, task)
     try { return await task } finally { if (this.refreshes.get(row.id) === task) this.refreshes.delete(row.id) }
   }
+
+  /** Every value of a connection's secret this server knows: as `row` holds it, as stored now (a refresh during a call
+   * rotates OAuth tokens) and the earlier ones seen since the server started. The key; OAuth access and refresh tokens
+   * and the client secret. null when a stored secret cannot be read now. Only for hiding them (hider). */
+  private secretValues(row: Row): string[] | null {
+    const seen = new Set(this.recent.get(row.id))
+    let unreadable = false
+    for (const r of [row, getRow(this.db, row.id)]) {
+      if (!r?.secret_enc) continue
+      const s = this.tryOpen(r)
+      if (!s) { unreadable = true; continue }
+      for (const v of s.type === 'key' ? [s.key] : [s.tokens.accessToken, s.tokens.refreshToken, s.client.clientSecret]) if (v) seen.add(v)
+    }
+    const all = [...seen].slice(-RECENT_SECRETS)
+    if (all.length) this.recent.set(row.id, all)
+    return unreadable ? null : all
+  }
+
+  /** A function that hides these connections' secrets in what their services sent back (hide.ts). Made after the call,
+   * so tokens refreshed during it are included; when a secret cannot be read, nothing of the text is shown. */
+  hider(rows: Row[]): (text: string) => string {
+    const values: string[] = []
+    for (const r of rows) {
+      const v = this.secretValues(r)
+      if (!v) return () => WITHHELD
+      values.push(...v)
+    }
+    return secretHider(values)
+  }
+
   private async revokeTokens(s: Secret) {
     if (s.type !== 'oauth') return false
     const t = s.tokens.refreshToken ?? s.tokens.accessToken
@@ -319,6 +357,7 @@ export class Integrations {
   async check(row: Row, signal?: AbortSignal): Promise<Row> {
     try {
       if (row.kind === 'mcp') {
+        // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
         const { tools } = await this.withMcp(row, (c) => c.listTools(signal))
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools) })
       } else {
@@ -340,7 +379,7 @@ export class Integrations {
     const c = this.clients.get(key)
     if (c && this.now() - c.usedAt < CLIENT_IDLE_MS) return c
     this.dropClient(row.id)
-    const fresh = new McpClient(row.url, () => this.authHeaders(row), this.net)
+    const fresh = new McpClient(row.url, () => this.authHeaders(row), this.net, () => this.hider([row]))
     this.clients.set(key, fresh)
     return fresh
   }

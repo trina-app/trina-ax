@@ -67,6 +67,7 @@ describe('tools made per person', () => {
     expect(a.prompt).toContain('## Connected services')
     expect(a.prompt).toContain('Tasks (personal connection, MCP server)')
     expect(a.prompt).toContain('external data')
+    expect(a.prompt).toContain('shows as [hidden key]; you cannot see or send it.')
     for (const t of a.tools.values()) {
       expect(TEAM_TOOL_PREFIX.length + t.name.length).toBeLessThanOrEqual(64)
       expect(t.name).toMatch(/^[a-zA-Z0-9_-]+$/)
@@ -268,6 +269,32 @@ describe('api_request', () => {
     expect(buildUrl('https://h.example/v1?key=k', 'tasks')).toBe('https://h.example/v1/tasks?key=k')
     expect((await a.call('api_request', { connection: 'my_other', method: 'GET', path: '/x' })).summary).toBe('api_request my_other GET -> unknown connection')
     expect((await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/x', headers: { Authorization: 'x' } })).text).toContain('Invalid input')
+  })
+
+  test('the AI\'s input cannot have the key put anywhere: placeholders are sent as written, the key goes only in its header', async () => {
+    const marks = ['{{key}}', '{{ secrets.api_key }}', '${API_KEY}', '$API_KEY', '%KEY%', '<key>', '{secret}', '{{token}}', '[hidden key]']
+    const a = turn('alice', { person: ask(true) })
+    const before = fake.seen.length
+    const r = await a.call('api_request', { connection: 'my_aipm', method: 'POST', path: `/tasks?x=${encodeURIComponent('{{key}}')}`, query: Object.fromEntries(marks.map((m, i) => [`q${i}`, m])), body: { title: '{{key}}', all: marks } })
+    expect(r.isError).toBe(false)
+    const m = await a.call('my_tasks__search_tasks', { q: '{{key}}', all: marks })
+    expect(m.isError).toBe(false)
+    const sent = fake.seen.slice(before)
+    expect(sent).toHaveLength(2)
+    const [api, mcp] = sent as [typeof sent[0], typeof sent[0]]
+    const q = new URL('https://x' + api.path).searchParams
+    expect([q.get('x'), ...marks.map((_, i) => q.get(`q${i}`))]).toEqual(['{{key}}', ...marks])
+    expect(JSON.parse(api.body)).toEqual({ title: '{{key}}', all: marks })
+    expect(fake.calls.at(-1)).toMatchObject({ name: 'search_tasks', args: { q: '{{key}}', all: marks }, auth: `Bearer ${MCP_KEY}` })
+    // the key is in exactly one header of each request, the one the connection names
+    for (const [s, key] of [[api, API_KEY], [mcp, MCP_KEY]] as const) {
+      expect(s.path + s.body).not.toContain(key)
+      expect(Object.entries(s.headers).filter(([, v]) => v.includes(key))).toEqual([['authorization', `Bearer ${key}`]])
+    }
+    // no input field can carry a header or another address (the input is strict)
+    for (const extra of [{ headers: { 'X-Api-Key': '{{key}}' } }, { auth: 'none' }, { url: 'https://evil.example/' }, { connectionUrl: 'https://evil.example/' }]) {
+      expect((await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/tasks', ...extra })).summary).toBe('api_request -> invalid input')
+    }
   })
 
   test('changes ask first and send JSON; redirects are reported, never followed; big and binary answers', async () => {
