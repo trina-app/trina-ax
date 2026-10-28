@@ -1855,7 +1855,9 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   The title still uses PRODUCT.displayName in every language.
 - The service worker reads this text during its existing authenticated, no-store eligibility checks. Provider
   payloads remain opaque IDs and an event code; task names, results, files, errors and credentials are not added.
-  Missing localized text fails closed. New text requires the updated service worker to activate.
+  Old workers keep displaying English until the updated worker activates. With an older server, new clients
+  can still read settings, but new workers suppress notifications without localized text (including on rollback).
 - Coverage checks all events in all supported languages, explicit account choices versus team/browser language,
-  team-default changes and English fallback, service-worker rendering and the existing delivery/privacy guards.
+  team-default changes and English fallback, separate recipients, mixed-version settings, service-worker rendering
+  and the existing delivery/privacy guards.
 - Needed in the core too (potenlab/team-ax); no Trina-specific behavior.
