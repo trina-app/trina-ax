@@ -824,7 +824,7 @@ export class MockServer {
     remove: (c) => {
       const n = this.files.get(c.query.path!) ?? fail('not_found', 404)
       this.files.delete(c.query.path!)
-      const item = { id: uuidv7(), originalPath: c.query.path!, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + 30 * 86400_000).toISOString(), node: n }
+      const item = { id: uuidv7(), originalPath: c.query.path!, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), node: n }
       this.trash.push(item)
       return { trashId: item.id, purgeAt: item.purgeAt }
     },

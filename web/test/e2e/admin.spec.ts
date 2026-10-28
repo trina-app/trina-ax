@@ -235,6 +235,38 @@ test('settings: the team time zone', async ({ page }) => {
 })
 
 for (const locale of ['ko', 'en', 'id'] as const) {
+  test(`members: deletion explains private archive transfer, including after cancel (${locale})`, async ({ page }) => {
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/admin/members')
+    const t = DICTS[locale]
+    const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
+    await member.getByRole('button', { name: t['members.disable'], exact: true }).click()
+    await page.getByTestId('dialog-confirm').click()
+    await expect(member).toContainText(t['members.disabled'])
+    for (const cancel of [true, false]) {
+      await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toContainText(t['members.removeBody'])
+      await expect(dialog).not.toContainText('users/')
+      await expect(dialog).not.toContainText('{id}')
+      if (cancel) {
+        await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+        await expect(member).toBeVisible()
+      } else {
+        const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
+        await dialog.getByTestId('dialog-confirm').click()
+        const response = await deleted
+        expect(response.status()).toBe(204)
+        // The UI still uses the default transfer contract, without selecting destructive folder deletion.
+        expect(new URL(response.url()).searchParams.get('personalFolder')).toBeNull()
+        // A successful 204 currently leaves the member list stale; refresh is outside these guidance checks.
+        await page.reload()
+        await expect(member).toHaveCount(0)
+      }
+    }
+  })
+
   test(`settings: update window validates while typing and after blur, then recovers (${locale})`, async ({ page }) => {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
