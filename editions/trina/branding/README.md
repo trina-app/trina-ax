@@ -10,7 +10,7 @@
 
 - 키 ID `086478d11148fd06`(2026-10-27 생성). 개인키는 배포하는 맥의 `~/.config/trina-ax-release/release-key.pem`에만 있다. 레포·로그·채팅에 넣지 않고 따로 백업한다.
 - Team AX(`updates.treesoop.com`)와 의료판(`medical-updates.treesoop.com`)과 키가 다르다. 그래서 서로의 업데이트를 받지 않는다.
-- 고객 주소 `updates.trina.app`이 생기지 않도록 `update(s)`, `release(s)`, `download(s)`는 고객 주소로 쓸 수 없다(`../domains/names.ts`).
+- 고객 주소 `updates.trina.app`이 생기지 않도록 `update(s)`, `release(s)`, `download(s)`는 고객 주소로 쓸 수 없다(비공개 `trina-ax-core`의 `editions/trina/domains/names.ts`).
 - Cloudflare의 `updates.trina.app` Worker·R2 bucket(`trina-ax-updates`)은 아직 만들지 않았다. 만들기(`bun scripts/release/hosting.ts setup`)와 첫 배포(`scripts/release/publish.ts`)는 대표 확인 뒤에 한다.
 
 ## 소스 코드 링크 (AGPL-3.0)

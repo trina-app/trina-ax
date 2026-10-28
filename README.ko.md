@@ -41,8 +41,8 @@ HWP/HWPX가 다른 제품의 지원 목록에 없다는 사실만으로 “지�
 
 ## 소스와 운영 경계
 
-공통 엔진·권한·대기열·직원 앱은 코어에 두고, 트리나 브랜드·결제·호스팅 정책은 `editions/trina`에 둬요. 트리나 추가 코드는 **AGPL-3.0-only**이며 [LICENSE](LICENSE)와 [NOTICE](NOTICE), 의존성 고지를 함께 확인해야 해요. 고객 데이터·자격증명·회사 전용 운영 설정은 공개 소스가 아니에요.
+공통 엔진·권한·대기열·직원 앱은 코어에 두고, 트리나 브랜드는 `editions/trina/branding`에 둬요. 트리나 호스팅 서비스(결제·호스팅·운영 콘솔)와 ax.trina.app 사이트는 비공개이며 이 레포에 없어요. 트리나 추가 코드는 **AGPL-3.0-only**이며 [LICENSE](LICENSE)와 [NOTICE](NOTICE), 의존성 고지를 함께 확인해야 해요. 고객 데이터·자격증명·회사 전용 운영 설정은 공개 소스가 아니에요.
 
 공개 검토 뒤 배포 버전과 일치하는 소스 및 설치 안내를 연결해야 해요. 네트워크 제공 시 대응 소스를 받을 수 있는 경로도 배포 검토에 포함해요. 라이선스 조건은 [GNU AGPL 원문](https://www.gnu.org/licenses/agpl-3.0.html)을 기준으로 확인해요.
 
-로컬 사이트 개발 방법은 [website/README.md](editions/trina/website/README.md), 판매·운영 구현 경계는 [OPERATIONS.md](editions/trina/OPERATIONS.md)를 참고해요. 최신 코어와 판매판을 로컬에서 조립한 검토 후보이며, [동기화 기록](docs/UPSTREAM.md)에 실제 반입 기준과 검증 경계를 남겼어요.
+최신 코어와 트리나 브랜드를 로컬에서 조립한 검토 후보이며, [동기화 기록](docs/UPSTREAM.md)에 실제 반입 기준과 검증 경계를 남겼어요.
