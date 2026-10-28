@@ -5,13 +5,17 @@
 // changed rule or a new member never leaves a stale set behind.
 //   {type:'folder', id}  the nearest folder with rules above a file (folders.id: survives renames and moves)
 //   {type:'root'}        no rule folder above it: the team folder's default (owner and admins)
-//   {type:'user', id}    users/<id>/…, and what the in-app browser showed the person (only they saw it)
+//   {type:'user', id}    users/<id>/…, and what the in-app browser showed the person (only they saw it), and what a
+//                        personal external-service connection returned
+//   {type:'integration', id}  what a team external-service connection returned: its viewers are the active people its
+//                        access rules allow today (integrations/connections/store.ts)
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
 // person's own messages do not.
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { getRow, usersOf } from '../integrations/connections/store'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' }
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
 export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : `${s.type}:${s.id}`)
@@ -64,6 +68,7 @@ function activePeople(db: Database): Principal[] {
 /** Who may read what came from this source, under today's rules. A folder row that is gone: nobody (asks). */
 function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[]): Set<string> {
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
+  if (s.type === 'integration') return usersOf(db, s.id)
   let segs: string[] = []
   if (s.type === 'folder') {
     const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
@@ -99,6 +104,7 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
 export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string }): string {
   if (s.type === 'root') return text.root
   if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
+  if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
   return row ? (row.path === '' ? text.root : row.path + '/') : '?'
 }

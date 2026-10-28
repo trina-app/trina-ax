@@ -13,6 +13,8 @@ import { registerCTools } from '../tools'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
+import { registerIntegrationRoutes } from './integrations'
+import { registerIntegrations } from '../integrations/connections/tools'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
@@ -20,9 +22,12 @@ export const filesRoutes: RouteModule = {
   init(ctx) {
     componentC(ctx)
     registerCTools(ctx)
+    // external-service connections: each person's tools are made at the start of their turn
+    registerIntegrations(ctx)
   },
   register(kit, ctx) {
     registerDriveRoutes(kit, ctx)
+    registerIntegrationRoutes(kit, ctx)
     const C = componentC(ctx)
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')

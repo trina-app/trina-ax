@@ -33,6 +33,8 @@ export interface PromptInput {
   tools: string[]
   /** messages of this branch before the new one, oldest first (only when a new engine session starts) */
   history: { role: 'user' | 'assistant'; content: string }[] | null
+  /** the services connected for this person (per-person tools, integrations/connections/tools.ts); null: none */
+  connected?: string | null
   now?: Date
 }
 
@@ -252,6 +254,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   if (rules) sections.push(`## Team rules (from skills/)\n${rules}`)
   if (skills) sections.push(skills)
   if (i.project) sections.push(projectSection(i.project))
+  if (i.connected) sections.push(neutralizeTags(i.connected))
   if (i.browser) sections.push(BROWSER_RULES)
   if (i.history?.length) sections.push(historyBlock(i.history))
   return sections.join('\n\n')
@@ -269,6 +272,7 @@ export function buildTurnContext(files: FileService, i: PromptInput): string {
     personLines(files, i).join('\n'),
     memoryBlock(i.memories) || 'No memories about the user.',
     i.project ? projectSection(i.project) : 'This chat belongs to no project.',
+    i.connected ? neutralizeTags(i.connected) : '',
     ENVIRONMENT,
     i.browser ? BROWSER_RULES : '',
   ].filter(Boolean)

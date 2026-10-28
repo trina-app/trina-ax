@@ -33,7 +33,7 @@ import { currentPlan, planLimits } from '../system/limits'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
-import { buildToolSet } from './tools'
+import { buildToolSet, type ChatToolSet } from './tools'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { readRegular, sha256 } from '../files/store'
@@ -137,6 +137,8 @@ export class TurnExec {
   private credentialFailure: { id: string; reason: 'limited' | 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone'; retryAt: string | null } | null = null
   /** the AI connection of the latest attempt (audit of the Codex fallback) */
   private lastCredential: string | null = null
+  /** this turn's tools (step labels of per-person tools) */
+  private toolSet: ChatToolSet | null = null
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
@@ -238,6 +240,7 @@ export class TurnExec {
     this.browser = spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
     const toolSet = buildToolSet(this)
+    this.toolSet = toolSet
     const extraTools = toolSet.list().map((t) => t.name)
 
     // engine session: resume only when the session ends exactly where this turn continues (same branch)
@@ -263,7 +266,7 @@ export class TurnExec {
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
-      history: fresh ? rt.history(userMsg.parent_id) : null,
+      history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null,
     })
     const prompt = (fresh: boolean) => buildTurnPrompt(rt.files, promptInput(fresh))
     // "/<skill name> …": that team skill goes in front of the message for this turn (skills.ts); its folder joins the
@@ -619,7 +622,8 @@ export class TurnExec {
         const tool = e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
         const kind = ENGINE_TEXT_STEP_KIND(tool)
-        const label = kind === 'web_search' ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
+        const label = kind === 'web_search' ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) })
+          : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         const step = this.addStep({ id: e.id, kind, tool, label, status: 'running' })
         const waiting = this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }

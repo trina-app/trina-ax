@@ -4,7 +4,7 @@
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, FILE_TOOLS, ForgetInput, RememberInput, uuidv7 } from '@mycel/shared'
-import type { BrowserToolName, TurnRequest } from '@mycel/shared/api'
+import type { BrowserToolName, Locale, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
@@ -35,12 +35,21 @@ export const B_TOOL_DESCRIPTIONS = {
   ask_user: 'Ask the user a question and wait for the answer. Offer options when you can (the user may also type an answer if allowText). Returns {"answer": ...} or {"skipped": true} when the user does not answer in time.',
 } as const
 
-export function buildToolSet(exec: TurnExec): TurnToolSet {
+/** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
+export interface ChatToolSet extends TurnToolSet {
+  /** sections for the AI's instructions from per-person tools (connected services) */
+  prompt: string[]
+  /** the step label a per-person tool gives its call, or null for the shared labels */
+  stepLabel(name: string, input: unknown, locale: Locale): string | null
+}
+
+export function buildToolSet(exec: TurnExec): ChatToolSet {
   const tools = new Map<string, Tool>()
   const templateWrites = new Set<string>()
-  const add = (t: Tool) => {
-    if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return }
+  const add = (t: Tool): boolean => {
+    if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
+    return true
   }
   for (const t of bTools(exec)) add(t)
   for (const t of exec.rt.ctx.services.turnTools ?? []) {
@@ -48,7 +57,19 @@ export function buildToolSet(exec: TurnExec): TurnToolSet {
     add(wrapRegistered(exec, t))
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
+  // per-person tools (external-service connections), built from saved data at the start of the turn
+  const prompt: string[] = []
+  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
+  for (const p of exec.rt.ctx.services.turnToolProviders ?? []) {
+    let built: ReturnType<typeof p.build>
+    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
+    catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
+    for (const t of built.tools) if (add(wrapRegistered(exec, t)) && t.label) labels.set(t.name, t.label.bind(t))
+    if (built.prompt) prompt.push(built.prompt)
+  }
   return {
+    prompt,
+    stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args) {

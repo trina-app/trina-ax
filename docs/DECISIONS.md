@@ -1538,3 +1538,29 @@ file tools only had `write` (text) for putting bytes anywhere.
   `tests/unit/i-wiring.test.ts` (an attached image moved from a real turn after the server's card).
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
 
+
+## External-service connections: MCP servers and HTTP APIs (feat/integrations-server, 2026-10-28)
+
+The founder gave the AI an API key for AI PM (a REST API with a Bearer token) and asked it to keep using it; it could
+not: there was nowhere to keep a person's key and no tool that sends an authenticated request. Decided (founder,
+2026-10-28): generic, each member connects their own accounts, admins connect team accounts for chosen people.
+
+- Two kinds in phase 1: MCP servers (Streamable HTTP; OAuth sign-in or a key) and HTTP APIs with a key (one tool,
+  `api_request`, kept under the connection's address). Google Drive keeps its own integration. Server:
+  `server/src/integrations/connections/`, contract `shared/src/api/integrations.ts`, details in
+  [INTEGRATIONS.md](INTEGRATIONS.md).
+- Personal connections are their owner's only (admins and the owner of the team cannot see or use them); team
+  connections are managed by admins and used by the people their rules name, admins not implied; checked on every call.
+  `TeamSettings.personalIntegrations` turns personal ones off.
+- Drive's security model: secrets encrypted in a dedicated key directory with AAD per connection, sign-in flows bound to
+  the person and session, the callback needs the same person's live browser session, a new address or way of sending
+  drops the stored key. web_fetch's address rules and DNS pinning for every request (`pinnedRequest`, the generalised
+  GET), no redirects, 30 s / 1 MiB / 40,000 characters.
+- Writes ask on the server's own card by default (per connection: ask / allow / deny); nobody to ask = refused unless
+  allow. Answers are external data and join the chat's read scope (`{type:'integration'}` for team connections), so
+  saving them where more people can read asks first.
+- Tools are made per person when a turn starts, from the saved MCP tool lists (`ctx.services.turnToolProviders`), named
+  `my_<slug>__<tool>` / `team_<slug>__<tool>` within the engines' 64-character limit.
+- Tests: `tests/unit/c-integrations-{api,tools,oauth}.test.ts`, `tests/lib/fake-services.ts`, the real turn in
+  `tests/unit/i-wiring.test.ts`.
+- Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.

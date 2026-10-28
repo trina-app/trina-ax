@@ -205,43 +205,85 @@ export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promis
   return { url, host, ip: pick.address, family: pick.family === 6 ? 6 : 4, port }
 }
 
-// ---------------- HTTP/1.1 GET over a pinned socket ----------------
+// ---------------- HTTP/1.1 over a pinned socket ----------------
 export interface RawResponse { status: number; headers: Record<string, string>; body: Buffer; truncated: boolean }
 
-/** One HTTP/1.1 GET over a socket pinned to the resolved address (no proxy from the environment, no second DNS lookup),
- * `Connection: close`. The answer ends when the socket closes or, sooner, when its Content-Length or last chunk has
- * arrived: a server that keeps the socket open despite `Connection: close` (Bun.serve after a slow handler does) is
- * not a timeout. */
-export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean }): Promise<RawResponse> {
+/** One request for pinnedRequest. Header names must be tokens and values must not break the line (no injection). */
+export interface PinnedRequestInit {
+  method?: string
+  /** sent after Host, in this order (Content-Length and Connection: close are added here) */
+  headers?: [string, string][]
+  body?: Buffer | null
+  deadline: number
+  maxBytes: number
+  insecureTlsForTests?: boolean
+  /** called with the body so far (de-chunked) after each read once the head is in: true = the answer is complete, e.g.
+   * an event stream that stays open after the reply (external-service connections, integrations/connections/mcp.ts) */
+  until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
+  /** stops the request (the socket is closed) */
+  signal?: AbortSignal
+}
+
+const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+const BREAKS = /[\r\n\0]/
+
+/** One HTTP/1.1 request over a socket pinned to the resolved address (no proxy from the environment, no second DNS
+ * lookup), `Connection: close`. The answer ends when the socket closes or, sooner, when its Content-Length or last chunk
+ * has arrived: a server that keeps the socket open despite `Connection: close` (Bun.serve after a slow handler does) is
+ * not a timeout. Redirects are returned as they are (the caller decides). */
+export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const remaining = o.deadline - Date.now()
     if (remaining <= 0) return reject(new ToolError('the site did not answer in time'))
+    const method = o.method ?? 'GET'
     const path = (t.url.pathname || '/') + t.url.search
+    if (!TOKEN.test(method) || BREAKS.test(path) || /\s/.test(path)) return reject(new ToolError('invalid request'))
     const hostHeader = t.url.port ? `${t.url.hostname}:${t.url.port}` : t.url.hostname
-    const req = `GET ${path} HTTP/1.1\r\nHost: ${hostHeader}\r\nUser-Agent: ${UA}\r\nAccept: text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: ko,en;q=0.8\r\nConnection: close\r\n\r\n`
+    let head = `${method} ${path} HTTP/1.1\r\nHost: ${hostHeader}\r\n`
+    for (const [k, v] of o.headers ?? []) {
+      if (!TOKEN.test(k) || BREAKS.test(v)) return reject(new ToolError('invalid request header'))
+      head += `${k}: ${v}\r\n`
+    }
+    if (o.body) head += `Content-Length: ${o.body.length}\r\n`
+    head += 'Connection: close\r\n\r\n'
+    const req = o.body ? Buffer.concat([Buffer.from(head), o.body]) : head
+    const noBody = method === 'HEAD'
     const sock: net.Socket = t.url.protocol === 'https:'
       ? tls.connect({ host: t.ip, port: t.port, servername: net.isIP(t.host) ? undefined : t.host, ALPNProtocols: ['http/1.1'], rejectUnauthorized: !o.insecureTlsForTests })
       : net.connect({ host: t.ip, port: t.port })
     const timer = setTimeout(() => { sock.destroy(); reject(new ToolError('the site did not answer in time')) }, remaining)
+    const stop = () => { clearTimeout(timer); sock.destroy(); reject(new ToolError('stopped')) }
+    if (o.signal?.aborted) return stop()
+    o.signal?.addEventListener('abort', stop, { once: true })
+    sock.once('close', () => o.signal?.removeEventListener('abort', stop))
     const chunks: Buffer[] = []
     let size = 0
     let truncated = false
-    let head: ReturnType<typeof framingOf> = null
+    let head_: ReturnType<typeof framingOf> = null
     let tail = Buffer.alloc(0)
-    const done = () => { clearTimeout(timer); try { resolve(parseResponse(Buffer.concat(chunks), truncated)) } catch (e) { reject(e) } }
+    let ended = false
+    const done = () => { clearTimeout(timer); try { resolve(parseResponse(Buffer.concat(chunks), truncated, noBody)) } catch (e) { reject(e) } }
     sock.once(t.url.protocol === 'https:' ? 'secureConnect' : 'connect', () => sock.write(req))
     sock.on('data', (d: Buffer) => {
+      if (ended) return
       size += d.length
       // headers + body; the cap applies to the raw stream (compressed bodies are capped again after decoding)
-      if (size > o.maxBytes + 64 * 1024) { truncated = true; chunks.push(d.subarray(0, Math.max(0, d.length - (size - o.maxBytes - 64 * 1024)))); sock.destroy(); return done() }
+      if (size > o.maxBytes + 64 * 1024) { truncated = true; ended = true; chunks.push(d.subarray(0, Math.max(0, d.length - (size - o.maxBytes - 64 * 1024)))); sock.destroy(); return done() }
       chunks.push(d)
       tail = Buffer.concat([tail, d]).subarray(-4)
-      // the answer may be complete before the socket closes (see pinnedGet)
-      if (!head) head = framingOf(Buffer.concat(chunks))
-      const f = head?.framing ?? 'close'
-      const complete = f === 'close' ? false
-        : f === 'chunked' ? tail.toString('latin1') === '\r\n\r\n' && chunkedComplete(Buffer.concat(chunks), head!.body)
-        : size - head!.body >= f.length
+      // the answer may be complete before the socket closes (see pinnedRequest)
+      if (!head_) head_ = framingOf(Buffer.concat(chunks))
+      const f = head_?.framing ?? 'close'
+      let complete = !!head_ && (noBody || head_.status === 204 || head_.status === 304) ? true
+        : f === 'close' ? false
+        : f === 'chunked' ? tail.toString('latin1') === '\r\n\r\n' && chunkedComplete(Buffer.concat(chunks), head_!.body)
+        : size - head_!.body >= f.length
+      if (!complete && head_ && o.until) {
+        const all = Buffer.concat(chunks)
+        const h = parseResponse(all.subarray(0, head_.body), false, true)
+        const raw = all.subarray(head_.body)
+        complete = o.until(f === 'chunked' ? dechunk(raw) : raw, { status: h.status, headers: h.headers })
+      }
       // the answer is read on 'close'. Not destroyed inside this callback, and not resolved before the close: either
       // crashed Bun 1.3.12 when a TLS handshake failed next (web_fetch's certificate test)
       if (complete) setImmediate(() => sock.destroy())
@@ -255,19 +297,28 @@ export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; in
   })
 }
 
+/** web_fetch's GET (pinnedRequest with the reader's headers). */
+export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean }): Promise<RawResponse> {
+  return pinnedRequest(t, {
+    ...o, method: 'GET',
+    headers: [['User-Agent', UA], ['Accept', 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5'], ['Accept-Encoding', 'gzip, deflate, br'], ['Accept-Language', 'ko,en;q=0.8']],
+  })
+}
+
 /** How the answer says where it ends, once its head is in (the same reading of the head as parseResponse): its
  * Content-Length, chunked, or nothing but the close (also a 1xx, which the real answer follows). null: no head yet. */
 type Framing = { length: number } | 'chunked' | 'close'
-function framingOf(buf: Buffer): { framing: Framing; body: number } | null {
+function framingOf(buf: Buffer): { framing: Framing; body: number; status: number } | null {
   const end = buf.indexOf('\r\n\r\n')
   if (end < 0) return null
   const lines = buf.subarray(0, end).toString('latin1').split('\r\n')
   const m = /^HTTP\/1\.[01] (\d{3})/.exec(lines[0] ?? '')
-  if (!m || m[1]!.startsWith('1')) return { framing: 'close', body: end + 4 }
+  const status = m ? Number(m[1]) : 0
+  if (!m || m[1]!.startsWith('1')) return { framing: 'close', body: end + 4, status }
   const values = (name: string) => lines.slice(1).filter((l) => l.indexOf(':') > 0 && l.slice(0, l.indexOf(':')).trim().toLowerCase() === name).map((l) => l.slice(l.indexOf(':') + 1).trim())
-  if (values('transfer-encoding').some((v) => /chunked/i.test(v))) return { framing: 'chunked', body: end + 4 }
+  if (values('transfer-encoding').some((v) => /chunked/i.test(v))) return { framing: 'chunked', body: end + 4, status }
   const len = values('content-length')
-  return { framing: len.length === 1 && /^\d+$/.test(len[0]!) ? { length: Number(len[0]) } : 'close', body: end + 4 }
+  return { framing: len.length === 1 && /^\d+$/.test(len[0]!) ? { length: Number(len[0]) } : 'close', body: end + 4, status }
 }
 
 /** Has a chunked body (from `i`) reached its last chunk and the empty line after the trailers? */
@@ -283,7 +334,7 @@ function chunkedComplete(buf: Buffer, i: number): boolean {
   }
 }
 
-function parseResponse(buf: Buffer, truncated: boolean): RawResponse {
+function parseResponse(buf: Buffer, truncated: boolean, noBody = false): RawResponse {
   const end = buf.indexOf('\r\n\r\n')
   if (end < 0) throw new ToolError('the site sent no valid HTTP response')
   const lines = buf.subarray(0, end).toString('latin1').split('\r\n')
@@ -295,9 +346,11 @@ function parseResponse(buf: Buffer, truncated: boolean): RawResponse {
     if (i > 0) { const k = l.slice(0, i).trim().toLowerCase(); const v = l.slice(i + 1).trim(); headers[k] = headers[k] ? `${headers[k]}, ${v}` : v }
   }
   let body = buf.subarray(end + 4)
-  if (/chunked/i.test(headers['transfer-encoding'] ?? '')) body = dechunk(body)
+  const status = Number(m[1])
+  if (noBody || status === 204 || status === 304) body = Buffer.alloc(0)
+  else if (/chunked/i.test(headers['transfer-encoding'] ?? '')) body = dechunk(body)
   else if (headers['content-length'] && /^\d+$/.test(headers['content-length'])) body = body.subarray(0, Number(headers['content-length']))
-  return { status: Number(m[1]), headers, body, truncated }
+  return { status, headers, body, truncated }
 }
 
 function dechunk(b: Buffer): Buffer {
@@ -315,7 +368,7 @@ function dechunk(b: Buffer): Buffer {
 }
 
 /** Undo Content-Encoding with an output limit (streaming: a 50 KB "zip bomb" never grows past `max`). */
-async function decode(body: Buffer, encoding: string | undefined, max: number): Promise<{ data: Buffer; truncated: boolean }> {
+export async function decode(body: Buffer, encoding: string | undefined, max: number): Promise<{ data: Buffer; truncated: boolean }> {
   const enc = (encoding ?? '').toLowerCase().trim()
   if (!enc || enc === 'identity') return { data: body.subarray(0, max), truncated: body.length > max }
   if (!['gzip', 'x-gzip', 'deflate', 'br'].includes(enc)) throw new ToolError(`unsupported content encoding ${enc}`)

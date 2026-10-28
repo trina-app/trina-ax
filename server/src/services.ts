@@ -140,6 +140,18 @@ export interface TurnTool {
   /** offered to this turn? (default: always) */
   available?(t: { userId: string; chatId: string; browser: boolean }): boolean
   call(args: unknown, t: TurnToolContext): Promise<TurnToolResult>
+  /** the step label under the answer ("AI PM · create_task"); default: shared/src/step-labels.ts by the tool name */
+  label?(args: unknown, locale: Locale): string
+}
+
+/**
+ * Tools made for one person at the start of each turn (external-service connections: integrations/connections/
+ * tools.ts), from saved data only (no network). `prompt`: a short section for the AI's instructions about them.
+ * Register in init(): (ctx.services.turnToolProviders ??= []).push(provider)
+ */
+export interface TurnToolProvider {
+  name: string
+  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null }
 }
 
 export interface JobHandle {
@@ -177,6 +189,8 @@ export interface Services {
   attachments?: AttachmentStore | null
   /** tools offered to engine turns besides the file tools (B, C) */
   turnTools?: TurnTool[]
+  /** per-person tools built at the start of each turn (C: external-service connections) */
+  turnToolProviders?: TurnToolProvider[]
   /** subscription mode: the model proxy once the engine core runs (diagnostics show its state) */
   modelProxy?: { readonly state: 'starting' | 'listening' | 'port_in_use' | 'stopped' } | null
 }

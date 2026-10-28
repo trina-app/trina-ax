@@ -205,6 +205,9 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query('DELETE FROM password_resets WHERE user_id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    // external-service connections: their own go with them (keys included), and they leave team connections' rules
+    ctx.db.query("DELETE FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").run(id)
+    ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
   })()
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
