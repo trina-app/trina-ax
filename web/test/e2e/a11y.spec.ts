@@ -1,6 +1,7 @@
 // WCAG 2.2 AA checks with axe-core on the main screens (tab 5 "접근성"), in light and dark themes.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
 async function audit(page: Page, where: string) {
@@ -90,3 +91,61 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, 'ask card')
   })
 }
+
+// External services (Settings and Admin): the lists with an error, a sign-in to do, tools opened, the add dialog for
+// both kinds with the "run without asking" warning, an edit with a saved key, and the admin's dialog with who may use it.
+async function seedIntegrations(page: Page) {
+  const post = (path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
+  expect((await post('/api/integrations', { kind: 'http', name: 'AI PM', url: 'https://pm.example.com/api', auth: 'bearer', secret: 'pm-key-1234567890', notes: 'GET /projects' })).status()).toBe(201)
+  expect((await post('/api/integrations', { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none', writePolicy: 'allow' })).status()).toBe(201)
+  expect((await post('/api/integrations', { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' })).status()).toBe(201)
+  expect((await post('/api/integrations', { kind: 'http', name: 'Old API', url: 'https://down.example.com/api', auth: 'none' })).status()).toBe(201)
+  expect((await post('/api/admin/integrations', { kind: 'http', name: 'Company PM', url: 'https://pm.example.com/api', auth: 'none', writePolicy: 'deny', access: { everyone: true, groups: [], users: [] } })).status()).toBe(201)
+  expect((await post('/api/admin/integrations', { kind: 'mcp', name: 'Sales MCP', url: 'https://mcp.sales.example/mcp', auth: 'none', access: { everyone: false, groups: [], users: [] } })).status()).toBe(201)
+}
+
+async function auditIntegrations(page: Page, where: string) {
+  await page.goto('/settings/integrations')
+  await expect(page.getByTestId('integrations-mine')).toBeVisible()
+  await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
+  await audit(page, `settings/integrations${where}`)
+  await page.getByTestId('integration-add').click()
+  await page.getByTestId('integration-write-allow').check()
+  await page.getByTestId('integration-save').click() // shows the field errors
+  await audit(page, `integration add (MCP)${where}`)
+  await page.getByTestId('integration-kind-http').check()
+  await page.getByTestId('integration-header-custom').check()
+  await audit(page, `integration add (API)${where}`)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('integration-row').filter({ hasText: 'AI PM' }).getByTestId('integration-edit').click()
+  await expect(page.getByTestId('integration-key-saved')).toBeVisible()
+  await audit(page, `integration edit${where}`)
+  await page.keyboard.press('Escape')
+  await page.goto('/admin/integrations')
+  await expect(page.getByTestId('team-integrations')).toBeVisible()
+  await audit(page, `admin/integrations${where}`)
+  await page.getByTestId('integration-add').click()
+  await page.getByTestId('integration-access').getByRole('checkbox', { name: /Olga/ }).uncheck()
+  await page.getByTestId('integration-access').getByRole('checkbox', { name: 'Bob' }).check()
+  await expect(page.getByTestId('integration-access-not-me')).toBeVisible()
+  await audit(page, `admin integration add${where}`)
+  await page.keyboard.press('Escape')
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`external services have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await signIn(page)
+    await seedIntegrations(page)
+    await auditIntegrations(page, ` (${scheme})`)
+  })
+}
+
+test('external services have no serious accessibility problems at phone width', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await signIn(page)
+  await seedIntegrations(page)
+  await auditIntegrations(page, ' (phone)')
+})

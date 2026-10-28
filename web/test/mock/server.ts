@@ -8,6 +8,8 @@
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
+// External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
+// offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
 import {
   ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
@@ -20,6 +22,7 @@ import { makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin } from '@mycel/shared/api'
+import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationTool } from '@mycel/shared/api'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -116,6 +119,11 @@ export class MockServer {
   credSharedSubscriptions = false
   credLogins = new Map<string, CredentialLogin & { userId: string; personal: boolean; label: string }>()
   sealer = new Sealer(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-mock-seal-')))
+  /** External services (like server/src/integrations): personal and team connections. Keys and tokens are kept apart
+   * and never go back out (only `hasSecret`). */
+  integrations: MockIntegration[] = []
+  integrationSecrets = new Map<string, string>()
+  integrationFlows = new Map<string, { flow: IntegrationFlow; integrationId: string; userId: string; polls: number }>()
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
 
@@ -169,6 +177,9 @@ export class MockServer {
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
     this.credLogins.clear()
+    this.integrations = []
+    this.integrationSecrets.clear()
+    this.integrationFlows.clear()
     this.settings = defaultSettings()
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
@@ -1212,6 +1223,55 @@ export class MockServer {
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
+    // ---------------- external services (like server/src/routes/integrations.ts) ----------------
+    listIntegrations: (c) => ({
+      items: this.integrations.filter((x) => this.integrationAllows(x, c.user)).map((x) => this.integrationView(x, c.user)),
+      personalAllowed: this.settings.personalIntegrations,
+    }),
+    createIntegration: (c) => {
+      if (!this.settings.personalIntegrations) fail('forbidden', 403, '팀에서 개인 연결을 꺼 두었어요.')
+      if (c.body.access) fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
+      return { status: 201, body: this.addIntegration(c.user, c.body, 'personal') }
+    },
+    updateIntegration: (c) => this.patchIntegration(c.user, c.params.id, c.body),
+    deleteIntegration: (c) => {
+      const x = this.manageableIntegration(c.user, c.params.id)
+      this.integrations = this.integrations.filter((y) => y.id !== x.id)
+      this.integrationSecrets.delete(x.id)
+      return undefined
+    },
+    refreshIntegration: (c) => {
+      const x = this.manageableIntegration(c.user, c.params.id)
+      this.checkIntegration(x)
+      x.updatedAt = now()
+      return this.integrationView(x, c.user)
+    },
+    authorizeIntegration: (c) => {
+      const x = this.manageableIntegration(c.user, c.params.id)
+      if (x.kind !== 'mcp' || x.auth !== 'oauth') fail('conflict', 409, '이 연결은 로그인을 쓰지 않아요.')
+      const flow: IntegrationFlow = { flowId: uuidv7(), state: 'pending', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), reason: null }
+      this.integrationFlows.set(flow.flowId, { flow, integrationId: x.id, userId: c.user.id, polls: 0 })
+      return { flowId: flow.flowId, authorizationUrl: `https://auth.example.test/authorize?client_id=mock&state=${flow.flowId}`, expiresAt: flow.expiresAt }
+    },
+    integrationFlow: (c) => {
+      const f = this.integrationFlows.get(c.params.id)
+      if (!f || f.userId !== c.user.id) return fail('not_found', 404)
+      // the person finishes at the service by the second poll: the server has the tokens and checks the connection
+      if (f.flow.state === 'pending' && ++f.polls >= 2) {
+        const x = this.integrations.find((y) => y.id === f.integrationId)
+        if (!x) Object.assign(f.flow, { state: 'failed', reason: '연결이 지워졌어요.' })
+        else {
+          this.integrationSecrets.set(x.id, 'oauth-tokens')
+          x.account = `${c.user.username}@example.test`
+          this.checkIntegration(x)
+          f.flow.state = 'completed'
+        }
+      }
+      return f.flow
+    },
+    listTeamIntegrations: (c) => ({ items: this.integrations.filter((x) => x.scope === 'team').map((x) => this.integrationView(x, c.user)) }),
+    createTeamIntegration: (c) => ({ status: 201, body: this.addIntegration(c.user, c.body, 'team') }),
+
     // nothing connected, no scheduled tasks yet
     listConnected: () => ({ items: [] }),
     listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
@@ -1275,6 +1335,92 @@ export class MockServer {
     const l = this.credLogins.get(id)
     if (!l || l.userId !== user.id) fail('not_found', 404)
     if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; const { userId: _u, personal: _p, label: _l, ...data } = l!; this.publish({ type: 'credential.login', data }) }
+  }
+
+  // ---------------- external services ----------------
+  integrationView(x: MockIntegration, u: User): Integration {
+    const canManage = x.scope === 'personal' ? x.ownerId === u.id : u.role !== 'member'
+    const { ownerId: _o, checks: _c, ...rest } = x
+    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage }
+  }
+  /** may use it in their chats: the owner of a personal one; the access rule of a team one (admins are not implied) */
+  integrationAllows(x: MockIntegration, u: User): boolean {
+    if (x.scope === 'personal') return x.ownerId === u.id
+    const a = x.access ?? NO_ACCESS
+    return a.everyone || a.users.includes(u.id) || a.groups.some((g) => u.groupIds.includes(g))
+  }
+  /** the owner of a personal connection, an admin for a team one; someone else's personal connection does not exist */
+  manageableIntegration(u: User, id: string): MockIntegration {
+    const x = this.integrations.find((y) => y.id === id)
+    if (!x || (x.scope === 'personal' && x.ownerId !== u.id) || (x.scope === 'team' && u.role === 'member' && !this.integrationAllows(x, u))) return fail('not_found', 404)
+    if (x.scope === 'team' && u.role === 'member') fail('forbidden', 403)
+    return x
+  }
+  addIntegration(u: User, body: IntegrationInput, scope: 'personal' | 'team'): Integration {
+    if (privateHost(new URL(body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
+    const siblings = this.integrations.filter((y) => (scope === 'team' ? y.scope === 'team' : y.ownerId === u.id))
+    if (siblings.length >= (scope === 'team' ? 50 : 20)) fail('conflict', 409, '연결을 더 만들 수 없어요.')
+    const base = body.slug ?? (body.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'conn')
+    let slug = base
+    for (let n = 2; siblings.some((y) => y.slug === slug); n++) slug = base.slice(0, 12 - String(n).length) + n
+    const x: MockIntegration = {
+      id: uuidv7(), scope, kind: body.kind, name: body.name, slug, url: body.url, auth: body.auth, authHeader: body.auth === 'header' ? body.authHeader ?? null : null,
+      account: null, notes: body.kind === 'http' ? body.notes ?? null : null, writePolicy: body.writePolicy, status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null,
+      access: scope === 'team' ? body.access ?? NO_ACCESS : null, createdBy: { id: u.id, name: u.name }, createdAt: now(), updatedAt: now(), lastUsedAt: null,
+      ownerId: scope === 'personal' ? u.id : null, checks: 0,
+    }
+    if (body.secret && (body.auth === 'bearer' || body.auth === 'header')) this.integrationSecrets.set(x.id, body.secret)
+    this.integrations.push(x)
+    this.checkIntegration(x)
+    return this.integrationView(x, u)
+  }
+  patchIntegration(u: User, id: string, b: IntegrationPatch): Integration {
+    const x = this.manageableIntegration(u, id)
+    if (b.access && x.scope !== 'team') fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
+    const auth = b.auth ?? x.auth
+    if (auth === 'oauth' && x.kind !== 'mcp') fail('validation', 400, undefined, { 'body.auth': 'sign-in (oauth) is for MCP servers' })
+    const header = auth === 'header' ? (b.authHeader !== undefined ? b.authHeader : x.authHeader) : null
+    if (auth === 'header' && !header) fail('validation', 400, undefined, { 'body.authHeader': 'give the header name' })
+    const moved = (b.url !== undefined && b.url !== x.url) || auth !== x.auth
+    if (b.url !== undefined && privateHost(new URL(b.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
+    if (b.name !== undefined) x.name = b.name
+    if (b.url !== undefined) x.url = b.url
+    x.auth = auth
+    x.authHeader = header
+    if (b.notes !== undefined && x.kind === 'http') x.notes = b.notes
+    if (b.writePolicy) x.writePolicy = b.writePolicy
+    if (b.access) x.access = b.access
+    // like the server: a stored key never follows a connection to another address or sign-in method
+    if (moved || b.clearSecret) {
+      this.integrationSecrets.delete(x.id)
+      x.account = null
+    }
+    if (b.secret && (auth === 'bearer' || auth === 'header')) this.integrationSecrets.set(x.id, b.secret)
+    if (moved) {
+      x.tools = []
+      x.toolsUpdatedAt = null
+    }
+    x.updatedAt = now()
+    this.checkIntegration(x)
+    return this.integrationView(x, u)
+  }
+  /** the connection check: a "down." host fails, a missing or refused key fails, sign-in is needed until done */
+  checkIntegration(x: MockIntegration) {
+    const keyed = x.auth === 'bearer' || x.auth === 'header'
+    const secret = this.integrationSecrets.get(x.id)
+    x.checks++
+    const set = (status: Integration['status'], lastError: string | null) => Object.assign(x, { status, lastError })
+    if (new URL(x.url).hostname.startsWith('down.')) set('error', '서비스가 응답하지 않아요(502). 잠시 뒤 다시 확인해 주세요.')
+    else if (x.auth === 'oauth' && !secret) set('needs_auth', null)
+    else if (keyed && !secret) set('error', '키가 없어요. 수정에서 키를 넣어 주세요.')
+    else if (keyed && secret === 'wrong-key') set('error', '서비스가 키를 거절했어요(401). 키를 확인해 주세요.')
+    else {
+      set('connected', null)
+      if (x.kind === 'mcp') {
+        x.tools = FAKE_MCP_TOOLS.slice(0, x.checks > 1 ? 3 : 2)
+        x.toolsUpdatedAt = now()
+      }
+    }
   }
 
   enginesResponse() {
@@ -1451,6 +1597,17 @@ function mimeOf(path: string): string | null {
   const e = path.toLowerCase().split('.').pop() ?? ''
   return ({ md: 'text/markdown', csv: 'text/csv', txt: 'text/plain', html: 'text/html', png: 'image/png', jpg: 'image/jpeg', pdf: 'application/pdf', json: 'application/json' } as Record<string, string>)[e] ?? null
 }
+
+type MockIntegration = Omit<Integration, 'hasSecret' | 'canManage'> & { ownerId: string | null; checks: number }
+const NO_ACCESS: IntegrationAccess = { everyone: false, groups: [], users: [] }
+/** what the fake MCP server offers: two tools at first, a third once it is checked again */
+const FAKE_MCP_TOOLS: IntegrationTool[] = [
+  { name: 'search_pages', title: 'Search pages', description: 'Find pages by words in their title or text.', readOnly: true },
+  { name: 'create_page', title: 'Create page', description: 'Create a new page in a workspace.', readOnly: false },
+  { name: 'get_page', title: null, description: 'Read one page with its blocks.', readOnly: true },
+]
+/** like server/src/web-fetch.ts resolveTarget (by name only here): this computer and office networks are refused */
+const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
   return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, personalIntegrations: true }
