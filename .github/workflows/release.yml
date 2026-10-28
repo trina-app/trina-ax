@@ -53,6 +53,7 @@ jobs:
       channel: ${{ steps.release.outputs.channel }}
       prerelease: ${{ steps.release.outputs.prerelease }}
       sha: ${{ steps.release.outputs.sha }}
+      feed: ${{ steps.key.outputs.feed }}
     steps:
       - name: Which tag
         id: which
@@ -101,14 +102,19 @@ jobs:
           if-no-files-found: error
           overwrite: true # a re-run of the job replaces its own artifact
           retention-days: 30
-      # fail now, not after an hour of builds: both secrets are there and the key is this product's
+      # fail now, not after an hour of builds: the release key is there and is this product's. Without
+      # CLOUDFLARE_API_TOKEN the release goes to GitHub Releases only (no update feed): feed=false.
       - name: The release key is one this product's builds trust
+        id: key
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [ -z "$RELEASE_SIGNING_KEY" ]; then echo "::error::secret RELEASE_SIGNING_KEY is not set (docs/RELEASE-CI.md)"; exit 1; fi
-          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "::error::secret CLOUDFLARE_API_TOKEN is not set (docs/RELEASE-CI.md)"; exit 1; fi
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then echo "feed=true" >> "$GITHUB_OUTPUT"; else
+            echo "feed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN is not set: GitHub Release only, the update feed is not changed"
+          fi
           umask 077
           printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release-key.pem"
           bun scripts/release/release-ci.ts check-key "$RUNNER_TEMP/release-key.pem"
@@ -293,6 +299,7 @@ jobs:
           done
           ls -l build/server
       - name: Office feed (zip + Windows installer)
+        if: needs.prepare.outputs.feed == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -304,6 +311,7 @@ jobs:
             bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md
           fi
       - name: Server feed (Linux)
+        if: needs.prepare.outputs.feed == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
