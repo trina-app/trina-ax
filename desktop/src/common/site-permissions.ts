@@ -188,6 +188,19 @@ export class SitePermissions {
     return had
   }
 
+  /**
+   * Another person signed in (common/browser-owner.ts): forget every saved and per-turn site and go back to "ask".
+   * The team's policy stays. Returns true when the saved part changed (caller persists).
+   */
+  resetForNewPerson(): boolean {
+    const before = JSON.stringify(this.toJSON())
+    this.always.site.clear()
+    this.always.private.clear()
+    this.once.clear()
+    this.access = 'ask'
+    return before !== JSON.stringify(this.toJSON())
+  }
+
   forgetTurn(turnId: string): void {
     this.once.delete(turnId)
   }

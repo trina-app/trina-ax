@@ -13,7 +13,8 @@ import { Health, Me } from '@mycel/shared/api'
 import { isGatewayDown, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
-import type { SiteSettings } from '../common/site-permissions'
+import { SitePermissions, type SiteSettings } from '../common/site-permissions'
+import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { UI_ORIGIN } from '../common/trust'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
@@ -58,6 +59,8 @@ export interface AppWindowOptions {
 const MIN_PANE = 360
 const MIN_APP = 420
 const RECHECK_MS = 60_000
+/** before a browser call, who is signed in is read again when the last read is older than this */
+const OWNER_CHECK_MS = 5_000
 /** a settings read from the team page re-reads the team's policy at most this often */
 const POLICY_READ_MS = 5_000
 /** after the "Allow all websites" dialog closes, another request is refused this long (no dialog right under a click) */
@@ -266,6 +269,10 @@ export class AppWindow {
       if (this.app === app) void this.reload()
     })
     app.webContents.on('page-title-updated', () => this.updateTitle())
+    // the team page is one app: signing in or out changes the route without a new page load
+    app.webContents.on('did-navigate-in-page', (_e, _url, isMainFrame) => {
+      if (isMainFrame && this.app === app) void this.refreshTeamInfo()
+    })
 
     const browserSes = session.fromPartition(partitionFor(id, 'browser'))
     this.pane = new BrowserPane(
@@ -395,9 +402,14 @@ export class AppWindow {
     if (!team || !this.app || !this.currentOrigin) return
     try {
       const res = await this.app.webContents.session.fetch(`${this.currentOrigin}/api/me`, { signal: AbortSignal.timeout(5000) })
+      if (res.status === 401) {
+        if (this.team?.id === team.id) await this.checkBrowserOwner(team.id, pane, { signedIn: false })
+        return
+      }
       if (!res.ok) return
       const me = Me.safeParse(await res.json())
       if (!me.success || this.team?.id !== team.id) return
+      await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
       const allowAll = me.data.team.browserAllowAll
       if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
       if (me.data.team.name && me.data.team.name !== team.label) {
@@ -408,6 +420,40 @@ export class AppWindow {
     } catch {
       // signed out or offline: keep the label
     }
+  }
+
+  /**
+   * The in-app browser's data belongs to one person (common/browser-owner.ts): when someone else signs in to this
+   * team, or the person signs out, clear the pane before anyone uses it.
+   */
+  private async checkBrowserOwner(teamId: string, pane: BrowserPane | undefined, me: MeResult) {
+    const change = browserOwnerChange(this.o.store.loadBrowserOwner(teamId), me)
+    if (change.clear) {
+      debug('in-app browser: another person or signed out, clearing', teamId)
+      if (pane && this.pane === pane) {
+        await pane.resetForNewPerson()
+        this.send(this.chrome, 'ui:pane-prompts', [])
+        this.send(this.chrome, 'ui:pane-activity-reset', null)
+        this.sendSiteSettings(pane.siteSettings())
+        this.sendPaneState(pane.state())
+      } else {
+        // the pane is not open for this team: clear its stored data directly
+        const ses = session.fromPartition(partitionFor(teamId, 'browser'))
+        await Promise.all([ses.clearStorageData().catch(() => {}), ses.clearCache().catch(() => {}), ses.clearAuthCache().catch(() => {})])
+        const saved = new SitePermissions(this.o.store.loadPermissions(teamId))
+        if (saved.resetForNewPerson()) this.o.store.savePermissions(teamId, saved.toJSON())
+      }
+    }
+    if (change.clear || this.o.store.loadBrowserOwner(teamId) !== change.owner) this.o.store.saveBrowserOwner(teamId, change.owner)
+  }
+
+  /**
+   * Before the AI uses the in-app browser: make sure the pane's data belongs to the person signed in now (a new
+   * sign-in does not always reload the team page). Reads GET /api/me at most every OWNER_CHECK_MS.
+   */
+  async ensureBrowserOwner(): Promise<void> {
+    if (Date.now() - this.teamInfoAt > OWNER_CHECK_MS) await this.refreshTeamInfo()
+    else if (this.teamInfo) await this.teamInfo.p
   }
 
   // ------------------------------------------------------------- connection
