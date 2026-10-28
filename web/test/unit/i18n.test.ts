@@ -11,6 +11,12 @@ import { ko } from '../../src/i18n/ko'
 const placeholders = (s: string) => placeholdersOf(s)
 
 describe('translations', () => {
+  test('Korean engine guidance uses the translated owner role', () => {
+    for (const key of ['engines.betaHint', 'engines.choiceDesc'] as const) {
+      expect(ko[key]).toContain(ko['role.owner'])
+      expect(ko[key]).not.toMatch(/\bowner\b/i)
+    }
+  })
   test('every language has exactly the Korean keys', () => {
     const keys = Object.keys(ko).sort()
     for (const [loc, d] of Object.entries(DICTS)) expect({ loc, keys: Object.keys(d).sort() }).toEqual({ loc, keys })
