@@ -69,7 +69,7 @@ describe('team addresses', () => {
     expect(originOf('https://a.b/c?d')).toBe('https://a.b')
     expect(originOf('about:blank')).toBe('')
     expect(originOf('nonsense')).toBe('')
-    expect(teamLabel('https://acme.treesoop.com')).toBe('acme')
+    expect(teamLabel(`https://acme.${TEAM_DOMAIN}`)).toBe('acme')
     expect(teamLabel('http://myteam.localhost:19161')).toBe('myteam')
     expect(teamLabel('https://team.example.com')).toBe('team.example.com')
   })

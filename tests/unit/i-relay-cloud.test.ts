@@ -17,6 +17,7 @@ import {
 import { systemTestHooks } from '../../server/src/routes/system'
 import { OWNER_PW, harness, withOwner } from './a-lib'
 import { F_WORK, opsCall, opsCreateBody, startRelay, teamUrl, until, writeOpsKeys, type InProcessRelay, type OpsKeySet } from '../lib/f-relay'
+import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 
 const PORT = 19289
 let R: InProcessRelay
@@ -147,9 +148,9 @@ describe('connection screen: claim code (SV-9)', () => {
       const ok = await owner.try('PUT', '/api/admin/connection', { mode: 'relay', teamName: 'clinic', claimCode: 'abcd-efgh-jkmn-pqrs-tuvw', password: OWNER_PW })
       expect(ok.status).toBe(200)
       const saved = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
-      expect(saved.relay).toMatchObject({ url: 'wss://relay.treesoop.com/connect', teamName: 'clinic' })
+      expect(saved.relay).toMatchObject({ url: SERVICE_HOSTS.officialRelayUrl, teamName: 'clinic' })
       expect(JSON.stringify(saved)).not.toMatch(/abcd/i)
-      expect(readClaimCode(h.ctx.config.dataDir)).toEqual({ relayApi: 'https://relay.treesoop.com', name: 'clinic', code: 'abcd-efgh-jkmn-pqrs-tuvw' })
+      expect(readClaimCode(h.ctx.config.dataDir)).toEqual({ relayApi: new URL(SERVICE_HOSTS.officialRelayUrl.replace(/^wss:/, 'https:')).origin, name: 'clinic', code: 'abcd-efgh-jkmn-pqrs-tuvw' })
       expect(fs.statSync(path.join(h.ctx.config.dataDir, 'relay', CLAIM_FILE)).mode & 0o077).toBe(0)
     } finally {
       systemTestHooks.restart = null

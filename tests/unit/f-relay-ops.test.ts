@@ -11,6 +11,7 @@ import {
 import { OperatorTeamInfoSchema, OpsStatsSchema } from '@mycel/shared/cloud-protocol'
 import type { RelayClient } from '../../server/src/relay-client/client.ts'
 import { F_WORK, client, opsCall, opsCreateBody, startRelay, teamUrl, until, writeOpsKeys, type InProcessRelay, type OpsKeySet } from '../lib/f-relay'
+import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 
 const PORT = 19281
 let R: InProcessRelay
@@ -111,7 +112,7 @@ describe('operator API: a cloud team from start to end', () => {
     const page = await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })
     expect(page.status).toBe(503)
     expect(page.headers.get('x-relay-error')).toBe('team_offline_cloud')
-    expect(await page.text()).toContain('status.treesoop.com')
+    expect(await page.text()).toContain(SERVICE_HOSTS.statusHost)
     tc = client({ url: R.ws, teamId, kp, fetch: app, onEvent: (e) => { events.push(e) } })
     await until(() => tc!.state.state === 'connected' && tc!.state.conns === 2, 5000, 'acme connected')
     const info = OperatorTeamInfoSchema.parse((await cp('GET', `/ops/v1/teams/${teamId}`)).json)
@@ -133,7 +134,7 @@ describe('operator API: a cloud team from start to end', () => {
     const page = await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })
     expect(page.status).toBe(403)
     expect(page.headers.get('x-relay-error')).toBe('team_suspended_billing')
-    expect(await page.text()).toContain('account.treesoop.com')
+    expect(await page.text()).toContain(SERVICE_HOSTS.accountHost)
     const api = await fetch(teamUrl(PORT, 'acme', '/api/x'), { headers: { cookie: 'mycel_locale=ko' } })
     expect(((await api.json()) as { error: { code: string; reason: string } }).error).toMatchObject({ code: 'forbidden', reason: 'team_suspended_billing' })
     await until(() => tc!.state.detail === 'suspended', 3000, 'team server told it is suspended')
