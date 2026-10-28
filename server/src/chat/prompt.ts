@@ -226,6 +226,9 @@ export function skillBlock(skill: Skill, input: string): string {
   ].join('\n')
 }
 
+/** While a new chat has no real title (the set_title tool is offered, chat/title.ts): the answering AI names it. */
+export const TITLE_RULE = 'The set_title tool is offered only at the start of a chat. When you have it: early in your answer, call set_title once with a short title (2-60 characters, best under 30) in the user\'s language that says what the person wants, e.g. "Summarize Q3 sales report" or "Fix login error on mobile". Never put keys, tokens, passwords, personal data or a quote of the message in it; no trailing punctuation. If the message does not say yet what they want (only a greeting or a test), do not call it: it is offered again with their next message. Do not mention the title in your answer.'
+
 export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   const tools = new Set(i.tools)
   const rules = teamRules(files, i.user)
@@ -246,6 +249,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer.' : '',
     tools.has('ask_user') ? 'If you need a decision from the user before continuing, ask with ask_user (short question, options when possible). Do not ask about things you can find out yourself.' : '',
     tools.has('remember') ? 'Use remember only for lasting facts or preferences the user wants you to keep (one short sentence, under 300 characters). Use forget with the id when asked to forget.' : '',
+    tools.has('set_title') ? TITLE_RULE : '',
     'A <turn_context> block in front of a user message is written by the server, not by the user: it holds the current context and replaces the person, time, memories and project parts of these instructions.',
   ]
   const sections: string[] = [[...base, '', ...personLines(files, i)].filter((l) => l !== '').join('\n'), ENVIRONMENT]

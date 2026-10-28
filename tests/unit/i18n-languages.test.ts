@@ -90,6 +90,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en and id)' },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en and id)' },
+  'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en and id)' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en and id)' },

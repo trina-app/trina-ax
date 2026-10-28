@@ -1,9 +1,9 @@
-// The tools of one turn besides the six file tools: B's remember / forget / ask_user and the browser pane tools
+// The tools of one turn besides the six file tools: B's remember / forget / ask_user / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, FILE_TOOLS, ForgetInput, RememberInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, FILE_TOOLS, ForgetInput, RememberInput, SetTitleInput, uuidv7 } from '@mycel/shared'
 import type { BrowserToolName, Locale, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
@@ -17,6 +17,7 @@ import { extractUrls, gateUrl, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { recordSkillRead } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
+import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 
 interface Tool {
   name: string
@@ -33,6 +34,7 @@ export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
   ask_user: 'Ask the user a question and wait for the answer. Offer options when you can (the user may also type an answer if allowText). Returns {"answer": ...} or {"skipped": true} when the user does not answer in time.',
+  set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -151,11 +153,11 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   }
 }
 
-// ---------------- remember / forget / ask_user ----------------
+// ---------------- remember / forget / ask_user / set_title ----------------
 function bTools(exec: TurnExec): Tool[] {
   const { rt, spec } = exec
   const L = spec.locale
-  return [
+  const tools: Tool[] = [
     {
       name: 'remember', description: B_TOOL_DESCRIPTIONS.remember, inputSchema: schema(RememberInput),
       async call(args) {
@@ -218,6 +220,29 @@ function bTools(exec: TurnExec): Tool[] {
       },
     },
   ]
+  // the answering AI names a new chat (title.ts): no extra model call. The title shows in the sidebar and the header
+  // at once (chat.updated); the call is not a step under the answer (turn.ts). The audit keeps no title text.
+  if (titleToolOffered(rt.db, spec.chatId, spec.clientKind)) tools.push({
+    name: 'set_title', description: B_TOOL_DESCRIPTIONS.set_title, inputSchema: schema(SetTitleInput),
+    async call(args) {
+      const a = SetTitleInput.safeParse(args)
+      if (!a.success) return text(zodText(a.error), true)
+      const t = cleanAiTitle(a.data.title)
+      if (!t.ok) {
+        return {
+          ...text(t.reason === 'secret'
+            ? 'Not set: the title looks like it contains a key, token or password. Call set_title again with a title that only says what the person wants.'
+            : 'Not set: nothing is left of the title once markdown, quotes and punctuation are removed. Give 2-60 characters of words.', true),
+          summary: `set_title -> refused (${t.reason})`,
+        }
+      }
+      if (!setAiTitle(rt.db, spec.chatId, t.title))
+        return { ...text('Not set: this chat already has its title (the user named it, or you already did). Do not call set_title again.'), summary: 'set_title -> kept the existing title' }
+      rt.publishChat(spec.userId, spec.chatId, 'updated')
+      return { ...text(JSON.stringify({ ok: true, title: t.title })), summary: `set_title -> ok (${graphemes(t.title).length} characters)` }
+    },
+  })
+  return tools
 }
 
 // ---------------- browser pane tools ----------------

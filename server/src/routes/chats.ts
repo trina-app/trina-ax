@@ -160,8 +160,10 @@ export const chatsRoutes: RouteModule = {
       }
       const id = newId()
       const now = new Date().toISOString()
-      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
-        .run(id, auth.user.id, body.projectId ?? null, body.title?.trim() ?? '', engine, model ?? null, now, now)
+      // a title given here is the person's own (the AI does not rename it); none: the first message gives one
+      const title = body.title?.trim() ?? ''
+      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now)
       rt.publishChat(auth.user.id, id, 'created')
       return chatOut(rt, rt.store.chatRow(id)!)
     })
@@ -178,7 +180,8 @@ export const chatsRoutes: RouteModule = {
       }
       const sets: string[] = []
       const args: (string | null)[] = []
-      if (body.title !== undefined) { sets.push('title = ?'); args.push(body.title.trim()) }
+      // a rename is the person's: the AI does not name this chat after it (chat/title.ts)
+      if (body.title !== undefined) { sets.push('title = ?', "title_source = 'user'"); args.push(body.title.trim()) }
       if (body.projectId !== undefined) { sets.push('project_id = ?'); args.push(body.projectId) }
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }

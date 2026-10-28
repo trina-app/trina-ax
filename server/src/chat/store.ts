@@ -8,6 +8,8 @@ export interface ChatRow {
   id: string; user_id: string; project_id: string | null; title: string; engine: string; model: string | null
   engine_session_id: string | null; engine_session_leaf_id: string | null; session_tainted: number
   active_leaf_id: string | null; created_at: string; updated_at: string; deleted_at: string | null
+  /** where the title came from (title.ts): 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' */
+  title_source: string
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -16,7 +18,7 @@ export interface MessageRow {
 }
 export interface ProjectRow { id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at'
 

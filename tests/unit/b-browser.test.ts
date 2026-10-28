@@ -65,8 +65,9 @@ describe('browser tools', () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await send(fake({ echo: 'tools' }), { window: 'win-web-00001', client: 'web' })(chat.id)
     const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
-    // file tools, B's tools and C's registered tools (make_file, share_file, artifact, web_fetch, search, schedule_*); no browser tools
-    expect(d.data.message.content).toBe('artifact,ask_user,copy_files,edit,forget,glob,grep,list,make_file,move_files,read,remember,rename_file,schedule_create,schedule_delete,schedule_list,search,share_file,web_fetch,write')
+    // file tools, B's tools (set_title: the chat's first message) and C's registered tools (make_file, share_file,
+    // artifact, web_fetch, search, schedule_*); no browser tools
+    expect(d.data.message.content).toBe('artifact,ask_user,copy_files,edit,forget,glob,grep,list,make_file,move_files,read,remember,rename_file,schedule_create,schedule_delete,schedule_list,search,set_title,share_file,web_fetch,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')

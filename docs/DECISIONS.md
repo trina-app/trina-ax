@@ -1564,3 +1564,40 @@ not: there was nowhere to keep a person's key and no tool that sends an authenti
 - Tests: `tests/unit/c-integrations-{api,tools,oauth}.test.ts`, `tests/lib/fake-services.ts`, the real turn in
   `tests/unit/i-wiring.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+
+## Chat titles: a safe placeholder, then the answering AI names the chat (feat/chat-titles, 2026-10-28)
+
+A new chat was titled with the first line of its first message. The founder pasted an admin API token as that line, so
+the token became the chat title in the sidebar and the page header, for anyone looking at the screen. He wants titles
+that say what the request is about, made by the AI that already answers (no extra model call or API key: many teams
+only have per-person Claude subscriptions).
+
+- Placeholder when the first message arrives (`server/src/chat/title.ts`): the first meaningful line outside code
+  blocks; lines that are only an address, code fences or markdown symbols, or mostly a secret, are skipped; addresses
+  become their host; a secret inside a good line is cut out ("키 aipm_… 연결해줘" → "키 연결해줘"); about 40 characters,
+  cut on a grapheme. Nothing usable: an uploaded file's name, else an empty title, which the apps already show as
+  "새 채팅 / New chat / Chat baru" in the screen language.
+- Secret detector in shared code (`shared/src/secrets.ts`, reusable): known prefixes (sk-, sk-ant-, ghp_/gho_/…,
+  github_pat_, xox?-, AKIA/ASIA, aipm_, AIza, glpat-, npm_, hf_, Stripe, JWT eyJ…, -----BEGIN … KEY-----, Bearer,
+  Basic, user:password@ in addresses), the value after password / token / api_key / 비밀번호 … with `:` or `=`, and
+  random-looking tokens of 24+ characters (letters and digits mixed in short pieces). Paths, names, dates, UUIDs,
+  e-mail addresses and short ids are not secrets.
+- The AI names the chat with a turn tool `set_title` (B's tools next to remember / forget), so every engine gets it
+  through the shared tool set. Offered only while the title is automatic, in the chat's first two messages (the first
+  may be only a greeting; the instructions say to wait then), never in scheduled runs. Input 2–60 characters; the
+  server trims it, makes it one line without markdown, quotes or trailing punctuation, and refuses anything
+  secret-looking (the AI may try again). It updates the chat and sends `chat.updated`, so the sidebar and header
+  change live; the web needed no change. The call is not a step under the answer (the new title is visible itself);
+  the tool audit keeps no title text.
+- `chats.title_source` (migration 209): `auto` | `ai` | `user` | `schedule` | `legacy`. A rename, or a title given
+  when the chat is made, is `user` and ends AI naming for good; the AI's write is conditional on `auto`, so a rename
+  during the first answer wins. Chats made before the column are `legacy` when they have a title (first line or a
+  rename, unknown which) and are never renamed by the AI.
+- Existing data: at server start, once per detector version (`settings` key `chat.titleSecretScan`), titles that look
+  like they hold a secret are masked; one with nothing left gets the placeholder of its first message again. Other
+  titles stay.
+- Tests: `tests/unit/secrets.test.ts`, `tests/unit/b-chat-titles.test.ts` (placeholder rules in Korean and English
+  with the founder's case, title validation, the migration and the start-up pass, real turns with the fake engine:
+  live title, refused secret, second / third message, manual and mid-turn renames, Codex, scheduled run).
+- Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.

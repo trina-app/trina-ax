@@ -87,6 +87,9 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
   : tool === 'ask_user' ? 'ask_user'
   : 'tool'
 
+/** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
+const HIDDEN_STEP_TOOLS = new Set(['set_title'])
+
 export class TurnExec {
   content = ''
   steps: Step[] = []
@@ -621,6 +624,8 @@ export class TurnExec {
         this.attemptHadOutput = true
         const tool = e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
+        // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
+        if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)
         const label = kind === 'web_search' ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) })
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
