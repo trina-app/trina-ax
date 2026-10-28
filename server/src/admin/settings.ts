@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   timeZone: 'UTC',
   /** people may turn on "Allow all websites" in the desktop app's in-app browser; each team (the director) decides */
   browserAllowAll: true,
+  personalIntegrations: true,
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
