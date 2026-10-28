@@ -1,8 +1,9 @@
 // The tabs of the personal settings screen (pages/Settings.tsx). "Browser" (the in-app browser's site setting) is
 // there only inside a desktop app that offers it: the value lives in the desktop app, so a normal browser or the PWA
 // has nothing to show, and /settings/browser there opens the profile instead. "AI connections" is there while the team
-// lets members add their own (or one is still there).
-import { Bell, Brain, CalendarClock, Download, Globe, Info, KeyRound, Laptop, Plug, User } from 'lucide-react'
+// lets members add their own (or one is still there). "External services" (the AI using other services with the
+// person's own accounts) is always there: it also lists the team connections they may use.
+import { Bell, Brain, Cable, CalendarClock, Download, Globe, Info, KeyRound, Laptop, Plug, User } from 'lucide-react'
 import type { MessageKey } from '../i18n'
 
 export interface SettingsTab {
@@ -18,6 +19,7 @@ const TABS: SettingsTab[] = [
   { id: 'memory', label: 'settings.memory', icon: Brain },
   { id: 'credentials', label: 'settings.credentials', icon: KeyRound },
   { id: 'drive', label: 'drive.title', icon: Download },
+  { id: 'integrations', label: 'integrations.title', icon: Cable },
   { id: 'connectors', label: 'connectors.title', icon: Plug },
   { id: 'schedules', label: 'settings.schedules', icon: CalendarClock },
   { id: 'notifications', label: 'notifications.title', icon: Bell },

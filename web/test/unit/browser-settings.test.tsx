@@ -45,12 +45,12 @@ afterEach(() => {
 describe('where Settings > Browser shows', () => {
   test('a normal browser or the PWA: no Browser tab (the value lives in the desktop app)', () => {
     expect(browserSettingsBridge()).toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'memory', 'drive', 'connectors', 'schedules', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'memory', 'drive', 'integrations', 'connectors', 'schedules', 'notifications', 'apps', 'about'])
   })
   test('inside the desktop app: the Browser tab, after Security', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(true)
     expect(browserSettingsBridge()).not.toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'memory', 'drive', 'connectors', 'schedules', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'memory', 'drive', 'integrations', 'connectors', 'schedules', 'notifications', 'apps', 'about'])
   })
   test('a desktop app from before this addition (no browserSettings): no tab', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(false)

@@ -1,7 +1,8 @@
 // Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
 // app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (install as an app / desktop app download),
-// about (version, license, source code), and the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections).
+// about (version, license, source code), the member's own AI connections when the team allows them (the team's
+// connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
+// member's own accounts (Integrations.tsx).
 import clsx from 'clsx'
 import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -28,6 +29,7 @@ import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
 import ConnectorConnections from './ConnectorConnections'
+import Integrations from './Integrations'
 
 export default function Settings() {
   const t = useT()
@@ -62,6 +64,7 @@ export default function Settings() {
           {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
           {tab === 'memory' && <Memories />}
           {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
+          {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
           {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
           {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
           {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}

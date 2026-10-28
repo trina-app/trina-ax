@@ -1,5 +1,6 @@
-// Team settings: name, default language, update channel and window, retention periods, and whether people may turn on
-// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it).
+// Team settings: name, default language, update channel and window, retention periods, whether people may turn on
+// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), and
+// whether members may add their own external-service connections (Settings > External services).
 import { useEffect, useState } from 'react'
 import type { Locale, TeamSettings } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -81,6 +82,7 @@ export default function TeamSettingsPage() {
                 <input className={inputCls} type="number" min={1} max={365} value={f.chatTrashRetentionDays} onChange={num('chatTrashRetentionDays', 1, 365)} />
               </Field>
               <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
+              <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
             </div>
             <Button variant="primary" className="mt-4" busy={busy} disabled={!windowOk || !f.teamName.trim()} onClick={save}>
               {t('common.save')}
@@ -102,6 +104,18 @@ export function BrowserPolicySwitch({ value, onChange }: { value: boolean; onCha
     <div className="sm:col-span-2" data-testid="team-browser-allow-all" data-on={value ? 'true' : 'false'}>
       <Switch checked={value} onChange={onChange} label={t('teamSettings.browserAllowAll')} />
       <p className="mt-1 text-xs text-faint">{t('teamSettings.browserAllowAllHint')}</p>
+    </div>
+  )
+}
+
+/** "Members can add their own connections" (Settings > External services), default on. Off: none can be added and the
+ * ones there are left out of chats; team connections are not affected. */
+export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return (
+    <div className="sm:col-span-2" data-testid="team-personal-integrations" data-on={value ? 'true' : 'false'}>
+      <Switch checked={value} onChange={onChange} label={t('teamSettings.personalIntegrations')} />
+      <p className="mt-1 text-xs text-faint">{t('teamSettings.personalIntegrationsHint')}</p>
     </div>
   )
 }
