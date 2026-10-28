@@ -7,6 +7,7 @@ import { API } from '@mycel/shared/api'
 import { describeSchedule, nextRun, zonedToUtc } from '../../server/src/chat/schedules'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { TEXT } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -38,7 +39,7 @@ describe('runs through the chat runtime', () => {
   let h: Harness
   let alice: TestSocket
   beforeAll(async () => {
-    h = await startHarness({ name: 'schedules', askUserTimeoutMs: 20_000 })
+    h = await startHarness({ name: 'schedules', timeZone: 'Asia/Seoul', askUserTimeoutMs: 20_000 })
     alice = await h.ws('alice', { windowId: 'win-sched-1' })
     await alice.next('hello')
   })
@@ -77,6 +78,64 @@ describe('runs through the chat runtime', () => {
     expect(answer.content).toContain('"skipped":true')
     // a once-schedule that ran is finished
     expect(rt.schedules.get('alice', made.id)!.next_run_at).toBeNull()
+  })
+
+  test('a future once can resume, but its exact due time and later are expired', () => {
+    const schedules = h.rt().schedules
+    const before = new Date('2026-10-28T14:59:00Z') // Oct 28 23:59 in Seoul
+    const due = new Date('2026-10-28T15:01:00Z') // Oct 29 00:01 in Seoul
+    const made = schedules.create('alice', { title: 'Boundary', prompt: 'test task', repeat: 'once', date: '2026-10-29', time: '00:01' }, before)
+    // Being overdue does not expire an enabled once: the runner still owes this occurrence.
+    expect(schedules.resumeBlockedReason(made, due)).toBeNull()
+    expect(schedules.setEnabled('alice', made.id, true, due)).toEqual(made)
+    const paused = schedules.setEnabled('alice', made.id, false, before)!
+    expect(schedules.resumeBlockedReason(paused, before)).toBeNull()
+    expect(schedules.setEnabled('alice', made.id, true, before)).toMatchObject({ enabled: 1, next_run_at: due.toISOString() })
+    schedules.setEnabled('alice', made.id, false, before)
+    for (const now of [due, new Date(due.getTime() + 1)]) {
+      expect(schedules.resumeBlockedReason(paused, now)).toBe('expired')
+      expect(() => schedules.setEnabled('alice', made.id, true, now)).toThrow(TEXT.scheduleExpired.en)
+      expect(schedules.get('alice', made.id)).toEqual(paused)
+    }
+    schedules.delete('alice', made.id)
+  })
+
+  test('recurring tasks resume; enabling an already pending task preserves its occurrence', () => {
+    const schedules = h.rt().schedules
+    const before = new Date('2026-03-07T00:00:00Z'), after = new Date('2026-03-09T00:00:00Z')
+    const made = schedules.create('alice', { title: 'Recurring', prompt: 'test task', repeat: 'daily', time: '09:00' }, before)
+    schedules.setEnabled('alice', made.id, false, before)
+    expect(schedules.setEnabled('alice', made.id, true, after)).toMatchObject({ enabled: 1, next_run_at: '2026-03-10T00:00:00.000Z' })
+    h.ctx.db.query('UPDATE schedules SET pending_due_at=?, retry_at=? WHERE id=?').run(made.next_run_at, after.toISOString(), made.id)
+    const pending = schedules.get('alice', made.id)!
+    expect(schedules.resumeBlockedReason(pending, after)).toBeNull()
+    expect(schedules.setEnabled('alice', made.id, true, after)).toEqual(pending)
+    schedules.delete('alice', made.id)
+    expect(nextRun(s({ repeat: 'daily', time: '09:00' }), new Date('2026-03-07T15:00:00Z'), 'America/New_York')!.toISOString()).toBe('2026-03-08T13:00:00.000Z')
+  })
+
+  test('API rejects completed and expired once tasks with localized reasons; deleting preserves the result chat', async () => {
+    const schedules = h.rt().schedules
+    // Asker already ran even though its configured date is still in the future.
+    const completed = schedules.list('alice').find(row => row.title === 'Asker')!
+    expect(completed.last_run_at).toBeTruthy()
+    const expired = schedules.create('alice', { title: 'Expired', prompt: 'test task', repeat: 'once', date: '2000-01-02', time: '09:00' }, new Date('2000-01-01T00:00:00Z'))
+    schedules.setEnabled('alice', expired.id, false)
+    const listed = await h.api('alice').call(API.listSchedules)
+    expect(listed.timeZone).toBe('Asia/Seoul')
+    for (const [row, reason, messages] of [[completed, 'completed', TEXT.scheduleCompleted], [schedules.get('alice', expired.id)!, 'expired', TEXT.scheduleExpired]] as const) {
+      expect(listed.items.find(item => item.id === row.id)?.resumeBlockedReason).toBe(reason)
+      for (const locale of ['ko', 'en', 'id'] as const) {
+        expect(() => schedules.setEnabled('alice', row.id, true, new Date(), locale)).toThrow(messages[locale])
+      }
+      const response = await h.req('alice', `/api/schedules/${row.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) })
+      expect(response.status).toBe(409)
+      expect((await response.json()).error).toMatchObject({ code: 'conflict', params: { reason: `schedule_${reason}` }, message: messages.en })
+      expect(schedules.get('alice', row.id)).toEqual(row)
+      expect((await h.req('bob', `/api/schedules/${row.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) })).status).toBe(404)
+      await h.api('alice').call(API.deleteSchedule, { params: { id: row.id } })
+    }
+    expect((await h.api('alice').call(API.getChat, { params: { id: completed.last_chat_id! } })).deletedAt).toBeNull()
   })
 
   test('the API lists only own schedules; pause, resume and delete', async () => {

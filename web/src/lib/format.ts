@@ -25,9 +25,9 @@ export function formatUsd(n: number, locale: Locale): string {
   return new Intl.NumberFormat(TAG[locale], { style: 'currency', currency: 'USD', maximumFractionDigits: n < 1 ? 4 : 2 }).format(n)
 }
 
-export function formatDateTime(iso: string | null | undefined, locale: Locale): string {
+export function formatDateTime(iso: string | null | undefined, locale: Locale, timeZone?: string): string {
   if (!iso) return ''
-  return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+  return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
 }
 
 export function formatDate(iso: string | null | undefined, locale: Locale): string {

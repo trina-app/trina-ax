@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ApiError, ERROR_MESSAGES, uuidv7, type BrowserCall, type ClientFrame, type Job } from '@mycel/shared/api'
 import type { DesktopBridge } from '@mycel/shared'
 import { BrowserRelay, NO_PANE_ERROR } from '../../src/lib/browserRelay'
-import { dateBucket, formatRelative, formatSize, localDay } from '../../src/lib/format'
+import { dateBucket, formatDateTime, formatRelative, formatSize, localDay } from '../../src/lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../../src/lib/paths'
 import { iconKind, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
 import { errorText, PreviewTooLargeError, readBounded } from '../../src/lib/api'
@@ -48,6 +48,20 @@ describe('format and preview kinds', () => {
     expect(dateBucket('2026-10-01T12:00:00', now)).toBe('month')
     expect(dateBucket('2025-01-01T12:00:00', now)).toBe('older')
     expect(formatRelative(new Date(Date.now() - 5 * 60_000).toISOString(), 'en')).toBe('5 minutes ago')
+  })
+  test('schedule dates use the team zone across midnight and DST in every locale', () => {
+    const iso = '2026-10-28T15:09:00Z'
+    // Assert the expected wall-clock date, leaving locale punctuation to the platform's ICU.
+    const wall = (iso: string, locale = 'en-US') => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(iso))
+    for (const [locale, tag] of [['en', 'en-US'], ['ko', 'ko-KR'], ['id', 'id-ID']] as const)
+      expect(formatDateTime(iso, locale, 'Asia/Seoul')).toBe(wall('2026-10-29T00:09:00Z', tag))
+    expect(formatDateTime(iso, 'en', 'Asia/Jakarta')).toBe(wall('2026-10-28T22:09:00Z'))
+    expect(formatDateTime(iso, 'en', 'UTC')).toBe(wall('2026-10-28T15:09:00Z'))
+    expect(formatDateTime('2026-03-08T06:59:00Z', 'en', 'America/New_York')).toBe(wall('2026-03-08T01:59:00Z'))
+    expect(formatDateTime('2026-03-08T07:00:00Z', 'en', 'America/New_York')).toBe(wall('2026-03-08T03:00:00Z'))
+    expect(formatDateTime('2026-11-01T06:00:00Z', 'en', 'America/New_York')).toBe(wall('2026-11-01T01:00:00Z'))
+    expect(formatDateTime(null, 'en', 'Asia/Seoul')).toBe('')
+    expect(formatDateTime(iso, 'en')).toBe(new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso)))
   })
   test('viewers by extension', () => {
     expect(previewKind('a.PDF')).toBe('pdf')
