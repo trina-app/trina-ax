@@ -47,7 +47,7 @@ describe('first-run setup', () => {
     const body = (await res.json()) as any
     expect(body.token).toBeUndefined()
     expect(body.me.user).toMatchObject({ id: 'olga', username: 'Olga', role: 'owner', mustChangePassword: false })
-    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en' })
+    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true })
     const me = await c.call('GET', '/api/me')
     expect(me.user.id).toBe('olga')
     for (const d of ['shared', 'skills', 'groups', 'projects', 'users/olga']) expect(fs.statSync(path.join(h.ctx.files.fx.root, d)).isDirectory()).toBe(true)

@@ -9,7 +9,8 @@
 //   attacker  http://attacker.test:19158 (= 127.0.0.1, "public"): logs every full request URL (GET /__log), for the
 //         exfiltration tests (exfil.spec.ts)
 //
-// Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel.
+// Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel, POST /test/policy
+// {allowAll} (Me.team.browserAllowAll: the team's "members can turn on 'Allow all websites'", settings.spec.ts).
 // Ports are in component E's range (19150–19159).
 import { X509Certificate } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -61,8 +62,12 @@ interface Team {
   lanFailures: { code: string; csrf: boolean }[]
   /** GET /downloads/index.json requests: whether they carried the team session (update.spec.ts) */
   downloadHits: ('session' | 'none')[]
+  /** Me.team.browserAllowAll (undefined: an older server without the policy) */
+  browserAllowAll?: boolean
+  /** GET /api/me requests that carried the team session (the app reads the policy there) */
+  meHits: number
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [] })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [], meHits: 0 })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
@@ -100,7 +105,7 @@ function me(t: Team): Me {
   return {
     user: { id: 'owner', username: 'owner', name: 'Owner', email: null, role: 'owner', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} as Me['user']['prefs'] },
     groups: [],
-    team: { name: `${t.name} Team`, defaultLocale: 'ko' },
+    team: { name: `${t.name} Team`, defaultLocale: 'ko', ...(t.browserAllowAll === undefined ? {} : { browserAllowAll: t.browserAllowAll }) },
     session: { id: uuidv7(), client: 'desktop', expiresAt: new Date(Date.now() + 86400_000).toISOString() },
     server: { version: '0.0.0-test', dev: true },
   }
@@ -129,7 +134,17 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     t.skewMs = Number(((await req.json()) as { ms?: number }).ms ?? 0)
     return json({ ok: true })
   }
-  if (p === '/api/me') return sessionCookie(req) ? json(me(t)) : json({ error: { code: 'unauthorized', message: 'sign in' } }, 401)
+  if (p === '/api/me') {
+    if (!sessionCookie(req)) return json({ error: { code: 'unauthorized', message: 'sign in' } }, 401)
+    t.meHits++
+    return json(me(t))
+  }
+  if (p === '/test/policy' && req.method === 'POST') {
+    const b = (await req.json()) as { allowAll?: boolean | null }
+    t.browserAllowAll = typeof b.allowAll === 'boolean' ? b.allowAll : undefined
+    return json({ ok: true, meHits: t.meHits })
+  }
+  if (p === '/test/me-hits') return json({ meHits: t.meHits })
   if (p === '/api/connect-info') {
     if (!t.direct) return json({ error: { code: 'not_found', message: 'no direct connection' } }, 404)
     return json({ teamId: `team-${t.name.toLowerCase()}`, lanCertSha256: t.direct.announce, lanPort: t.direct.port, lanHosts: ['127.0.0.1'] })

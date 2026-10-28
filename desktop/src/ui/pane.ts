@@ -2,7 +2,8 @@
 // action, the person's permission question (once / always / deny; one at a time), the activity log (everything the
 // AI did or the browser refused, opened from the toolbar), at most one line over the page for what needs the person
 // now (common/pane-activity.ts), and the settings panel (site access: ask / allow all websites, and the sites
-// allowed always). The page itself is a separate view placed under this toolbar by the main process.
+// allowed always; the same value as the team page's Settings > Browser, and "allow all" is off when the team turned
+// that choice off). The page itself is a separate view placed under this toolbar by the main process.
 import type { DesktopPaneState } from '@mycel/shared'
 import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
 import { h, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type SiteSettings } from './dom'
@@ -16,7 +17,7 @@ let prompts: PanePrompt[] = []
 let activity: ActivityView = emptyActivity()
 let showLog = false
 let showSites = false
-let sites: SiteSettings = { always: [], privateAlways: [], siteAccess: 'ask' }
+let sites: SiteSettings = { always: [], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true }
 /** when the current AI call started (the bar shows only what the AI did since) */
 let drivingSince = 0
 let editingAddress = false
@@ -214,6 +215,15 @@ function promptCard(p: PanePrompt, more: number) {
     h('h2', { id: `p-${p.id}` }, tr(isPrivate ? 'perm.private.title' : 'perm.site.title', { host: p.host })),
     h('p', {}, tr(isPrivate ? 'perm.private.body' : 'perm.site.body')),
     h('p', { class: 'url' }, `${p.tool} · ${p.url}`),
+    // the third site question in a row (common/site-permissions.ts RepeatPromptHint): where the setting is
+    p.hint && !isPrivate
+      ? h(
+          'p',
+          { class: 'hint', 'data-testid': 'prompt-hint' },
+          h('span', {}, tr(sites.teamAllowsAll ? 'perm.hint.all' : 'perm.hint.always')),
+          sites.teamAllowsAll ? h('button', { type: 'button', class: 'link', 'data-testid': 'prompt-hint-settings', onclick: () => void toggleSites(true) }, tr('perm.hint.open')) : null,
+        )
+      : null,
     h(
       'div',
       { class: 'actions' },
@@ -238,16 +248,17 @@ function activityText(a: PaneActivity) {
 
 function sitesBox() {
   const rows = [...sites.always.map((s) => ({ host: s, priv: sites.privateAlways.includes(s) })), ...sites.privateAlways.filter((s) => !sites.always.includes(s)).map((s) => ({ host: s, priv: true }))]
-  const accessChoice = (value: 'ask' | 'all', label: string, hint: string) =>
+  const accessChoice = (value: 'ask' | 'all', label: string, hint: string, disabled = false) =>
     h(
       'label',
-      { class: 'choice' },
+      { class: `choice${disabled ? ' disabled' : ''}` },
       h('input', {
         type: 'radio',
         name: 'site-access',
         value,
         'data-testid': `site-access-${value}`,
         checked: sites.siteAccess === value,
+        disabled,
         onchange: () => {
           sites = { ...sites, siteAccess: value }
           ui.pane.setSiteAccess(value)
@@ -264,7 +275,8 @@ function sitesBox() {
       { 'data-testid': 'site-access' },
       h('legend', {}, tr('pane.access')),
       accessChoice('ask', tr('pane.accessAsk'), tr('pane.accessAskHint')),
-      accessChoice('all', tr('pane.accessAll'), tr('pane.accessAllHint')),
+      accessChoice('all', tr('pane.accessAll'), tr('pane.accessAllHint'), !sites.teamAllowsAll),
+      sites.teamAllowsAll ? null : h('p', { class: 'policy', 'data-testid': 'site-access-policy' }, tr('pane.accessAllOff')),
     ),
     h('strong', {}, tr('pane.sites')),
     rows.length

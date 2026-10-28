@@ -60,6 +60,24 @@ export interface DesktopConnection {
   fingerprintMismatch: boolean
 }
 
+/**
+ * The in-app browser's site setting for this team on this computer, as Settings > Browser shows it. It lives only in
+ * the desktop app (per team, on this computer); the pane's ⚙ panel shows the same value.
+ */
+export interface DesktopBrowserSettings {
+  /** ask: the person answers for each new site; all: every public website (office network and this computer still ask or stay blocked) */
+  siteAccess: 'ask' | 'all'
+  /** public sites allowed always */
+  always: string[]
+  /** office-network addresses allowed always */
+  privateAlways: string[]
+  /** the team lets people turn on "all" (Admin > Team settings), as the desktop app last heard from the team server */
+  teamAllowsAll: boolean
+}
+
+/** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
+export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
+
 export interface DesktopBridge {
   bridgeVersion: number
   /** desktop app (shell) version, e.g. "0.1.0" */
@@ -89,6 +107,20 @@ export interface DesktopBridge {
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
   setLocale?(locale: 'ko' | 'en' | 'id'): void
+  /**
+   * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
+   * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its
+   * own confirmation dialog and changes the setting only when the person confirms there; it is refused while the
+   * team does not allow it. Optional: desktop apps before this addition do not have it (the section stays hidden).
+   */
+  browserSettings?: {
+    get(): Promise<DesktopBrowserSettings | null>
+    /** the setting changed (here, in the pane's ⚙ panel, by an answer "always allow", or by the team's policy) */
+    onChange(cb: (s: DesktopBrowserSettings) => void): () => void
+    setAccess(v: 'ask' | 'all'): Promise<DesktopAccessOutcome>
+    removeSite(host: string): Promise<DesktopBrowserSettings | null>
+    clearSites(): Promise<DesktopBrowserSettings | null>
+  }
 }
 
 export function getDesktopBridge(): DesktopBridge | null {

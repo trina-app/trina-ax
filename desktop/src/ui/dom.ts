@@ -17,12 +17,16 @@ export interface PanePrompt {
   host: string
   url: string
   tool: string
+  /** the third site question in a row: say where "Allow all websites" is (once) */
+  hint?: boolean
 }
 export type { PaneActivity } from '../common/pane-activity'
 export interface SiteSettings {
   always: string[]
   privateAlways: string[]
   siteAccess: 'ask' | 'all'
+  /** the team lets people choose "all" (Admin > Team settings) */
+  teamAllowsAll: boolean
 }
 
 export interface MycelUi {

@@ -377,6 +377,26 @@ body.driving .driving-bar {
   margin-top: 6px;
   font-size: 12px;
 }
+/* the third site question in a row: where "Allow all websites" is */
+.prompt .hint {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+.prompt .hint button.link {
+  display: inline;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
 /* the one line over the page (common/pane-activity.ts): never stacked */
 .notice {
   margin-top: 6px;
@@ -500,6 +520,16 @@ body.driving .driving-bar {
   flex-direction: column;
 }
 .sites .choice small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.sites .choice.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+/* the team turned "Allow all websites" off */
+.sites .policy {
+  margin: 4px 0 0;
   color: var(--muted);
   font-size: 12px;
 }

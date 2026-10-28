@@ -1,10 +1,11 @@
-// Team settings: name, default language, update channel and window, retention periods.
+// Team settings: name, default language, update channel and window, retention periods, and whether people may turn on
+// "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it).
 import { useEffect, useState } from 'react'
 import type { Locale, TeamSettings } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { LOCALES, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
-import { Button, Field, inputCls } from '../../components/ui'
+import { Button, Field, inputCls, Switch } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
 import { timeZoneOptions } from '../../lib/time-zones'
 
@@ -79,6 +80,7 @@ export default function TeamSettingsPage() {
               <Field label={t('teamSettings.chatTrashDays')}>
                 <input className={inputCls} type="number" min={1} max={365} value={f.chatTrashRetentionDays} onChange={num('chatTrashRetentionDays', 1, 365)} />
               </Field>
+              <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
             </div>
             <Button variant="primary" className="mt-4" busy={busy} disabled={!windowOk || !f.teamName.trim()} onClick={save}>
               {t('common.save')}
@@ -87,5 +89,19 @@ export default function TeamSettingsPage() {
         )
       }
     </Loadable>
+  )
+}
+
+/**
+ * "Members can turn on 'Allow all websites'" (desktop app's in-app browser), default on. Off: the desktop app refuses the
+ * choice and turns it back to "ask for each new site" for anyone who had it on (it reads the policy from GET /api/me).
+ */
+export function BrowserPolicySwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return (
+    <div className="sm:col-span-2" data-testid="team-browser-allow-all" data-on={value ? 'true' : 'false'}>
+      <Switch checked={value} onChange={onChange} label={t('teamSettings.browserAllowAll')} />
+      <p className="mt-1 text-xs text-faint">{t('teamSettings.browserAllowAllHint')}</p>
+    </div>
   )
 }

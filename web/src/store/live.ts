@@ -2,6 +2,7 @@
 import type { CredentialLogin, FileChange, Memory, ServerEvent } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
+import { browserSettingsBridge } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { navigateTo } from '../lib/nav'
 import { Emitter } from '../lib/emitter'
@@ -77,6 +78,13 @@ export function dispatch(ev: ServerEvent) {
         // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
         void useSession.getState().refreshMe()
         void useEngines.getState().load(true)
+        return
+      }
+      if (ev.data.code === 'browser_policy_changed') {
+        // an admin changed whether people may turn on "Allow all websites": Settings > Browser follows, and the desktop
+        // app re-reads the policy from the team server itself when the setting is read (it never takes it from here)
+        void useSession.getState().refreshMe()
+        void browserSettingsBridge()?.get().catch(() => null)
         return
       }
       if (ev.data.code === 'locale_changed') {

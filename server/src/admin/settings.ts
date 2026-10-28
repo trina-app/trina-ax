@@ -20,6 +20,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   chatTrashRetentionDays: 7,
   /** placeholder: getTeamSettings() puts defaultTimeZone() here (MYCEL_TEAM_TZ, else the process's zone, else UTC) */
   timeZone: 'UTC',
+  /** people may turn on "Allow all websites" in the desktop app's in-app browser; each team (the director) decides */
+  browserAllowAll: true,
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
@@ -61,6 +63,14 @@ export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>):
  * window). Open windows ask GET /api/me again and switch without a reload; the message carries nothing.
  */
 export const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
+
+/**
+ * Realtime notice: the team changed whether people may turn on "Allow all websites" (browserAllowAll). Open windows
+ * ask GET /api/me again; inside the desktop app the page also reads Settings > Browser again, which makes the app
+ * re-read the policy from the team server itself (the app never takes the value from the page; it also re-reads it
+ * every minute). The message carries nothing.
+ */
+export const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', code: 'browser_policy_changed', message: '' } } as const
 
 /** The team default language alone (cheap: read for every request without a session). */
 export function teamDefaultLocale(db: Database): Locale {

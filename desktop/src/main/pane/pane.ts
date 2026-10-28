@@ -11,7 +11,8 @@
  *    sub-requests (net-guard.ts)
  *  - password and payment-card fields refuse clicks and typing; script runs and network-body reads are logged every time (the
  *    pane's activity log; only what needs the person now is shown over the page: common/pane-activity.ts)
- *  - site access "all" (the person's setting): public websites need no question; office addresses still do
+ *  - site access "all" (the person's setting, unless the team turned the choice off): public websites need no
+ *    question; office addresses still do. After a few site questions in a row the card says where that setting is.
  *  - "AI is using" state, a stop button (cancels the running call), and turn cancellation (browser.cancel)
  *
  * Each team has its own pane and its own session partition.
@@ -22,7 +23,7 @@ import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared'
 import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
-import { sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope } from '../../common/site-permissions'
+import { RepeatPromptHint, sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope, type SiteSettings } from '../../common/site-permissions'
 import { isNotice, type PaneActivity } from '../../common/pane-activity'
 import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT } from '@mycel/shared'
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
@@ -37,6 +38,8 @@ export interface PanePrompt {
   host: string
   url: string
   tool: string
+  /** the third site question in a row: the card says where "Allow all websites" is (once per pane) */
+  hint?: boolean
 }
 export type { PaneActivity } from '../../common/pane-activity'
 
@@ -177,6 +180,7 @@ export class BrowserPane {
   /** office hosts let through for an allowed office page (net-guard.ts letThroughOffice) */
   readonly officeLetThrough = new Set<string>()
   readonly perms: SitePermissions
+  private repeatHint = new RepeatPromptHint()
   readonly classifier: HostClassifier
   private disposed = false
 
@@ -270,7 +274,7 @@ export class BrowserPane {
   }
 
   private emitPrompts() {
-    this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool }) => ({ id, scope, host, url, tool })))
+    this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool, hint }) => ({ id, scope, host, url, tool, ...(hint ? { hint } : {}) })))
   }
 
   /** Log what happened; `topLevel`: it stopped a whole page load (decides whether it is shown over the page). */
@@ -583,7 +587,8 @@ export class BrowserPane {
         if (ctx && !ctx.cancelled) ctx.notes.push(`Too many questions were waiting for the user; ${req.host} was not opened.`)
         return resolve('deny')
       }
-      this.prompts.push({ id, ...req, settle, callId: ctx?.callId })
+      const hint = req.scope === 'site' && this.repeatHint.record(ctx?.turnId)
+      this.prompts.push({ id, ...req, ...(hint ? { hint } : {}), settle, callId: ctx?.callId })
       this.emitPrompts()
     })
   }
@@ -632,14 +637,23 @@ export class BrowserPane {
     if (this.perms.revoke(host)) this.host.onSavePermissions(this.perms.toJSON())
   }
 
-  /** The person's site-access setting (pane settings): 'all' lets the AI open public websites without asking. */
-  setSiteAccess(v: SiteAccess) {
+  /**
+   * The person's site-access setting (pane ⚙, or Settings > Browser after the app's own confirmation): 'all' lets the
+   * AI open public websites without asking. Refused (false) while the team does not allow 'all'.
+   */
+  setSiteAccess(v: SiteAccess): boolean {
     if (this.perms.setSiteAccess(v)) this.host.onSavePermissions(this.perms.toJSON())
+    return this.perms.siteAccess === v
   }
 
-  /** What the pane's settings panel shows. */
-  siteSettings() {
-    return { ...this.perms.list(), siteAccess: this.perms.siteAccess }
+  /** The team's policy from the team server (Admin > Team settings): off turns a saved 'all' back to 'ask'. */
+  setTeamPolicy(allowAll: boolean) {
+    if (this.perms.setTeamPolicy(allowAll)) this.host.onSavePermissions(this.perms.toJSON())
+  }
+
+  /** What the pane's settings panel and Settings > Browser show. */
+  siteSettings(): SiteSettings {
+    return this.perms.settings()
   }
 
   /** "Clear all" in the allowed-sites list: every saved site and office address of this team. */

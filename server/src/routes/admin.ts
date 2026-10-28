@@ -17,7 +17,7 @@ import {
   resolveFolderPath, rulesOf, toFolder, validateRules,
 } from '../admin/folders'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
-import { enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, updateTeamSettings } from '../admin/settings'
+import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, updateTeamSettings } from '../admin/settings'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
@@ -266,6 +266,8 @@ export const adminRoutes: RouteModule = {
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
       if ('timeZone' in changed) { try { getChatRuntime(ctx).schedules.recomputeAll() } catch {} }
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
+      // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
+      if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
       return next
     })
 
