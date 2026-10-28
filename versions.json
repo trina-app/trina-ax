@@ -33,7 +33,7 @@
   "web:mermaid": "11.17.2",
   "web:react-pdf / pdfjs-dist": "11.0.0 / 6.3.289",
   "web:docx-preview": "0.4.1",
-  "web:pptx-preview": "1.0.7",
+  "web:@aiden0z/pptx-renderer": "1.4.0",
   "web:highlight.js": "11.12.0",
   "web:hash-wasm": "4.12.0",
   "web:sucrase": "3.35.1",
