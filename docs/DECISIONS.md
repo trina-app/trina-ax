@@ -1708,3 +1708,20 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - Tests: shared contracts, automatic-update boundaries and legacy settings read/repair in `tests/unit`, and admin
   Playwright input/blur errors, blocked saves and valid recovery in all three languages.
 - Needed in the core too (potenlab/team-ax); nothing here is Trina-specific.
+
+## Chat errors follow the current screen language (fix/qa-chat-i18n, 2026-10-29)
+
+- B-W1-3 / I18N-03: engine failures previously saved only an API code and a localized sentence. Several distinct
+  failures share `engine_unavailable`; the client only recognized generic API sentences, leaving engine-specific
+  Korean errors visible after switching languages.
+- `engineError` now saves `params.reason` alongside the existing code, localized fallback and optional retry delay.
+  The client renders recognized reasons through the Korean, English and Indonesian language tables. Authentication,
+  missing credentials, an unavailable proxy and a missing engine retain separate explanations. Wall-clock timeouts
+  also have a separate reason from active-time timeouts, including their confirmation-wait explanation.
+- Shared official phrases support exact code-and-sentence matching for previously stored errors without a reason.
+  Unknown reasons, unknown messages and conversation content are not inferred or rewritten. No database migration;
+  older clients can still display the stored fallback. Existing resource-limit reasons are left intact.
+- Tests: fake-engine streaming, database and REST reload in `tests/unit/b-chat.test.ts`; all reasons, three languages
+  and conservative legacy matching in `tests/unit/i18n-languages.test.ts`; mock-server Playwright chat tests for
+  Korean errors, Indonesian/English switches, re-entry/reload, distinct causes, legacy errors and unchanged user text.
+- Needed in the core too (potenlab/team-ax): all changes here are shared chat behavior, with no Trina-specific logic.

@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, ApiError, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
+import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
@@ -295,8 +295,27 @@ describe('engine trouble', () => {
     const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'partial' }, { fail: 'rate limit exceeded (429)' }))
     expect(r.done.status).toBe('error')
     expect(r.done.error?.code).toBe('rate_limited')
+    expect(r.done.error?.params).toEqual({ reason: 'rate_limit' })
+    const saved = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
+    expect(saved.items.find(m => m.id === r.done.id)?.error).toEqual(r.done.error)
     expect(r.done.error?.message).toContain('limit') // alice reads English
     expect(r.done.content).toBe('partial')
+  })
+  test('a Korean auth error keeps its distinct reason in the stream, database and reloaded chat', async () => {
+    const bob = await h.ws('bob', { windowId: 'win-bob-i18n' })
+    await bob.next('hello')
+    try {
+      const chat = await newChat('bob')
+      const content = fake({ say: 'partial' }, { fail: 'authentication failed (401)' })
+      const r = await ask(h, bob, 'bob', chat.id, content)
+      const error = { code: 'engine_unavailable', message: CHAT_ERROR_MESSAGES.auth.ko, params: { reason: 'auth' } } as const
+      expect(r.done).toMatchObject({ status: 'error', content: 'partial', error })
+      const row = h.ctx.db.query('SELECT error FROM messages WHERE id = ?').get(r.done.id) as { error: string }
+      expect(JSON.parse(row.error)).toEqual(error)
+      const saved = await h.api('bob').call(API.listMessages, { params: { id: chat.id } })
+      expect(saved.items.find(m => m.id === r.done.id)?.error).toEqual(error)
+      expect(saved.items.find(m => m.role === 'user')?.content).toBe(content)
+    } finally { bob.close() }
   })
   test('missing engine -> engine_unavailable, no launch', async () => {
     const chat = await newChat()
@@ -310,6 +329,7 @@ describe('engine trouble', () => {
       const r = await ask(h, alice, 'alice', chat.id, 'hi')
       expect(r.done.status).toBe('error')
       expect(r.done.error?.code).toBe('engine_unavailable')
+      expect(r.done.error?.params).toEqual({ reason: 'engine_missing' })
     } finally { confs.codex = saved; delete confs.problems.codex }
   })
 })
@@ -490,6 +510,18 @@ describe('codex', () => {
 })
 
 describe('time limit', () => {
+  test('the total wall-time limit keeps its own explanation after storage', async () => {
+    const rt = h.rt() as unknown as { wallTimeoutMs: number }
+    const saved = rt.wallTimeoutMs
+    rt.wallTimeoutMs = 1500
+    try {
+      const chat = await newChat()
+      const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'working' }, { sleep: 20000 }), { ms: 20_000 })
+      expect(r.done.error).toEqual({ code: 'busy', message: CHAT_ERROR_MESSAGES.wall_timeout.en, params: { reason: 'wall_timeout' } })
+      const saved = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
+      expect(saved.items.find(m => m.id === r.done.id)?.error).toEqual(r.done.error)
+    } finally { rt.wallTimeoutMs = saved }
+  })
   test('a turn over the limit is stopped with a timeout error', async () => {
     const rt = h.rt() as unknown as { turnTimeoutMs: number }
     const saved = rt.turnTimeoutMs
@@ -499,6 +531,7 @@ describe('time limit', () => {
       const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'working' }, { sleep: 20000 }), { ms: 20_000 })
       expect(r.done.status).toBe('error')
       expect(r.done.error?.code).toBe('busy')
+      expect(r.done.error?.params).toEqual({ reason: 'timeout' })
       expect(r.done.content).toBe('working')
     } finally { rt.turnTimeoutMs = saved }
   })

@@ -1,5 +1,6 @@
 // 한국어. 키의 원본이다(MessageKey가 여기서 나온다). 키를 더하면 en.ts / id.ts에도 같은 키를 넣어야 타입 검사가 통과한다.
 // 기본 언어는 영어다(shared DEFAULT_LOCALE): 개인 선택도 팀 기본값도 없을 때.
+import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 export const ko = {
   'a11y.skip': '본문으로 건너뛰기',
 
@@ -152,6 +153,20 @@ export const ko = {
   'owner.check.members': '팀원 초대하기',
   'owner.check.folders': '폴더 권한 정하기',
   'owner.check.backup': '첫 백업 만들기',
+
+  'chat.error.auth': CHAT_ERROR_MESSAGES.auth.ko,
+  'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.ko,
+  'chat.error.context': CHAT_ERROR_MESSAGES.context.ko,
+  'chat.error.timeout': CHAT_ERROR_MESSAGES.timeout.ko,
+  'chat.error.wall_timeout': CHAT_ERROR_MESSAGES.wall_timeout.ko,
+  'chat.error.refused': CHAT_ERROR_MESSAGES.refused.ko,
+  'chat.error.crash': CHAT_ERROR_MESSAGES.crash.ko,
+  'chat.error.interrupted': CHAT_ERROR_MESSAGES.interrupted.ko,
+  'chat.error.engine_missing': CHAT_ERROR_MESSAGES.engine_missing.ko,
+  'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.ko,
+  'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.ko,
+  'chat.error.no_credential': CHAT_ERROR_MESSAGES.no_credential.ko,
+  'chat.error.credential_unusable': CHAT_ERROR_MESSAGES.credential_unusable.ko,
 
   'chat.untitled': '새 채팅',
   'chat.title': '제목',

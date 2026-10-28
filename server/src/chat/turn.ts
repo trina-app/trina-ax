@@ -1009,7 +1009,7 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const s of this.steps) if (s.status === 'running') { s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     if (this.stopReason === 'timeout' && !this.error) this.error = this.timeoutSource === 'wall'
-      ? { ...engineError('timeout', this.spec.locale), message: tr('errWallTimeout', this.spec.locale) }
+      ? engineError('wall_timeout', this.spec.locale)
       : engineError('timeout', this.spec.locale)
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'

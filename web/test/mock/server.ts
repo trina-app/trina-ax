@@ -12,7 +12,7 @@
 // offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
 import {
-  ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
 } from '@mycel/shared/api'
@@ -495,7 +495,17 @@ export class MockServer {
       await sleep(slow ? 150 : 15)
     }
     assistant.status = this.stopped.has(turnId) ? 'stopped' : /error/i.test(prompt) ? 'error' : 'done'
-    if (assistant.status === 'error') assistant.error = { code: 'engine_unavailable', message: ERROR_MESSAGES.engine_unavailable.ko }
+    if (assistant.status === 'error') {
+      assistant.error = { code: 'engine_unavailable', message: ERROR_MESSAGES.engine_unavailable.ko }
+      // Stored chat-error fixtures, delivered through both message.done and listMessages.
+      const fixture = /^(legacy )?error:(\w+)\n/.exec(prompt)
+      if (fixture && Object.hasOwn(CHAT_ERROR_MESSAGES, fixture[2]!)) {
+        const reason = fixture[2] as ChatErrorReason
+        const text = CHAT_ERROR_MESSAGES[reason]
+        assistant.error = { code: text.code, message: text.ko, ...(fixture[1] ? {} : { params: { reason } }) }
+      } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
+      else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
+    }
     if (/files/i.test(prompt)) {
       this.putFile('marketing/report.md', '# Report\n')
       assistant.files = { saved: [{ path: 'marketing/report.md', action: 'create' }], conflicts: [{ path: 'marketing/plan.md', copyPath: 'marketing/plan (충돌 사본 - AI).md' }], rejected: [{ path: 'finance/2026/q3.csv', reason: 'read only' }] }

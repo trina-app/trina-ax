@@ -1,7 +1,7 @@
 // User-facing texts of the chat runtime (ko, en, id; English when a language is missing): answer errors, step labels
 // (shared with the web app: shared/src/step-labels.ts), confirmation cards.
-import type { ApiErrorBody, ErrorCode, Locale } from '@mycel/shared/api'
-import { STEP_TEXT, type EngineErrorCode } from '@mycel/shared'
+import { CHAT_ERROR_MESSAGES, type ApiErrorBody, type ChatErrorReason, type Locale } from '@mycel/shared/api'
+import { STEP_TEXT } from '@mycel/shared'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string): T => ({ ko, en, id })
@@ -32,25 +32,25 @@ export const TEXT = {
   browserUnavailable: t('데스크톱 앱 창이 연결되어 있지 않습니다.', 'The desktop app window is not connected.', 'Jendela aplikasi desktop tidak terhubung.'),
 
   // answer errors (message.error)
-  errAuth: t('AI 연결에 문제가 있습니다. 관리자에게 AI 연결을 확인해 달라고 해 주세요.', 'The AI connection has a problem. Ask your admin to check the AI connection.', 'Koneksi AI bermasalah. Minta admin memeriksa koneksi AI.'),
-  errRateLimit: t('AI 사용 한도에 잠시 도달했습니다. 조금 뒤 다시 시도해 주세요.', 'The AI usage limit was reached for now. Try again a bit later.', 'Batas penggunaan AI tercapai untuk sementara. Coba lagi nanti.'),
-  errContext: t('대화가 너무 길어졌습니다. 새 채팅에서 이어 가 주세요.', 'This conversation got too long. Please continue in a new chat.', 'Percakapan ini terlalu panjang. Lanjutkan di chat baru.'),
-  errTimeout: t('시간 제한을 넘겨 답변을 멈췄습니다.', 'The answer was stopped because it took too long.', 'Jawaban dihentikan karena terlalu lama.'),
-  errWallTimeout: t('확인 대기를 포함한 전체 실행 시간 제한을 넘겨 답변을 멈췄습니다.', 'The answer reached its total time limit, including time waiting for confirmation.', 'Jawaban mencapai batas waktu total, termasuk waktu menunggu konfirmasi.'),
-  errRefused: t('AI가 이 요청에 답하지 않았습니다. 표현을 바꿔 다시 시도해 주세요.', 'The AI declined this request. Try rephrasing it.', 'AI menolak permintaan ini. Coba ubah kalimatnya.'),
-  errCrash: t('AI 엔진이 예기치 않게 멈췄습니다. 다시 시도해 주세요.', 'The AI engine stopped unexpectedly. Please try again.', 'Mesin AI berhenti tiba-tiba. Coba lagi.'),
-  errInterrupted: t('서버가 다시 시작되어 답변이 중단되었습니다.', 'The answer was interrupted because the server restarted.', 'Jawaban terputus karena server dimulai ulang.'),
-  errEngineMissing: t('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).'),
-  errProxyDown: t('AI 연결 통로(모델 프록시)가 아직 준비되지 않았습니다. 잠시 뒤 다시 시도하고, 계속되면 팀장에게 알려 주세요.', 'The AI connection (model proxy) is not ready. Try again in a moment; if it keeps happening, let the team owner know.', 'Koneksi AI (proxy model) belum siap. Coba lagi sebentar lagi; jika terus terjadi, beri tahu pemilik tim.'),
+  errAuth: CHAT_ERROR_MESSAGES.auth,
+  errRateLimit: CHAT_ERROR_MESSAGES.rate_limit,
+  errContext: CHAT_ERROR_MESSAGES.context,
+  errTimeout: CHAT_ERROR_MESSAGES.timeout,
+  errWallTimeout: CHAT_ERROR_MESSAGES.wall_timeout,
+  errRefused: CHAT_ERROR_MESSAGES.refused,
+  errCrash: CHAT_ERROR_MESSAGES.crash,
+  errInterrupted: CHAT_ERROR_MESSAGES.interrupted,
+  errEngineMissing: CHAT_ERROR_MESSAGES.engine_missing,
+  errProxyDown: CHAT_ERROR_MESSAGES.proxy_down,
   errBudget: t('AI 사용 한도를 다 썼습니다. 더 필요하면 관리자에게 말해 주세요.', 'The AI usage limit is used up. Ask an admin if you need more.', 'Batas penggunaan AI sudah habis. Minta admin jika perlu lebih.'),
-  errUserDisabled: t('계정을 사용할 수 없습니다.', 'This account is not active.', 'Akun ini tidak aktif.'),
-  errNoCredential: t('이 엔진에 쓸 AI 연결이 없습니다. 관리자에게 알려 주세요.', 'There is no AI connection for this engine. Let your admin know.', 'Tidak ada koneksi AI untuk mesin ini. Beri tahu admin Anda.'),
+  errUserDisabled: CHAT_ERROR_MESSAGES.user_disabled,
+  errNoCredential: CHAT_ERROR_MESSAGES.no_credential,
   // the Linux launcher stopped the turn at its limits (linux-runtime 3.3.7: the turn's memory, the chat folder's size)
   errTurnMemory: t('이 답변이 한 답변에 쓸 수 있는 메모리를 넘어 멈췄습니다. 질문을 나누거나, 큰 파일은 한 번에 하나씩 다뤄 달라고 해 보세요.', 'This answer stopped because it needed more memory than one answer may use. Try splitting the question, or ask for big files one at a time.', 'Jawaban ini berhenti karena butuh memori lebih dari yang boleh dipakai satu jawaban. Coba pecah pertanyaannya, atau minta berkas besar diproses satu per satu.'),
   errTurnMemoryPlan: t('이 답변이 팀 요금제에서 한 답변에 쓸 수 있는 메모리(약 {mb} MB)를 넘어 멈췄습니다. 질문을 나누거나, 큰 파일은 한 번에 하나씩 다뤄 달라고 해 보세요.', 'This answer stopped because it needed more memory than one answer may use on this team\'s plan (about {mb} MB). Try splitting the question, or ask for big files one at a time.', 'Jawaban ini berhenti karena butuh memori lebih dari yang boleh dipakai satu jawaban di paket tim ini (sekitar {mb} MB). Coba pecah pertanyaannya, atau minta berkas besar diproses satu per satu.'),
   errTurnDisk: t('이 답변이 만든 작업 파일이 한 답변에 저장할 수 있는 크기를 넘어 멈췄습니다. 작업 공간은 비웠습니다. 결과를 작게 나눠 만들어 달라고 해 보세요.', 'This answer stopped because the working files it made grew past what one answer may store. Its workspace was emptied. Try asking for the result in smaller parts.', 'Jawaban ini berhenti karena berkas kerja yang dibuatnya melebihi batas penyimpanan satu jawaban. Ruang kerjanya sudah dikosongkan. Coba minta hasilnya dalam bagian yang lebih kecil.'),
   errTurnDiskPlan: t('이 답변이 만든 작업 파일이 한 답변에 저장할 수 있는 크기({mb} MB)를 넘어 멈췄습니다. 작업 공간은 비웠습니다. 결과를 작게 나눠 만들어 달라고 해 보세요.', 'This answer stopped because the working files it made grew past what one answer may store ({mb} MB). Its workspace was emptied. Try asking for the result in smaller parts.', 'Jawaban ini berhenti karena berkas kerja yang dibuatnya melebihi batas penyimpanan satu jawaban ({mb} MB). Ruang kerjanya sudah dikosongkan. Coba minta hasilnya dalam bagian yang lebih kecil.'),
-  errCredentialUnusable: t('AI 연결을 쓸 수 없습니다(거절되었거나 다시 연결이 필요해요). 관리자에게 알려 주세요.', 'The AI connection cannot be used (refused, or it needs to be connected again). Let your admin know.', 'Koneksi AI tidak bisa dipakai (ditolak, atau perlu dihubungkan lagi). Beri tahu admin Anda.'),
+  errCredentialUnusable: CHAT_ERROR_MESSAGES.credential_unusable,
   errCredentialLimit: t('이 AI 연결의 이번 달 한도를 다 썼습니다. 더 필요하면 관리자에게 말해 주세요.', 'This month\'s limit of the AI connection is used up. Ask an admin if you need more.', 'Batas bulan ini untuk koneksi AI sudah habis. Minta admin jika perlu lebih.'),
 
   // steps
@@ -88,26 +88,10 @@ export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, 
   return s
 }
 
-/** Engine error -> message.error (stable code + localized text). */
-// (the older codes proxy_mode, setup_token_missing and codex_beta are gone: company keys and the owner's token are AI
-// connections now, Codex is out of beta — credentials D18–D20; stored message errors keep their own text)
-export function engineError(code: EngineErrorCode | 'interrupted' | 'engine_missing' | 'proxy_down' | 'user_disabled' | 'no_credential' | 'credential_unusable', locale: Locale, retryAfter?: number): ApiErrorBody {
-  const map: Record<string, [ErrorCode, keyof typeof TEXT]> = {
-    auth: ['engine_unavailable', 'errAuth'],
-    rate_limit: ['rate_limited', 'errRateLimit'],
-    context: ['payload_too_large', 'errContext'],
-    timeout: ['busy', 'errTimeout'],
-    refused: ['forbidden', 'errRefused'],
-    crash: ['internal', 'errCrash'],
-    interrupted: ['unavailable', 'errInterrupted'],
-    engine_missing: ['engine_unavailable', 'errEngineMissing'],
-    proxy_down: ['engine_unavailable', 'errProxyDown'],
-    user_disabled: ['forbidden', 'errUserDisabled'],
-    no_credential: ['engine_unavailable', 'errNoCredential'],
-    credential_unusable: ['engine_unavailable', 'errCredentialUnusable'],
-  }
-  const [c, k] = map[code] ?? ['internal', 'errCrash']
-  return { code: c, message: tr(k, locale), ...(retryAfter !== undefined ? { retryAfter } : {}) }
+/** Engine error -> message.error. Persist the reason as well as the localized fallback for older clients. */
+export function engineError(reason: ChatErrorReason, locale: Locale, retryAfter?: number): ApiErrorBody {
+  const text = CHAT_ERROR_MESSAGES[reason]
+  return { code: text.code, message: text[locale], params: { reason }, ...(retryAfter !== undefined ? { retryAfter } : {}) }
 }
 
 /** The launcher ended the turn at a Linux limit (LaunchEvent exit.signal "oom" | "disk_limit", shared/src/engine.ts):

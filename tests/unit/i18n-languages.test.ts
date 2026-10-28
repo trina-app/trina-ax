@@ -4,9 +4,9 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { ERROR_MESSAGES, LOCALE_NAMES, Locale } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES, chatErrorReason, ERROR_MESSAGES, LOCALE_NAMES, Locale, type ChatErrorReason } from '@mycel/shared/api'
 import { AUTH_MESSAGES } from '../../server/src/auth/messages'
-import { TEXT as CHAT_TEXT } from '../../server/src/chat/i18n'
+import { engineError, TEXT as CHAT_TEXT } from '../../server/src/chat/i18n'
 import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
 import { MSG as FILE_TEXT } from '../../server/src/team-files/errors'
 import { pageMessage, type PageKind } from '../../relay/src/pages'
@@ -49,6 +49,7 @@ function checkTable(name: string, table: Record<string, unknown>, atLeast = 4) {
 describe('server and relay texts', () => {
   test('error messages, auth, chat, system and file texts have ko, en and id, without Korean in en / id', () => {
     checkTable('errors', ERROR_MESSAGES)
+    checkTable('chat errors', CHAT_ERROR_MESSAGES)
     checkTable('auth', AUTH_MESSAGES)
     checkTable('chat', CHAT_TEXT)
     checkTable('system', SYSTEM_TEXT)
@@ -189,5 +190,43 @@ describe('no Korean screen text outside the language tables', () => {
       const lines = codeLines(fs.readFileSync(path.join(ROOT, f), 'utf8'))
       for (const l of lines.filter((x) => HANGUL.test(x))) expect({ f, l, tri: /T\.s\(lang,\s*"|label\("/.test(l) }).toEqual({ f, l, tri: true })
     }
+  })
+})
+
+describe('stored chat error reasons', () => {
+  test('new errors preserve the reason, retry delay and localized fallback in every language', () => {
+    for (const reason of Object.keys(CHAT_ERROR_MESSAGES) as ChatErrorReason[]) {
+      for (const locale of Locale.options) {
+        const error = engineError(reason, locale, 17)
+        expect(error).toEqual({ code: CHAT_ERROR_MESSAGES[reason].code, message: CHAT_ERROR_MESSAGES[reason][locale], params: { reason }, retryAfter: 17 })
+        expect(chatErrorReason({ ...error, message: 'An older fallback phrase' })).toBe(reason)
+      }
+    }
+  })
+  test('legacy official phrases match exactly, with their code, for all three languages', () => {
+    for (const reason of Object.keys(CHAT_ERROR_MESSAGES) as ChatErrorReason[]) {
+      const text = CHAT_ERROR_MESSAGES[reason]
+      for (const locale of Locale.options) {
+        expect(chatErrorReason({ code: text.code, message: text[locale] })).toBe(reason)
+        expect(chatErrorReason({ code: 'bad_request', message: text[locale] })).toBeNull()
+        expect(chatErrorReason({ code: text.code, message: text[locale] + ' Details.' })).toBeNull()
+      }
+    }
+  })
+  test('unknown reasons or messages and mismatched codes are not reinterpreted', () => {
+    const error = engineError('auth', 'ko')
+    for (const reason of ['future_failure', '__proto__', 'toString', 1, false]) {
+      expect(chatErrorReason({ ...error, params: { reason } })).toBeNull()
+    }
+    expect(chatErrorReason({ ...error, code: 'forbidden' })).toBeNull()
+    expect(chatErrorReason({ code: 'engine_unavailable', message: 'Unknown upstream failure' })).toBeNull()
+    expect(chatErrorReason({ code: 'engine_unavailable', message: ` ${error.message}` })).toBeNull()
+  })
+  test('auth, absent credentials, proxy startup and missing engines remain different reasons', () => {
+    const reasons = ['auth', 'no_credential', 'proxy_down', 'engine_missing'] as const
+    expect(reasons.map(reason => engineError(reason, 'ko').code)).toEqual(reasons.map(() => 'engine_unavailable'))
+    expect(new Set(reasons.map(reason => engineError(reason, 'id').message)).size).toBe(reasons.length)
+    expect(chatErrorReason(engineError('wall_timeout', 'ko'))).toBe('wall_timeout')
+    expect(chatErrorReason(engineError('timeout', 'ko'))).toBe('timeout')
   })
 })

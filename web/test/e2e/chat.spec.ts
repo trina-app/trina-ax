@@ -1,3 +1,4 @@
+import { CHAT_ERROR_MESSAGES, ERROR_MESSAGES } from '@mycel/shared/api'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -166,3 +167,51 @@ test('search (⌘K) finds chats by content', async ({ page }) => {
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('user-text')).toHaveText('banana bread recipe')
 })
+
+for (const legacy of [false, true]) {
+  for (const reason of ['auth', 'no_credential', 'proxy_down', 'wall_timeout'] as const) {
+    test(`${legacy ? 'legacy' : 'reason-bearing'} ${reason} error follows KO → ID → EN through chat re-entry`, async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const text = CHAT_ERROR_MESSAGES[reason]
+      // The same official phrase in a user message must stay untouched.
+      const question = `${legacy ? 'legacy ' : ''}error:${reason}\n${text.ko}`
+      await ask(page, question)
+      await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
+      const chatUrl = page.url()
+      const error = lastAnswer(page).getByTestId('answer-error')
+      await expect(error).toContainText(text.ko)
+      for (const locale of ['id', 'en'] as const) {
+        await page.goto('/settings/profile')
+        await page.getByTestId(`locale-${locale}`).click()
+        await expect(page.locator('html')).toHaveAttribute('lang', locale)
+        await page.goto(chatUrl)
+        await expect(error).toContainText(text[locale])
+        await expect(error).not.toContainText(text.ko)
+        await expect(error.getByTestId('retry')).toHaveText(locale === 'id' ? 'Coba lagi' : 'Try again')
+        await expect(page.getByTestId('user-text')).toHaveText(question)
+        await page.reload()
+        await expect(error).toContainText(text[locale])
+        await expect(page.getByTestId('user-text')).toHaveText(question)
+      }
+    })
+  }
+}
+
+for (const [fixture, fallback] of [['unknown', 'Unknown upstream failure'], ['future', ERROR_MESSAGES.engine_unavailable.ko]]) {
+  test(`${fixture} stored error stays verbatim after changing language`, async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await ask(page, `error:${fixture}\n${CHAT_ERROR_MESSAGES.auth.ko}`)
+    await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
+    const chatUrl = page.url()
+    for (const locale of ['id', 'en']) {
+      await page.goto('/settings/profile')
+      await page.getByTestId(`locale-${locale}`).click()
+      await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      await page.goto(chatUrl)
+      await expect(lastAnswer(page).getByTestId('answer-error')).toContainText(fallback!)
+      await expect(page.getByTestId('user-text')).toContainText(CHAT_ERROR_MESSAGES.auth.ko)
+    }
+  })
+}

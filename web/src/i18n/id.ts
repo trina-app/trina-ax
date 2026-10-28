@@ -1,4 +1,5 @@
 // Bahasa Indonesia. Kunci sama dengan ko.ts (dicek TypeScript dan test/unit/i18n.test.ts).
+import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import type { MessageKey } from './ko'
 
 export const id: Record<MessageKey, string> = {
@@ -153,6 +154,20 @@ export const id: Record<MessageKey, string> = {
   'owner.check.members': 'Undang anggota tim',
   'owner.check.folders': 'Atur izin folder',
   'owner.check.backup': 'Buat backup pertama',
+
+  'chat.error.auth': CHAT_ERROR_MESSAGES.auth.id,
+  'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.id,
+  'chat.error.context': CHAT_ERROR_MESSAGES.context.id,
+  'chat.error.timeout': CHAT_ERROR_MESSAGES.timeout.id,
+  'chat.error.wall_timeout': CHAT_ERROR_MESSAGES.wall_timeout.id,
+  'chat.error.refused': CHAT_ERROR_MESSAGES.refused.id,
+  'chat.error.crash': CHAT_ERROR_MESSAGES.crash.id,
+  'chat.error.interrupted': CHAT_ERROR_MESSAGES.interrupted.id,
+  'chat.error.engine_missing': CHAT_ERROR_MESSAGES.engine_missing.id,
+  'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.id,
+  'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.id,
+  'chat.error.no_credential': CHAT_ERROR_MESSAGES.no_credential.id,
+  'chat.error.credential_unusable': CHAT_ERROR_MESSAGES.credential_unusable.id,
 
   'chat.untitled': 'Chat baru',
   'chat.title': 'Judul',
