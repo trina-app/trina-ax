@@ -48,7 +48,11 @@ requests held back or refused) with at most one dismissible line over the page f
 page load stopped at an office or this-computer address, a refused password or card field), and the settings panel (⚙:
 site access "ask for each new site" / "allow all websites", the sites allowed always) live in the desktop's own UI,
 not in the team page: a page served through the relay can send browser commands but cannot answer the person's
-prompts or change the setting.
+prompts. The team page's Settings > Browser shows the same setting through a narrow bridge
+(`mycelDesktop.browserSettings`): it can read it and make it stricter (ask, remove a site, clear the list); "allow
+all websites" is only a request, which the main process confirms with its own dialog before changing anything. The
+team can switch that choice off (Admin > Team settings, `Me.team.browserAllowAll`): the main process reads the policy
+from the team server itself, refuses "all" and turns a saved "all" back to "ask".
 
 The pane never opens the team's own addresses (relay and office), this computer (localhost, 127.0.0.0/8, ::1) or
 non-web schemes, whatever anyone answers; its User-Agent ends with `MycelBrowser/1` (`IN_APP_BROWSER_UA_MARK`)

@@ -1,8 +1,9 @@
-// Personal settings: profile, language and theme, password, signed-in devices, what the AI remembers, scheduled tasks, apps
-// (install as an app / desktop app download), about (version, license, source code), and the member's own AI connections
-// when the team allows them (the team's connections are made by the owner in Admin > AI connections).
+// Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
+// app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (install as an app / desktop app download),
+// about (version, license, source code), and the member's own AI connections when the team allows them (the team's
+// connections are made by the owner in Admin > AI connections).
 import clsx from 'clsx'
-import { Bell, Brain, CalendarClock, Download, Info, KeyRound, Laptop, Monitor, Plug, ShieldAlert, Smartphone, Trash2, User } from 'lucide-react'
+import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { EngineId, Memory, Schedule, Session, Theme } from '@mycel/shared/api'
@@ -18,27 +19,15 @@ import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
+import { BrowserSettings } from './BrowserSettings'
+import { settingsTabs } from './settingsTabs'
+import { browserSettingsBridge } from '../lib/desktop'
 import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
 import ConnectorConnections from './ConnectorConnections'
-
-const TABS: { id: string; label: MessageKey; icon: typeof User }[] = [
-  { id: 'profile', label: 'settings.profile', icon: User },
-  { id: 'security', label: 'settings.security', icon: Laptop },
-  { id: 'memory', label: 'settings.memory', icon: Brain },
-  { id: 'drive', label: 'drive.title', icon: Download },
-  { id: 'connectors', label: 'connectors.title', icon: Plug },
-  { id: 'schedules', label: 'settings.schedules', icon: CalendarClock },
-  { id: 'notifications', label: 'notifications.title', icon: Bell },
-  { id: 'apps', label: 'settings.apps', icon: Download },
-  { id: 'about', label: 'settings.about', icon: Info },
-]
-
-/** Settings > AI connections: shown while the team lets members add their own (or one is still there) */
-const CREDENTIALS_TAB = { id: 'credentials', label: 'settings.credentials' as MessageKey, icon: KeyRound }
 
 export default function Settings() {
   const t = useT()
@@ -48,8 +37,11 @@ export default function Settings() {
   useEffect(() => {
     api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
   }, [])
-  const tabs = own ? [...TABS.slice(0, 3), CREDENTIALS_TAB, ...TABS.slice(3)] : TABS
-  // an old or mistyped link (/settings/devices) would show an empty page: open the profile instead
+  // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
+  const browser = browserSettingsBridge()
+  const tabs = settingsTabs(Boolean(browser), Boolean(own))
+  // an old or mistyped link (/settings/devices), or /settings/browser outside the desktop app, would show an empty
+  // page: open the profile instead
   if (tab === 'credentials' && own === null) return null
   if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   return (
@@ -67,6 +59,7 @@ export default function Settings() {
         <div className="min-w-0 flex-1 max-w-2xl">
           {tab === 'profile' && <Profile />}
           {tab === 'security' && <Security />}
+          {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
           {tab === 'memory' && <Memories />}
           {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
           {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}

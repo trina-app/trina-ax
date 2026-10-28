@@ -22,7 +22,7 @@ import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } 
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
-import { AppWindow } from './app-window'
+import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
@@ -184,8 +184,10 @@ function registerIpc() {
   })
   ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
   ipcMain.on('ui:pane-resize', (e, screenX: number) => fromChrome(e) && Number.isFinite(screenX) && win!.setPaneFromScreenX(screenX))
-  ipcMain.handle('ui:pane-sites', (e) => (fromChrome(e) ? (win!.pane?.siteSettings() ?? { always: [], privateAlways: [], siteAccess: 'ask' }) : null))
-  // the person's own setting: only the pane toolbar (the desktop's own screen) can change it, never a team page or a site
+  ipcMain.handle('ui:pane-sites', (e) => (fromChrome(e) ? (win!.pane?.siteSettings() ?? { always: [], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true }) : null))
+  // the person's own setting, in the desktop's own screen (the pane toolbar). The team page has its own narrow channels
+  // below (Settings > Browser), where "all" needs the person's click on the app's own dialog. Either way the team's
+  // policy is checked here: "all" is refused while the team does not allow it (pane.setSiteAccess).
   ipcMain.on('ui:pane-site-access', (e, v: unknown) => fromChrome(e) && win!.pane?.setSiteAccess(asSiteAccess(v)))
   ipcMain.on('ui:pane-site-remove', (e, host: string) => fromChrome(e) && win!.pane?.revokeSite(String(host)))
   ipcMain.on('ui:pane-sites-clear', (e) => fromChrome(e) && win!.pane?.revokeAllSites())
@@ -214,6 +216,29 @@ function registerIpc() {
   ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? '') }))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
+
+  // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
+  // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
+  // only a request, committed by the person's click on the app's own dialog (AppWindow.requestAllowAll).
+  ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
+  ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
+    if (!fromApp(e) || !win?.pane) return 'unavailable'
+    if (v === 'ask') return win.pane.siteSettings().siteAccess === 'ask' ? 'unchanged' : (win.pane.setSiteAccess('ask'), 'changed')
+    if (v === 'all') return win.requestAllowAll()
+    return 'unavailable'
+  })
+  ipcMain.handle('bridge:browser-site-remove', (e, host: unknown) => {
+    if (!fromApp(e) || !win?.pane) return null
+    const s = win.pane.siteSettings()
+    // only a host that is in the list (no other effect possible, but nothing unchecked reaches the store)
+    if (typeof host === 'string' && host.length <= 300 && (s.always.includes(host) || s.privateAlways.includes(host))) win.pane.revokeSite(host)
+    return win.pane.siteSettings()
+  })
+  ipcMain.handle('bridge:browser-sites-clear', (e) => {
+    if (!fromApp(e) || !win?.pane) return null
+    win.pane.revokeAllSites()
+    return win.pane.siteSettings()
+  })
 }
 
 // ------------------------------------------------------------------ menu

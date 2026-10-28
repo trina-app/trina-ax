@@ -427,5 +427,8 @@ export const TeamSettings = z.object({
   /** the team's time zone (IANA, e.g. Asia/Seoul): "today" / "this month" of budgets and usage, schedules, the nightly
    * backup. Changing it moves the current day / month boundaries (the data stays). */
   timeZone: z.string().min(1).max(64).refine((tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true } catch { return false } }, 'unknown time zone'),
+  /** people may turn on "Allow all websites" in the desktop app's in-app browser (default on). Off: the desktop app
+   * refuses it and turns it back to "ask for each new site" for anyone who had it on. */
+  browserAllowAll: z.boolean(),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>

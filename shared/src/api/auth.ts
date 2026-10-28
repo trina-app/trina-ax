@@ -29,7 +29,12 @@ export const Me = z.object({
     canChooseEngine: z.boolean().optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
-  team: z.object({ name: z.string(), defaultLocale: Locale }),
+  team: z.object({
+    name: z.string(), defaultLocale: Locale,
+    /** people may turn on "Allow all websites" for the desktop app's in-app browser (Admin > Team settings
+     * browserAllowAll). The desktop app enforces it. Absent (older server) = no policy. */
+    browserAllowAll: z.boolean().optional(),
+  }),
   session: z.object({
     id: Uuid7, client: ClientKind, expiresAt: IsoTime,
     /** made by signing in with a temporary password: the forced change asks only for the new password (true only

@@ -5,12 +5,17 @@
 // served through the relay can drive browser tools but can never answer the person's site prompts.
 import { useSyncExternalStore } from 'react'
 import { mobileApp } from './mobile'
-import { getDesktopBridge, type DesktopBridge, type DesktopPaneState } from '@mycel/shared'
+import { getDesktopBridge, type DesktopAccessOutcome, type DesktopBridge, type DesktopBrowserSettings, type DesktopPaneState } from '@mycel/shared'
 
-export type { DesktopBridge, DesktopPaneState }
+export type { DesktopAccessOutcome, DesktopBridge, DesktopBrowserSettings, DesktopPaneState }
 
 export const desktop = (): DesktopBridge | null => getDesktopBridge()
 export const isDesktop = () => !!desktop()
+
+/** The in-app browser's site setting (Settings > Browser): only inside a desktop app new enough to offer it. The value
+ * lives in the desktop app, so a normal browser or the PWA has no such section. */
+export type BrowserSettingsBridge = NonNullable<DesktopBridge['browserSettings']>
+export const browserSettingsBridge = (bridge: DesktopBridge | null = desktop()): BrowserSettingsBridge | null => bridge?.browserSettings ?? null
 
 // ---- pane state, shared by every component that shows it (one subscription to the desktop app)
 const CLOSED: DesktopPaneState = { open: false, tabs: [], driving: false }

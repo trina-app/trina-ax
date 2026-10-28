@@ -1,8 +1,10 @@
 // "Allowed sites" of the in-app browser (design tab 5 "브라우저 안전장치"): before the AI acts on a site the person
 // allows it for this turn ("once"), always (saved per team), or denies. Office-network (private) addresses have
 // their own grants: allowing example.com as a public site doesn't allow it once its DNS points into the office.
-// Site access "all" (the person's choice in the pane's settings): every public site counts as allowed, so the AI
-// opens public websites without asking. It never touches the office-network scope: those addresses still ask.
+// Site access "all" (the person's choice in the pane's settings or the team page's Settings > Browser): every public
+// site counts as allowed, so the AI opens public websites without asking. It never touches the office-network scope:
+// those addresses still ask. The team can switch the choice off (Admin > Team settings, `browserAllowAll`): then "all"
+// is refused and a saved "all" goes back to "ask" (teamAllowsAll, the last policy the team server sent, kept here).
 // Pure: persistence is the caller's (load / toJSON). Unit-tested in tests/unit/e-desktop-common.test.ts.
 
 export type PermissionDecision = 'once' | 'always' | 'deny'
@@ -17,6 +19,16 @@ export interface SavedPermissions {
   privateAlways: string[]
   /** absent in files written before the setting existed: 'ask' */
   siteAccess?: SiteAccess
+  /** the team lets people choose "all" (the team server's policy as last seen); absent = yes (the team default) */
+  teamAllowsAll?: boolean
+}
+
+/** What the pane's ⚙ panel and the team page's Settings > Browser show (the same value, read from the main process). */
+export interface SiteSettings {
+  always: string[]
+  privateAlways: string[]
+  siteAccess: SiteAccess
+  teamAllowsAll: boolean
 }
 
 export const asSiteAccess = (v: unknown): SiteAccess => (v === 'all' ? 'all' : 'ask')
@@ -91,23 +103,43 @@ export class SitePermissions {
   /** turnId -> scope -> hosts allowed for that turn */
   private once = new Map<string, Record<SiteScope, Set<string>>>()
   private access: SiteAccess
+  private policyAll: boolean
 
   constructor(saved?: Partial<SavedPermissions>) {
     const clean = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 300) : [])
     this.always = { site: new Set(clean(saved?.always)), private: new Set(clean(saved?.privateAlways)) }
-    this.access = asSiteAccess(saved?.siteAccess)
+    this.policyAll = saved?.teamAllowsAll !== false
+    // a file that says "all" while the team said no (edited by hand, or written before the policy arrived): ask
+    this.access = this.policyAll ? asSiteAccess(saved?.siteAccess) : 'ask'
   }
 
   get siteAccess(): SiteAccess {
     return this.access
   }
 
-  /** The person's site-access choice. Returns true when it changed (caller persists). */
+  /** The team lets people choose "all" (Admin > Team settings). */
+  get teamAllowsAll(): boolean {
+    return this.policyAll
+  }
+
+  /** The person's site-access choice. Returns true when it changed (caller persists). "all" is refused while the team does not allow it. */
   setSiteAccess(v: SiteAccess): boolean {
     const next = asSiteAccess(v)
     if (next === this.access) return false
+    if (next === 'all' && !this.policyAll) return false
     this.access = next
     return true
+  }
+
+  /**
+   * The team's policy as the team server just said it. Off: "all" goes back to "ask" right away. Returns true when
+   * anything changed (caller persists and tells both screens).
+   */
+  setTeamPolicy(allowAll: boolean): boolean {
+    const before = `${this.policyAll}:${this.access}`
+    this.policyAll = allowAll
+    if (!allowAll) this.access = 'ask'
+    return before !== `${this.policyAll}:${this.access}`
   }
 
   /**
@@ -141,7 +173,7 @@ export class SitePermissions {
     return false
   }
 
-  /** Remove a saved site (the pane's "allowed sites" list). */
+  /** Remove a saved site (the "allowed sites" list in the pane or in Settings > Browser). */
   revoke(host: string): boolean {
     const a = this.always.site.delete(host)
     const b = this.always.private.delete(host)
@@ -164,7 +196,41 @@ export class SitePermissions {
     return { always: [...this.always.site].sort(), privateAlways: [...this.always.private].sort() }
   }
 
+  /** The pane's ⚙ panel and Settings > Browser. */
+  settings(): SiteSettings {
+    return { ...this.list(), siteAccess: this.access, teamAllowsAll: this.policyAll }
+  }
+
   toJSON(): SavedPermissions {
-    return { ...this.list(), siteAccess: this.access }
+    return { ...this.list(), siteAccess: this.access, teamAllowsAll: this.policyAll }
+  }
+}
+
+/** Site questions in a row before the question card suggests "Allow all websites" / "Always allow" (once). */
+export const REPEAT_HINT_AFTER = 3
+/** ...counted within one turn, or across turns within this long. */
+export const REPEAT_HINT_WINDOW_MS = 10 * 60_000
+
+/**
+ * The clinic pilot: logging in and moving between domains asked "AI wants to use …" for every new site, and nobody
+ * found the setting. When the third site question in a row comes within one turn or a short window, its card carries
+ * a hint (where the setting is, and "Always allow" per site). Shown once per pane (the team being open); questions
+ * about office-network addresses do not count ("all" never covers them). Pure: unit-tested in
+ * tests/unit/e-desktop-common.test.ts.
+ */
+export class RepeatPromptHint {
+  private seen: { turnId?: string; at: number }[] = []
+  private shown = false
+
+  /** A site question is about to be shown. True when this one should carry the hint. */
+  record(turnId: string | undefined, now = Date.now()): boolean {
+    if (this.shown) return false
+    this.seen.push({ turnId, at: now })
+    if (this.seen.length > 64) this.seen.shift()
+    const inARow = this.seen.filter((x) => (turnId !== undefined && x.turnId === turnId) || now - x.at <= REPEAT_HINT_WINDOW_MS).length
+    if (inARow < REPEAT_HINT_AFTER) return false
+    this.shown = true
+    this.seen = []
+    return true
   }
 }

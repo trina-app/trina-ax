@@ -6,13 +6,14 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { BaseWindow, Notification, session, WebContentsView, type Session } from 'electron'
+import { BaseWindow, dialog, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
 import { isGatewayDown, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
+import type { SiteSettings } from '../common/site-permissions'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { UI_ORIGIN } from '../common/trust'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
@@ -34,6 +35,12 @@ export interface WelcomeState {
   suggested: string | null
 }
 
+/**
+ * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
+ * browserSettings.setAccess('all')): changed only after the person confirmed the app's own dialog.
+ */
+export type AllowAllOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
+
 export interface AppWindowOptions {
   store: TeamsStore
   /** language of the app's own screens right now (it can change while the window is open) */
@@ -51,6 +58,10 @@ export interface AppWindowOptions {
 const MIN_PANE = 360
 const MIN_APP = 420
 const RECHECK_MS = 60_000
+/** a settings read from the team page re-reads the team's policy at most this often */
+const POLICY_READ_MS = 5_000
+/** after the "Allow all websites" dialog closes, another request is refused this long (no dialog right under a click) */
+const ALLOW_ALL_COOLDOWN_MS = 2_000
 
 export class AppWindow {
   readonly win: BaseWindow
@@ -72,6 +83,12 @@ export class AppWindow {
   private notifyTimes: number[] = []
   /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
   private lanReported = new Map<string, number>()
+  /** GET /api/me in flight (team name and browser policy), and when the last one started */
+  private teamInfo?: { p: Promise<void>; pane?: BrowserPane }
+  private teamInfoAt = 0
+  /** the "Allow all websites" dialog is open, or closed less than ALLOW_ALL_COOLDOWN_MS ago */
+  private allowAllOpen = false
+  private allowAllUntil = 0
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -241,7 +258,7 @@ export class AppWindow {
       if (this.app !== app) return
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
       this.layout()
-      void this.refreshTeamName()
+      void this.refreshTeamInfo()
       void this.measureClock()
     })
     app.webContents.on('render-process-gone', (_e, d) => {
@@ -261,7 +278,8 @@ export class AppWindow {
         onActivity: (a) => this.send(this.chrome, 'ui:pane-activity', a),
         onSavePermissions: (p) => {
           this.o.store.savePermissions(id, p)
-          if (this.pane) this.send(this.chrome, 'ui:pane-sites', this.pane.siteSettings())
+          // the pane's ⚙ panel and the team page's Settings > Browser show the same value: both hear every change
+          if (this.pane) this.sendSiteSettings(this.pane.siteSettings())
         },
         teamHosts: () => teamHostnames(this.teams.teams),
       },
@@ -273,7 +291,7 @@ export class AppWindow {
     )
     this.send(this.chrome, 'ui:pane-prompts', [])
     // this team's settings and a fresh activity log in the toolbar
-    this.send(this.chrome, 'ui:pane-sites', this.pane.siteSettings())
+    this.sendSiteSettings(this.pane.siteSettings())
     this.send(this.chrome, 'ui:pane-activity-reset', null)
     this.sendPaneState(this.pane.state())
 
@@ -352,14 +370,37 @@ export class AppWindow {
     }
   }
 
-  private async refreshTeamName() {
+  /**
+   * GET /api/me with the team page's own session (the authenticated path this app already reads the team name from):
+   * the team's name, and its browser policy (Admin > Team settings "members can turn on 'Allow all websites'"), which
+   * the pane enforces here in the main process: off refuses "all" and turns a saved "all" back to "ask". Read when the
+   * team page loads, every RECHECK_MS, when the team page reads Settings > Browser, and right before the "Allow all
+   * websites" dialog. One request at a time. Signed out, offline or an older server (no field): the last policy stays.
+   */
+  refreshTeamInfo(): Promise<void> {
+    // a read still running for the team that was open before does not count for this one
+    if (!this.teamInfo || this.teamInfo.pane !== this.pane) {
+      this.teamInfoAt = Date.now()
+      const p: Promise<void> = this.fetchTeamInfo().finally(() => {
+        if (this.teamInfo?.p === p) this.teamInfo = undefined
+      })
+      this.teamInfo = { p, pane: this.pane }
+    }
+    return this.teamInfo.p
+  }
+
+  private async fetchTeamInfo() {
     const team = this.team
-    if (!team || !this.app) return
+    const pane = this.pane
+    if (!team || !this.app || !this.currentOrigin) return
     try {
       const res = await this.app.webContents.session.fetch(`${this.currentOrigin}/api/me`, { signal: AbortSignal.timeout(5000) })
       if (!res.ok) return
       const me = Me.safeParse(await res.json())
-      if (me.success && me.data.team.name && me.data.team.name !== team.label) {
+      if (!me.success || this.team?.id !== team.id) return
+      const allowAll = me.data.team.browserAllowAll
+      if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
+      if (me.data.team.name && me.data.team.name !== team.label) {
         this.saveTeams(updateTeam(this.teams, team.id, { label: me.data.team.name.slice(0, 200) }))
         this.team = findTeam(this.teams, team.id)
         this.updateTitle()
@@ -428,7 +469,62 @@ export class AppWindow {
 
   private scheduleRecheck() {
     clearInterval(this.recheckTimer)
-    this.recheckTimer = setInterval(() => void this.recheck(true), RECHECK_MS)
+    this.recheckTimer = setInterval(() => {
+      void this.recheck(true)
+      void this.refreshTeamInfo()
+    }, RECHECK_MS)
+  }
+
+  // ------------------------------------------------- Settings > Browser (team page)
+
+  /** What Settings > Browser shows; also re-reads the team's policy now and then (a change arrives as an event). */
+  browserSettings(): SiteSettings | null {
+    if (!this.pane) return null
+    if (Date.now() - this.teamInfoAt > POLICY_READ_MS) void this.refreshTeamInfo()
+    return this.pane.siteSettings()
+  }
+
+  /**
+   * The team page asked to turn on "Allow all websites". The page can only ask: the app shows its own dialog (not
+   * drawn by any web page) and only the person's click on "Allow all websites" there changes the setting. One dialog
+   * at a time, none right after another one closed, and the team's policy is read from the team server first.
+   */
+  async requestAllowAll(): Promise<AllowAllOutcome> {
+    const pane = this.pane
+    if (!pane || !this.team || this.mode !== 'team' || this.win.isDestroyed()) return 'unavailable'
+    if (this.allowAllOpen || Date.now() < this.allowAllUntil) return 'busy'
+    this.allowAllOpen = true
+    let shown = false
+    try {
+      await this.refreshTeamInfo()
+      if (this.pane !== pane) return 'unavailable'
+      const before = pane.siteSettings()
+      if (!before.teamAllowsAll) return 'not-allowed'
+      if (before.siteAccess === 'all') return 'unchanged'
+      const L = this.o.locale()
+      shown = true
+      const r = await dialog.showMessageBox(this.win, {
+        type: 'warning',
+        title: t(L, 'allowAll.title'),
+        message: t(L, 'allowAll.message', { team: this.team.label }),
+        detail: t(L, 'allowAll.detail'),
+        buttons: [t(L, 'allowAll.cancel'), t(L, 'allowAll.confirm')],
+        // Enter / Escape / closing the dialog keep asking
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      })
+      if (r.response !== 1 || this.pane !== pane || this.win.isDestroyed()) return 'cancelled'
+      return pane.setSiteAccess('all') ? 'changed' : 'not-allowed'
+    } finally {
+      this.allowAllOpen = false
+      if (shown) this.allowAllUntil = Date.now() + ALLOW_ALL_COOLDOWN_MS
+    }
+  }
+
+  private sendSiteSettings(s: SiteSettings) {
+    this.send(this.chrome, 'ui:pane-sites', s)
+    this.send(this.app, 'bridge:browser-settings', s)
   }
 
   /** Network may have changed: switch to the office address when it answers, back to the team address when not. */

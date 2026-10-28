@@ -1,12 +1,17 @@
-// Pure parts of the desktop app: team addresses, the team list, site permissions, result shaping, key input,
-// bridge sender checks and the UI strings (desktop/src/common/*).
+// Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
+// policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the Settings >
+// Browser channels and the UI strings (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { isGatewayDown, isLoopbackHost, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
 import { NO_KIT, parseKit } from '../../desktop/src/common/kit'
-import { siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
+import { RepeatPromptHint, REPEAT_HINT_WINDOW_MS, siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
+import { blockedUrl } from '../../desktop/src/common/browser-block'
+import { publicRequestVerdict, responseSourceVerdict } from '../../desktop/src/common/net-policy'
 import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
 import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
 import { BrowserResult } from '../../shared/src/api/browser'
@@ -128,7 +133,7 @@ describe('site permissions', () => {
     p.forgetTurn('turn-1')
     expect(p.isAllowed('site', 'shop.test', 'turn-1')).toBe(false)
     p.grant('private', '192.168.0.10', 'always')
-    expect(p.toJSON()).toEqual({ always: ['news.test'], privateAlways: ['192.168.0.10'], siteAccess: 'ask' })
+    expect(p.toJSON()).toEqual({ always: ['news.test'], privateAlways: ['192.168.0.10'], siteAccess: 'ask', teamAllowsAll: true })
     expect(p.revoke('192.168.0.10')).toBe(true)
     expect(new SitePermissions(p.toJSON()).list()).toEqual({ always: ['news.test'], privateAlways: [] })
   })
@@ -139,6 +144,127 @@ describe('site permissions', () => {
     for (let i = 0; i < 40; i++) p.grant('site', 'h', 'once', `t${i}`)
     expect(p.isAllowed('site', 'h', 't0')).toBe(false)
     expect(p.isAllowed('site', 'h', 't39')).toBe(true)
+  })
+})
+
+describe('site access "all", the team policy and Settings > Browser', () => {
+  test('the value survives a save and a restart; older files (no siteAccess / no policy) read as ask / allowed', () => {
+    const p = new SitePermissions()
+    expect(p.setSiteAccess('all')).toBe(true)
+    expect(p.setSiteAccess('all')).toBe(false) // unchanged: nothing to save
+    p.grant('site', 'naver.com', 'always')
+    const saved = JSON.parse(JSON.stringify(p.toJSON()))
+    expect(saved).toEqual({ always: ['naver.com'], privateAlways: [], siteAccess: 'all', teamAllowsAll: true })
+    const back = new SitePermissions(saved)
+    expect(back.settings()).toEqual({ always: ['naver.com'], privateAlways: [], siteAccess: 'all', teamAllowsAll: true })
+    expect(new SitePermissions({ always: ['a.test'], privateAlways: [] }).settings()).toEqual({ always: ['a.test'], privateAlways: [], siteAccess: 'ask', teamAllowsAll: true })
+    // junk is "ask", never "all"
+    expect(new SitePermissions({ siteAccess: 'ALL' as never }).siteAccess).toBe('ask')
+    expect(new SitePermissions({ siteAccess: 'all', teamAllowsAll: 'no' as never }).siteAccess).toBe('all') // only false switches it off
+  })
+
+  test('team policy off: "all" goes back to "ask" at once, cannot be chosen, and stays off after a restart', () => {
+    const p = new SitePermissions({ always: ['naver.com'], siteAccess: 'all' })
+    expect(p.setTeamPolicy(false)).toBe(true) // caller saves and tells both screens
+    expect(p.siteAccess).toBe('ask')
+    expect(p.teamAllowsAll).toBe(false)
+    expect(p.isAllowed('site', 'shop.test')).toBe(false)
+    expect(p.isAllowed('site', 'naver.com')).toBe(true) // the always list is untouched
+    expect(p.setSiteAccess('all')).toBe(false)
+    expect(p.siteAccess).toBe('ask')
+    expect(p.setTeamPolicy(false)).toBe(false) // same policy again: nothing to save
+    const restarted = new SitePermissions(JSON.parse(JSON.stringify(p.toJSON())))
+    expect(restarted.settings()).toMatchObject({ siteAccess: 'ask', teamAllowsAll: false })
+    expect(restarted.setSiteAccess('all')).toBe(false)
+    // a file that says "all" while the team said no (written by hand): ask
+    expect(new SitePermissions({ siteAccess: 'all', teamAllowsAll: false }).siteAccess).toBe('ask')
+    // policy back on: the choice is possible again, but nothing turns "all" back on by itself
+    expect(restarted.setTeamPolicy(true)).toBe(true)
+    expect(restarted.siteAccess).toBe('ask')
+    expect(restarted.setSiteAccess('all')).toBe(true)
+    expect(restarted.siteAccess).toBe('all')
+  })
+
+  test('"all" covers public sites only: office-network, this computer and the team address still ask or stay blocked', () => {
+    const p = new SitePermissions({ siteAccess: 'all' })
+    expect(p.isAllowed('site', 'any-site.example')).toBe(true)
+    expect(p.isAllowed('site', '')).toBe(false)
+    // office network keeps its own grant (permit() asks with scope 'private'; net-guard blocks sub-requests)
+    expect(p.isAllowed('private', '192.168.0.10')).toBe(false)
+    expect(p.isAllowed('private', 'nas.lan:5000')).toBe(false)
+    // this computer and team addresses: refused before any question, whatever the setting
+    const teams = new Set(['acme.treesoop.com'])
+    for (const u of ['http://127.0.0.1:19100/api/me', 'http://localhost/', 'http://[::1]/', 'http://x.localhost/']) expect({ u, r: blockedUrl(u, teams) }).toEqual({ u, r: 'loopback' })
+    expect(blockedUrl('https://acme.treesoop.com/api/me', teams)).toBe('team')
+    // a public site allowed by "all" whose answer came from this computer or the office (DNS rebinding): still stopped
+    const src = { ip: '127.0.0.1', proxied: false, loopback: true, privateIp: false, testMapped: false, dnsName: true, privateAllowed: p.isAllowed('private', 'evil.example') }
+    expect(responseSourceVerdict(src)).toBe('forbidden')
+    expect(responseSourceVerdict({ ...src, ip: '192.168.0.5', loopback: false, privateIp: true })).toBe('blocked')
+    // the public-site verdict with "all": allowed (siteAllowed comes from isAllowed('site'))
+    expect(publicRequestVerdict({ mainFrame: true, hasOwner: true, driving: true, anyScripted: true, scripted: true, sameSiteAsTop: false, siteAllowed: p.isAllowed('site', 'other.example') })).toBe('allow')
+    expect(publicRequestVerdict({ mainFrame: true, hasOwner: true, driving: true, anyScripted: false, scripted: false, sameSiteAsTop: false, siteAllowed: new SitePermissions().isAllowed('site', 'other.example') })).toBe('ask')
+  })
+
+  test('hint after the third site question in a row: within one turn or a short window, once', () => {
+    const t0 = 1_000_000
+    const h = new RepeatPromptHint()
+    expect(h.record('turn-1', t0)).toBe(false)
+    expect(h.record('turn-1', t0 + 1000)).toBe(false)
+    expect(h.record('turn-1', t0 + 2000)).toBe(true)
+    // once: never again for this pane
+    for (let i = 0; i < 10; i++) expect(h.record('turn-1', t0 + 3000 + i)).toBe(false)
+
+    // across turns, close together
+    const w = new RepeatPromptHint()
+    expect(w.record('a', t0)).toBe(false)
+    expect(w.record('b', t0 + 60_000)).toBe(false)
+    expect(w.record('c', t0 + 120_000)).toBe(true)
+
+    // across turns, spread out: no hint
+    const spread = new RepeatPromptHint()
+    expect(spread.record('a', t0)).toBe(false)
+    expect(spread.record('b', t0 + REPEAT_HINT_WINDOW_MS + 1)).toBe(false)
+    expect(spread.record('c', t0 + 2 * REPEAT_HINT_WINDOW_MS + 2)).toBe(false)
+
+    // one long turn: questions far apart still count
+    const long = new RepeatPromptHint()
+    expect(long.record('t', t0)).toBe(false)
+    expect(long.record('other', t0 + 1000)).toBe(false)
+    expect(long.record('t', t0 + 3 * REPEAT_HINT_WINDOW_MS)).toBe(false)
+    expect(long.record('t', t0 + 4 * REPEAT_HINT_WINDOW_MS)).toBe(true)
+
+    // no turn (the person's own navigation has none): only the window counts
+    const none = new RepeatPromptHint()
+    expect(none.record(undefined, t0)).toBe(false)
+    expect(none.record(undefined, t0 + REPEAT_HINT_WINDOW_MS + 1)).toBe(false)
+    expect(none.record(undefined, t0 + REPEAT_HINT_WINDOW_MS + 2)).toBe(false)
+    expect(none.record(undefined, t0 + REPEAT_HINT_WINDOW_MS + 3)).toBe(true)
+  })
+
+  test('the team page channels: sender checked, arguments checked, "all" only through the app\'s own dialog', () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    // each registration runs from its "  ipcMain." line to the next one
+    const chunks = main.slice(main.indexOf('function registerIpc'), main.indexOf('// ------------------------------------------------------------------ menu')).split(/\n(?=  ipcMain\.)/)
+    const byName = new Map(chunks.map((c) => [/^  ipcMain\.(?:handle|on)\('(bridge:browser-[a-z-]+)'/.exec(c)?.[1], c] as const).filter((x): x is [string, string] => Boolean(x[0])))
+    expect([...byName.keys()].sort()).toEqual(['bridge:browser-access', 'bridge:browser-cancel', 'bridge:browser-run', 'bridge:browser-settings', 'bridge:browser-site-remove', 'bridge:browser-sites-clear'])
+    for (const [name, body] of byName) expect({ name, checked: body.includes('fromApp(e)') }).toEqual({ name, checked: true })
+    const access = byName.get('bridge:browser-access')!
+    expect(access).not.toContain("setSiteAccess('all')")
+    expect(access).toContain('requestAllowAll()')
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const request = win.slice(win.indexOf('async requestAllowAll()'), win.indexOf('private sendSiteSettings'))
+    // the setting changes only after the person picked button 1 ("Allow all websites") of the app's own dialog
+    expect(request.indexOf('dialog.showMessageBox(')).toBeGreaterThan(0)
+    expect(request.indexOf('r.response !== 1')).toBeGreaterThan(request.indexOf('dialog.showMessageBox('))
+    expect(request.indexOf("setSiteAccess('all')")).toBeGreaterThan(request.indexOf('r.response !== 1'))
+    expect(request).toContain('cancelId: 0')
+    expect(request).toContain('defaultId: 0')
+    // the site removal accepts only a host that is in the list
+    expect(byName.get('bridge:browser-site-remove')).toContain("typeof host === 'string'")
+    // the preload offers exactly these five, nothing else
+    const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
+    const block = preload.slice(preload.indexOf('browserSettings: {'), preload.indexOf('},', preload.indexOf('browserSettings: {')))
+    expect([...block.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1])).toEqual(['get', 'onChange', 'setAccess', 'removeSite', 'clearSites'])
   })
 })
 

@@ -279,7 +279,7 @@ describe('site access setting', () => {
     const p = new SitePermissions({ always: ['shop.test'] })
     p.setSiteAccess('all')
     const saved = JSON.parse(JSON.stringify(p))
-    expect(saved).toEqual({ always: ['shop.test'], privateAlways: [], siteAccess: 'all' })
+    expect(saved).toEqual({ always: ['shop.test'], privateAlways: [], siteAccess: 'all', teamAllowsAll: true })
     const back = new SitePermissions(saved)
     expect(back.siteAccess).toBe('all')
     expect(back.list()).toEqual({ always: ['shop.test'], privateAlways: [] })

@@ -138,7 +138,7 @@ describe('settings, budgets, usage, audit', () => {
 
   test('settings: defaults, validation, team name is owner-only, audited', async () => {
     const s = await admin.call('GET', '/api/admin/settings')
-    expect(s).toMatchObject({ teamName: 'Acme', defaultLocale: 'ko', concurrency: 3, auditRetentionDays: 90, chatTrashRetentionDays: 7 })
+    expect(s).toMatchObject({ teamName: 'Acme', defaultLocale: 'ko', concurrency: 3, auditRetentionDays: 90, chatTrashRetentionDays: 7, browserAllowAll: true })
     expect((await admin.try('PATCH', '/api/admin/settings', { teamName: 'Other' })).status).toBe(403)
     expect((await admin.try('PATCH', '/api/admin/settings', { updateWindow: '25:00' })).status).toBe(400)
     expect((await admin.call('PATCH', '/api/admin/settings', { updateWindow: '02:00-05:00', trashRetentionDays: 14 })).trashRetentionDays).toBe(14)
@@ -146,6 +146,34 @@ describe('settings, budgets, usage, audit', () => {
     expect((await mem.client.call('GET', '/api/me')).team.name).toBe('Acme Corp')
     const a = await owner.call('GET', '/api/admin/audit?source=admin')
     expect(a.items.find((e: any) => e.action === 'settings.update' && e.detail.teamName)).toBeTruthy()
+  })
+  test('browser policy "members can turn on Allow all websites": on by default, admins only, in Me for the desktop app, announced', async () => {
+    // default on: the admin screen and everyone's /api/me (the desktop app reads it there with the page's own session)
+    expect((await admin.call('GET', '/api/admin/settings')).browserAllowAll).toBe(true)
+    expect((await mem.client.call('GET', '/api/me')).team.browserAllowAll).toBe(true)
+    // members cannot read or change team settings
+    expect((await mem.client.try('GET', '/api/admin/settings')).status).toBe(403)
+    expect((await mem.client.try('PATCH', '/api/admin/settings', { browserAllowAll: false })).status).toBe(403)
+    expect((await admin.call('GET', '/api/admin/settings')).browserAllowAll).toBe(true)
+    // only a boolean
+    expect((await admin.try('PATCH', '/api/admin/settings', { browserAllowAll: 'no' })).status).toBe(400)
+    // an admin (not only the owner) turns it off: Me says so, open windows hear about it, the change is audited
+    h.hub.events = []
+    expect((await admin.call('PATCH', '/api/admin/settings', { browserAllowAll: false })).browserAllowAll).toBe(false)
+    expect((await mem.client.call('GET', '/api/me')).team.browserAllowAll).toBe(false)
+    expect((await owner.call('GET', '/api/me')).team.browserAllowAll).toBe(false)
+    const announced = () => h.hub.events.filter((e) => e.kind === 'publish' && (e.data as any).data?.code === 'browser_policy_changed').length
+    expect(announced()).toBeGreaterThan(0)
+    const a = await owner.call('GET', '/api/admin/audit?source=admin')
+    expect(a.items.find((e: any) => e.action === 'settings.update' && e.detail.browserAllowAll === false)).toBeTruthy()
+    // saving the same value again announces nothing; other settings do not announce it
+    h.hub.events = []
+    await admin.call('PATCH', '/api/admin/settings', { browserAllowAll: false, trashRetentionDays: 15 })
+    expect(announced()).toBe(0)
+    // back on (the owner too)
+    expect((await owner.call('PATCH', '/api/admin/settings', { browserAllowAll: true })).browserAllowAll).toBe(true)
+    expect((await mem.client.call('GET', '/api/me')).team.browserAllowAll).toBe(true)
+    expect(announced()).toBeGreaterThan(0)
   })
   test('budgets: subjects checked, current spend shown, checkBudgets for proxy mode', async () => {
     const team = await admin.call('POST', '/api/admin/budgets', { subjectType: 'team', subjectId: null, period: 'month', limitUsd: 100, action: 'warn' })
