@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
+import { chatErrorReason, ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
 import { fileUrl, thumbnailUrl } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
@@ -268,7 +268,11 @@ export function AssistantMessage({
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
   const thinking = streaming && !m.content
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
-  const errText = m.error ? (known && Object.values(known).includes(m.error.message) ? known[locale] : m.error.message) : null
+  const reason = m.error ? chatErrorReason(m.error) : null
+  const errText = m.error
+    ? reason ? t(`chat.error.${reason}`)
+      : m.error.params?.reason === undefined && known && Object.values(known).includes(m.error.message) ? known[locale] : m.error.message
+    : null
   const [suggesting, setSuggesting] = useState(false)
 
   return (

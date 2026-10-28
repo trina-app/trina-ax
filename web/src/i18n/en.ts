@@ -1,4 +1,5 @@
 // English. Same keys as ko.ts (checked by TypeScript and test/unit/i18n.test.ts).
+import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import type { MessageKey } from './ko'
 
 export const en: Record<MessageKey, string> = {
@@ -153,6 +154,20 @@ export const en: Record<MessageKey, string> = {
   'owner.check.members': 'Invite your team',
   'owner.check.folders': 'Set folder permissions',
   'owner.check.backup': 'Make the first backup',
+
+  'chat.error.auth': CHAT_ERROR_MESSAGES.auth.en,
+  'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.en,
+  'chat.error.context': CHAT_ERROR_MESSAGES.context.en,
+  'chat.error.timeout': CHAT_ERROR_MESSAGES.timeout.en,
+  'chat.error.wall_timeout': CHAT_ERROR_MESSAGES.wall_timeout.en,
+  'chat.error.refused': CHAT_ERROR_MESSAGES.refused.en,
+  'chat.error.crash': CHAT_ERROR_MESSAGES.crash.en,
+  'chat.error.interrupted': CHAT_ERROR_MESSAGES.interrupted.en,
+  'chat.error.engine_missing': CHAT_ERROR_MESSAGES.engine_missing.en,
+  'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.en,
+  'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.en,
+  'chat.error.no_credential': CHAT_ERROR_MESSAGES.no_credential.en,
+  'chat.error.credential_unusable': CHAT_ERROR_MESSAGES.credential_unusable.en,
 
   'chat.untitled': 'New chat',
   'chat.title': 'Title',

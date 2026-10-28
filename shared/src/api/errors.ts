@@ -1,6 +1,6 @@
 // User-facing error messages per code and language (tab 4: `message` is in the user's language).
 // Handlers may pass their own, more specific message; these are the defaults.
-import { DEFAULT_LOCALE, asLocale, type ErrorCode, type Locale } from './common'
+import { DEFAULT_LOCALE, asLocale, type ApiErrorBody, type ErrorCode, type Locale } from './common'
 
 export const ERROR_MESSAGES: Record<ErrorCode, Record<Locale, string>> = {
   bad_request: { ko: '요청 형식이 올바르지 않습니다.', en: 'The request is malformed.', id: 'Format permintaan tidak valid.' },
@@ -36,4 +36,39 @@ export function localeFromAcceptLanguage(h: string | null | undefined): Locale {
     if (l) return l
   }
   return DEFAULT_LOCALE
+}
+
+/** Official chat failures, separate from generic API errors. Keep these phrases for exact matching of stored
+ * errors from before params.reason; never infer a reason from a code alone or a fragment of arbitrary text. */
+export const CHAT_ERROR_MESSAGES = {
+  auth: { code: 'engine_unavailable', ko: 'AI 연결에 문제가 있습니다. 관리자에게 AI 연결을 확인해 달라고 해 주세요.', en: 'The AI connection has a problem. Ask your admin to check the AI connection.', id: 'Koneksi AI bermasalah. Minta admin memeriksa koneksi AI.' },
+  rate_limit: { code: 'rate_limited', ko: 'AI 사용 한도에 잠시 도달했습니다. 조금 뒤 다시 시도해 주세요.', en: 'The AI usage limit was reached for now. Try again a bit later.', id: 'Batas penggunaan AI tercapai untuk sementara. Coba lagi nanti.' },
+  context: { code: 'payload_too_large', ko: '대화가 너무 길어졌습니다. 새 채팅에서 이어 가 주세요.', en: 'This conversation got too long. Please continue in a new chat.', id: 'Percakapan ini terlalu panjang. Lanjutkan di chat baru.' },
+  timeout: { code: 'busy', ko: '시간 제한을 넘겨 답변을 멈췄습니다.', en: 'The answer was stopped because it took too long.', id: 'Jawaban dihentikan karena terlalu lama.' },
+  wall_timeout: { code: 'busy', ko: '확인 대기를 포함한 전체 실행 시간 제한을 넘겨 답변을 멈췄습니다.', en: 'The answer reached its total time limit, including time waiting for confirmation.', id: 'Jawaban mencapai batas waktu total, termasuk waktu menunggu konfirmasi.' },
+  refused: { code: 'forbidden', ko: 'AI가 이 요청에 답하지 않았습니다. 표현을 바꿔 다시 시도해 주세요.', en: 'The AI declined this request. Try rephrasing it.', id: 'AI menolak permintaan ini. Coba ubah kalimatnya.' },
+  crash: { code: 'internal', ko: 'AI 엔진이 예기치 않게 멈췄습니다. 다시 시도해 주세요.', en: 'The AI engine stopped unexpectedly. Please try again.', id: 'Mesin AI berhenti tiba-tiba. Coba lagi.' },
+  interrupted: { code: 'unavailable', ko: '서버가 다시 시작되어 답변이 중단되었습니다.', en: 'The answer was interrupted because the server restarted.', id: 'Jawaban terputus karena server dimulai ulang.' },
+  engine_missing: { code: 'engine_unavailable', ko: '지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요(관리자 > 시스템 > 진단에서 원인을 볼 수 있어요).', en: 'The AI engine is not available right now. Let the team owner know (Admin > System > Diagnostics shows why).', id: 'Mesin AI sedang tidak tersedia. Beri tahu pemilik tim (Admin > Sistem > Diagnostik menunjukkan penyebabnya).' },
+  proxy_down: { code: 'engine_unavailable', ko: 'AI 연결 통로(모델 프록시)가 아직 준비되지 않았습니다. 잠시 뒤 다시 시도하고, 계속되면 팀장에게 알려 주세요.', en: 'The AI connection (model proxy) is not ready. Try again in a moment; if it keeps happening, let the team owner know.', id: 'Koneksi AI (proxy model) belum siap. Coba lagi sebentar lagi; jika terus terjadi, beri tahu pemilik tim.' },
+  user_disabled: { code: 'forbidden', ko: '계정을 사용할 수 없습니다.', en: 'This account is not active.', id: 'Akun ini tidak aktif.' },
+  no_credential: { code: 'engine_unavailable', ko: '이 엔진에 쓸 AI 연결이 없습니다. 관리자에게 알려 주세요.', en: 'There is no AI connection for this engine. Let your admin know.', id: 'Tidak ada koneksi AI untuk mesin ini. Beri tahu admin Anda.' },
+  credential_unusable: { code: 'engine_unavailable', ko: 'AI 연결을 쓸 수 없습니다(거절되었거나 다시 연결이 필요해요). 관리자에게 알려 주세요.', en: 'The AI connection cannot be used (refused, or it needs to be connected again). Let your admin know.', id: 'Koneksi AI tidak bisa dipakai (ditolak, atau perlu dihubungkan lagi). Beri tahu admin Anda.' },
+} as const satisfies Record<string, { code: ErrorCode } & Record<Locale, string>>
+
+export type ChatErrorReason = keyof typeof CHAT_ERROR_MESSAGES
+
+/** Only called for assistant errors, never for user or assistant conversation content. */
+export function chatErrorReason(error: ApiErrorBody): ChatErrorReason | null {
+  const reason = error.params?.reason
+  if (reason !== undefined) {
+    if (typeof reason !== 'string' || !Object.hasOwn(CHAT_ERROR_MESSAGES, reason)) return null
+    const known = reason as ChatErrorReason
+    return CHAT_ERROR_MESSAGES[known].code === error.code ? known : null
+  }
+  for (const key of Object.keys(CHAT_ERROR_MESSAGES) as ChatErrorReason[]) {
+    const text = CHAT_ERROR_MESSAGES[key]
+    if (text.code === error.code && [text.ko, text.en, text.id].some(message => message === error.message)) return key
+  }
+  return null
 }
