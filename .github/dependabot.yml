@@ -1,0 +1,10 @@
+# Keep the pinned GitHub Actions (commit SHAs) up to date: Dependabot opens a pull request for each new release.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

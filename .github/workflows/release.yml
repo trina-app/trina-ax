@@ -44,6 +44,8 @@ jobs:
   prepare:
     name: Tag, version and release key
     runs-on: ubuntu-24.04
+    # the release secrets live in this environment: the owner sets required reviewers and "only v* tags" there
+    environment: release
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -239,6 +241,7 @@ jobs:
   publish:
     name: Sign and publish to the update feed
     needs: [prepare, test, build-linux, build-office, build-windows]
+    environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
