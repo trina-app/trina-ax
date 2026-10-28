@@ -10,6 +10,7 @@ import { useSession } from './store/session'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import './index.css'
+import './theme.edition.css'
 
 applyTheme(storedTheme())
 watchSystemTheme()

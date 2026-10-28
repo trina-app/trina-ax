@@ -3,8 +3,8 @@
 // the worker cannot know the person's language, and English is the default, docs/DECISIONS.md "언어").
 const CACHE = 'mycel-static-v1'
 const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>__PRODUCT_NAME_HTML__</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",system-ui,sans-serif;background:#faf9f6;color:#1f1d1a;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}
-@media (prefers-color-scheme:dark){body{background:#1b1a18;color:#ece9e3}}button{margin-top:16px;padding:8px 16px;border-radius:8px;border:0;background:#2c6a59;color:#fff;font-size:15px}</style></head>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",system-ui,sans-serif;background:#fcfbf8;color:#14110f;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}
+@media (prefers-color-scheme:dark){body{background:#0e0c0b;color:#f6f2ea}}button{margin-top:16px;padding:8px 16px;border-radius:8px;border:0;background:#e8521a;color:#14110f;font-size:15px}</style></head>
 <body><main><h1 style="font-size:20px">Can't reach the team server</h1><p>Check your internet connection and try again.</p><button onclick="location.reload()">Retry</button></main></body></html>`
 
 self.addEventListener('install', () => self.skipWaiting())
