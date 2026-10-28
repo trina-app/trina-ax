@@ -6,8 +6,8 @@ the private control plane (`potenlab/teamax-cloud`) can copy them without becomi
 Nothing in this folder imports code from outside it (only `zod` and `node:crypto`). Keep it that way.
 
 The control plane copies this folder at a pinned commit (`scripts/sync-protocol.ts` in the private repository) and CI
-compares the copy. Change a contract here first, add vectors, then update the control plane (`docs/cloud/CONTRACT-SYNC.md`
-says which files at which commit).
+compares the copy. Change a contract here first, add vectors, then update the control plane (the private
+repository records which files at which commit).
 
 This folder is also the **one source of truth for ax-hostd's tenant-side schemas**: `ee/cloud/contracts/substrate.ts`
 imports `TenantStatus`, `EnrollFile`, `EnrollStatus`, the `tenantCommand` allow-list and argv, `PlanResources` and the
