@@ -233,3 +233,17 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
   - 코어 사본: 판매·운영 시험 36 / 24 skip / 0, typecheck 통과, 사이트 69 / 0 (옮기기 전과 같음)
   - 이 레포: typecheck와 unit 시험을 옮기기 전과 비교했다(아래 커밋 메시지).
 - 남은 것: 이 레포의 기록에서 옮긴 파일과 예전 `tests/cloud`, `docs/cloud`를 지우는 기록 재작성(force push)은 별도 승인 뒤에 한다.
+
+## 2026-10-28 PowerPoint preview library, public-repository clean-up, and three core fixes
+
+| Item | Core (`trina-ax-core`) | Here |
+|---|---|---|
+| `pptx-preview` → `@aiden0z/pptx-renderer` 1.4.0 (licence) | `d098b44` (PR #1) | in the rewritten history (old repository PR #1) |
+| Internal notes kept only in core (`docs/TODO.md` copied) | `2a131c0` | `c7705aa` (history rewrite, repository recreated) |
+| Sign-in: a shared address does not lock the team out (QA finding 6) | `48663d5` | `c4786f35` |
+| Edition extension point for hosted service addresses | `3a9ca23` | `2e9cfdd0`, then `editions/trina/branding/service.json` applied (trina.app) |
+| Desktop: in-app browser data belongs to one person (QA finding 4) | `e4f3220` | `b7c4277d` |
+
+Core main after the merges: `3b888eb`. That merge also brought core's `feat/browser-settings` into core main; this
+repository already had it (PR #13 above). Conflicts: only the new sections at the end of `docs/DECISIONS.md` and
+`docs/EDITION-BRANDING.md`.
