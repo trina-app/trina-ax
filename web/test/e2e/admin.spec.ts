@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { DICTS } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 
 test('admin screens: members, groups, folder rules with "who sees what", engines, usage, audit, system', async ({ page }) => {
@@ -232,3 +233,44 @@ test('settings: the team time zone', async ({ page }) => {
   await page.reload()
   await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
 })
+
+for (const locale of ['ko', 'en', 'id'] as const) {
+  test(`settings: update window validates while typing and after blur, then recovers (${locale})`, async ({ page }) => {
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/admin/settings')
+    const t = DICTS[locale]
+    const window = page.getByLabel(t['teamSettings.updateWindow'], { exact: true })
+    const save = page.getByRole('button', { name: t['common.save'], exact: true })
+    const error = page.getByRole('alert').filter({ hasText: t['teamSettings.updateWindowBad'] })
+    const patches: unknown[] = []
+    page.on('request', (r) => {
+      if (r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings') patches.push(r.postDataJSON())
+    })
+    await expect(window).toHaveValue('')
+    await expect(page.getByText(t['teamSettings.updateWindowHint'], { exact: true })).toBeVisible()
+    for (const invalid of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60']) {
+      await window.fill(invalid)
+      await expect(error).toBeVisible()
+      await expect(window).toHaveAttribute('aria-invalid', 'true')
+      await expect(save).toBeDisabled()
+      await window.press('Enter')
+      await window.blur()
+      await expect(error).toBeVisible()
+      await expect(save).toBeDisabled()
+    }
+    expect(patches).toEqual([])
+    for (const valid of ['00:00-23:59', '23:59-00:00', '23:00-01:00', '00:00-00:00', '']) {
+      await window.fill(valid)
+      await expect(error).toHaveCount(0)
+      await expect(window).not.toHaveAttribute('aria-invalid', 'true')
+      await expect(save).toBeEnabled()
+      const response = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings')
+      await save.click()
+      expect((await response).ok()).toBe(true)
+      expect(patches.at(-1)).toEqual({ updateWindow: valid || null })
+      await page.reload()
+      await expect(window).toHaveValue(valid)
+    }
+  })
+}

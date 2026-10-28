@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
-import type { Locale, TeamSettings } from '@mycel/shared/api'
+import { TeamSettings, type Locale } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
@@ -27,9 +27,9 @@ export default function TeamSettingsPage() {
     if (state.data) setF(state.data)
   }, [state.data])
   const num = (k: keyof TeamSettings, min: number, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => (x ? { ...x, [k]: Math.max(min, Math.min(max, Math.floor(Number(e.target.value) || min))) } : x))
-  const windowOk = !f?.updateWindow || /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(f.updateWindow)
+  const windowOk = TeamSettings.shape.updateWindow.safeParse(f?.updateWindow).success
   const save = async () => {
-    if (!f || !state.data) return
+    if (!f || !state.data || !windowOk) return
     setBusy(true)
     const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => state.data![k as keyof TeamSettings] !== v))
     const r = await act(() => api.call(API.updateSettings, { body: changed }), t('common.saved'))

@@ -418,8 +418,8 @@ export const TeamSettings = z.object({
   /** turns running at the same time across the team */
   concurrency: z.number().int().min(1).max(16),
   updateChannel: z.enum(['stable', 'beta']),
-  /** when updates may install automatically: "HH:mm-HH:mm" local time, null = any time no turn runs */
-  updateWindow: z.string().regex(/^\d{2}:\d{2}-\d{2}:\d{2}$/).nullable(),
+  /** when updates may install automatically: "HH:mm-HH:mm" in the team time zone; null = default 03:00-05:00 */
+  updateWindow: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/).nullable(),
   auditRetentionDays: z.number().int().min(7).max(3650),
   fileHistoryRetentionDays: z.number().int().min(1).max(3650),
   trashRetentionDays: z.number().int().min(1).max(365),

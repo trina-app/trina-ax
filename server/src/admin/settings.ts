@@ -37,15 +37,18 @@ export function setSetting(db: Database, key: string, value: unknown): void {
   db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value))
 }
 
-/** Stored settings over the defaults. A stored value that no longer fits the schema falls back to the default. */
+/** Stored settings over the defaults. Invalid stored values fall back to defaults, except an invalid update window stays closed. */
 export function getTeamSettings(db: Database): TeamSettingsT {
   const out = { ...DEFAULT_SETTINGS, timeZone: defaultTimeZone() } as Record<string, unknown>
   const rows = db.query(`SELECT key, value FROM settings WHERE key IN (${FIELDS.map(() => '?').join(',')})`).all(...FIELDS) as { key: string; value: string }[]
   for (const r of rows) {
     let v: unknown
-    try { v = JSON.parse(r.value) } catch { continue }
+    try { v = JSON.parse(r.value) } catch {}
     const field = TeamSettings.shape[r.key as keyof TeamSettingsT]
     if (field && field.safeParse(v).success) out[r.key] = v
+    // Do not turn an invalid old window into null: null permits the default 03:00-05:00 window.
+    // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
+    else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'
   }
   return out as TeamSettingsT
 }

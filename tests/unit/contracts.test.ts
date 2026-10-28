@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { PRODUCT } from '@mycel/shared'
 import {
   API, API_GROUPS, ApiClient, ApiError, ClientFrame, ERROR_MESSAGES, ErrorCode, ErrorStatus, Locale, Message, RelPath, ServerEvent, ServerFrame,
-  SendMessageBody, TurnAnswerBody, UploadTarget, buildPath, isSchema, isUuid7, listEndpoints, localeFromAcceptLanguage, uuidv7, uuidv7Time,
+  SendMessageBody, TeamSettings, TurnAnswerBody, UploadTarget, buildPath, isSchema, isUuid7, listEndpoints, localeFromAcceptLanguage, uuidv7, uuidv7Time,
   type Endpoint,
 } from '@mycel/shared/api'
 
@@ -96,6 +96,19 @@ describe('endpoint registry', () => {
 })
 
 describe('schemas', () => {
+  test('update windows accept clock boundaries, overnight, equal endpoints and null', () => {
+    for (const updateWindow of [null, '00:00-23:59', '23:59-00:00', '23:00-01:00', '00:00-00:00', '12:34-12:34']) {
+      expect(TeamSettings.shape.updateWindow.safeParse(updateWindow).success).toBe(true)
+      expect(API.updateSettings.body!.safeParse({ updateWindow }).success).toBe(true)
+    }
+    expect(API.updateSettings.body!.safeParse({}).success).toBe(true)
+  })
+  test('update windows reject out-of-range hours and minutes at either endpoint', () => {
+    for (const updateWindow of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60', '24:00-00:00', '00:00-24:00', '02:00', '2:00-05:00', '', ' 02:00-05:00', '02:00-05:00 ']) {
+      expect(TeamSettings.shape.updateWindow.safeParse(updateWindow).success, updateWindow).toBe(false)
+      expect(API.updateSettings.body!.safeParse({ updateWindow }).success, updateWindow).toBe(false)
+    }
+  })
   test('RelPath accepts team-relative paths only', () => {
     for (const ok of ['', 'a', 'finance/2026/q3.xlsx', 'users/alice/.attachments/x/y.png', '회의록/메모.md']) expect(RelPath.safeParse(ok).success, ok).toBe(true)
     for (const bad of ['/etc/passwd', 'a/../b', '..', './a', 'a//b', 'a/', 'a\\b', 'a\0b']) expect(RelPath.safeParse(bad).success, bad).toBe(false)
