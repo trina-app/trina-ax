@@ -430,5 +430,8 @@ export const TeamSettings = z.object({
   /** people may turn on "Allow all websites" in the desktop app's in-app browser (default on). Off: the desktop app
    * refuses it and turns it back to "ask for each new site" for anyone who had it on. */
   browserAllowAll: z.boolean(),
+  /** members may add their own external-service connections (Settings > External services; default on). Off: none can
+   * be added and the ones there are left out of chats (team connections are not affected). */
+  personalIntegrations: z.boolean(),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>
