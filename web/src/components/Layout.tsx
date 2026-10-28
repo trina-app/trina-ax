@@ -99,7 +99,7 @@ export default function Layout() {
             </div>
           </div>
         )}
-        <main id="main" className="flex min-w-0 flex-1 flex-col">
+        <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden">
             <IconButton label={t('sidebar.open')} onClick={() => setDrawer(true)}>
               <Menu size={20} />

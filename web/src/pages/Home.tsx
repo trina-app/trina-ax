@@ -2,7 +2,7 @@
 // their folder names, no engine call); the owner sees a setup checklist until it is done (tab 5 "상태별 화면").
 import { CheckCircle2, Circle, Folder, Lock, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import type { Attachment, FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../lib/teamAttach'
@@ -18,6 +18,7 @@ export default function Home() {
   const t = useT()
   const me = useMeStrict()
   const navigate = useNavigate()
+  const navigationType = useNavigationType()
   const [params] = useSearchParams()
   const projectId = params.get('project')
   const prompt = params.get('prompt') ?? undefined
@@ -98,7 +99,8 @@ export default function Home() {
             engines={engines}
             models={models}
             initialText={preset?.text}
-            autoFocus
+            // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
+            autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
           />
           {firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {!projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
