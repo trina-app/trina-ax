@@ -68,6 +68,10 @@ describe('format and preview kinds', () => {
     expect(previewKind('a.xlsx')).toBe('sheet')
     expect(previewKind('a.svg')).toBe('svg')
     expect(previewKind('a.html')).toBe('html')
+    expect(previewKind('a.webm')).toBe('video')
+    expect(previewKind('a.WEBM')).toBe('video')
+    expect(previewKind('a.mp4')).toBe('video')
+    expect(previewKind('a.m4a')).toBe('audio')
     expect(previewKind('a.exe')).toBeNull()
     expect(iconKind('x', true)).toBe('folder')
     expect(iconKind('a.pptx')).toBe('slides')
@@ -169,6 +173,19 @@ describe('previews read a bounded amount', () => {
     expect(previewLimit('pdf')).toEqual({ max: 50 * 1024 * 1024, truncate: false })
     expect(previewLimit('image')).toEqual({ max: 20 * 1024 * 1024, truncate: false })
     expect(previewLimit('html')).toEqual({ max: PREVIEW_TEXT_MAX, truncate: true })
+    for (const name of ['clip.webm', 'clip.mp4', 'recording.m4a']) {
+      expect(previewLimit(previewKind(name)!)).toEqual({ max: 60 * 1024 * 1024, truncate: false })
+    }
+  })
+  test('media allows exactly 60 MB and refuses one byte more, with or without Content-Length', async () => {
+    const { max } = previewLimit(previewKind('clip.webm')!)
+    expect((await readBounded(new Response(stream(max, 1024 * 1024), {
+      headers: { 'content-length': String(max) },
+    }), max)).size).toBe(max)
+    await expect(readBounded(new Response(stream(1), {
+      headers: { 'content-length': String(max + 1) },
+    }), max)).rejects.toBeInstanceOf(PreviewTooLargeError)
+    await expect(readBounded(new Response(stream(max + 1, 1024 * 1024)), max)).rejects.toBeInstanceOf(PreviewTooLargeError)
   })
 })
 

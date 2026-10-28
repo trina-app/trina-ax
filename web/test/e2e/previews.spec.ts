@@ -1,10 +1,103 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const open = async (page: Page, name: string) => {
   await page.getByTestId('file-row').filter({ hasText: name }).getByRole('button').first().click()
   return page.getByTestId('file-panel')
 }
+
+test.describe('media previews', () => {
+  let dir: string
+  const fixtures = [
+    { name: 'video.webm', video: true, codecs: ['-c:v', 'libvpx-vp9', '-c:a', 'libopus'] },
+    { name: 'audio.webm', video: false, codecs: ['-c:a', 'libopus'] },
+    { name: 'video.mp4', video: true, codecs: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac'] },
+    { name: 'audio.m4a', video: false, codecs: ['-c:a', 'aac'] },
+  ]
+
+  test.beforeAll(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'mycel-preview-media-'))
+    // Synthetic, four-second red frames and a tone; requires ffmpeg with VP9/Opus and H.264/AAC encoders.
+    for (const fixture of fixtures) {
+      execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error',
+        ...(fixture.video ? ['-f', 'lavfi', '-i', 'color=c=red:s=160x90:r=10'] : []),
+        '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+        '-t', '4', ...fixture.codecs, path.join(dir, fixture.name)], { timeout: 20_000 })
+    }
+  })
+  test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  for (const fixture of fixtures) {
+    test(`${fixture.name} decodes, plays, seeks and changes volume after opening and reopening`, async ({ page }) => {
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+      const errors = watchConsole(page)
+      await signIn(page)
+      await page.goto('/files?path=marketing')
+      await page.getByTestId('files-input').setInputFiles(path.join(dir, fixture.name))
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const panel = await open(page, fixture.name)
+        // A video element also plays audio-only WebM without discarding video tracks in other WebMs.
+        const tag = fixture.name.endsWith('.m4a') ? 'audio' : 'video'
+        const media = panel.locator(tag)
+        await expect(media).toBeVisible()
+        await expect(panel.locator(tag === 'audio' ? 'video' : 'audio')).toHaveCount(0)
+        await expect(media).toHaveJSProperty('controls', true)
+        await expect.poll(() => media.evaluate((m: HTMLMediaElement) => m.readyState)).toBeGreaterThanOrEqual(2)
+        await expect.poll(() => media.evaluate((m: HTMLMediaElement) => m.duration)).toBeGreaterThan(3)
+        await media.evaluate((m: HTMLMediaElement) => m.play())
+        await expect.poll(() => media.evaluate((m: HTMLMediaElement) => m.currentTime)).toBeGreaterThan(0.2)
+        await media.evaluate((m: HTMLMediaElement) => { m.pause(); m.currentTime = 2; m.volume = 0.25 })
+        await expect.poll(() => media.evaluate((m: HTMLMediaElement) => !m.seeking && m.currentTime >= 2)).toBe(true)
+        await expect(media).toHaveJSProperty('volume', 0.25)
+        await media.evaluate((m: HTMLMediaElement) => m.play())
+        await expect.poll(() => media.evaluate((m: HTMLMediaElement) => m.currentTime)).toBeGreaterThan(2.2)
+        if (fixture.video) {
+          await expect(media).toHaveJSProperty('videoWidth', 160)
+          await expect(media).toHaveJSProperty('videoHeight', 90)
+          // Decoded frame pixels must be red, not a blank/black video rectangle or just an audio track.
+          const pixel = await media.evaluate((m: HTMLVideoElement) => {
+            const canvas = document.createElement('canvas')
+            canvas.width = m.videoWidth
+            canvas.height = m.videoHeight
+            const ctx = canvas.getContext('2d')!
+            ctx.drawImage(m, 0, 0)
+            return Array.from(ctx.getImageData(80, 45, 1, 1).data)
+          })
+          expect(pixel[0]).toBeGreaterThan(180)
+          expect(pixel[1]).toBeLessThan(70)
+          expect(pixel[2]).toBeLessThan(70)
+        } else if (tag === 'video') {
+          await expect(media).toHaveJSProperty('videoWidth', 0)
+          await expect(media).toHaveJSProperty('videoHeight', 0)
+        }
+        await expect(media).toHaveJSProperty('error', null)
+        await panel.getByRole('button', { name: 'Close', exact: true }).click()
+        await expect(panel).toHaveCount(0)
+      }
+      expect(realErrors(errors)).toEqual([])
+    })
+  }
+
+  test('WebM above 60 MB stays download-only', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await page.getByTestId('files-input').setInputFiles(path.join(dir, 'video.webm'))
+    // Simulate an oversized Content-Length without transferring a 60 MB test file.
+    await page.route('**/api/files/download?**', async (route) => {
+      const response = await route.fetch()
+      await route.fulfill({ response, headers: { ...response.headers(), 'content-length': String(60 * 1024 * 1024 + 1) } })
+    })
+    const panel = await open(page, 'video.webm')
+    await expect(panel).toContainText('This file is too large to preview')
+    await expect(panel.locator('audio, video')).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Download', exact: true })).toBeVisible()
+  })
+})
 
 // Office and PDF previews are drawn in the page under the app's CSP (no eval): any violation would show up as a
 // console error here.

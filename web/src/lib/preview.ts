@@ -17,8 +17,9 @@ const KINDS: Record<string, PreviewKind> = {
   svg: 'svg',
   xml: 'xml',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
-  mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio', webm: 'audio',
-  mp4: 'video', mov: 'video',
+  mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio',
+  // WebM can contain video or only audio; the video viewer supports both without hiding video tracks.
+  mp4: 'video', mov: 'video', webm: 'video',
 }
 
 /** Text previews show this much of a file at most (the rest: "only the beginning is shown"). */
