@@ -7,6 +7,7 @@ import type { Client, Resp } from './instance'
 import { authOf, enc, levelExp, type Case, type Exp } from './matrix'
 import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
+import { INTEGRATION_SPECS } from './integrations-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -60,6 +61,7 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
 /** The request builders, keyed by API route name. 'self' builders act on the caller's own newly-made data. */
 export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
+  ...INTEGRATION_SPECS,
   ...REMOTE_MCP_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
