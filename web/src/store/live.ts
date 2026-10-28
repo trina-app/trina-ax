@@ -87,6 +87,11 @@ export function dispatch(ev: ServerEvent) {
         void browserSettingsBridge()?.get().catch(() => null)
         return
       }
+      if (ev.data.code === 'team_icon_changed') {
+        // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
+        void useSession.getState().refreshMe()
+        return
+      }
       if (ev.data.code === 'locale_changed') {
         // the team default or this person's language changed (admin, another window): switch without a reload
         void useSession.getState().refreshMe()

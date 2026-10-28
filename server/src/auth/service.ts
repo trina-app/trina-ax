@@ -19,6 +19,7 @@ import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
+import { teamIconVersion } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { cancelPushSession } from '../notifications/push-events'
 
@@ -235,7 +236,7 @@ export class AuthService implements SessionService {
         canChooseEngine: choose,
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,

@@ -4,9 +4,10 @@
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, Locale, Ok, PageQuery, RelPath, Role, UserStatus, page } from './common'
-import { endpoint, empty } from './endpoint'
+import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
+import { TEAM_ICON_MAX_BYTES, TEAM_ICON_TYPES, TEAM_ICON_VERSION_RE } from '../team-icon'
 
 // ---------------- users ----------------
 export const CreateUserBody = z.object({
@@ -163,6 +164,18 @@ export const BudgetBody = z.object({
   action: z.enum(['warn', 'block']),
 })
 export const UpdateSettingsBody = TeamSettings.partial()
+/** PUT /api/admin/team-icon?type=image/png: the type the file is (PNG, JPEG or WebP; its first bytes must match). The
+ * server refuses anything else in words (params.reason: type, mismatch, too_big, too_small, too_large). */
+export const TeamIconQuery = z.object({ type: z.string().min(1).max(100) })
+/** The team's logo (the tab icon, shared/src/team-icon.ts). `version` names it in /team-icon?v=<version>. */
+export const TeamIconInfo = z.object({
+  version: z.string().regex(TEAM_ICON_VERSION_RE),
+  type: z.enum(TEAM_ICON_TYPES),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  size: z.number().int().positive(),
+})
+export type TeamIconInfo = z.infer<typeof TeamIconInfo>
 export const UsageQuery = z.object({
   from: IsoTime.optional(),
   to: IsoTime.optional(),
@@ -217,6 +230,8 @@ export const ADMIN = {
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings (team name change also renames the relay address: owner only).' }),
+  putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (tab icon, home-screen app icon): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
+  deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: back to the default icon; audited.' }),
   usage: endpoint({ method: 'GET', path: '/api/admin/usage', auth: 'admin', owner: 'A', query: UsageQuery, response: UsageResponse, summary: 'Usage and cost per person / engine / model / day / group / AI connection / skill. Skill rows attribute the entire turn and may overlap.' }),
   audit: endpoint({ method: 'GET', path: '/api/admin/audit', auth: 'admin', owner: 'A', query: AuditQuery, response: page(AuditEntry), summary: 'Admin actions, file changes, tool calls, sign-ins.' }),
 } as const

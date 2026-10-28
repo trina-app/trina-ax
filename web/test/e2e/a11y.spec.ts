@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
+import { makePng, SVG } from '../../../tests/lib/images'
 
 async function audit(page: Page, where: string) {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
@@ -148,4 +149,34 @@ test('external services have no serious accessibility problems at phone width', 
   await signIn(page)
   await seedIntegrations(page)
   await auditIntegrations(page, ' (phone)')
+})
+
+// The team logo (Admin › Team settings): a refused file's message, then a logo with its previews on light and dark
+// backgrounds and the remove button, in both themes and at phone width.
+async function auditTeamIcon(page: Page, where: string) {
+  await page.goto('/admin/settings')
+  await expect(page.getByTestId('team-icon')).toBeVisible()
+  await audit(page, `team logo (default)${where}`)
+  await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(SVG) })
+  await expect(page.getByTestId('team-icon-error')).toBeVisible()
+  await audit(page, `team logo (refused)${where}`)
+  await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
+  await expect(page.getByTestId('team-icon-remove')).toBeVisible()
+  await audit(page, `team logo (set)${where}`)
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the team logo section has no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await signIn(page)
+    await auditTeamIcon(page, ` (${scheme})`)
+  })
+}
+
+test('the team logo section has no serious accessibility problems at phone width', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page)
+  await signIn(page)
+  await auditTeamIcon(page, ' (phone)')
 })

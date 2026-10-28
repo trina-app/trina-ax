@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role } from './common'
 import { endpoint, empty } from './endpoint'
+import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { Session, UserPrefs, UserRef } from './entities'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
@@ -34,6 +35,9 @@ export const Me = z.object({
     /** people may turn on "Allow all websites" for the desktop app's in-app browser (Admin > Team settings
      * browserAllowAll). The desktop app enforces it. Absent (older server) = no policy. */
     browserAllowAll: z.boolean().optional(),
+    /** the team logo's version (Admin > Team settings): the icon links point at /team-icon?v=<it>; null = the default
+     * icon. Absent (older server) = leave the icon links alone. */
+    iconVersion: z.string().regex(TEAM_ICON_VERSION_RE).nullable().optional(),
   }),
   session: z.object({
     id: Uuid7, client: ClientKind, expiresAt: IsoTime,

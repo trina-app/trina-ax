@@ -2,7 +2,7 @@
 // the web client's mock server (web/test/mock) serves the build with exactly the same headers.
 import fs from 'node:fs'
 import path from 'node:path'
-import { PRODUCT } from '@mycel/shared'
+import { iconLinks, manifestWithIcon, PRODUCT, TEAM_ICON_PATH, withIconLinks, type TeamIconFile } from '@mycel/shared'
 
 export const WEB_DEV_URL = 'http://localhost:19140'
 
@@ -151,7 +151,57 @@ export interface WebOptions {
   dist: string
   dev: boolean
   devPort: number
+  /** the team's logo (the server: <data>/team-icon, admin/team-icon.ts; the mock: in memory). Absent or null: the
+   * default icon everywhere. */
+  teamIcon?: () => TeamIconFile | null
 }
+
+// ---------------- the tab icon (shared/src/team-icon.ts) ----------------
+/** The policy of the logo and the default icon: an image only, never a document that runs anything. */
+export const ICON_CSP = "default-src 'none'; sandbox"
+/** /team-icon?v=<the current version> is cached for good; anything else (no or an older version) only briefly */
+const ICON_CACHE_LONG = 'public, max-age=31536000, immutable'
+const ICON_CACHE_SHORT = 'public, max-age=300'
+/** the default when no logo is set: the mark the PWA uses (web/public/icons) */
+const DEFAULT_TEAM_ICON = 'icons/icon-512.png'
+/**
+ * Icon addresses browsers and systems ask for on their own (bookmarks, Safari, Windows, iOS home screen): the logo when
+ * one is set, else this default file of the build.
+ */
+const WELL_KNOWN_ICONS: Record<string, string> = {
+  '/favicon.ico': 'favicon.ico',
+  '/apple-touch-icon.png': 'icons/apple-touch-icon.png',
+  '/apple-touch-icon-precomposed.png': 'icons/apple-touch-icon.png',
+}
+
+function iconHeaders(type: string, cache: string): Record<string, string> {
+  return {
+    'content-type': type,
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': ICON_CSP,
+    'content-disposition': 'inline',
+    'cache-control': cache,
+    'cross-origin-resource-policy': 'same-origin',
+  }
+}
+
+/** The logo with its exact type and nothing else about the team (no name, no dates). */
+function logoResponse(req: Request, url: URL, icon: TeamIconFile): Response {
+  const headers = { ...iconHeaders(icon.type, url.searchParams.get('v') === icon.version ? ICON_CACHE_LONG : ICON_CACHE_SHORT), etag: `"${icon.version}"` }
+  if (req.headers.get('if-none-match')?.split(',').some((t) => t.trim().replace(/^W\//, '') === headers.etag)) return new Response(null, { status: 304, headers })
+  return new Response(icon.bytes, { headers })
+}
+
+/** GET /team-icon: the logo, or the default icon when none is set. */
+function serveTeamIcon(req: Request, url: URL, icon: TeamIconFile | null, root: string): Response {
+  if (icon) return logoResponse(req, url, icon)
+  const file = safeFile(root, '/' + DEFAULT_TEAM_ICON)
+  if (!file) return new Response('Not found', { status: 404 })
+  return new Response(Bun.file(file), { headers: iconHeaders('image/png', ICON_CACHE_SHORT) })
+}
+
+/** A path whose last part has a file extension (a static file, not a page of the app). */
+const hasExtension = (p: string) => /\.[A-Za-z0-9]{1,10}$/.test(p.slice(p.lastIndexOf('/') + 1))
 
 /** The handler behind GET * (also used by the web client's mock server in its end-to-end tests). */
 export function serveWeb(req: Request, o: WebOptions): Response | null {
@@ -164,13 +214,25 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   if (p.startsWith('/downloads/')) return new Response('Not found', { status: 404 })
   if (p === SANDBOX_FRAME_PATH) return serveSandboxFrame(url.host)
 
+  // the tab icon: the team's logo when an admin set one (also where browsers look on their own), else the default
+  const icon = o.teamIcon?.() ?? null
+  if (p === TEAM_ICON_PATH) return serveTeamIcon(req, url, icon, root)
+  const wellKnown = WELL_KNOWN_ICONS[p]
+  if (wellKnown && icon) return logoResponse(req, url, icon)
+
   const index = path.join(root, 'index.html')
   if (!fs.existsSync(index)) {
     if (o.dev) return new Response(devPage(o.devPort), { headers: { 'content-type': 'text/html; charset=utf-8' } })
     return new Response(`${PRODUCT.displayName}: web app missing (${root})`, { status: 500 })
   }
 
-  const file = p === '/' ? null : safeFile(root, p)
+  const file = p === '/' || p === '/index.html' ? null : safeFile(root, wellKnown ? '/' + wellKnown : p)
+  if (file && p === '/manifest.webmanifest' && icon) {
+    // an installed app (PWA) shows the logo too
+    let text: string
+    try { text = manifestWithIcon(fs.readFileSync(file, 'utf8'), icon) } catch { text = fs.readFileSync(file, 'utf8') }
+    return new Response(text, { headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-cache' } })
+  }
   if (file) {
     const res = new Response(Bun.file(file))
     const h = res.headers
@@ -189,9 +251,17 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
     if (p.endsWith('.html')) h.set('content-security-policy', appCsp(url.host))
     return res
   }
-  // a missing hashed asset is a 404, not the app shell (a stale page would otherwise get HTML as JavaScript)
-  if (p.startsWith('/assets/') || p.startsWith('/vendor/') || p.startsWith('/icons/')) return new Response('Not found', { status: 404 })
-  return new Response(Bun.file(index), {
+  // a missing hashed asset is a 404, not the app shell (a stale page would otherwise get HTML as JavaScript); so is any
+  // other missing file (favicon.png, robots.txt …): an icon or a crawler must not get the app page as its file
+  if (p.startsWith('/assets/') || p.startsWith('/vendor/') || p.startsWith('/icons/') || (hasExtension(p) && p !== '/index.html')) {
+    return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' } })
+  }
+  // the app shell; with a logo set, its icon links point at it from the first load (browsers keep tab icons long)
+  let body: BodyInit = Bun.file(index)
+  if (icon) {
+    try { body = withIconLinks(fs.readFileSync(index, 'utf8'), iconLinks(icon.version)) } catch { /* the default links */ }
+  }
+  return new Response(body, {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) },
   })
 }

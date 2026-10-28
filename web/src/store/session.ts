@@ -5,6 +5,7 @@ import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { pickLocale, storedLocale, storeLocale, useLocaleStore } from '../i18n'
 import { forgetTeamAttach } from '../lib/teamAttach'
+import { applyTeamIcon } from '../lib/team-icon'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -36,6 +37,8 @@ function applyMe(me: Me) {
   const theme = me.user.prefs.theme ?? storedTheme()
   storeTheme(theme)
   applyTheme(theme)
+  // the team's logo as the tab icon (or the default mark again after an admin removed it)
+  applyTeamIcon(me.team.iconVersion)
 }
 
 /**

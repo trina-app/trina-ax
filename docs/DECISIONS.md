@@ -1600,4 +1600,29 @@ only have per-person Claude subscriptions).
 - Tests: `tests/unit/secrets.test.ts`, `tests/unit/b-chat-titles.test.ts` (placeholder rules in Korean and English
   with the founder's case, title validation, the migration and the start-up pass, real turns with the fake engine:
   live title, refused secret, second / third message, manual and mid-turn renames, Codex, scheduled run).
+
+## Team logo as the tab icon (feat/team-icon, 2026-10-28)
+
+The founder opened a team's address and the tab icon looked wrong: the shell linked only `/favicon.svg`, and
+`/favicon.ico` (Safari, bookmarks, some systems ask for it on their own) got the app page as HTML. Asked: each company can
+set its own logo as the tab icon; without one it is the product's icon.
+
+- Default icon everywhere: PNG tab icons at 16, 32 and 48 px and a real `favicon.ico` (those three PNGs) rendered from
+  `web/public/favicon.svg` by `web/scripts/make-icons.ts`; index.html links them, the SVG and the home-screen icon
+  between `<!-- icons -->` markers. A missing file with an extension is now a 404, never the app page (SPA routes
+  have none).
+- Admin › Team settings › 팀 로고: PNG, JPEG or WebP only (never SVG: it could run scripts on the team's own address),
+  1 MiB, 32–4096 px a side, the named type must match the first bytes and the size is read from the header
+  (`shared/src/team-icon.ts`; no image library, browsers scale it). `PUT` / `DELETE /api/admin/team-icon`, admins,
+  audited (`team_icon.set` / `team_icon.remove`), a realtime notice makes open windows follow.
+- Stored as one file, `<data>/team-icon` (atomic write, not in the team folder); its type, size and version (start of its
+  SHA-256) are read back from it, so nothing else can disagree with it. Not in backups (they hold the database and the
+  team folder only, like `engine-api.json`): after moving to a new machine the logo is uploaded again.
+- Public `GET /team-icon` (the sign-in page needs it): the logo or the default icon, exact type, `nosniff`,
+  `default-src 'none'; sandbox`, `inline`, cached for good only at `?v=<version>`. `/favicon.ico`,
+  `/apple-touch-icon.png` and `/manifest.webmanifest` (installed PWA) follow it; index.html's links are rewritten on the
+  server so the first load is right, `Me.team.iconVersion` keeps an open page right.
+- Native desktop and phone app icons stay the product's.
+- Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/e2e/team-icon.spec.ts`, the
+  a11y audit, `tests/security/lib/team-icon-cases.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
