@@ -1,12 +1,15 @@
 // The team folder explorer: only what the person may see (folders shown for navigation only are greyed out),
 // upload (drag and drop; chunked and resumable when large), download, new folder, rename / move, trash, version
 // history with restore, conflict copies marked, "start a chat with this file". Refreshes on files.changed.
+// Several items at once: a checkbox per row (Shift+click: a range; the header one: every row listed; Esc: none), then
+// move / share / trash for all of them from the bar that replaces the breadcrumbs (lib/bulkFiles.ts).
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileVersion, TrashItem, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
+import { canChange, canShare, clickSelect, failureList, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
@@ -60,6 +63,13 @@ export default function Files() {
   const [moving, setMoving] = useState<FileEntry | null>(null)
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  // several items at once: the checked rows (paths), the row clicked last (Shift+click selects from it), the folder
+  // picker open for them and the action running
+  const [checked, setChecked] = useState<Set<string>>(() => new Set())
+  const anchor = useRef<string | null>(null)
+  const [bulkPick, setBulkPick] = useState<'move' | 'share' | null>(null)
+  const [running, setRunning] = useState<'move' | 'share' | 'delete' | null>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
 
   const go = useCallback((p: string, sel?: string) => setParams(sel ? { path: p, select: sel } : p ? { path: p } : {}), [setParams])
 
@@ -132,7 +142,139 @@ export default function Files() {
   }
 
   const canWrite = tree?.access === 'write'
-  const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+  const errText = (e: unknown) => errorText(e, locale, t('error.network'))
+  const fail = (e: unknown) => toast({ level: 'error', text: errText(e) })
+
+  // ---------------- selection ----------------
+  // another folder or the trash: nothing stays selected
+  useEffect(() => {
+    setChecked((c) => (c.size ? new Set() : c))
+    anchor.current = null
+  }, [path, view])
+  /** the rows that can be selected, as listed */
+  const order = useMemo(() => tree?.entries.filter(selectable).map((e) => e.path) ?? [], [tree])
+  // the listing changed (moved away, deleted by someone else): only rows still listed stay selected
+  useEffect(() => {
+    const here = new Set(order)
+    setChecked((c) => ([...c].every((p) => here.has(p)) ? c : new Set([...c].filter((p) => here.has(p)))))
+  }, [order])
+  const chosen = useMemo(() => tree?.entries.filter((e) => checked.has(e.path)) ?? [], [tree, checked])
+  const movable = chosen.filter(canChange)
+  const shareable = chosen.filter(canShare)
+  const allState = selectionState(checked, order)
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = allState === 'some'
+  })
+  const check = (p: string, shift: boolean) => {
+    const from = anchor.current
+    setChecked((c) => clickSelect(c, order, p, from, shift))
+    anchor.current = p
+  }
+  const clearChecked = () => {
+    setChecked(new Set())
+    anchor.current = null
+  }
+  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc
+  const anyChecked = chosen.length > 0
+  useEffect(() => {
+    if (!anyChecked) return
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]')) return
+      if (e.target instanceof Element && e.target.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"])')) return
+      e.stopPropagation()
+      clearChecked()
+    }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [anyChecked])
+  // the bar went away under the focus (cleared, or its action done): focus goes to the header checkbox, not the page
+  const hadChecked = useRef(false)
+  useEffect(() => {
+    if (hadChecked.current && !anyChecked && (!document.activeElement || document.activeElement === document.body)) selectAllRef.current?.focus()
+    hadChecked.current = anyChecked
+  }, [anyChecked])
+
+  /** One toast for a batch: what was done, what was skipped, the first few failures. What failed or what the person
+   * said no to stays selected, to try again or take elsewhere. */
+  const reportBatch = (r: Outcome, words: { done: (n: number) => string; failed: (n: number, list: string) => string; skipped?: string | null; okLevel?: 'success' | 'info' }, action?: { label: string; run: () => void }) => {
+    if (r.done.length || r.failed.length) {
+      const parts = [r.done.length ? words.done(r.done.length) : null, words.skipped ?? null, r.failed.length ? words.failed(r.failed.length, failureList(r.failed, errText, (n) => t('files.bulk.more', { n }))) : null]
+      toast({
+        level: r.failed.length ? (r.done.length ? 'warn' : 'error') : words.skipped ? 'warn' : words.okLevel ?? 'success',
+        text: parts.filter(Boolean).join(' '),
+        action: r.done.length ? action : undefined,
+      })
+    }
+    setChecked(new Set([...r.failed.map((f) => f.entry.path), ...r.declined.map((e) => e.path)]))
+    anchor.current = null
+  }
+
+  /** Move the selection: one folder for all; one question when some of them would be hidden from other people. */
+  const bulkMove = async (folder: string) => {
+    setBulkPick(null)
+    const skipped = chosen.length - movable.length
+    setRunning('move')
+    try {
+      const r = await moveMany(movable, folder, {
+        move: (body) => api.call(API.move, { body }),
+        confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
+      })
+      reportBatch(r, {
+        done: (n) => t('files.bulk.moved', { n, path: folder || t('files.root') }),
+        failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
+        skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
+      })
+    } finally {
+      setRunning(null)
+      void load()
+    }
+  }
+
+  /** Share the selected files by copying them into one team folder; one question about who else will see them. */
+  const bulkShare = async (folder: string) => {
+    setBulkPick(null)
+    const skipped = chosen.length - shareable.length
+    setRunning('share')
+    try {
+      const r = await shareMany(shareable, folder, {
+        copy: (body) => api.call(API.copy, { body }),
+        confirmShare: (count, n) => confirmDialog({ title: t('files.bulk.shareConfirm', { n: count }), body: t('files.bulk.shareBody', { count, n }), confirm: t('files.shareCopy') }),
+      })
+      reportBatch(r, {
+        done: (n) => t('files.bulk.shared', { n, path: folder || t('files.root') }),
+        failed: (n, list) => t('files.bulk.shareFailed', { n, list }),
+        skipped: skipped ? t('files.bulk.skipFolders', { n: skipped }) : null,
+      })
+    } finally {
+      setRunning(null)
+      void load()
+    }
+  }
+
+  /** Trash the selection after one question; "Undo" brings all of them back. */
+  const bulkDelete = async () => {
+    const items = movable
+    if (!items.length) return
+    const skipped = chosen.length - items.length
+    const body = skipped ? `${t('files.deleteBody')} ${t('files.bulk.readOnlyLeft', { n: skipped })}` : t('files.deleteBody')
+    if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
+    setRunning('delete')
+    try {
+      const r = await trashMany(items, { remove: (p) => api.call(API.remove, { query: { path: p } }) })
+      const undo = async () => {
+        try {
+          for (const id of r.trashIds) await api.call(API.restoreTrash, { params: { id } })
+        } catch (err) {
+          fail(err)
+        }
+        void load()
+      }
+      reportBatch(r, { done: (n) => t('files.bulk.trashed', { n }), failed: (n, list) => t('files.bulk.deleteFailed', { n, list }), okLevel: 'info' }, { label: t('common.undo'), run: () => void undo() })
+    } finally {
+      setRunning(null)
+      void load()
+    }
+  }
 
   const startUploads = (list: File[]) => {
     if (!list.length) return
@@ -302,24 +444,38 @@ export default function Files() {
         <TrashView />
       ) : (
         <>
-          <nav aria-label={t('files.breadcrumb')} className="flex flex-wrap items-center gap-1 px-4 py-2 text-sm sm:px-6">
-            <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => go('')}>
-              <Home size={14} aria-hidden /> {t('files.root')}
-            </button>
-            {crumbs(path).map((c) => (
-              <span key={c.path} className="inline-flex items-center gap-1">
-                <ChevronRight size={13} className="text-faint" aria-hidden />
-                <button type="button" className="rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined}>
-                  {c.name}
-                </button>
-              </span>
-            ))}
-            {tree && tree.access !== 'write' && (
-              <Badge tone="warn" className="ml-2">
-                <Lock size={11} aria-hidden /> {t(tree.access === 'read' ? 'files.readOnlyFolder' : 'files.navigationOnly')}
-              </Badge>
-            )}
-          </nav>
+          {anyChecked ? (
+            <BulkBar
+              count={chosen.length}
+              readOnly={chosen.length - movable.length}
+              canMove={movable.length > 0}
+              canShare={shareable.length > 0}
+              running={running}
+              onMove={() => setBulkPick('move')}
+              onShare={() => setBulkPick('share')}
+              onDelete={() => void bulkDelete()}
+              onClear={clearChecked}
+            />
+          ) : (
+            <nav aria-label={t('files.breadcrumb')} className="flex flex-wrap items-center gap-1 px-4 py-2 text-sm sm:px-6">
+              <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => go('')}>
+                <Home size={14} aria-hidden /> {t('files.root')}
+              </button>
+              {crumbs(path).map((c) => (
+                <span key={c.path} className="inline-flex items-center gap-1">
+                  <ChevronRight size={13} className="text-faint" aria-hidden />
+                  <button type="button" className="rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined}>
+                    {c.name}
+                  </button>
+                </span>
+              ))}
+              {tree && tree.access !== 'write' && (
+                <Badge tone="warn" className="ml-2">
+                  <Lock size={11} aria-hidden /> {t(tree.access === 'read' ? 'files.readOnlyFolder' : 'files.navigationOnly')}
+                </Badge>
+              )}
+            </nav>
+          )}
           {uploads.length > 0 && <UploadList items={uploads} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {error && (
@@ -339,8 +495,22 @@ export default function Files() {
             )}
             {tree && tree.entries.length > 0 && (
               <table className="w-full text-sm" data-testid="file-table">
-                <thead className="sr-only sm:not-sr-only">
+                {/* on phones too: the header checkbox selects every row listed */}
+                <thead>
                   <tr className="text-left text-xs text-faint">
+                    <th className="w-0 py-1 pr-0 pl-1">
+                      <CheckBox
+                        inputRef={selectAllRef}
+                        checked={allState === 'all'}
+                        disabled={!order.length}
+                        label={t('files.selectAll')}
+                        onCheck={() => {
+                          setChecked((c) => toggleAll(c, order))
+                          anchor.current = null
+                        }}
+                        testId="select-all"
+                      />
+                    </th>
                     <th className="px-2 py-2 font-medium">{t('files.name')}</th>
                     <th className="hidden px-2 py-2 font-medium sm:table-cell">{t('files.modified')}</th>
                     <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
@@ -355,6 +525,8 @@ export default function Files() {
                       key={e.path}
                       e={e}
                       selected={select === e.name}
+                      checked={checked.has(e.path)}
+                      onCheck={(shift) => check(e.path, shift)}
                       onOpen={() => (e.type === 'folder' ? go(e.path) : previewKind(e.name) ? openTeamFile(e.path) : startDownload(fileUrl(e.path), e.name))}
                       onChat={() => chatWith(e)}
                       onAddToChat={chatAttach.target ? () => addToChat(e) : null}
@@ -382,6 +554,14 @@ export default function Files() {
       )}
       <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
       <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} onPick={moveTo} onClose={() => setMoving(null)} />
+      <FolderPicker
+        open={bulkPick !== null}
+        title={bulkPick === 'share' ? t('files.bulk.shareTitle', { n: shareable.length }) : t('files.bulk.moveTitle', { n: movable.length })}
+        confirmLabel={t(bulkPick === 'share' ? 'files.shareHere' : 'files.moveHere')}
+        initial={bulkPick === 'share' ? 'shared' : path}
+        onPick={(folder) => void (bulkPick === 'share' ? bulkShare(folder) : bulkMove(folder))}
+        onClose={() => setBulkPick(null)}
+      />
       {history && (
         <HistoryModal
           path={history}
@@ -398,7 +578,66 @@ export default function Files() {
   )
 }
 
-function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, onSuggest }: { e: FileEntry; selected: boolean; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; onSuggest: (() => void) | null }) {
+/** The selection's actions, in place of the breadcrumbs while something is selected. */
+function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
+  const t = useT()
+  return (
+    <div role="region" aria-label={t('files.bulk.label')} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-1 sm:px-6" data-testid="bulk-bar">
+      <span className="text-sm font-medium" aria-live="polite" data-testid="bulk-count">
+        {t('files.bulk.count', { n: count })}
+      </span>
+      {/* why move and trash leave some out (or are off): the row menu offers them only where the person may write */}
+      {readOnly > 0 && (
+        <Badge tone="warn">
+          <Lock size={11} aria-hidden /> {t('files.bulk.readOnlyIn', { n: readOnly })}
+        </Badge>
+      )}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+        <Button size="sm" onClick={onMove} disabled={!canMove || !!running} busy={running === 'move'} data-testid="bulk-move">
+          <FolderInput size={14} aria-hidden /> {t('files.move')}
+        </Button>
+        <Button size="sm" onClick={onShare} disabled={!canShare || !!running} busy={running === 'share'} title={canShare ? undefined : t('files.bulk.noFiles')} data-testid="bulk-share">
+          <Copy size={14} aria-hidden /> {t('files.share')}
+        </Button>
+        <Button size="sm" variant="danger" onClick={onDelete} disabled={!canMove || !!running} busy={running === 'delete'} data-testid="bulk-delete">
+          <Trash2 size={14} aria-hidden /> {t('files.moveToTrash')}
+        </Button>
+        <IconButton label={t('files.bulk.clear')} onClick={onClear} disabled={!!running} data-testid="bulk-clear">
+          <X size={16} />
+        </IconButton>
+      </div>
+    </div>
+  )
+}
+
+/** A row's (or the header's) checkbox. The padding around it takes the click too (a bigger target on phones); Shift
+ * with a click or Space selects a range, and does not select page text. */
+function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }: { checked: boolean; disabled?: boolean; label: string; title?: string; onCheck: (shift: boolean) => void; inputRef?: React.Ref<HTMLInputElement>; testId: string }) {
+  return (
+    <label
+      className={clsx('flex items-center justify-center rounded p-1.5 max-sm:p-2.5', disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-hover')}
+      title={title}
+      onMouseDown={(ev) => {
+        if (!ev.shiftKey) return
+        ev.preventDefault() // no text selected from the last click to here; the checkbox still takes the focus
+        ev.currentTarget.querySelector('input')?.focus()
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="checkbox"
+        className="h-4 w-4 accent-[var(--c-accent)] disabled:opacity-40 dark:[color-scheme:dark]"
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(ev) => onCheck((ev.nativeEvent as MouseEvent).shiftKey === true)}
+        data-testid={testId}
+      />
+    </label>
+  )
+}
+
+function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, onSuggest }: { e: FileEntry; selected: boolean; checked: boolean; onCheck: (shift: boolean) => void; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -418,7 +657,10 @@ function FileRow({ e, selected, onOpen, onChat, onAddToChat, chatTitle, onRename
   }, [menu])
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
   return (
-    <tr ref={ref} className={clsx('group border-b border-line last:border-0', selected && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
+    <tr ref={ref} className={clsx('group border-b border-line last:border-0', (selected || checked) && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
+      <td className="w-0 py-1 pr-0 pl-1">
+        <CheckBox checked={checked} disabled={dim} label={t('files.select', { name: e.name })} title={dim ? t('files.navigationOnly') : undefined} onCheck={onCheck} testId="file-check" />
+      </td>
       {/* w-full + max-w-0: the name column takes the room that is left and a long name ends in "…" instead of
           pushing the table wider than the screen (phones) or the space beside an open file panel */}
       <td className="w-full max-w-0 px-2 py-1.5">
