@@ -1782,3 +1782,18 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   are unchanged; the browser mock now uses the configured retention period, matching the server.
 - Coverage: translation contracts and localized browser checks for cancel/confirm, single/bulk trash,
   30/10-day retention and unchanged saved expiry dates. Needed in core too; no Trina-specific behavior.
+
+## Personal schedule capacity guidance (fix/qa2-schedule-limit, 2026-10-29)
+
+- B-W26-2 / R2-SCHED-04: template creation at the personal schedule limit returns `conflict` with
+  `params.reason=schedule_limit` and `params.limit=SCHEDULES_PER_PERSON`. The server fallback and the web
+  form explain in ko/en/id that all 20 stored schedules count, including paused ones, and deleting an
+  existing schedule frees a slot. Genuine `plan_limit` errors keep their plan/account guidance.
+- The template form translates this reason in the current UI language, including after a language change.
+  The limit, all-row per-user count, transaction, and idempotency ordering are unchanged: successful retries
+  still return their existing schedule at capacity, deleted schedules stay gone, and rejected requests can
+  succeed with the same request ID once a slot is freed.
+- Regression coverage: template unit tests for capacity, paused schedules, deletion, independent users,
+  retries and localized API responses; the existing schedule Playwright suite checks all three languages,
+  distinct plan guidance and request reuse, and retains the once-completion and team-time-zone tests.
+- Needed in the core too: the same shared scheduling behavior; nothing here is Trina-specific.

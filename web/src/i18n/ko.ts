@@ -554,6 +554,7 @@ export const ko = {
   'scheduleTemplates.weekday': '요일',
   'scheduleTemplates.cost': '예약할 때는 AI가 실행되지 않아요. 예약 시간이 되면 내 AI 연결과 사용 한도를 사용해요.',
   'scheduleTemplates.create': '예약 작업 만들기',
+  'scheduleTemplates.limit': '개인 예약은 꺼진 예약을 포함해 최대 {n}개까지 보관할 수 있어요. 새 예약을 만들려면 기존 예약 하나를 삭제해 주세요.',
   'scheduleTemplates.created': '예약했어요. 아래 목록에서 끄거나 삭제할 수 있어요.',
   'scheduleTemplates.deferred': '대기열이 가득 차 미뤘어요 · 재시도 {time}',
   'scheduleTemplates.outcome.done': '마지막 실행 완료',

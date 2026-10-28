@@ -7,6 +7,7 @@ type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string): T => ({ ko, en, id })
 
 export const TEXT = {
+  scheduleLimit: t('개인 예약은 꺼진 예약을 포함해 최대 {n}개까지 보관할 수 있어요. 새 예약을 만들려면 기존 예약 하나를 삭제해 주세요.', 'You can keep up to {n} personal schedules, including paused schedules. Delete an existing schedule to create a new one.', 'Anda dapat menyimpan hingga {n} jadwal pribadi, termasuk jadwal yang dijeda. Hapus jadwal yang ada untuk membuat jadwal baru.'),
   scheduleCompleted: t('이미 실행된 일회성 예약은 다시 켤 수 없어요. 새 예약을 만들어 주세요.', 'This one-time task has already run and cannot be resumed. Create a new schedule.', 'Tugas sekali jalan ini sudah dijalankan dan tidak dapat dilanjutkan. Buat jadwal baru.'),
   scheduleExpired: t('실행 시각이 지난 일회성 예약은 켤 수 없어요. 새 예약을 만들어 주세요.', 'This one-time task has expired and cannot be resumed. Create a new schedule.', 'Waktu tugas sekali jalan ini sudah lewat dan tidak dapat dilanjutkan. Buat jadwal baru.'),
   turnInProgress: t('이 채팅에서 답변이 아직 진행 중입니다. 끝나거나 중지한 뒤 보내 주세요.', 'An answer is still in progress in this chat. Wait for it or stop it first.', 'Jawaban di chat ini masih berjalan. Tunggu atau hentikan dulu.'),

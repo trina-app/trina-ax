@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { CSRF_HEADER, type Schedule } from '@mycel/shared/api'
+import { CSRF_HEADER, ERROR_MESSAGES, type Schedule } from '@mycel/shared/api'
 import { ko } from '../../src/i18n/ko'
 import { en } from '../../src/i18n/en'
 import { id } from '../../src/i18n/id'
@@ -167,5 +167,53 @@ for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
         await expect(page.getByTestId('composer-input')).toBeVisible()
       })
     }
+  })
+}
+
+for (const [locale, dict] of [['ko', ko], ['en', en], ['id', id]] as const) {
+  test(`personal schedule limit differs from plan limits and follows the UI language (${locale})`, async ({ page }) => {
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    const requests: Record<string, unknown>[] = []
+    let planLimit = false
+    await page.route('**/api/schedule-templates', route => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }], timeZone: 'Asia/Seoul' } })
+      requests.push(route.request().postDataJSON())
+      return route.fulfill({ status: 409, json: { error: planLimit
+        ? { code: 'plan_limit', message: ERROR_MESSAGES.plan_limit.en }
+        : { code: 'conflict', message: en['scheduleTemplates.limit'].replace('{n}', '20'), params: { reason: 'schedule_limit', limit: 20 } } } })
+    })
+    await page.route('**/api/files/tree*', route => {
+      const path = new URL(route.request().url()).searchParams.get('path') ?? ''
+      return route.fulfill({ json: { path, access: path ? 'read' : 'none', entries: path ? [] : [{ path: 'shared', name: 'shared', type: 'folder', size: null, mime: null, mtime: '2026-10-01T00:00:00Z', access: 'read' }], nextCursor: null } })
+    })
+    await signIn(page)
+    await page.goto('/settings/schedules')
+    const form = page.getByTestId('schedule-templates')
+    await form.getByTestId('template-source').click()
+    await page.getByRole('dialog').getByRole('button', { name: 'shared' }).click()
+    await page.getByTestId('folder-pick').click()
+    for (let i = 0; i < 2; i++) {
+      await form.getByTestId('template-create').click()
+      await expect(form.getByRole('alert')).toHaveText(dict['scheduleTemplates.limit'].replace('{n}', '20'))
+      await expect(form).not.toContainText(ERROR_MESSAGES.plan_limit[locale])
+    }
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toEqual(requests[1])
+
+    const nextLocale = locale === 'en' ? 'id' : 'en', nextDict = nextLocale === 'en' ? en : id
+    const changed = await page.request.patch('/api/me', { headers: { [CSRF_HEADER]: '1' }, data: { locale: nextLocale } })
+    expect(changed.ok()).toBeTruthy()
+    await expect(form.getByRole('alert')).toHaveText(nextDict['scheduleTemplates.limit'].replace('{n}', '20'))
+    expect(requests).toHaveLength(2)
+
+    const restored = await page.request.patch('/api/me', { headers: { [CSRF_HEADER]: '1' }, data: { locale } })
+    expect(restored.ok()).toBeTruthy()
+    await expect(form.getByRole('alert')).toHaveText(dict['scheduleTemplates.limit'].replace('{n}', '20'))
+    planLimit = true
+    await form.getByTestId('template-create').click()
+    await expect(form.getByRole('alert')).toHaveText(ERROR_MESSAGES.plan_limit[locale])
+    await expect(form).not.toContainText(dict['scheduleTemplates.limit'].replace('{n}', '20'))
+    expect(requests).toHaveLength(3)
+    expect(requests[2]).toEqual(requests[0])
   })
 }

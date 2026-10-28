@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CreateScheduleFromTemplate, Schedule } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, ApiError, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import FolderPicker from '../FolderPicker'
@@ -17,7 +17,7 @@ export function ScheduleTemplates({ onCreated }: { onCreated: (schedule: Schedul
   const [output, setOutput] = useState(`${privateRoot}/reports`)
   const [time, setTime] = useState('09:00'), [weekday, setWeekday] = useState(1)
   const [picker, setPicker] = useState<'source' | 'output' | null>(null)
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null)
   const [created, setCreated] = useState(false)
   const life = useRef(0), request = useRef<{ input: string; id: string } | null>(null), pending = useRef(false)
   useEffect(() => {
@@ -25,7 +25,7 @@ export function ScheduleTemplates({ onCreated }: { onCreated: (schedule: Schedul
     api.call(API.listScheduleTemplates).then(r => {
       if (generation !== life.current) return
       setAvailable(r.items.map(x => x.id)); setTimeZone(r.timeZone)
-    }, e => { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) })
+    }, e => { if (generation === life.current) setError(e) })
     return () => { life.current++ }
     // Locale does not change the server template list or its time zone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -42,9 +42,12 @@ export function ScheduleTemplates({ onCreated }: { onCreated: (schedule: Schedul
       const schedule = await api.call(API.createScheduleFromTemplate, { body: { ...body, requestId: request.current.id } satisfies CreateScheduleFromTemplate })
       if (generation !== life.current) return
       onCreated(schedule); setCreated(true)
-    } catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
+    } catch (e) { if (generation === life.current) setError(e) }
     finally { pending.current = false; if (generation === life.current) setBusy(false) }
   }
+  const errorMessage = error instanceof ApiError && error.code === 'conflict' && error.body.params?.reason === 'schedule_limit' && typeof error.body.params.limit === 'number'
+    ? t('scheduleTemplates.limit', { n: error.body.params.limit })
+    : errorText(error, locale, t('error.network'))
   const dayName = (day: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day)))
   return <section className="mb-5 space-y-3 rounded-xl border border-line p-4" data-testid="schedule-templates" aria-labelledby="schedule-templates-title">
     <h3 id="schedule-templates-title" className="text-sm font-semibold">{t('scheduleTemplates.title')}</h3>
@@ -63,7 +66,7 @@ export function ScheduleTemplates({ onCreated }: { onCreated: (schedule: Schedul
       <p className="text-xs text-muted">{t('scheduleTemplates.cost')}</p>
       <Button variant="primary" busy={busy} disabled={!source || !time || !available.includes(templateId) || created} onClick={create} data-testid="template-create">{t('scheduleTemplates.create')}</Button>
     </fieldset>
-    {error && <ErrorNote>{error}</ErrorNote>}
+    {error != null && <ErrorNote>{errorMessage}</ErrorNote>}
     {created && <p role="status" className="text-sm text-accent-text">{t('scheduleTemplates.created')}</p>}
     <FolderPicker open={picker !== null} title={t(picker === 'output' ? 'scheduleTemplates.output' : 'scheduleTemplates.source')} confirmLabel={t('scheduleTemplates.select')} initial={picker === 'output' ? privateRoot : source} needWrite={picker === 'output'} allowCreate={false} selectableRoot={picker === 'output' ? privateRoot : undefined} onClose={() => setPicker(null)} onPick={path => { if (picker === 'output') setOutput(path); else setSource(path); setPicker(null); setCreated(false) }} />
   </section>
