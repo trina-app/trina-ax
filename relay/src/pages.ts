@@ -5,6 +5,8 @@
 // language does not decide, as on the team server (docs/DECISIONS.md "언어"); the relay cannot ask an offline team
 // server for its default language.
 
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+
 export type PageKind =
   | 'team_offline' | 'team_unknown' | 'team_suspended' | 'team_busy' | 'team_timeout' | 'team_connection_lost' | 'bad_gateway'
   | 'not_found' | 'bad_request' | 'request_timeout'
@@ -110,7 +112,7 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
 
 /** Hosts the cloud pages point to (RELAY_ACCOUNT_HOST / RELAY_STATUS_HOST). */
 export interface PageLinks { account: string; status: string }
-export const DEFAULT_PAGE_LINKS: PageLinks = { account: 'account.treesoop.com', status: 'status.treesoop.com' }
+export const DEFAULT_PAGE_LINKS: PageLinks = { account: SERVICE_HOSTS.accountHost, status: SERVICE_HOSTS.statusHost }
 const fill = (s: string, links: PageLinks) => s.replace('%ACCOUNT%', links.account).replace('%STATUS%', links.status)
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)

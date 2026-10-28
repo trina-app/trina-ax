@@ -1,5 +1,6 @@
 // System (owner only): diagnostics, connection, update, backup / restore, export. Update, restore and connection
 // changes ask for the password again. Long work runs as a job with progress from the WebSocket.
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, HardDrive, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ConnectionMode, Job } from '@mycel/shared/api'
@@ -375,7 +376,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               </Field>
             )}
             {needsTeamName(change.mode) && (
-              <Field label={t('system.claimCode')} hint={t('system.claimCodeHint')} error={!claimCodeOk(change.claimCode) ? t('system.detail.bad_claim') : null}>
+              <Field label={t('system.claimCode')} hint={t('system.claimCodeHint', { host: SERVICE_HOSTS.accountHost })} error={!claimCodeOk(change.claimCode) ? t('system.detail.bad_claim') : null}>
                 <input
                   className={inputCls}
                   value={change.claimCode}

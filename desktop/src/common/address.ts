@@ -2,7 +2,9 @@
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts.
 
 /** Hosted team addresses are <team>.TEAM_DOMAIN (design tab 6; a separate domain comes before public launch). */
-export const TEAM_DOMAIN = 'treesoop.com'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+
+export const TEAM_DOMAIN: string = SERVICE_HOSTS.teamDomain
 
 export type AddressError = 'empty' | 'invalid' | 'insecure' | 'credentials' | 'unsupported_scheme'
 export type ParsedAddress = { ok: true; origin: string; host: string; dev: boolean } | { ok: false; error: AddressError }

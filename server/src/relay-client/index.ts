@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionStatus, Locale } from '@mycel/shared/api'
 import type { RelayEvent } from '@mycel/shared/relay-protocol'
+import { isServiceHost } from '@mycel/shared/service-hosts'
 import type { AppContext } from '../context'
 import type { RelayStatusProvider } from '../services'
 import { RelayClient, relayApiBase, type RelayClientState } from './client'
@@ -82,7 +83,7 @@ export function startRelayClient(ctx: AppContext): RelayService {
     status(): ConnectionStatus {
       const direct = directInfo(ctx)
       if (!url) return { mode: 'direct-only', address: null, state: 'disabled', detail: null, connectedSince: null, direct }
-      const mode: ConnectionStatus['mode'] = /(^|\.)treesoop\.com$/.test(new URL(relayApiBase(url)).hostname) ? 'relay' : 'self-relay'
+      const mode: ConnectionStatus['mode'] = isServiceHost(new URL(relayApiBase(url)).hostname) ? 'relay' : 'self-relay'
       if (!client) return { mode, address: reg?.address ?? null, state: pre.state, detail: pre.detail, connectedSince: null, direct }
       const s: RelayClientState = client.state
       const state: ConnectionStatus['state'] = s.state === 'stopped' ? 'offline' : s.state

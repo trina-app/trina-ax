@@ -977,7 +977,7 @@ export const id: Record<MessageKey, string> = {
   'system.teamNameInvalid': 'Gunakan 2–40 huruf kecil, angka, dan tanda hubung (tidak di awal atau akhir).',
   'system.modeWarning': 'Akses jarak jauh bisa terputus sebentar saat berganti.',
   'system.claimCode': 'Kode klaim',
-  'system.claimCodeHint': 'Relay resmi mendaftarkan alamat Anda dengan kode klaim dari account.treesoop.com. Kosongkan untuk server relay Anda sendiri.',
+  'system.claimCodeHint': 'Relay resmi mendaftarkan alamat Anda dengan kode klaim dari {host}. Kosongkan untuk server relay Anda sendiri.',
   'system.detail.registration_closed': 'Relay ini hanya mendaftarkan alamat tim dengan kode klaim. Masukkan kodenya di Ubah koneksi.',
   'system.detail.bad_claim': 'Kode klaim tidak valid (sudah dipakai, kedaluwarsa, atau untuk nama tim lain). Minta kode baru lalu masukkan.',
   'system.detail.awaiting_operator': 'Alamat tim Anda sedang disiapkan. Akan terhubung sendiri sebentar lagi.',
