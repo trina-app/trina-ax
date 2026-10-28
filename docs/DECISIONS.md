@@ -1651,3 +1651,28 @@ from there into files, other services or the chat.
   errors, streams split inside the key, OAuth tokens refreshed during the call; checks the answer, steps, `tool_events`,
   logs, the database and every file of the server), the input test in `c-integrations-tools.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## PDF preview: pdf.js's data files ship with the app (fix/pdf-viewer, 2026-10-28)
+
+The founder reported that the PDF viewer did not work on a hosted Linux server. The app and its pdf.js worker loaded
+fine there (same code as main, worker served as `text/javascript`, CSP as designed); what was missing were pdf.js's own
+data files. pdf.js 6 draws scanned images with WebAssembly decoders (`jbig2.wasm` also decodes CCITT fax, the format
+most office scanners and fax-to-PDF write; `openjpeg.wasm` JPEG 2000) and text in fonts a PDF does not embed with the
+Adobe CMaps (Korean forms, ReportLab's `UnicodeCIDFont`, many Korean report generators). The preview never passed
+`wasmUrl` / `cMapUrl` / `standardFontDataUrl` / `iccUrl` and the build did not ship the files, so those pages came out
+blank or without their text, and pdf.js only logged warnings (the e2e test only looked at errors).
+
+- The build copies `pdfjs-dist`'s `cmaps/`, `standard_fonts/`, `wasm/` (without `quickjs-eval`, the PDF script
+  sandbox the preview does not use) and `iccs/`, licence files included, to `dist/assets/pdfjs-<version>/`
+  (`web/scripts/pdfjs-assets.ts`; the dev server serves them from node_modules). Under `/assets/` the server already
+  caches them for good and answers a missing one with 404, never the app shell. About 3.8 MB on disk; a browser loads
+  only what a document needs.
+- `PdfView` passes the absolute folder URLs (`web/src/lib/pdfjs-assets.ts`), so the worker fetches them itself. No CSP
+  change: the files are this origin's ('self'), and WebAssembly was already allowed ('wasm-unsafe-eval').
+- Tests: `web/test/e2e/previews.spec.ts` opens a fax-style scan, a JPEG 2000 scan and a Korean form with a non-embedded
+  CID font (mock fixtures from `tests/lib/pdf.ts`) and checks the drawn pixels, the text layer, pdf.js's warnings about
+  its data and failed asset requests (Chromium and WebKit; also checked by hand in Electron 44); without the fix it
+  fails. `web/test/unit/pdfjs-assets.test.ts` fails when a new pdf.js asks for a data file by a name the build does
+  not copy; `tests/unit/d-web.test.ts` covers how the server sends them.
+- A server picks this up with an ordinary app update (the files are part of `web/`); no reinstall or root step.
+- Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.

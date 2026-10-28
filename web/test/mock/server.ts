@@ -18,7 +18,7 @@ import {
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
-import { makePdf } from '../../../tests/lib/pdf'
+import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
@@ -1673,6 +1673,11 @@ let office: [string, Uint8Array][] | null = null
 function officeFixtures(): [string, Uint8Array][] {
   if (office) return office
   const out: [string, Uint8Array][] = [['docs/handbook.pdf', makePdf(['Company Handbook 2026', 'Section 1: Working hours are flexible.'])]]
+  // PDFs pdf.js can only draw with its data files (web/src/lib/pdfjs-assets.ts): Korean text in a font the file does
+  // not embed, a fax-style scan (CCITT) and a JPEG 2000 scan
+  out.push(['docs/quote-form.pdf', makeCidPdf(['견적서 2026', '공급가액 합계 1,500,000원'])])
+  out.push(['docs/scan-fax.pdf', makeImagePdf(CCITT_SCAN)])
+  out.push(['docs/scan-jpeg2000.pdf', makeImagePdf(JPX_SCAN)])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['month', 'spend'], ['July', 1200], ['August', 900]]), 'Q3 spend')
   out.push(['docs/spend.xlsx', new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)])

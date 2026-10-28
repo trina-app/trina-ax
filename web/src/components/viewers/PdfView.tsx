@@ -6,8 +6,13 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 // the worker ships as its own hashed file from this server (worker-src 'self')
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useT } from '../../i18n'
+import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+// CMaps, standard fonts and the image decoders from this server: without them scanned pages (fax / JBIG2, JPEG 2000)
+// are blank and Korean text in fonts the file does not embed is missing. One object for good: react-pdf reloads the
+// document when `options` changes.
+const OPTIONS = pdfjsDataOptions(location.origin, pdfjs.version)
 
 export default function PdfView({ blob, width }: { blob: Blob; width: number }) {
   const t = useT()
@@ -27,6 +32,7 @@ export default function PdfView({ blob, width }: { blob: Blob; width: number }) 
     <Boundary onError={setError}>
       <Document
         file={url}
+        options={OPTIONS}
         onLoadSuccess={({ numPages }) => setPages(numPages)}
         onLoadError={(e) => setError(e.message)}
         loading={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}
