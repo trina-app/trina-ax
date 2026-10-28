@@ -1652,19 +1652,6 @@ from there into files, other services or the chat.
   logs, the database and every file of the server), the input test in `c-integrations-tools.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
 
-## Markdown previews: hide HTML comments (fix/qa-markdown-preview, 2026-10-29)
-
-- QA DOC-07 / PAR-03 (B-W2-1, B-W6-2, B-W8-1): the shared Markdown renderer displayed HTML comments as escaped
-  text. File previews, chat answers and skill Markdown now omit actual comments, including unfinished block
-  comments. Inline text that Markdown does not recognize as HTML stays literal, as do fenced and inline code.
-- Only raw HTML nodes are inspected. `hast-util-from-html` (already a transitive dependency) supplies comment source
-  ranges, so text before/after a comment survives and comment-like strings in attributes or scripts stay literal.
-  Parsed HTML is never inserted into the rendered tree: all other raw HTML stays escaped; scripts and event
-  handlers remain inert. The original file is unchanged. HWPX remains download-only; no UI wording changes.
-- Tests: `web/test/unit/markdown-render.test.tsx` covers comment boundaries, code literals, HTML safety, GFM and
-  math; `web/test/e2e/files.spec.ts` opens and reopens a QA Markdown file and checks the preview and inert HTML.
-- Needed in the core too: the same shared renderer; nothing here is Trina-specific.
-
 ## PDF preview: pdf.js's data files ship with the app (fix/pdf-viewer, 2026-10-28)
 
 The founder reported that the PDF viewer did not work on a hosted Linux server. The app and its pdf.js worker loaded
@@ -1754,6 +1741,24 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   checks that loading home, choosing a preset and New chat leave the input unfocused; it does not measure a
   physical phone's software keyboard. These checks supplement axe, which cannot verify Tab order.
 - Needed in the core too (potenlab/team-ax): the same change; nothing here is Trina-specific.
+
+## Markdown previews: hide HTML comments (fix/qa-markdown-preview, 2026-10-29)
+
+- QA DOC-07 / PAR-03 (B-W2-1, B-W6-2, B-W8-1): the shared Markdown renderer displayed HTML comments as escaped
+  text. File previews, chat answers and skill Markdown now omit actual comments, including unfinished block
+  comments. Inline text that Markdown does not recognize as HTML stays literal, as do fenced and inline code.
+- Only raw HTML nodes are inspected. `hast-util-from-html` (already a transitive dependency) supplies comment source
+  ranges, so text before/after a comment survives and comment-like strings in attributes or scripts stay literal.
+  Parsed HTML is never inserted into the rendered tree: all other raw HTML stays escaped; scripts and event
+  handlers remain inert. The original file is unchanged. HWPX remains download-only; no UI wording changes.
+- Integration review: retain pinned `hast-util-from-html@2.0.3` (MIT, AGPL-compatible; unified collective,
+  https://github.com/syntax-tree/hast-util-from-html). Its implementation is 4.8 KB; the browser Markdown chunk
+  grows by 50.4 KB gzip including the parser dependencies. No new lockfile package resolutions are introduced.
+  This modest cost preserves HTML comment boundaries in attributes, raw-text elements and templates; a simple
+  delimiter replacement would corrupt literal examples. The build includes its license in release notices.
+- Tests: `web/test/unit/markdown-render.test.tsx` covers comment boundaries, code literals, HTML safety, GFM and
+  math; `web/test/e2e/files.spec.ts` opens and reopens a QA Markdown file and checks the preview and inert HTML.
+- Needed in the core too: the same shared renderer; nothing here is Trina-specific.
 
 ## Name dialog validation and Korean owner wording (qa-ui-polish, 2026-10-29)
 
