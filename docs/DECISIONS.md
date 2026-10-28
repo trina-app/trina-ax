@@ -1422,7 +1422,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
    테넌트는 이 릴리스부터 시작하므로 D18의 "이번 릴리스는 `subscription`"(옛 판으로 되돌릴 때를 위한 것)이 필요 없다. 맥
    설치기·사무실은 D18 그대로. 운영 채팅 절의 "'proxy'(회사 키)는 거절"·Codex 베타·회사 키 경로(66, 134–136, 549–570행)는
    D18–D20으로 끝났다. 더 만들어지지 않던 오류 코드 `proxy_mode`·`setup_token_missing`·`codex_beta`와 그 문구는 지웠다.
-9. **AI 연결 종류**: 호스팅 기본은 API 키 두 종류(ADDENDUM 3). `engine.credentialKinds`가 없는 hosted `server.json`도 서버가 API
+9. **AI 연결 종류 (대체됨)**: 아래 「클라우드의 AI 연결 종류: 네 가지 모두 (2026-10-22, owner 결정)」로 대체되었다. 현재 기본값은 `CLOUD_DEFAULT_CREDENTIAL_KINDS`의 네 종류다. 다음은 당시 기록이다: 호스팅 기본은 API 키 두 종류(ADDENDUM 3). `engine.credentialKinds`가 없는 hosted `server.json`도 서버가 API
    키만 허용한다(`allowedCredentialKinds`, mycel-enroll과 같은 목록 `CLOUD_DEFAULT_CREDENTIAL_KINDS`). CP가 목록을 보내면 그것
    (CP C-21 함대 전환). D22의 "최종 결정은 owner"는 이 기본을 넓힐지의 결정이다. 자체 설치·사무실은 네 종류.
 10. **시간**: 호스팅 팀의 시간대는 가입 때 고른 `MYCEL_TEAM_TZ`가 첫 설정 화면의 브라우저 시간대보다 우선한다(owner가 설정에서 바꿀
