@@ -142,7 +142,7 @@
 
 ## C — 파일 화면·업로드·작업·도구 (server-files-tools, 2026-10-21)
 
-코드: `server/src/team-files/*`(파일 화면 서비스, 다운로드, files.changed, 컴포넌트 허브 `componentC(ctx)`), `server/src/uploads/*`, `server/src/jobs/*`, `server/src/tools/*`(make_file·share_file·artifact·web_fetch·변환기 격리·도구 등록), 라우트 `files.ts`·`artifacts.ts`·`jobs.ts`, 마이그레이션 `301_c_files.sql`.
+코드: `server/src/team-files/*`(파일 화면 서비스, 다운로드, files.changed, 컴포넌트 허브 `componentC(ctx)`), `server/src/uploads/*`, `server/src/jobs/*`, `server/src/tools/*`(make_file·share_file·artifact·web_fetch·move_files·copy_files·rename_file·변환기 격리·도구 등록), 라우트 `files.ts`·`artifacts.ts`·`jobs.ts`, 마이그레이션 `301_c_files.sql`.
 
 - **변환기 격리(3번 탭)는 이번에는 서버 프로세스 안에서 sandbox-exec(맥)·bwrap(리눅스)로 한다**(`tools/isolate.ts`). 네트워크 금지, 변환기 자신 외 exec·fork 금지, 빈 작업 폴더에만 쓰기, /Users·임시 폴더·팀 폴더·서버 데이터의 *내용* 읽기 금지(메타데이터는 허용: typst·pandoc이 cwd의 상위 폴더를 stat한다), 시간·출력 한도. 설계의 "실행기가 _axagent로 실행"은 실행기 프로토콜 확장이 필요해 뒤로 미뤘다(G/실행기). 리눅스에 bwrap이 없으면 격리 없이 돌고 pandoc `--sandbox`·typst `--root`만 남는다(`isolation()`이 'none'을 알려 줌). Stage 1의 글자 추출(read·grep)도 이 경로로 바꿨다.
 - **whisper.cpp는 Metal 셰이더 캐시(`DARWIN_USER_CACHE_DIR/com.apple.metal`) 읽기·쓰기를 허용해야 한다.** 막으면 매번 셰이더를 다시 컴파일해 0.4초 걸릴 일이 15초 걸린다(실측).
@@ -1509,3 +1509,32 @@ seungju signed in to the same team and the pane still had raka's cookie and "alw
 - After a clear, the next sign-in keeps what is there: only that person can have used the pane since.
 - Data is still separate per team (partitions), as before.
 - Tests: `tests/unit/e-desktop-common.test.ts`, `desktop/e2e/person.spec.ts` (raka → seungju without a page reload).
+
+## The AI moves, copies and renames files of any type (feat/ai-file-tools, 2026-10-28)
+
+Founder test (Lightsail, 2026-10-28): asked to keep four files he attached in a chat (two PDFs, a logo and a seal) where
+the team can see them, the AI answered that it could only save text files and told him to move them himself. The six
+file tools only had `write` (text) for putting bytes anywhere.
+
+- New engine tools `move_files`, `copy_files`, `rename_file` (`server/src/tools/file-moves.ts`, mcp__team__<name>):
+  the Files screen's move, copy and rename (`TeamFiles.move` / `copy`), so every check is the same (write access at
+  both ends, managed folders for admins and owners only, rule folders never under users/, root / users / .system never
+  move). Up to 50 paths per call into one existing folder; names kept, " (2)" when taken. `copy_files` copies files
+  only (a folder copy would put a restricted subfolder's files under the target's rules).
+- **Who can see them**: before anything changes, `TeamFiles.audienceChange` counts the other active people who could
+  newly read the items in the target folder and, for a move, those who would lose them (each person once, never
+  named). If either is above 0 the server asks the person once for the whole call on its own card (`ToolCtx.person`,
+  like web_fetch's address card), never through the AI's ask_user, so an instruction hidden in a document cannot
+  answer it. With nobody to ask (scheduled runs, MCP without a chat person) such a call is refused. A narrowing that
+  appears after the question fails that item (the move is confirmed only for what the person saw).
+- **skills/** is out of reach for these tools both ways: team skills and rules change only through write / edit with
+  the person's approval card, or on the Files screen.
+- The file history and tool audit say which chat turn did it and with which tool (`detail.tool`, `turn_id`); the
+  step under the answer reads "Move files · <folder>". The instructions tell the AI that attachments are in the
+  person's `.attachments` folder and that write only saves text.
+- Tests: `tests/unit/c-file-moves.test.ts` (attachments into a team folder asked once and declined / allowed, same
+  audience not asked, narrowing asked, no person refused, hidden and missing paths fail alone, skills/ both ways, group
+  folder for members, 50-path limit, copy of a restricted file declined, folders not copied, rename),
+  `tests/unit/i-wiring.test.ts` (an attached image moved from a real turn after the server's card).
+- Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
+

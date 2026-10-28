@@ -239,6 +239,8 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     'To create a new file, call write directly. A read of a file that does not exist yet answers "not found or no access"; that is not a reason to stop: the write itself says whether you may write there.',
     tools.has('search') ? 'To find documents by meaning (the user describes something but you don\'t know the words or file names), use search, then read the files it points to; grep is for exact words.' : '',
     tools.has('make_file') ? 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.' : '',
+    // write only saves text: without these the AI told people it could not move a PDF or an image they attached (2026-10-28)
+    tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
     tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer.' : '',
     tools.has('ask_user') ? 'If you need a decision from the user before continuing, ask with ask_user (short question, options when possible). Do not ask about things you can find out yourself.' : '',
     tools.has('remember') ? 'Use remember only for lasting facts or preferences the user wants you to keep (one short sentence, under 300 characters). Use forget with the id when asked to forget.' : '',

@@ -18,6 +18,9 @@ export const FILE_STEP_VERB: Record<string, T> = {
   edit: t('파일 수정', 'Edit', 'Ubah berkas'),
   make_file: t('파일 만들기', 'Make file', 'Buat berkas'),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas'),
+  move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas'),
+  copy_files: t('파일 복사', 'Copy files', 'Salin berkas'),
+  rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama'),
   artifact: t('아티팩트', 'Artifact', 'Artefak'),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman'),
   ask_user: t('질문', 'Question', 'Pertanyaan'),
@@ -92,6 +95,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'read': case 'write': case 'edit': return `${verb} · ${clip(a.file_path, 90)}`
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
+    case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })

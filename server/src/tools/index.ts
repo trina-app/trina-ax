@@ -1,5 +1,6 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
-// make_file, share_file, artifact, web_fetch (design tab 3 "도구 목록"). Inputs are the shared contracts
+// make_file, share_file, artifact, web_fetch (design tab 3 "도구 목록"), and move_files / copy_files / rename_file
+// (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { ArtifactInput, MakeFileInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
 import { fileShareUrl } from '@mycel/shared/api'
@@ -14,6 +15,7 @@ import { registerHiggsfield } from './higgsfield'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
+import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
 import { resolveTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 
@@ -117,6 +119,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
     },
   })
   for (const name of C_TOOL_NAMES) exposeToTurns(name)
+  // moving, copying and renaming any kind of file (tools/file-moves.ts)
+  registerFileMoveTools(ctx, reg)
+  for (const name of FILE_MOVE_TOOL_NAMES) exposeToTurns(name)
   // search by meaning (tools/search.ts): only when it is on
   if (registerSearch(ctx, reg)) exposeToTurns('search')
   // scheduled tasks (tools/schedules.ts)

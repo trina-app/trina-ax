@@ -56,6 +56,24 @@ export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha
 export const ShareFileInput = z.strictObject({ path: relPath, mode: z.enum(['preview', 'download']) })
 export const ShareFileOutput = z.object({ url: z.string() })
 
+// Moving, copying and renaming any kind of file (PDF, images, Office files, chat attachments): server/src/tools/file-moves.ts
+const pathBatch = z.array(relPath).min(1).max(50)
+export const MoveFilesInput = z.strictObject({
+  paths: pathBatch.describe('Files or folders to move (1-50), e.g. ["users/<you>/.attachments/<chat>/logo.png"]'),
+  to_folder: relPath.describe('An existing folder to move them into, e.g. "shared/company". Names are kept; " (2)" is added when a name is taken.'),
+})
+export const MoveFilesOutput = z.object({ moved: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
+export const CopyFilesInput = z.strictObject({
+  paths: pathBatch.describe('Files to copy (1-50; not folders). The originals stay where they are.'),
+  to_folder: relPath.describe('An existing folder to copy them into. Names are kept; " (2)" is added when a name is taken.'),
+})
+export const CopyFilesOutput = z.object({ copied: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
+export const RenameFileInput = z.strictObject({
+  path: relPath.describe('The file or folder to rename'),
+  new_name: z.string().min(1).max(255).describe('The new name only (no folder): it stays in the same folder'),
+})
+export const RenameFileOutput = z.object({ path: z.string() })
+
 export const ArtifactInput = z.strictObject({
   action: z.enum(['create', 'update', 'rewrite']),
   key: z.string().min(1).max(100),
@@ -101,6 +119,9 @@ export type FileToolName = keyof typeof FILE_TOOLS
 export const OTHER_TOOLS = {
   make_file: { input: MakeFileInput, output: MakeFileOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
+  move_files: { input: MoveFilesInput, output: MoveFilesOutput },
+  copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
+  rename_file: { input: RenameFileInput, output: RenameFileOutput },
   artifact: { input: ArtifactInput, output: ArtifactOutput },
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },
