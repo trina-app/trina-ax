@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import type { Locale, Me, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
-import { pickLocale, storedLocale, storeLocale, useLocaleStore } from '../i18n'
+import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { applyTeamIcon } from '../lib/team-icon'
 
@@ -33,7 +33,9 @@ interface SessionState {
 
 function applyMe(me: Me) {
   // the server sends the language the person sees (own choice, else the team default)
-  useLocaleStore.getState().setLocale(pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale))
+  const locale = pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale)
+  useLocaleStore.getState().setLocale(locale)
+  storeRecentLocale(locale)
   const theme = me.user.prefs.theme ?? storedTheme()
   storeTheme(theme)
   applyTheme(theme)
@@ -61,6 +63,9 @@ export const useSession = create<SessionState>((set, get) => ({
       get().signedIn(me)
     } catch (e) {
       if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
+        storeRecentLocale(null)
+        // Even if setup cannot be fetched, a retired account's recovery language must not reach sign-in.
+        useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
         try {
           const s = await api.call(API.setupStatus)
           lastTeamDefault = s.defaultLocale ?? null
@@ -72,6 +77,9 @@ export const useSession = create<SessionState>((set, get) => ({
         }
         return
       }
+      // Only the error screen uses the recovery hint. A server response still decides account/team language.
+      const recent = recentLocale()
+      if (recent) useLocaleStore.getState().setLocale(recent)
       set({ status: { kind: 'error', error: e } })
     }
   },
@@ -97,6 +105,7 @@ export const useSession = create<SessionState>((set, get) => ({
     forgetTeamAttach()
     pendingPick = null
     pickedBeforeSignIn = false
+    storeRecentLocale(null)
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))

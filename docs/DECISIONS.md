@@ -1808,3 +1808,19 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - Coverage: common translation unit tests and the real Electron welcome screen in the desktop language e2e
   suite, including language changes with a partially typed address and language persistence after restart.
 - Needed in the core too (potenlab/team-ax): the same renderer change; nothing here is Trina-specific.
+
+## Offline reload language (qa2-offline-locale, 2026-10-29)
+
+- B-W28-2 / R2-DESK-11: after a successful account response, remember the effective screen language in
+  `mycel.recentLocale`, scoped to the team origin's localStorage. If account lookup fails on a cached app reload,
+  use that hint for the connection error and retry screen, including the document language and desktop bridge.
+  Successful responses still determine the account/team language and replace the hint.
+- Keep `mycel.locale` exclusively for explicit choices on sign-in style screens. The recovery hint is never
+  adopted into an account, and does not change sign-in choice, account language or team-default precedence.
+  Sign-out and unauthorized account responses clear it; even if setup lookup fails, sign-in uses its normal
+  explicit choice/team/default language. Unknown or unavailable storage falls back to existing behavior.
+- This does not change network recovery, the uncached Electron error page, or UI text. Storage is best effort;
+  blocked storage cannot preserve language across reloads. The browser's language remains irrelevant here.
+- Tests cover all three languages, retry and recovery, rejected storage, malformed hints, failed preference
+  writes, unauthorized responses, account changes and separate team origins. Needed in the core too: the same
+  web session behavior; nothing here is Trina-specific.
