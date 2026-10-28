@@ -13,6 +13,7 @@
     "./api": "./src/api/index.ts",
     "./relay-protocol": "./src/relay-protocol/index.ts",
     "./install": "./src/install.ts",
+    "./service-hosts": "./src/service-hosts.ts",
     "./cloud-protocol": "./src/cloud-protocol/index.ts",
     "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts"
   }

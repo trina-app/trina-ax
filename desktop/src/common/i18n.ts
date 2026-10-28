@@ -4,6 +4,7 @@
 // or the one picked on the team list screen, kept in <user data>/ui-locale.json; English before either. The
 // system language does not decide. The team page itself is translated by the web app.
 import { PRODUCT } from '@mycel/shared'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { DEFAULT_UI_LOCALE, type UiLocale } from './locales'
 
 export { asUiLocale, DEFAULT_UI_LOCALE, UI_LOCALES, type UiLocale } from './locales'
@@ -11,8 +12,8 @@ export { asUiLocale, DEFAULT_UI_LOCALE, UI_LOCALES, type UiLocale } from './loca
 const ko = {
   'app.name': PRODUCT.displayName,
   'welcome.title': '팀 주소를 입력하세요',
-  'welcome.subtitle': '팀장에게 받은 주소예요. 예: acme.treesoop.com',
-  'welcome.placeholder': 'acme.treesoop.com',
+  'welcome.subtitle': '팀장에게 받은 주소예요. 예: acme.{domain}',
+  'welcome.placeholder': 'acme.{domain}',
   'welcome.label': '팀 주소',
   'welcome.connect': '연결',
   'welcome.checking': '확인 중…',
@@ -140,8 +141,8 @@ type Strings = Record<UiKey, string>
 const en: Strings = {
   'app.name': PRODUCT.displayName,
   'welcome.title': 'Enter your team address',
-  'welcome.subtitle': 'Your team owner gave you this address. Example: acme.treesoop.com',
-  'welcome.placeholder': 'acme.treesoop.com',
+  'welcome.subtitle': 'Your team owner gave you this address. Example: acme.{domain}',
+  'welcome.placeholder': 'acme.{domain}',
   'welcome.label': 'Team address',
   'welcome.connect': 'Connect',
   'welcome.checking': 'Checking…',
@@ -266,8 +267,8 @@ const en: Strings = {
 const id: Strings = {
   'app.name': PRODUCT.displayName,
   'welcome.title': 'Masukkan alamat tim',
-  'welcome.subtitle': 'Alamat ini diberikan oleh ketua tim. Contoh: acme.treesoop.com',
-  'welcome.placeholder': 'acme.treesoop.com',
+  'welcome.subtitle': 'Alamat ini diberikan oleh ketua tim. Contoh: acme.{domain}',
+  'welcome.placeholder': 'acme.{domain}',
   'welcome.label': 'Alamat tim',
   'welcome.connect': 'Hubungkan',
   'welcome.checking': 'Memeriksa…',
@@ -393,5 +394,5 @@ export const STRINGS: Record<UiLocale, Strings> = { ko, en, id }
 
 export function t(locale: UiLocale, key: UiKey, params: Record<string, string> = {}): string {
   const s = STRINGS[locale]?.[key] ?? STRINGS[DEFAULT_UI_LOCALE][key]
-  return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? PRODUCT.displayName : (params[k] ?? m)))
+  return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? PRODUCT.displayName : k === 'domain' ? SERVICE_HOSTS.teamDomain : (params[k] ?? m)))
 }

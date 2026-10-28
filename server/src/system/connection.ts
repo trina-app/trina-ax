@@ -5,12 +5,13 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionMode, ConnectionStatus } from '@mycel/shared/api'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { AppContext } from '../context'
 import { relayApiBase } from '../relay-client/client'
 import { saveClaimCode } from '../relay-client/registration'
 
-/** Our relay (tab 6: wss://relay.treesoop.com/connect). The production relay is not running yet (WORKPLAN "막힌 것"). */
-export const OFFICIAL_RELAY_URL = 'wss://relay.treesoop.com/connect'
+/** Our relay (tab 6, shared/src/service-hosts.ts). The production relay is not running yet (WORKPLAN "막힌 것"). */
+export const OFFICIAL_RELAY_URL: string = SERVICE_HOSTS.officialRelayUrl
 
 export function modeOf(url: string | null): ConnectionMode {
   if (!url) return 'direct-only'

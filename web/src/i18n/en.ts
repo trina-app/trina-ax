@@ -977,7 +977,7 @@ export const en: Record<MessageKey, string> = {
   'system.teamNameInvalid': 'Use 2–40 lowercase letters, digits and hyphens (not at the start or end).',
   'system.modeWarning': 'Remote access may drop briefly while switching.',
   'system.claimCode': 'Claim code',
-  'system.claimCodeHint': 'The official relay registers your address with the claim code from account.treesoop.com. Leave it empty for your own relay server.',
+  'system.claimCodeHint': 'The official relay registers your address with the claim code from {host}. Leave it empty for your own relay server.',
   'system.detail.registration_closed': 'This relay registers team addresses with a claim code only. Enter the code under Change connection.',
   'system.detail.bad_claim': 'The claim code is not valid (already used, expired or for another team name). Get a new code and enter it.',
   'system.detail.awaiting_operator': 'Your team address is being prepared. It connects by itself shortly.',

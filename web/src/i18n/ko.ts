@@ -976,7 +976,7 @@ export const ko = {
   'system.teamNameInvalid': '영문 소문자·숫자·하이픈 2–40자로 써 주세요(하이픈은 처음과 끝에 올 수 없어요).',
   'system.modeWarning': '바꾸는 동안 잠시 원격 접속이 끊길 수 있어요.',
   'system.claimCode': '연결 코드',
-  'system.claimCodeHint': '공식 중계는 account.treesoop.com에서 받은 연결 코드로 등록해요. 자체 중계 서버라면 비워 두세요.',
+  'system.claimCodeHint': '공식 중계는 {host}에서 받은 연결 코드로 등록해요. 자체 중계 서버라면 비워 두세요.',
   'system.detail.registration_closed': '이 중계 서버는 연결 코드로만 팀 주소를 등록해요. 연결 방식 바꾸기에서 코드를 넣어 주세요.',
   'system.detail.bad_claim': '연결 코드가 맞지 않아요(이미 썼거나, 기한이 지났거나, 다른 팀 이름용이에요). 새 코드를 받아 넣어 주세요.',
   'system.detail.awaiting_operator': '팀 주소를 준비하고 있어요. 잠시 뒤 저절로 연결돼요.',

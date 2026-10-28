@@ -30,3 +30,18 @@ bun scripts/edition-source.ts editions/trina/branding/source.json --apply
 ```
 
 `--apply`는 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다. `tests/unit/edition-source.test.ts`가 판매판 설정과 적용 값이 같은지, 다른 소스에 레포 주소가 직접 적혀 있지 않은지 확인한다.
+||||||| parent of 3a9ca23c (Edition extension point for the hosted service's addresses)
+
+## Hosted service addresses (2026-10-28)
+
+An edition with its own hosted service sets its addresses in `editions/<name>/branding/service.json`:
+
+```json
+{ "teamDomain": "example.app", "officialRelayUrl": "wss://relay.example.app/connect", "accountHost": "account.example.app", "statusHost": "status.example.app" }
+```
+
+`bun scripts/edition-service.ts editions/<name>/branding/service.json --apply` writes them into
+`shared/src/service-hosts.ts`. They set the desktop app's team address domain and its examples, the official relay
+in Admin > System (and how the server tells it from a self-hosted relay), the claim-code hint, and the relay's account
+and status links. The official relay must be under `teamDomain`. Not changed: LaunchDaemon labels and bundle ids
+(`app.treesoop.*`, they are on installed machines) and the contract test vectors in `shared/src/cloud-protocol/`.
