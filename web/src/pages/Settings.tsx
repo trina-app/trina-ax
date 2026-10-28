@@ -355,14 +355,15 @@ function Schedules() {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2 font-medium">
                     {s.templateId === 'daily-file-index' || s.templateId === 'weekly-summary' ? t(`scheduleTemplates.${s.templateId}`) : s.title}
-                    {!s.enabled && <Badge>{t('schedules.paused')}</Badge>}
+                    {!s.enabled && <Badge>{t(s.resumeBlockedReason ? `schedules.${s.resumeBlockedReason}` : 'schedules.paused')}</Badge>}
                   </span>
                   <span className="mt-0.5 block text-xs text-muted">{when(s)}</span>
                   <span className="mt-1 line-clamp-2 block text-xs text-faint">{s.templateId ? `${s.sourcePath} → ${s.outputPath}` : s.prompt}</span>
-                  {s.pendingDueAt && <span className="mt-1 block text-xs text-muted">{t('scheduleTemplates.deferred', { time: formatDateTime(s.retryAt ?? s.pendingDueAt, locale) })}</span>}
+                  {s.resumeBlockedReason && <span className="mt-1 block text-xs text-muted">{t(`schedules.${s.resumeBlockedReason}Hint`)}</span>}
+                  {s.pendingDueAt && <span className="mt-1 block text-xs text-muted">{t('scheduleTemplates.deferred', { time: formatDateTime(s.retryAt ?? s.pendingDueAt, locale, tz || undefined) })}</span>}
                   {s.lastOutcome && <span className="mt-1 block text-xs text-muted">{t(`scheduleTemplates.outcome.${s.lastOutcome}`)}</span>}
                   <span className="mt-1 block text-xs text-faint">
-                    {s.enabled && s.nextRunAt && t('schedules.next', { time: formatDateTime(s.nextRunAt, locale) })}
+                    {s.enabled && s.nextRunAt && t('schedules.next', { time: formatDateTime(s.nextRunAt, locale, tz || undefined) })}
                     {s.lastChatId && (
                       <>
                         {s.enabled && s.nextRunAt && ' · '}
@@ -371,7 +372,7 @@ function Schedules() {
                     )}
                   </span>
                 </span>
-                <Button size="sm" onClick={() => void toggle(s)}>{s.enabled ? t('schedules.pause') : t('schedules.resume')}</Button>
+                {!s.resumeBlockedReason && <Button size="sm" onClick={() => void toggle(s)}>{s.enabled ? t('schedules.pause') : t('schedules.resume')}</Button>}
                 <button type="button" aria-label={t('schedules.delete')} title={t('schedules.delete')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => void remove(s)}>
                   <Trash2 size={15} />
                 </button>

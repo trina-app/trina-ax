@@ -12,6 +12,8 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { ToolError } from '../policy/errors'
 import { HttpError } from '../http/errors'
+import { tr } from './i18n'
+import type { Locale } from '@mycel/shared/api'
 import { notificationsOf } from '../notifications/service'
 import type { ChatRuntime } from './runtime'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
@@ -112,9 +114,19 @@ export class Schedules {
     return this.get(userId, id)!
   }
 
-  setEnabled(userId: string, id: string, enabled: boolean, now = new Date()): ScheduleRow | null {
+  /** Disabled one-time tasks cannot replay a consumed occurrence or move a past due time. */
+  resumeBlockedReason(s: ScheduleRow, now = new Date()): 'completed' | 'expired' | null {
+    if (s.enabled || s.repeat !== 'once') return null
+    if (s.last_run_at) return 'completed'
+    return nextRun(s, now, this.rt.timeZone) ? null : 'expired'
+  }
+
+  setEnabled(userId: string, id: string, enabled: boolean, now = new Date(), locale: Locale = this.rt.userLocale(userId)): ScheduleRow | null {
     const s = this.get(userId, id)
     if (!s) return null
+    if (!!s.enabled === enabled) return s
+    const reason = enabled ? this.resumeBlockedReason(s, now) : null
+    if (reason) throw new HttpError('conflict', tr(reason === 'completed' ? 'scheduleCompleted' : 'scheduleExpired', locale), { params: { reason: `schedule_${reason}` } })
     const next = enabled ? nextRun(s, now, this.rt.timeZone) : null
     this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
     return this.get(userId, id)

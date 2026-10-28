@@ -14,6 +14,7 @@ export const Schedule = z.object({
   date: z.string().nullable(),
   projectId: z.string().nullable(),
   enabled: z.boolean(),
+  resumeBlockedReason: z.enum(['completed', 'expired']).nullable().optional(),
   nextRunAt: z.string().nullable(),
   lastRunAt: z.string().nullable(),
   lastChatId: z.string().nullable(),

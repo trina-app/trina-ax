@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { CSRF_HEADER } from '@mycel/shared/api'
+import { CSRF_HEADER, type Schedule } from '@mycel/shared/api'
+import { ko } from '../../src/i18n/ko'
+import { en } from '../../src/i18n/en'
+import { id } from '../../src/i18n/id'
 
 test('templates stay dormant, select readable source/private output, and reuse the request after a lost response', async ({ page }) => {
   await reset(page)
@@ -92,3 +95,77 @@ test('access revocation drops an inbox chat link; changing locale during a save 
   release()
   await expect(pref).toBeEnabled(); await expect(pref).not.toBeChecked()
 })
+
+for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
+  test.describe(`schedule settings in a ${timezoneId} browser`, () => {
+    test.use({ timezoneId })
+    for (const [locale, dict] of [['ko', ko], ['en', en], ['id', id]] as const) {
+      test(`team dates, terminal once states and deletion preserve the result chat (${locale})`, async ({ page }) => {
+        await reset(page, { teamLocale: locale, usersFollowTeam: true })
+        await page.clock.setFixedTime(new Date('2026-10-28T14:00:00Z'))
+        await signIn(page)
+        const created = await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: 'Schedule result' } })
+        expect(created.ok()).toBeTruthy()
+        const chat = await created.json()
+        const base: Schedule = { id: 'active', title: 'Active once', prompt: 'Scheduled task fixture', repeat: 'once', time: '00:09', date: '2026-10-29', weekday: null, day: null, projectId: null, enabled: true, nextRunAt: '2026-10-28T15:09:00Z', lastRunAt: null, lastChatId: null, resumeBlockedReason: null }
+        let items: Schedule[] = [
+          base,
+          { ...base, id: 'deferred', title: 'Deferred once', nextRunAt: '2026-10-28T14:00:00Z', pendingDueAt: '2026-10-28T14:00:00Z', retryAt: '2026-10-28T15:10:00Z' },
+          { ...base, id: 'completed', title: 'Completed once', enabled: false, nextRunAt: null, lastRunAt: '2026-10-28T13:00:00Z', lastChatId: chat.id, resumeBlockedReason: 'completed' },
+          { ...base, id: 'expired', title: 'Expired once', date: '2026-10-27', enabled: false, nextRunAt: null, resumeBlockedReason: 'expired' },
+          { ...base, id: 'future', title: 'Future once', enabled: false, nextRunAt: null },
+          { ...base, id: 'daily', title: 'Recurring task', repeat: 'daily', date: null, enabled: false, nextRunAt: null },
+        ]
+        const patches: string[] = [], deleted: string[] = []
+        await page.route('**/api/schedules', route => route.fulfill({ json: { items, timeZone: 'Asia/Seoul' } }))
+        await page.route('**/api/schedules/*', route => {
+          const key = route.request().url().split('/').pop()!
+          if (route.request().method() === 'DELETE') {
+            deleted.push(key); items = items.filter(item => item.id !== key)
+            return route.fulfill({ status: 204 })
+          }
+          patches.push(key)
+          const item = items.find(item => item.id === key)!
+          item.enabled = route.request().postDataJSON().enabled
+          item.nextRunAt = item.enabled ? base.nextRunAt : null
+          return route.fulfill({ json: item })
+        })
+        await page.goto('/settings/schedules')
+        const list = page.getByTestId('schedule-list')
+        const row = (title: string) => list.getByRole('listitem').filter({ hasText: title })
+        // Expected Seoul wall time, independent of the browser zone and ICU punctuation.
+        const wall = await page.evaluate(({ locale }) => {
+          const formatter = new Intl.DateTimeFormat({ ko: 'ko-KR', en: 'en-US', id: 'id-ID' }[locale], { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+          return [formatter.format(new Date('2026-10-29T00:09:00Z')), formatter.format(new Date('2026-10-29T00:10:00Z'))]
+        }, { locale })
+        await expect(row('Active once')).toContainText(dict['schedules.next'].replace('{time}', wall[0]!))
+        await expect(row('Deferred once')).toContainText(dict['scheduleTemplates.deferred'].replace('{time}', wall[1]!))
+        await expect(list.locator('+ p')).toHaveText(dict['schedules.timeZone'].replace('{tz}', 'Asia/Seoul'))
+        for (const [title, reason] of [['Completed once', 'completed'], ['Expired once', 'expired']] as const) {
+          await expect(row(title)).toContainText(dict[`schedules.${reason}Hint`])
+          await expect(row(title).getByText(dict[`schedules.${reason}`], { exact: true })).toBeVisible()
+          await expect(row(title).getByRole('button', { name: dict['schedules.resume'], exact: true })).toHaveCount(0)
+        }
+        await expect(row('Deferred once').getByRole('button', { name: dict['schedules.pause'], exact: true })).toBeVisible()
+        for (const title of ['Future once', 'Recurring task']) {
+          await row(title).getByRole('button', { name: dict['schedules.resume'], exact: true }).click()
+          await expect(row(title).getByRole('button', { name: dict['schedules.pause'], exact: true })).toBeVisible()
+          await row(title).getByRole('button', { name: dict['schedules.pause'], exact: true }).click()
+          await expect(row(title).getByRole('button', { name: dict['schedules.resume'], exact: true })).toBeVisible()
+        }
+        expect(patches).toEqual(['future', 'future', 'daily', 'daily'])
+        await expect(row('Completed once').getByRole('link', { name: dict['schedules.lastRun'] })).toHaveAttribute('href', `/c/${chat.id}`)
+        await row('Completed once').getByRole('button', { name: dict['schedules.delete'], exact: true }).click()
+        await expect(page.getByRole('dialog')).toContainText(dict['schedules.deleteBody'].replace('{title}', 'Completed once'))
+        await page.getByRole('dialog').getByRole('button', { name: dict['schedules.delete'], exact: true }).click()
+        await expect(row('Completed once')).toHaveCount(0)
+        expect(deleted).toEqual(['completed'])
+        const kept = await page.request.get(`/api/chats/${chat.id}`)
+        expect(kept.ok()).toBeTruthy()
+        expect((await kept.json()).deletedAt).toBeNull()
+        await page.goto(`/c/${chat.id}`)
+        await expect(page.getByTestId('composer-input')).toBeVisible()
+      })
+    }
+  })
+}

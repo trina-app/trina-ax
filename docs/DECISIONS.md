@@ -1676,3 +1676,21 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   not copy; `tests/unit/d-web.test.ts` covers how the server sends them.
 - A server picks this up with an ordinary app update (the files are part of `web/`); no reinstall or root step.
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
+
+
+## 2026-10-29 — Scheduled task dates and one-time task resumption (QA B-W12-1, B-W12-2)
+
+- Settings formats next-run and deferred/retry dates in the team time zone returned by the schedule list. Other
+  dates keep their existing browser-zone default; scheduling arithmetic and admission timing are unchanged.
+- A disabled one-time task that has consumed its occurrence is completed; an unrun one whose configured time is
+  at or before now is expired. Settings shows the corresponding state and a localized explanation instead of
+  Resume. The server supplies optional `resumeBlockedReason` (`completed` / `expired` / null) using the same
+  `nextRun` calculation as resumption, avoiding browser-clock and DST disagreements.
+- Resuming either terminal state returns HTTP 409 `conflict`, localized ko/en/id text, and `params.reason`
+  `schedule_completed` or `schedule_expired`; it does not change the stored task. A consumed occurrence stays
+  completed even if a later team-zone change would place its configured wall time in the future. Future unrun
+  one-time tasks and recurring tasks can still pause/resume. Repeating an already-enabled request preserves
+  pending/retry state. Enabled overdue tasks remain eligible for normal catch-up/deferred execution.
+- Deletion continues to remove only the schedule, preserving its result chat. Tests cover timezone/date/DST
+  boundaries, terminal-state rejection, future/recurring resumption, and Settings in Jakarta/UTC browsers in
+  all three languages, including result-chat preservation after deletion.
