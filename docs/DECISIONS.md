@@ -1838,3 +1838,11 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   H.264/AAC MP4 and AAC M4A) and removed after the tests.
 - Needed in the core too (potenlab/team-ax): the same classification change; nothing here is Trina-specific.
 
+
+## Refresh members after account deletion (QA R2 integration, 2026-10-29)
+
+- A successful DELETE returns 204/undefined, which the old result guard confused with an action failure.
+  Reload the member list inside the guarded action after DELETE resolves. Cancelled or rejected requests
+  keep the row; errors still use the existing localized toast. No shared action/API semantics change.
+- Browser coverage checks immediate removal in en/ko/id, no request on cancellation, no list refresh on
+  rejection, and a successful retry with one list refresh. Needed in core too; no new strings or dependencies.

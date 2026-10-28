@@ -260,8 +260,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
         expect(response.status()).toBe(204)
         // The UI still uses the default transfer contract, without selecting destructive folder deletion.
         expect(new URL(response.url()).searchParams.get('personalFolder')).toBeNull()
-        // A successful 204 currently leaves the member list stale; refresh is outside these guidance checks.
-        await page.reload()
+        // A successful no-content response refreshes the list without a document reload.
         await expect(member).toHaveCount(0)
       }
     }
@@ -306,3 +305,44 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     }
   })
 }
+
+
+test('members: cancelled and rejected deletions retain the row; a successful retry refreshes it', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/admin/members')
+  const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
+  await member.getByRole('button', { name: 'Disable', exact: true }).click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(member).toContainText(DICTS.en['members.disabled'])
+  let deletes = 0, listReads = 0
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'DELETE' && path === '/api/admin/users/bob') deletes++
+    if (request.method() === 'GET' && path === '/api/admin/users') listReads++
+  })
+  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(member).toBeVisible()
+  expect(deletes).toBe(0)
+  expect(listReads).toBe(0)
+
+  await page.route('**/api/admin/users/bob', route => route.fulfill({ status: 403,
+    json: { error: { code: 'forbidden', message: 'Deletion refused' } } }))
+  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Deletion refused' })).toBeVisible()
+  await expect(member).toBeVisible()
+  expect(deletes).toBe(1)
+  expect(listReads).toBe(0)
+
+  await page.unroute('**/api/admin/users/bob')
+  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  const deleted = page.waitForResponse(r => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
+  await page.getByTestId('dialog-confirm').click()
+  expect((await deleted).status()).toBe(204)
+  await expect(member).toHaveCount(0)
+  expect(deletes).toBe(2)
+  expect(listReads).toBe(1)
+})

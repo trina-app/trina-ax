@@ -55,7 +55,10 @@ export default function Members() {
   }
   const remove = async (u: User) => {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody'), confirm: t('common.delete'), danger: true }))) return
-    if ((await act(() => api.call(API.deleteUser, { params: { id: u.id } }))) !== undefined) void users.reload()
+    await act(async () => {
+      await api.call(API.deleteUser, { params: { id: u.id } })
+      await users.reload()
+    })
   }
   const revoke = async (i: Invite) => {
     if ((await act(() => api.call(API.revokeInvite, { params: { id: i.id } }))) !== undefined) void invites.reload()
