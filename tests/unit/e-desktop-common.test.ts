@@ -4,9 +4,10 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { runInNewContext } from 'node:vm'
 import { isGatewayDown, isLoopbackHost, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
-import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES } from '../../desktop/src/common/i18n'
+import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
 import { NO_KIT, parseKit } from '../../desktop/src/common/kit'
 import { RepeatPromptHint, REPEAT_HINT_WINDOW_MS, siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
@@ -17,6 +18,7 @@ import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFo
 import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
 import { BrowserResult } from '../../shared/src/api/browser'
 import { PRODUCT } from '@mycel/shared'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -335,6 +337,44 @@ describe('bridge senders', () => {
 })
 
 describe('UI strings', () => {
+  test('welcome examples use the edition domain in every language; formatting preserves reserved and missing parameters', () => {
+    for (const { id: locale } of UI_LOCALES) {
+      expect(t(locale, 'welcome.subtitle')).toContain(`acme.${SERVICE_HOSTS.teamDomain}`)
+      expect(t(locale, 'welcome.subtitle')).not.toContain('{domain}')
+      expect(t(locale, 'welcome.placeholder', { domain: 'ignored.test' })).toBe(`acme.${SERVICE_HOSTS.teamDomain}`)
+      expect(t(locale, 'err.notTeamServer', { app: 'ignored' })).toContain(PRODUCT.displayName)
+      expect(t(locale, 'perm.site.title', { host: 'shop.test' })).toContain('shop.test')
+      expect(t(locale, 'perm.site.title')).toContain('{host}')
+      expect(t(locale, 'perm.site.title', { host: '' })).not.toContain('{host}')
+    }
+  })
+
+  test('renderer formatting matches common translations and preserves its preload app name and fallbacks', async () => {
+    const build = await Bun.build({ entrypoints: [join(import.meta.dir, '../../desktop/src/ui/dom.ts')], target: 'browser', format: 'cjs' })
+    expect(build.success).toBe(true)
+    const source = await build.outputs[0].text()
+    const renderer = (loaded: { locale: UiLocale; strings: Partial<Record<UiKey, string>> } | null) => {
+      const module = { exports: {} as typeof import('../../desktop/src/ui/dom') }
+      runInNewContext(source, { module, window: { mycelUi: { strings: () => loaded } }, document: { documentElement: {} } })
+      return module.exports.tr
+    }
+    for (const { id: locale } of UI_LOCALES) {
+      const tr = renderer({ locale, strings: STRINGS[locale] })
+      const cases: Record<string, string>[] = [{}, { app: 'ignored', domain: 'ignored.test', host: 'shop.test' }, { host: '' }]
+      for (const key of ['welcome.subtitle', 'welcome.placeholder', 'err.notTeamServer', 'perm.site.title'] as const) {
+        for (const params of cases) {
+          expect(tr(key, params)).toBe(t(locale, key, params))
+        }
+      }
+    }
+    const template = '{app} {domain} {host} {unknown}'
+    expect(renderer({ locale: 'en', strings: { 'app.name': 'Edition App', 'welcome.subtitle': template } })('welcome.subtitle', { app: 'ignored', domain: 'ignored.test', host: 'shop.test' }))
+      .toBe(`Edition App ${SERVICE_HOSTS.teamDomain} shop.test {unknown}`)
+    expect(renderer({ locale: 'en', strings: { 'welcome.subtitle': template } })('welcome.subtitle'))
+      .toBe(`${PRODUCT.displayName} ${SERVICE_HOSTS.teamDomain} {host} {unknown}`)
+    expect(renderer(null)('welcome.subtitle')).toBe('welcome.subtitle')
+  })
+
   test('ko, en and id have exactly the same keys and no empty strings', () => {
     const keys = Object.keys(STRINGS.ko).sort()
     for (const l of ['en', 'id'] as const) expect(Object.keys(STRINGS[l]).sort()).toEqual(keys)
