@@ -222,3 +222,14 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
   - typecheck 통과
   - 관련 unit 82 / 0, web unit 181 / 0
   - `editions/trina` 105 / 24 skip / 0
+
+## 2026-10-28 판매·운영 코드와 사이트를 비공개 코어로 이동
+
+- 옮긴 것: `editions/trina/`의 판매·운영 패키지(`@trina/edition-operations`: billing(Paddle·Payple), hosting, domains(Cloudflare), lib(계정·세션·저장소), console, worker, http, cli, runtime, `OPERATIONS.md`, `docs/enrollment.md`, test)와 `website/`(ax.trina.app). 사이트의 원 저작권 고지 2개(`branding/LICENSE.website-upstream.txt`, `branding/NOTICE.website-upstream.md`)는 사본을 함께 보냈다.
+- 받는 곳: 비공개 `trina-app/trina-ax-core` 브랜치 `trina-edition-private`, 커밋 `f769a3f`(이 레포 `89dd3ac`의 파일 그대로, 143개).
+- 이 레포에 남은 것: `editions/trina/branding/`(제품 이름, 소스 링크, 배포 채널, 사이트 고지)만.
+- 공개 코드(server·web·desktop·shared·relay·tests)는 옮긴 파일을 import하지 않는다. 브랜드와 배포 채널은 빌드 때 `shared/src/source.ts`, `shared/src/release-channel.ts`에 이미 적용되어 있다.
+- 검증
+  - 코어 사본: 판매·운영 시험 36 / 24 skip / 0, typecheck 통과, 사이트 69 / 0 (옮기기 전과 같음)
+  - 이 레포: typecheck와 unit 시험을 옮기기 전과 비교했다(아래 커밋 메시지).
+- 남은 것: 이 레포의 기록에서 옮긴 파일과 예전 `tests/cloud`, `docs/cloud`를 지우는 기록 재작성(force push)은 별도 승인 뒤에 한다.

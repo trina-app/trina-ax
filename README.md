@@ -41,8 +41,8 @@ An absent HWP/HWPX entry in another product’s file list does not prove unsuppo
 
 ## Source and operations
 
-The shared engine, permissions, queue and employee app belong in the core. Trina branding, billing and hosting policy belong in `editions/trina`. Trina additions are **AGPL-3.0-only**; retain [LICENSE](LICENSE), [NOTICE](NOTICE) and dependency notices. Customer data, credentials and company-specific operational settings are outside the public source artifact.
+The shared engine, permissions, queue and employee app belong in the core. Trina branding is in `editions/trina/branding`. Trina's hosted service (billing, hosting, operations console) and the ax.trina.app website are private and are not in this repository. Trina additions are **AGPL-3.0-only**; retain [LICENSE](LICENSE), [NOTICE](NOTICE) and dependency notices. Customer data, credentials and company-specific operational settings are outside the public source artifact.
 
 After publication review, connect the exact deployed release to its matching source and installation guide. Deployment review must include a way to obtain Corresponding Source for network use. Check the [GNU AGPL text](https://www.gnu.org/licenses/agpl-3.0.html) for the governing conditions.
 
-See [website/README.md](editions/trina/website/README.md) for local site development and [OPERATIONS.md](editions/trina/OPERATIONS.md) for edition boundaries. This local candidate assembles the filtered core and edition; [the upstream record](docs/UPSTREAM.md) identifies the source revisions and validation boundaries.
+This local candidate assembles the filtered core and the Trina branding; [the upstream record](docs/UPSTREAM.md) identifies the source revisions and validation boundaries.
