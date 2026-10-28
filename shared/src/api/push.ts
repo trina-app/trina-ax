@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { endpoint, empty } from './endpoint'
 import { NotificationEventType } from './notifications'
 export const PushSettings = z.object({ configured: z.boolean(), enabled: z.boolean(), publicKey: z.string().nullable(), subscriptionId: z.string().nullable(),
-  messages: z.object({ title: z.string(), bodies: z.record(NotificationEventType, z.string()) }),
+  // Older servers omit display text; keep settings usable during an upgrade or rollback.
+  messages: z.object({ title: z.string(), bodies: z.record(NotificationEventType, z.string()) }).optional(),
 })
 export const PushSubscriptionInput = z.object({ consent: z.literal(true), endpoint: z.string().min(1).max(4096), keys: z.object({ p256dh: z.string().min(1).max(128), auth: z.string().min(1).max(64) }).strict() }).strict()
 export const PUSH = {
