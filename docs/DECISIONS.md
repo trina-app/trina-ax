@@ -1479,3 +1479,18 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **반복 확인 힌트**: 같은 턴 안이나 10분 안에 사이트 확인이 세 번째로 뜨면 그 카드에 한 번(패널이 열려 있는 동안 한 번) "계속 뜨면 설정 › 브라우저에서 '모든 웹사이트 허용'을 켤 수 있어요 … '항상 허용'"을 보이고 ⚙을 여는 링크를 단다. 팀이 꺼 두었으면 "항상 허용"만 말한다. 사내망 확인은 세지 않는다("all"이 그것을 덮지 않으므로). `common/site-permissions.ts RepeatPromptHint`.
 - **그대로인 것**: "all"이어도 사내망·이 컴퓨터 주소는 계속 묻거나 막고, 팀 주소는 열지 않고, 비밀번호·카드 입력란은 막는다. 서버의 `web_fetch` 확인(대화에 나온 적 없는 주소)도 그대로다.
 - **시험**: `tests/unit/e-desktop-common.test.ts`(값 저장·복원, 정책 꺼짐이면 묻기로 되돌림·재시작 뒤에도, "all"이어도 사내망·루프백·팀 주소, 힌트 세기, 팀 페이지 통로의 보낸 쪽 확인·"all"은 창 버튼 1 뒤에만), `tests/unit/a-admin.test.ts`(기본 켬, 관리자만, Me에 실림, 알림, 감사), `web/test/unit/browser-settings.test.tsx`(데스크톱 앱에서만 탭, 꺼짐이면 선택지 꺼짐과 이유, 관리자 스위치), `web/test/e2e/browser-settings.spec.ts`(대역 브리지로 설정 화면과 관리자 스위치), `desktop/e2e/settings.spec.ts`(실제 Electron: 세 번째 확인의 힌트, 창 취소·바쁨·확인, ⚙과 서로 반영, 정책 꺼짐의 되돌림·거절·⚙ 꺼짐, 재시작 뒤 유지).
+||||||| parent of 48663d58 (auth: failed sign-ins on a shared address no longer lock the team out)
+- 그대로인 것: 구독 종류를 추가할 때의 안내와 확인 칸(D23, 서버가 `acknowledgedPlanNotice`를 요구). 컨트롤 플레인의 함대 전체 스위치(`set-server-config`)로 언제든 API 키만으로 좁힐 수 있다. 위험 기록은 `docs/SECURITY-AUDIT.md`·credentials 명세 7장에 남긴다.
+
+## Sign-in: a shared address does not lock the whole team out (fix/signin-ip-lockout, 2026-10-28)
+
+QA test (2026-10-27): about 30 failed sign-ins with made-up usernames from 127.0.0.1 (the server Mac, an SSH tunnel)
+refused every sign-in from that address for 15 minutes, also correct passwords of other people.
+
+- A sign-in in `net` scope (the server Mac itself, or a network the person signed in from before) now checks a
+  separate per-IP counter `net-ip` with the limit `perNetIp` = 300, instead of `perIp` = 30. Its attempts still count
+  toward the normal `ip` counter (`RateLimiter.hold(keys, countOnly)`).
+- The per-account limit (10 per 15 minutes, per scope) does not change.
+- A loopback address that the relay reports is a client on the relay host, not this Mac: it keeps `perIp`.
+- Remaining risk: from the Mac itself or a known network, one address can try up to 300 usernames per 15 minutes.
+- Tests: `tests/unit/a-auth.test.ts` "the shared address of the Mac itself".

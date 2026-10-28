@@ -10,15 +10,17 @@ export interface Limits {
   perAccount: number
   /** failed password attempts per client IP, across accounts */
   perIp: number
+  /** the same, for sign-ins from the person's own network (`net` scope), which many people can share */
+  perNetIp: number
   /** wrong re-entered / current passwords per signed-in person (owner-reauth, password change) */
   perReauth: number
   /** unknown invite / reset / setup tokens per client IP */
   perTokenIp: number
 }
 
-export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perReauth: 5, perTokenIp: 30 }
+export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30 }
 
-export type LimitKind = 'account' | 'ip' | 'reauth' | 'token-ip'
+export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip'
 export interface LimitKey { kind: LimitKind; id: string }
 
 /**
@@ -60,6 +62,7 @@ export function limitIp(ip: string): string {
 }
 
 export const ipKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'ip', id: limitIp(ip) }] : [])
+export const netIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'net-ip', id: limitIp(ip) }] : [])
 export const reauthKey = (userId: string): LimitKey => ({ kind: 'reauth', id: userId })
 export const tokenIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'token-ip', id: limitIp(ip) }] : [])
 
@@ -72,6 +75,7 @@ export class RateLimiter {
     switch (k.kind) {
       case 'account': return this.limits.perAccount
       case 'ip': return this.limits.perIp
+      case 'net-ip': return this.limits.perNetIp
       case 'reauth': return this.limits.perReauth
       case 'token-ip': return this.limits.perTokenIp
     }
@@ -98,14 +102,16 @@ export class RateLimiter {
    * Check the limits and, when under them, count this attempt right away (before the slow password check), so
    * concurrent requests cannot all pass the check before any failure is recorded. Throws nothing: returns the wait
    * in seconds (> 0 = refused, nothing recorded) or a hold whose `release()` un-counts the attempt when it succeeded.
+   * `countOnly` keys are counted with the attempt but do not refuse it (accounts.ts login: the IP counter of a sign-in
+   * from the person's own network).
    */
-  hold(keys: LimitKey[]): { wait: number; release(): void } {
+  hold(keys: LimitKey[], countOnly: LimitKey[] = []): { wait: number; release(): void } {
     const wait = this.retryAfter(keys)
     if (wait > 0) return { wait, release() {} }
     const at = this.now()
     const ids: number[] = []
     const q = this.db.query('INSERT INTO login_attempts (key, at) VALUES (?, ?)')
-    this.db.transaction(() => { for (const k of keys) ids.push(Number(q.run(keyStr(k), at).lastInsertRowid)) })()
+    this.db.transaction(() => { for (const k of [...keys, ...countOnly]) ids.push(Number(q.run(keyStr(k), at).lastInsertRowid)) })()
     return {
       wait: 0,
       release: () => {
