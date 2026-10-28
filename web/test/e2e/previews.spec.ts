@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const open = async (page: Page, name: string) => {
@@ -24,6 +24,47 @@ test('PDF, Excel, Word and PowerPoint previews render under the app CSP', async 
     panel = await open(page, 'kickoff.pptx')
     await expect(panel).toContainText('Q4 kickoff', { timeout: 15_000 })
   }
+  expect(realErrors(errors)).toEqual([])
+})
+
+// pdf.js 6 draws scanned images (CCITT fax and JBIG2, JPEG 2000) with WebAssembly decoders and text in fonts a PDF
+// does not embed with CMap files, all from /assets/pdfjs-<version>/ (web/src/lib/pdfjs-assets.ts). Without them pdf.js
+// only logs a warning and the page stays blank or loses its text, so this looks at the drawn pixels, the text layer
+// and pdf.js's warnings about its data files, not only at console errors.
+test('PDF preview draws scanned pages and Korean text in a font the file does not embed', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  const warnings: string[] = []
+  page.on('console', (m) => {
+    if (m.type() === 'warning' && /wasmUrl|cMapUrl|standardFontDataUrl|iccUrl|failed to initialize|Unable to (decode|load)|font loading|getJsModule|instantiateWasm|ICC/i.test(m.text())) warnings.push(m.text())
+  })
+  const failed: string[] = []
+  page.on('response', (r) => {
+    if (new URL(r.url()).pathname.startsWith('/assets/') && r.status() >= 400) failed.push(`${r.status()} ${r.url()}`)
+  })
+  await signIn(page)
+  await page.goto('/files?path=docs')
+  const firstPage = (panel: Locator) => panel.locator('.react-pdf__Page canvas').first()
+  // pixels clearly darker than the paper
+  const ink = (panel: Locator) =>
+    firstPage(panel).evaluate((c: HTMLCanvasElement) => {
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+      let n = 0
+      for (let i = 0; i < d.length; i += 4) if (d[i]! + d[i + 1]! + d[i + 2]! < 450) n++
+      return n
+    })
+
+  let panel = await open(page, 'quote-form.pdf')
+  await expect(firstPage(panel)).toBeVisible({ timeout: 15_000 })
+  await expect(panel.locator('.textLayer')).toContainText('견적서 2026')
+  await expect(panel.locator('.textLayer')).toContainText('공급가액 합계 1,500,000원')
+  for (const name of ['scan-fax.pdf', 'scan-jpeg2000.pdf']) {
+    panel = await open(page, name)
+    await expect(firstPage(panel)).toBeVisible({ timeout: 15_000 })
+    await expect.poll(() => ink(panel), { message: `${name}: the scanned image is drawn`, timeout: 10_000 }).toBeGreaterThan(2000)
+  }
+  expect(warnings).toEqual([])
+  expect(failed).toEqual([])
   expect(realErrors(errors)).toEqual([])
 })
 

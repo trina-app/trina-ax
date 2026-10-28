@@ -4,10 +4,12 @@
 // the receiver's CSP names this dev origin; /team-icon: the team's logo); production build to web/dist, which the team server serves (server/src/routes/web.ts).
 // Artifact libraries (React, recharts, lucide, mermaid, Tailwind) are bundled separately into dist/vendor by
 // scripts/build-vendor.ts and served from /vendor/ (artifact frames may not load anything from public CDNs).
+// pdf.js's data files (CMaps, fonts, image decoders) go to dist/assets/pdfjs-<version>/ (scripts/pdfjs-assets.ts).
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import pkg from './package.json' with { type: 'json' }
+import { pdfjsAssets } from './scripts/pdfjs-assets.ts'
 import { productPages } from './scripts/product-pages.ts'
 
 const API_TARGET = process.env.MYCEL_API_TARGET ?? 'http://127.0.0.1:19100'
@@ -17,7 +19,7 @@ export default defineConfig({
   // expo/tsconfig.base, which a clean checkout does not have (mobile/ is not a workspace; vite 8 reads the
   // nearest tsconfig per file otherwise and the build fails with "Tsconfig not found expo/tsconfig.base")
   tsconfig: 'tsconfig.json',
-  plugins: [react(), tailwindcss(), productPages()],
+  plugins: [react(), tailwindcss(), productPages(), pdfjsAssets()],
   define: {
     __WEB_VERSION__: JSON.stringify(pkg.version),
     __WEB_BUILD__: JSON.stringify(process.env.MYCEL_WEB_BUILD ?? new Date().toISOString()),
