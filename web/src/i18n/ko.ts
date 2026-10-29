@@ -117,6 +117,7 @@ export const ko = {
   'home.frequentHint': '최근 30일 동안 내 대화에서 반복한 질문이에요. 선택하면 입력창에 넣어요.',
   'home.frequentSample': '대화가 많아 최근 대화 일부를 기준으로 표시해요.',
   'home.frequentCount': '{count}회',
+  'home.popularSkillsHint': '최근 30일 동안 팀에서 가장 많이 쓴 스킬이에요. 선택하면 입력창에 넣어요.',
   'mobile.saveFailed': '파일을 저장하거나 공유하지 못했어요. 다시 시도해 주세요.',
   'mobile.fileTooLarge': '휴대폰 공유는 50MB 이하 파일을 지원해요.',
   'mobile.externalFailed': '로그인 브라우저를 열지 못했어요.',

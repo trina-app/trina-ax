@@ -2394,3 +2394,13 @@ including same-account installs. Extend the same synthetic selection tests to co
   grep of a CP949 file; re-review: English Windows-1252 smart quotes and dashes, the extension-syllable limits, the
   linear-time parts, forged labels in a docx and pptx body, a FIFO and a hard link for the grep check),
   `web/test/unit/preview-decode.test.ts`.
+## New-chat home shows frequently used skills (B-W7-7, B-W6-5, 2026-10-29)
+
+- **Problem.** QA TEAM-04 and PAR-13 expect the new-chat home to show "자주 쓰는 스킬" with "{n}회 · {m}명" after
+  team members use a shared skill. Only the Skills page showed this section. The home showed only "내가 자주 한 질문".
+- **Decision.** The home shows the same section under the frequent questions, with the top 3 skills. It uses the
+  same `API.popularSkills` data (30 days, only skills the person can read now, counts only). A row puts `/<skill> `
+  in the composer and does not send. The section does not show in a project chat, or when no skill has uses.
+  The Skills page keeps the full list (up to 10) with links.
+- **Tests.** `web/test/unit/popular-skills.test.tsx` (ko/en/id text, top 3, empty), `web/test/e2e/rankings.spec.ts`
+  (home card, composer fill, no turn, no card when empty).

@@ -118,6 +118,7 @@ export const en: Record<MessageKey, string> = {
   'home.frequentHint': 'Questions you repeated in your chats over the last 30 days. Select one to fill the composer.',
   'home.frequentSample': 'Based on a sample of your most recent conversations.',
   'home.frequentCount': '{count} times',
+  'home.popularSkillsHint': 'The skills your team used most in the last 30 days. Select one to fill the composer.',
   'mobile.saveFailed': 'Could not save or share this file. Try again.',
   'mobile.fileTooLarge': 'Mobile sharing supports files up to 50 MB.',
   'mobile.externalFailed': 'Could not open the sign-in browser.',

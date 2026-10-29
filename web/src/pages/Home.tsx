@@ -13,6 +13,7 @@ import { useEngines } from '../store/engines'
 import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
 import Composer, { type EngineChoice } from '../components/chat/Composer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
+import { PopularSkills } from '../components/PopularSkills'
 
 export default function Home() {
   const t = useT()
@@ -104,6 +105,8 @@ export default function Home() {
           />
           {firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {!projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {/* B-W7-7: the team's top skills. A different key from FrequentQuestions: same-key siblings render twice */}
+          {!projectId && <PopularSkills key={`skills-${me.user.id}`} limit={3} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>
