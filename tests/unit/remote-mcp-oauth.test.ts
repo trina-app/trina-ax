@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { RemoteOAuth } from '../../server/src/connectors/remote-mcp/oauth'
+import { RemoteOAuth, connectorOrigin, remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
 import { challenge, hash } from '../../server/src/connectors/remote-mcp/policy'
 import { harness, withOwner, type Harness } from './a-lib'
 
@@ -91,4 +91,29 @@ test('invalid configuration disables OAuth and durable rate limits reject excess
   f.svc.rate('test', 'synthetic-address', 1)
   expect(() => f.svc.rate('test', 'synthetic-address', 1)).toThrow('slow_down')
   expect(JSON.stringify(f.h.ctx.db.query('SELECT * FROM remote_mcp_limits').all())).not.toContain('synthetic-address')
+})
+
+test('connector origin: MYCEL_REMOTE_MCP_ORIGIN first, then server.json appConnectors with tunnel.host, else off', () => {
+  const tunnel = { host: 'team.example.com', allowFrom: [], countries: [] }
+  expect(connectorOrigin({ appConnectors: true, tunnel }, {})).toBe('https://team.example.com')
+  expect(connectorOrigin({ appConnectors: false, tunnel }, {})).toBeNull()
+  expect(connectorOrigin({ appConnectors: true, tunnel: null }, {})).toBeNull()
+  expect(connectorOrigin({ tunnel }, {})).toBeNull()
+  expect(connectorOrigin({ appConnectors: false, tunnel: null }, { MYCEL_REMOTE_MCP_ORIGIN: 'https://env.example.com' })).toBe('https://env.example.com')
+  expect(connectorOrigin({ appConnectors: true, tunnel }, { MYCEL_REMOTE_MCP_ORIGIN: 'https://env.example.com' })).toBe('https://env.example.com')
+  // a set but invalid variable turns connectors off; it does not fall back to the config
+  expect(connectorOrigin({ appConnectors: true, tunnel }, { MYCEL_REMOTE_MCP_ORIGIN: 'http://env.example.com' })).toBeNull()
+  expect(connectorOrigin({ appConnectors: true, tunnel }, { MYCEL_REMOTE_MCP_ORIGIN: '' })).toBe('https://team.example.com')
+})
+
+test('remoteOAuthOf takes the origin from server.json appConnectors + tunnel.host when the variable is not set', async () => {
+  const saved = process.env.MYCEL_REMOTE_MCP_ORIGIN; delete process.env.MYCEL_REMOTE_MCP_ORIGIN
+  const h = await harness('remote-origin-config'); running.push(h)
+  try {
+    h.ctx.config.tunnel = { host: 'team.example.com', allowFrom: [], countries: [] }
+    expect(remoteOAuthOf(h.ctx, {}).origin).toBeNull()
+    h.ctx.config.appConnectors = true
+    expect(remoteOAuthOf(h.ctx, {}).origin).toBe('https://team.example.com')
+    expect(remoteOAuthOf(h.ctx, { origin: 'https://explicit.example.com' }).origin).toBe('https://explicit.example.com')
+  } finally { if (saved !== undefined) process.env.MYCEL_REMOTE_MCP_ORIGIN = saved }
 })

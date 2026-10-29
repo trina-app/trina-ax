@@ -256,7 +256,7 @@ bun run build:bundle:universal   # Apple silicon + Intel in one bundle (--arch u
 ```
 
 This writes `dist/release/` with `VERSION`, `<version>.tar.zst`, `app/<version>/` and `root/`. The version defaults
-to `server/package.json` (0.2.3 for this release). An unsigned local build needs `--allow-unsigned`; published
+to `server/package.json` (0.2.5 for this release). An unsigned local build needs `--allow-unsigned`; published
 release signatures are a separate path. Output examples below using 0.1.0 are historical examples, not the current version.
 `--arch amd64` / `universal` needs the Intel helpers (`ARCHS="arm64 amd64" bun run build:native`, which the
 universal script runs) and downloads the same Bun version for Intel once (checked against Bun's SHASUMS256.txt,
@@ -680,8 +680,8 @@ The full setup:
 git pull && bun install && bun run build && bun run dev:service restart
 ```
 
-**Update (production).** v0.2.3 is available through GitHub Releases, but the Trina update feed is not live.
-A configured feed URL does not imply that it serves releases. Do not rely on automatic updates. To update manually:
+**Update (production).** v0.2.5 is the current release, on GitHub Releases and on the Trina update feed
+(`https://updates.trina.app`, live since 2026-10-29). The feed serves Linux servers and office Macs. To update this server Mac manually:
 - **New version (normal way):** read the running version with `curl -s http://127.0.0.1:47820/api/health`
   (`"version":"0.1.0"`), then build a **higher** one (raise the last number each time: 0.1.1, 0.1.2, …) and run the
   same installer command:
@@ -808,7 +808,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 6. *(fixed 2026-10-21)* Admin → System asks for the relay team name and hides "Team AX relay" while it is not running.
 7. **An office-only server cannot be added in the desktop app.** The app uses the office address once it knows the
    team address (`GET /api/connect-info`, pinned certificate); adding a server by QR code / fingerprint is not built.
-8. **No live Trina release feed.** Use GitHub Releases and re-run the appropriate installer; automatic updates are not available from the public feed.
+8. **The Trina update feed serves Linux servers and office Macs.** The feed (`https://updates.trina.app`) is live since 2026-10-29. For this server Mac, use GitHub Releases and re-run the installer.
 9. *(fixed 2026-10-21)* Socket paths that are too long are named by `bun run dev`, at server start and in Diagnostics.
 10. **Small doc and code mismatch:** the dev Diagnostics sandbox text is out of date.
 11. **Intel Macs:** `bun run build` and dev mode build arm64 helpers by default (`ARCHS=amd64`); the universal

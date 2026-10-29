@@ -215,7 +215,7 @@ figure.shot.w75{ width:75%; }
         <li><b>인터넷 주소</b>로 데스크·집·휴대폰에서 접속(인증서 설치 없음), 채팅·파일·폴더 권한</li>
         <li>인터넷이 끊겨도 사무실 안 주소로(인증서 한 번 설치)</li>
         <li>매일 자동 백업, 외장 디스크 보관본, 다른 맥으로 복원</li>
-        <li><b>GitHub Releases ZIP으로 수동 업데이트</b> (공개 업데이트 피드 미운영)</li>
+        <li><b>업데이트 피드로 밤마다 자동 업데이트</b> (GitHub Releases ZIP으로 수동 설치도 가능)</li>
       </ul></div>
     <div class="bad"><div class="h"><span class="wip">확인 전</span></div>
       <ul>
@@ -393,10 +393,10 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt</pre>
 <section class="chap flow" id="c6">
   <div class="chap-head"><span class="no">06</span><h2>업데이트 · 주소 바꾸기</h2><span class="for">수동 업데이트 · 새 주소</span></div>
   <h3 class="first">GitHub Releases에서 수동 업데이트</h3>
-  <p>v0.2.3은 <a href="https://github.com/trina-app/trina-ax/releases/tag/v0.2.3">GitHub Releases</a>에서 배포해요. 트리나 업데이트 피드는 아직 운영하지 않으므로 자동 업데이트에 의존하지 마세요. 기존 설치를 백업하고 릴리스의 체크섬·서명을 확인한 ZIP으로 설치기를 다시 실행해요.</p>
+  <p>현재 버전은 v0.2.5예요. <a href="https://github.com/trina-app/trina-ax/releases/tag/v0.2.5">GitHub Releases</a>와 트리나 업데이트 피드(2026-10-29부터 운영)에서 배포해요. 맥은 밤마다 피드를 확인해 새 버전을 스스로 설치해요. 바로 설치하려면 <code>~/TeamAX/teamax update now</code>를 실행해요. 손으로 설치하려면 기존 설치를 백업하고 릴리스의 체크섬·서명을 확인한 ZIP으로 설치기를 다시 실행해요.</p>
 <pre class="cmd">cd ~/Downloads
-ditto -x -k TrinaAX-office-0.2.3-mac.zip .
-bash ./TrinaAX-office-0.2.3/office-install.sh
+ditto -x -k TrinaAX-office-0.2.5-mac.zip .
+bash ./TrinaAX-office-0.2.5/office-install.sh
 ~/TeamAX/teamax update status</pre>
   <p>설치기는 앱을 교체하고 기존 데이터·팀 폴더·설정을 유지해요. 인증서가 바뀌었다면 새 데스크 카드로 확인하세요. Windows 설치 파일은 릴리스에서 별도로 받아요. Mac 데스크톱 DMG는 아직 배포하지 않아요. 코드에 있는 웹 업데이트 기능은 운영자가 유효한 피드를 제공해야 작동해요.</p>
 

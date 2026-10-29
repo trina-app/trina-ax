@@ -45,8 +45,10 @@ AI answers should be checked against the source documents.
 
 ## Are automatic updates available?
 
-v0.2.3 is published on GitHub Releases. The Trina update feed is not live; a configured feed URL and update controls
-in the code do not mean releases are being served there. Use the published kit and the installation guide to update.
+Yes. The Trina update feed (`https://updates.trina.app`) is live since 2026-10-29. v0.2.5 is the current release, on
+GitHub Releases and on the feed. Linux servers apply app-only releases by themselves in the update window. Releases
+that change root parts are applied by `mycel-update.timer` daily, or at once with `sudo mycel-ctl update`. Office Macs
+check the feed nightly; `teamax update now` installs at once. There is no Mac desktop DMG yet.
 
 ## Where should I ask for help?
 

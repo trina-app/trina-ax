@@ -18,7 +18,7 @@ flowchart LR
 
 공개 배포본은 [GitHub Releases](https://github.com/trina-app/trina-ax/releases)에 있어요.
 변경과 게시 상태는 [CHANGELOG.md](CHANGELOG.md), 전체 문서 입구는 [docs/README.md](docs/README.md)를 보세요.
-맥 데스크톱 DMG는 Apple 서명·공증 준비 중이라 배포하지 않아요. 사무실용 맥 ZIP은 서버 묶음이에요. v0.2.3은 GitHub Releases에서 배포하며 트리나 업데이트 피드는 아직 운영하지 않아 자동 업데이트에 의존하면 안 돼요.
+맥 데스크톱 DMG는 Apple 서명·공증 준비 중이라 배포하지 않아요. 사무실용 맥 ZIP은 서버 묶음이에요. 현재 버전은 v0.2.5예요. GitHub Releases와 트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포해요. 리눅스 서버와 사무실 맥은 피드에서 업데이트를 받아요.
 준비된 맥에서 약 10분 동안 합성 데이터로 둘러보려면 [빠른 체험 안내(영문)](docs/QUICKSTART.md)를 따라 해 보세요.
 
 ## 기능
