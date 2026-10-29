@@ -18,7 +18,7 @@
   "hono": "4.13.13",
   "xlsx": "0.20.3",
   "typescript": "5.9.3",
-  "codex-cli": "0.165.0",
+  "codex-cli": "0.163.0",
   "pandoc-linux-test-image": "3.9.0.2 (GitHub release .deb)",
   "bun-docker-image": "oven/bun:1.3.12-debian",
   "node-relay": "26.12.1 (relay only: node:http + ws; Node 26 LTS from 2026-10-28, EOL 2029-04-30; code runs on 24+; production installs the hash-pinned tarball, relay/deploy/install-node.sh)",

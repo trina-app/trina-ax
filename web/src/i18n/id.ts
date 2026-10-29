@@ -829,7 +829,7 @@ export const id: Record<MessageKey, string> = {
   'engines.status.ok': 'Terhubung',
   'engines.status.not_installed': 'Belum terpasang',
   'engines.status.not_logged_in': 'Perlu login',
-  'engines.status.version_unsupported': 'Versi tidak didukung',
+  'engines.status.version_unsupported': 'Versi belum diuji',
   'engines.status.lockdown_failed': 'Uji penguncian gagal',
   'engines.status.error': 'Error',
   'engines.status.unknown': 'Belum dicek',

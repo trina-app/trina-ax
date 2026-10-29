@@ -14,19 +14,19 @@
     }
   },
   "codex": {
-    "version": "0.165.0",
+    "version": "0.163.0",
     "linux-amd64": {
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.165.0/codex-x86_64-unknown-linux-musl.tar.gz",
-      "sha256": "be635d3486a5bd060d0fff582ae6d30160280c31344dd85719707fa920e187f0",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4",
       "member": "codex-x86_64-unknown-linux-musl",
-      "size": 115837472
+      "size": 112589966
     },
     "linux-arm64": {
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.165.0/codex-aarch64-unknown-linux-musl.tar.gz",
-      "sha256": "6522e056d0be7f531da915c9a81ae05bc70811b782542499cc0a9776d3abf5d3",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-aarch64-unknown-linux-musl.tar.gz",
+      "sha256": "a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4",
       "member": "codex-aarch64-unknown-linux-musl",
-      "size": 107804617
+      "size": 104950609
     },
-    "modelCatalog": "engines/codex-0.165.0.model_catalog.json"
+    "modelCatalog": "engines/codex-0.163.0.model_catalog.json"
   }
 }

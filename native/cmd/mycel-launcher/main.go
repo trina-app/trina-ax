@@ -577,8 +577,10 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	// Local-login Codex has a home prepared by the server (auth symlink + locked catalog).
 	// Do not erase it as if it were a stale managed login. Only the explicitly enabled
 	// local-login launcher may keep this exact per-chat home; managed/other turns still clean it.
-	localCodexTurn := *localLogin && *localCodex && req.CodexHome == nil &&
-		req.Env["CODEX_HOME"] == filepath.Join(chat, ".codex")
+	localCodexTurn, err := keepLocalCodexHome(req, chat, chatRoot)
+	if err != nil {
+		return err
+	}
 	if !req.CodexAuth && !localCodexTurn {
 		// a Codex turn's <chat>/.codex (a login copy or a placeholder login) is removed when that turn ends; after a
 		// launcher crash or kill it stays. Every other turn here (Claude with its tools, the next Codex turn) must not

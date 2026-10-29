@@ -72,7 +72,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 | ripgrep, pandoc, poppler, typst | | file search, Office/PDF text, PDF output |
 | ffmpeg, whisper-cpp | | voice input (downloads a ~490 MB model on first use) |
 | Claude Code | **2.1.305** (pinned; the lockdown tests run against it) | the Claude engine |
-| Codex CLI (optional) | 0.165.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
+| Codex CLI (optional) | 0.163.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
 | gh | | sign in to GitHub and clone (1.2) |
 
 Check: `bun --version` prints `1.3.12`, `node --version` prints v25 or later, `claude --version` prints

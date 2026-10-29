@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../server/src/db'
-import { codexArgs, writeLockedCatalog, CODEX_VERSION, type CodexConf } from '../../server/src/engine/codex'
+import { codexArgs, catalogModels, CODEX_VERSION, type CodexConf } from '../../server/src/engine/codex'
 import { issueProxyToken, startModelProxy } from '../../server/src/proxy/model-proxy'
 import { createBroker } from '../../server/src/credentials/broker'
 import { makeCredCtx } from '../../server/src/credentials/store'
@@ -85,9 +85,9 @@ db.query("INSERT INTO users (id, username, name, role) VALUES ('owner', 'owner',
 const cc = makeCredCtx({ db, secretsDir: path.join(W, 'secrets'), config: { mode: 'dev', dataDir: W, engine: { authMode: 'managed', modelUpstreams: { chatgpt: up + '/backend-api/codex', openai: up + '/v1', openaiAuth: up } } }, log: { info() {}, warn() {}, error() {} } })
 const G = insertRow(cc, { kind: 'chatgpt', label: 'fake plan', secret: { idToken: 'x.eyJ9.y', accessToken: REAL_ACCESS, refreshToken: 'rt-REAL', accountId: 'acc-real', lastRefresh: new Date().toISOString() }, ownerUserId: null, priority: 100, assignments: [], createdBy: null, meta: { planType: 'pro' } })
 const K = insertRow(cc, { kind: 'openai-api-key', label: 'fake key', secret: { key: 'sk-proj-REALKEY' + 'x'.repeat(30) }, ownerUserId: null, priority: 100, assignments: [], createdBy: null })
-const catalogSrc = path.join(os.homedir(), '.codex', 'models_cache.json')
-const catalog = path.join(W, 'catalog.json')
-const models = fs.existsSync(catalogSrc) ? writeLockedCatalog(catalogSrc, catalog) : (() => { throw new Error('no ~/.codex/models_cache.json (run codex once)') })()
+// Exercise the catalog shipped to Linux, independently of the developer's account/cache.
+const catalog = path.resolve(opt('--catalog') ?? path.join(import.meta.dir, `../../scripts/linux/engines/codex-${CODEX_VERSION}.model_catalog.json`))
+const models = catalogModels(catalog)
 const model = models[0]!
 const proxy = await startModelProxy({ db, broker: createBroker(cc), codexModels: () => models })
 
