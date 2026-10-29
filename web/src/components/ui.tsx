@@ -132,13 +132,16 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutr
 
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'
 
-/** Keep Tab inside `ref` while open; Esc calls onClose; focus returns to the opener on close. */
+/** Keep Tab inside `ref` while open; Esc calls onClose; focus returns to `returnTo` (when still in the page) or else
+ *  to the opener on close. */
 /** Open dialogs, innermost last: only the top one handles Esc / Tab / focus (a prompt over a picker, …). */
 const trapStack: HTMLElement[] = []
 
-export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
+export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boolean, onClose: () => void, returnTo?: HTMLElement | null) {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+  const returnRef = useRef(returnTo)
+  returnRef.current = returnTo
   useLayoutEffect(() => {
     if (!open) return
     const prev = document.activeElement as HTMLElement | null
@@ -178,16 +181,17 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
       document.removeEventListener('focusin', onFocusIn)
       const i = el ? trapStack.lastIndexOf(el) : -1
       if (i >= 0) trapStack.splice(i, 1)
-      prev?.focus?.()
+      const back = returnRef.current
+      ;(back?.isConnected ? back : prev)?.focus?.()
     }
   }, [open, ref])
 }
 
-export function Modal({ open, onClose, title, children, width = 480, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; width?: number; footer?: ReactNode }) {
+export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: string; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
-  useFocusTrap(ref, open, onClose)
+  useFocusTrap(ref, open, onClose, returnTo)
   if (!open) return null
   return (
     // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable
@@ -218,17 +222,28 @@ export function Modal({ open, onClose, title, children, width = 480, footer }: {
 }
 
 // ---------------- confirm / prompt dialogs (promise based) ----------------
-type DialogReq =
+type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
   | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
+)
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
 
+/** A dialog opened from a menu item: the item unmounts when its menu closes, so focus would end on BODY (B-W41-2).
+ *  Find the menu's trigger now, while the menu is still in the page: the expanded control beside the menu. */
+function menuOpener(): HTMLElement | null {
+  const menu = document.activeElement?.closest<HTMLElement>('[role="menu"]')
+  const btns = menu?.parentElement?.querySelectorAll<HTMLElement>('[aria-expanded="true"]') ?? []
+  return [...btns].find((b) => !menu!.contains(b)) ?? null
+}
+
 export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; danger?: boolean }): Promise<boolean> {
-  return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, resolve }))
+  const returnTo = menuOpener()
+  return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
 export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
-  return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, resolve }))
+  const returnTo = menuOpener()
+  return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, returnTo, resolve }))
 }
 
 export function DialogHost() {
@@ -253,6 +268,7 @@ export function DialogHost() {
       open
       onClose={() => close(false)}
       title={req.title}
+      returnTo={req.returnTo}
       footer={
         <>
           <Button variant="ghost" onClick={() => close(false)}>

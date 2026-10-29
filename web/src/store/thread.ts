@@ -2,7 +2,8 @@
 //
 // Streaming rules (ws.ts): message.delta.offset is the character position in message.content where the text
 // starts. The server saves streaming answers every 0.3 s, so after a REST reload we may already have part of a
-// delta: overlap is cut by offset. A delta that starts beyond what we have means we missed one → reload.
+// delta: overlap is cut by offset. A delta that starts beyond what we have means we missed one → reload. A delta
+// with `reset` cuts the text at its offset first (the server discarded a refused attempt's partial answer).
 import type { Message, Step, TurnStarted } from '@mycel/shared/api'
 
 /** A message as the page keeps it: the server's shape plus, for a message still being sent, local state. */
@@ -24,7 +25,7 @@ export interface Thread {
 
 export const emptyThread = (): Thread => ({ messages: [], nextCursor: null, stale: false })
 
-export interface Delta { messageId: string; offset: number; text: string }
+export interface Delta { messageId: string; offset: number; text: string; reset?: true }
 
 export type DeltaResult = { kind: 'applied'; messages: ViewMessage[] } | { kind: 'unknown' } | { kind: 'gap' } | { kind: 'ignored' }
 
@@ -35,6 +36,11 @@ export function applyDelta(messages: ViewMessage[], d: Delta): DeltaResult {
   if (m.status !== 'streaming') return { kind: 'ignored' } // late delta after done
   const have = m.content.length
   if (d.offset > have) return { kind: 'gap' }
+  if (d.reset) { // the text from offset on was discarded (a refused attempt before the retry)
+    const next = messages.slice()
+    next[i] = { ...m, content: m.content.slice(0, d.offset) + d.text }
+    return { kind: 'applied', messages: next }
+  }
   const end = d.offset + d.text.length
   if (end <= have) return { kind: 'ignored' } // already have all of it
   const add = d.text.slice(have - d.offset)

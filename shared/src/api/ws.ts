@@ -120,8 +120,9 @@ export type FileChange = z.infer<typeof FileChange>
 export const ServerEvent = z.discriminatedUnion('type', [
   /** a message appeared that this window didn't create (another window/device of the same person) */
   ev('message.created', z.object({ chatId: Uuid7, message: Message })),
-  /** answer text; offset = position in message.content where `text` starts */
-  ev('message.delta', z.object({ chatId: Uuid7, messageId: Uuid7, offset: z.number().int().nonnegative(), text: z.string() })),
+  /** answer text; offset = position in message.content where `text` starts. reset: the text from offset on is
+   * discarded first (a refused attempt's partial answer before the retry), then `text` follows */
+  ev('message.delta', z.object({ chatId: Uuid7, messageId: Uuid7, offset: z.number().int().nonnegative(), text: z.string(), reset: z.literal(true).optional() })),
   /** tool step started / updated / ended (same step.id) */
   ev('message.step', z.object({ chatId: Uuid7, messageId: Uuid7, step: Step })),
   /** finished: done / error / stopped; the full final message (content, steps, file summary, usage) */

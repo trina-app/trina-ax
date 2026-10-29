@@ -192,7 +192,8 @@ try {
 const failed = checks.filter((c) => !c.ok).length
 const report = opt('--report')
 if (report) {
-  const version = Bun.spawnSync([codexBin, '--version']).stdout.toString().match(/\d+\.\d+\.\d+/)?.[0] ?? null
+  // the same version form as server/src/admin/engines.ts versionOf (prerelease kept), so the admin matches this report
+  const version = Bun.spawnSync([codexBin, '--version']).stdout.toString().match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?/)?.[0] ?? null
   fs.mkdirSync(path.dirname(report), { recursive: true })
   fs.writeFileSync(report, JSON.stringify({ ok: failed === 0, version, checkedAt: new Date().toISOString(), scope: 'real-cli-fake-provider', checks }, null, 2) + '\n')
 }

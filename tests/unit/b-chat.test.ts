@@ -285,6 +285,21 @@ describe('engine trouble', () => {
     expect(r.done.steps.some((s) => s.tool === 'refusal')).toBe(true)
     await alice.next('notice', (f) => f.data.code === 'engine_refused_retry')
   })
+  test('refusal after some text: the retry replaces the declined text (streamed and saved), the step stays (B-W5-2)', async () => {
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'first summary' }, { refuseUnless: 'sonnet' }, { echo: 'model' }))
+    expect(r.done.status).toBe('done')
+    expect(r.done.content).toBe('first summarymodel=sonnet')
+    expect(r.done.steps.some((s) => s.tool === 'refusal')).toBe(true)
+    // the client builds the text from the deltas: a reset delta cuts the declined text first
+    const deltas = alice.frames.filter((f) => f.type === 'message.delta' && f.data.messageId === r.done.id) as Extract<(typeof alice.frames)[number], { type: 'message.delta' }>[]
+    let text = ''
+    for (const d of deltas) text = (d.data.reset ? text.slice(0, d.data.offset) : text) + d.data.text
+    expect(deltas.some((d) => d.data.reset)).toBe(true)
+    expect(text).toBe('first summarymodel=sonnet')
+    const page = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
+    expect(page.items.at(-1)!.content).toBe('first summarymodel=sonnet')
+  })
   test('crash before any output -> retried once', async () => {
     const chat = await newChat()
     const r = await ask(h, alice, 'alice', chat.id, fake({ crashOnce: true }, { say: 'survived' }))
