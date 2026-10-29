@@ -2536,7 +2536,11 @@ including same-account installs. Extend the same synthetic selection tests to co
   workbook is refused and nothing is saved: `[...]` (external workbooks), `|` (DDE), `\` (paths), and the functions
   `HYPERLINK`, `WEBSERVICE`, `FILTERXML`, `INDIRECT`, `RTD`, `CALL`, `REGISTER`, `EXEC`, `IMAGE`, `CELL`, `INFO`,
   `STOCKHISTORY` and the `IMPORT*` functions. Text in double quotes is not checked. The error names the sheet and
-  the cell and tells the AI to use `'=` for text.
+  the cell and tells the AI to use `'=` for text. A formula that starts with `==` or has unmatched parentheses is
+  refused too, because Excel opens such a file only after a repair.
+- **Preview and read.** SheetJS does not calculate, and it drops a formula cell without a result. The file preview
+  (`OfficeView.tsx`) and `read` / `grep` text (`office-parse.ts`) read stub cells and show such a cell as its
+  formula (`=SUM(B2:E2)`), not as a blank. Other stub cells are dropped as before.
 - **Changed behavior.** A CSV or Markdown cell that starts with `=` was text before and is a formula now.
 - **Tests.** `tests/unit/c-tools.test.ts`: `<f>` nodes in the sheet XML, a cross-sheet reference, `_xlfn.XLOOKUP`,
   `fullCalcOnLoad="1"`, the `'=` escape, and each refused form writes no file.

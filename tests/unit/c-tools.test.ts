@@ -153,6 +153,10 @@ describe('make_file', () => {
     const wb = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')))
     expect(wb.Sheets['지역별']!.B5.v).toBe('=SUM(A1)') // the apostrophe escape: plain text, no formula
     expect(wb.Sheets['지역별']!.B5.f).toBeUndefined()
+    // read / grep show a formula cell as its formula, not as a blank
+    const text = await extractText('f.xlsx', fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')), { pandoc: null, pdftotext: null, ocr: null } as any)
+    expect(text).toContain('서울\t10\t20\t30\t40\t=SUM(B2:E2)')
+    expect(text).toContain('=XLOOKUP(')
 
     for (const [bad, why] of [
       ["=cmd|'/c calc'!A1", 'DDE'], ['=[1]Sheet1!A1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
@@ -167,6 +171,9 @@ describe('make_file', () => {
     // text inside "quotes" is not checked as code; an unclosed quote is refused
     expect(formulaOf('IF(A1="a|b[c]","HYPERLINK(",1)')).toEqual({ formula: 'IF(A1="a|b[c]","HYPERLINK(",1)' })
     expect(formulaOf('"abc')).toHaveProperty('error')
+    expect(formulaOf('SUM(B2')).toEqual({ error: 'the parentheses of the formula do not match' })
+    expect(formulaOf('== note ==')).toHaveProperty('error')
+    expect(formulaOf("'S (1)'!A1+SUM(A1:A2)")).toEqual({ formula: "'S (1)'!A1+SUM(A1:A2)" })
     expect([cellValue('=SUM(A1:A2)'), cellValue("'=x"), cellValue('='), cellValue("'quoted'")]).toEqual([{ formula: 'SUM(A1:A2)' }, '=x', '=', "'quoted'"])
   })
   test('source file and team images (only readable ones) work; an existing file gets a conflict copy unless read this turn', async () => {

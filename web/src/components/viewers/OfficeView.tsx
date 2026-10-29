@@ -2,6 +2,7 @@
 // @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import type { CellObject } from 'xlsx'
 import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
 import { SHEET_PREVIEW_ROWS, firstVisibleSheet, sheetMeta, type SheetMeta } from '../../lib/sheetPreview'
@@ -113,7 +114,15 @@ export function SheetView({ blob }: { blob: Blob }) {
     setError(null)
     ;(async () => {
       const XLSX = await import('xlsx')
-      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS })
+      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS, sheetStubs: true })
+      // a formula cell without a stored result (make_file writes these) shows its formula, not a blank
+      for (const name of wb.SheetNames) {
+        for (const row of (wb.Sheets[name] as { '!data'?: (CellObject | undefined)[][] })['!data'] ?? []) {
+          row?.forEach((c, j) => {
+            if (c?.t === 'z') row[j] = c.f ? { t: 's', v: `=${c.f}`, w: `=${c.f}` } : undefined
+          })
+        }
+      }
       // sheet_to_html escapes cell text (cell hyperlinks become <a href>: useSafeLinks); the editable flag stays off
       // Hidden sheets stay in the tabs with a badge; a sheet cut at the row limit shows a notice (R2-FMT-06/07).
       const out = sheetMeta(wb, XLSX.utils.decode_range).map((m) => ({ ...m, html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
