@@ -465,7 +465,9 @@ export class MockServer {
     if (/artifact|react/i.test(prompt)) {
       const react = /react/i.test(prompt)
       const key = react ? 'counter' : 'hello-page'
-      const content = react
+      const content = react && /d3/i.test(prompt)
+        ? 'import * as d3 from "d3"\nexport default function App() {\n  return <p>{d3.sum([1, 2])}</p>\n}\n'
+        : react
         ? 'import { useState } from "react"\nimport { Plus } from "lucide-react"\nexport default function App() {\n  const [n, setN] = useState(0)\n  return <button className="rounded bg-emerald-600 px-3 py-2 text-white" onClick={() => setN(n + 1)}><Plus size={14} /> count {n}</button>\n}\n'
         : /broken/i.test(prompt)
           ? '<h1>Broken</h1><script>throw new Error("boom")</script>'

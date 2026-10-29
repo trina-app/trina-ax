@@ -322,6 +322,8 @@ export const en: Record<MessageKey, string> = {
   'artifact.fixAsked': 'Asked',
   'artifact.busy': 'The AI is still answering',
   'artifact.fixPrompt': 'The artifact "{title}" (id: {key}, v{version}) fails when it runs:\n\n{error}\n\nPlease find the cause and fix it.',
+  'artifact.fixPromptBuild': 'The artifact "{title}" (id: {key}, v{version}) cannot be shown:\n\n{error}\n\nPlease find the cause and fix it.',
+  'artifact.buildFailed': 'The artifact cannot be shown. See the error above.',
   'artifact.unsupportedImports': 'Unsupported imports: {list} (only react, react-dom, lucide-react and recharts are available)',
   'artifact.compileError': "Couldn't compile the code: {message}",
   'artifact.noDefaultExport': 'The component must be the default export.',

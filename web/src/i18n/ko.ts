@@ -321,6 +321,8 @@ export const ko = {
   'artifact.fixAsked': '요청함',
   'artifact.busy': 'AI가 아직 답변 중이에요',
   'artifact.fixPrompt': '아티팩트 "{title}"(id: {key}, v{version})를 실행하면 오류가 나요:\n\n{error}\n\n원인을 찾아서 고쳐 줘.',
+  'artifact.fixPromptBuild': '아티팩트 "{title}"(id: {key}, v{version})를 표시할 수 없어요:\n\n{error}\n\n원인을 찾아서 고쳐 줘.',
+  'artifact.buildFailed': '아티팩트를 표시할 수 없어요. 위의 오류를 확인하세요.',
   'artifact.unsupportedImports': '지원하지 않는 import예요: {list} (react, react-dom, lucide-react, recharts만 쓸 수 있어요)',
   'artifact.compileError': '코드를 변환하지 못했어요: {message}',
   'artifact.noDefaultExport': '컴포넌트를 default export 해야 해요.',

@@ -322,6 +322,8 @@ export const id: Record<MessageKey, string> = {
   'artifact.fixAsked': 'Sudah diminta',
   'artifact.busy': 'AI masih menjawab',
   'artifact.fixPrompt': 'Artefak "{title}" (id: {key}, v{version}) error saat dijalankan:\n\n{error}\n\nTolong cari penyebabnya dan perbaiki.',
+  'artifact.fixPromptBuild': 'Artefak "{title}" (id: {key}, v{version}) tidak bisa ditampilkan:\n\n{error}\n\nTolong cari penyebabnya dan perbaiki.',
+  'artifact.buildFailed': 'Artefak tidak bisa ditampilkan. Lihat error di atas.',
   'artifact.unsupportedImports': 'Import tidak didukung: {list} (hanya react, react-dom, lucide-react, dan recharts)',
   'artifact.compileError': 'Kode tidak bisa dikompilasi: {message}',
   'artifact.noDefaultExport': 'Komponen harus di-default-export.',
