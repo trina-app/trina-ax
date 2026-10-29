@@ -196,10 +196,11 @@ The feature flag is the immediate disable switch. This slice does not approve ge
 
 Do not enable or describe this revision as release-approved. Raw grep still traverses permitted
 directories and filters quarantined matches only after ripgrep has consumed the file; it does
-not yet implement the required quarantine boundary before search consumption. Also, grep-only
-reads record paths/scopes but not immutable content versions, so final publication cannot reject
-a changed or deleted grep-only source. These are unresolved 1A acceptance requirements, not
-features deferred to general execution. Semantic indexing now excludes quarantined files before
+not yet implement the required quarantine boundary before search consumption. This remains an
+unresolved 1A acceptance requirement, not a feature deferred to general execution. Grep-only
+reads retain paths/scopes but no immutable content version: final publication now refuses them
+until the model explicitly reads each source. It never binds an earlier grep result to a newly
+taken snapshot without that read. Semantic indexing now excludes quarantined files before
 reading and drops their retained index rows; historical downloads enforce the same browser
 Fetch Metadata restrictions as current-file downloads.
 

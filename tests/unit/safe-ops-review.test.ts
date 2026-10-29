@@ -92,6 +92,20 @@ test('cancellation during approval cannot publish after a late answer',async()=>
  answer();await Promise.resolve()
  expect(fs.existsSync(path.join(A.team,'users/alice/late.pptx'))).toBe(false)
 })
+
+test('grep-only context requires an explicit versioned read before artifact approval',async()=>{
+ const rel='users/alice/grep-source.txt',c=A.toolCtx('alice',A.turn('alice',A.chat('alice')))
+ fs.writeFileSync(path.join(A.team,rel),'REVIEW_GREP_SOURCE immutable source needed')
+ const result=await A.ctx.files.grep(c,{pattern:'REVIEW_GREP_SOURCE',path:'users/alice',output_mode:'content',head_limit:20})
+ expect(result.text).toContain('REVIEW_GREP_SOURCE')
+ expect(c.files.readPaths.has(rel)).toBe(true)
+ expect(c.files.readHashes.has(rel)).toBe(false)
+ fs.unlinkSync(path.join(A.team,rel))
+ let approved=false
+ await expect(publishArtifact(A.ctx,componentC(A.ctx).files,c,'users/alice/grep-derived.pptx',qbytes,[],async()=>{approved=true})).rejects.toThrow()
+ expect(approved).toBe(false)
+ expect(fs.existsSync(path.join(A.team,'users/alice/grep-derived.pptx'))).toBe(false)
+})
 test('workflow admission spans awaited stages and charges cumulative jobs',async()=>{
  const c=A.toolCtx('bob',A.turn('bob',A.chat('bob')))
  let release!:()=>void, started!:()=>void

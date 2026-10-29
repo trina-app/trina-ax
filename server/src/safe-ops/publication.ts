@@ -42,6 +42,12 @@ export async function publishArtifact(
  approve:(target:string, sources:string[], binding:string)=>Promise<void>,
 ) {
  const db=ctx.db, bytes=Buffer.from(data), hash=sha256(bytes), id=crypto.randomUUID()
+ // grep/search retain scope but do not capture immutable source versions. Require
+ // an explicit read before deriving a published artifact from any such result.
+ // Taking a fresh snapshot now would falsely bind old model context to new bytes.
+ for (const rel of c.files.readPaths) {
+   if (!c.files.readHashes.has(rel)) throw changed()
+ }
  // Model-authored text may derive from earlier reads in this turn, even without
  // explicit Markdown image/source references. Bind and recheck those versions too.
  sources=[...sources]
