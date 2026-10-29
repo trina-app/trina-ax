@@ -202,10 +202,11 @@ function registerIpc() {
     if (!fromApp(e)) return errorResult(callId, 'The browser pane is not available to this page.')
     if (!call.success) return errorResult(callId, 'Malformed browser call.')
     if (!win!.pane) return errorResult(call.data.callId, 'The browser pane is not available (no team is open).')
+    const pane = win!.pane
     // the pane's data must belong to the person signed in now (common/browser-owner.ts)
-    await win!.ensureBrowserOwner().catch(() => {})
-    if (!win!.pane) return errorResult(call.data.callId, 'The browser pane is not available (no team is open).')
-    return win!.pane.run(call.data)
+    if (!(await win!.ensureBrowserOwner().catch(() => false))) return errorResult(call.data.callId, 'The browser identity could not be verified. Sign in and try again.')
+    if (!fromApp(e) || win!.pane !== pane) return errorResult(call.data.callId, 'The browser pane changed while identity was checked. Try again.')
+    return pane.run(call.data)
   })
   ipcMain.on('bridge:browser-cancel', (e, callId: string) => fromApp(e) && win!.pane?.cancel(String(callId)))
   ipcMain.on('bridge:pane', (e, what: string) => {

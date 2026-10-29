@@ -45,10 +45,19 @@ test('another person on the same team gets an empty in-app browser: no cookies, 
     expect(text(await run(ACME, 'get_page_text'))).toContain('fixture=1')
     expect((await get()).always).toEqual(['shop.test:19153'])
 
+    // A failed identity read must not use the previous successful result.
+    await page.evaluate(() => fetch('/test/me-unavailable?on=1'))
+    try {
+      newTurn()
+      const refused = await run(ACME, 'get_page_text')
+      expect(refused.result.ok).toBe(false)
+      expect(text(refused)).toContain('identity could not be verified')
+    } finally { await page.evaluate(() => fetch('/test/me-unavailable?on=0')) }
+
     // raka signs out and seungju signs in on the same desk, without a page reload
     await page.evaluate(() => fetch('/test/logout'))
     await page.evaluate(() => fetch('/test/login?user=seungju'))
-    await page.waitForTimeout(6000) // the last /api/me read is older than the 5 s check interval
+    // No grace period: the first call from the new person must already be isolated.
     newTurn()
     const second = await call(ACME, 'navigate', { url: `${SHOP}/cookie` })
     // the site is no longer allowed: seungju is asked

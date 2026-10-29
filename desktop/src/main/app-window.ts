@@ -59,8 +59,6 @@ export interface AppWindowOptions {
 const MIN_PANE = 360
 const MIN_APP = 420
 const RECHECK_MS = 60_000
-/** before a browser call, who is signed in is read again when the last read is older than this */
-const OWNER_CHECK_MS = 5_000
 /** a settings read from the team page re-reads the team's policy at most this often */
 const POLICY_READ_MS = 5_000
 /** after the "Allow all websites" dialog closes, another request is refused this long (no dialog right under a click) */
@@ -87,7 +85,7 @@ export class AppWindow {
   /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
   private lanReported = new Map<string, number>()
   /** GET /api/me in flight (team name and browser policy), and when the last one started */
-  private teamInfo?: { p: Promise<void>; pane?: BrowserPane }
+  private teamInfo?: { p: Promise<boolean>; pane?: BrowserPane }
   private teamInfoAt = 0
   /** the "Allow all websites" dialog is open, or closed less than ALLOW_ALL_COOLDOWN_MS ago */
   private allowAllOpen = false
@@ -384,11 +382,11 @@ export class AppWindow {
    * team page loads, every RECHECK_MS, when the team page reads Settings > Browser, and right before the "Allow all
    * websites" dialog. One request at a time. Signed out, offline or an older server (no field): the last policy stays.
    */
-  refreshTeamInfo(): Promise<void> {
+  refreshTeamInfo(): Promise<boolean> {
     // a read still running for the team that was open before does not count for this one
     if (!this.teamInfo || this.teamInfo.pane !== this.pane) {
       this.teamInfoAt = Date.now()
-      const p: Promise<void> = this.fetchTeamInfo().finally(() => {
+      const p: Promise<boolean> = this.fetchTeamInfo().finally(() => {
         if (this.teamInfo?.p === p) this.teamInfo = undefined
       })
       this.teamInfo = { p, pane: this.pane }
@@ -399,16 +397,16 @@ export class AppWindow {
   private async fetchTeamInfo() {
     const team = this.team
     const pane = this.pane
-    if (!team || !this.app || !this.currentOrigin) return
+    if (!team || !this.app || !this.currentOrigin) return false
     try {
       const res = await this.app.webContents.session.fetch(`${this.currentOrigin}/api/me`, { signal: AbortSignal.timeout(5000) })
       if (res.status === 401) {
         if (this.team?.id === team.id) await this.checkBrowserOwner(team.id, pane, { signedIn: false })
-        return
+        return false
       }
-      if (!res.ok) return
+      if (!res.ok) return false
       const me = Me.safeParse(await res.json())
-      if (!me.success || this.team?.id !== team.id) return
+      if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
       const allowAll = me.data.team.browserAllowAll
       if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
@@ -417,8 +415,10 @@ export class AppWindow {
         this.team = findTeam(this.teams, team.id)
         this.updateTitle()
       }
+      return true
     } catch {
-      // signed out or offline: keep the label
+      // Keep the label offline, but a browser call must not use an unverified identity.
+      return false
     }
   }
 
@@ -439,7 +439,7 @@ export class AppWindow {
       } else {
         // the pane is not open for this team: clear its stored data directly
         const ses = session.fromPartition(partitionFor(teamId, 'browser'))
-        await Promise.all([ses.clearStorageData().catch(() => {}), ses.clearCache().catch(() => {}), ses.clearAuthCache().catch(() => {})])
+        await Promise.all([ses.clearStorageData(), ses.clearCache(), ses.clearAuthCache()])
         const saved = new SitePermissions(this.o.store.loadPermissions(teamId))
         if (saved.resetForNewPerson()) this.o.store.savePermissions(teamId, saved.toJSON())
       }
@@ -447,13 +447,11 @@ export class AppWindow {
     if (change.clear || this.o.store.loadBrowserOwner(teamId) !== change.owner) this.o.store.saveBrowserOwner(teamId, change.owner)
   }
 
-  /**
-   * Before the AI uses the in-app browser: make sure the pane's data belongs to the person signed in now (a new
-   * sign-in does not always reload the team page). Reads GET /api/me at most every OWNER_CHECK_MS.
-   */
-  async ensureBrowserOwner(): Promise<void> {
-    if (Date.now() - this.teamInfoAt > OWNER_CHECK_MS) await this.refreshTeamInfo()
-    else if (this.teamInfo) await this.teamInfo.p
+  /** A fresh identity check for every AI browser call, including immediately after a session switch.
+   * A read that began earlier may carry the old session, so finish it before starting this one. */
+  async ensureBrowserOwner(): Promise<boolean> {
+    if (this.teamInfo) await this.teamInfo.p
+    return this.refreshTeamInfo()
   }
 
   // ------------------------------------------------------------- connection

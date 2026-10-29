@@ -66,6 +66,7 @@ interface Team {
   browserAllowAll?: boolean
   /** GET /api/me requests that carried the team session (the app reads the policy there) */
   meHits: number
+  meUnavailable?: boolean
 }
 const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [], meHits: 0 })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
@@ -137,7 +138,9 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     t.skewMs = Number(((await req.json()) as { ms?: number }).ms ?? 0)
     return json({ ok: true })
   }
+  if (p === '/test/me-unavailable') { t.meUnavailable = url.searchParams.get('on') === '1'; return json({ ok: true }) }
   if (p === '/api/me') {
+    if (t.meUnavailable) return json({ error: { code: 'unavailable', message: 'fixture unavailable' } }, 503)
     if (!sessionCookie(req)) return json({ error: { code: 'unauthorized', message: 'sign in' } }, 401)
     t.meHits++
     return json(me(t, sessionUser(req)))

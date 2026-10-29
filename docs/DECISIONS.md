@@ -1502,7 +1502,7 @@ seungju signed in to the same team and the pane still had raka's cookie and "alw
 - `<userData>/teams/<teamId>/browser-owner.json` keeps the user id the pane's data belongs to
   (`desktop/src/common/browser-owner.ts`).
 - The app reads GET /api/me when the team page loads, when its route changes (sign-in and sign-out are in-page),
-  every minute, and before each AI browser call (at most every 5 s). Another person signed in, a sign-out (401), or
+  every minute, and before every AI browser call (a fresh identity check). Another person signed in, a sign-out (401), or
   data from before this check: the pane ends running calls, closes its tabs, forgets allowed sites, "all" and kept
   results, and clears its cookies, storage, cache and HTTP logins (`BrowserPane.resetForNewPerson`). The team policy
   stays.
@@ -1525,8 +1525,8 @@ file tools only had `write` (text) for putting bytes anywhere.
   newly read the items in the target folder and, for a move, those who would lose them (each person once, never
   named). If either is above 0 the server asks the person once for the whole call on its own card (`ToolCtx.person`,
   like web_fetch's address card), never through the AI's ask_user, so an instruction hidden in a document cannot
-  answer it. With nobody to ask (scheduled runs, MCP without a chat person) such a call is refused. A narrowing that
-  appears after the question fails that item (the move is confirmed only for what the person saw).
+  answer it. With nobody to ask (scheduled runs, MCP without a chat person) such a call is refused. Any reader-set change that
+  appears after the question fails that item, including a newly active reader or a same-count replacement.
 - **skills/** is out of reach for these tools both ways: team skills and rules change only through write / edit with
   the person's approval card, or on the Files screen.
 - The file history and tool audit say which chat turn did it and with which tool (`detail.tool`, `turn_id`); the
@@ -1881,3 +1881,9 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 ## PowerPoint distribution notices (2026-10-29)
 
 The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.
+
+
+## Immediate identity and audience rechecks (2026-10-29)
+
+- Desktop browser calls require a fresh successful identity check. A five-second cached check let a newly signed-in person use the previous person's cookies and allowed sites; the regression now switches immediately, without its former six-second wait. Offline/invalid identity checks or failed storage clearing refuse the AI browser call, and the owner marker advances only after clearing succeeds. Normal desktop data remains per team; changing people clears that team's embedded browser sessions.
+- AI file moves/copies retain a fingerprint of each item's source and destination reader sets and recheck before each mutation. A change during a confirmation (including account activation with permissions unchanged) refuses that item and requires a new call. Actual source/destination permissions and filesystem chains are still checked per item. New regressions verify both operations and refuse symlink sources/destinations for move/copy/rename.

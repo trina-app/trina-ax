@@ -56,10 +56,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     if (inSkills(folder)) throw new ToolError(SKILLS)
     // each path on its own first: one the person may not use fails alone, the rest go on
     const ok: string[] = []
+    const audiences = new Map<string, string>()
     const failed: { path: string; error: string }[] = []
     for (const p of [...new Set(a.paths.map(clean))]) {
       if (inSkills(p)) { failed.push({ path: p, error: SKILLS }); continue }
-      try { svc.audienceChange(tc.user.id, [p], folder, mode); ok.push(p) } catch (e) { failed.push({ path: p, error: why(e) }) }
+      try { audiences.set(p, svc.audienceChange(tc.user.id, [p], folder, mode).fingerprint); ok.push(p) } catch (e) { failed.push({ path: p, error: why(e) }) }
     }
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
     if (!ok.length) throw new ToolError(`nothing was ${verb}:\n${lines(failed)}`)
@@ -83,6 +84,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     for (const p of ok) {
       if (tc.signal?.aborted) { failed.push({ path: p, error: 'cancelled' }); continue }
       try {
+        if (svc.audienceChange(tc.user.id, [p], folder, mode).fingerprint !== audiences.get(p)) {
+          throw new ToolError('the audience changed while this call waited; nothing was changed for this item. Ask again with the current audience.')
+        }
         if (mode === 'move') {
           // confirm only what the person saw: a narrowing that appears after the question fails this item
           const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && lost > 0, turnId: tc.turnId, tool })
