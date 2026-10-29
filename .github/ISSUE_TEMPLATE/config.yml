@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report / 보안 신고
+    url: https://github.com/trina-app/trina-ax/blob/main/SECURITY.md
+    about: Report vulnerabilities privately to contact@trina.app. Do not post sensitive details in an issue.
+  - name: Setup guide / 설치 안내
+    url: https://github.com/trina-app/trina-ax/blob/main/docs/README.md
+    about: Read the installation guides and FAQ before reporting a setup problem. English and Korean are welcome.

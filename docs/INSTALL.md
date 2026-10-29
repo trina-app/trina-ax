@@ -1,14 +1,18 @@
-# Installing Team AX
+# Installing Trina AX on a Mac
 
-Team AX runs on one Mac, the **server Mac**. That Mac runs the team server and the AI engines: Claude Code on the
-owner's Claude subscription, and optionally the Codex CLI on a ChatGPT login. Team members use the web app, the
-Mac or Windows desktop app, or a phone browser.
+This guide covers the **server Mac**. It runs the team server and AI engines, Claude Code and the Codex CLI.
+Team members use the web app, desktop clients or a phone browser. For a synthetic local preview, start with the
+[quickstart](QUICKSTART.md). For a Linux server, use [INSTALL-LINUX.md](INSTALL-LINUX.md).
 
 Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on macOS 26.3.1 (Apple Silicon). A Korean, illustrated version for
-the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](install/Team-AX-설치가이드.pdf) (source
+the person who installs it is in [Korean installation guide](install/guide.html) (source
 `docs/install/guide.html`, rebuild with `bun docs/install/build-pdf.ts`).
 
-## Status: what works today
+## Historical validation notes (2026-10-21)
+
+The table below records the original Mac validation session, not current release availability. Published kits and
+installers are listed in [GitHub Releases](https://github.com/trina-app/trina-ax/releases); the Mac desktop DMG is
+still pending Apple signing and notarization. Later feature and test records are in [DECISIONS.md](DECISIONS.md).
 
 | | Status |
 |---|---|
@@ -21,7 +25,7 @@ the person who installs it is in [docs/install/Team-AX-설치가이드.pdf](inst
 | Reaching a dev-mode server from another computer or phone | Not possible: the server listens on 127.0.0.1 only. Use **office mode** instead |
 | Desktop apps (Mac, Windows) on other computers | Not possible yet: they need the public team address; today they connect only on the server Mac itself |
 | Phones | Production office address only; not tested |
-| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md), printable PDF [office/Team-AX-사무실모드-설치가이드.pdf](office/Team-AX-사무실모드-설치가이드.pdf)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
+| Office mode: one Mac, desks on the office network over https, chats included ([OFFICE.md](OFFICE.md), printable [office HTML guide](office/guide.html)) | Works (tested from the zip on one Mac over its LAN address; Windows desks not tested here) |
 
 **Production chats (subscription mode).** The installer writes `engine.authMode: "subscription"`. Claude Code runs
 as the hidden engine account `_axagent` under the sandbox and pf; the only address it can reach is the server's
@@ -37,9 +41,10 @@ There is **no email** anywhere, by design. Invites and password resets are links
 
 - A Mac that stays on and plugged in. Apple Silicon is recommended; Intel needs one extra build step.
 - macOS: checked on 26.3.1. The menubar app needs macOS 13+.
-- A **Claude Pro or Max** subscription. All of the team's AI use comes out of it, so **everyone shares that one
-  subscription's usage limits**; when they are reached, nobody gets AI answers until they reset. A ChatGPT
-  subscription for Codex is optional.
+- For AI chat, a supported Claude Code or Codex CLI connection. Development mode uses your local CLI login.
+  Managed installations support Claude subscriptions, Anthropic API keys, ChatGPT logins and OpenAI API keys,
+  with team assignments and optional personal connections; see [2.3a](#23a-ai-connections-owner-from-the-web).
+  Provider terms, limits and costs apply to the account used.
 - A Mac admin account. Dev mode asks for its password once, in the Homebrew installer; the production install asks on
   every `sudo`.
 - The source code: `git clone https://github.com/trina-app/trina-ax.git` (public, AGPL-3.0-only).
@@ -73,7 +78,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 | ffmpeg, whisper-cpp | | voice input (downloads a ~490 MB model on first use) |
 | Claude Code | **2.1.305** (pinned; the lockdown tests run against it) | the Claude engine |
 | Codex CLI (optional) | 0.163.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
-| gh | | sign in to GitHub and clone (1.2) |
+| Git | | clone the public repository (1.2); GitHub CLI is optional |
 
 Check: `bun --version` prints `1.3.12`, `node --version` prints v25 or later, `claude --version` prints
 `2.1.305 (Claude Code)`.
@@ -85,17 +90,14 @@ before a production install, because the installer copies whatever version it is
 ### 1.2 Clone and build
 
 ```sh
-gh auth login        # GitHub.com → HTTPS → Y → Login with a web browser
 cd ~
-gh repo clone potenlab/team-ax
-cd team-ax
-bun install          # "1579 packages installed"
+git clone https://github.com/trina-app/trina-ax.git
+cd trina-ax
+bun install --frozen-lockfile
 bun run build        # native/bin/<platform> and web/dist, ~10 s
 ```
 
-With an SSH key on GitHub, `git clone git@github.com:potenlab/team-ax.git` works too; a Mac with several GitHub
-accounts uses its `~/.ssh/config` alias (`git@<alias>:potenlab/team-ax.git`). Without an SSH key, the plain `git@`
-form fails with "Please make sure you have the correct access rights".
+The public HTTPS clone does not require a GitHub login.
 
 On an Intel Mac, also run `ARCHS=amd64 bun run build:native` (`ARCHS="arm64 amd64"` builds both plus a universal
 copy). `native/build.sh` builds arm64 only by default, and without this step every chat ends with "engine
@@ -118,10 +120,9 @@ bun run dev
 The setup link sits inside that JSON log line, before the closing `)`. Debug lines follow, so search the terminal for
 `setup?token` if it scrolled away.
 
-- Ports 19100 and 19161 are fixed in `scripts/dev.ts`, so **only one dev instance can run per Mac**. Before it starts
-  anything, `bun run dev` checks 19100, 19161 (and 19140 with `--vite`) and stops with the process that holds a port
-  (`cannot start: port 19100 (team server) is in use by pid …`). If that is the dev service, stop it with
-  `bun run dev:service stop`.
+- Default ports are 19100 and 19161 (and 19140 with `--vite`). Set `TEAM_AX_DEV_PORT` and
+  `TEAM_AX_DEV_RELAY_PORT`, together with a separate `TEAM_AX_DEV_DIR`, for another instance.
+  `bun run dev` checks its ports before starting and stops if one is occupied. Stop only the instance you own.
 - The log line "relay: team address registered; the recovery code was saved once…" can be ignored in dev.
 - Flags: `--vite` (Vite on 19140), `--no-relay`, `--team <name>`, `--rebuild-web`, `--no-web-build`.
 - `TEAM_AX_DEV_DIR` moves the data folder. Keep it short: every socket under `<data>/data/run/` must fit in a Unix

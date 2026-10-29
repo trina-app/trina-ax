@@ -200,7 +200,8 @@ figure.shot.w75{ width:75%; }
     <li><span class="no">05</span><span class="tt">문제가 생기면</span><span class="ds">증상별 확인할 곳 · 알려진 문제</span><span class="pg" data-toc="c5"></span></li>
   </ol>
 
-  <h3>한눈에 보는 지금 상태 (2026년 10월)</h3>
+  <p>이 인쇄용 안내에는 2026-10-21 개발 당시의 검증 기록과 설명이 남아 있어요. 현재 배포 파일은 <a href="https://github.com/trina-app/trina-ax/releases">GitHub Releases</a>, 최신 시작 경로는 <a href="../README.md">문서 색인</a>을 먼저 확인하세요.</p>
+  <h3>당시 검증 상태 (2026년 10월)</h3>
   <div class="status">
     <div class="good"><div class="h"><span class="ok">지금 돼요</span></div>
       <ul>
@@ -241,7 +242,7 @@ figure.shot.w75{ width:75%; }
     <tr><td><b>Claude 구독</b></td><td><b>Claude Pro 또는 Max</b> 계정. 팀 전체의 AI 답변이 이 구독 하나에서 나가서, <b>팀원 모두가 이 구독의 사용 한도를 함께 써요.</b> 한도에 닿으면 풀릴 때까지 모두의 AI 답변이 멈춰요. 사람이 많으면 Max를 권해요. 정식 설치에서는 이 계정으로 1년짜리 토큰(<code>claude setup-token</code>)을 한 번 만들어요. API 키는 필요 없어요.</td></tr>
     <tr><td>ChatGPT 구독 <span class="small">(선택)</span></td><td>두 번째 엔진 <b>Codex</b>를 쓰려면 필요해요. 없어도 Claude만으로 동작해요. 정식 설치에서는 아직 베타예요.</td></tr>
     <tr><td><b>맥 관리자 계정·암호</b></td><td>개발 모드도 1-1의 Homebrew 설치가 한 번 물어요. 정식 설치(2장)는 <code>sudo</code>가 들어간 명령마다 물어요.</td></tr>
-    <tr><td><b>GitHub 계정과 저장소 권한</b></td><td>소스 코드 저장소(<code>potenlab/team-ax</code>)는 아직 비공개예요. 내 GitHub 계정에 읽기 권한을 받아 두세요(1-3에서 이 계정으로 로그인해요).</td></tr>
+    <tr><td><b>공개 소스 저장소</b></td><td><code>trina-app/trina-ax</code>는 공개 저장소예요. Git으로 내려받을 수 있고 GitHub 로그인이 필요하지 않아요.</td></tr>
     <tr><td>인터넷·저장 공간</td><td>도구와 앱을 내려받아요. 음성 입력을 쓰면 처음 한 번 약 490MB 모델을 더 받아요.</td></tr>
   </table>
 
@@ -333,16 +334,15 @@ codex login</pre>
   <div class="check"><span class="k">확인</span><span><code>claude --version</code> → <code>2.1.305 (Claude Code)</code>. Codex를 넣었으면 <code>codex --version</code>에도 버전이 나와요. 로그인 여부는 1-6에서 Team AX 화면으로 확인해요.</span></div>
 
   <div class="step"><span class="sn">1-3</span><span class="st">내려받고 빌드하기</span></div>
-  <p>먼저 GitHub에 로그인해요. 질문이 나오면 <span class="ui">GitHub.com</span> → <span class="ui">HTTPS</span> → <span class="ui">Y</span> → <span class="ui">Login with a web browser</span>를 고르고, 화면의 8자리 코드를 브라우저에 넣어요.</p>
-<pre class="cmd">gh auth login</pre>
+  <p>공개 저장소에서 내려받아요. GitHub 로그인은 필요하지 않아요.</p>
 <pre class="cmd">cd ~
-gh repo clone potenlab/team-ax
-cd team-ax
-bun install
+git clone https://github.com/trina-app/trina-ax.git
+cd trina-ax
+bun install --frozen-lockfile
 bun run build</pre>
-  <p>“Could not resolve to a Repository”나 권한 오류가 나오면 로그인한 GitHub 계정에 저장소 권한이 없는 거예요. SSH 키를 이미 쓰고 있다면 <code>git clone git@github.com:potenlab/team-ax.git</code>도 돼요(GitHub 계정이 여럿이라 <code>~/.ssh/config</code>에 별칭을 둔 맥은 <code>git@<i>별칭</i>:potenlab/team-ax.git</code>). 앞으로 나오는 명령은 모두 이 <code>~/team-ax</code> 폴더에서 실행해요.</p>
+  <p>앞으로 나오는 명령은 이 <code>~/trina-ax</code> 폴더에서 실행해요. 처음 온 분은 <a href="../QUICKSTART.md">빠른 체험 안내(영문)</a>에서 별도 데이터 폴더와 19720 포트를 쓰는 절차를 볼 수 있어요.</p>
   <div class="note"><b>인텔 맥이라면</b><p>빌드 도구가 기본으로 애플 실리콘용만 만들어요. <code>bun run build</code> 다음에 <code>ARCHS=amd64 bun run build:native</code>를 한 번 더 실행하세요. 안 하면 채팅이 “엔진을 쓸 수 없음”으로 끝나요.</p></div>
-  <div class="check"><span class="k">확인</span><span><code>bun install</code>은 “1579 packages installed”, <code>bun run build</code>는 오류 없이 10초 안팎에 끝나요.</span></div>
+  <div class="check"><span class="k">확인</span><span><code>bun install --frozen-lockfile</code>과 <code>bun run build</code>가 오류 없이 끝나야 해요. 설치 개수와 시간은 환경에 따라 달라요.</span></div>
 
   <div class="keep">
   <div class="step"><span class="sn">1-4</span><span class="st">실행하기</span></div>

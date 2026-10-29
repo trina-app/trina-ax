@@ -1,0 +1,48 @@
+name: Bug report / 버그 신고
+description: Report a reproducible problem using synthetic data.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Korean are welcome. For vulnerabilities, email contact@trina.app privately.
+        Do not include customer files, real names, passwords, tokens, setup/invite links, cookies or unredacted logs.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: Release version or Git commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Server OS, self-hosted/hosted/dev mode, browser or desktop client version, and engine/version if relevant. No private addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use invented data. Include the relevant role and folder permission setup.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence (optional)
+      description: Short error text or a synthetic screenshot. Inspect it for private data before posting.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked that this report contains no customer information, secrets or private links.
+          required: true
