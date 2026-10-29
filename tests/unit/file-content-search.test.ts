@@ -211,6 +211,27 @@ describe('limits', () => {
     expect(next.signal.aborted).toBe(false)
     for (const r of [...runs, next]) r.done()
   })
+
+  test('a search stopped by a newer one answers rate_limited, never a list that looks complete', async () => {
+    write('shared/fs-stopped/a.md', 'QA-STOPPED-4410\n')
+    const office = h.ctx.files.office
+    const real = office.refresh.bind(office)
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let entered!: () => void
+    const inRefresh = new Promise<void>((r) => { entered = r })
+    office.refresh = (async () => { entered(); await gate; return { pending: 0, timedOut: false } }) as typeof office.refresh
+    try {
+      const first = raw('alice', 'QA-STOPPED-4410', '&path=shared%2Ffs-stopped')
+      await inRefresh
+      const newer = [admitContentSearch('alice'), admitContentSearch('alice')]
+      release()
+      const r = await first
+      expect(r.status).toBe(429)
+      for (const n of newer) n.done()
+    } finally { office.refresh = real }
+    expect(paths(await search('alice', 'QA-STOPPED-4410', '&path=shared%2Ffs-stopped'))).toEqual(['shared/fs-stopped/a.md'])
+  })
 })
 
 describe('snippetOf', () => {

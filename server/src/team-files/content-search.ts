@@ -98,6 +98,9 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
       { pattern: query, fixed: true, ignoreCase: true, mode: 'content', lineNumbers: true, before: 0, after: 0, limit, maxPerFile: CONTENT_SEARCH_PER_FILE,
         strictTime: true, officeBudget: CONTENT_SEARCH_OFFICE_BUDGET, signal },
     )
+    // a newer search of the same person stopped this one: its list is not complete, so it is not sent as an answer
+    // (a client that still waits, e.g. in a second tab, tries again after retryAfter)
+    if (mine.aborted) throw new HttpError('rate_limited', undefined, { retryAfter: 1 })
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
