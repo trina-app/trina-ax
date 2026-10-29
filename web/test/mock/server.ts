@@ -1066,7 +1066,7 @@ export class MockServer {
       if (!this.manages(c.user, s!.targetFolder) || !this.manages(c.user, c.body.targetFolder)) fail('forbidden', 403, '이 폴더의 팀 스킬을 관리할 권한이 없습니다.')
       if (s!.status !== 'pending') fail('conflict', 409, '이미 처리된 제안입니다.')
       const file = `${c.body.targetFolder}/${(c.body.fileName ?? c.body.name).trim().replace(/\s+/g, '-')}.md`
-      this.putFile(file, `---\nname: ${c.body.name}\ndescription: ${c.body.description}\n---\n${c.body.content}`)
+      this.putFile(file, `---\nname: ${JSON.stringify(c.body.name)}\ndescription: ${JSON.stringify(c.body.description ?? '')}\n---\n${c.body.content}`)
       Object.assign(s!, { status: 'approved', reviewer: { id: c.user.id, name: c.user.name }, reviewedAt: now(), resultPath: file, targetFolder: c.body.targetFolder, name: c.body.name, description: c.body.description, content: c.body.content })
       this.skillChange({ id: uuidv7(), at: now(), actor: { id: c.user.id, name: c.user.name }, path: file, change: 'create', from: null, byAi: false, kind: 'skill' })
       this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggestion_reviewed', message: `제안한 스킬이 등록됐어요: ${s!.name} (${file})`, link: `/skills?mine=${s!.id}` } })
