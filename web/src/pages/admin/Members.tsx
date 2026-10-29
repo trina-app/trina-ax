@@ -62,7 +62,10 @@ export default function Members() {
     })
   }
   const revoke = async (i: Invite) => {
-    if ((await act(() => api.call(API.revokeInvite, { params: { id: i.id } }))) !== undefined) void invites.reload()
+    await act(async () => {
+      await api.call(API.revokeInvite, { params: { id: i.id } })
+      await invites.reload()
+    })
   }
 
   return (
