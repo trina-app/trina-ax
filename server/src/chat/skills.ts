@@ -53,11 +53,24 @@ function standardFields(header: string): Map<string, string> | null {
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
 export type SkillCheck = { ok: true; name: string; description: string; body: string } | { ok: false; problem: SkillProblem }
 
+/** A header line that the legacy reader takes as a field. legacyHeaderOk uses the same regex for its duplicate check. */
+const LEGACY_KEY = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/
+
 /** Legacy header lines are `key: value` (any key text, a space after the colon is optional) and a key comes once.
  * Values have no YAML quoting rules: a value that opens a quote or a bracket and does not close it is plain text
  * (older files have values such as `[긴급 처리용`). Only a line without a colon or a duplicate key breaks the header.
  * Valid YAML (for example a block scalar) is also accepted. */
 function legacyHeaderOk(header: string): boolean {
+  // The reader ignores the case of keys, so `name` and `NAME` are a duplicate even where YAML accepts them. This check
+  // runs over all lines with the reader's own key regex, so a line that is not `key: value` does not stop it.
+  const readerKeys = new Set<string>()
+  for (const line of header.split(/\r?\n/)) {
+    const kv = LEGACY_KEY.exec(line)
+    if (!kv) continue
+    const key = kv[1]!.toLowerCase()
+    if (readerKeys.has(key)) return false
+    readerKeys.add(key)
+  }
   const lines = header.split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l))
   const keys = new Set<string>()
   let duplicate = false
@@ -70,7 +83,6 @@ function legacyHeaderOk(header: string): boolean {
     return true
   })
   if (lineForm) return true
-  // the reader ignores the case of keys, so `name` and `NAME` are a duplicate even where YAML accepts them
   if (duplicate) return false
   try {
     const doc = parseDocument(header, { strict: true, uniqueKeys: true, prettyErrors: false, logLevel: 'silent' })
@@ -118,7 +130,7 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   if (!legacyHeaderOk(m[1]!)) return no('header')
   const fields: Record<string, string> = Object.create(null)
   for (const line of m[1]!.split(/\r?\n/)) {
-    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
+    const kv = LEGACY_KEY.exec(line)
     if (kv) fields[kv[1]!.toLowerCase()] = legacyValue(kv[2]!.trim())
   }
   const name = (fields.name ?? '').replace(/\s+/g, ' ').trim()

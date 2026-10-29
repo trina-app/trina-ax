@@ -181,7 +181,9 @@ export function skillFileName(name: string): string {
  * as a YAML double-quoted string (JSON string syntax), so a quote, bracket, colon or "#" in a value never breaks the
  * header. Both the legacy reader and the YAML reader decode it to the typed text. */
 export function skillFileText(name: string, description: string, content: string): string {
-  const one = (s: string) => JSON.stringify(s.replace(/[\r\n]+/g, ' ').trim())
+  // Each character that splits a line for the header reader (CR, LF, VT, FF, U+0085, U+2028, U+2029) becomes a
+  // space. JSON.stringify writes U+2028 and U+2029 raw, and the reader regex does not match a line that has them.
+  const one = (s: string) => JSON.stringify(s.replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, ' ').trim())
   return `---\nname: ${one(name)}\ndescription: ${one(description)}\n---\n${content.replace(/^\s*\n/, '')}${content.endsWith('\n') ? '' : '\n'}`
 }
 
