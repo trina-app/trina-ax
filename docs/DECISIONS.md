@@ -2172,3 +2172,21 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
 - Browser coverage checks OWNER and ADMIN in ko/en/id, direct success and rejection/retry, one list refresh
   after success, no stale revoke button, and invalid links in an anonymous context. Existing member-deletion
   regressions remain. Needed in core too (`potenlab/team-ax`); no new strings or dependencies.
+
+## Usage shares and cost explanations (2026-10-29)
+
+- Usage bars represent each row's input plus output tokens divided by the sum of the displayed rows, with zero
+  widths when that sum is zero. They no longer compare each row with the largest row. Skill and group attribution
+  can overlap, so these shares are not shares of unique team usage. Keep the explicit whole-turn, overlapping-skill
+  caveat and the server's unique totals unchanged.
+- Explain all recorded cost sources in Korean, English and Indonesian: API key amounts use provider-reported costs or list-price estimates;
+  managed subscription connections show zero while still counting tokens; development local-login may retain
+  engine-reported estimates even for subscriptions. Amounts are neither bills nor subscription fees. Do not change
+  stored usage, billing or CSV values to match the former API-only explanation.
+- Browser regressions cover all seven grouping modes, the three-person QA token distribution, zero and empty
+  reports, overlapping attribution, all three languages and unchanged CSV values/escaping/BOM/CRLF. Existing
+  date-range and asynchronous-response ownership coverage remains in place.
+- Apply the same change to the shared core (`potenlab/team-ax`); this is not Trina-specific behavior.
+
+The R4 integration on 0.2.5 preserves its provider-reported API costs and unknown-price markers; the share
+regression also checks those markers while keeping the original CSV values.

@@ -935,7 +935,7 @@ export const id: Record<MessageKey, string> = {
   'teamSettings.trashDays': 'Simpan sampah file (hari)',
   'teamSettings.chatTrashDays': 'Simpan chat yang dihapus (hari)',
 
-  'usage.desc': 'Jawaban dan token per orang, grup, mesin, model, hari, atau koneksi AI. Jumlah adalah perkiraan harga daftar, hanya untuk koneksi kunci API.',
+  'usage.desc': 'Jawaban dan token per orang, grup, mesin, model, hari, koneksi AI, atau skill. Batang menunjukkan porsi token setiap baris dari jumlah token semua baris yang ditampilkan.',
   'usage.groupBy': 'Kelompokkan per',
   "usage.exportCsv": "Unduh CSV",
   "usage.by.skill": "Skill",
@@ -953,7 +953,7 @@ export const id: Record<MessageKey, string> = {
   'usage.cost': 'Biaya',
   'usage.total': 'Total',
   'usage.none': 'Tidak ada pemakaian di periode ini.',
-  'usage.costNote': 'Koneksi langganan tidak punya harga per permintaan, jadi jumlahnya 0 (token tetap dihitung). Jumlah mesin API berasal dari penyedia atau dari daftar harga.',
+  'usage.costNote': 'Jumlah untuk kunci API memakai biaya yang dilaporkan penyedia jika tersedia, atau perkiraan berdasarkan harga daftar. Koneksi langganan terkelola menampilkan 0 karena tidak ada harga per permintaan (token tetap dihitung). Login lokal untuk pengembangan (local-login) dapat menampilkan perkiraan dari mesin, meskipun memakai langganan. Jumlah ini bukan tagihan atau biaya langganan.',
   'usage.unpriced': 'Harga tidak diketahui untuk {n} jawaban: penyedia tidak mengirim biaya dan model tidak ada di daftar harga. Jumlah hanya menunjukkan bagian yang diketahui.',
   'usage.unpricedMark': 'Harga sebagian tidak diketahui',
 
