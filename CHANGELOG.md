@@ -11,6 +11,14 @@ This file summarizes user-visible changes; it is not a list of every commit.
   permissions as the person. Office documents that are not indexed yet are indexed in the background, fairly per person.
 - Files: HEIC/HEIF photos from iPhones show in the preview (converted on the server, with limits per person).
 
+## 0.2.8 — 2026-10-29
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.8).
+
+- Shared subscriptions are on by default. One team connection that an admin adds lets the whole team use the AI; a
+  person who adds their own connection uses it first.
+- The note on the shared-subscription setting is shorter and easier to read.
+
 ## 0.2.7 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.7).
