@@ -3,6 +3,16 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## 0.2.4 — 2026-10-29
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.4).
+Available on GitHub Releases only; the Trina update feed is not live.
+
+- Voice input is now optional and off by default. Admins choose it in Admin › Team settings › Voice input: OpenRouter
+  speech-to-text (cloud, `openai/whisper-large-v3-turbo`, zero data retention requested) with the team's own OpenRouter
+  API key, or local whisper on the server (private). Members do not see the mic while voice input is off.
+- Upgrade note: teams that used local whisper choose "On this server" once.
+
 ## 0.2.3 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.3).
