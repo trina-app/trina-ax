@@ -43,7 +43,8 @@ export async function withWorkflow<T>(files: FileService, c: ToolCtx, run: () =>
   const db = files.db, id=crypto.randomUUID(), now=Date.now()
   recoverWorkflows(db)
   db.transaction(() => {
-    if (db.query("SELECT 1 FROM safe_ops_workflows WHERE state IN ('running','debt') LIMIT 1").get()) throw refusal()
+    if (db.query("SELECT 1 FROM safe_ops_workflows WHERE state IN ('running','debt') LIMIT 1").get() ||
+        db.query("SELECT 1 FROM safe_ops_publications WHERE cleanup!='clean' LIMIT 1").get()) throw refusal()
     const user = db.query('SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND created>?').get(c.user.id,now-3600000) as {n:number}
     const turn = db.query('SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND turn_id IS ? AND created>?').get(c.user.id,c.turnId,now-3600000) as {n:number}
     if (user.n>=WORKFLOW_LIMITS.perUserHour || turn.n>=WORKFLOW_LIMITS.perTurn) throw refusal()

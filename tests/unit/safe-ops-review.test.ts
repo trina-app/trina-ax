@@ -113,6 +113,9 @@ test('cleanup debt fails closed, remains charged, and dead-owner recovery clears
  A.ctx.db.query("UPDATE safe_ops_workflows SET owner_pid=2147483647 WHERE state='debt'").run()
  new FileService(A.ctx.db,A.ctx.files.cfg) // startup recovery, before another admission
  await withWorkflow(A.ctx.files,A.toolCtx('erin'),async()=>{})
+ A.ctx.db.query("INSERT INTO safe_ops_publications(id,user_id,destination,hash,size,policy,audience,provenance,state,cleanup,created,owner_pid) VALUES('debt-test','alice','users/alice/debt.pptx','hash',1,1,'[]','{}','interrupted','debt',0,?)").run(process.pid)
+ try { await expect(withWorkflow(A.ctx.files,A.toolCtx('carol'),async()=>{})).rejects.toThrow() }
+ finally { A.ctx.db.query("DELETE FROM safe_ops_publications WHERE id='debt-test'").run() }
 })
 test('download-only and unhealthy notices cover ko/en/id',()=>{
  for(const key of ['quarantined','workflow'] as const)for(const lang of ['ko','en','id'] as const) expect(SAFE_OPS_TEXT[key][lang].length).toBeGreaterThan(20)
