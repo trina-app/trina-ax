@@ -15,8 +15,10 @@ import { loadPrincipal, RuleSet, atLeast, type Principal } from '../policy/acces
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
+import { notifySkillSuggestion } from '../notifications/service'
 import { isSkillFolder, managedSkillFolders, managesSkillFolder, skillFolders } from './managers'
 import { st } from './text'
+import { checkSkill, type SkillProblem } from '../chat/skills'
 
 interface Row {
   id: string; suggester_id: string; target_folder: string; name: string; description: string; content: string
@@ -67,8 +69,10 @@ function localeOf(ctx: AppContext, id: string): Locale {
   const v = Locale.safeParse((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(id) as { locale: string } | null)?.locale)
   return v.success ? v.data : teamDefaultLocale(ctx.db)
 }
-function notify(ctx: AppContext, userId: string, code: string, message: string, link: string) {
+/** The live banner, and an inbox entry for later (R2-SKILL-12): a person who is offline now sees it on return. */
+function notify(ctx: AppContext, userId: string, code: 'skill_suggested' | 'skill_suggestion_reviewed', message: string, link: string, suggestionId: string) {
   try { ctx.services.realtime.publish(userId, { type: 'notice', data: { level: 'info', code, message, link } }) } catch (err) { ctx.log.warn('skill notice failed', { err }) }
+  notifySkillSuggestion(ctx, userId, code === 'skill_suggested' ? 'skill.suggested' : 'skill.reviewed', suggestionId)
 }
 
 /** The actual on-disk spelling of a skills folder the person can see, or a validation error (same for hidden and missing). */
@@ -123,7 +127,7 @@ export function createSuggestion(ctx: AppContext, userId: string, b: { source: {
   audit(ctx.db, { actor: userId, action: 'skills.suggest', target: target, detail: { suggestionId: row.id, name: row.name, source: row.source_kind } })
   for (const m of managersOf(ctx, target)) {
     if (m.id === userId) continue
-    notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: target + '/' }), `/skills?review=${row.id}`)
+    notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: target + '/' }), `/skills?review=${row.id}`, row.id)
   }
   return toSuggestion(ctx, row, p, RuleSet.load(ctx.db))
 }
@@ -173,10 +177,27 @@ export function skillFileName(name: string): string {
   return s || 'skill'
 }
 
-/** The skill file: the header the server reads (skills.ts parseSkill), then the steps. */
+/** The skill file: the header the server reads (skills.ts checkSkill), then the steps. Each header value is written
+ * as a YAML double-quoted string (JSON string syntax), so a quote, bracket, colon or "#" in a value never breaks the
+ * header. Both the legacy reader and the YAML reader decode it to the typed text. */
 export function skillFileText(name: string, description: string, content: string): string {
-  const one = (s: string) => s.replace(/[\r\n]+/g, ' ').trim()
+  // Each character that splits a line for the header reader (CR, LF, VT, FF, U+0085, U+2028, U+2029) becomes a
+  // space. JSON.stringify writes U+2028 and U+2029 raw, and the reader regex does not match a line that has them.
+  const one = (s: string) => JSON.stringify(s.replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, ' ').trim())
   return `---\nname: ${one(name)}\ndescription: ${one(description)}\n---\n${content.replace(/^\s*\n/, '')}${content.endsWith('\n') ? '' : '\n'}`
+}
+
+/** The text to save at `rel` for a registered suggestion, or the reason it would not load there. The server never
+ * saves a skill file that its own reader rejects (for example a SKILL.md whose name is not its folder name). */
+export function registeredSkillText(rel: string, name: string, description: string, content: string):
+  { ok: true; text: string } | { ok: false; problem: SkillProblem; field: string } {
+  const text = skillFileText(name, description, content)
+  const r = checkSkill(text, rel)
+  if (r.ok) return { ok: true, text }
+  const field = r.problem === 'name' || r.problem === 'name_folder' ? 'body.name'
+    : r.problem === 'description' ? 'body.description'
+    : r.problem === 'location' ? 'body.fileName' : 'body.content'
+  return { ok: false, problem: r.problem, field }
 }
 
 export function approveSuggestion(ctx: AppContext, userId: string, id: string, b: { targetFolder: string; name: string; description: string; content: string; fileName?: string }, locale: Locale): SkillSuggestion {
@@ -193,10 +214,12 @@ export function approveSuggestion(ctx: AppContext, userId: string, id: string, b
     throw e
   }
   if (exists) fail('conflict', st('fileExists', locale, { path: rel }))
+  const written = registeredSkillText(rel, b.name, b.description, b.content)
+  if (!written.ok) return fail('validation', st('notLoadable', locale, { problem: written.problem }), { fields: { [written.field]: written.problem } })
   // the manager's own save (folder rules decide; version history, audit and the owner / admin notice follow from it)
   let saved: string
   try {
-    ctx.files.humanSave(userId, rel, Buffer.from(skillFileText(b.name, b.description, b.content), 'utf8'), null)
+    ctx.files.humanSave(userId, rel, Buffer.from(written.text, 'utf8'), null)
     saved = authorize(ctx.files.fx, ctx.files.rules(), p, rel, 'read').rel
   } catch (e) {
     if (e instanceof Denied) fail('forbidden', st('notManager', locale))
@@ -208,7 +231,7 @@ export function approveSuggestion(ctx: AppContext, userId: string, id: string, b
     WHERE id = ? AND status = 'pending'`).run(userId, now, saved!, target, b.name.trim(), b.description.replace(/\s+/g, ' ').trim(), b.content, r.id)
   if (!done.changes) fail('conflict', st('alreadyReviewed', locale))
   audit(ctx.db, { actor: userId, action: 'skills.suggestion_approved', target: saved!, detail: { suggestionId: r.id, suggester: r.suggester_id } })
-  if (r.suggester_id !== userId) notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: b.name.trim(), path: saved! }), `/skills?mine=${r.id}`)
+  if (r.suggester_id !== userId) notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: b.name.trim(), path: saved! }), `/skills?mine=${r.id}`, r.id)
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }
 
@@ -221,7 +244,7 @@ export function rejectSuggestion(ctx: AppContext, userId: string, id: string, no
   audit(ctx.db, { actor: userId, action: 'skills.suggestion_rejected', target: r.target_folder, detail: { suggestionId: r.id, suggester: r.suggester_id } })
   if (r.suggester_id !== userId) {
     const L = localeOf(ctx, r.suggester_id)
-    notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('rejected', L, { name: r.name, note: note?.trim() ? ` (${note.trim()})` : '' }), `/skills?mine=${r.id}`)
+    notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('rejected', L, { name: r.name, note: note?.trim() ? ` (${note.trim()})` : '' }), `/skills?mine=${r.id}`, r.id)
   }
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }

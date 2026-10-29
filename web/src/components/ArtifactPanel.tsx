@@ -1,12 +1,13 @@
 // An artifact next to the chat: live preview in the isolated frame or code, versions (‹ v2 / 3 ›), copy, download,
-// "save to the team folder", and when it fails at runtime "ask the AI to fix it". While the AI is still writing it,
+// "save to the team folder", and when it fails at runtime or cannot be built (unsupported import, compile error)
+// "ask the AI to fix it". While the AI is still writing it,
 // the code shows as it arrives. Ported from Saram / chat-proto ArtifactPanel.
 import clsx from 'clsx'
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, FolderInput, Loader2, Shapes, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ArtifactType } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../lib/api'
-import { artifactFileName, buildArtifactDocument, fixPromptError, FRAME_TYPES, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
+import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, FRAME_TYPES, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { joinPath } from '../lib/paths'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
@@ -87,13 +88,14 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     }
   }
 
+  const failure = writing ? null : artifactFailure(frameDoc, runtimeError)
   const askFix = async () => {
-    if (!artifact || !runtimeError) return
+    if (!artifact || !failure) return
     setAsked(artifact.id)
     try {
       await send({
         chatId,
-        content: t('artifact.fixPrompt', { title, key: artifact.key, version: artifact.version, error: fixPromptError(runtimeError) }),
+        content: t(failure.kind === 'build' ? 'artifact.fixPromptBuild' : 'artifact.fixPrompt', { title, key: artifact.key, version: artifact.version, error: fixPromptError(failure.error) }),
         attachments: [],
         author: { id: me.user.id, name: me.user.name },
       })
@@ -156,10 +158,10 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           ))}
         </div>
       )}
-      {runtimeError && !showCode && artifact && (
+      {failure && !showCode && artifact && (
         <div role="alert" className="flex items-start gap-2 border-b border-danger/20 bg-danger-soft px-3 py-2 text-xs text-danger">
           <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1 break-words">{t('artifact.runtimeError', { error: runtimeError })}</span>
+          <span className="min-w-0 flex-1 break-words">{failure.kind === 'build' ? failure.error : t('artifact.runtimeError', { error: failure.error })}</span>
           <button
             type="button"
             disabled={busy || asked === artifact.id}
@@ -186,7 +188,8 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
             <Markdown text={content} />
           </div>
         ) : frameDoc && !frameDoc.ok ? (
-          <p className="p-6 text-sm text-danger">{frameDoc.error}</p>
+          // the error and "ask the AI to fix it" are in the bar above
+          <p className="p-6 text-sm text-muted">{t('artifact.buildFailed')}</p>
         ) : frameDoc ? (
           <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} />
         ) : (

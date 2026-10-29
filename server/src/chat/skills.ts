@@ -49,33 +49,98 @@ function standardFields(header: string): Map<string, string> | null {
   } catch { return null }
 }
 
+/** Why an entry with a header is not a skill. Codes only: the screens translate them (R2-SKILL-03). */
+export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
+export type SkillCheck = { ok: true; name: string; description: string; body: string } | { ok: false; problem: SkillProblem }
+
+/** A header line that the legacy reader takes as a field. legacyHeaderOk uses the same regex for its duplicate check. */
+const LEGACY_KEY = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/
+
+/** Legacy header lines are `key: value` (any key text, a space after the colon is optional) and a key comes once.
+ * Values have no YAML quoting rules: a value that opens a quote or a bracket and does not close it is plain text
+ * (older files have values such as `[긴급 처리용`). Only a line without a colon or a duplicate key breaks the header.
+ * Valid YAML (for example a block scalar) is also accepted. */
+function legacyHeaderOk(header: string): boolean {
+  // The reader ignores the case of keys, so `name` and `NAME` are a duplicate even where YAML accepts them. This check
+  // runs over all lines with the reader's own key regex, so a line that is not `key: value` does not stop it.
+  const readerKeys = new Set<string>()
+  for (const line of header.split(/\r?\n/)) {
+    const kv = LEGACY_KEY.exec(line)
+    if (!kv) continue
+    const key = kv[1]!.toLowerCase()
+    if (readerKeys.has(key)) return false
+    readerKeys.add(key)
+  }
+  const lines = header.split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l))
+  const keys = new Set<string>()
+  let duplicate = false
+  const lineForm = lines.every((line) => {
+    const kv = /^([^\s:#"'][^:]*?)\s*:(.*)$/.exec(line)
+    if (!kv) return false
+    const key = kv[1]!.toLowerCase()
+    if (keys.has(key)) return !(duplicate = true)
+    keys.add(key)
+    return true
+  })
+  if (lineForm) return true
+  if (duplicate) return false
+  try {
+    const doc = parseDocument(header, { strict: true, uniqueKeys: true, prettyErrors: false, logLevel: 'silent' })
+    return !doc.errors.length && isMap(doc.contents)
+  } catch { return false }
+}
+
+/** A legacy value. A value in matching double quotes is decoded as a YAML / JSON double-quoted string when it is
+ * one (skillFileText writes values in this form), and a value in matching single quotes uses the YAML rule `''` = `'`.
+ * Other values are kept as typed. */
+function legacyValue(v: string): string {
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    try {
+      const s: unknown = JSON.parse(v)
+      if (typeof s === 'string') return s
+    } catch { /* not a JSON string: keep the old rule */ }
+    return v.slice(1, -1)
+  }
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
+  return v
+}
+
 /** Legacy files keep their Korean/display-name format. A SKILL.md needs its actual path: the standard name must
- * match its parent folder. Invalid frontmatter is never a fallback team rule. Optional metadata grants nothing. */
-export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string } | null {
-  if (Buffer.byteLength(text, 'utf8') > SKILL_FILE_MAX_BYTES) return null
+ * match its parent folder. Invalid frontmatter is never a fallback team rule, and a broken legacy header is not a
+ * skill (R2-SKILL-04). Optional metadata grants nothing. */
+export function checkSkill(text: string, rel?: string): SkillCheck {
+  const no = (problem: SkillProblem): SkillCheck => ({ ok: false, problem })
+  if (Buffer.byteLength(text, 'utf8') > SKILL_FILE_MAX_BYTES) return no('too_large')
   const t = text.replace(/^\uFEFF/, '')
   const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(t.slice(0, HEADER_MAX + 16))
-  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) return null
+  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) return no('header')
   if (rel !== undefined && isSkillManifest(rel)) {
     const parts = rel.split('/')
-    if (parts[0] !== SKILLS_DIR || parts.length < 3 || parts.length > MAX_DEPTH + 1) return null
+    if (parts[0] !== SKILLS_DIR || parts.length < 3 || parts.length > MAX_DEPTH + 1) return no('location')
     const fields = standardFields(m[1]!)
-    if (!fields) return null
+    if (!fields) return no('header')
     const name = fields.get('name'), description = fields.get('description')
-    if (!name || name.length > SKILL_NAME_MAX || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name !== parts.at(-2)) return null
-    if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return null
+    if (!name || name.length > SKILL_NAME_MAX || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return no('name')
+    if (name !== parts.at(-2)) return no('name_folder')
+    if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return no('description')
     const compatibility = fields.get('compatibility')
-    if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return null
-    return { name, description: description.trim(), body: t.slice(m[0].length) }
+    if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
+    return { ok: true, name, description: description.trim(), body: t.slice(m[0].length) }
   }
+  if (!legacyHeaderOk(m[1]!)) return no('header')
   const fields: Record<string, string> = Object.create(null)
   for (const line of m[1]!.split(/\r?\n/)) {
-    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
-    if (kv) fields[kv[1]!.toLowerCase()] = kv[2]!.trim().replace(/^(["'])(.*)\1$/, '$2')
+    const kv = LEGACY_KEY.exec(line)
+    if (kv) fields[kv[1]!.toLowerCase()] = legacyValue(kv[2]!.trim())
   }
   const name = (fields.name ?? '').replace(/\s+/g, ' ').trim()
-  if (!name || name.length > LEGACY_NAME_MAX || name.includes('/')) return null
-  return { name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
+  if (!name || name.length > LEGACY_NAME_MAX || name.includes('/')) return no('name')
+  return { ok: true, name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
+}
+
+export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string } | null {
+  const r = checkSkill(text, rel)
+  return r.ok ? { name: r.name, description: r.description, body: r.body } : null
 }
 
 /** Even an invalid or unreadable manifest reserves its folder: resource files must not become separate skills.
@@ -109,9 +174,9 @@ export function readSkill(files: FileService, user: Principal, inputPath: string
   } catch { return null }
 }
 
-/** Accessible legacy files and folder entry points, capped and sorted. Never descend into a skill package. */
-export function listSkills(files: FileService, user: Principal): Skill[] {
-  const out: Skill[] = []
+/** Visit the accessible entry candidates under skills/: legacy .md files and folder SKILL.md files, capped.
+ * Never descend into a skill package. */
+function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string) => void) {
   let seen = 0
   const walk = (rel: string, depth: number) => {
     let names: string[]
@@ -121,10 +186,7 @@ export function listSkills(files: FileService, user: Principal): Skill[] {
       names = fs.readdirSync(r.abs).sort()
     } catch { return }
     if (depth > 1 && names.includes('SKILL.md')) {
-      if (seen++ < MAX_FILES) {
-        const skill = readSkill(files, user, `${rel}/SKILL.md`)
-        if (skill) out.push(skill)
-      }
+      if (seen++ < MAX_FILES) visit(`${rel}/SKILL.md`)
       return
     }
     for (const n of names) {
@@ -136,12 +198,41 @@ export function listSkills(files: FileService, user: Principal): Skill[] {
       if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, depth + 1); continue }
       if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md')) continue
       seen++
-      const skill = readSkill(files, user, child)
-      if (skill) out.push(skill)
+      visit(child)
     }
   }
   walk(SKILLS_DIR, 1)
+}
+
+/** Accessible legacy files and folder entry points, sorted. */
+export function listSkills(files: FileService, user: Principal): Skill[] {
+  const out: Skill[] = []
+  walkSkillEntries(files, user, (rel) => {
+    const skill = readSkill(files, user, rel)
+    if (skill) out.push(skill)
+  })
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+}
+
+export interface SkillIssue { path: string; problem: SkillProblem }
+
+/** Entries that look like skills but do not load (R2-SKILL-03): a SKILL.md that fails validation, or a legacy file
+ * with a header that fails. Only entries the caller can read are checked, so a path the caller cannot read never
+ * shows. A file without a header is a team rule, not an issue. */
+export function skillIssues(files: FileService, user: Principal): SkillIssue[] {
+  const out: SkillIssue[] = []
+  walkSkillEntries(files, user, (rel) => {
+    try {
+      const r = authorize(files.fx, files.rules(), user, rel, 'read')
+      if (isSkillResource(files.fx.root, r.rel)) return
+      if (!r.st?.isFile()) return
+      if (r.st.size > SKILL_FILE_MAX_BYTES) { out.push({ path: r.rel, problem: 'too_large' }); return }
+      const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+      const check = checkSkill(text, r.rel)
+      if (!check.ok && (isSkillManifest(r.rel) || hasFrontmatter(text))) out.push({ path: r.rel, problem: check.problem })
+    } catch { /* not readable: say nothing */ }
+  })
+  return out.sort((a, b) => a.path.localeCompare(b.path))
 }
 
 /** Longest explicit name wins, then file aliases. Folder skills never acquire a shared /SKILL alias. */

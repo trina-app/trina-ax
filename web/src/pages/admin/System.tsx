@@ -10,7 +10,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
 import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { Card, Loadable, ReauthDialog, useAction, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
@@ -52,44 +52,6 @@ function useJobRunner() {
     }
   }
   return { jobId, run }
-}
-
-/** Ask for the owner's password again (update / restore / connection). */
-function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<void> }) {
-  const t = useT()
-  const [pw, setPw] = useState('')
-  const [busy, setBusy] = useState(false)
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={title}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant={danger ? 'danger' : 'primary'}
-            busy={busy}
-            disabled={!pw}
-            onClick={async () => {
-              setBusy(true)
-              await onConfirm(pw)
-              setBusy(false)
-            }}
-          >
-            {confirm}
-          </Button>
-        </>
-      }
-    >
-      <div className="mb-3 text-sm text-muted">{body}</div>
-      <Field label={t('system.passwordAgain')}>
-        <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
-      </Field>
-    </Modal>
-  )
 }
 
 export default function System() {

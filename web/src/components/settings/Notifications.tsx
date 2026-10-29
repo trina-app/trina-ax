@@ -8,7 +8,10 @@ import { accessChanged, notificationsChanged, reloadAsked } from '../../store/li
 import { Button, ErrorNote, Skeleton } from '../ui'
 import { PushNotifications } from './PushNotifications'
 
-const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect'] as const
+const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+
+/** A suggestion to review opens in the review tab, an own result in "my suggestions" (the Skills screen checks access). */
+export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId'>) => `/skills?${item.code === 'skill.suggested' ? 'review' : 'mine'}=${encodeURIComponent(item.sourceId)}`
 
 export function Notifications() {
   const t = useT(), locale = useLocale()
@@ -73,6 +76,7 @@ export function Notifications() {
         <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{t(item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
           {item.link === 'chat' && item.chatId && <Link className="text-sm text-accent-text hover:underline" to={`/c/${encodeURIComponent(item.chatId)}`} onClick={() => void read(item)}>{t('schedules.lastRun')}</Link>}
           {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/drive" onClick={() => void read(item)}>{t('drive.title')}</Link>}
+          {item.link === 'skills' && <Link className="text-sm text-accent-text hover:underline" to={skillsLink(item)} onClick={() => void read(item)}>{t('skills.title')}</Link>}
         </div>
         {!item.readAt && <Button size="sm" onClick={() => void read(item)}>{t('notifications.markRead')}</Button>}
       </li>)}</ul>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import type { AuditEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { formatDateTime } from '../../lib/format'
+import { formatDateTime, localDayBounds } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Field, Skeleton, inputCls } from '../../components/ui'
 import { Card, useLoad } from './common'
@@ -16,6 +16,9 @@ export default function Audit() {
   const [source, setSource] = useState<Source | ''>('')
   const [actor, setActor] = useState('')
   const [path, setPath] = useState('')
+  // calendar days, both inclusive; empty = no bound
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [items, setItems] = useState<AuditEntry[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -25,7 +28,7 @@ export default function Audit() {
   const load = async (more: boolean) => {
     setBusy(true)
     try {
-      const r = await api.call(API.audit, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined, source: source || undefined, actor: actor || undefined, path: path.trim() || undefined } })
+      const r = await api.call(API.audit, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined, source: source || undefined, actor: actor || undefined, path: path.trim() || undefined, ...localDayBounds(from, to) } })
       setItems((cur) => (more && cur ? [...cur, ...r.items] : r.items))
       setCursor(r.nextCursor)
       setError(null)
@@ -39,11 +42,11 @@ export default function Audit() {
     const timer = setTimeout(() => void load(false), 250)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, actor, path])
+  }, [source, actor, path, from, to])
 
   return (
     <Card title={t('admin.audit')} desc={t('audit.desc')}>
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Field label={t('audit.kind')}>
           <select className={inputCls} value={source} onChange={(e) => setSource(e.target.value as Source | '')}>
             <option value="">{t('audit.all')}</option>
@@ -66,6 +69,12 @@ export default function Audit() {
         </Field>
         <Field label={t('audit.path')}>
           <input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} placeholder="finance/2026" />
+        </Field>
+        <Field label={t('audit.from')}>
+          <input className={inputCls} type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} data-testid="audit-from" />
+        </Field>
+        <Field label={t('audit.to')}>
+          <input className={inputCls} type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} data-testid="audit-to" />
         </Field>
       </div>
       {error && <ErrorNote onRetry={() => void load(false)}>{error}</ErrorNote>}
