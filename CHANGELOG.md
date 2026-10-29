@@ -3,6 +3,11 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Linux: after an update, AI turns had no team tools (files, memory, Drive) until the launcher restarted. The launcher
+  now finds the current team-tools bridge for each turn.
+
 ## 0.2.5 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.5).

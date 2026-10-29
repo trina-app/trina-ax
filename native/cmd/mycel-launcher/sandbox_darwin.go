@@ -9,8 +9,9 @@ import (
 )
 
 type turnEnv struct {
-	chat string
-	once sync.Once
+	chat   string
+	once   sync.Once
+	bridge string // the real path of --bridge for this turn (see sandbox_linux.go)
 }
 
 func setupLinux() error { return nil }
