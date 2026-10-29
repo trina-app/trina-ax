@@ -13,6 +13,7 @@ import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
 import { CHAT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
 import { frequentQuestions } from '../chat/frequent-questions'
+import { hideTitle } from '../chat/title'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
@@ -168,8 +169,8 @@ export const chatsRoutes: RouteModule = {
       const id = newId()
       const now = new Date().toISOString()
       // a title given here is the person's own (the AI does not rename it); none: the first message gives one
-      // a stored connection secret is never kept in a title (QA B-W5-1, SEC-16): not in the list, search or export
-      const title = redactorFor(ctx, auth.user.id).hide(body.title?.trim() ?? '')
+      // a stored connection secret or a secret-looking part is never kept in a title (QA B-W5-1, SEC-16, B-W47-3)
+      const title = hideTitle(body.title?.trim() ?? '', redactorFor(ctx, auth.user.id).hide)
       ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now)
       rt.publishChat(auth.user.id, id, 'created')
@@ -189,7 +190,7 @@ export const chatsRoutes: RouteModule = {
       const sets: string[] = []
       const args: (string | null)[] = []
       // a rename is the person's: the AI does not name this chat after it (chat/title.ts)
-      if (body.title !== undefined) { sets.push('title = ?', "title_source = 'user'"); args.push(redactorFor(ctx, auth.user.id).hide(body.title.trim())) }
+      if (body.title !== undefined) { sets.push('title = ?', "title_source = 'user'"); args.push(hideTitle(body.title.trim(), redactorFor(ctx, auth.user.id).hide)) }
       if (body.projectId !== undefined) { sets.push('project_id = ?'); args.push(body.projectId) }
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }

@@ -2404,3 +2404,25 @@ including same-account installs. Extend the same synthetic selection tests to co
   The Skills page keeps the full list (up to 10) with links.
 - **Tests.** `web/test/unit/popular-skills.test.tsx` (ko/en/id text, top 3, empty), `web/test/e2e/rankings.spec.ts`
   (home card, composer fill, no turn, no card when empty).
+## Named test keys in chat titles (SEC-16, B-W47-3, B-W5-1; 2026-10-29)
+
+- **Problem.** The QA test key `QA-FAKE-KEY-0000-NOT-REAL` is words and digits joined by dashes. No connection stored
+  it, and `shared/src/secrets.ts` found only provider prefixes, `key=value` values and random-looking runs. So the key
+  became the placeholder title and showed in the chat list, search and `GET /api/chats` (most with Codex, which does
+  not always call `set_title`). The entry "No stored key in the answer" left this open.
+- **Decision.** `secrets.ts` finds two more shapes. (1) A named key: one token of 2+ parts joined by `-` or `_` with a
+  key word part (KEY, APIKEY, TOKEN, SECRET, PASSWORD, PASSWD, API) and a value part. A value part is a generated
+  segment (8+ characters, letters and digits in 4+ pieces), or a test marker (FAKE, DUMMY, TEST, MOCK, SAMPLE,
+  EXAMPLE, PLACEHOLDER, NOT-REAL) in a token of 3+ parts that is written in capitals or has a digit part. With a
+  marker, API alone is not a key word. (2) A provider prefix (`sk-`, `ghp_` and the other GitHub prefixes, `glpat-`,
+  `xox?-`) with one segment of letters and digits in 3+ pieces.
+- **Effect.** The placeholder title cuts the key out (`이게 무슨 뜻이야?`), `set_title` refuses a title with it, and a
+  title the person gives at create or rename is saved with `[hidden key]` in its place (`hideTitle`, title.ts). The
+  start-up title scan runs again (`TITLE_SCAN_VERSION` 2), so stored titles with such a key are masked or rebuilt.
+- **Not changed.** The person's own message is kept as typed, and search still finds the chat by its content. The AI
+  answer is not changed. Env names (`OPENAI_API_KEY`, `GITHUB_TOKEN`), slugs (`api-key-setup-guide`,
+  `secret-santa-2026`), lower-case code names (`test_api_key`) and words with spaces ("API key setup guide", "secret
+  santa list", "token economy") are not keys. An all-capital name such as `TEST_API_KEY` is hidden: a test marker and
+  a key word in capitals is the shape of a written test key.
+- **Tests.** `tests/unit/secrets.test.ts` (keys and negative cases), `tests/unit/b-chat-titles.test.ts` (placeholder,
+  AI title, person's title, start-up scan, and the list, search, one chat and rename through the API).
