@@ -2274,3 +2274,15 @@ including same-account installs. Extend the same synthetic selection tests to co
   the Linux bwrap arguments bind that same file. The path from the start stays only as a startup check.
 - **Tests.** `tests/install/g-linux-install.ts`: a turn can `stat {BRIDGE}` after install and again after
   `mycel-ctl update --bundle` (no launcher restart).
+
+## Shared dialog return focus from menus (2026-10-29)
+
+- **`confirmDialog` and `promptDialog` find the menu trigger when they are called.** A menu item unmounts when its
+  menu closes. When the dialog opens, focus is already on BODY, so the focus trap cannot find the opener
+  (R4 B-W41-2 / UI-02, also in the sidebar chat menu and the credential row menu). If focus is in a
+  `[role="menu"]`, the helper keeps the `[aria-expanded="true"]` control beside that menu as `returnTo`.
+- **Fallback:** `useFocusTrap` returns focus to `returnTo` only while it is still in the page. Otherwise it uses the
+  element that had focus when the dialog opened, as before. Dialogs not opened from a menu do not change.
+  The Files row menu keeps its click capture anchor, because its Move and Share dialogs use `Modal` directly.
+- **Known limit:** Safari does not focus a button on a mouse click. A mouse-opened dialog from a menu without its
+  own anchor then keeps the old behavior there.
