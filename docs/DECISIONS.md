@@ -2768,3 +2768,5 @@ Second independent review: keep the feature off and release approval withheld un
 excludes quarantined input before consumption. Grep-only source context now requires an
 explicit versioned read before final publication. Semantic indexing and historical browser downloads now enforce quarantine; retained
 journal lookups are indexed, while lifetime metadata retention/quota remains an operational gap.
+Policy epoch triggers still include routine session/connector bookkeeping; this can abort unrelated
+workflows and remains a second-review availability finding requiring a policy-column audit.

@@ -207,3 +207,9 @@ Fetch Metadata restrictions as current-file downloads.
 Journal lookup indexes avoid full-table scans on ordinary file access and admission. They do
 not bound lifetime metadata growth; a retention/quota design must preserve quarantine identities
 and unresolved cleanup debt. Deployment capacity and backup sizing must account for these records.
+
+The current policy-generation triggers also invalidate workflows for non-policy updates, including
+an unrelated user's login/session heartbeat (`users.last_seen_at`) and connector bookkeeping.
+This fails closed but can repeatedly prevent image delivery or publication on an active team.
+Audit policy-bearing columns and add real-session/connector concurrency tests before enablement;
+preserve revoke-and-restore detection when narrowing those triggers.
