@@ -9,6 +9,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { cp949Text } from '@mycel/shared/text-encoding'
 import { ToolError } from '../policy/errors'
 import { runIsolated } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
@@ -165,14 +166,11 @@ async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSi
 
 /**
  * Text of a plain text file: UTF-8 (a BOM is dropped) when the bytes are valid UTF-8. Otherwise legacy Korean
- * (CP949, a superset of EUC-KR) when the bytes decode cleanly as that and contain Hangul. Otherwise UTF-8 with
- * replacement characters, as before.
+ * (CP949, a superset of EUC-KR) when the bytes are clearly Korean (shared `cp949Text`: no decode error, at least 2
+ * Hangul syllables, at least 80% of the non-ASCII characters are Hangul syllables, no Hanja). Otherwise UTF-8 with
+ * replacement characters, as before, so a Windows-1252 file does not become false Korean text.
  */
 export function decodeText(bytes: Uint8Array): string {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch {}
-  try {
-    const text = new TextDecoder('euc-kr', { fatal: true }).decode(bytes)
-    if (/[\uac00-\ud7a3]/.test(text)) return text
-  } catch {}
-  return new TextDecoder('utf-8').decode(bytes)
+  return cp949Text(bytes) ?? new TextDecoder('utf-8').decode(bytes)
 }

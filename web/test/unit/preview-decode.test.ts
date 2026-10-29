@@ -23,4 +23,17 @@ describe('decodePreviewText', () => {
   test('bytes that are neither stay UTF-8 with replacement characters', () => {
     expect(decodePreviewText(new Uint8Array([0x63, 0x61, 0x66, 0xe9]))).toBe('caf�')
   })
+  test('Windows-1252 German / French bytes are not taken as Korean (no Hangul or Hanja guess)', () => {
+    const latin1 = (t: string) => new Uint8Array([...t].map((ch) => ch.charCodeAt(0)))
+    for (const t of ['Gr\xfc\xdfe \xc4\xd6', 'Stra\xdfe,M\xfcller,\xc4rger\n', 'Caf\xe9 cr\xe8me br\xfbl\xe9e\n']) {
+      const text = decodePreviewText(latin1(t))
+      expect(text).not.toMatch(/[\uac00-\ud7a3\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/)
+      expect(text).toContain('\ufffd')
+    }
+  })
+  test('one Hangul syllable, or Hanja in the text, is not enough', () => {
+    // "A가" and "회사 會社" in CP949
+    expect(decodePreviewText(new Uint8Array([0x41, 0xb0, 0xa1]))).toBe('A\ufffd\ufffd')
+    expect(decodePreviewText(new Uint8Array([0xc8, 0xb8, 0xbb, 0xe7, 0x20, 0xfc, 0xe5, 0xde, 0xe4]))).toContain('\ufffd')
+  })
 })
