@@ -3,6 +3,8 @@ import path from 'node:path'
 import { setupServerCgroups } from '../../server/src/system/cgroups'
 import { normalizeImage, pptxAst, renderPptx, validatePptx } from '../../server/src/safe-ops/runner'
 import { referencePptx } from '../../server/src/safe-ops/reference'
+import { makeCApp } from '../lib/c-app'
+import { makeHandler } from '../../server/src/mcp/protocol'
 const checks: { name: string; ok: boolean; detail?: string }[] = []
 async function check(name: string, f: () => Promise<void> | void) {
   try {
@@ -144,6 +146,49 @@ await check('every per-job cgroup is reaped', () => {
       fs.readdirSync(path.join(state.conv.dir, 'safe-ops-1a'), { withFileTypes: true }).filter((e) => e.isDirectory())
         .length === 0,
     )
+})
+await check('broker publishes a validated Korean PPTX and retains image provenance', async () => {
+  const app = await makeCApp('safe-linux')
+  try {
+    app.ctx.files.cfg.ocr = null
+    fs.copyFileSync('/fixtures/synthetic.png', path.join(app.team, 'users/alice/image.png'))
+    const turn = app.turn('alice', app.chat('alice')),
+      ctx = app.toolCtx('alice', turn)
+    const handler = makeHandler(app.ctx.files, app.ctx.db, ctx)
+    const result = await handler({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'make_file',
+        arguments: {
+          format: 'pptx',
+          content: '## 합성 자료\n\n![그림](users/alice/image.png)',
+          output: 'users/alice/safe.pptx',
+          expected_slides: 1,
+          expected_layouts: ['Title and Content'],
+        },
+      },
+    })
+    assert(!result.result.isError, JSON.stringify(result))
+    assert(ctx.files.readPaths.has('users/alice/image.png'))
+    const bytes = fs.readFileSync(path.join(app.team, 'users/alice/safe.pptx'))
+    const deck = JSON.parse((await validatePptx(bytes)).toString())
+    assert(deck.slides.length === 1 && deck.slides[0].title === '합성 자료')
+    const image = await handler({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name: 'read',
+        arguments: { file_path: 'users/alice/image.png' },
+      },
+    })
+    assert(image.result.content.some((c: any) => c.type === 'image' && c.mimeType === 'image/jpeg'))
+    assert(ctx.files.imageSources.has('users/alice/image.png'))
+  } finally {
+    await app.close()
+  }
 })
 console.log('SAFE_OPS_RESULT ' + JSON.stringify(checks))
 process.exit(checks.some((c) => !c.ok) ? 1 : 0)
