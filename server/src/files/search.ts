@@ -501,6 +501,6 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let text = out.join('\n') || 'No matches'
   if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
-  if (stats.longSkipped) text += `\n(${stats.longSkipped} lines longer than ${RG_MAX_RECORD_CHARS / 1024} KB were skipped)`
+  if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
   return { text, truncated, timedOut, stats, files, hits }
 }

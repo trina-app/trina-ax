@@ -2616,13 +2616,14 @@ including same-account installs. Extend the same synthetic selection tests to co
   Now the content search (`officeBudget: 0`) searches text files and only office files with fresh text (cache mtime =
   file mtime). It sends every stale or new office file to the background queue and counts it in `indexing`. The screen
   shows a short note ("Indexing N office documents. Not searched yet."). Thus a new office document is found only
-  after the background indexer has made its text (normally within a minute). The AI grep does not change: it extracts
+  after the background indexer has made its text. The AI grep does not change: it extracts
   up to 40 files before its answer.
 - **Office text cache.** One server extracts at most 4 office files at the same time (`OFFICE_EXTRACT_PARALLEL`). The
   background is one queue for the whole server (each path once with its mtime; a file that waits or is being
   extracted is not added again; at most 10,000) with one worker. The worker has low priority: it holds at most one
-  slot, and when a slot is free, a foreground job (the AI grep, an upload, the semantic index) gets it first. Thus
-  the AI grep always has 3 slots. One person's content searches add at most 100 new files a minute to the queue
+  slot, and when a slot is free, a foreground job that waits (the AI grep, an upload, the semantic index) gets it
+  first. Thus a content search never takes a slot from a foreground job. Foreground jobs can still fill all 4 slots
+  together (uploads still extract in the foreground; this change does not touch them). One person's content searches add at most 100 new files a minute to the queue
   (`OFFICE_QUEUE_PER_PERSON_MINUTE`, `owner`); the rest are still counted in `indexing` and are added by a later
   search. `update()` checks the cache again before it extracts, so many searches do not extract the same file again. The
   office pass shows only text of the current version of a document (cache mtime = file mtime): after a change (a
