@@ -6,7 +6,7 @@
 릴리스 키트와 설치기는 공개되어 있습니다. [GitHub Releases](https://github.com/trina-app/trina-ax/releases)에서
 게시된 버전과 파일을 확인하세요. 이 문서는 설치 절차를 설명하며 모든 배포판·장비에서의 동작 보장은 아닙니다.
 
-v0.2.3은 GitHub Releases에서만 배포하며 트리나 업데이트 피드는 아직 운영하지 않습니다. 아래 피드 기반 자동 업데이트 설명은 운영자가 유효한 피드를 제공한 경우에만 적용됩니다. 현재는 새 릴리스 키트와 설치기를 사용하세요.
+현재 버전은 v0.2.5입니다. GitHub Releases와 트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 설치된 서버는 피드의 `server/stable.json`(서명됨)에서 업데이트를 받습니다(8장).
 
 ## 1. 이런 경우에 씀
 
@@ -83,6 +83,17 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 자주 쓰는 옵션: `--id ID`(한 서버에 시험 설치를 하나 더), `--port N`(기본 47820), `--proxy-port N`(기본 47821),
 `--tls-port N`(사무실 안 직접 연결, 기본 끔), `--no-auto-update`, `--plan FILE`(요금제 파일, 아래 9장).
 
+공개 주소와 연동(7장 "공개 주소"):
+
+- `--public-host HOST`: 팀의 공개 주소 `https://HOST`(`server.json`의 `tunnel.host`). `none`이면 지운다.
+- `--app-connectors`: 팀원이 자기 Claude(Claude Code, Claude Desktop, claude.ai)를 이 서버에 연결한다(앱 커넥터,
+  `https://HOST/mcp`). 공개 주소가 있어야 한다. `--no-app-connectors`로 끈다.
+- `--google-drive-client FILE`: 개인 Google Drive 연결용 OAuth 클라이언트(`docs/GOOGLE-DRIVE.md`). Google Cloud에서 받은
+  JSON을 그대로 주면 된다.
+
+`repair`와 `update`는 `--public-host`와 `--app-connectors`를 기억한다. Drive 클라이언트 파일은 기억하지 않고, 설치된 파일을
+그대로 둔다. 잘못된 값은 아무것도 바꾸기 전에 거절한다.
+
 ## 5. 첫 설정
 
 서버에는 화면이 없으므로 SSH 터널로 연다.
@@ -112,10 +123,14 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
   등록이 닫혀 있어(작업 증명만으로는 `registration_closed`) 계정 콘솔의 공식 중계 애드온에서 받은 **연결 코드**를 함께
   넣는다. 자체 중계(`self-relay`)는 코드 없이 된다.
 - 사무실 안 직접 연결: 설치 때 `--tls-port 8443`. 서버의 방화벽(ufw·firewalld)에서 그 포트를 연다.
+- 공개 주소: Cloudflare Tunnel 같은 터널이 `https://<HOST>`를 `127.0.0.1:47820`(`--port`)으로 보낸다. 터널(cloudflared와
+  그 토큰)은 설치기 밖에서 만든다. 그다음 `sudo ./install-linux.sh repair --public-host <HOST>`. 앱 커넥터와 Google Drive도
+  쓰면 같은 줄에 `--app-connectors --google-drive-client client_secret.json`을 붙인다. Drive 클라이언트의 승인된 리디렉션
+  URI는 `https://<HOST>/api/integrations/google-drive/callback`이어야 한다.
 
 ## 8. 업데이트
 
-현재 공개 Trina 피드는 미운영입니다. 새 GitHub Release 키트의 체크섬·서명을 확인하고 기존 설치를 백업한 뒤 설치기를 다시 실행하세요. 아래 자동화는 운영자가 유효한 피드를 제공하는 경우의 동작입니다.
+트리나 업데이트 피드(`https://updates.trina.app`)는 2026-10-29부터 운영한다. 서버는 피드의 `server/stable.json`(서명됨)에서 새 버전을 받는다. 2026-10-29 실제 시험에서 리눅스 서버가 피드로 0.2.4에서 0.2.5로 업데이트했다. 피드 없이 업데이트하려면 새 GitHub Release 키트의 체크섬·서명을 확인하고 기존 설치를 백업한 뒤 설치기를 다시 실행한다.
 
 - **앱만 바뀌는 릴리스**: 서버가 스스로 적용한다(`server.json`의 `update.auto: true`, 설치기가 자체 설치에 켬). 팀 시간대의
   업데이트 창(관리자 › 설정 › 업데이트 시간, 기본 03:00–05:00) 안에서, 답변이 하나도 돌지 않을 때만. 새 버전이 켜지지 않으면
