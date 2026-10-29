@@ -45,8 +45,8 @@ export function which(name: string, extra: string[] = []): string | null {
   return null
 }
 
-/** The Codex CLI the engine runs (dev / local-login). One lookup for the launcher allow-list (context.ts) and the
- * chat runtime (chat/engines.ts): they must agree, or the launcher refuses the engine ("is not allowed"). */
+/** The Codex CLI the engine runs (dev / local-login). Shared by admin diagnostics, the launcher allow-list
+ * (context.ts) and chat runtime (chat/engines.ts): status must describe the executable the launcher runs. */
 /** explicit '' = Codex off (office mode, docs/OFFICE.md): no PATH lookup */
 export function findCodexBin(explicit?: string): string | null {
   if (explicit === '') return null

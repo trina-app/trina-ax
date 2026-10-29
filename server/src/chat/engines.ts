@@ -79,7 +79,7 @@ export class LocalEngines implements EngineProvider {
       // login; the catalog is locked from the owner's own models_cache.json
       const bin = findCodexBin(config.engine.codexBin)
       const src = path.join(os.homedir(), '.codex', 'models_cache.json')
-      if (bin && fs.existsSync(src)) {
+      if (bin && fs.existsSync(bin) && fs.existsSync(src)) {
         try {
           const catalog = path.join(config.dataDir, 'codex-catalog.json')
           codexModels = writeLockedCatalog(src, catalog)

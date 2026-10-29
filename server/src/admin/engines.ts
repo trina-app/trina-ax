@@ -11,7 +11,7 @@ import path from 'node:path'
 import type { EngineId, EngineStatus, Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
-import { which } from '../config'
+import { findCodexBin } from '../config'
 import { allowedCredentialKinds } from '../app-config'
 import { teamCredentialSummary } from '../credentials/resolve'
 import { resolveLayout } from '../system/layout'
@@ -113,7 +113,7 @@ export function engineEnv(ctx: AppContext): EngineEnv {
   const prod = ctx.config.mode === 'prod'
   const vf = path.join(REPO_ROOT, 'versions.json')
   // prod: the installer's engine only (the launcher allows nothing else) and its locked catalog next to it
-  const codexBin = prod ? ctx.config.engine.codexBin ?? '' : ctx.config.engine.codexBin ?? which('codex') ?? 'codex'
+  const codexBin = prod ? ctx.config.engine.codexBin ?? '' : findCodexBin(ctx.config.engine.codexBin) ?? ''
   const sock = ctx.config.engine.launcherSock ?? path.join(ctx.engineConfig.runDir, 'launcher.sock')
   return {
     mode: ctx.config.mode,
