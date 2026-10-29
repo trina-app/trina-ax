@@ -16,14 +16,14 @@ const has = (rel: string) => fs.existsSync(path.join(A.team, ...rel.split('/')))
 const bytes = (rel: string) => fs.readFileSync(path.join(A.team, ...rel.split('/')))
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0x00, 0xfe])
 
-type Asked = { answer: boolean; questions: string[] }
+type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void> }
 let rpcId = 0
 async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean } = {}) {
   const turnId = o.turn ? A.turn(user, A.chat(user)) : null
   const tc = A.toolCtx(user, turnId)
   if (o.person) {
     const p = o.person
-    tc.person = { locale: 'ko', async confirm(q) { p.questions.push(q); return p.answer }, *turnUrls() {} }
+    tc.person = { locale: 'ko', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} }
   }
   const h = makeHandler(A.ctx.files, A.ctx.db, tc)
   const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } })
@@ -176,4 +176,46 @@ describe('rename_file', () => {
     expect(taken.isError).toBe(true)
     expect(bytes('users/alice/taken.md').toString()).toBe('t')
   })
+})
+
+
+test('an audience change while the person confirms refuses both moves and copies', async () => {
+  for (const tool of ['move_files', 'copy_files']) {
+    const source = `users/alice/pending-${tool}.txt`, target = `shared/pending-${tool}.txt`
+    put(source, 'private review fixture')
+    A.ctx.db.query("UPDATE users SET status='disabled' WHERE id='bob'").run()
+    try {
+      const person = { ...ask(true), beforeAnswer: async () => {
+        A.ctx.db.query("UPDATE users SET status='active' WHERE id='bob'").run()
+      } }
+      const result = await call('alice', tool, { paths: [source], to_folder: 'shared' }, { person, turn: true })
+      expect(result.isError).toBe(true)
+      expect(result.text).toContain('audience changed')
+      expect(has(source)).toBe(true)
+      expect(has(target)).toBe(false)
+    } finally { A.ctx.db.query("UPDATE users SET status='active' WHERE id='bob'").run() }
+  }
+})
+
+test('move, copy and rename refuse symlink sources and destination directories', async () => {
+  const outside = fs.mkdtempSync('/tmp/core-review-file-link-')
+  const link = 'users/alice/review-link.txt', dir = 'users/alice/review-link-dir'
+  try {
+    fs.writeFileSync(path.join(outside, 'private.txt'), 'outside fixture')
+    fs.symlinkSync(path.join(outside, 'private.txt'), path.join(A.team, link))
+    fs.symlinkSync(outside, path.join(A.team, dir))
+    for (const tool of ['move_files', 'copy_files']) {
+      expect((await call('alice', tool, { paths: [link], to_folder: 'shared' }, { person: ask(true), turn: true })).isError).toBe(true)
+      const source = `users/alice/link-target-${tool}.txt`
+      put(source, 'inside fixture')
+      expect((await call('alice', tool, { paths: [source], to_folder: dir }, { person: ask(true), turn: true })).isError).toBe(true)
+      expect(has(source)).toBe(true)
+    }
+    expect((await call('alice', 'rename_file', { path: link, new_name: 'renamed.txt' })).isError).toBe(true)
+    expect(fs.readdirSync(outside)).toEqual(['private.txt'])
+    expect(fs.readFileSync(path.join(outside, 'private.txt'), 'utf8')).toBe('outside fixture')
+  } finally {
+    fs.rmSync(path.join(A.team, link), { force: true }); fs.rmSync(path.join(A.team, dir), { force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
 })

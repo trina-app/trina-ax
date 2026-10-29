@@ -372,20 +372,24 @@ export class TeamFiles {
    * of them now and could not in `toFolder` (lost). Counted once per person, never named. Every path is checked like
    * the move / copy itself (a path the caller may not use throws: the tool checks them one by one first).
    */
-  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number } {
+  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; fingerprint: string } {
     const user = this.principal(userId)
     const rules = this.rules()
     const srcs = from.map((f) => authorize(this.fx, rules, user, f, mode === 'move' ? 'write' : 'read', { mustExist: true }).segs)
     const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: true })
     if (!to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let added = 0, lost = 0
+    const audience: string[] = []
     for (const p of activePeople(this.ctx.db)) {
       if (p.id === user.id) continue
       const sees = atLeast(rules.access(p, to.segs), 'read')
+      audience.push(JSON.stringify([p.id, sees, srcs.map(s => atLeast(rules.access(p, s), 'read'))]))
       if (sees && srcs.some((s) => !atLeast(rules.access(p, s), 'read'))) added++
       if (mode === 'move' && !sees && srcs.some((s) => atLeast(rules.access(p, s), 'read'))) lost++
     }
-    return { added, lost }
+    // Compare identities as well as counts without exposing reader names to the tool.
+    const fingerprint = crypto.createHash('sha256').update(JSON.stringify(audience.sort())).digest('hex')
+    return { added, lost, fingerprint }
   }
 
   // ---------------- copy: sharing a personal file / project (design tab 2 rule 3, tab 4 POST /api/files/copy) ----------------

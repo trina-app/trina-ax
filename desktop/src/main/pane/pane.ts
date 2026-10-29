@@ -568,9 +568,9 @@ export class BrowserPane {
     this.officeLetThrough.clear()
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
     await Promise.all([
-      this.session.clearStorageData().catch(() => {}),
-      this.session.clearCache().catch(() => {}),
-      this.session.clearAuthCache().catch(() => {}),
+      this.session.clearStorageData(),
+      this.session.clearCache(),
+      this.session.clearAuthCache(),
     ])
     this.hide()
     this.emit()
