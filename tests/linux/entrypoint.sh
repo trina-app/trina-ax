@@ -22,10 +22,11 @@ echo "ptrace_scope=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 
 # Ubuntu 24.04 hosts (GitHub runners, the colima VM) restrict unprivileged user namespaces through AppArmor: allow
 # them for bwrap only, the way install-linux.sh does (spec 3.5.1 step 4), and remove the profile again at exit
 AA_PROFILE=""
-# Only when bwrap really cannot make a user namespace as an unprivileged account: AppArmor policy is global to the
+# Only when bwrap cannot set up converter isolation as an unprivileged account: AppArmor policy is global to the
 # kernel, and two profiles attached to /usr/bin/bwrap (another test container's, or an installed tenant's on the same
-# host) make the attachment ambiguous so neither applies. Same rule as install-linux.sh step 4.
-bwrap_ok() { setpriv --reuid nobody --regid nogroup --clear-groups bwrap --unshare-user --ro-bind / / /bin/true >/dev/null 2>&1; }
+# host) make the attachment ambiguous so neither applies. Same allowance as install-linux.sh step 4, but probe
+# network isolation too: --unshare-user alone can miss the converters' loopback setup failure on Ubuntu 24.04.
+bwrap_ok() { setpriv --reuid nobody --regid nogroup --clear-groups bwrap --unshare-all --ro-bind / / /bin/true >/dev/null 2>&1; }
 if ! bwrap_ok && [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == 1 ]]; then
   mountpoint -q /sys/kernel/security || mount -t securityfs securityfs /sys/kernel/security
   AA_PROFILE=/tmp/mycel-t1-bwrap
