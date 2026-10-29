@@ -2439,3 +2439,14 @@ including same-account installs. Extend the same synthetic selection tests to co
 - **Limit.** This is a prompt change. It makes the server refusal path more likely but cannot make sure that the model
   calls the tool. No button shows after a refusal in text only; that needs a text-refusal detector and is not built.
   No user-visible strings changed.
+## Owner role name in Korean server texts (B-W1-2, 2026-10-29)
+
+- **Problem.** The web dictionary names the owner role 팀장 in Korean (`role.owner`). Korean server texts still used
+  the English word "owner": engine diagnostics (`server/src/admin/engines.ts`, `server/src/system/messages.ts`,
+  `server/src/system/messages-linux.ts`) and member-role errors (`server/src/auth/messages.ts`).
+- **Decision.** Korean server texts use 팀장 with the correct particle (팀장이, 팀장만, 팀장의). The transfer action is
+  "팀장 넘김", as in the audit label `audit.act.owner.transfer`.
+- **Indonesian.** No change. The Indonesian dictionary names the role "Owner" (`role.owner`), so "owner" in the
+  Indonesian server texts is already the localized name.
+- **Tests.** `tests/unit/ko-owner-role.test.ts` reads every Korean text of these tables (also the Linux and hosted
+  variants) and fails on the word "owner".
