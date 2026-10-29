@@ -1,3 +1,4 @@
+import { confidentialChat } from "../safe-ops/confidential"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
 // launch through the stage-1 launcher, live text deltas + steps over the realtime hub, DB saves every 0.3 s,
@@ -349,7 +350,7 @@ export class TurnExec {
           if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
           proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic' })
         } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 })
-        const lr = buildClaudeLaunch({ webSearch: !this.templateScope,
+        const lr = buildClaudeLaunch({ webSearch: !this.templateScope && !confidentialChat(rt.db,spec.chatId),
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
@@ -488,7 +489,7 @@ export class TurnExec {
           m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
-        const lr = buildCodexLaunch({ webSearch: !this.templateScope, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        const lr = buildCodexLaunch({ webSearch: !this.templateScope && !confidentialChat(this.rt.db,spec.chatId), turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place

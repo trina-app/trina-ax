@@ -73,6 +73,7 @@ const ENTRIES: [string, string][] = [
   ['server/src/auth/cli.ts', 'accounts.js'],
   // the bounded child process that reads spreadsheets and Hangul files
   ['server/src/files/office-worker.ts', 'office-worker.js'],
+  ['server/src/safe-ops/deck-worker.ts', 'deck-worker.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
 const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']

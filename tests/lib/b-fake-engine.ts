@@ -162,7 +162,7 @@ async function saySplit(text: string) {
   await new Promise<void>((res) => process.stdout.write(line.subarray(cut), () => res()))
 }
 
-async function tool(name: string, args: unknown): Promise<string> {
+async function tool(name: string, args: unknown, expectImage = false): Promise<string> {
   if (stopped) return ''
   closeBlock()
   await startBridge()
@@ -176,6 +176,10 @@ async function tool(name: string, args: unknown): Promise<string> {
   const isError = !!r.result?.isError || !!r.error
   if (codex) out({ type: 'item.completed', item: { id, type: 'mcp_tool_call', server: 'team', tool: name, arguments: args, status: 'completed', result: { content, is_error: isError } } })
   else out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
+  if(expectImage) {
+    const image=content.find((c:any)=>c.type==='image' && c.mimeType==='image/jpeg' && typeof c.data==='string')
+    return image ? 'IMAGE_BLOCK_OK:image/jpeg' : 'IMAGE_BLOCK_MISSING'
+  }
   return text
 }
 
@@ -287,7 +291,7 @@ for (const d of directives) {
   if (stopped) break
   if (d.say !== undefined) await say(String(d.say))
   else if (d.tool) {
-    const r = await tool(d.tool, d.args ?? {})
+    const r = await tool(d.tool, d.args ?? {}, !!d.expectImage)
     if (d.sayResult) await say(r)
     if (d.sayLength) await say(`length=${r.length} tail=${r.trimEnd().split('\n').at(-1)?.slice(0, 12)}`)
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))

@@ -19,6 +19,10 @@ import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
 import { readMaxBytes } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
+import type { McpContent } from '../turns'
+import { normalizeImage, safeOpsEnabled, SAFE_INPUT_MAX, SAFE_OUTPUT_MAX } from '../safe-ops/runner'
+import { snapshot, recheck } from '../safe-ops/source'
+import { safeText, safeErrorText } from '../safe-ops/strings'
 
 void ENGINE_BUILTIN_ALLOWED
 
@@ -38,6 +42,8 @@ export class TurnFiles {
   readHashes = new Map<string, string>()
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  imageBytes = 0
+  imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
   filesWritten = new Set<string>()
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
@@ -61,7 +67,7 @@ export interface ToolCtx {
    */
   confirmWidening?: (target: string, sources: string[]) => Promise<string | null>
 }
-export interface ToolOutput { text: string; isError?: boolean; summary: string }
+export interface ToolOutput { text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
 const BINARY_WRITE = new Set(['docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
@@ -95,7 +101,7 @@ export class FileService {
         return { text: 'Access denied: ' + e.message, isError: true, summary: `${tool} ${short(p)} -> denied: ${e.message}` }
       }
       if (e?.name === 'ZodError') return { text: 'Invalid input: ' + e.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '), isError: true, summary: `${tool} -> invalid input` }
-      if (e instanceof ToolError) return { text: 'Error: ' + e.message, isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
+      if (e instanceof ToolError) return { text: 'Error: ' + safeErrorText(this.db,ctx.user.id,e.code,e.message), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
       return { text: 'Error: internal error', isError: true, summary: `${tool} ${short(p)} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }
     }
   }
@@ -147,12 +153,42 @@ export class FileService {
   }
 
   // ---------------- read ----------------
+  /** Fixed converter seam; production always uses the qualified runner. */
+  imagePreview(format: string, bytes: Uint8Array, signal?: AbortSignal) { return normalizeImage(format, bytes, signal) }
+
+  private async readImage(ctx: ToolCtx, a: {file_path: string}): Promise<ToolOutput> {
+    const source=snapshot(this,ctx,a.file_path,SAFE_INPUT_MAX)
+    const e=ext(source.path)
+    let pixels: Buffer | undefined
+    const turn=ctx.turnId ? this.db.query('SELECT engine FROM turns WHERE id=?').get(ctx.turnId) as {engine:string}|null : null
+    if(safeOpsEnabled() && (turn?.engine==='claude-code' || turn?.engine==='codex') && ctx.files.imageBytes+SAFE_OUTPUT_MAX<=4*SAFE_OUTPUT_MAX) {
+      try { pixels=await this.imagePreview(e,source.bytes,ctx.signal) }
+      catch(err) { ctx.signal?.throwIfAborted(); if(!(err instanceof ToolError) || err.code!=='safe_ops_unavailable') throw err }
+    }
+    let ocr=''
+    if(this.cfg.ocr) {
+      try { ocr=await extractText(pixels?'preview.jpg':source.path,pixels??source.bytes,{pandoc:null,pdftotext:null,ocr:this.cfg.ocr},ctx.signal) }
+      catch { ctx.signal?.throwIfAborted() }
+    }
+    if(pixels && (pixels.length>SAFE_OUTPUT_MAX || pixels[0]!==0xff || pixels[1]!==0xd8)) throw new ToolError('Invalid image converter result')
+    const beforeDelivery=() => recheck(this,ctx,source)
+    beforeDelivery()
+    ctx.files.readHashes.set(source.path,source.hash)
+    ctx.files.readPaths.add(source.path)
+    ctx.files.imageSources.set(source.path,{hash:source.hash,identity:source.identity})
+    if(pixels) ctx.files.imageBytes+=pixels.length
+    const text=[safeText(this.db,ctx.user.id,pixels?'image':'fallback'),'Source: '+source.path,'SHA-256: '+source.hash,ocr.slice(0,16000)].join('\n')
+    const content: McpContent[]=[{type:'text',text},...(pixels?[{type:'image' as const,mimeType:'image/jpeg',data:pixels.toString('base64')}]:[])]
+    return {text,content,beforeDelivery,summary:'read '+source.path+' -> '+(pixels?'image + OCR':'OCR fallback')}
+  }
+
   async read(ctx: ToolCtx, a: { file_path: string; offset?: number; limit?: number }): Promise<ToolOutput> {
+    if(['png','jpg','jpeg','webp','heic','heif'].includes(ext(a.file_path))) return this.readImage(ctx,a)
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
     const { bytes } = readRegular(r.abs, readMaxBytes())
-    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr })
+    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr }, ctx.signal)
     ctx.files.readHashes.set(r.rel, sha256(bytes))
     ctx.files.readPaths.add(r.rel)
     const lines = text.split(/\r?\n/)

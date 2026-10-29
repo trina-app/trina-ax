@@ -25,6 +25,7 @@ function send(sock: any, data: string) {
 }
 function flush(sock: any) {
   const s: S = sock.data
+  if(s.turn?.revoked) { s.out=[]; sock.end(); return }
   while (s.out.length) {
     const b = s.out[0]!
     const n = sock.write(b)
@@ -68,7 +69,8 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
         turns.authenticate(msg?.hello?.token, s.peer!, 3000, (seen) => { s.turn = seen }).then((t) => {
           if (typeof t === 'string') return reject(sock, s, t)
           s.turn = t
-          s.handle = makeHandler(files, db, { user: files.principal(t.userId), turnId: t.id, files: t.files }, t.tools)
+          t.abort.signal.addEventListener('abort',()=>{s.out=[];s.stage='closed';try{sock.end()}catch{}},{once:true})
+          s.handle = makeHandler(files, db, { user: files.principal(t.userId), turnId: t.id, files: t.files, signal: t.abort.signal }, t.tools)
           s.stage = 'mcp'
           connLog.run(t.id, t.userId, '(connect)', `accepted peer=${JSON.stringify(s.peer)}`, 1)
           pump(sock)
@@ -78,6 +80,8 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
         s.queue = s.queue.then(async () => {
           if (turn.revoked) return reject(sock, s, 'turn ended')
           const out = await s.handle!(msg).catch((e) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }))
+          if (turn.revoked) { s.out=[]; return reject(sock,s,'turn ended') }
+          try { out?.beforeDelivery?.() } catch { s.out=[]; return reject(sock,s,'source access changed') }
           if (out && s.stage === 'mcp') try { send(sock, JSON.stringify(out) + '\n') } catch {}
         })
       }

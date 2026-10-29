@@ -2741,3 +2741,17 @@ including same-account installs. Extend the same synthetic selection tests to co
   cases still assert actual activation/control and that the fallback response comes from the worker.
 - No locale policy, translations, credentials or cached account data change. Apply the same fix in the
   shared core (`potenlab/team-ax`).
+
+## Safe operations 1A: fixed images and bundled PowerPoint (2026-10-29)
+
+- Add opt-in qualified Linux image blocks for Claude Code/Codex, bounded PPTX with the bundled
+  reference and explicit layout expectations, fresh delivery authorization and retained provenance.
+  The existing slide/notes contract, HEIC codec and isolated Office extraction remain in use.
+- Require effective per-job cgroup limits, private scratch/namespaces, exact runtime binds,
+  Landlock/seccomp and isolated output validation; unsupported hosts fail closed for new operations.
+  Move the legacy PPTX count parser out of the privileged server too.
+- Mark affected conversations persistently confidential: no browser/connectors/provider web search.
+  The configured model provider is an explicit recipient of pixels. Default off; medical not qualified.
+- No general execution, ZIP, new Excel writer, uploaded PPTX templates or HWP changes. See
+  [the boundary, limitations and explicit 1B/1C backlog](SAFE-OPS-1A.md). Full destination CAS,
+  real pinned CLI qualification and independent review remain release gates.

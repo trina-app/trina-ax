@@ -36,7 +36,7 @@ describe('server converter cgroup (spec 3.8.2)', () => {
     expect(fs.readFileSync(path.join(conv, 'pids.max'), 'utf8')).toBe('128')
     expect(fs.readFileSync(path.join(conv, 'cpu.max'), 'utf8')).toBe('200000 100000')
     expect(converterCgroup()?.dir).toBe(conv)
-    expect(cgexecPrefix(60_000)).toEqual([helper, 'cgexec', '--cgroup', conv, '--oom-score-adj', '500', '--rlimit-cpu', '65',
+    expect(cgexecPrefix(60_000)).toEqual([helper, 'cgexec', '--cgroup', path.join(conv,'legacy'), '--oom-score-adj', '500', '--rlimit-cpu', '65',
       '--rlimit-fsize', String(1024 ** 3), '--rlimit-nofile', '1024', '--'])
   })
 

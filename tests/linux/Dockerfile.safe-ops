@@ -1,0 +1,3 @@
+# Build tests/linux/Dockerfile as mycel-safe1a-test first; no production infrastructure.
+FROM mycel-safe1a-test
+RUN apt-get update && apt-get install -y --no-install-recommends libheif-examples && rm -rf /var/lib/apt/lists/*

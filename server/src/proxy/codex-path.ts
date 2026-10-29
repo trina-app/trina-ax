@@ -1,3 +1,4 @@
+import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // The model proxy's Codex path (docs/DECISIONS.md "AI 연결" D9/D21). A managed Codex turn never holds a real
 // credential: its CODEX_HOME/auth.json carries this turn's proxy token as the access token (or API key) and fixed
 // placeholders, its model provider "teamax" points at http://127.0.0.1:<port>/codex/<chatgpt|openai>, and the
@@ -110,7 +111,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   if (raw.byteLength > MAX_BODY) return apiError(413, 'invalid_request_error', 'body too large')
   let parsed: unknown = null
   try { parsed = JSON.parse(new TextDecoder().decode(raw)) } catch {}
-  const refused = checkResponsesRequest(parsed, d.codexModels())
+  const refused = (confidentialTurn(d.db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null) ?? checkResponsesRequest(parsed, d.codexModels())
   if (refused) {
     d.refused(row, refused)
     return apiError(403, 'permission_error', `refused by the team server: ${refused}`)

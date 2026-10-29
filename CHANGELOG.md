@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Safe operations 1A (opt-in, qualified Linux): image pixels with OCR fallback for Claude Code/Codex, bounded PowerPoint with bundled layouts, fresh delivery authorization, and isolated output validation. Uploaded templates, ZIP and the new Excel writer remain deferred.
+
 ## 0.2.9 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.9).

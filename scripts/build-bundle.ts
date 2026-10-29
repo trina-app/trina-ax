@@ -57,7 +57,7 @@ export const hostArch = (): 'arm64' | 'amd64' => (process.arch === 'arm64' ? 'ar
 export const ROOT_FILES = ['mycel-bootstrap', 'mycel-launcher', 'mycel-account', 'engine.sb', 'pf-load'] as const
 /** server entry points: source -> bundled file in server/src/ */
 // office-worker.js: the bounded child process that reads spreadsheets and Hangul files (files/office-worker.ts)
-const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js']]
+const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js'], ['safe-ops/deck-worker.ts','deck-worker.js']]
 
 export async function buildBundle(o: { version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string; bunFor?: (arch: 'arm64' | 'amd64') => Promise<string> }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
@@ -190,7 +190,7 @@ function* walkDirs(d: string): Generator<string> {
 // ======================= Linux server bundle (linux-runtime spec 3.6.1) =======================
 
 /** native/bin/linux-<arch>/ programs: in the version folder's native/ (run by the server) */
-export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-ocr'] as const
+export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-ocr', 'mycel-safeops'] as const
 /** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
 export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */
@@ -261,7 +261,7 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
-    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js',
+    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
     ...o.systemd.map((u) => `root/systemd/${u}`),
