@@ -59,29 +59,29 @@ describe('conformance (Node 25 relay, separate team-server process)', () => {
   test('t2 slow reader: the producer stays about one window ahead; relay memory flat', async () => {
     S = await startStack(PORT, { name: 'ttwo' })
     const rss0 = rssMb(S.relay.p.pid)
-    const slow = Bun.spawn(['curl', '-s', '--limit-rate', '1M', '-o', '/dev/null', `${S.base}/bytes?n=${500 * MB}&rid=slow`])
-    // Bytes the reader has not taken yet sit in one window (256 KB) and in the relay -> reader socket's kernel buffers
-    // (the team -> relay hop carries at most one window). Those buffers fill in the first half second and their size
-    // is the host's, not ours: up to 4 + 4 MB on macOS, 4 + 6 MB with Linux's defaults (12.1 MB produced after 4 s
-    // on a Debian server against the old fixed 4 + 8 MB). So: once they are full, the producer goes only as fast as
-    // the reader, and the total stays within what was read plus this host's buffer limits.
-    await Bun.sleep(2000)
-    const a = await debug(S.base, 'slow'), aAt = Date.now()
-    await Bun.sleep(2000)
-    const d = await debug(S.base, 'slow'), dAt = Date.now()
-    const elapsed = (Date.now() - d.lastPullAt) / 1000
-    const read = ((dAt - aAt) / 1000) * MB // the reader's 1 MB/s over the interval
-    const buffers = socketBufferMax()
-    notes.t2 = { producedMB: +(d.produced / MB).toFixed(2), lastTwoSecondsMB: +((d.produced - a.produced) / MB).toFixed(2), socketBuffersMB: +(buffers / MB).toFixed(1), relayRssGrowthMB: +(rssMb(S.relay.p.pid) - rss0).toFixed(1) }
-    // without flow control the producer runs at memory speed (hundreds of MB in a second): here, the reader's pace
-    // plus at most 3 MB (the relay returns window in steps as the socket drains: ~1.5 MB on Linux; GitHub's Linux
-    // runners hold ~2.2 MB more in their socket buffers). Without flow control this is hundreds of MB.
-    expect(d.produced - a.produced).toBeLessThan(read + 3 * MB)
-    // ~4 MB read in 4 s (curl may burst 1 MB more), one window, and this host's socket buffers between relay and reader
-    expect(d.produced).toBeLessThan(5 * MB + 256 * 1024 + buffers)
-    expect(elapsed).toBeLessThan(5)
-    expect(rssMb(S.relay.p.pid) - rss0).toBeLessThan(40)
-    slow.kill(9)
+    const sink = path.join(S.dataDir, 'slow.bin')
+    const slow = Bun.spawn(['curl', '-s', '--limit-rate', '1M', '-o', sink, `${S.base}/bytes?n=${500 * MB}&rid=slow`])
+    try {
+      // curl's rate limit is an average: individual reads can burst, and kernel buffers can still grow
+      // after the first sample. Measure bytes actually read instead of inferring them from elapsed time.
+      await Bun.sleep(2000)
+      const a = await debug(S.base, 'slow'), aRead = fs.statSync(sink).size
+      await Bun.sleep(2000)
+      const d = await debug(S.base, 'slow'), dRead = fs.statSync(sink).size
+      const elapsed = (Date.now() - d.lastPullAt) / 1000
+      const buffers = socketBufferMax()
+      notes.t2 = { producedMB: +(d.produced / MB).toFixed(2), readMB: +(dRead / MB).toFixed(2), lastTwoSecondsMB: +((d.produced - a.produced) / MB).toFixed(2), lastTwoSecondsReadMB: +((dRead - aRead) / MB).toFixed(2), socketBuffersMB: +(buffers / MB).toFixed(1), relayRssGrowthMB: +(rssMb(S.relay.p.pid) - rss0).toFixed(1) }
+      expect(dRead).toBeGreaterThan(0) // the slow reader started, but has not drained the response
+      expect(dRead).toBeLessThan(500 * MB)
+      // Unread production is bounded by one window and this host's socket buffers, both across the
+      // sample interval and since the request began. Without flow control it reaches hundreds of MB.
+      expect(d.produced - a.produced).toBeLessThan(dRead - aRead + buffers + 256 * 1024)
+      expect(d.produced).toBeLessThan(dRead + buffers + 256 * 1024)
+      expect(elapsed).toBeLessThan(5)
+      expect(rssMb(S.relay.p.pid) - rss0).toBeLessThan(40)
+    } finally {
+      slow.kill(9)
+    }
     await until(async () => (await debug(S!.base, 'slow')).cancelAt > 0, 3000, 'cancel reached the app')
   }, 30_000)
 
