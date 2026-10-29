@@ -15,7 +15,7 @@ import { useEngines } from '../store/engines'
 import { canChooseEngine, useMeStrict } from '../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
 import { toast } from '../store/ui'
-import Composer, { type EngineChoice } from '../components/chat/Composer'
+import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
@@ -39,6 +39,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const [loadError, setLoadError] = useState<unknown>(null)
   const [loading, setLoading] = useState(!useChats.getState().threads[chatId])
   const scroller = useRef<HTMLDivElement>(null)
+  const composer = useRef<ComposerHandle>(null)
   const stick = useRef(true)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
@@ -173,8 +174,10 @@ function ChatView({ chatId }: { chatId: string }) {
     }
   }
 
-  const askOwnFolder = (path: string) =>
-    void send({ chatId, content: t('files.summary.askOwnFolderPrompt', { path: path || '-', folder: `users/${me.user.id}` }), attachments: [], author: { id: me.user.id, name: me.user.name } }).catch(fail)
+  const askOwnFolder = (path: string) => {
+    if (busy) return
+    composer.current?.prepareDraft(t(path ? 'files.summary.askOwnFolderPrompt' : 'files.summary.askOwnFolderHiddenPrompt', { path, folder: `users/${me.user.id}` }))
+  }
 
   if (loadError && isApiError(loadError, 'not_found'))
     return (
@@ -217,6 +220,7 @@ function ChatView({ chatId }: { chatId: string }) {
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
         ) : (
           <Composer
+            ref={composer}
             draftId={chatId}
             ensureChat={async () => chatId}
             running={busy}
