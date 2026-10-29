@@ -17,6 +17,9 @@ test('R2-1: another user, text/image copies and CP949 never enter real raw rg ou
   // Valid CP949 Korean with ASCII marker, so both passes can expose it.
   const bad = Buffer.concat([Buffer.from(marker + ' '), Buffer.from([0xc7, 0xd1, 0xb1, 0xdb])])
   a.ctx.files.quarantine.add(bad, 'image')
+  const plain = Buffer.from(marker + ' reviewer exact-byte reproduction')
+  a.ctx.files.quarantine.add(plain, 'pptx')
+  for (const ext of ['txt','jpg']) fs.writeFileSync(path.join(a.team,'shared','reviewer-copy.'+ext),plain)
   for (const n of ['original.jpg', 'copy.txt', 'renamed.png']) fs.writeFileSync(path.join(a.team, 'shared', n), bad)
   fs.writeFileSync(path.join(a.team, 'shared/normal.txt'), 'ordinary search result')
   const log = path.join(a.data, 'raw.log'), wrapper = path.join(a.data, 'rg')
@@ -27,7 +30,13 @@ test('R2-1: another user, text/image copies and CP949 never enter real raw rg ou
     const result = await a.ctx.files.grep(a.toolCtx('bob'), { pattern: marker + '|ordinary|한글', path: 'shared', output_mode: 'content' })
     expect(result.text).toContain('ordinary')
     expect(result.text).not.toContain(marker)
-    expect(fs.readFileSync(log, 'utf8')).not.toContain(marker)
+    const raw = fs.readFileSync(log, 'utf8')
+    expect(raw).not.toContain(marker)
+    // Raw invalid UTF-8 records use base64, not JSON text. Inspect those too.
+    for (const line of raw.split('\n')) {
+      let record: any; try { record = JSON.parse(line) } catch { continue }
+      if (record.data?.lines) expect(record.data.lines.text ?? Buffer.from(record.data.lines.bytes, 'base64').toString('utf8')).not.toContain(marker)
+    }
     expect(a.ctx.db.query('SELECT * FROM safe_ops_search_inputs').all()).toEqual([])
   } finally { await a.close() }
 })
