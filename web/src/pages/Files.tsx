@@ -4,7 +4,7 @@
 // Several items at once: a checkbox per row (Shift+click: a range; the header one: every row listed; Esc: none), then
 // move / share / trash for all of them from the bar that replaces the breadcrumbs (lib/bulkFiles.ts).
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
@@ -20,6 +20,7 @@ import { cancelUpload, uploadFile, type UploadProgress } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
+import { contentQueryReady, FileContentResults } from '../components/FileContentSearch'
 import FolderPicker from '../components/FolderPicker'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
@@ -48,6 +49,20 @@ export default function Files() {
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
   const select = params.get('select')
+  /** file content search (R2-ETC-02): the query is in the URL, so the ⌘K dialog can open the file screen with it */
+  const q = params.get('q') ?? ''
+  const searching = contentQueryReady(q)
+  const setQuery = (v: string) =>
+    setParams(
+      (prev) => {
+        const n = new URLSearchParams(prev)
+        if (v) n.set('q', v)
+        else n.delete('q')
+        n.delete('select')
+        return n
+      },
+      { replace: true },
+    )
   const [view, setView] = useState<'files' | 'trash'>('files')
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -418,6 +433,30 @@ export default function Files() {
         <Tabs value={view} onChange={setView} label={t('files.title')} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
         {view === 'files' && (
           <div className="ml-auto flex items-center gap-1">
+            <label className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface px-2 focus-within:ring-2 focus-within:ring-accent">
+              <Search size={14} className="shrink-0 text-faint" aria-hidden />
+              <span className="sr-only">{t('files.search.label')}</span>
+              <input
+                type="search"
+                value={q}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && q) {
+                    e.preventDefault()
+                    setQuery('')
+                  }
+                }}
+                placeholder={t('files.search.placeholder')}
+                maxLength={200}
+                className="w-28 min-w-0 bg-transparent text-sm outline-none placeholder:text-faint sm:w-48"
+                data-testid="content-search-input"
+              />
+              {q && (
+                <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')} title={t('files.search.clear')}>
+                  <X size={14} aria-hidden />
+                </button>
+              )}
+            </label>
             <IconButton label={t('common.refresh')} onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
@@ -481,77 +520,83 @@ export default function Files() {
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
           {uploads.length > 0 && <UploadList items={uploads} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
-            {error && (
-              <div className="p-4">
-                <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>
-              </div>
-            )}
-            {!tree && !error && <Skeleton lines={8} className="p-4" />}
-            {tree && !tree.entries.length && (
-              <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
-                {canWrite && (
-                  <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
-                    {t('files.upload')}
-                  </Button>
+            {searching ? (
+              <FileContentResults q={q} path={path} folderLabel={path || t('files.root')} />
+            ) : (
+              <>
+                {error && (
+                  <div className="p-4">
+                    <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>
+                  </div>
                 )}
-              </EmptyState>
-            )}
-            {tree && tree.entries.length > 0 && (
-              <table className="w-full text-sm" data-testid="file-table">
-                {/* on phones too: the header checkbox selects every row listed */}
-                <thead>
-                  <tr className="text-left text-xs text-faint">
-                    <th className="w-0 py-1 pr-0 pl-1">
-                      <CheckBox
-                        inputRef={selectAllRef}
-                        checked={allState === 'all'}
-                        disabled={!order.length}
-                        label={t('files.selectAll')}
-                        onCheck={() => {
-                          setChecked((c) => toggleAll(c, order))
-                          anchor.current = null
-                        }}
-                        testId="select-all"
-                      />
-                    </th>
-                    <th className="px-2 py-2 font-medium">{t('files.name')}</th>
-                    <th className="hidden px-2 py-2 font-medium sm:table-cell">{t('files.modified')}</th>
-                    <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
-                    <th className="w-10 px-2 py-2">
-                      <span className="sr-only">{t('files.actions')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tree.entries.map((e) => (
-                    <FileRow
-                      key={e.path}
-                      e={e}
-                      selected={select === e.name}
-                      checked={checked.has(e.path)}
-                      onCheck={(shift) => check(e.path, shift)}
-                      // A file without a viewer opens the panel too: it shows the "can't be previewed" notice and a download button.
-                      onOpen={() => (e.type === 'folder' ? go(e.path) : openTeamFile(e.path))}
-                      onChat={() => chatWith(e)}
-                      onAddToChat={chatAttach.target ? () => addToChat(e) : null}
-                      chatTitle={chatAttach.target?.title ?? ''}
-                      onRename={() => void rename(e)}
-                      onMove={() => setMoving(e)}
-                      onShare={() => setSharing(e)}
-                      onDelete={() => void remove(e)}
-                      onHistory={() => setHistory(e.path)}
-                      onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {tree?.nextCursor && (
-              <div className="py-3 text-center">
-                <Button size="sm" busy={loadingMore} onClick={more}>
-                  {t('common.loadMore')}
-                </Button>
-              </div>
+                {!tree && !error && <Skeleton lines={8} className="p-4" />}
+                {tree && !tree.entries.length && (
+                  <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
+                    {canWrite && (
+                      <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
+                        {t('files.upload')}
+                      </Button>
+                    )}
+                  </EmptyState>
+                )}
+                {tree && tree.entries.length > 0 && (
+                  <table className="w-full text-sm" data-testid="file-table">
+                    {/* on phones too: the header checkbox selects every row listed */}
+                    <thead>
+                      <tr className="text-left text-xs text-faint">
+                        <th className="w-0 py-1 pr-0 pl-1">
+                          <CheckBox
+                            inputRef={selectAllRef}
+                            checked={allState === 'all'}
+                            disabled={!order.length}
+                            label={t('files.selectAll')}
+                            onCheck={() => {
+                              setChecked((c) => toggleAll(c, order))
+                              anchor.current = null
+                            }}
+                            testId="select-all"
+                          />
+                        </th>
+                        <th className="px-2 py-2 font-medium">{t('files.name')}</th>
+                        <th className="hidden px-2 py-2 font-medium sm:table-cell">{t('files.modified')}</th>
+                        <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
+                        <th className="w-10 px-2 py-2">
+                          <span className="sr-only">{t('files.actions')}</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tree.entries.map((e) => (
+                        <FileRow
+                          key={e.path}
+                          e={e}
+                          selected={select === e.name}
+                          checked={checked.has(e.path)}
+                          onCheck={(shift) => check(e.path, shift)}
+                          // A file without a viewer opens the panel too: it shows the "can't be previewed" notice and a download button.
+                          onOpen={() => (e.type === 'folder' ? go(e.path) : openTeamFile(e.path))}
+                          onChat={() => chatWith(e)}
+                          onAddToChat={chatAttach.target ? () => addToChat(e) : null}
+                          chatTitle={chatAttach.target?.title ?? ''}
+                          onRename={() => void rename(e)}
+                          onMove={() => setMoving(e)}
+                          onShare={() => setSharing(e)}
+                          onDelete={() => void remove(e)}
+                          onHistory={() => setHistory(e.path)}
+                          onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {tree?.nextCursor && (
+                  <div className="py-3 text-center">
+                    <Button size="sm" busy={loadingMore} onClick={more}>
+                      {t('common.loadMore')}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>

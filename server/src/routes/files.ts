@@ -7,6 +7,7 @@ import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
 import { mapErrors } from '../team-files/errors'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
+import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
@@ -94,6 +95,7 @@ export const filesRoutes: RouteModule = {
 
     // ---------------- team files in chats (picker + reference attachments) ----------------
     kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit)))
+    kit.handle(API.searchFileContents, ({ c, query, auth }) => mapErrors(c.get('locale'), () => searchFileContents(svc, auth.user.id, query.q, query.path, query.limit)))
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
 
