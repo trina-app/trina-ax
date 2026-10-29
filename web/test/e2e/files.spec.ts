@@ -11,6 +11,93 @@ async function rowMenu(page: Page, name: string, item: string | RegExp) {
   await page.getByRole('menuitem', { name: item }).click()
 }
 
+const deletes = async (page: Page) => ((await (await page.request.post('/__test/log')).json()) as string[])
+  .filter((line) => line === 'DELETE /api/files')
+
+for (const openWith of ['keyboard', 'mouse'] as const) {
+  for (const dismissWith of ['Escape', 'Cancel'] as const) {
+    test(`trash confirmation returns to its exact row action button (${openWith}, ${dismissWith})`, async ({ page }) => {
+      const t = DICTS.en
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+      await signIn(page, { username: 'bob', password: 'bob password 1' })
+      await page.goto('/files?path=marketing')
+      // Different rows and repeated opens must not restore the first or a stale trigger.
+      for (const name of ['notes.txt', 'data.csv', 'notes.txt']) {
+        const trigger = row(page, name).getByTestId('file-menu')
+        if (openWith === 'keyboard') {
+          await trigger.focus()
+          await page.keyboard.press('Enter')
+          await page.getByRole('menuitem', { name: t['files.moveToTrash'], exact: true }).focus()
+          await page.keyboard.press('Enter')
+        } else {
+          await rowMenu(page, name, t['files.moveToTrash'])
+        }
+        const dialog = page.getByRole('dialog')
+        await expect(dialog).toBeVisible()
+        await expect(page.getByRole('menu')).toHaveCount(0)
+        if (dismissWith === 'Escape') await page.keyboard.press('Escape')
+        else await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+        await expect(dialog).toHaveCount(0)
+        await expect(trigger).toBeFocused()
+        await expect(row(page, name)).toBeVisible()
+        expect(await deletes(page)).toEqual([])
+      }
+    })
+  }
+}
+
+test('confirming trash removes the row and leaves subsequent dialogs usable', async ({ page }) => {
+  const t = DICTS.en
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  const trigger = await row(page, 'notes.txt').getByTestId('file-menu').elementHandle()
+  await rowMenu(page, 'notes.txt', t['files.moveToTrash'])
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(row(page, 'notes.txt')).toHaveCount(0)
+  expect(await trigger!.evaluate((el) => el.isConnected)).toBe(false)
+  expect(await deletes(page)).toEqual(['DELETE /api/files'])
+  await rowMenu(page, 'data.csv', t['files.moveToTrash'])
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(row(page, 'data.csv').getByTestId('file-menu')).toBeFocused()
+  expect(await deletes(page)).toHaveLength(1)
+  expect(errors).toEqual([])
+})
+
+for (const dismissWith of ['Escape', 'Cancel'] as const) {
+  test(`bulk trash cancellation retains selection and restores the selection bar (${dismissWith})`, async ({ page }) => {
+    const t = DICTS.en
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    for (const name of ['notes.txt', 'data.csv']) await row(page, name).getByTestId('file-check').check()
+    const trigger = page.getByTestId('bulk-delete')
+    await trigger.click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    if (dismissWith === 'Escape') await page.keyboard.press('Escape')
+    else await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    for (const name of ['notes.txt', 'data.csv']) await expect(row(page, name).getByTestId('file-check')).toBeChecked()
+    expect(await deletes(page)).toEqual([])
+  })
+}
+
+test('files initial Tab reaches the skip link before any row action', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await expect(row(page, 'notes.txt')).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('a[href="#main"]')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('main')).toBeFocused()
+})
+
 test('browse, previews (CSV, Markdown, HTML in the sandbox), conflict copies, read-only folders', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -367,11 +454,25 @@ test('nested dialogs: Esc closes only the top one (new-folder prompt over the mo
   await expect(picker).toBeVisible()
   await picker.getByRole('button', { name: '새 폴더' }).click()
   await expect(page.getByLabel('폴더 이름')).toBeFocused()
+  const prompt = page.getByRole('dialog').filter({ has: page.getByLabel('폴더 이름') })
+  await expect(prompt.getByTestId('dialog-confirm')).toBeDisabled()
+  const close = prompt.getByRole('button', { name: DICTS.ko['common.close'], exact: true })
+  const cancel = prompt.getByRole('button', { name: DICTS.ko['common.cancel'], exact: true })
+  await cancel.focus()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(cancel).toBeFocused()
+  // An attempted focus behind the top dialog must stay in the prompt.
+  await picker.getByRole('button', { name: '새 폴더' }).focus()
+  await expect(page.getByLabel('폴더 이름')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByLabel('폴더 이름')).toHaveCount(0)
   await expect(picker).toBeVisible()
+  await expect(picker.getByRole('button', { name: '새 폴더' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
+  await expect(row(page, 'notes.txt').getByTestId('file-menu')).toBeFocused()
 })
 
 test('fix a text file in the preview panel; a save after someone else\'s becomes a conflict copy', async ({ page, browser }) => {

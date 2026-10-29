@@ -2152,3 +2152,14 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   messages for diagnostics, without being appended to the visible summary. Authorization and rejection events are unchanged.
 - Regression coverage includes real browser interactions and real read/edit/write tools through the scripted-engine
   harness in ko/en/id. This does not establish model-quality behavior or close R2-RT-01's separate real stored-error retest.
+
+## File action dialog return focus (2026-10-29)
+
+- **Anchor focus to the row's persistent action button before invoking a menu item.** The item is removed when
+  its menu closes, so a dialog opened from it otherwise captures a detached item or BODY as its return target
+  (R4 B-W41-2 / UI-02). The menu's click capture handler focuses its own trigger before the item's action runs,
+  for both keyboard activation and mouse clicks. Dialog dismissal then uses the existing focus trap to return
+  to that exact row. No initial-page autofocus or shared dialog-stack behavior changes are needed.
+- **Verification:** browser regressions cover Escape and Cancel from multiple rows, repeat openings, no DELETE
+  on cancellation, successful deletion when the row disappears, nested prompt trapping and return focus,
+  selection-bar cancellation, and first-Tab skip-link entry.
