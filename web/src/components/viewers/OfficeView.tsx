@@ -2,8 +2,9 @@
 // @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
+import { SHEET_PREVIEW_ROWS, sheetMeta, type SheetMeta } from '../../lib/sheetPreview'
 
 /** Links in a drawn document: http(s) only, opened after asking, in a new window (lib/safeLinks.ts). */
 function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
@@ -100,7 +101,8 @@ export function PptxView({ blob, width }: { blob: Blob; width: number }) {
 
 export function SheetView({ blob }: { blob: Blob }) {
   const t = useT()
-  const [sheets, setSheets] = useState<{ name: string; html: string }[] | null>(null)
+  const locale = useLocale()
+  const [sheets, setSheets] = useState<(SheetMeta & { html: string })[] | null>(null)
   const [active, setActive] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const tableRef = useRef<HTMLDivElement>(null)
@@ -111,12 +113,14 @@ export function SheetView({ blob }: { blob: Blob }) {
     setError(null)
     ;(async () => {
       const XLSX = await import('xlsx')
-      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: 5000 })
+      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS })
       // sheet_to_html escapes cell text (cell hyperlinks become <a href>: useSafeLinks); the editable flag stays off
-      const out = wb.SheetNames.map((name) => ({ name, html: XLSX.utils.sheet_to_html(wb.Sheets[name]!, { header: '', footer: '' }) }))
+      // Hidden sheets stay in the tabs with a badge; a sheet cut at the row limit shows a notice (R2-FMT-06/07).
+      const out = sheetMeta(wb, XLSX.utils.decode_range).map((m) => ({ ...m, html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
       if (live) {
         setSheets(out)
-        setActive(0)
+        // open on the first visible sheet, as a spreadsheet app does
+        setActive(Math.max(0, out.findIndex((m) => !m.hidden)))
       }
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
     return () => {
@@ -125,18 +129,29 @@ export function SheetView({ blob }: { blob: Blob }) {
   }, [blob])
   if (error) return <p className="p-6 text-sm text-danger">{t('preview.cantOpen', { what: t('preview.kind.sheet'), error })}</p>
   if (!sheets) return <p className="p-6 text-sm text-faint">{t('common.loading')}</p>
+  const current = sheets[active]
   return (
     <div className="flex h-full flex-col">
+      {current?.cut && (
+        <p role="status" className="shrink-0 border-b border-line bg-subtle px-3 py-1.5 text-xs text-muted" data-testid="sheet-rows-cut">
+          {t('preview.sheetRowsCut', { rows: SHEET_PREVIEW_ROWS.toLocaleString(locale) })}
+        </p>
+      )}
       <div
         ref={tableRef}
         className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold"
-        dangerouslySetInnerHTML={{ __html: sheets[active]?.html ?? '' }}
+        dangerouslySetInnerHTML={{ __html: current?.html ?? '' }}
       />
       {sheets.length > 1 && (
         <div role="tablist" className="flex shrink-0 gap-1 overflow-x-auto border-t border-line bg-subtle px-2 py-1">
           {sheets.map((s, i) => (
-            <button key={i} role="tab" type="button" aria-selected={i === active} onClick={() => setActive(i)} className={clsx('rounded px-2.5 py-1 text-xs whitespace-nowrap', i === active ? 'bg-surface font-semibold shadow-sm' : 'text-muted hover:bg-hover')}>
+            <button key={i} role="tab" type="button" aria-selected={i === active} onClick={() => setActive(i)} title={s.hidden ? t('preview.sheetHiddenTitle') : undefined} className={clsx('inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs whitespace-nowrap', i === active ? 'bg-surface font-semibold shadow-sm' : 'text-muted hover:bg-hover', s.hidden && 'italic')}>
               {s.name}
+              {s.hidden && (
+                <span className="rounded border border-line px-1 text-[10px] font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
+                  {t('preview.sheetHidden')}
+                </span>
+              )}
             </button>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -203,4 +203,62 @@ test('links inside Word and Excel previews: javascript: is not a link, web links
   expect(await page.title()).toBe(title)
   expect(popups).toEqual([])
   expect(realErrors(errors).filter((e) => !e.includes('Content Security Policy'))).toEqual([])
+})
+
+// B-W2-2 / B-W8-2 / R2-HWP-01: a format without a viewer opens the panel with a notice and a download button; a click
+// on the file never starts a download by itself. R2-FMT-06 / R2-FMT-07: hidden sheets show with a badge, and a sheet
+// cut at the preview row limit shows a notice.
+test.describe('unsupported formats and spreadsheet limits', () => {
+  let dir: string
+  test.beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'mycel-preview-limits-'))
+    writeFileSync(path.join(dir, 'notice.hwpx'), 'PK\u0003\u0004 not a real HWPX file')
+    const XLSX = await import('xlsx')
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['no', 'amount'], ...Array.from({ length: 5000 }, (_, i) => [i + 1, i])]), 'Rows')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['marker'], ['QA-HIDDEN']]), 'Secret')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['total'], [1]]), 'Total')
+    XLSX.utils.book_set_sheet_visibility(wb, 'Secret', 1)
+    writeFileSync(path.join(dir, 'rows.xlsx'), XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer)
+  })
+  test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  test('HWPX opens the panel with the notice and a download button, not a download', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await page.getByTestId('files-input').setInputFiles(path.join(dir, 'notice.hwpx'))
+    const downloads: string[] = []
+    page.on('download', (d) => downloads.push(d.suggestedFilename()))
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const panel = await open(page, 'notice.hwpx')
+      await expect(panel.getByTestId('preview-unsupported')).toContainText("This format can't be previewed. Download it to open it.")
+      await page.waitForTimeout(300)
+      expect(downloads).toEqual([])
+      await panel.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(panel).toHaveCount(0)
+    }
+    const panel = await open(page, 'notice.hwpx')
+    const [download] = await Promise.all([page.waitForEvent('download'), panel.getByTestId('preview-unsupported-download').click()])
+    expect(download.suggestedFilename()).toBe('notice.hwpx')
+  })
+
+  test('hidden sheet has a badge and a cut sheet shows the row limit notice', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await page.getByTestId('files-input').setInputFiles(path.join(dir, 'rows.xlsx'))
+    const panel = await open(page, 'rows.xlsx')
+    await expect(panel.getByTestId('sheet-rows-cut')).toContainText('Only the first 5,000 rows of this sheet are shown.')
+    await expect(panel.locator('table')).toContainText('4999')
+    await expect(panel.locator('table')).not.toContainText('5000')
+    const tabs = panel.getByRole('tab')
+    await expect(tabs).toHaveCount(3)
+    await expect(tabs.nth(1)).toContainText('Secret')
+    await expect(tabs.nth(1).getByTestId('sheet-hidden-badge')).toHaveText('Hidden')
+    await expect(panel.getByTestId('sheet-hidden-badge')).toHaveCount(1)
+    await tabs.nth(1).click()
+    await expect(panel.locator('table')).toContainText('QA-HIDDEN')
+    await expect(panel.getByTestId('sheet-rows-cut')).toHaveCount(0)
+  })
 })

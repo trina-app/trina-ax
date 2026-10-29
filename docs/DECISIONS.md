@@ -1751,6 +1751,7 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   ranges, so text before/after a comment survives and comment-like strings in attributes or scripts stay literal.
   Parsed HTML is never inserted into the rendered tree: all other raw HTML stays escaped; scripts and event
   handlers remain inert. The original file is unchanged. HWPX remains download-only; no UI wording changes.
+  (Changed later: HWPX now opens the file panel with a notice; see "Files without a viewer open the preview panel".)
 - Integration review: retain pinned `hast-util-from-html@2.0.3` (MIT, AGPL-compatible; unified collective,
   https://github.com/syntax-tree/hast-util-from-html). Its implementation is 4.8 KB; the browser Markdown chunk
   grows by 50.4 KB gzip including the parser dependencies. No new lockfile package resolutions are introduced.
@@ -2290,3 +2291,22 @@ including same-account installs. Extend the same synthetic selection tests to co
   The Files row menu keeps its click capture anchor, because its Move and Share dialogs use `Modal` directly.
 - **Known limit:** Safari does not focus a button on a mouse click. A mouse-opened dialog from a menu without its
   own anchor then keeps the old behavior there.
+
+## Files without a viewer open the preview panel; sheet tab badges and row limit notice (feat/qa2-preview, 2026-10-29)
+
+- **Problem.** QA B-W2-2, B-W8-2, R2-HWP-01 (DOC-07): a click on an HWPX or HWP file in Files started a download at
+  once, with no notice. The test case expects the preview panel with "This format can't be previewed. Download it to
+  open it." and a download button. R2-FMT-07: the spreadsheet preview reads only the first 5,000 rows of a sheet and
+  did not say so. R2-FMT-06: hidden sheets showed as normal tabs.
+- **Decision.** This replaces "HWPX remains download-only" in the Markdown previews entry. A click on a file in Files,
+  in a project file list, on a team file chip in Markdown or on a chat attachment always opens the file panel. For a format without a
+  viewer (HWP, HWPX, ZIP and all other types that `previewKind` does not know), the panel shows the localized
+  notice and a Download button. A click never starts a download by itself. The Markdown chip keeps a separate
+  download button for every file. The Files row menu still shows "Preview" only for formats with a viewer.
+- **Spreadsheets.** The limit stays at 5,000 rows per sheet (`SHEET_PREVIEW_ROWS`, header row included). When SheetJS
+  stops at the limit (`!fullref` has more rows than `!ref`), the active sheet shows a notice above the table.
+  Hidden and "very hidden" sheets stay in the tabs with a "Hidden" badge; the preview opens on the first visible
+  sheet. The AI read path does not change: it reads all sheets and all rows. Hidden is not a permission boundary.
+- **Tests.** `web/test/unit/sheet-preview.test.ts` (hidden flag, cut at limit + 1, no cut at the limit),
+  `web/test/e2e/previews.spec.ts` (HWPX opens the panel twice without a download, the button downloads; badge and
+  row notice on a 5,001-row workbook).
