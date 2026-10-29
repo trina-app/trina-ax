@@ -2580,3 +2580,41 @@ including same-account installs. Extend the same synthetic selection tests to co
   The body shows a short note in place of the error text, so the error shows only once.
 - **Tests.** `web/test/unit/artifacts.test.ts` (unsupported import and compile error give `build`, a frame error
   gives `run`). `web/test/e2e/artifacts.spec.ts` has a `d3` case with a mock answer for it.
+
+## Files: people can search file contents (R2-ETC-02, feat/qa3-file-search, 2026-10-29)
+
+- **Problem.** People could search files only by name (`GET /api/files/find`). Only the AI could search the text in
+  files, with its `grep` tool. QA found no content search on the file screen, and a marker that was only in a file
+  gave no result.
+- **Decision.** `GET /api/files/search?q=&path=&limit=` (`server/src/team-files/content-search.ts`) uses the AI's
+  `grepFiles()` (`server/src/files/search.ts`). Thus it has the same permission checks: `allowedRoots()` gives
+  ripgrep only the folders the person can read, and `visiblePath()` checks each hit again (name rules, server
+  folders, read access, regular file with one link). A person never gets more than they can open. The base folder
+  gets the same check as the name search: a folder the person cannot list answers 404. Office documents are searched
+  through the same text cache as the AI's grep, and legacy CP949 text through the same second pass.
+- **Query.** The query is literal text in any case (ripgrep `-F -i`), never a regular expression. Thus a person
+  cannot send a slow or bad pattern. The query is NFC-normalized and has 1 to 200 characters.
+- **Limits.** At most 100 lines (default 50), at most 5 lines from one file (`-m 5`), files up to 50 MB (`RG_BASE`).
+  The whole search has 10 seconds (the AI's limit is longer): with the new `strictTime` option, the office listing
+  and the office pass get only the time that is left. At most 8 office files are extracted before the answer
+  (`officeBudget`); the rest are extracted in the background. A line is cut to 160 characters around the first match. The answer says
+  when the list was cut (`truncated`), when the time limit stopped the search (`timedOut`) and how many office
+  documents are still being read (`officePending`). Each person can start 30 searches in a minute and run 2 at the
+  same time; more answers `rate_limited` (429) with `retryAfter`. The state is in memory, so a restart clears it.
+  The server does not stop a search when the browser aborts it. Thus fast typing can get a 429; the screen then
+  waits `retryAfter` (up to 5 seconds) once and tries again without a message.
+- **`grepFiles()` change.** New options `fixed`, `maxPerFile`, `strictTime` and `officeBudget`
+  (`OfficeCache.refresh()` takes a listing time limit too), and the result also gives `hits` (path, line,
+  text of each matching line) and `timedOut`. The AI tool does not use the new options; its text is the same.
+- **UI.** The file screen has a search box in its header. With 2 characters (or 1 non-ASCII character) it shows the
+  lines that match in the open folder and its sub-folders, grouped by file: name, path, line number and snippet with
+  each match in `<mark>`. The snippet is shown as text, never as HTML. A click opens the file in the side panel. The
+  viewer cannot go to a line yet, so the line number is shown only. The query is in the URL (`/files?q=`). Requests
+  wait 300 ms after the last key press, and an older answer never replaces a newer one. The ⌘K dialog stays a chat
+  search (the QA case expects that). Its last row, "Search file contents for …", opens `/files?q=…`. Thus a key
+  press in ⌘K starts no file search.
+- **Tests.** `tests/unit/file-content-search.test.ts`: another group's folder, a 'none' rule folder, another
+  person's folder and a hard link never show; 404 for a folder the person cannot list; literal queries; Korean in
+  NFC and NFD; CP949 text; an xlsx through the text cache (also hidden in another group); result limit, lines per
+  file, snippet cut, query length, rate limit per person. `web/test/unit/highlight.test.ts`: the highlight parts.
+  `tests/security/lib/cases.ts` has a matrix case for the new route.

@@ -156,17 +156,17 @@ export class OfficeCache {
     return job
   }
   /** Make sure cached text exists for the office files under the roots. Extracts at most `budget` now, the rest in the background. */
-  async refresh(rg: string, roots: string[], excludes: string[], filter: (rel: string) => fs.Stats | null, budget = 40): Promise<{ pending: number }> {
-    if (!roots.length) return { pending: 0 }
+  async refresh(rg: string, roots: string[], excludes: string[], filter: (rel: string) => fs.Stats | null, budget = 40, listTimeoutMs = 60000): Promise<{ pending: number; timedOut: boolean }> {
+    if (!roots.length) return { pending: 0, timedOut: false }
     const stale: string[] = []
-    await runRg(rg, ['--files', '--null', ...RG_BASE, '--glob-case-insensitive', '--glob', OFFICE_GLOB, ...excludeArgs(excludes), '--', ...roots], this.fx.root, '\0', (r) => {
+    const listed = await runRg(rg, ['--files', '--null', ...RG_BASE, '--glob-case-insensitive', '--glob', OFFICE_GLOB, ...excludeArgs(excludes), '--', ...roots], this.fx.root, '\0', (r) => {
       const rel = strip(r); if (!isOffice(rel)) return
       const st = filter(rel); if (st && !this.fresh(rel, st)) stale.push(rel)
-    }, 60000)
+    }, listTimeoutMs)
     const now = stale.slice(0, budget), later = stale.slice(budget)
     for (let i = 0; i < now.length; i += 4) await Promise.all(now.slice(i, i + 4).map((r) => this.update(r).catch(() => {})))
     if (later.length) void (async () => { for (const r of later) await this.update(r).catch(() => {}) })()
-    return { pending: later.length }
+    return { pending: later.length, timedOut: listed.killed === 'timeout' }
   }
 }
 
@@ -202,12 +202,26 @@ export async function globFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
 export interface GrepOpts {
   pattern: string; glob?: string; type?: string; mode: 'content' | 'files_with_matches' | 'count'
   ignoreCase?: boolean; lineNumbers: boolean; before: number; after: number; limit: number; multiline?: boolean
+  /** the pattern is literal text, not a regular expression (ripgrep -F; the file screen's content search) */
+  fixed?: boolean
+  /** at most this many matching lines from one file (ripgrep -m) */
+  maxPerFile?: number
+  /** the whole search, office text included, stays in d.timeoutMs; office files that are not extracted in time are
+   * left to the background (stats.officePending). Without it, the office listing has its own 60 s and the last pass
+   * its own d.timeoutMs (the AI tool). */
+  strictTime?: boolean
+  /** office files extracted before the answer (default 40); the rest are extracted in the background */
+  officeBudget?: number
 }
+
+/** One matching line (content mode): the shown path, its 1-based line number and the line text. */
+export interface GrepHit { path: string; line: number; text: string }
 
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
   const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0 }
-  if (!roots.length) return { text: 'No matches', truncated: false, stats, files: new Set<string>() }
+  const hits: GrepHit[] = []
+  if (!roots.length) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
   if (o.glob?.startsWith('!')) throw new ToolError('negated globs are not supported')
   const pathGlob = o.glob && o.glob.includes('/') ? new Bun.Glob(o.glob) : null
@@ -215,6 +229,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const common: string[] = [...RG_BASE]
   if (o.type) common.push('--type', o.type)
   common.push(o.ignoreCase ? '-i' : '-s')
+  if (o.fixed) common.push('-F')
+  if (o.maxPerFile) common.push('-m', String(o.maxPerFile))
   if (o.multiline) common.push('-U', '--multiline-dotall')
   if (o.mode === 'content') { common.push('--json'); if (o.before) common.push('-B', String(o.before)); if (o.after) common.push('-A', String(o.after)) }
   else if (o.mode === 'count') common.push('--count-matches', '--with-filename', '--null')
@@ -255,7 +271,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
       const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
-      if (pushed) files.add(m.real)
+      if (pushed) { files.add(m.real); if (j.type === 'match') hits.push({ path: m.shown, line: ln, text }) }
       return pushed
     }
     const parts = rec.split('\0')
@@ -272,20 +288,23 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const started = Date.now()
   const r1 = await runRg(d.rg, mainArgs, d.fx.root, recSep, handler(id, (r) => !isLegacy(r)), d.timeoutMs)
   if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
-  if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats, files }
+  if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits }
 
   // pass 2: the same search with ripgrep's CP949 decoder (--encoding euc-kr); only legacy Korean files count, so a
   // Korean pattern matches the text that `read` shows, and the lines come back as Korean (QA R2-FMT-08)
   if (!truncated) {
     const left = Math.max(1000, d.timeoutMs - (Date.now() - started))
     const r2 = await runRg(d.rg, ['--encoding', 'euc-kr', ...mainArgs], d.fx.root, recSep, handler(id, isLegacy), left)
-    if (r2.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats, files }
+    if (r2.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits }
   }
 
+  let timedOut = false
   // office documents: the same ripgrep over the extracted-text cache, paths mapped back to the originals
   if (!truncated && !o.type) {
-    const { pending } = await d.office.refresh(d.rg, roots, excludes, (rel) => visiblePath(d.fx, d.rules, d.user, rel))
-    stats.officePending = pending
+    const left = () => Math.max(1000, d.timeoutMs - (Date.now() - started))
+    const ref = await d.office.refresh(d.rg, roots, excludes, (rel) => visiblePath(d.fx, d.rules, d.user, rel), o.officeBudget ?? 40, o.strictTime ? left() : 60000)
+    stats.officePending = ref.pending
+    if (ref.timedOut && o.strictTime) timedOut = true
     const croots = roots.map((r) => (isOffice(r) ? r + '.txt' : r)).filter((r) => fs.existsSync(path.join(d.office.dir, r)))
     if (croots.length) {
       const nameG = nameGlob ? new Bun.Glob(nameGlob) : null
@@ -295,11 +314,12 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
         if (nameG && !nameG.match(real.split('/').pop()!)) return null
         return { shown: real, real }
       }
-      await runRg(d.rg, [...common, '--glob', '*.txt', ...excludeArgs(excludes), '-e', o.pattern, '--', ...croots], d.office.dir, recSep, handler(map), d.timeoutMs)
+      const r3 = await runRg(d.rg, [...common, '--glob', '*.txt', ...excludeArgs(excludes), '-e', o.pattern, '--', ...croots], d.office.dir, recSep, handler(map), o.strictTime ? left() : d.timeoutMs)
+      if (r3.killed === 'timeout') timedOut = true
     }
   }
   let text = out.join('\n') || 'No matches'
   if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
-  return { text, truncated, stats, files }
+  return { text, truncated, timedOut, stats, files, hits }
 }

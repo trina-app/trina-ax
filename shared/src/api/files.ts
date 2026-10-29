@@ -156,6 +156,33 @@ export const FindFilesQuery = z.object({
   path: RelPath.default(''),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 })
+/** Content search for people (the file screen, R2-ETC-02): the query is literal text, never a pattern. */
+export const FILE_SEARCH_QUERY_MAX = 200
+export const FILE_SEARCH_LIMIT_MAX = 100
+export const SearchFileContentsQuery = z.object({
+  q: z.string().trim().min(1).max(FILE_SEARCH_QUERY_MAX),
+  /** optional folder to search under (default: the whole team folder) */
+  path: RelPath.default(''),
+  limit: z.coerce.number().int().min(1).max(FILE_SEARCH_LIMIT_MAX).default(50),
+})
+/** One matching line. `snippet` is a short part of the line around the first match (plain text, not HTML). */
+export const FileContentHit = z.object({
+  path: z.string(),
+  name: z.string(),
+  line: z.number().int().positive(),
+  snippet: z.string(),
+})
+export type FileContentHit = z.infer<typeof FileContentHit>
+export const FileContentHits = z.object({
+  items: z.array(FileContentHit),
+  /** more lines matched than the limit; the person should narrow the search */
+  truncated: z.boolean(),
+  /** the time limit stopped the search; the list can be incomplete */
+  timedOut: z.boolean(),
+  /** office documents whose text is still being made; a later search can find more */
+  officePending: z.number().int().nonnegative(),
+})
+export type FileContentHits = z.infer<typeof FileContentHits>
 export const RecentFilesQuery = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
 export const FileList = z.object({ items: z.array(FileEntry), truncated: z.boolean() })
 export type FileList = z.infer<typeof FileList>
@@ -181,6 +208,7 @@ export const FILES = {
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
   attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
   findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name contains q, among the files the caller can read (newest first).' }),
+  searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires after 24 h.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),
