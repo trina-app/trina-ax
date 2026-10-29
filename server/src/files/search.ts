@@ -1,5 +1,5 @@
-// ripgrep lists names only in the live tree. Content passes see broker-owned
-// immutable snapshots admitted by identity/hash before ANY search decoding.
+// A durable empty-ledger lease preserves live search for never-used tenants.
+// Once quarantine exists, content passes see only admitted immutable snapshots.
 import fs from 'node:fs'
 import path from 'node:path'
 import { SearchAdmission } from './search-admission'
@@ -9,7 +9,7 @@ import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
 import { extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
-import { readRegular } from './store'
+import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 
@@ -147,7 +147,7 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
  * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented), so the
  * old text is made again. */
-export const TEXT_CACHE_VERSION = '4'
+export const TEXT_CACHE_VERSION = '5'
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 
 /** office files extracted at the same time by one server (foreground and background together) */
@@ -200,8 +200,29 @@ export class OfficeCache {
     for (const e of fs.readdirSync(dir)) fs.rmSync(path.join(dir, e), { recursive: true, force: true })
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
+  private provenance(rel: string): { source: string; text: string } | null {
+    try { return JSON.parse(readRegular(this.cachePath(rel) + '.source.json', 1024).bytes.toString('utf8')) } catch { return null }
+  }
+  /** Bind cached text to its actual extraction source, including across path
+   * replacement and concurrent cache writers. A pathname/mtime is not provenance. */
+  admittedText(rel: string, source: Buffer, admission: SearchAdmission) {
+    const meta = this.provenance(rel)
+    if (!meta || meta.source !== sha256(source) || this.fx.quarantine?.hasHash(meta.source)) return null
+    const abs = this.cachePath(rel)
+    const text = admission.read(abs, () => fs.lstatSync(abs))
+    return text && meta.text === sha256(text.bytes) ? text : null
+  }
   fresh(rel: string, st: fs.Stats) {
     if (this.fx.quarantine?.hasFile(path.join(this.fx.root, rel))) return false
+    if (this.fx.quarantine) {
+      const meta = this.provenance(rel)
+      if (!meta || this.fx.quarantine.hasHash(meta.source)) return false
+      // Once quarantine exists, same-mtime replacements also need a source hash
+      // check so an old sidecar is re-extracted instead of silently reused.
+      if (this.fx.quarantine.db.query('SELECT 1 FROM safe_ops_artifacts LIMIT 1').get()) {
+        try { if (meta.source !== sha256(readRegular(path.join(this.fx.root, rel), RG_MAX_FILE).bytes)) return false } catch { return false }
+      }
+    }
     try { return Math.floor(fs.statSync(this.cachePath(rel)).mtimeMs) === Math.floor(st.mtimeMs) } catch { return false }
   }
   /** the text of one file (a test can replace it) */
@@ -227,12 +248,13 @@ export class OfficeCache {
     // a free slot: the job checks again at once; else it waits with the foreground jobs
     if (this.active < OFFICE_EXTRACT_PARALLEL) wake(); else this.waitingHigh.push(wake)
   }
-  private write(rel: string, text: string, st: fs.Stats) {
+  private write(rel: string, text: string, st: fs.Stats, source = '') {
     const dst = this.cachePath(rel)
     if (!this.marked) { fs.writeFileSync(path.join(this.dir, VERSION_FILE), TEXT_CACHE_VERSION + '\n', { mode: 0o600 }); this.marked = true }
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
     fs.writeFileSync(dst, text, { mode: 0o600 })
     fs.utimesSync(dst, st.atime, st.mtime)
+    fs.writeFileSync(dst + '.source.json', JSON.stringify({ source, text: sha256(Buffer.from(text)) }), { mode: 0o600 })
   }
   /**
    * (Re)extract one file unless its text is fresh; content is read through the checked fd. When the file cannot be
@@ -265,7 +287,7 @@ export class OfficeCache {
         if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
         let text: string
         try { text = await this.extract(rel, input.bytes) } catch { text = '' }
-        this.write(rel, text, input.st)
+        this.write(rel, text, input.st, sha256(input.bytes))
       } finally { admission.close() }
     }, ticket).finally(() => this.inflight.delete(rel))
     this.inflight.set(rel, { job, ticket })
@@ -468,6 +490,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   /** files that are legacy Korean text (decided once per file, only for files with results) */
   const legacy = new Map<string, boolean>()
   const isLegacy = (real: string) => {
+    if (live && !legacy.has(real)) legacy.set(real, legacyKoreanFile(path.join(d.fx.root, real)))
     return legacy.get(real) ?? false
   }
   // `keep` runs after the access check, so grep reads only files that this user can see
@@ -501,7 +524,13 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const admission = new SearchAdmission(d.fx.quarantine)
   const snapshots = new Map<string, string>()
   let admissionLimited = false
+  let live = false
   const run = async (args: string[], cwd: string, h: (rec: string) => boolean | void, timeoutMs: number, countSkips = true) => {
+    if (live) {
+      const r = await runRg(d.rg, args, cwd, recSep, h, timeoutMs, rgOpts)
+      if (countSkips) stats.longSkipped += r.skipped
+      return r
+    }
     let frozen = snapshots.get(cwd)
     const until = Date.now() + timeoutMs
     if (!frozen) {
@@ -519,10 +548,11 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       }
       const candidates: string[] = []
       const listed = args.length === end + 1 ? { killed: null, code: 0, err: '' } : await runRg(d.rg, [...listArgs, '--', ...args.slice(end + 1)], cwd, '\0', (r) => {
-        candidates.push(strip(r)); return candidates.length < 20_000
+        candidates.push(strip(r)); return candidates.length <= 20_000
       }, timeoutMs, { signal: o.signal })
       if (listed.code === 2 && /type.*(unrecognized|unknown)/i.test(listed.err)) throw new ToolError(listed.err)
       admissionLimited ||= listed.killed !== null
+      if (candidates.length > 20_000) candidates.length = 20_000
       let bytes = 0
       const directories = new Set<string>()
       admission.transaction(() => {
@@ -537,7 +567,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
             // the cache too. Stale/redacted or quarantined originals never enter rg.
             const source = admission.read(path.join(d.fx.root, real), validate)
             if (!source || !d.office.fresh(real, source.st)) continue
-            input = admission.read(path.join(cwd, rel), () => fs.lstatSync(path.join(cwd, rel)))
+            input = d.office.admittedText(real, source.bytes, admission)
           } else input = admission.read(path.join(cwd, rel), validate)
           if (!input) { stats.filtered++; continue }
           if (bytes + input.bytes.length > 256 * 1024 ** 2) { admissionLimited = true; break }
@@ -565,6 +595,10 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const deadline = started + d.timeoutMs
   const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits })
   try {
+  live = admission.emptyLedger()
+  // The lease rules out quarantine on every DB connection until finally below.
+  // Avoid per-result quarantine probes on the default, never-used product path.
+  if (live) d = { ...d, fx: { ...d.fx, quarantine: undefined } }
   const r1 = await run(mainArgs, d.fx.root, handler(id, (r) => !isLegacy(r)), d.timeoutMs)
   if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
   if (r1.killed === 'timeout') return stopped()

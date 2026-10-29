@@ -35,6 +35,21 @@ export class SearchAdmission {
     })
   }
 
+  /** A durable empty-ledger lease permits legacy live search. The INSERT trigger
+   * checks emptiness under the same write lock and blocks every first artifact
+   * registration until all live consumers have exited. Never expire by PID/TTL. */
+  emptyLedger(): boolean {
+    if (!this.quarantine) return true
+    return this.transaction(() => {
+      const db = this.quarantine!.db
+      if (db.query('SELECT 1 FROM safe_ops_artifacts LIMIT 1').get()
+        || db.query('SELECT 1 FROM safe_ops_publications LIMIT 1').get()
+        || db.query('SELECT 1 FROM safe_ops_inodes LIMIT 1').get()) return false
+      db.query('INSERT INTO safe_ops_empty_searches(lease,owner_pid) VALUES(?,?)').run(this.id, process.pid)
+      return true
+    })
+  }
+
   /** Also protects derived sidecar bytes before a search consumer sees them. */
   hold(bytes: Uint8Array): boolean {
     const q = this.quarantine
@@ -46,5 +61,11 @@ export class SearchAdmission {
       return true
     })
   }
-  close() { this.quarantine?.db.query('DELETE FROM safe_ops_search_inputs WHERE lease=?').run(this.id) }
+  close() {
+    if (!this.quarantine) return
+    this.transaction(() => {
+      this.quarantine!.db.query('DELETE FROM safe_ops_search_inputs WHERE lease=?').run(this.id)
+      this.quarantine!.db.query('DELETE FROM safe_ops_empty_searches WHERE lease=?').run(this.id)
+    })
+  }
 }

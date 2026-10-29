@@ -2753,7 +2753,7 @@ including same-account installs. Extend the same synthetic selection tests to co
 - Choose immutable new-file publication: native `linkat` no-replace, explicit conflict copies,
   final hash/destination/audience/policy-bound one-use approvals, durable journal and abort-only
   crash recovery. A crash after disclosure may leave a quarantined file without a success event;
-  recovery never retries publication. Schema reader 3 protects quarantine and search admission on rollback.
+  recovery never retries publication. Schema reader 4 protects quarantine, search admission and cached-source provenance on rollback.
 - Use native `openat2` beneath/no-symlink/no-magiclink/no-xdev source resolution. Direct connected
   mounts, including same-device binds, are refused; imported regular copies follow normal policy.
 - Admit whole workflows, cap per-user/turn/hour work and reserve cumulative converter CPU/transfers.
@@ -2889,3 +2889,21 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
 - Add Japanese and Spanish equivalents for the owner checklist, local-login help and provider-authorization notices; retain all existing locale entries and require `check:i18n`. New-team sharing remains ON, and explicit saved choices persist.
 - The local demo is loopback-only and model-free. Role examples use fictional sources; screenshots label prepared results and empty usage. Hosted server location is distinct from external provider processing.
 - Keep HWP preview off, omit its runtime from default releases and disclose Debian 12's preview limitation without changing product-wide Linux support. Current-source features do not imply that existing release artifacts include them.
+
+
+### Third safe-operations review: empty-ledger search and derived cache provenance (2026-10-30)
+
+- Preserve direct raw/CP949 search for never-used tenants via a durable empty-ledger lease.
+  Migration 320 serializes lease admission with first quarantine/publication/inode registration
+  on every DB connection. While any direct consumer remains, first registration refuses with
+  a localized retry. Once quarantine exists, only immutable admitted inputs reach search.
+  The flag does not disable either guard. No per-file copying on the empty-ledger path.
+- Office cache format 5 binds derived text to its extraction source and text hashes. Verify
+  both before sidecar grep or embedding; rebuild old semantic rows with provenance version 2.
+  This closes same-mtime path replacement and mixed concurrent cache-writer provenance.
+- Reader 4 disallows rollback into unaware consumers. Applied migrations 315–319 are unchanged;
+  320 is additive, within C's range and dependent only on C tables. Migration 319 intentionally
+  replaces trigger definitions, not tables/columns/data, under the migration write lock.
+- Crash leases have no TTL/PID reap. Stop all tenant services and children, clean owned
+  snapshots, then delete only search lease rows offline. Never erase artifact identities.
+  The default remains off; real CLI/host qualification and customer notice still gate enablement.

@@ -8,11 +8,11 @@ export const SAFE_OPS_TEXT = {
     id: 'Batas masukan pencarian tercapai. Persempit folder atau jenis berkas lalu cari lagi.',
   },
   searchBusy: {
-    ja: "検索でこのファイルの内容を使用中です。検索が終了してから再試行してください。",
-    es: "Una búsqueda está utilizando el contenido de este archivo. Vuelve a intentarlo cuando termine.",
-    ko: '검색이 이 파일의 내용을 사용 중입니다. 검색이 끝난 후 다시 시도해 주세요.',
-    en: 'A search is using these file contents. Try again after it finishes.',
-    id: 'Pencarian sedang menggunakan isi berkas ini. Coba lagi setelah selesai.',
+    ja: "検索が進行中のため、生成ファイルを登録できません。検索が終了してから再試行してください。",
+    es: "No se puede registrar el archivo generado mientras la búsqueda está en curso. Vuelve a intentarlo cuando termine.",
+    ko: '검색이 진행 중이어서 생성 파일을 등록할 수 없습니다. 검색이 끝난 후 다시 시도해 주세요.',
+    en: 'A search is in progress and prevents registering this generated file. Try again after it finishes.',
+    id: 'Berkas yang dihasilkan belum dapat didaftarkan karena pencarian sedang berlangsung. Coba lagi setelah pencarian selesai.',
   },
   destination: {
     ja: "生成ファイルは skills 以外の既存フォルダーに保存してください。",

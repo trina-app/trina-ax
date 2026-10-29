@@ -163,7 +163,7 @@ model provider via the guarded MCP route; they never go through legacy OCR. Down
 for an external Office/image application remains the user's action; validation does not certify
 that application's parser. There is no qualified in-app consumer or preview origin yet.
 
-Quarantine survives feature disable and restart. Schema reader level 3 prevents rollback to a server that omits search admission. If an older binary is required, restore a matching **database
+Quarantine survives feature disable and restart. Schema reader level 4 prevents rollback to a server that omits current search admission and cache provenance. If an older binary is required, restore a matching **database
 and team-file snapshot from before enablement**, not just the DB; otherwise generated files
 would lose their quarantine records. Protect journal/source metadata with the same tenant DB
 access/backup policy. A dedicated metadata retention/purge UI is deferred; do not erase quarantine
@@ -194,8 +194,8 @@ The feature flag is the immediate disable switch. This slice does not approve ge
 
 ## Search input admission (second-review remediation)
 
-Content ripgrep never receives a live team or text-cache directory. Its only live-tree
-operation is `--files` (names, no content). The broker authorizes each candidate, opens a
+When quarantine records exist, content ripgrep never receives a live team or text-cache
+directory. Its only live-tree operation is `--files` (names, no content). The broker authorizes each candidate, opens a
 regular singly-linked file without following a final symlink, compares the authorized
 identity to the descriptor, reads bounded bytes, and verifies descriptor nanosecond
 mtime/ctime/size and the authorized path again. It hashes the actual copied buffer against
@@ -233,9 +233,37 @@ still be reading; **no timeout or PID-reuse guess expires a lease**. This can re
 registration of those exact hashes. Recovery requires stopping the whole tenant service
 and its children, verifying no search/embedding consumers remain, removing only its owned
 `<dataDir>/search-inputs/` snapshots (prefixes identify the lease), then clearing that tenant's `safe_ops_search_inputs`
-rows while offline. Never clear `safe_ops_artifacts`, publication, inode or source records.
+and `safe_ops_empty_searches` rows while offline. Never clear `safe_ops_artifacts`, publication, inode or source records.
 An ordinary restart is not proof that orphan children have exited. Back up the DB and files
 together; do not downgrade the schema reader to work around a refusal.
+
+## Never-used tenants and cache provenance (third review, migration 320)
+
+When the artifact, publication and inode ledgers are all empty, a search acquires a
+`safe_ops_empty_searches` lease in an IMMEDIATE transaction and uses the original live-tree
+raw/CP949 and sidecar passes. It does not copy or hash every candidate. Database triggers
+reject **all first artifact registrations** while this lease exists, on every connection;
+publication registers quarantine before exposing bytes. If registration wins the race,
+admission selects the immutable snapshot path instead. This is independent of the feature
+flag, and is not a cached emptiness check. Existing artifacts always select snapshot admission.
+The direct path preserves main's search limits; the 20,000-file/256 MiB snapshot bounds apply
+only to the quarantined-tenant path. The exact 20,000-candidate boundary is complete when
+there is no additional candidate.
+
+The empty-ledger lease remains until the last ripgrep process exits. A crash conservatively
+blocks the first new output registration, including outputs unrelated to the search. It
+never blocks ordinary searches or clears quarantine. Offline recovery follows the procedure
+above and clears **both** `safe_ops_empty_searches` and `safe_ops_search_inputs` only after
+all service children and consumers have stopped. No PID or timeout automatically reaps them.
+This adds two small database transactions per live search, rather than work per input file.
+
+Office text cache format 5 records both the extraction source hash and text hash. Once
+quarantine exists, searches and semantic ingestion admit that exact source and verify both
+hashes before consuming the sidecar. Same-mtime source replacements and interleaved cache
+writers cannot relabel old derived text. Old caches are rebuilt; semantic provenance version
+2 also rebuilds old rows which may have been labelled with a replacement source hash.
+Reader 4 prevents downgrade into a consumer unaware of these guarantees. Source directories,
+cache directories, database and the server account remain trusted.
 
 ## Policy epoch audit (migration 319)
 
@@ -264,6 +292,6 @@ credentials, connector version/status or access changes still do. Synced source 
 changes remain independently protected by source identity/hash checks. Tests enumerate
 every schema column so future additions require an explicit classification.
 
-These fixes request a third independent review; they do not declare READY or authorize
-production enablement. Real pinned CLI/host qualification and customer notice gates remain.
+The independent third-review report determines integration readiness; these fixes do not
+authorize production enablement. Real pinned CLI/host qualification and customer notice gates remain.
 Journal/quarantine lifetime retention still needs a capacity and safe retention policy.

@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Third safe-ops review: retain direct search for empty quarantine ledgers with a durable first-publication guard; bind Office search caches to source/text hashes. Migration 320 requires reader 4. Existing quarantined tenants retain immutable input admission.
+
 ### Safe operations 1A — second review fixes
 
 - Admit immutable, hash-leased search inputs before raw/CP949 ripgrep, Office sidecar search and semantic embedding; keep quarantine active with the feature off.

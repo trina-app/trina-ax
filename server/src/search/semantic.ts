@@ -202,9 +202,13 @@ export class SemanticIndex {
       this.db.exec('ALTER TABLE files ADD COLUMN source_hash TEXT; DELETE FROM chunks; DELETE FROM files;')
     }
     const model = (this.db.query("SELECT v FROM meta WHERE k = 'model'").get() as { v: string } | null)?.v
-    if (model !== SEMANTIC_MODEL) {
+    const provenance = (this.db.query("SELECT v FROM meta WHERE k = 'provenance'").get() as { v: string } | null)?.v
+    // Reader 4 binds Office sidecars to their extraction source. Older rows may
+    // have relabelled old text with a replacement path's hash; rebuild them once.
+    if (model !== SEMANTIC_MODEL || provenance !== '2') {
       this.db.exec('DELETE FROM chunks; DELETE FROM files;')
       this.db.query("INSERT OR REPLACE INTO meta (k, v) VALUES ('model', ?)").run(SEMANTIC_MODEL)
+      this.db.query("INSERT OR REPLACE INTO meta (k, v) VALUES ('provenance', '2')").run()
     }
   }
 
@@ -245,8 +249,7 @@ export class SemanticIndex {
     if (isOffice(rel)) {
       if (!this.o.office.fresh(rel, input.st)) await this.o.office.update(rel)
       if (!this.o.office.fresh(rel, input.st)) return {text:'',hash}
-      const cache = this.o.office.cachePath(rel)
-      const text = admission.read(cache, () => fs.lstatSync(cache))
+      const text = this.o.office.admittedText(rel, input.bytes, admission)
       return {text: text ? text.bytes.toString('utf8').slice(0, FILE_TEXT_MAX) : '', hash}
     }
     const buf = input.bytes.subarray(0, FILE_TEXT_MAX)
