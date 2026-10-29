@@ -50,7 +50,7 @@ jobs:
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils
+          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
           curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           sudo dpkg -i /tmp/pandoc.deb
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
@@ -62,6 +62,8 @@ jobs:
           # go test covers the seccomp filter (errnos on a child), the Landlock probe, the bwrap argv golden, the
           # nft rule golden, plan / firewall-status parsing, the bundle verifier and the launcher symlink fix
           cd native && go vet ./... && go test ./...
+      - name: Pinned Hangul renderer
+        run: bun run prepare:hwp
       - name: Unit tests
         run: bun run test:unit
       - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
