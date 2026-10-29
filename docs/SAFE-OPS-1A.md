@@ -13,6 +13,18 @@ conversation for this workflow; already delivered data cannot be recalled. Other
 retain text/OCR only. Actual pinned Claude/Codex release qualification remains a release gate;
 the automated integration tests exercise fake engines through the real MCP bridge and socket.
 
+### Administrator rollout
+
+After the release gates below have been approved, the Linux systemd installation reads
+`/etc/default/<installation-id>` through `<installation-id>-server.service`. Set
+`MYCEL_SAFE_OPS_1A=1` in that root-managed file and restart that server service. An unset
+variable, `0`, or any value other than exactly `1` leaves new pixel/PPTX operations disabled.
+Qualification is still required on every converter job; the variable never bypasses it.
+Test a synthetic image and presentation on the target host before admitting confidential work.
+Remove the setting (or set it to `0`) and restart the service to disable the feature.
+Existing confidential conversations keep their egress restrictions. This procedure does not
+approve medical use or replace the real pinned CLI and host qualification gates.
+
 ## Fixed operations and limits
 
 - Image read: PNG, JPEG, WebP and HEIC/HEIF, 8 MiB compressed, 32 million decoded pixels,
