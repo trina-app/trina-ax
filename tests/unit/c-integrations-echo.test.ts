@@ -62,6 +62,17 @@ describe('hiding the forms of a value (hide.ts)', () => {
     expect(hide(b64(ECHO_KEY))).toBe(HIDDEN)
   })
 
+  test('encoded letters and digits cannot expose the stored key', () => {
+    const hide = secretHider([ECHO_KEY])
+    const forms = [
+      [...ECHO_KEY].map(c => '%' + c.charCodeAt(0).toString(16)).join(''),
+      [...ECHO_KEY].map(c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('').replace(/\\\\u/g, '\\u'),
+      [...ECHO_KEY].map(c => '&#' + c.charCodeAt(0) + ';').join(''),
+      ECHO_KEY.replace('C', '%43'),
+    ]
+    for (const form of forms) expect(hide(form)).toBe(HIDDEN)
+  })
+
   test('short values and parts of a value stay; hiding twice changes nothing; no values, nothing to do', () => {
     expect(MIN_SECRET).toBe(8)
     expect(secretHider(['abc1234'])('key abc1234 here')).toBe('key abc1234 here')

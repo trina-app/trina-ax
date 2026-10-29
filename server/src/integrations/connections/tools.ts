@@ -150,9 +150,9 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (!t.readOnly) {
           confirmed = await gate(current, t.name, JSON.stringify(args ?? {}), b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again
-          const asked = current.url
+          const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
-          if (current.url !== asked) throw new CallError('the connection changed while the user was asked; try again', 'changed')
+          if (current.version !== asked) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
         const r = await svc.callTool(current, t.name, args, tc.signal)
         // the person's access is checked again before the answer is delivered
@@ -305,7 +305,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         if (a.method !== 'GET' && a.method !== 'HEAD') {
           confirmed = await gate(row, `${a.method} ${clip(u.pathname + u.search, 200)}`, req.shown, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
-          if (current.url !== row.url) throw new CallError('the connection changed while the user was asked; try again', 'changed')
+          if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }
         const res = await svc.apiRequest(current, url, { method: a.method, body: req.body, contentType: req.contentType }, tc.signal)
         svc.forCall(tc.userId, row.id)

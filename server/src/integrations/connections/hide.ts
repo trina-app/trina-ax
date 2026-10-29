@@ -21,9 +21,8 @@ const hex = (n: number, width: number) => n.toString(16).toUpperCase().padStart(
 const NAMED: Record<string, string> = { '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot', "'": 'apos' }
 
 /** One character as a pattern: itself, or as a URL, JSON or HTML text would escape it. Letters and digits stay as they
- * are. In base64, "+" and "/" may also be the URL-safe "-" and "_". */
+ * are accepted in escaped form too. In base64, "+" and "/" may also be the URL-safe "-" and "_". */
 function charPattern(ch: string, base64 = false): string {
-  if (/^[A-Za-z0-9]$/.test(ch)) return ch
   const cp = ch.codePointAt(0)!
   const alts = new Set([literal(ch), [...Buffer.from(ch)].map((b) => '%' + hex(b, 2)).join(''), `&#0*${cp};`, `&#[xX]0*${hex(cp, 1)};`])
   if (cp <= 0xffff) alts.add('\\\\u' + hex(cp, 4))
