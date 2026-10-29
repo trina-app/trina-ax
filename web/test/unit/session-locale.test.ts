@@ -98,6 +98,7 @@ describe('session recovery language', () => {
 
   test('empty or unknown recovery hints preserve the usual default or explicit login choice', async () => {
     for (const invalid of [null, 'fr', '', '{"locale":"ko"}']) {
+      storeLocale(null)
       if (invalid === null) values.delete('mycel.recentLocale')
       else values.set('mycel.recentLocale', invalid)
       expect(recentLocale()).toBeNull()

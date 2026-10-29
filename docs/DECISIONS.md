@@ -2190,3 +2190,25 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
 
 The R4 integration on 0.2.5 preserves its provider-reported API costs and unknown-price markers; the share
 regression also checks those markers while keeping the original CSV values.
+
+## Service-worker offline recovery (qa4-offline-recovery, 2026-10-29)
+
+- B-W46-1 / R2-DESK-11: a failed main navigation can load the service worker's HTTP 503 document successfully,
+  bypassing both React account lookup and Electron's `did-fail-load`. Generate this self-contained document
+  with the existing ko/en/id table text and the same bounded recent-account → sign-in choice → English policy
+  used by React recovery. Read the language hints only in the document's origin-local storage. Blocked storage
+  and first-run recovery use English, regardless of the browser language. Sign-out/401 still clear the account
+  hint; successful account responses still replace it and never adopt it as a sign-in choice.
+- Embed translations and the pure language selector at build time, so neither a warm app shell nor cached
+  assets are needed. Keep the static-only cache contract: no index documents, API responses, chat data or
+  account metadata are added to the worker cache.
+- Mark only the worker's explicit navigation fallback (`mycel-offline: navigation-v1`). Electron checks that
+  marker after load and routes through its existing native recovery, including direct-address failover,
+  localized Retry and Other teams. Ignore results from replaced views/navigations. Ordinary server HTTP 503
+  documents pass through unchanged; web users retain the localized document and reload button.
+- Regression coverage uses the production web build, an actual registered worker, warm and empty asset caches,
+  and a truly stopped/restarted HTTP listener with preserved fixture sessions. Browser tests cover ko/en/id,
+  app-shell/API failure, normal 503, blocked storage, first run, logout and 401. Real Electron tests cover all
+  three languages, native Other teams/reopen/Retry and the same recovered session. Unit coverage checks the
+  generated fallback, bounded hints, cache exclusions and existing account/team language transitions.
+- Needed in `potenlab/team-ax` too: these are common web/PWA and desktop behaviors, not edition branding.

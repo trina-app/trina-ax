@@ -1,6 +1,6 @@
 // 한국어. 키의 원본이다(MessageKey가 여기서 나온다). 키를 더하면 en.ts / id.ts에도 같은 키를 넣어야 타입 검사가 통과한다.
 // 기본 언어는 영어다(shared DEFAULT_LOCALE): 개인 선택도 팀 기본값도 없을 때.
-import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES } from '../../../shared/src/api/errors'
 export const ko = {
   'a11y.skip': '본문으로 건너뛰기',
 
