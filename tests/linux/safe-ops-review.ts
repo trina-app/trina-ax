@@ -35,6 +35,37 @@ try {
   const r=await app.ctx.files.call('read',{file_path:target},c);assert(r.isError===true)
   await app.ctx.files.office.update(target);assert(!fs.existsSync(app.ctx.files.office.cachePath(target)))
  })
+ await check('actual publication during raw search: copies and replacements never reach either rg pass',async()=>{
+  const q=(s:string)=>"'"+s.replaceAll("'","'\\''")+"'"
+  const realRg=app.ctx.files.cfg.rg!, wrapper=path.join(app.data,'search-rg'), started=path.join(app.data,'search-started'), release=path.join(app.data,'search-release'), log=path.join(app.data,'search-raw')
+  const good=Buffer.from('SEARCH_ALLOWED_SNAPSHOT'), bad=Buffer.from('SEARCH_PUBLISHED_QUARANTINE')
+  fs.writeFileSync(path.join(app.team,'shared/search-source.txt'),good)
+  fs.writeFileSync(wrapper,`#!/bin/sh\ncase " $* " in *" --files "*) exec ${q(realRg)} "$@";; esac\n: > ${q(started)}\nwhile [ ! -f ${q(release)} ]; do sleep 0.01; done\n${q(realRg)} "$@" | tee -a ${q(log)}\n`,{mode:0o700})
+  app.ctx.files.cfg.rg=wrapper
+  const searching=app.ctx.files.grep(app.toolCtx('bob'),{pattern:'SEARCH_',path:'shared',output_mode:'content'})
+  try {
+   for(let i=0;i<200&&!fs.existsSync(started);i++) await Bun.sleep(5)
+   assert(fs.existsSync(started),'content consumer did not start')
+   const publisher=app.toolCtx('alice')
+   let collision=false
+   try {await publishArtifact(app.ctx,files,publisher,'shared/search-collision.pptx',good,[],async()=>{})}catch(e:any){collision=e.code==='safe_ops_search_busy'}
+   assert(collision,'publication must refuse a hash held by the live search')
+   assert(!fs.existsSync(path.join(app.team,'shared/search-collision.pptx')))
+   const made=await publishArtifact(app.ctx,files,publisher,'shared/search-published.pptx',bad,[],async()=>{})
+   const published=path.join(app.team,made.path)
+   assert(fs.readFileSync(published).equals(bad),'real native publication failed')
+   fs.copyFileSync(published,path.join(app.team,'shared/search-copy.png'))
+   fs.copyFileSync(published,path.join(app.team,'shared/search-renamed.txt'))
+   fs.renameSync(path.join(app.team,'shared/search-renamed.txt'),path.join(app.team,'shared/search-source.txt'))
+   fs.writeFileSync(release,'ready')
+   const result=await searching
+   assert(!result.text.includes(bad.toString()))
+   assert(!fs.readFileSync(log,'utf8').includes(bad.toString()),'raw rg read a quarantined copy')
+   assert(app.ctx.db.query('SELECT * FROM safe_ops_search_inputs').all().length===0)
+  } finally {
+   fs.writeFileSync(release,'ready');await searching.catch(()=>{});app.ctx.files.cfg.rg=realRg
+  }
+ })
  await check('same-device bind mount is rejected by openat2 NO_XDEV',()=>{
   const a=fs.statSync('/tmp/safe-fix-mount/root'),b=fs.statSync('/tmp/safe-fix-mount/root/nested')
   assert(a.dev===b.dev,'fixture must be a same-device bind')
