@@ -1517,8 +1517,8 @@ the team can see them, the AI answered that it could only save text files and to
 file tools only had `write` (text) for putting bytes anywhere.
 
 - New engine tools `move_files`, `copy_files`, `rename_file` (`server/src/tools/file-moves.ts`, mcp__team__<name>):
-  the Files screen's move, copy and rename (`TeamFiles.move` / `copy`), so every check is the same (write access at
-  both ends, managed folders for admins and owners only, rule folders never under users/, root / users / .system never
+  the Files screen's move, copy and rename (`TeamFiles.move` / `copy`), so every check is the same (move requires write access at
+  both ends; copy requires source read and destination write access; managed folders for admins and owners only, rule folders never under users/, root / users / .system never
   move). Up to 50 paths per call into one existing folder; names kept, " (2)" when taken. `copy_files` copies files
   only (a folder copy would put a restricted subfolder's files under the target's rules).
 - **Who can see them**: before anything changes, `TeamFiles.audienceChange` counts the other active people who could
@@ -1876,3 +1876,8 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - Redaction also recognizes percent, JSON Unicode and HTML numeric escapes of letters and digits. Previously only punctuation escapes were recognized, allowing an encoded key to reach model input.
 - A connection version change while a write approval is pending invalidates that approval for both MCP and HTTP. This includes a new deny policy, changed credentials and access rules, even when the URL stays the same. The user must start a new call against the current configuration.
 - Regression tests reproduce both failures before the fixes and assert that refused calls send no request.
+
+
+## PowerPoint distribution notices (2026-10-29)
+
+The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.

@@ -200,3 +200,18 @@ test('standalone web and desktop collect explicit roots without claiming native 
     expect(desktop.goModules).toEqual([]); expect(desktop.webMirror).toBeNull()
   } finally { f.close() }
 })
+
+
+test('nested ECMA copyright notices are preserved byte for byte', async () => {
+  const { writeReleaseNotices, verifyReleaseNotices } = await api(); const f = fixture()
+  try {
+    const name = 'licenses/ECMA-text-copyright-notice.txt'
+    const bytes = 'Synthetic ECMA copyright notice\r\n'
+    f.put('node_modules/alpha/' + name, bytes)
+    const manifest = writeReleaseNotices(f.options)
+    const doc = manifest.documents.find(d => d.sourcePath === name)
+    expect(doc).toBeDefined()
+    expect(fs.readFileSync(path.join(f.artifact, doc!.path), 'utf8')).toBe(bytes)
+    verifyReleaseNotices(f.artifact)
+  } finally { f.close() }
+})

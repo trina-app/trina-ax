@@ -121,7 +121,9 @@ function noticeFiles(root: string, withheld: { name: string; bytes: Buffer }[]):
       if (['node_modules', '.git', '.cache'].includes(e.name)) continue
       const p = path.join(dir, e.name), name = rel(path.relative(root, p))
       if (e.isDirectory()) { walk(p, depth + 1); continue }
-      if (!noticeName(e.name) && !readmeName(e.name)) continue
+      // Some packages use subject-prefixed notices inside their licenses directory.
+      const nestedNotice = name.startsWith('licenses/') && /(?:^|[._ -])(?:copyright|notice)(?:[._ -]|$)/i.test(e.name)
+      if (!noticeName(e.name) && !readmeName(e.name) && !nestedNotice) continue
       if (!safeRel(name)) fail('release_notice_invalid_source_name')
       const bytes = original(p, root)
       if (readmeName(e.name) && !licensingContext.test(bytes.toString('utf8'))) continue

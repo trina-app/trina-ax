@@ -20,7 +20,7 @@ const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const hex = (n: number, width: number) => n.toString(16).toUpperCase().padStart(width, '0').replace(/[A-F]/g, (c) => `[${c}${c.toLowerCase()}]`)
 const NAMED: Record<string, string> = { '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot', "'": 'apos' }
 
-/** One character as a pattern: itself, or as a URL, JSON or HTML text would escape it. Letters and digits stay as they
+/** One character as a pattern: itself, or as a URL, JSON or HTML text would escape it. Letters and digits
  * are accepted in escaped form too. In base64, "+" and "/" may also be the URL-safe "-" and "_". */
 function charPattern(ch: string, base64 = false): string {
   const cp = ch.codePointAt(0)!
