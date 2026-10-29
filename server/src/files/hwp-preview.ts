@@ -3,7 +3,7 @@ import { HWP_LIMITS as L } from '@mycel/shared/hwp'
 import type { TeamFiles } from '../team-files/service'
 import { ToolError } from '../policy/errors'
 import { readRegular, sha256 } from './store'
-import { HwpError, NativeHwpEngine, type HwpEngine, type RenderedPage } from './hwp-engine'
+import { HwpError, nativeHwpEngine, type HwpEngine, type RenderedPage } from './hwp-engine'
 
 interface Cached { key: string; id: string; source: string; result: RenderedPage; expires: number }
 /** Cache IDs are random and never capabilities. Every lookup opens and authorizes the source again. */
@@ -11,7 +11,7 @@ export class HwpPreviews {
   private cache = new Map<string, Cached>()
   private running = new Set<string>()
   private generation = 0
-  constructor(private files: TeamFiles, readonly engine: HwpEngine = new NativeHwpEngine()) {}
+  constructor(private files: TeamFiles, readonly engine: HwpEngine = nativeHwpEngine()) {}
   invalidate() { this.generation++; this.cache.clear() }
   private source(user: string, source: string) {
     const f = this.files.fileForDownload(user, source)

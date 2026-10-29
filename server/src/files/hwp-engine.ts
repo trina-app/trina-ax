@@ -128,3 +128,7 @@ export class NativeHwpEngine implements HwpEngine {
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 }
+
+let defaultEngine: NativeHwpEngine | undefined
+/** One verified immutable engine/font bundle per process; jobs still use fresh isolated processes. */
+export function nativeHwpEngine(): HwpEngine { return defaultEngine ??= new NativeHwpEngine() }
