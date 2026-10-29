@@ -13,6 +13,12 @@ const HANJA = /[㐀-䶿一-鿿豈-﫿]/u
 export const CP949_MIN_SYLLABLES = 2
 /** Minimum share of Hangul syllables in the non-ASCII characters. */
 export const CP949_MIN_SHARE = 0.8
+/**
+ * Minimum share of the Hangul syllables that come from KS X 1001 byte pairs (EUC-KR's 2350 syllables: lead byte
+ * 0xB0-0xC8, trail byte 0xA1-0xFE). The other syllables are CP949 (UHC) extension pairs. Windows-1252 punctuation
+ * (0x80-0x9F) followed by an ASCII letter is also an extension pair, so a text with many of them is not Korean.
+ */
+export const CP949_MIN_KS_SHARE = 0.9
 
 /** True when the bytes are valid UTF-8 (a BOM is allowed). */
 export function isUtf8(bytes: Uint8Array): boolean {
@@ -20,13 +26,36 @@ export function isUtf8(bytes: Uint8Array): boolean {
 }
 
 /**
+ * Counts of the CP949 byte pairs, or null when a pair has a lead byte 0x80-0xA0 and an ASCII trail byte. In
+ * Windows-1252 such a lead byte is a smart quote, a dash, a bullet or a no-break space, and an ASCII letter after it is
+ * normal ("don't" with 0x92). In CP949 the same pair is a rare extension syllable (for example 0x8C 0x63), so the rule
+ * refuses it.
+ */
+function cp949Pairs(bytes: Uint8Array): { ksHangul: number } | null {
+  let ksHangul = 0
+  for (let i = 0; i < bytes.length; i++) {
+    const lead = bytes[i]!
+    if (lead < 0x80) continue
+    const trail = bytes[i + 1]
+    if (trail === undefined) return null
+    i++
+    if (lead <= 0xa0 && trail < 0x80) return null
+    if (lead >= 0xb0 && lead <= 0xc8 && trail >= 0xa1 && trail <= 0xfe) ksHangul++
+  }
+  return { ksHangul }
+}
+
+/**
  * The text of bytes in CP949, or null when the bytes are not clearly Korean. Clearly Korean: the decode has no error,
- * the text has at least 2 Hangul syllables, Hangul syllables are at least 80% of the non-ASCII characters, and the text
- * has no Hanja. Call this only for bytes that are not valid UTF-8.
+ * no byte pair has a lead byte 0x80-0xA0 and an ASCII trail byte, the text has at least 2 Hangul syllables, Hangul
+ * syllables are at least 80% of the non-ASCII characters, at least 90% of the Hangul syllables are KS X 1001 pairs, and
+ * the text has no Hanja. Call this only for bytes that are not valid UTF-8.
  */
 export function cp949Text(bytes: Uint8Array): string | null {
   let text: string
   try { text = new TextDecoder('euc-kr', { fatal: true }).decode(bytes) } catch { return null }
+  const pairs = cp949Pairs(bytes)
+  if (!pairs) return null
   let syllables = 0
   let nonAscii = 0
   for (const ch of text) {
@@ -36,6 +65,7 @@ export function cp949Text(bytes: Uint8Array): string | null {
     else if (HANJA.test(ch)) return null
   }
   if (syllables < CP949_MIN_SYLLABLES || syllables < nonAscii * CP949_MIN_SHARE) return null
+  if (pairs.ksHangul < syllables * CP949_MIN_KS_SHARE) return null
   return text
 }
 

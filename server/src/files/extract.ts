@@ -15,7 +15,7 @@ import { runIsolated } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
-import { SECTION_MARK } from './ooxml'
+import { quoteLines, SECTION_MARK } from './ooxml'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
@@ -123,10 +123,12 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
   switch (e) {
     case 'docx': case 'pptx': case 'odt': {
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
-      const body = pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal)
+      // a body line that starts like a section label (`=== `) gets a space in front, so only the real labels of the
+      // extra text below are at the start of a line
+      const body = pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal).then(quoteLines)
       if (e === 'odt') return body
       const [text, extra] = await Promise.all([body, extraText(e, bytes, signal)])
-      return extra ? `${text.replace(/\s+$/, '')}\n\n${extra}\n` : text
+      return extra ? `${text.trimEnd()}\n\n${extra}\n` : text
     }
     case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
       return officeWorkerText(e, bytes, signal)
@@ -166,8 +168,9 @@ async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSi
 
 /**
  * Text of a plain text file: UTF-8 (a BOM is dropped) when the bytes are valid UTF-8. Otherwise legacy Korean
- * (CP949, a superset of EUC-KR) when the bytes are clearly Korean (shared `cp949Text`: no decode error, at least 2
- * Hangul syllables, at least 80% of the non-ASCII characters are Hangul syllables, no Hanja). Otherwise UTF-8 with
+ * (CP949, a superset of EUC-KR) when the bytes are clearly Korean (shared `cp949Text`: no decode error, no Windows-1252
+ * punctuation pair, at least 2 Hangul syllables, at least 80% of the non-ASCII characters are Hangul syllables, at
+ * least 90% of the syllables are KS X 1001 pairs, no Hanja). Otherwise UTF-8 with
  * replacement characters, as before, so a Windows-1252 file does not become false Korean text.
  */
 export function decodeText(bytes: Uint8Array): string {

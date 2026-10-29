@@ -40,7 +40,8 @@ export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(nam
 /**
  * Text of a text preview (QA R2-FMT-08): UTF-8 when the bytes are valid UTF-8 (a BOM is dropped), else legacy Korean
  * (CP949 / EUC-KR, the Korean Excel CSV default) when the bytes are clearly Korean (shared `cp949Text`: no decode
- * error, at least 2 Hangul syllables, at least 80% of the non-ASCII characters are Hangul syllables, no Hanja), else
+ * error, no Windows-1252 punctuation pair, at least 2 Hangul syllables, at least 80% of the non-ASCII characters are
+ * Hangul syllables, at least 90% of the syllables are KS X 1001 pairs, no Hanja), else
  * UTF-8 with replacement characters. The server reads files for the AI with the same rule
  * (server/src/files/extract.ts decodeText).
  * `cut`: the bytes are only the beginning of the file, so a character cut at the end is dropped before the check.

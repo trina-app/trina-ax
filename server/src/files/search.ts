@@ -94,10 +94,12 @@ const RG_MAX_FILE = 50 * 1024 * 1024
  */
 export function legacyKoreanFile(abs: string): boolean {
   let fd: number
-  try { fd = fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return false }
+  // as store.ts readRegular: O_NONBLOCK, so a FIFO put in place of a file cannot block the server; regular files with
+  // one link only
+  try { fd = fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | (fs.constants.O_NONBLOCK ?? 0)) } catch { return false }
   try {
     const st = fs.fstatSync(fd)
-    if (!st.isFile() || st.size > RG_MAX_FILE) return false
+    if (!st.isFile() || st.nlink > 1 || st.size > RG_MAX_FILE) return false
     const read = (n: number) => {
       const b = Buffer.alloc(n)
       let off = 0
@@ -115,8 +117,9 @@ export function legacyKoreanFile(abs: string): boolean {
 // ---------------- office text sidecar cache ----------------
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
- * footers and comments, pptx notes and charts), so the old text is made again. */
-export const TEXT_CACHE_VERSION = '2'
+ * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented), so the
+ * old text is made again. */
+export const TEXT_CACHE_VERSION = '3'
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 
 export class OfficeCache {
