@@ -26,3 +26,11 @@ export function sheetMeta(wb: WorkBook, decodeRange: DecodeRange): SheetMeta[] {
     return { name, hidden: !!props[i]?.Hidden, cut }
   })
 }
+
+/**
+ * Index of the sheet that the preview opens first: the first sheet that is not hidden, as a spreadsheet app does.
+ * When all sheets are hidden (a damaged file), it is 0.
+ */
+export function firstVisibleSheet(meta: readonly Pick<SheetMeta, 'hidden'>[]): number {
+  return Math.max(0, meta.findIndex((m) => !m.hidden))
+}

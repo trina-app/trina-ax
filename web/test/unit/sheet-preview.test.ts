@@ -2,7 +2,7 @@
 // was cut at the preview row limit, so it can show a notice.
 import { describe, expect, test } from 'bun:test'
 import * as XLSX from 'xlsx'
-import { SHEET_PREVIEW_ROWS, sheetMeta } from '../../src/lib/sheetPreview'
+import { SHEET_PREVIEW_ROWS, firstVisibleSheet, sheetMeta } from '../../src/lib/sheetPreview'
 
 function book(rows: number) {
   const wb = XLSX.utils.book_new()
@@ -29,5 +29,21 @@ describe('sheet preview meta', () => {
   test('a sheet with exactly the limit is not cut', () => {
     const meta = sheetMeta(book(SHEET_PREVIEW_ROWS), XLSX.utils.decode_range)
     expect(meta.find((m) => m.name === 'Rows')?.cut).toBe(false)
+  })
+
+  test('the preview opens on the first visible sheet when the first sheet is hidden', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['marker'], ['QA-HIDDEN']]), 'Secret')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['region'], ['Seoul']]), 'Summary')
+    XLSX.utils.book_set_sheet_visibility(wb, 'Secret', 2)
+    const read = XLSX.read(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer, { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS })
+    const meta = sheetMeta(read, XLSX.utils.decode_range)
+    expect(meta.map((m) => [m.name, m.hidden])).toEqual([['Secret', true], ['Summary', false]])
+    expect(firstVisibleSheet(meta)).toBe(1)
+  })
+
+  test('the preview opens on sheet 0 when sheet 0 is visible or when all sheets are hidden', () => {
+    expect(firstVisibleSheet([{ hidden: false }, { hidden: true }])).toBe(0)
+    expect(firstVisibleSheet([{ hidden: true }, { hidden: true }])).toBe(0)
   })
 })

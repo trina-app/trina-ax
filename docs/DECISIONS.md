@@ -2307,6 +2307,7 @@ including same-account installs. Extend the same synthetic selection tests to co
   stops at the limit (`!fullref` has more rows than `!ref`), the active sheet shows a notice above the table.
   Hidden and "very hidden" sheets stay in the tabs with a "Hidden" badge; the preview opens on the first visible
   sheet. The AI read path does not change: it reads all sheets and all rows. Hidden is not a permission boundary.
-- **Tests.** `web/test/unit/sheet-preview.test.ts` (hidden flag, cut at limit + 1, no cut at the limit),
-  `web/test/e2e/previews.spec.ts` (HWPX opens the panel twice without a download, the button downloads; badge and
-  row notice on a 5,001-row workbook).
+- **Tests.** `web/test/unit/sheet-preview.test.ts` (hidden flag, cut at limit + 1, no cut at the limit,
+  `firstVisibleSheet` when sheet 0 is hidden), `web/test/e2e/previews.spec.ts` (HWPX opens the panel twice without a
+  download, the button downloads; badge and row notice on a 5,001-row workbook; a workbook whose first sheet is
+  hidden opens with the second tab selected).
