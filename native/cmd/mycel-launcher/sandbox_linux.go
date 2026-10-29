@@ -380,6 +380,18 @@ type turnEnv struct {
 	done     bool
 	slot     bool
 	marked   bool
+	// bridge: the real path of --bridge for this turn, the one mcp.json names (main.go). An update switches
+	// app/current under a running launcher, so the path seen at start can be an older version.
+	bridge string
+}
+
+// bridgeReal is this turn's bridge (main.go sets it before the engine starts); the path from the start is only the
+// fallback for callers that run no turn.
+func (t *turnEnv) bridgeReal() string {
+	if t.bridge != "" {
+		return t.bridge
+	}
+	return lx.bridgeReal
 }
 
 func currentLimits() (plan.Limits, error) {
@@ -492,7 +504,7 @@ func (t *turnEnv) command(cmdPath string, args []string, chat, sessDir string) (
 		}
 	}
 	argv, err := buildBwrapArgs(bwrapParams{
-		EngineDir: filepath.Dir(real), EngineReal: real, Bridge: filepath.Clean(*bridgePath), BridgeReal: lx.bridgeReal,
+		EngineDir: filepath.Dir(real), EngineReal: real, Bridge: filepath.Clean(*bridgePath), BridgeReal: t.bridgeReal(),
 		Helper: *sandboxHelper, ToolsSock: filepath.Clean(*toolsSock), ToolsSockReal: resolvePath(*toolsSock), Chat: filepath.Clean(chat), EtcDir: filepath.Clean(*sandboxEtc),
 		CA: filepath.Clean(*caBundle), Landlock: *landlockMode, Ldso: ldso, Codex: t.codex && !t.login, AllowListen: *allowListen,
 		Libs: lx.libs, UsrLib64: lx.usrLib64, Args: args,
