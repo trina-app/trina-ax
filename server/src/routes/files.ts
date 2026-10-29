@@ -53,6 +53,14 @@ export const filesRoutes: RouteModule = {
 
     kit.handle(API.download, ({ c, query, auth }) => mapErrors(c.get('locale'), () => {
       const f = svc.fileForDownload(auth.user.id, query.path, !query.preview && query.disposition === 'attachment')
+      // Browser-owned Fetch Metadata also blocks stale clients and img/iframe/fetch
+      // consumers that request attachment bytes without the explicit preview flag.
+      // Headerless API/native clients may still perform an authorized download.
+      if (ctx.files.quarantine.hasFile(f.abs)) {
+        const mode=c.req.header('sec-fetch-mode'), dest=c.req.header('sec-fetch-dest')
+        if ((mode && mode!=='navigate') || (dest && dest!=='document' && dest!=='empty'))
+          throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
+      }
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
     }))
 

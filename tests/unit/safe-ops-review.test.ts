@@ -38,7 +38,11 @@ test('file routes deny preview, content and inline but permit authorized attachm
  for(const url of [`/api/files/content?path=${p}`,`/api/files/preview?path=${p}`,`/api/files/download?path=${p}&preview=true`,`/api/files/download?path=${p}&disposition=inline`]) {
   const r=await A.json(url,{as:'alice'});expect(r.status).toBe(503);expect(r.body.error.params.reason).toBe('quarantined')
  }
- const r=await A.req(`/api/files/download?path=${p}&disposition=attachment`,{as:'alice'})
+ for(const [mode,dest] of [['cors','empty'],['no-cors','image'],['navigate','iframe']]) {
+  const blocked=await A.req(`/api/files/download?path=${p}&disposition=attachment`,{as:'alice',headers:{'sec-fetch-mode':mode!,'sec-fetch-dest':dest!}})
+  expect(blocked.status).toBe(503)
+ }
+ const r=await A.req(`/api/files/download?path=${p}&disposition=attachment`,{as:'alice',headers:{'sec-fetch-mode':'navigate','sec-fetch-dest':'empty'}})
  expect(r.status).toBe(200);expect(r.headers.get('content-disposition')).toContain('attachment');expect(Buffer.from(await r.arrayBuffer())).toEqual(qbytes)
  expect((await A.req(`/api/files/download?path=${p}`,{as:'bob'})).status).toBe(404)
 })
