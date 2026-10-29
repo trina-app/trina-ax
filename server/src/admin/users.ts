@@ -160,7 +160,7 @@ export function revokeResetLinksBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by = ? AND used_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
-export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan' }
+export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: "アーカイブ済みアカウント", es: "Cuentas archivadas" }
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the

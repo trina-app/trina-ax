@@ -5,6 +5,8 @@ import { Database } from 'bun:sqlite'
 import { makeCApp } from '../lib/c-app'
 import { SearchAdmission } from '../../server/src/files/search-admission'
 import { SemanticIndex } from '../../server/src/search/semantic'
+import { HwpPreviews } from '../../server/src/files/hwp-preview'
+import { componentC } from '../../server/src/team-files/component'
 import { sha256 } from '../../server/src/files/store'
 
 const shell = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'"
@@ -119,4 +121,24 @@ test('R2-3: semantic embedding holds its admitted bytes until the async consumer
     expect(consumed).toBe(false)
     expect(index.db.query("SELECT * FROM chunks WHERE path IN ('shared/semantic.txt','shared/copy.txt')").all()).toEqual([])
   } finally { index.db.close(); await a.close() }
+})
+
+
+test('new-main HWP preview cannot consume quarantined bytes renamed to HWP/HWPX', async () => {
+  const a = await makeCApp('search-quarantine-hwp')
+  let calls = 0
+  const c = componentC(a.ctx)
+  c.hwp = new HwpPreviews(c.files, {identity:'must-not-run', async render() {calls++; throw new Error('must not render')} })
+  const bytes = Buffer.from('quarantined output disguised as Hangul')
+  a.ctx.files.quarantine.add(bytes,'pptx')
+  try {
+    for (const ext of ['hwp','hwpx']) {
+      const rel = 'shared/quarantined.'+ext
+      fs.writeFileSync(path.join(a.team,rel),bytes)
+      const response = await a.json('/api/files/hwp-preview?path='+encodeURIComponent(rel)+'&page=1',{as:'bob'})
+      expect(response.status).toBe(503)
+      expect(response.body.error.params.reason).toBe('quarantined')
+    }
+    expect(calls).toBe(0)
+  } finally { await a.close() }
 })

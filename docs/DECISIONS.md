@@ -2777,3 +2777,107 @@ fields; auth heartbeat, connector usage and sync bookkeeping do not bump the epo
 and null-safe comparisons retain revoke-and-restore detection. Do not edit applied migrations.
 Grep-only context still requires an explicit versioned read before publication. Feature default
 off, third independent READY decision, real CLI/host qualification and lifetime retention work remain.
+
+## Keep the Electron subframe guard off workers (2026-10-29)
+
+- The frame guard's unfiltered CDP auto-attach paused service workers before startup, then awaited
+  `Page.enable` before sending `Runtime.runIfWaitingForDebugger`. A paused worker cannot answer that
+  page command: registration stays pending and `/sw.js` is not requested. CPU contention exposes the
+  race frequently; it also reproduces without Playwright. Resuming the target alone releases the
+  request and activation immediately, so a longer test timeout does not address the cause.
+- Filter auto-attach to `iframe` targets at every recursion level. Keep document-start WebRTC removal
+  on the main page and nested frames, including the existing sandboxed-frame policy. Workers do not
+  need document guards and must not depend on another debugger resuming them.
+- The real Electron offline cases now assert that the product's frame debugger never attaches to a
+  worker, as well as actual activation/control, worker-sourced 503 recovery and session preservation.
+  The new assertion fails on the previous product code even when the timing race otherwise passes.
+  No registration bypass, retry, timeout increase, UI string or cache policy change. Port this common
+  desktop fix and regression coverage to `potenlab/team-ax`.
+## Hangul raster previews, phases 0–1 (2026-10-29)
+
+- HWP/HWPX plaintext write/edit is refused. Existing read/grep extraction remains unchanged. Preview and `hwp_render` use a pinned rhwp 0.8.7 CLI; both Claude and Codex receive MCP PNG image content plus page count, dimensions, source hash and typed limitations. No editing, creation or browser WASM is exposed.
+- Startup checks executable SHA-256/version and the font's internal family, PostScript name, weight and SHA-256. Only unchanged OFL Noto Sans KR Regular (400) is staged. The misnamed Serif WOFF2 is excluded; host font directories are hidden from the renderer. Substitute-font/layout warnings are always shown.
+- An isolated Bun preflight checks the container, XML structure, encryption/distribution flags, expansion, nesting and table dimensions before isolated native layout. No shell, network or document-selected paths. Limits: 20 MiB source, 64 MiB expansion, 1,000 entries, 200 pages, 10,000 cells, 256 rows/columns, 2,048 px edge, 20 seconds across the job, 768 MiB RSS watchdog, 32 MiB output, one active request per server/person. Linux production additionally requires bwrap and the existing converter cgroup; macOS reports its watchdog limitation. The shared converter cgroup is not a per-document quota, and polling limits can overshoot briefly.
+- The bounded in-memory cache uses source path/version/hash, engine hash, font identity and settings. Random IDs are never capabilities. Every hit reopens an authorized regular source; completion checks current ACL/account and source version again. File changes invalidate the cache; browser responses are no-store. Failed or cancelled pages are never cached.
+- The same web PNG viewer serves web, Electron and mobile WebView; original download remains. Locked, damaged, unsupported, parse-loss and resource-limit cases show localized notices. Pixel previews are approximate, not Hancom fidelity certification. Real iOS/Android and independent Hancom acceptance remain release QA.
+- Build scripts pin all four platform artifacts and include fonts, MIT/third-party/OFL notices and source-offer details. Upstream native Skia inventory and compiled font-metric provenance remain explicit pending notice findings; this feature does not grant public release clearance.
+
+### HWP review release gate (2026-10-29)
+
+- Preview remains default off (`MYCEL_HWP_PREVIEW=1` is an internal review opt-in). Default release builders omit the rhwp executable and runtime font; runtime activation requires a separate opt-in. The plaintext-write guard stays enabled. Unresolved exact-version notices, Skia inventory and metric provenance block enabled distribution.
+- Debian 12 remains supported by the product, but HWP preview is unavailable there. Installation docs and the admin System page state this in ko/en/id. Native amd64 isolation/cgroups and Intel Mac execution remain activation gates.
+- HWP on macOS uses a file-read allowlist, including only OS runtime data, its executable and staged job inputs; a synthetic `/private/var/tmp` file exposed the inherited converter deny-list gap. The preflight worker is copied into the private job directory rather than granting access to the server directory.
+
+## Dedicated-worker startup under the frame debugger (2026-10-30)
+
+- Independent native validation found that the iframe-only filter still leaves dedicated workers paused
+  in Electron 44.7.2. Unlike service/shared workers, their renderer-side startup pause survives exclusion
+  from target attachment. A second debugger can mask this, so Playwright-only worker checks are insufficient.
+- Keep service/shared workers excluded. Attach dedicated `worker` targets only to send
+  `Runtime.runIfWaitingForDebugger`, then detach immediately; never send them Page commands or recursively
+  install document guards. Frame targets still receive the document-start guard before resuming.
+- A native Electron fixture without another debugger checks static, late and nested OOPIFs (different process
+  IDs), synchronous about:blank, srcdoc, blob/data documents, denied popups, and startup of all three worker
+  kinds. It fails with the iframe-only filter. The SW regression still rejects service/shared attachment.
+- RTCPeerConnection and mediaDevices are Window-only in Blink. Dedicated workers expose transferable
+  RTCDataChannel, but cannot construct a connection/channel themselves; receiving an existing channel
+  requires cooperation by a Window already permitted to create it. Worker exclusion is not a blanket claim
+  that workers expose no RTC-related interfaces. Port this correction and native test to `potenlab/team-ax`.
+
+## Japanese and Spanish app languages (2026-10-29)
+
+- Add Japanese (`ja`, 日本語) and Spanish (`es`, Español) to Korean, English and Indonesian. Translate the full
+  web/mobile-web, server/error, recipient-specific push, relay, generated offline/recovery, Electron (including
+  welcome and edition-domain text), and macOS menu bar string sets. The mobile native shell has no separate
+  ko/en/id catalog; its native pre-connection/error chrome remains English, while its WebView displays the
+  translated app. Invitations/password resets use links, not a separate
+  localized email template. Dates and numbers use `Intl` with the selected language.
+- Keep account choice → team default → English precedence. Browser detection applies only to first-run setup,
+  when there is no team language yet; `ja-JP`, `es-ES`, `es-MX` and other supported regional tags normalize to
+  `ja`/`es`. Unsupported detection falls back to English. Browser/OS language never overrides an account choice.
+- **Future strings: require all five app-owned translations.** This follows the existing typed dictionaries and
+  Korean-literal guard and avoids silent translation debt while branches add keys. Run `bun run check:i18n`:
+  it lists every missing key/table entry and ja/es placeholder or ICU-form mismatch against English, exits
+  nonzero, and never copies English into a supposedly translated key. The unit suite runs the same audit;
+  typecheck also enforces all five arguments for server text helpers. Merge new keys with all five translations.
+  The existing runtime English fallback remains defensive. External cloud notices/release descriptions may
+  omit ja/es because older control planes still send three languages; those payloads alone keep optional ja/es
+  fields and English fallback. The no-Korean-literals-in-shared-code guard is unchanged.
+- Japanese uses polite です/ます wording; Spanish uses neutral, usted-compatible business wording. Preserve
+  product names, substitution parameters and English ICU branches (Japanese selects `other`).
+
+| Product term | Japanese | Spanish |
+| --- | --- | --- |
+| 팀장 / team owner | チームオーナー (role: オーナー) | propietario del equipo (role: Propietario) |
+| 관리자 / admin | 管理者 | Administrador |
+| 멤버 / member | メンバー | Miembro |
+| 팀 스킬 / team skills | チームスキル | Habilidades del equipo |
+| 휴지통 / trash | ゴミ箱 | Papelera |
+| 연결 / connection | 接続 | Conexión |
+| AI 연결 / AI connection | AI接続 | Conexión de IA |
+| 구독 공유 / subscription sharing | サブスクリプションの共有 | Uso compartido de suscripciones |
+| 정기 작업 / scheduled tasks | 定期タスク | Tareas programadas |
+| 충돌 사본 / conflict copy | 競合コピー | copia en conflicto |
+| 복원됨 / restored | 復元済み | restaurado |
+| 메모리 / memory | メモリ | Memoria |
+| 아티팩트 / artifact | アーティファクト | Artefacto |
+
+- Verification covers dictionary/table completeness and substitutions, ICU forms, native-name pickers and setup
+  detection, account persistence, recipient push language, formatting, stopped-server web offline pages, and
+  Electron native recovery. Browser screenshots cover settings, chat, files, skills, trash and offline in ja/es.
+
+### Merge-train locale completeness (2026-10-30)
+
+- Integrate the desktop worker-startup correction and default-off HWP preview before Japanese/Spanish.
+- Supply all 20 HWP web keys in both new locales, including the disabled-preview and Debian 12/glibc notices.
+  Preserve the five-language requirement and placeholder checks; no English placeholder translations.
+
+### Refresh native identity after sign-in navigation (2026-10-30)
+
+- A pending anonymous `/api/me` read could be reused after sign-in/reload, leaving the native team label at
+  its hostname. This pre-existing race reproduced in the train's full Electron suite and with a response
+  held across login. Navigation now uses the same fresh-after-pending identity read already required for AI
+  browser calls. Requests remain serialized; browser-owner clearing and team policy checks are unchanged.
+- The regression fixture holds the anonymous response until after login/reload, then releases it. The old
+  implementation fails the unchanged team-name assertion; the corrected path reads the current session.
+  No longer timeout, retry, altered assertion, or language-dependent workaround. Port to `potenlab/team-ax`.

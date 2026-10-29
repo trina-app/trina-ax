@@ -7,7 +7,7 @@
 #   sudo "/Library/Application Support/mycel/root/mycel-account" list-owners
 #   sudo "/Library/Application Support/mycel/root/mycel-account" reset-link [--username U]
 #                                            one-time password reset link (24 h; a new link cancels the previous one)
-#   sudo "/Library/Application Support/mycel/root/mycel-account" create-owner --username U --name N --team T [--locale en|ko|id]
+#   sudo "/Library/Application Support/mycel/root/mycel-account" create-owner --username U --name N --team T [--locale en|ko|id|ja|es]
 #                                            only while the team has no account; asks for the password (or reads stdin)
 #
 # It runs the bundled account CLI (server/src/account.js of app/current) as the server account, never as root: root

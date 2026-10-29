@@ -11,6 +11,8 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
+// Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
+const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
   ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
@@ -565,7 +567,7 @@ export class MockServer {
       const u = this.users.find((x) => x.username === c.body.username)
       // like the server: before sign-in, the page's language header, else the team default
       const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
-      const wrong = { ko: '아이디나 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.' }[loc]
+      const wrong = { ko: '아이디나 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
@@ -759,6 +761,14 @@ export class MockServer {
       }
       this.putFile(path, c.body.content)
       return { path, conflict, entry: this.entry(path, this.files.get(path)!, c.user) }
+    },
+    hwpPreview: async (c) => {
+      const n = this.files.get(c.query.path!)
+      if (!n || n.type !== 'file' || this.access(c.query.path!, c.user) === 'none') fail('not_found', 404)
+      try {
+        const r = await (await hwpEngine).render(Buffer.from(n!.data!), c.query.path!.endsWith('.hwpx') ? 'hwpx' : 'hwp', Number(c.query.page))
+        return { ...r.meta, id: crypto.randomUUID(), png: r.bytes.toString('base64') }
+      } catch (e) { throw new Fail('unavailable', 503, undefined, undefined, { reason: e && typeof e === 'object' && 'reason' in e ? String(e.reason) : 'engine' }) }
     },
     download: (c) => {
       const n = this.files.get(c.query.path!)
@@ -1180,7 +1190,7 @@ export class MockServer {
     // like server/src/system/managed.ts: the plan card and the operator's notices on Team AX Cloud (none self-hosted)
     plan: (c) => ({
       plan: this.cloud ? {
-        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
+        id: 'team', name: ({ ko: '팀', en: 'Team', id: 'Tim', ja: 'チーム', es: 'Equipo' } as Record<string, string>)[c.user.locale ?? 'ko'] ?? 'Team', maxConcurrency: 3, concurrency: Math.min(3, this.settings.concurrency),
         maxActiveMembers: 12, activeMembers: this.users.filter((u) => u.status === 'active').length, diskGiB: 50, memoryMiB: 4096, cpuCores: 3,
         localBackupRetentionDays: 3, links: { account: 'https://app.teamax.example/billing', status: 'https://status.teamax.example', support: 'support@teamax.example' },
         updatedAt: now(),

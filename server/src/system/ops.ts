@@ -290,7 +290,7 @@ export class OpsService {
       if (this.ctx.config.office && e.engine === 'codex') continue // office mode: Claude only (engine.codexBin '')
       const label = t(e.engine === 'claude-code' ? M.engineClaude : M.engineCodex)
       const id = `engine.${e.engine}`
-      if (e.loggedIn && e.reason === 'setup_token_expiring' && e.expiresAt) add(id, 'engines', label, 'warn', t(M.engineSetupTokenExpiring(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium' }).format(new Date(e.expiresAt)))))
+      if (e.loggedIn && e.reason === 'setup_token_expiring' && e.expiresAt) add(id, 'engines', label, 'warn', t(M.engineSetupTokenExpiring(new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : locale, { dateStyle: 'medium' }).format(new Date(e.expiresAt)))))
       else if (e.loggedIn && e.reason === 'credential_expiring') add(id, 'engines', label, 'warn', t(M.engineCredentialExpiring))
       else if (e.loggedIn && e.method?.startsWith('AI connections: ')) add(id, 'engines', label, 'ok', t(M.engineCredentials(Number(e.method.slice(16)))))
       else if (e.loggedIn) add(id, 'engines', label, 'ok', t(M.engineOk(e.method)))
@@ -395,7 +395,7 @@ export class OpsService {
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
-      add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
+      add('backups', 'backups', t(M.backups), h > 48 ? 'warn' : 'ok', h > 48 ? t(M.backupOld(h)) : t(M.backupOk(new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastB.createdAt)), lastB.scope)))
     }
     try {
       const rr = JSON.parse(fs.readFileSync(path.join(L.dataDir, 'restore-result.json'), 'utf8')) as { ok: boolean; at: string; error?: string }

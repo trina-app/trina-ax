@@ -60,7 +60,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         try { out.beforeDelivery?.() } catch {
           return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'changed')}],isError:true})
         }
-        const response=reply({ content: out.content ?? [{ type: 'text', text: out.text }], ...(out.isError ? { isError: true } : {}) })
+        const response=reply({ content: out.content ?? [{ type: 'text', text: out.text }, ...(out.images ?? [])], ...(out.isError ? { isError: true } : {}) })
         if(out.beforeDelivery) Object.defineProperty(response,'beforeDelivery',{value:out.beforeDelivery})
         return response
       }

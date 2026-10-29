@@ -35,3 +35,7 @@ all distribution requirements have been met. See docs/THIRD-PARTY-NOTICES.md.
 No trademark rights or licenses to third-party engine binaries are granted.
 Claude Code and Codex are separate products; this candidate does not imply
 endorsement by Anthropic or OpenAI.
+
+HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
+Exact pins, upstream notices and source-offer details: resources/hwp/.
+Release distributions preserve these in licenses/hwp/.

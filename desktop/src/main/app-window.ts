@@ -283,7 +283,8 @@ export class AppWindow {
       if (offline === true) { failedNavigation(url); return }
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
       this.layout()
-      void this.refreshTeamInfo()
+      // A request started before navigation may still carry the signed-out/previous session.
+      void this.ensureBrowserOwner()
       void this.measureClock()
     })
     app.webContents.on('render-process-gone', (_e, d) => {
@@ -293,7 +294,7 @@ export class AppWindow {
     app.webContents.on('page-title-updated', () => this.updateTitle())
     // the team page is one app: signing in or out changes the route without a new page load
     app.webContents.on('did-navigate-in-page', (_e, _url, isMainFrame) => {
-      if (isMainFrame && this.app === app) void this.refreshTeamInfo()
+      if (isMainFrame && this.app === app) void this.ensureBrowserOwner()
     })
 
     const browserSes = session.fromPartition(partitionFor(id, 'browser'))
@@ -471,7 +472,7 @@ export class AppWindow {
     if (change.clear || this.o.store.loadBrowserOwner(teamId) !== change.owner) this.o.store.saveBrowserOwner(teamId, change.owner)
   }
 
-  /** A fresh identity check for every AI browser call, including immediately after a session switch.
+  /** A fresh identity check after navigation and for every AI browser call, including a session switch.
    * A read that began earlier may carry the old session, so finish it before starting this one. */
   async ensureBrowserOwner(): Promise<boolean> {
     if (this.teamInfo) await this.teamInfo.p

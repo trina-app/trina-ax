@@ -1,6 +1,7 @@
 // Contracts for the tools the AI engine can call. File tools mirror Claude Code's built-in tool inputs
 // (file_path / pattern / old_string ...) so the model uses them exactly like the built-ins.
 import { z } from 'zod'
+import { HwpPage } from './hwp'
 
 const relPath = z.string().max(4096).describe('Path relative to the team folder root, e.g. "shared/notes.md". No absolute paths.')
 const optRelPath = relPath.optional()
@@ -44,6 +45,7 @@ export const EditInput = z.strictObject({
 })
 
 // ---------------- other tools (stage 1: contracts only) ----------------
+export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number().int().min(1).max(200), format: z.literal('png') })
 export const MakeFileInput = z.strictObject({
   source: optRelPath.describe('.md/.csv file to convert (source or content)'),
   content: z.string().optional(),
@@ -127,6 +129,7 @@ export const FILE_TOOLS = {
 export type FileToolName = keyof typeof FILE_TOOLS
 
 export const OTHER_TOOLS = {
+  hwp_render: { input: HwpRenderInput, output: HwpPage },
   make_file: { input: MakeFileInput, output: MakeFileOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },

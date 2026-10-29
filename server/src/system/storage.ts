@@ -135,7 +135,7 @@ export interface MonitorOptions {
 const ALERT = {
   ko: (p: number) => `저장 공간을 ${p}% 쓰고 있습니다. 휴지통을 비우거나 오래된 파일·버전을 정리해 주세요(관리자 > 시스템에서 항목별 사용량을 볼 수 있습니다).`,
   en: (p: number) => `${p}% of the storage is used. Empty the trash or clean up old files and versions (Admin > System shows what uses the space).`,
-  id: (p: number) => `${p}% penyimpanan sudah terpakai. Kosongkan tempat sampah atau rapikan berkas dan versi lama (Admin > Sistem menunjukkan rinciannya).`,
+  id: (p: number) => `${p}% penyimpanan sudah terpakai. Kosongkan tempat sampah atau rapikan berkas dan versi lama (Admin > Sistem menunjukkan rinciannya).`, ja: (p: number) => `ストレージの${p}%を使用しています。ゴミ箱を空にするか、古いファイルやバージョンを整理してください（管理 > システムで容量の内訳を確認できます）。`, es: (p: number) => `Se usa el ${p}% del almacenamiento. Vacíe la papelera o elimine archivos y versiones antiguos (Administración > Sistema muestra qué ocupa espacio).`,
 }
 
 export class StorageMonitor {
@@ -175,7 +175,7 @@ export class StorageMonitor {
     setSetting(this.o.db, ALERT_KEY, new Date(this.now()).toISOString())
     const p = Math.floor(s.percent)
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes })
-    this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p) })
+    this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p) })
     return true
   }
 

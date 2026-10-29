@@ -134,7 +134,7 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByTestId('auth-locale')).toHaveValue('en')
   // each language is named in its own language
-  await expect(page.getByTestId('auth-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia'])
+  await expect(page.getByTestId('auth-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
   await page.getByTestId('auth-locale').selectOption('id')
   await expect(page.getByRole('heading', { name: 'Masuk' })).toBeVisible()
   await page.reload()

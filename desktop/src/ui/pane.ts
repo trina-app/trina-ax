@@ -6,7 +6,7 @@
 // that choice off). The page itself is a separate view placed under this toolbar by the main process.
 import type { DesktopPaneState } from '@mycel/shared'
 import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
-import { h, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type SiteSettings } from './dom'
+import { h, locale, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type SiteSettings } from './dom'
 
 /** the line over the page goes away by itself after this long */
 const NOTICE_MS = 20_000
@@ -190,7 +190,7 @@ function noticeLine(a: PaneActivity) {
 }
 
 function logBox() {
-  const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const time = (at: number) => new Date(at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   return h(
     'section',
     { class: 'log', 'data-testid': 'activity', 'aria-label': tr('pane.activity') },

@@ -2,6 +2,8 @@
 
 [English](README.md) · [한국어](README.ko.md) · [Website](https://ax.trina.app) · [Documentation](docs/README.md)
 
+The app supports English, Korean, Indonesian, Japanese (日本語), and Spanish (Español). Choose your account language in Settings.
+
 [![CI](https://github.com/trina-app/trina-ax/actions/workflows/ci.yml/badge.svg)](https://github.com/trina-app/trina-ax/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-orange)](LICENSE)
 
@@ -49,7 +51,7 @@ Use only synthetic files, keep it local, and press Ctrl-C in the first terminal 
 ## What your team can do
 
 - **Work with files under each person's permissions:** shared, group, project and personal folders; the server checks access on every file-tool call.
-- **Read business documents:** PDF, Word (DOCX), Excel and PowerPoint (PPTX). HWP/HWPX support is text extraction only, with no preview or creation. Images are read through OCR, not visual scene understanding. Results depend on the file and installed conversion/OCR tools.
+- **Read business documents:** PDF, Word (DOCX), Excel and PowerPoint (PPTX). HWP/HWPX supports text extraction; experimental [page previews](resources/hwp/README.md) are disabled by default pending release review. Creation is not supported. Images are read through OCR, not visual scene understanding. Results depend on the file and installed conversion/OCR tools.
 - **Reuse procedures as skills:** Markdown and `SKILL.md` folders, permission-controlled editing and a review path for member suggestions. [Example](docs/EXAMPLES.md).
 - **Connect external services:** personal or team MCP servers and HTTP APIs, with access rules and write policies. Personal integrations are enabled by default and can be disabled by an administrator. [Supported connections and limits](docs/INTEGRATIONS.md).
 - **Schedule work:** run tasks at a set time and review their results; queued work shares server capacity between people.

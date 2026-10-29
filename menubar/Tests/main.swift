@@ -49,6 +49,12 @@ expect(daemonState(launchctlExit: 0, output: "state = running") == .running, "la
 expect(daemonState(launchctlExit: 0, output: "state = waiting") == .notRunning, "launchctl: waiting")
 expect(Lang.forTeam("ko") == .ko && Lang.forTeam("id") == .id && Lang.forTeam(nil) == .en && Lang.forTeam("fr") == .en, "language: the team default, else English")
 expect(Lang.forTeam(nil, lastSeen: "ko") == .ko && Lang.forTeam("en", lastSeen: "ko") == .en, "language: the last team default seen while the server is off")
+expect(Lang.forTeam("ja") == .ja && Lang.forTeam("es") == .es, "Japanese and Spanish team languages")
+for language in [Lang.ja, Lang.es] {
+    let localized = menuState(status: s, statusAge: 10, health: healthy, daemon: .running, lang: language, product: "Acme")
+    expect(localized.headline.contains("Acme"), "localized menubar preserves product name")
+    expect(localized.headline != menuState(status: s, statusAge: 10, health: healthy, daemon: .running, lang: .en, product: "Acme").headline, "localized menubar is translated")
+}
 let withLocale = parseStatus(json.replacingOccurrences(of: "\"extra\"", with: "\"locale\":\"id\",\"extra\"").data(using: .utf8)!)
 expect(withLocale?.locale == "id" && s?.locale == nil, "status.json carries the team's default language (optional)")
 expect(parseHealth("{\"ok\":true,\"version\":\"1\",\"uptimeSec\":3}".data(using: .utf8)!) == Health(ok: true, version: "1"), "health parses")

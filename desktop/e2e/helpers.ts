@@ -22,7 +22,7 @@ export const ATTACKER = 'http://attacker.test:19158'
  * written against the Korean screens, so they set Korean explicitly, the way a team page in Korean would leave it.
  * Pass null for a fresh install (English).
  */
-export function newUserData(locale: 'ko' | 'en' | 'id' | null = 'ko'): string {
+export function newUserData(locale: 'ko' | 'en' | 'id' | 'ja' | 'es' | null = 'ko'): string {
   const dir = mkdtempSync(join(tmpdir(), 'teamax-desktop-'))
   if (locale) writeFileSync(join(dir, 'ui-locale.json'), JSON.stringify({ locale }))
   return dir

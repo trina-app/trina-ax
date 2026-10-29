@@ -157,7 +157,7 @@ SIGKILL on a locked OS thread; an orphan cannot continue a held operation after 
 Generated PPTX and normalized JPEG bytes are quarantined by hash. Published paths and observed
 inodes are also protected; byte-identical copies/uploads and renamed extensions remain blocked.
 There is **no automatic indexing, text extraction, AI read, thumbnail or in-app preview** of these
-files. The file panel explains download-only status in ko/en/id. Authorized downloads retain the
+files. The file panel explains download-only status in ko/en/id/ja/es. Authorized downloads retain the
 existing attachment and CSP protections. Normalized image blocks may go directly to the configured
 model provider via the guarded MCP route; they never go through legacy OCR. Downloading a file
 for an external Office/image application remains the user's action; validation does not certify
@@ -207,6 +207,9 @@ Admission and hash quarantine registration are serialized by SQLite IMMEDIATE tr
 `safe_ops_search_inputs` holds a durable hash lease until all consumers exit and snapshot
 cleanup succeeds. Database triggers reject quarantine insertion/update for a leased hash
 and reject admission of a quarantined hash, including writes from other connections.
+After integrating main e61bfda, the new HWP browser/AI rendering entry point also uses
+non-download authorization and an admitted source held across rendering; changing a
+quarantined copy to `.hwp` or `.hwpx` cannot reach preflight or the renderer.
 A rare attempt to publish/normalize bytes that a current search already holds fails with a
 localized retry message **before** publication/delivery; it is not silently admitted.
 Unrelated publication continues. Office source bytes and their sidecars are also admitted;

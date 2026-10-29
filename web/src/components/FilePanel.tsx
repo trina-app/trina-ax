@@ -24,6 +24,7 @@ import SandboxFrame from './SandboxFrame'
 import { toast } from '../store/ui'
 import { Button, confirmDialog, IconButton } from './ui'
 
+const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
 const DocxView = lazy(() => import('./viewers/OfficeView').then((m) => ({ default: m.DocxView })))
 const PptxView = lazy(() => import('./viewers/OfficeView').then((m) => ({ default: m.PptxView })))
@@ -98,7 +99,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     const ctrl = new AbortController()
     setBlob(null)
     setError(null)
-    if (!kind) return
+    if (!kind || kind === 'hwp') return
     const limit = previewLimit(kind)
     const load = viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
     load.then(
@@ -222,6 +223,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           <p className={error.kind === 'other' ? 'p-6 text-sm text-danger' : 'p-6 text-sm text-muted'} role="alert">
             {error.text}
           </p>
+        ) : kind === 'hwp' && file.source === 'team' ? (
+          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} path={file.path} download={download} /></Suspense>
         ) : !blob ? (
           <p className="flex items-center gap-2 p-6 text-sm text-faint">
             <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}

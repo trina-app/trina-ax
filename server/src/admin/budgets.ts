@@ -102,7 +102,7 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
 }
 
 type T3 = Record<Locale, string>
-export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini' }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini' } }
+export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini', ja: "今日", es: "de hoy" }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini', ja: "今月", es: "de este mes" } }
 
 /** When the period of a budget starts again (midnight / the 1st in the team's time zone; `tz` absent: the process's). */
 export function periodEnd(period: Budget['period'], now = new Date(), tz?: string): Date {
@@ -126,12 +126,12 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)
-  const at = new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : locale === 'id' ? 'id-ID' : 'en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }).format(periodEnd(hit.budget.period, now, tz))
+  const at = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : locale, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }).format(periodEnd(hit.budget.period, now, tz))
   const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].en
   const message = {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,
-    id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`,
+    id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は管理者にご相談ください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Consulte a un administrador si necesita más.`,
   }[locale]
   return { budget: hit.budget, message }
 }

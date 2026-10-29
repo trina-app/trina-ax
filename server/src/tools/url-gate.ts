@@ -99,20 +99,20 @@ export const TEXT = {
   unseen: {
     ko: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The AI wants to open an address that did not appear in this conversation. An address can carry data out, so check the whole address:\n\n{url}',
-    id: 'AI ingin membuka alamat yang tidak muncul di percakapan ini. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}',
+    id: 'AI ingin membuka alamat yang tidak muncul di percakapan ini. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIがこの会話に出ていないアドレスを開こうとしています。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La IA quiere abrir una dirección que no apareció en esta conversación. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
   },
   noEgress: {
     ko: '팀 서버가 아직 사무실의 공인 주소를 몰라서, AI가 여는 주소가 사무실 안의 공유기나 기기로 되돌아오는지 확인할 수 없습니다. 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The team server does not know the office\'s public address yet, so it cannot tell whether this address leads back into the office (router, devices). Check the whole address:\n\n{url}',
-    id: 'Server tim belum mengetahui alamat publik kantor, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke dalam kantor (router, perangkat). Periksa seluruh alamatnya:\n\n{url}',
+    id: 'Server tim belum mengetahui alamat publik kantor, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke dalam kantor (router, perangkat). Periksa seluruh alamatnya:\n\n{url}', ja: "チームサーバーはまだオフィスの公開アドレスを把握していないため、このアドレスが社内（ルーターや機器）に戻るか判断できません。アドレス全体を確認してください：\n\n{url}", es: "El servidor del equipo aún no conoce la dirección pública de la oficina y no puede saber si esta dirección lleva de vuelta a la red interna (router, dispositivos). Revise la dirección completa:\n\n{url}",
   },
   longQuery: {
     ko: 'AI가 여는 주소 뒤에 긴 내용이 붙어 있습니다. 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The address the AI wants to open carries a long query. An address can carry data out, so check the whole address:\n\n{url}',
-    id: 'Alamat yang ingin dibuka AI membawa kueri panjang. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}',
+    id: 'Alamat yang ingin dibuka AI membawa kueri panjang. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIが開こうとしているアドレスには長いクエリが含まれます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La dirección que la IA quiere abrir contiene una consulta larga. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
   },
-  allow: { ko: '열기', en: 'Open', id: 'Buka' },
-  deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka' },
+  allow: { ko: '열기', en: 'Open', id: 'Buka', ja: "開く", es: "Abrir" },
+  deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir" },
 } as const
 
 export type GateResult = 'seen' | 'confirmed'

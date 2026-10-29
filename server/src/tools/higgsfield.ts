@@ -38,10 +38,10 @@ export const TEXT = {
   confirm: {
     ko: 'AI가 Higgsfield로 영상을 만들려고 합니다. 팀 계정의 크레딧이 쓰이고, 아래 설명이 Higgsfield로 보내집니다.\n\n길이 {duration}초 · {aspect} · {resolution}\n\n{prompt}',
     en: 'The AI wants to make a video with Higgsfield. This uses the team account\'s credits, and the description below is sent to Higgsfield.\n\n{duration} s · {aspect} · {resolution}\n\n{prompt}',
-    id: 'AI ingin membuat video dengan Higgsfield. Ini memakai kredit akun tim, dan deskripsi di bawah dikirim ke Higgsfield.\n\n{duration} dtk · {aspect} · {resolution}\n\n{prompt}',
+    id: 'AI ingin membuat video dengan Higgsfield. Ini memakai kredit akun tim, dan deskripsi di bawah dikirim ke Higgsfield.\n\n{duration} dtk · {aspect} · {resolution}\n\n{prompt}', ja: "AIがHiggsfieldで動画を作成しようとしています。チームアカウントのクレジットを使用し、下の説明をHiggsfieldに送信します。\n\n{duration} s · {aspect} · {resolution}\n\n{prompt}", es: "La IA quiere crear un video con Higgsfield. Se usarán créditos de la cuenta del equipo y se enviará a Higgsfield la descripción siguiente.\n\n{duration} s · {aspect} · {resolution}\n\n{prompt}",
   },
-  allow: { ko: '만들기', en: 'Make it', id: 'Buat' },
-  deny: { ko: '취소', en: 'Cancel', id: 'Batal' },
+  allow: { ko: '만들기', en: 'Make it', id: 'Buat', ja: "作成", es: "Crear" },
+  deny: { ko: '취소', en: 'Cancel', id: 'Batal', ja: "キャンセル", es: "Cancelar" },
 } satisfies Record<string, Record<Locale, string>>
 
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (m, k: string) => v[k] ?? m)

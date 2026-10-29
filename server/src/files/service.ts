@@ -72,9 +72,9 @@ export interface ToolCtx {
    */
   confirmWidening?: (target: string, sources: string[], binding?: string) => Promise<string | null>
 }
-export interface ToolOutput { text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
+export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
-const BINARY_WRITE = new Set(['docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
+const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
 export class FileService {
   readonly quarantine: Quarantine

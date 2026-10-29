@@ -2,9 +2,10 @@
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { extOf } from './paths'
 
-export type PreviewKind = 'pdf' | 'docx' | 'pptx' | 'sheet' | 'csv' | 'markdown' | 'text' | 'html' | 'svg' | 'xml' | 'image' | 'audio' | 'video'
+export type PreviewKind = 'hwp' | 'pdf' | 'docx' | 'pptx' | 'sheet' | 'csv' | 'markdown' | 'text' | 'html' | 'svg' | 'xml' | 'image' | 'audio' | 'video'
 
 const KINDS: Record<string, PreviewKind> = {
+  hwp: 'hwp', hwpx: 'hwp',
   pdf: 'pdf',
   docx: 'docx',
   pptx: 'pptx',
@@ -41,7 +42,7 @@ export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(nam
 
 /** Photos that browsers (other than Safari) cannot draw: the panel shows the server's JPEG (GET /api/files/preview)
  * instead of the file bytes. A local file (not uploaded yet) of this kind has no preview. */
-export const serverPreview = (name: string): boolean => ['heic', 'heif'].includes(extOf(name))
+export const serverPreview = (name: string): boolean => ['heic', 'heif', 'hwp', 'hwpx'].includes(extOf(name))
 
 /**
  * Text of a text preview (QA R2-FMT-08): UTF-8 when the bytes are valid UTF-8 (a BOM is dropped), else legacy Korean

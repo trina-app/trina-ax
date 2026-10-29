@@ -13,6 +13,14 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 - Safe operations 1A (opt-in, qualified Linux): image pixels with OCR fallback for Claude Code/Codex, bounded PowerPoint with bundled layouts, fresh delivery authorization, and isolated output validation. Uploaded templates, ZIP and the new Excel writer remain deferred.
 
+- Refresh the desktop team name and identity after sign-in even when an earlier anonymous lookup is still pending.
+
+- Keep experimental HWP previews disabled and exclude their native runtime from default release bundles pending licence/platform review; document Debian 12 availability in System and installation guidance. Restrict HWP macOS file reads to runtime and authorized job inputs.
+
+- Add guarded HWP/HWPX server PNG previews and the AI `hwp_render` page tool, with pinned engine/fonts and original downloads.
+
+- Add Japanese (日本語) and Spanish (Español) across the app, notifications, offline recovery and desktop, with localized dates and numbers.
+
 ## 0.2.9 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.9).

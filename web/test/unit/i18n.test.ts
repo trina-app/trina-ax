@@ -12,7 +12,7 @@ const placeholders = (s: string) => placeholdersOf(s)
 
 describe('translations', () => {
   test('account deletion describes private archive transfer without a fixed path', () => {
-    for (const loc of ['ko', 'en', 'id'] as const) {
+    for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       const body = translate(loc, 'members.removeBody', { days: 7 })
       expect(placeholders(DICTS[loc]['members.removeBody'])).toEqual(['days'])
       expect(body).not.toContain('users/')
@@ -21,7 +21,7 @@ describe('translations', () => {
     expect(translate('en', 'members.removeBody')).toContain('Only the owner can read')
   })
   test('chat trash and account deletion guidance show the team chat retention, not a fixed 7 days', () => {
-    for (const loc of ['ko', 'en', 'id'] as const) {
+    for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody'] as const) {
         expect(placeholders(DICTS[loc][key])).toEqual(['days'])
         expect(DICTS[loc][key]).not.toMatch(/\d/)
@@ -38,7 +38,7 @@ describe('translations', () => {
     expect(translate('id', 'chat.deleteBody', { days: 14 })).toContain('selama 14 hari')
   })
   test('file deletion guidance uses the team retention policy and each item’s saved date', () => {
-    for (const loc of ['ko', 'en', 'id'] as const) {
+    for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       for (const key of ['files.deleteBody', 'files.trashNote'] as const) {
         expect(translate(loc, key)).not.toMatch(/\d/)
         expect(placeholders(translate(loc, key))).toEqual([])
@@ -104,7 +104,7 @@ describe('translations', () => {
     expect(pickLocale(null, null)).toBe('en')
     expect(DEFAULT_LOCALE).toBe('en')
     // pickers: English first, each language in its own language
-    expect(LOCALES).toEqual([{ id: 'en', label: 'English' }, { id: 'ko', label: '한국어' }, { id: 'id', label: 'Bahasa Indonesia' }])
+    expect(LOCALES).toEqual([{ id: 'en', label: 'English' }, { id: 'ko', label: '한국어' }, { id: 'id', label: 'Bahasa Indonesia' }, { id: 'ja', label: '日本語' }, { id: 'es', label: 'Español' }])
   })
   test('English counts take the singular or the plural form', () => {
     expect(translate('en', 'steps.summary', { n: 1 })).toBe('1 step')
@@ -128,7 +128,7 @@ describe('translations', () => {
     expect(localizeStep({ kind: 'tool', tool: 'mystery', label: 'Something else' }, 'ko').label).toBe('Something else')
   })
   test('English and Indonesian texts have no Korean left in them', () => {
-    for (const loc of ['en', 'id'] as const) {
+    for (const loc of ['en', 'id', 'ja', 'es'] as const) {
       for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, korean: HANGUL.test(v) }).toEqual({ loc, k, korean: false })
     }
   })
@@ -187,6 +187,10 @@ function stripComments(text: string): string {
 describe('browserLocale (first-run setup starts in the browser language)', () => {
   test('the first of the browser languages we have', () => {
     expect(browserLocale(['ko-KR', 'en-US'])).toBe('ko')
+    expect(browserLocale(['ja-JP', 'en-US'])).toBe('ja')
+    expect(browserLocale(['es-MX', 'en-US'])).toBe('es')
+    expect(browserLocale(['es-ES'])).toBe('es')
+    expect(browserLocale(['fr-FR', 'ja'])).toBe('ja')
     expect(browserLocale(['fr-FR', 'id-ID', 'en'])).toBe('id')
     expect(browserLocale(['fr-FR'])).toBeNull()
     expect(browserLocale(undefined)).toBeNull()

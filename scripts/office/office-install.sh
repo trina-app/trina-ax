@@ -162,9 +162,15 @@ if launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then sleep 1; fi
 NEW="$PREFIX/app.new"
 rm -rf "$NEW"
 mkdir -p "$NEW/bin" "$NEW/native/bin"
-for p in server scripts web docs teamax VERSION versions.json product.env; do [ -e "$SRC/app/$p" ] && cp -R "$SRC/app/$p" "$NEW/$p"; done
+for p in server scripts web docs resources licenses LICENSE NOTICE teamax VERSION versions.json product.env; do [ -e "$SRC/app/$p" ] && cp -R "$SRC/app/$p" "$NEW/$p"; done
 cp -R "$SRC/app/bin/$ARCH/." "$NEW/bin/"
 cp -R "$SRC/app/native/bin/$ARCH" "$NEW/native/bin/$ARCH"
+# The Hangul runtime is pinned separately; older bundles may not carry it.
+if [ -d "$SRC/app/native/bin/hwp" ]; then
+  mkdir -p "$NEW/native/bin/hwp"
+  HWP_TARGET="${ARCH/amd64/x64}"
+  cp "$SRC/app/native/bin/hwp/rhwp-$HWP_TARGET" "$NEW/native/bin/hwp/"
+fi
 xattr -dr com.apple.quarantine "$NEW" 2>/dev/null || true
 chmod -R go-w "$NEW"
 "$NEW/bin/bun" --version >/dev/null || die "the copied bun does not run"

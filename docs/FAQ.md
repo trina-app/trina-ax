@@ -38,7 +38,7 @@ ZIP is a server bundle. Mobile source in the repository does not imply an App St
 
 ## Will every document or model work?
 
-No. HWP/HWPX support is read-only text extraction, with no preview or creation. Images are read through OCR only,
+No. HWP/HWPX supports read-only text extraction. Experimental page previews are disabled by default pending release review and are unavailable on Debian 12. Creation is not supported. Images are read through OCR only,
 not visual scene understanding. Extraction depends on document structure, fonts and installed conversion/OCR tools. The experimental API
 engine needs compatible streaming Chat Completions and tool calls, and behavior varies by model/provider.
 AI answers should be checked against the source documents.
