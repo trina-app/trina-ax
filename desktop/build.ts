@@ -36,7 +36,7 @@ const html = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').repla
 for (const f of ['welcome.html', 'pane.html']) writeFileSync(join(out, 'ui', f), readFileSync(join(root, 'src/ui', f), 'utf8').replace(/__PRODUCT_NAME_HTML__/g, () => html(PRODUCT.displayName)))
 cpSync(join(root, 'src/ui/ui.css'), join(out, 'ui', 'ui.css'))
 cpSync(join(root, 'src/main/pane/page-script.js'), join(out, 'page-script.js'))
-// a kit build for one team (src/common/kit.ts): TEAMAX_KIT_TEAM=<team address> [TEAMAX_KIT_LOCALE=ko|en|id]
+// a kit build for one team (src/common/kit.ts): TEAMAX_KIT_TEAM=<team address> [TEAMAX_KIT_LOCALE=ko|en|id|ja|es]
 const kitEnv = { team: process.env.TEAMAX_KIT_TEAM || undefined, locale: process.env.TEAMAX_KIT_LOCALE || undefined }
 if (kitEnv.team || kitEnv.locale) {
   const kit = parseKit(kitEnv)

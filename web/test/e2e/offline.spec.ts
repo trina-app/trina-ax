@@ -1,13 +1,16 @@
+import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { en } from '../../src/i18n/en'
+import { ja } from '../../src/i18n/ja'
+import { es } from '../../src/i18n/es'
 import { id } from '../../src/i18n/id'
 import { ko } from '../../src/i18n/ko'
 import { account, cachedPaths, offlineServer, signInOfflineTeam, warmWorker } from './offline-server'
 
-for (const locale of ['ko', 'en', 'id'] as const) {
+for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
   test(`${locale}: production SW, stopped listener, warm/cold assets and API-down retry retain the session`, async ({ page }) => {
     const server = await offlineServer()
-    const dict = { ko, en, id }[locale]
+    const dict = { ko, en, id, ja, es }[locale]
     try {
       await signInOfflineTeam(page, server.url, locale)
       await warmWorker(page)
@@ -37,6 +40,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
         await expect(page.getByRole('heading')).toHaveText(dict['conn.cantReach'])
         await expect(page.locator('#hint')).toHaveText(dict['conn.cantReachHint'])
         expect(await cachedPaths(page)).toEqual(cold ? [] : paths)
+        if (!cold && process.env.I18N_SCREENSHOT_DIR && (locale === 'ja' || locale === 'es')) await page.screenshot({ path: path.join(process.env.I18N_SCREENSHOT_DIR, `${locale}-offline.png`) })
         await server.mode('online')
         await page.getByRole('button', { name: dict['common.retry'], exact: true }).click()
         await expect(page.getByTestId('composer-input')).toBeVisible()

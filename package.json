@@ -41,7 +41,8 @@
     "e2e:web": "bun run --cwd web build && bun run --cwd web e2e",
     "test:desktop:e2e": "bun run --cwd desktop test:e2e",
     "test:fast": "bun run scripts/test-all.ts --no-relay",
-    "e2e:ui": "bun run --cwd tests e2e:ui"
+    "e2e:ui": "bun run --cwd tests e2e:ui",
+    "check:i18n": "bun scripts/check-i18n.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",

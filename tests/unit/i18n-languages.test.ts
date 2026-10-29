@@ -48,7 +48,7 @@ function checkTable(name: string, table: Record<string, unknown>, atLeast = 4) {
 }
 
 describe('server and relay texts', () => {
-  test('error messages, auth, chat, system and file texts have ko, en and id, without Korean in en / id', () => {
+  test('error messages, auth, chat, system and file texts have all five languages, without Korean outside ko', () => {
     checkTable('errors', ERROR_MESSAGES)
     checkTable('chat errors', CHAT_ERROR_MESSAGES)
     checkTable('auth', AUTH_MESSAGES)
@@ -74,10 +74,10 @@ describe('server and relay texts', () => {
   })
   test('relay pages', () => {
     const kinds: PageKind[] = ['team_offline', 'team_unknown', 'team_suspended', 'team_busy', 'team_timeout', 'team_connection_lost', 'bad_gateway', 'bad_request', 'request_timeout']
-    for (const k of kinds) for (const l of ['en', 'id'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
+    for (const k of kinds) for (const l of ['en', 'id', 'ja', 'es'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
   })
   test('language pickers name each language in its own language', () => {
-    expect(LOCALE_NAMES).toEqual({ en: 'English', ko: '한국어', id: 'Bahasa Indonesia' })
+    expect(LOCALE_NAMES).toEqual({ en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: '日本語', es: 'Español' })
   })
 })
 
@@ -207,7 +207,7 @@ describe('stored chat error reasons', () => {
       }
     }
   })
-  test('legacy official phrases match exactly, with their code, for all three languages', () => {
+  test('legacy official phrases match exactly, with their code, for all five languages', () => {
     for (const reason of Object.keys(CHAT_ERROR_MESSAGES) as ChatErrorReason[]) {
       const text = CHAT_ERROR_MESSAGES[reason]
       for (const locale of Locale.options) {

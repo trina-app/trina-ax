@@ -19,7 +19,7 @@ export const HISTORY_MAX_CHARS = 40_000
 const SKILL_FILES_MAX = 10
 const SKILL_FILE_MAX = 4000
 
-const LANGUAGE: Record<Locale, string> = { ko: 'Korean (한국어)', en: 'English', id: 'Indonesian (Bahasa Indonesia)' }
+const LANGUAGE: Record<Locale, string> = { ko: 'Korean (한국어)', en: 'English', id: 'Indonesian (Bahasa Indonesia)', ja: "日本語", es: "Español" }
 
 export interface PromptInput {
   user: Principal

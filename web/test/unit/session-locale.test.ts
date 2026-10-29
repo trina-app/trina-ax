@@ -41,7 +41,7 @@ afterEach(() => {
 })
 
 describe('session recovery language', () => {
-  for (const locale of ['ko', 'en', 'id'] as const) {
+  for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
     test(`${locale}: successful lookup is remembered separately, offline retry keeps it, server recovery replaces it`, async () => {
       mockFetch(async () => Response.json(me(locale)))
       await session().load()

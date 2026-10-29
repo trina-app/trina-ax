@@ -48,7 +48,7 @@ export default {
     oneClick: true,
     perMachine: false,
     multiLanguageInstaller: true,
-    installerLanguages: ['en_US', 'ko_KR', 'id_ID'],
+    installerLanguages: ['en_US', 'ko_KR', 'id_ID', 'ja_JP', 'es_ES'],
     shortcutName: PRODUCT.displayName,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,

@@ -21,35 +21,35 @@ export const OPENROUTER_TIMEOUT_MS = 60_000
 export const SPEECH_OFF = () => fail(
   '음성 입력이 꺼져 있습니다. 관리자가 관리 › 팀 설정에서 켤 수 있습니다.',
   'Voice input is off. An admin can turn it on in Admin › Team settings.',
-  'Input suara nonaktif. Admin dapat mengaktifkannya di Admin › Pengaturan tim.')
+  'Input suara nonaktif. Admin dapat mengaktifkannya di Admin › Pengaturan tim.', "音声入力はオフです。管理者が「管理 › チーム設定」で有効にできます。", "La entrada de voz está desactivada. Un administrador puede activarla en Administración › Configuración del equipo.")
 export const SPEECH_NO_KEY = () => fail(
   '음성 입력에 쓸 OpenRouter 키가 없습니다. 관리자가 관리 › 팀 설정에서 키를 넣어야 합니다.',
   'There is no OpenRouter key for voice input. An admin must add it in Admin › Team settings.',
-  'Belum ada kunci OpenRouter untuk input suara. Admin harus menambahkannya di Admin › Pengaturan tim.')
+  'Belum ada kunci OpenRouter untuk input suara. Admin harus menambahkannya di Admin › Pengaturan tim.', "音声入力用のOpenRouterキーがありません。管理者が「管理 › チーム設定」で追加してください。", "No hay clave de OpenRouter para la entrada de voz. Un administrador debe añadirla en Administración › Configuración del equipo.")
 const TOO_LARGE = () => fail(
   '녹음이 너무 깁니다(최대 25 MB, 약 13분). 짧게 나눠서 다시 해 주세요.',
   'The recording is too long (max 25 MB, about 13 minutes). Split it into shorter parts and try again.',
-  'Rekaman terlalu panjang (maks. 25 MB, sekitar 13 menit). Bagi menjadi bagian yang lebih pendek lalu coba lagi.', 'payload_too_large')
+  'Rekaman terlalu panjang (maks. 25 MB, sekitar 13 menit). Bagi menjadi bagian yang lebih pendek lalu coba lagi.', "録音が長すぎます（最大25 MB、約13分）。短く分割して再試行してください。", "La grabación es demasiado larga (máximo 25 MB, unos 13 minutos). Divídala en partes más cortas y vuelva a intentarlo.", 'payload_too_large')
 const BAD_KEY = () => fail(
   'OpenRouter가 키를 거부했습니다. 관리자가 관리 › 팀 설정에서 키를 확인해야 합니다.',
   'OpenRouter refused the key. An admin must check it in Admin › Team settings.',
-  'OpenRouter menolak kuncinya. Admin harus memeriksanya di Admin › Pengaturan tim.')
+  'OpenRouter menolak kuncinya. Admin harus memeriksanya di Admin › Pengaturan tim.', "OpenRouterがキーを拒否しました。管理者が「管理 › チーム設定」で確認してください。", "OpenRouter rechazó la clave. Un administrador debe revisarla en Administración › Configuración del equipo.")
 const NO_CREDITS = () => fail(
   'OpenRouter 크레딧이 부족합니다. 관리자가 OpenRouter에서 크레딧을 충전해야 합니다.',
   'The OpenRouter account has no credits left. An admin must add credits on OpenRouter.',
-  'Kredit OpenRouter habis. Admin harus menambah kredit di OpenRouter.')
+  'Kredit OpenRouter habis. Admin harus menambah kredit di OpenRouter.', "OpenRouterアカウントのクレジットがありません。管理者がOpenRouterでクレジットを追加してください。", "La cuenta de OpenRouter no tiene créditos. Un administrador debe añadir créditos en OpenRouter.")
 const RATE_LIMITED = () => fail(
   'OpenRouter 요청이 너무 많습니다. 잠시 후 다시 해 주세요.',
   'Too many requests to OpenRouter. Please try again in a moment.',
-  'Terlalu banyak permintaan ke OpenRouter. Coba lagi sebentar lagi.', 'rate_limited')
+  'Terlalu banyak permintaan ke OpenRouter. Coba lagi sebentar lagi.', "OpenRouterへのリクエストが多すぎます。しばらくしてから再試行してください。", "Hay demasiadas solicitudes a OpenRouter. Vuelva a intentarlo en un momento.", 'rate_limited')
 const PROVIDER_DOWN = () => fail(
   '음성 인식 서비스(OpenRouter)에 연결할 수 없습니다. 잠시 후 다시 해 주세요.',
   'The speech service (OpenRouter) is not reachable. Please try again later.',
-  'Layanan suara (OpenRouter) tidak dapat dihubungi. Coba lagi nanti.')
+  'Layanan suara (OpenRouter) tidak dapat dihubungi. Coba lagi nanti.', "音声サービス（OpenRouter）に接続できません。後で再試行してください。", "No se puede conectar con el servicio de voz (OpenRouter). Vuelva a intentarlo más tarde.")
 const REFUSED = (status: number) => fail(
   `OpenRouter가 요청을 거절했습니다(HTTP ${status}).`,
   `OpenRouter refused the request (HTTP ${status}).`,
-  `OpenRouter menolak permintaan (HTTP ${status}).`, 'internal')
+  `OpenRouter menolak permintaan (HTTP ${status}).`, `OpenRouterがリクエストを拒否しました（HTTP ${status}）。`, `OpenRouter rechazó la solicitud (HTTP ${status}).`, 'internal')
 
 /** HTTP status of the OpenRouter answer -> the failure people see */
 export function openRouterFailure(status: number) {
@@ -87,7 +87,7 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
   if (!cfg.ffmpegBin && !DIRECT.has(x)) {
     throw fail(`이 형식(${x || '알 수 없음'})을 보내려면 서버에 ffmpeg가 필요합니다. wav·mp3·flac·ogg·m4a·aac는 바로 됩니다.`,
       `Sending this format (${x || 'unknown'}) needs ffmpeg on the server. wav, mp3, flac, ogg, m4a and aac work without it.`,
-      `Format ini (${x || 'tidak dikenal'}) memerlukan ffmpeg di server. wav, mp3, flac, ogg, m4a, dan aac bisa langsung.`)
+      `Format ini (${x || 'tidak dikenal'}) memerlukan ffmpeg di server. wav, mp3, flac, ogg, m4a, dan aac bisa langsung.`, `この形式（${x || "不明"}）を送信するにはサーバーにffmpegが必要です。wav、mp3、flac、ogg、m4a、aacはそのまま使えます。`, `Enviar este formato (${x || "desconocido"}) requiere ffmpeg en el servidor. wav, mp3, flac, ogg, m4a y aac funcionan sin él.`)
   }
   fs.mkdirSync(cfg.workBase, { recursive: true, mode: 0o700 })
   const work = fs.realpathSync(fs.mkdtempSync(path.join(cfg.workBase, 'stt-')))

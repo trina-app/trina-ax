@@ -1,3 +1,4 @@
+import path from 'node:path'
 // Real Electron + production web build + actual registered service worker. No page.route/network mocks.
 import { expect, test } from '@playwright/test'
 import { STRINGS } from '../src/common/i18n'
@@ -21,7 +22,7 @@ const nativeRecoveryState = (app: Awaited<ReturnType<typeof launch>>) => app.eva
   }
 })
 
-for (const locale of ['ko', 'en', 'id'] as const) {
+for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
   test(`${locale}: network failure keeps recovery in the visible window; Retry preserves session; Other teams works`, async () => {
     const server = await offlineServer({ serviceWorker: false })
     const app = await launch(newUserData('en')).catch(async error => { await server.close(); throw error })
@@ -44,6 +45,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       await expect.poll(() => nativeRecoveryVisible(app)).toBe(true)
       await expect.poll(() => nativeRecoveryState(app)).toEqual({ visible: true, fillsWindow: true })
       await expect(shell.getByRole('heading')).toHaveText(strings['offline.title'])
+      if (process.env.I18N_SCREENSHOT_DIR && (locale === 'ja' || locale === 'es')) await shell.screenshot({ path: path.join(process.env.I18N_SCREENSHOT_DIR, `${locale}-desktop-recovery.png`) })
       const retry = shell.getByRole('button', { name: strings['offline.retry'], exact: true })
       await retry.focus()
       await expect(retry).toBeFocused()
@@ -74,7 +76,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
   })
 }
 
-for (const locale of ['ko', 'en', 'id'] as const) {
+for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
   test(`${locale}: SW 503 opens native recovery; Other teams and Retry work; ordinary 503 stays visible`, async () => {
     const server = await test.step('start stoppable server', () => offlineServer())
     const app = await test.step('launch Electron', () => launch(newUserData('en'))).catch(async error => {
