@@ -160,8 +160,9 @@ export const FindFilesQuery = z.object({
 export const FILE_SEARCH_QUERY_MAX = 200
 export const FILE_SEARCH_LIMIT_MAX = 100
 export const SearchFileContentsQuery = z.object({
-  /** literal text on one line (ripgrep searches line by line, so a line break is refused) */
-  q: z.string().trim().min(1).max(FILE_SEARCH_QUERY_MAX).refine((s) => !/[\r\n]/.test(s), 'one line only'),
+  /** literal text on one line (ripgrep searches line by line, so a line break is refused; a NUL would cut the query
+   * where it goes to ripgrep, so all control characters but a tab are refused) */
+  q: z.string().trim().min(1).max(FILE_SEARCH_QUERY_MAX).refine((s) => !/\p{Cc}/u.test(s.replace(/\t/g, ' ')), 'one line of text only, no control characters'),
   /** optional folder to search under (default: the whole team folder) */
   path: RelPath.default(''),
   limit: z.coerce.number().int().min(1).max(FILE_SEARCH_LIMIT_MAX).default(50),
@@ -180,8 +181,12 @@ export const FileContentHits = z.object({
   truncated: z.boolean(),
   /** the time limit stopped the search; the list can be incomplete */
   timedOut: z.boolean(),
-  /** office documents whose text is still being made; a later search can find more */
-  officePending: z.number().int().nonnegative(),
+  /** office documents that were not searched because their text is not made yet (the background indexer makes it);
+   * a later search can find more */
+  indexing: z.number().int().nonnegative(),
+  /** matching lines that were skipped because their ripgrep record was longer than 64 K characters (a very long line,
+   * or a long line with very many matches) */
+  longSkipped: z.number().int().nonnegative(),
 })
 export type FileContentHits = z.infer<typeof FileContentHits>
 export const RecentFilesQuery = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) })

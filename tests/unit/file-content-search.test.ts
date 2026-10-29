@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FileContentHits } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { OFFICE_QUEUE_PER_PERSON_MINUTE } from '../../server/src/files/search'
 import { admitContentSearch, CONTENT_SEARCH_PARALLEL_MAX, CONTENT_SEARCH_PER_FILE, CONTENT_SEARCH_RATE_MAX, resetContentSearchLimits, SNIPPET_CHARS, snippetOf } from '../../server/src/team-files/content-search'
 
 setDefaultTimeout(60_000)
@@ -103,8 +104,8 @@ describe('query handling', () => {
     }
   })
 
-  test('a query with a line break is refused as invalid input, not sent to ripgrep', async () => {
-    for (const q of ['zzz\nbeta', 'zzz\rbeta']) {
+  test('a query with a line break, a NUL or another control character is refused as invalid input, not sent to ripgrep', async () => {
+    for (const q of ['zzz\nbeta', 'zzz\rbeta', 'ab\u0000cd', 'ab\u001bcd']) {
       const r = await raw('alice', q)
       expect(r.status).toBe(400)
       expect(((await r.json()) as { error?: { code?: string } }).error?.code).toBe('validation')
@@ -122,11 +123,19 @@ describe('query handling', () => {
     const out = path.join(h.team, 'shared/fs-sheet.xlsx')
     const z = Bun.spawnSync(['zip', '-q', '-r', '-X', out, '[Content_Types].xml', '_rels', 'xl'], { cwd: dir })
     expect(z.exitCode).toBe(0)
+    // a new document is not searched before the background indexer has its text
+    const first = await search('alice', 'qa-xlsx-mark-3141', '&path=shared')
+    expect(first.items).toEqual([])
+    expect(first.indexing).toBe(1)
+    await h.ctx.files.office.idle()
     const r = await search('alice', 'qa-xlsx-mark-3141', '&path=shared')
+    expect(r.indexing).toBe(0)
     expect(paths(r)).toEqual(['shared/fs-sheet.xlsx'])
     expect(r.items[0]!.snippet).toContain('QA-XLSX-MARK-3141')
     // the hidden copy in another group stays hidden through the cache too
     fs.copyFileSync(out, path.join(h.team, 'groups/finance/fs-sheet.xlsx'))
+    await search('bob', 'QA-XLSX-MARK-3141')
+    await h.ctx.files.office.idle()
     expect(paths(await search('alice', 'QA-XLSX-MARK-3141'))).toEqual(['shared/fs-sheet.xlsx'])
     expect(paths(await search('bob', 'QA-XLSX-MARK-3141'))).toContain('groups/finance/fs-sheet.xlsx')
   })
@@ -143,22 +152,24 @@ describe('query handling', () => {
     try {
       const r = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared')
       expect(r.items).toEqual([])
-      expect(r.officePending).toBe(1)
+      expect(r.indexing).toBe(1)
     } finally { office.refresh = real }
-    // after the extraction the (same) text is found again
+    // after the background extraction the (same) text is found again
+    await search('alice', 'QA-XLSX-MARK-3141', '&path=shared')
+    await office.idle()
     expect(paths(await search('alice', 'QA-XLSX-MARK-3141', '&path=shared'))).toEqual([rel])
   })
 
-  test('office documents that are not extracted before the answer are counted as pending', async () => {
+  test('office documents without fresh text are not searched, counted as indexing, and found after the background indexer', async () => {
     const src = path.join(h.team, 'shared/fs-sheet.xlsx')
     fs.mkdirSync(path.join(h.team, 'shared/fs-many-xlsx'), { recursive: true })
     for (let i = 0; i < 12; i++) fs.copyFileSync(src, path.join(h.team, `shared/fs-many-xlsx/s${i}.xlsx`))
     const r = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared%2Ffs-many-xlsx')
-    expect(r.officePending).toBeGreaterThan(0)
+    expect(r.indexing).toBe(12)
     expect(r.timedOut).toBe(false)
     await h.ctx.files.office.idle()
     const again = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared%2Ffs-many-xlsx')
-    expect(again.officePending).toBe(0)
+    expect(again.indexing).toBe(0)
     expect(paths(again).length).toBe(12)
   })
 })
@@ -186,6 +197,7 @@ describe('limits', () => {
     write('shared/fs-minified/small.md', 'small QA-MINI-6610\n')
     const r = await search('alice', 'QA-MINI-6610', '&path=shared%2Ffs-minified')
     expect(r.items.map((i) => i.path)).toEqual(['shared/fs-minified/small.md'])
+    expect(r.longSkipped).toBe(1)
     expect(JSON.stringify(r).length).toBeLessThan(10_000)
   })
 
@@ -231,6 +243,73 @@ describe('limits', () => {
       for (const n of newer) n.done()
     } finally { office.refresh = real }
     expect(paths(await search('alice', 'QA-STOPPED-4410', '&path=shared%2Ffs-stopped'))).toEqual(['shared/fs-stopped/a.md'])
+  })
+})
+
+describe('office extraction capacity', () => {
+  test('a search over many stale office files answers fast and leaves the extraction slots to the AI grep', async () => {
+    const office = h.ctx.files.office
+    await office.idle()
+    // a slow fake extraction: alice's files wait for a gate (as scanned PDFs that take minutes), bob's take 50 ms
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const fake = async (rel: string) => { if (rel.startsWith('users/alice/')) await gate; else await Bun.sleep(50); return 'text of ' + rel }
+    const o = office as unknown as { extract: (rel: string, b: Buffer) => Promise<string> }
+    const real = o.extract
+    o.extract = fake
+    const N = 30
+    for (let i = 0; i < N; i++) write(`users/alice/fs-scans/s${String(i).padStart(2, '0')}.docx`, 'scan ' + i)
+    write('users/bob/fs-ai/report.docx', 'report')
+    try {
+      for (let k = 0; k < 5; k++) {
+        const t0 = Date.now()
+        const r = await search('alice', 'QA-CAPACITY-' + k, '&path=users%2Falice%2Ffs-scans')
+        expect(Date.now() - t0).toBeLessThan(1500)
+        expect(r.timedOut).toBe(false)
+        // no office file of the folder was searched: all of them wait for the background indexer
+        expect(r.indexing).toBe(N)
+      }
+      // the AI grep of another person extracts its file in the foreground (FilesService.grep -> refresh, budget 40)
+      const filter = (rel: string) => { try { return fs.lstatSync(path.join(h.team, rel)) } catch { return null } }
+      const t0 = Date.now()
+      const ai = await Promise.race([
+        office.refresh(h.ctx.files.cfg.rg, ['users/bob/fs-ai'], [], filter, { budget: 40 }),
+        Bun.sleep(3000).then(() => 'blocked' as const),
+      ])
+      expect(ai).not.toBe('blocked')
+      expect(Date.now() - t0).toBeLessThan(1500)
+      expect(office.fresh('users/bob/fs-ai/report.docx', filter('users/bob/fs-ai/report.docx')!)).toBe(true)
+    } finally {
+      release()
+      await office.idle()
+      o.extract = real
+    }
+  })
+
+  test('one person adds at most a fixed number of files a minute to the background queue; the rest are still counted', async () => {
+    const office = h.ctx.files.office
+    await office.idle()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const o = office as unknown as { extract: (rel: string, b: Buffer) => Promise<string> }
+    const real = o.extract
+    o.extract = async (rel: string) => { await gate; return 'text of ' + rel }
+    const N = OFFICE_QUEUE_PER_PERSON_MINUTE + 20
+    for (let i = 0; i < N; i++) write(`users/carol/fs-flood/d${String(i).padStart(3, '0')}.docx`, 'doc ' + i)
+    try {
+      const r = await search('carol', 'QA-FLOOD', '&path=users%2Fcarol%2Ffs-flood')
+      expect(r.indexing).toBe(N)
+      // queued (or running) for carol: at most the per-person limit
+      expect(office.queued()).toBeLessThanOrEqual(OFFICE_QUEUE_PER_PERSON_MINUTE)
+      // the same files again add nothing (the queue holds each path and mtime once)
+      const before = office.queued()
+      await search('carol', 'QA-FLOOD-2', '&path=users%2Fcarol%2Ffs-flood')
+      expect(office.queued()).toBe(before)
+    } finally {
+      release()
+      await office.idle()
+      o.extract = real
+    }
   })
 })
 

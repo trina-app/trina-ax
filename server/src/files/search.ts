@@ -150,6 +150,9 @@ const VERSION_FILE = '.format-version' // cache files all end in .txt, so no fil
 export const OFFICE_EXTRACT_PARALLEL = 4
 /** the most office files that wait in the background queue; more are left to a later search */
 const OFFICE_QUEUE_MAX = 10_000
+/** office files that one person (the content search) may add to the background queue in one minute */
+export const OFFICE_QUEUE_PER_PERSON_MINUTE = 100
+const OFFICE_QUEUE_WINDOW_MS = 60_000
 
 export interface OfficeRefreshOpts {
   /** office files extracted before the answer (default 40); the rest go to the background queue */
@@ -160,17 +163,24 @@ export interface OfficeRefreshOpts {
   deadline?: number
   /** stop waiting when this signal aborts */
   signal?: AbortSignal
+  /** the person whose search adds files to the background queue: at most OFFICE_QUEUE_PER_PERSON_MINUTE new files a
+   * minute (none: no limit, the AI grep) */
+  owner?: string
 }
 
 export class OfficeCache {
   private inflight = new Map<string, Promise<void>>()
   private marked = false
-  /** extraction slots in use, and the jobs that wait for one */
+  /** extraction slots in use, and the jobs that wait for one: a foreground job (the AI grep, an upload, the semantic
+   * index) always gets a free slot before a background job */
   private active = 0
-  private waiting: (() => void)[] = []
-  /** the background queue (in order, each file once) and its one worker */
-  private queue = new Set<string>()
+  private waitingHigh: (() => void)[] = []
+  private waitingLow: (() => void)[] = []
+  /** the background queue (in order; each path once, with the mtime it had when it was added) and its one worker */
+  private queue = new Map<string, number>()
   private worker: Promise<void> | null = null
+  /** per person: the times at which their searches added a file to the queue (last OFFICE_QUEUE_WINDOW_MS) */
+  private added = new Map<string, number[]>()
   constructor(readonly dir: string, private fx: FsCtx, private tools: Tools) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     // text of an older format is removed; an empty cache gets the version file only with its first text (a fresh
@@ -186,10 +196,13 @@ export class OfficeCache {
   }
   /** the text of one file (a test can replace it) */
   protected extract(rel: string, bytes: Buffer): Promise<string> { return extractText(rel, bytes, this.tools) }
-  private async slot<T>(f: () => Promise<T>): Promise<T> {
-    while (this.active >= OFFICE_EXTRACT_PARALLEL) await new Promise<void>((r) => this.waiting.push(r))
+  private async slot<T>(f: () => Promise<T>, low: boolean): Promise<T> {
+    // a low job also waits while a foreground job waits, so a freed slot goes to the foreground first
+    while (this.active >= OFFICE_EXTRACT_PARALLEL || (low && this.waitingHigh.length)) {
+      await new Promise<void>((r) => (low ? this.waitingLow : this.waitingHigh).push(r))
+    }
     this.active++
-    try { return await f() } finally { this.active--; this.waiting.shift()?.() }
+    try { return await f() } finally { this.active--; (this.waitingHigh.shift() ?? this.waitingLow.shift())?.() }
   }
   private write(rel: string, text: string, st: fs.Stats) {
     const dst = this.cachePath(rel)
@@ -204,7 +217,7 @@ export class OfficeCache {
    * stands for "no text for this version", so the next search does not try it again until the file changes. When the
    * file is gone, its text is deleted.
    */
-  update(rel: string): Promise<void> {
+  update(rel: string, o: { background?: boolean } = {}): Promise<void> {
     const running = this.inflight.get(rel); if (running) return running
     const job = this.slot(async () => {
       const abs = path.join(this.fx.root, ...rel.split('/'))
@@ -219,18 +232,42 @@ export class OfficeCache {
       let text: string
       try { text = await this.extract(rel, got.bytes) } catch { text = '' }
       this.write(rel, text, got.st)
-    }).finally(() => this.inflight.delete(rel))
+    }, !!o.background).finally(() => this.inflight.delete(rel))
     this.inflight.set(rel, job)
     return job
   }
   /** for tests and tools: resolves when no extraction runs and the background queue is empty */
   async idle() { while (this.worker || this.inflight.size) await Promise.all([this.worker, ...this.inflight.values()].map((p) => p?.catch(() => {}))) }
-  private enqueue(rels: string[]) {
-    for (const r of rels) if (this.queue.size < OFFICE_QUEUE_MAX) this.queue.add(r)
+  /** for tests: files in the background queue (also the one the worker extracts now) */
+  queued() { return this.queue.size + (this.worker ? 1 : 0) }
+  /**
+   * Add stale files to the one background queue of the server. A file that waits (same path and mtime) or is being
+   * extracted is not added again. With `owner`, at most OFFICE_QUEUE_PER_PERSON_MINUTE new files a minute are taken
+   * from that person; the rest are left to a later search.
+   */
+  private enqueue(items: { rel: string; mtime: number }[], owner?: string) {
+    let times: number[] | undefined
+    if (owner) {
+      const now = Date.now()
+      times = (this.added.get(owner) ?? []).filter((t) => t > now - OFFICE_QUEUE_WINDOW_MS)
+      this.added.set(owner, times)
+    }
+    for (const { rel, mtime } of items) {
+      if (this.queue.size >= OFFICE_QUEUE_MAX) break
+      if (this.inflight.has(rel)) continue
+      const had = this.queue.get(rel)
+      if (had === mtime) continue
+      if (had === undefined && times) {
+        if (times.length >= OFFICE_QUEUE_PER_PERSON_MINUTE) continue
+        times.push(Date.now())
+      }
+      this.queue.set(rel, mtime)
+    }
+    if (owner && !times!.length) this.added.delete(owner)
     if (this.worker || !this.queue.size) return
     this.worker = (async () => {
-      // one worker; update() takes an extraction slot, so foreground and background together stay in the limit
-      for (const r of this.queue) { this.queue.delete(r); await this.update(r).catch(() => {}) }
+      // one worker with low priority: it holds at most one extraction slot, and a foreground job gets a free slot first
+      for (const [r] of this.queue) { this.queue.delete(r); await this.update(r, { background: true }).catch(() => {}) }
     })().finally(() => { this.worker = null; if (this.queue.size) this.enqueue([]) })
   }
   /**
@@ -242,10 +279,11 @@ export class OfficeCache {
     if (!roots.length) return { pending: 0, timedOut: false }
     const budget = o.budget ?? 40
     const stale: string[] = []
+    const mtimes = new Map<string, number>()
     const listTimeout = Math.max(1, Math.min(o.listTimeoutMs ?? 60000, o.deadline ? o.deadline - Date.now() : Infinity))
     const listed = await runRg(rg, ['--files', '--null', ...RG_BASE, '--glob-case-insensitive', '--glob', OFFICE_GLOB, ...excludeArgs(excludes), '--', ...roots], this.fx.root, '\0', (r) => {
       const rel = strip(r); if (!isOffice(rel)) return
-      const st = filter(rel); if (st && !this.fresh(rel, st)) stale.push(rel)
+      const st = filter(rel); if (st && !this.fresh(rel, st)) { stale.push(rel); mtimes.set(rel, Math.floor(st.mtimeMs)) }
     }, listTimeout, { signal: o.signal })
     let timedOut = listed.killed === 'timeout'
     const now = stale.slice(0, budget)
@@ -271,7 +309,7 @@ export class OfficeCache {
         break
       }
     }
-    if (later.length) this.enqueue(later)
+    if (later.length) this.enqueue(later.map((rel) => ({ rel, mtime: mtimes.get(rel)! })), o.owner)
     return { pending: later.length + unfinished, timedOut }
   }
 }
@@ -316,14 +354,19 @@ export interface GrepOpts {
    * left to the background (stats.officePending). Without it, the office listing has its own 60 s and the last pass
    * its own d.timeoutMs (the AI tool). */
   strictTime?: boolean
-  /** office files extracted before the answer (default 40); the rest are extracted in the background */
+  /** office files extracted before the answer (default 40); the rest are extracted in the background. 0: no
+   * extraction before the answer (the content search); then stats.officePending counts all stale office files */
   officeBudget?: number
+  /** the person who adds stale office files to the background queue (OfficeRefreshOpts.owner) */
+  officeOwner?: string
   /** stop the search (kill ripgrep, stop waiting for office text) when this signal aborts */
   signal?: AbortSignal
 }
 
-/** the longest ripgrep --json record that grep reads (UTF-16 units); a longer matching line is skipped
- * (stats.longSkipped), because --json gives the whole line and ignores --max-columns */
+/** the longest ripgrep --json record that grep reads (UTF-16 units); the line of a longer record is skipped
+ * (stats.longSkipped), because --json gives the whole line and ignores --max-columns. The limit is on the record, not
+ * on the line: each match and each JSON escape make the record longer, so a shorter line with very many matches or
+ * escaped characters can also be skipped. */
 export const RG_MAX_RECORD_CHARS = 64 * 1024
 
 /** One matching line (content mode): the shown path, its 1-based line number and the line text. */
@@ -397,9 +440,10 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const patterns = o.fixed ? [...new Set([o.pattern, o.pattern.normalize('NFC'), o.pattern.normalize('NFD')])] : [o.pattern]
   const patArgs = patterns.flatMap((p) => ['-e', p])
   const rgOpts: RgRunOpts = { signal: o.signal, ...(o.mode === 'content' ? { maxRecordChars: RG_MAX_RECORD_CHARS } : {}) }
-  const run = async (args: string[], cwd: string, h: (rec: string) => boolean | void, timeoutMs: number) => {
+  /** countSkips: false for pass 2, which reads the same files as pass 1 again (a long line would count twice) */
+  const run = async (args: string[], cwd: string, h: (rec: string) => boolean | void, timeoutMs: number, countSkips = true) => {
     const r = await runRg(d.rg, args, cwd, recSep, h, timeoutMs, rgOpts)
-    stats.longSkipped += r.skipped
+    if (countSkips) stats.longSkipped += r.skipped
     return r
   }
   // later globs win in ripgrep: user glob first, then the exclusions
@@ -407,30 +451,35 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   // pass 1 searches the raw bytes; a legacy Korean (CP949) file is left to pass 2, which reads it as Korean text
   const id = (p: string) => { const r = strip(p); return { shown: r, real: r } }
   const started = Date.now()
+  // strictTime: one deadline for the whole search; a pass that has no time left is not run (timedOut)
+  const deadline = started + d.timeoutMs
+  const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits })
   const r1 = await run(mainArgs, d.fx.root, handler(id, (r) => !isLegacy(r)), d.timeoutMs)
   if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
-  if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits }
+  if (r1.killed === 'timeout') return stopped()
 
   // pass 2: the same search with ripgrep's CP949 decoder (--encoding euc-kr); only legacy Korean files count, so a
   // Korean pattern matches the text that `read` shows, and the lines come back as Korean (QA R2-FMT-08)
   if (!truncated) {
-    const left = Math.max(1000, d.timeoutMs - (Date.now() - started))
-    const r2 = await run(['--encoding', 'euc-kr', ...mainArgs], d.fx.root, handler(id, isLegacy), left)
-    if (r2.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits }
+    const left = o.strictTime ? deadline - Date.now() : Math.max(1000, deadline - Date.now())
+    if (left <= 0) return stopped()
+    const r2 = await run(['--encoding', 'euc-kr', ...mainArgs], d.fx.root, handler(id, isLegacy), left, false)
+    if (r2.killed === 'timeout') return stopped()
   }
 
   let timedOut = false
   // office documents: the same ripgrep over the extracted-text cache, paths mapped back to the originals
   if (!truncated && !o.type) {
-    // strictTime: one deadline for the whole search; extraction that is not done by then goes on in the background
-    const deadline = started + d.timeoutMs
-    const left = () => Math.max(500, deadline - Date.now())
+    // strictTime: extraction that is not done at the deadline goes on in the background
+    if (o.strictTime && deadline - Date.now() <= 0) return stopped()
     const ref = await d.office.refresh(d.rg, roots, excludes, (rel) => visiblePath(d.fx, d.rules, d.user, rel),
-      { budget: o.officeBudget ?? 40, signal: o.signal, ...(o.strictTime ? { deadline } : {}) })
+      { budget: o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
     stats.officePending = ref.pending
     if (ref.timedOut && o.strictTime) timedOut = true
     const croots = roots.map((r) => (isOffice(r) ? r + '.txt' : r)).filter((r) => fs.existsSync(path.join(d.office.dir, r)))
-    if (croots.length) {
+    const lastLeft = o.strictTime ? deadline - Date.now() : d.timeoutMs
+    if (lastLeft <= 0 && croots.length) timedOut = true
+    else if (croots.length) {
       const nameG = nameGlob ? new Bun.Glob(nameGlob) : null
       const map = (p: string) => {
         const real = strip(p).replace(/\.txt$/, '')
@@ -445,7 +494,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
         if (!current.has(real)) { const st = visiblePath(d.fx, d.rules, d.user, real); current.set(real, !!st && d.office.fresh(real, st)) }
         return current.get(real)!
       }
-      const r3 = await run([...common, '--glob', '*.txt', ...excludeArgs(excludes), ...patArgs, '--', ...croots], d.office.dir, handler(map, isCurrent), o.strictTime ? left() : d.timeoutMs)
+      const r3 = await run([...common, '--glob', '*.txt', ...excludeArgs(excludes), ...patArgs, '--', ...croots], d.office.dir, handler(map, isCurrent), lastLeft)
       if (r3.killed === 'timeout') timedOut = true
     }
   }

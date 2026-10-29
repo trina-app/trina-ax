@@ -1,7 +1,10 @@
 // Content search for people (the file screen, R2-ETC-02). It uses the AI's grep (files/search.ts grepFiles), so it
 // has the same permission checks: allowedRoots() picks the folders ripgrep may enter and visiblePath() checks every
 // hit again. A person never finds a line in a file that they cannot open. Office documents are searched through the
-// same text cache as the AI's grep. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
+// same text cache as the AI's grep, but only their fresh text: the content search extracts nothing itself. A stale or
+// new office document goes to the one background queue of the server (low priority, at most
+// OFFICE_QUEUE_PER_PERSON_MINUTE files a minute from one person) and is counted in `indexing`. Thus a person's search
+// never takes the extraction slots that the AI grep of another person needs. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
 // bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
 // file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
 import type { FileContentHits } from '@mycel/shared/api'
@@ -18,8 +21,6 @@ const RATE_WINDOW_MS = 60_000
 export const CONTENT_SEARCH_PARALLEL_MAX = 2
 /** the longest time one search may take, office extraction included (the AI's grep may take cfg.grepTimeoutMs) */
 export const CONTENT_SEARCH_TIMEOUT_MS = 10_000
-/** office files extracted before the answer; the rest are extracted in the background (officePending) */
-export const CONTENT_SEARCH_OFFICE_BUDGET = 8
 /** matching lines shown from one file, so that one big file cannot fill the list */
 export const CONTENT_SEARCH_PER_FILE = 5
 /** characters of a line shown around the first match */
@@ -96,7 +97,7 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
       { fx: files.fx, rules, user, rg: cfg.rg, timeoutMs: Math.min(cfg.grepTimeoutMs, CONTENT_SEARCH_TIMEOUT_MS), office: files.ctx.files.office },
       b.segs, false,
       { pattern: query, fixed: true, ignoreCase: true, mode: 'content', lineNumbers: true, before: 0, after: 0, limit, maxPerFile: CONTENT_SEARCH_PER_FILE,
-        strictTime: true, officeBudget: CONTENT_SEARCH_OFFICE_BUDGET, signal },
+        strictTime: true, officeBudget: 0, officeOwner: userId, signal },
     )
     // a newer search of the same person stopped this one: its list is not complete, so it is not sent as an answer
     // (a client that still waits, e.g. in a second tab, tries again after retryAfter)
@@ -104,6 +105,6 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
-    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, officePending: res.stats.officePending }
+    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, longSkipped: res.stats.longSkipped }
   } finally { done() }
 }

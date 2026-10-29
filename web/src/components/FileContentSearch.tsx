@@ -84,12 +84,13 @@ export function FileContentResults({ q, path, folderLabel }: { q: string; path: 
       <p className="px-2 pb-2 text-xs text-faint">{t('files.search.scope', { q: query, folder: folderLabel })}</p>
       {error && <ErrorNote onRetry={() => setTick((n) => n + 1)}>{error}</ErrorNote>}
       {!res && !error && <Skeleton lines={6} className="p-2" />}
-      {res && !res.items.length && !res.timedOut && !res.officePending && <EmptyState icon={<FileText size={28} />} title={t('files.search.none')} />}
-      {res && (res.truncated || res.timedOut || res.officePending > 0) && (
+      {res && !res.items.length && !res.timedOut && !res.indexing && !res.longSkipped && <EmptyState icon={<FileText size={28} />} title={t('files.search.none')} />}
+      {res && (res.truncated || res.timedOut || res.indexing > 0 || res.longSkipped > 0) && (
         <div className="mx-2 mb-2 space-y-1 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted" role="status">
           {res.truncated && <p>{t('files.search.truncated', { n: res.items.length })}</p>}
           {res.timedOut && <p>{t('files.search.timedOut')}</p>}
-          {res.officePending > 0 && <p>{t('files.search.officePending', { n: res.officePending })}</p>}
+          {res.indexing > 0 && <p>{t('files.search.indexing', { n: res.indexing })}</p>}
+          {res.longSkipped > 0 && <p>{t('files.search.longSkipped', { n: res.longSkipped })}</p>}
         </div>
       )}
       {groups.length > 0 && (
