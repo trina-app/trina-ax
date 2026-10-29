@@ -95,4 +95,3 @@ export async function preparePresentation(
   for (const s of sources) recheck(files, c, s)
   return { bytes, deck }
 }
-
