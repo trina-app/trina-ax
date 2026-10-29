@@ -118,7 +118,7 @@ operations console and website are private and are not included. [Deployment FAQ
 Find published builds and their checksums in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 The release pipeline builds Linux server kits (amd64/arm64), a Mac office bundle and a Windows desktop installer.
 The Mac office bundle is a server bundle; **a Mac desktop DMG is not distributed yet**, pending Apple signing and
-notarization. v0.2.3 is available through GitHub Releases; the Trina update feed is not live, so do not rely on automatic updates. See the [changelog](CHANGELOG.md) for changes and publication status.
+notarization. v0.2.5 is the current release. It is on GitHub Releases and on the Trina update feed (`https://updates.trina.app`, live since 2026-10-29). Linux servers and office Macs get updates from the feed. See the [changelog](CHANGELOG.md) for changes and publication status.
 
 ## Documentation and contributing
 
