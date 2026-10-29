@@ -55,11 +55,11 @@ In managed installations, eligible personal connections take priority, followed 
 - Server operators can read stored files and chats, including Trina operators for hosting. App administrators do not get a browser for everyone's private conversations.
 - Removing folder access does not erase earlier answers. Wider-sharing confirmation is not universal data-loss prevention.
 - No security certification, perfect answers, guaranteed savings or automatic legal/financial/HR decisions. Review outputs and deployment boundaries.
-- HWP/HWPX text extraction is available; visual HWP preview is in progress and default off on its separate branch. Complex document layouts and conversions have limits.
+- HWP/HWPX text extraction is available. Experimental [visual previews](resources/hwp/README.md) are included in this source but **off by default**, and their native runtime is excluded from default release bundles. Debian 12 does **not** support visual previews; text extraction and original downloads remain available. Complex layouts and conversions have limits.
 
 ## Clients, releases and help
 
-Use the browser on desktop or phone. A Windows installer is published; a Mac office ZIP runs the server and is **not a desktop DMG**. Native mobile source does not mean an app-store release. App languages currently include English, Korean and Indonesian; Japanese/Spanish UI and safe operations 1A are **in progress**, separate from these translated READMEs.
+Use the browser on desktop or phone. A Windows installer is published; a Mac office ZIP runs the server and is **not a desktop DMG**. Native mobile source does not mean an app-store release. This source includes English, Korean, Indonesian, Japanese and Spanish throughout the app. Published installers can lag behind source changes; check their release notes.
 
 [Latest release and checksums](https://github.com/trina-app/trina-ax/releases/latest) · [Changes](CHANGELOG.md) · [Documentation](docs/README.md) · [FAQ](docs/FAQ.md) · [Support and community questions](SUPPORT.md)
 

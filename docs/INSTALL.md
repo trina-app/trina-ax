@@ -135,7 +135,7 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 **Your own team.** Open the `http://127.0.0.1:19100/setup?token=…` link from the log. The setup token field is
 hidden when the token is in the URL. "Create your team" asks for:
 - Team name.
-- **Team language**: English (default), 한국어 or Bahasa Indonesia. Picking one also switches the screen.
+- **Team language**: English, 한국어, Bahasa Indonesia, 日本語 or Español. The initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
 - The owner's name, username (letters, digits and `. _ @ -`, 2–64 characters), password (at least 8
   characters) and **Confirm password**.
 
@@ -472,7 +472,7 @@ port, `https://<host>.local:8443/setup?token=…`. The screen is the same as in 
 Or create the owner from the terminal (asks for the password twice):
 
 ```sh
-sudo "/Library/Application Support/mycel/root/mycel-account" create-owner --username kim --name "Kim" --team "Acme" [--locale en|ko|id]
+sudo "/Library/Application Support/mycel/root/mycel-account" create-owner --username kim --name "Kim" --team "Acme" --locale en
 ```
 
 Replace `kim`, `Kim` and `Acme` with your own username, name and team name.

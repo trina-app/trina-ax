@@ -2845,3 +2845,11 @@ including same-account installs. Extend the same synthetic selection tests to co
 - The regression fixture holds the anonymous response until after login/reload, then releases it. The old
   implementation fails the unchanged team-name assertion; the corrected path reads the current session.
   No longer timeout, retry, altered assertion, or language-dependent workaround. Port to `potenlab/team-ax`.
+
+
+### Team-first documentation integration (2026-10-30)
+
+- Integrate the reviewed documentation after desktop worker/identity fixes, default-off HWP preview and the five app locales. Preserve those feature decisions and release gates.
+- Add Japanese and Spanish equivalents for the owner checklist, local-login help and provider-authorization notices; retain all existing locale entries and require `check:i18n`. New-team sharing remains ON, and explicit saved choices persist.
+- The local demo is loopback-only and model-free. Role examples use fictional sources; screenshots label prepared results and empty usage. Hosted server location is distinct from external provider processing.
+- Keep HWP preview off, omit its runtime from default releases and disclose Debian 12's preview limitation without changing product-wide Linux support. Current-source features do not imply that existing release artifacts include them.

@@ -28,9 +28,9 @@ App admins do not have a browser for everyone's private chats. Server/storage op
 
 ## Which files and clients work?
 
-Text/Markdown and supported Office/PDF extraction and generation depend on installed converters. HWP/HWPX text extraction is available; visual HWP preview is in progress on a separate branch and default off there. Complex layout fidelity is not guaranteed.
+Text/Markdown and supported Office/PDF extraction and generation depend on installed converters. HWP/HWPX text extraction is available. Experimental visual previews are in this source but off by default, and their runtime is excluded from default release bundles. Debian 12 does not support visual previews (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits and release gate](../resources/hwp/README.md). Complex layout fidelity is not guaranteed.
 
-Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. Native mobile source is not an app-store release. UI currently supports EN/KO/ID; JA/ES UI and safe operations 1A are in progress.
+Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. Native mobile source is not an app-store release. This source supports EN/KO/ID/JA/ES throughout the app; check published builds’ release notes for availability.
 
 ## Do updates and backups exist?
 

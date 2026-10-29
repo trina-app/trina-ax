@@ -21,4 +21,4 @@ Files/chats are stored on the server, but selected context goes to model provide
 - [Support](SUPPORT.md)
 - [Documentation index](docs/README.md)
 
-Browser/mobile web and Windows installer are available. No released Mac desktop DMG or app-store claim. UI languages: EN/KO/ID; JA/ES UI, HWP visual preview and safe operations 1A are in progress. The local demo disables AI and is not a production installation.
+Browser/mobile web and Windows installer are available. No released Mac desktop DMG or app-store claim. Current source includes EN/KO/ID/JA/ES. HWP visual preview is experimental, off by default, excluded from default runtime bundles and unavailable on Debian 12; text extraction and original downloads remain. Check release notes for published-build availability. The local demo disables AI and is not a production installation.

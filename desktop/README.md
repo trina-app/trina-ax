@@ -15,7 +15,7 @@ desktop/
     browser-result.ts      pane result -> BrowserResult on the wire (<= 20 items, size caps)
     teams.ts               teams.json, partitions per team, fingerprints
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
-    i18n.ts                ko / en / id strings of the desktop's own screens
+    i18n.ts                ko / en / id / ja / es strings of the desktop's own screens
   src/main/
     main.ts                lifecycle, mycel-ui:// protocol, IPC (sender checks), menu
     app-window.ts          window layout, teams, team page view, direct-connection switching

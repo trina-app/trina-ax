@@ -32,7 +32,7 @@ The data directory must **not exist**. Existing and non-demo directories are ref
 3. Open a separate browser profile as `bob` with the same demo password. Alice sees the marketing group; Bob sees finance. Bob cannot see its payroll subfolder.
 4. Sign in as `dion` (fictional owner) to explore team skills and administration. [Copy a starter skill](../examples/README.md).
 
-The files are Korean; the UI starts in English unless `--locale ko` is supplied. The sign-in screen has English / 한국어 language buttons. In the app use Settings → Profile → Language.
+The files are Korean; the UI starts in English unless `--locale ko` is supplied. The sign-in screen offers all five app languages (English, Korean, Indonesian, Japanese and Spanish). In the app use Settings → Profile → Language.
 
 ## Stop and clean up
 

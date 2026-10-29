@@ -17,6 +17,8 @@ Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be avai
 
 These are install requirements, not a capacity benchmark. One installation is one team.
 
+HWP/HWPX text extraction is available. Experimental visual previews are in this source but off by default, and their runtime is excluded from default release bundles. Debian 12 does not support visual previews (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits and release gate](../resources/hwp/README.md).
+
 ## Download, verify, check
 
 Use a new download directory. Resolve the latest release once and use the same version for all files:

@@ -55,11 +55,11 @@ En instalaciones con conexiones administradas se prioriza la conexión personal 
 - Quien opera el servidor puede leer archivos y chats almacenados; en el alojamiento, esto incluye a los operadores de Trina. La administración de la aplicación no ofrece una pantalla para leer todas las conversaciones privadas.
 - Retirar permisos no borra respuestas anteriores. La confirmación al ampliar el acceso no evita todas las posibles filtraciones.
 - No prometemos certificaciones de seguridad, respuestas perfectas, ahorros garantizados ni decisiones legales, financieras o de RR. HH. automáticas. Revisa los resultados y los límites de cada instalación.
-- Se admite la extracción de texto de HWP/HWPX. La vista previa visual de HWP está en desarrollo en otra rama y desactivada de forma predeterminada. Los formatos complejos y las conversiones tienen límites.
+- Se admite la extracción de texto de HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md) experimentales están en el código, pero **desactivadas de forma predeterminada**; las herramientas necesarias no se incluyen en los paquetes estándar. Debian 12 **no admite** estas vistas previas. La extracción de texto y las descargas originales siguen disponibles. Los formatos complejos y las conversiones tienen límites.
 
 ## Clientes, versiones y ayuda
 
-Usa el navegador en computadora o teléfono. Hay un instalador de Windows publicado; el ZIP de oficina para Mac ejecuta el servidor y **no es un DMG de escritorio**. El código de aplicaciones móviles no implica disponibilidad en las tiendas. La interfaz actual incluye inglés, coreano e indonesio. Las interfaces en japonés y español y las operaciones seguras 1A están **en desarrollo**, independientemente de estas traducciones del README.
+Usa el navegador en computadora o teléfono. Hay un instalador de Windows publicado; el ZIP de oficina para Mac ejecuta el servidor y **no es un DMG de escritorio**. El código de aplicaciones móviles no implica disponibilidad en las tiendas. El código actual incluye inglés, coreano, indonesio, japonés y español en toda la aplicación. Los instaladores publicados pueden no incluir todavía los últimos cambios; consulta sus notas de versión.
 
 [Última versión y sumas de comprobación](https://github.com/trina-app/trina-ax/releases/latest) · [Cambios](CHANGELOG.md) · [Documentación](docs/README.md) · [Preguntas frecuentes (inglés)](docs/FAQ.md) · [Soporte y comunidad](SUPPORT.md). Los informes públicos se reciben en inglés y coreano.
 

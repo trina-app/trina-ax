@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Fix desktop worker startup so offline recovery can initialize without hanging; retain the browser frame security checks.
+
 - Refresh the desktop team name and identity after sign-in even when an earlier anonymous lookup is still pending.
 
 - Keep experimental HWP previews disabled and exclude their native runtime from default release bundles pending licence/platform review; document Debian 12 availability in System and installation guidance. Restrict HWP macOS file reads to runtime and authorized job inputs.
@@ -19,7 +21,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Administrators get corrected release filenames, EN/KO Linux/office guides and backup/restore instructions. Both office guides travel with the next ZIP; PDFs are optional. / 파일명 수정·영한 운영 안내·복구 안내, 다음 ZIP에 두 언어 사무실 가이드 포함.
 - Connection notices distinguish the existing default-on setting from provider authorization. No default is changed. / 기본 켜짐과 제공사 사용 허가를 구분하며 설정 기본값은 바꾸지 않습니다.
 
-Real AI screenshots and full replacement-host recovery still need authorized operational validation. No pending HWP preview, JA/ES UI or safe-operations branch is released by these changes. / 실 AI 화면·새 장비 전체 복구는 별도 검증이 필요하며 진행 중 기능을 출시하지 않습니다.
+Real AI screenshots and full replacement-host recovery still need authorized operational validation. HWP preview remains off and its release gate is unchanged. These source changes do not publish new installers. / 실 AI 화면·새 장비 전체 복구는 별도 검증이 필요합니다. HWP 미리보기는 기본 꺼짐과 기존 출시 조건을 유지하며, 이 소스 변경만으로 새 설치 파일을 배포하지 않습니다.
 
 ## 0.2.9 — 2026-10-29
 
