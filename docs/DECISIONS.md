@@ -2348,12 +2348,13 @@ including same-account installs. Extend the same synthetic selection tests to co
   scan in `ooxml.ts` is linear in the part size: tags are found with `indexOf` from the current position, an element
   ends at its first end tag, and a scan stops at the first tag without `>` or element without its end tag (text after
   that point in the same part is not read). The comment ranges are read in one pass; each range takes text until it
-  has 200 characters. Trailing spaces are removed with a loop (the regex `/[ \t]+$/gm` was also quadratic on a long
+  has 200 characters, a text run is cut to 201 characters before it is added, and at most 1000 ranges take text at
+  the same time (a later range in a file with more open ranges gets no commented text). Trailing spaces are removed with a loop (the regex `/[ \t]+$/gm` was also quadratic on a long
   run of spaces). A part that many slides or relationships name is read once, and the slide loop stops when the
   extra text is over its 4 MB cap. There is no separate size cap for one part: the size of all parts together stays
   limited by `zip-guard.ts`, and the worker time and memory limits stay. The tests read parts with 80000 unclosed
-  `<c:pt>`, `<c:ser>`, `<p:sp>` and `<w:comment>` tags, 20000 comment ranges without an end, 80000 spaces and 80000
-  tags without `>`, each in under 2 s.
+  `<c:pt>`, `<c:ser>`, `<p:sp>` and `<w:comment>` tags, 20000 comment ranges without an end, 5000 ranges over one
+  500 KB text run, 80000 spaces and 80000 tags without `>`, each in under 2 s.
 - **Text cache.** `OfficeCache` keeps a `.format-version` file (now `3`: 2 added the extra sections, 3 quotes the body
   lines). Text of an older format is removed at
   start, so `grep` makes it again with the new sections. A fresh server still leaves `textcache/` empty.
