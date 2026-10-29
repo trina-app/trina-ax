@@ -2262,3 +2262,15 @@ including same-account installs. Extend the same synthetic selection tests to co
 - **Tests.** `tests/unit/remote-mcp-oauth.test.ts` (origin precedence), `tests/install/g-linux-install.ts` (refusals
   change nothing, Google format converted, modes, no secret in the output, repair keeps the values, `none` and
   `--no-app-connectors` clear them).
+## Launcher: the team-tools bridge is resolved per turn (fix/launcher-bridge-per-turn, 2026-10-29)
+
+- **Problem.** On the Lightsail test server, after `mycel-ctl update` 0.2.4 -> 0.2.5, every Claude turn had no team
+  tools (no `mcp__team__*`, no `(connect)` row in `tool_events`). The Linux launcher resolved `--bridge`
+  (`app/current/native/mycel-bridge`) once at start (`lx.bridgeReal`) and bound that file in bwrap. `mcp.json` of each
+  turn names the bridge resolved at turn time. The launcher started one second before `app/current` moved to 0.2.5,
+  so the sandbox had the 0.2.4 bridge and the engine was told to run the 0.2.5 one, which was not in the sandbox.
+  App-only updates switch `app/current` without a launcher restart, so every automatic update had the same effect.
+- **Decision.** `main.go` resolves the bridge once per turn, writes it to `mcp.json` and keeps it in `turnEnv.bridge`;
+  the Linux bwrap arguments bind that same file. The path from the start stays only as a startup check.
+- **Tests.** `tests/install/g-linux-install.ts`: a turn can `stat {BRIDGE}` after install and again after
+  `mycel-ctl update --bundle` (no launcher restart).

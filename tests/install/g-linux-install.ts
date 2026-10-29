@@ -276,6 +276,8 @@ socket.once('connect', () => {
   }
   const t1 = turn('c_t2a', 'write', '{CHAT_DIR}/mine.txt')
   check('a turn runs in its chat folder through the installed launcher', t1.code === 0, JSON.stringify(t1))
+  const tb = turn('c_t2a', 'stat', '{BRIDGE}')
+  check('the engine reaches the team-tools bridge that mcp.json names', tb.code === 0, JSON.stringify(tb))
   const t2 = turn('c_t2a', 'read', `${BASE}/config/server.json`)
   // refusals count only when the engine itself ran and was refused (1 EACCES/EPERM, 3 ENOENT), not when the sandbox failed
   const refused = (t: { code?: number }) => t1.code === 0 && (t.code === 1 || t.code === 3)
@@ -324,6 +326,9 @@ socket.once('connect', () => {
   const cj = lastJson(cu.out)
   const h4 = await healthIs(V(4))
   check('mycel-ctl update --bundle: verified, switched, healthy', cu.code === 0 && cj?.result === 'ok' && h4?.version === V(4), `${tail(cu)} ${JSON.stringify(h4)}`)
+  // an update switches app/current under the running launcher: the next turn must get the new version's bridge
+  const tb4 = turn('c_t2d', 'stat', '{BRIDGE}')
+  check('after an update the engine still reaches the bridge (the launcher resolves it per turn)', tb4.code === 0, JSON.stringify(tb4))
   const cu5 = sh([CTL, 'update', '--base', BASE, '--bundle', path.join(kit(5), `${V(5)}-linux-${ARCH}.tar.zst`), '--json'])
   const c5 = lastJson(cu5.out)
   const h5 = await healthIs(V(4), 30_000)

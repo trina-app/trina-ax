@@ -620,6 +620,7 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	// the engine starts the bridge by its resolved path, the one the sandbox profile allows (BRIDGE): an installed
 	// --bridge goes through app/current, a link the sandboxed engine may not read, and the team tools failed with EPERM
 	bridge, sock := resolvePath(*bridgePath), resolvePath(*toolsSock)
+	te.bridge = bridge // the sandbox binds this same file (Linux), not the one --bridge named when the launcher started
 	mcpFile := filepath.Join(turn, "mcp.json")
 	mcp, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"team": map[string]any{
 		"type": "stdio", "command": bridge, "args": []string{"--turn-dir", ".", "--sock", sock}}}})
