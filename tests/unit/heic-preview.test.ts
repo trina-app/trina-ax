@@ -104,9 +104,13 @@ describe('fallback', () => {
     expect(e.code).toBe('too_large')
   })
   test('a converter killed by a limit: no second converter runs after it', async () => {
-    // /usr/bin/yes writes its arguments without end: the stdout limit kills it in milliseconds. Before the fix the
-    // second converter (here /bin/echo) ran as well and its error replaced the first one.
-    const e = await heicToJpeg(fs.readFileSync(FIXTURE), { heifDec: '/usr/bin/yes', imageIo: '/bin/echo' }).catch((x) => x)
+    // a converter that writes without end: the stdout limit kills it in milliseconds. Before the fix the second
+    // converter (here /bin/echo) ran as well and its error replaced the first one. BSD yes ignores the heif-dec
+    // options; GNU yes refuses -q, so Linux uses a small script that also ignores its arguments.
+    const endless = path.join(tmp, 'endless.sh')
+    fs.writeFileSync(endless, '#!/bin/sh\nwhile :; do echo y; done\n', { mode: 0o755 })
+    const heifDec = process.platform === 'darwin' ? '/usr/bin/yes' : endless
+    const e = await heicToJpeg(fs.readFileSync(FIXTURE), { heifDec, imageIo: '/bin/echo' }).catch((x) => x)
     expect(e).toBeInstanceOf(ToolError)
     expect(e.message).toContain('heif-dec')
     expect(e.message).not.toContain('no JPEG mode')
@@ -220,6 +224,8 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const pv = new HeicPreviews(path.join(tmp, 'cache-q8'), NONE, undefined, f.convert, 100)
     const a = pv.jpeg(photo(), { user: 'a' })
     const b = pv.jpeg(photo(), { user: 'b' })
+    // the content hash is async: wait until a and b hold both runs, so the late request is the one that waits
+    for (let i = 0; i < 50 && pv.stats().running < 2; i++) await tick()
     const late = photo()
     const started = Date.now()
     const out = await settle(pv.jpeg(late, { user: 'c' }), 2000)
@@ -251,8 +257,10 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const f = fakeConverter()
     const pv = new HeicPreviews(path.join(tmp, 'cache-q3'), NONE, undefined, f.convert)
     const a = new AbortController(), b = new AbortController(), w = new AbortController()
-    const ra = pv.jpeg(photo(), { user: 'a', signal: a.signal }).catch((e) => e)
-    const rb = pv.jpeg(photo(), { user: 'b', signal: b.signal }).catch((e) => e)
+    const ra = pv.jpeg(photo('photo of a'), { user: 'a', signal: a.signal }).catch((e) => e)
+    const rb = pv.jpeg(photo('photo of b'), { user: 'b', signal: b.signal }).catch((e) => e)
+    // the content hash is async: wait until a and b hold both runs before w comes
+    for (let i = 0; i < 50 && pv.stats().running < 2; i++) await tick()
     const rw = pv.jpeg(photo(), { user: 'w', signal: w.signal })
     await tick()
     expect(pv.stats()).toEqual({ running: 2, waiting: 1 })
@@ -263,7 +271,7 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     // the only caller of a running conversion goes away: the converter gets the stop signal and the slot is free
     a.abort()
     await tick()
-    expect(f.calls[0]!.signal?.aborted).toBe(true)
+    expect(f.calls.find((c) => Buffer.from(c.bytes).toString() === 'photo of a')!.signal?.aborted).toBe(true)
     expect(pv.stats()).toEqual({ running: 1, waiting: 0 })
     b.abort()
     await Promise.all([ra, rb])
