@@ -527,7 +527,8 @@ export default function Files() {
                       selected={select === e.name}
                       checked={checked.has(e.path)}
                       onCheck={(shift) => check(e.path, shift)}
-                      onOpen={() => (e.type === 'folder' ? go(e.path) : previewKind(e.name) ? openTeamFile(e.path) : startDownload(fileUrl(e.path), e.name))}
+                      // A file without a viewer opens the panel too: it shows the "can't be previewed" notice and a download button.
+                      onOpen={() => (e.type === 'folder' ? go(e.path) : openTeamFile(e.path))}
                       onChat={() => chatWith(e)}
                       onAddToChat={chatAttach.target ? () => addToChat(e) : null}
                       chatTitle={chatAttach.target?.title ?? ''}

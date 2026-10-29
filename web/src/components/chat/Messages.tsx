@@ -6,9 +6,8 @@ import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, Fi
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
-import { fileUrl, thumbnailUrl } from '../../lib/api'
+import { thumbnailUrl } from '../../lib/api'
 import { formatSize } from '../../lib/format'
-import { previewKind } from '../../lib/preview'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -98,14 +97,11 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
         },
       }
     : {}
-  return previewKind(a.name) ? (
+  // every attachment opens the file panel; a format without a viewer shows the notice and a download button there
+  return (
     <button type="button" className={clsx(cls, 'text-left hover:bg-hover')} onClick={() => openTeamFile(a.path)} title={team ? t('composer.teamFile', { path: a.path }) : t('common.preview')} data-source={a.source ?? 'upload'} {...drag}>
       {body}
     </button>
-  ) : (
-    <a className={clsx(cls, 'hover:bg-hover')} href={fileUrl(a.path)} download={a.name} title={team ? t('composer.teamFile', { path: a.path }) : undefined} data-source={a.source ?? 'upload'} {...drag}>
-      {body}
-    </a>
   )
 }
 

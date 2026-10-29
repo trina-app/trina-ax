@@ -5,9 +5,8 @@ import { FolderKanban, Folder, MessageSquarePlus, Pencil, Plus, Share2, Trash2 }
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Chat, FileEntry, Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
-import { api, API, errorText, fileUrl, isApiError, startDownload } from '../lib/api'
+import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
-import { previewKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
@@ -332,7 +331,7 @@ export function ProjectHome() {
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-hover"
-                    onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : previewKind(f.name) ? openTeamFile(f.path) : startDownload(fileUrl(f.path), f.name))}
+                    onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
                   >
                     <Folder size={14} className={f.type === 'folder' ? 'text-accent-text' : 'invisible'} aria-hidden />
                     <span className="truncate">{f.name}</span>

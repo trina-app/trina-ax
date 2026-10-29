@@ -195,7 +195,13 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </div>
           </div>
         ) : !kind ? (
-          <p className="p-6 text-sm text-muted">{t('preview.unsupported')}</p>
+          // No viewer for this format (HWP, HWPX, ZIP, ...): the notice and a download button, never an automatic download
+          <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
+            <p className="text-sm text-muted">{t('preview.unsupported')}</p>
+            <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">
+              <Download size={16} aria-hidden /> {t('common.download')}
+            </Button>
+          </div>
         ) : error ? (
           <p className={error.kind === 'other' ? 'p-6 text-sm text-danger' : 'p-6 text-sm text-muted'} role="alert">
             {error.text}
