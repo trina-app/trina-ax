@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { checkSkill, listSkills, parseSkill, skillFileKind, skillIssues } from '../../server/src/chat/skills'
 import { teamRules } from '../../server/src/chat/prompt'
-import { skillFileText } from '../../server/src/skills/suggestions'
+import { registeredSkillText, skillFileText } from '../../server/src/skills/suggestions'
 import { SkillIssue } from '@mycel/shared/api'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'skill-issues-')))
@@ -24,7 +24,8 @@ put('skills/wrong-folder-qa/SKILL.md', '---\nname: press-release-qa-other\ndescr
 put('skills/no-description/SKILL.md', '---\nname: no-description\n---\nBody')
 put('skills/bad-yaml/SKILL.md', '---\nname: bad-yaml\ndescription: "open\n---\nBody')
 put('skills/legacy.md', '---\nname: 주간 보고서\ndescription: 한국어 기존 형식\n---\nLegacy body')
-put('skills/broken-quote.md', '---\nname: 깨진 머리말\ndescription: "닫히지 않은 따옴표\n---\nBROKEN_QUOTE')
+put('skills/open-quote.md', '---\nname: 열린 따옴표\ndescription: "닫히지 않은 따옴표\n---\nOPEN_QUOTE')
+put('skills/broken-dup.md', '---\nname: 깨진 머리말\nname: 두 번째 이름\n---\nBROKEN_DUP')
 put('skills/broken-line.md', '---\nname: 깨진 머리말 2\n이 줄은 키가 없다\n---\nBROKEN_LINE')
 put('skills/no-name.md', '---\ndescription: no name\n---\nNO_NAME')
 put('skills/plain-rule.md', 'PLAIN_RULE')
@@ -35,8 +36,8 @@ test('R2-SKILL-03: invalid manifests and broken headers are reported with a code
   const issues = skillIssues(files, user)
   expect(issues).toEqual([
     { path: 'skills/bad-yaml/SKILL.md', problem: 'header' },
+    { path: 'skills/broken-dup.md', problem: 'header' },
     { path: 'skills/broken-line.md', problem: 'header' },
-    { path: 'skills/broken-quote.md', problem: 'header' },
     { path: 'skills/no-description/SKILL.md', problem: 'description' },
     { path: 'skills/no-name.md', problem: 'name' },
     { path: 'skills/wrong-folder-qa/SKILL.md', problem: 'name_folder' },
@@ -44,11 +45,11 @@ test('R2-SKILL-03: invalid manifests and broken headers are reported with a code
   for (const i of issues) expect(SkillIssue.parse(i)).toEqual(i)
   // the hidden folder, the plain rule, the valid entries and resource files are never reported
   expect(JSON.stringify(issues)).not.toContain('private')
-  expect(listSkills(files, user).map(s => s.path)).toEqual(['skills/good/SKILL.md', 'skills/legacy.md'])
+  expect(listSkills(files, user).map(s => s.path)).toEqual(['skills/good/SKILL.md', 'skills/open-quote.md', 'skills/legacy.md'])
 })
 
 test('R2-SKILL-04: a broken legacy header is not a skill and not a team rule', () => {
-  for (const rel of ['skills/broken-quote.md', 'skills/broken-line.md']) {
+  for (const rel of ['skills/broken-dup.md', 'skills/broken-line.md']) {
     const text = fs.readFileSync(path.join(root, rel), 'utf8')
     expect(parseSkill(text, rel)).toBeNull()
     expect(checkSkill(text, rel)).toEqual({ ok: false, problem: 'header' })
@@ -56,7 +57,8 @@ test('R2-SKILL-04: a broken legacy header is not a skill and not a team rule', (
   }
   const rules = teamRules(files, user)
   expect(rules).toContain('PLAIN_RULE')
-  expect(rules).not.toContain('BROKEN_QUOTE')
+  expect(rules).not.toContain('BROKEN_DUP')
+  expect(rules).not.toContain('OPEN_QUOTE')
   expect(rules).not.toContain('BROKEN_LINE')
 })
 
@@ -67,13 +69,42 @@ test('legacy headers keep their loose value format and valid YAML still loads', 
   expect(parseSkill('---\nname:주간\ndescription:설명\n---\nB')).toEqual({ name: '주간', description: '설명', body: 'B' })
   expect(parseSkill('---\nname: 보고서\n설명: 한국어 키는 무시\ndescription: [팀] 주간 {보고}\n---\nB')?.description).toBe('[팀] 주간 {보고}')
   expect(parseSkill('---\nname: a\nname: b\n---\nB')).toBeNull()
-  expect(parseSkill('---\nname: a\ndescription: [broken\n---\nB')).toBeNull()
-  expect(parseSkill('---\nname: a\ndescription: {broken\n---\nB')).toBeNull()
+  expect(parseSkill('---\nname: a\n---\nB')).not.toBeNull()
 })
 
-test('the header written for a registered suggestion always loads', () => {
-  for (const [name, description] of [['주간: 보고서', 'Steps: read # then "write" it'], ['- 목록', "'quoted' start"], ['plain', '']]) {
-    const parsed = parseSkill(skillFileText(name!, description!, 'Steps'))
-    expect(parsed?.name).toBe(name!.replace(/^'(.*)'$/, '$1'))
+test('a legacy value whose opening quote or bracket does not close is plain text and still loads', () => {
+  for (const v of ['[긴급 처리용', '{broken', '"Draft mode', "'til month end, summarize sales"]) {
+    expect(parseSkill(`---\nname: a\ndescription: ${v}\n---\nB`)).toEqual({ name: 'a', description: v, body: 'B' })
+    expect(parseSkill(`---\nname: ${v}\ndescription: d\n---\nB`)?.name).toBe(v)
   }
+  // only real breakage is rejected: a line without a colon, a duplicate key
+  expect(checkSkill('---\nname: a\nno colon here\n---\nB')).toEqual({ ok: false, problem: 'header' })
+  expect(checkSkill('---\nname: a\nNAME: b\n---\nB')).toEqual({ ok: false, problem: 'header' })
+  // quoted legacy values follow the YAML rules
+  expect(parseSkill(`---\nname: 'it''s'\ndescription: "say \\"hi\\""\n---\nB`)).toEqual({ name: "it's", description: 'say "hi"', body: 'B' })
+  expect(parseSkill('---\nname: a\ndescription: "C:\\path"\n---\nB')?.description).toBe('C:\\path')
+})
+
+const REVIEW_VALUES = [
+  ['주간: 보고서', 'Steps: read # then "write" it'], ['- 목록', "'quoted' start"], ['plain', ''],
+  ['[팀 보고', "'til month end, summarize sales"], ['초안', '"Draft mode'], ['고객', '{고객명 placeholder'],
+  ["'quoted'", '"both"'], ['back\\slash', 'tab\there'], ['  spaces  ', 'line\nbreak'], ['# hash', '| pipe > fold'],
+]
+
+test('the header written for a registered suggestion always loads with the typed text', () => {
+  for (const [name, description] of REVIEW_VALUES) {
+    const text = skillFileText(name!, description!, 'Steps')
+    const check = checkSkill(text, 'skills/new.md')
+    expect(check).toEqual({ ok: true, name: name!.trim(), description: description!.replace(/[\r\n]+/g, ' ').trim(), body: 'Steps\n' })
+    expect(skillFileKind(root, 'skills/new.md', text)).toBe('skill')
+    expect(registeredSkillText('skills/new.md', name!, description!, 'Steps')).toEqual({ ok: true, text })
+  }
+})
+
+test('a registered suggestion that would not load is refused before the save', () => {
+  // fileName "SKILL" makes a manifest: its name must be the folder name
+  expect(registeredSkillText('skills/report/SKILL.md', '주간 보고서', 'd', 'Steps')).toEqual({ ok: false, problem: 'name', field: 'body.name' })
+  expect(registeredSkillText('skills/report/SKILL.md', 'other', 'd', 'Steps')).toEqual({ ok: false, problem: 'name_folder', field: 'body.name' })
+  expect(registeredSkillText('skills/report/SKILL.md', 'report', '', 'Steps')).toEqual({ ok: false, problem: 'description', field: 'body.description' })
+  expect(registeredSkillText('skills/report/SKILL.md', 'report', 'Makes "reports": [weekly', 'Steps').ok).toBe(true)
 })

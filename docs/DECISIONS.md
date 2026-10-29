@@ -2481,19 +2481,26 @@ including same-account installs. Extend the same synthetic selection tests to co
 
 - **Problem.** A `SKILL.md` whose `name` is not its folder name (or that fails another check) did not appear in the
   "/" list, and no screen told the person why (R2-SKILL-03). The legacy parser needed only a valid `name`. A legacy
-  file with a broken header (a quote that does not close, a line that is not `key: value`) was listed as a working
+  file with a broken header (a line that is not `key: value`, a duplicate key) was listed as a working
   skill (R2-SKILL-04).
 - **Decision.** `checkSkill()` (`server/src/chat/skills.ts`) returns the skill or a problem code (`header`,
   `location`, `name`, `name_folder`, `description`, `compatibility`, `too_large`). `parseSkill()` keeps its old
-  result. A legacy header is valid when each line is `key: value` (the space after the colon is optional) with
-  unique keys and each opened quote or bracket closes again, or when it is valid YAML (for example a block scalar). Values keep their loose format, because
-  `skillFileText()` writes registered suggestions without YAML quoting. A legacy file with a broken header is not a
-  skill and not a team rule (`skillFileKind` gives `other`).
+  result. A legacy header is valid when each line is `key: value` (the space after the colon is optional) and each
+  key comes once (the case of a key is ignored), or when it is valid YAML (for example a block scalar). Only a line
+  without a colon or a duplicate key breaks a legacy header. A value that opens a quote or bracket and does not close
+  it is plain text (older files have values such as `[긴급 처리용`), so it still loads. A value in matching double
+  quotes is decoded as a JSON / YAML string when it is one, and `''` in single quotes is `'`. A legacy file with a
+  broken header is not a skill and not a team rule (`skillFileKind` gives `other`).
+- **Registered suggestions.** `skillFileText()` writes `name` and `description` as YAML double-quoted strings, so a
+  quote, bracket, colon or `#` in a value never breaks the header. Before the save, `approveSuggestion()` checks the
+  written text with `checkSkill()` at its path (`registeredSkillText()`). If the file would not load (for example
+  file name `SKILL` makes a manifest outside its own folder), the server refuses with `validation`, the reason code
+  in `fields`, and saves nothing.
 - **Warning.** `GET /api/skills/issues` lists the entries that do not load, with the code only. It checks only the
   entries the caller can read (the same walk as `listSkills`), so it never shows a hidden path. The Skills screen
   shows all issues. The Files screen shows the issues in and below the open `skills/` folder. Each line links to
   the file.
-- **Tests.** `tests/unit/skill-issues.test.ts`, `web/test/unit/skill-issues.test.ts`.
+- **Tests.** `tests/unit/skill-issues.test.ts`, `tests/unit/skill-register.test.ts`, `web/test/unit/skill-issues.test.ts`.
 
 ## Team skills: suggestion notices stay in the notification inbox (R2-SKILL-12, 2026-10-29)
 

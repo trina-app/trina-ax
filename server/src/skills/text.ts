@@ -28,6 +28,7 @@ export const SKILL_TEXT = {
   notManager: t('이 폴더의 팀 스킬을 관리할 권한이 없습니다.', 'You do not manage the team skills of this folder.', 'Anda tidak mengelola skill tim di folder ini.'),
   alreadyReviewed: t('이미 처리된 제안입니다.', 'This suggestion was already handled.', 'Usulan ini sudah ditangani.'),
   fileExists: t('같은 이름의 파일이 이미 있습니다: {path}. 파일 이름을 바꿔 주세요.', 'A file with that name already exists: {path}. Change the file name.', 'Sudah ada berkas dengan nama itu: {path}. Ganti nama berkasnya.'),
+  notLoadable: t('이 이름과 설명으로 저장하면 스킬 파일을 읽을 수 없습니다 ({problem}). 이름, 설명 또는 파일 이름을 바꿔 주세요.', 'The skill file would not load with this name and description ({problem}). Change the name, the description or the file name.', 'Berkas skill tidak dapat dimuat dengan nama dan deskripsi ini ({problem}). Ubah nama, deskripsi, atau nama berkasnya.'),
   managerNotSubject: t('팀장·관리자는 항상 팀 스킬을 관리합니다.', 'The owner and admins always manage team skills.', 'Pemilik dan admin selalu mengelola skill tim.'),
 } as const
 
