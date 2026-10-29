@@ -7,6 +7,8 @@ import path from 'node:path'
 import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { FILE_TOOLS } from '../../shared/src/tools'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
 
 setDefaultTimeout(30_000)
@@ -502,12 +504,23 @@ describe('instructions', () => {
     expect(s).toContain('User: Alice Kim (id alice, role member, groups Marketing)')
     expect(s).toMatch(/Writable folders: .*groups\/marketing.*projects\/falcon.*shared.*users\/alice/)
     expect(s).toContain('Read-only folders: projects/falcon/public, skills')
+    // B-W4-2 / PERM-07: call write or edit and let the server refuse, so the own-folder recovery button can show
+    expect(s).toContain(WRITE_ACCESS_RULE)
     expect(s).toContain('Answer in English')
     expect(s).toContain('### skills/team-rules.md')
     expect(s).toContain('## Project: Falcon')
     expect(s).toContain('<project_instructions>\nAlways cite the plan file.\n</project_instructions>')
     expect(s).not.toContain('## Browser')
     expect(s).not.toContain('CANARY')
+  })
+})
+
+describe('write access', () => {
+  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07)', () => {
+    expect(WRITE_ACCESS_RULE).toContain('call write or edit and let the server decide')
+    expect(WRITE_ACCESS_RULE).toContain('do not refuse on your own guess')
+    expect(WRITE_ACCESS_RULE).toContain('do not save a copy somewhere else unless they ask')
+    for (const t of [FILE_TOOLS.write, FILE_TOOLS.edit]) expect(t.description).toContain('The server checks access on each call')
   })
 })
 

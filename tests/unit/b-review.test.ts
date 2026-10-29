@@ -20,7 +20,7 @@ import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { Hub, MAX_SOCKETS_PER_USER } from '../../server/src/realtime/hub'
 import { MAX_POLLERS_PER_USER } from '../../server/src/realtime/browser-relay'
 import { bunConn, type ConnHooks } from '../../server/src/routes/ws'
-import { ENVIRONMENT, historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
+import { ENVIRONMENT, WRITE_ACCESS_RULE, historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
 import { LocalEngines, MODEL_RE } from '../../server/src/chat/engines'
 import { stepId } from '../../server/src/chat/turn'
 import type { AppContext } from '../../server/src/context'
@@ -308,6 +308,7 @@ describe('app review fixes', () => {
     expect(message).toStartWith('<turn_context>')
     expect(message).toContain('Prefers bullet points')
     expect(message).toContain('Answer in English')
+    expect(message).toContain(WRITE_ACCESS_RULE) // B-W4-2: a resumed session also gets the write-access rule
     expect(message).toContain('@fake') // the person's own message follows the block
   })
 

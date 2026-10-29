@@ -2426,3 +2426,16 @@ including same-account installs. Extend the same synthetic selection tests to co
   a key word in capitals is the shape of a written test key.
 - **Tests.** `tests/unit/secrets.test.ts` (keys and negative cases), `tests/unit/b-chat-titles.test.ts` (placeholder,
   AI title, person's title, start-up scan, and the list, search, one chat and rename through the API).
+## The AI calls write or edit and lets the server decide access (QA B-W4-2 / PERM-07, 2026-10-29)
+
+- **Problem.** The AI read "Read-only folders" in its instructions (or a folder name such as `읽기전용`) and refused in
+  text without a write or edit call. The server did not refuse, so no rejected file event existed and the
+  "save in my folder" button under the answer did not show.
+- **Decision.** `WRITE_ACCESS_RULE` in `server/src/chat/prompt.ts` tells the AI that folder lists and folder names are
+  hints, not the access check: it calls write or edit and the server decides. After a denial it tells the user and
+  does not save a copy somewhere else unless the user asks, so the existing recovery button and draft stay in use.
+  The rule is in the person lines, so a resumed Claude session gets it in `<turn_context>` too. The write and edit
+  tool descriptions also say that the server checks access on each call.
+- **Limit.** This is a prompt change. It makes the server refusal path more likely but cannot make sure that the model
+  calls the tool. No button shows after a refusal in text only; that needs a text-refusal detector and is not built.
+  No user-visible strings changed.
