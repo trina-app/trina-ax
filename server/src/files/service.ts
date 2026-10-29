@@ -137,8 +137,9 @@ export class FileService {
   async grep(ctx: ToolCtx, a: any): Promise<ToolOutput> {
     const { rules, r, isFile } = this.base(ctx, a.path)
     const ctxN = a['-C'] ?? 0
+    // the person's own background share, not the shared "system" owner (one AI grep must not fill the queue for all)
     const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, {
-      pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
+      officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
     })
     for (const f of res.files) ctx.files.readPaths.add(f)

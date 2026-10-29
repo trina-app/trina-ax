@@ -113,6 +113,8 @@ describe('query handling', () => {
   })
 
   test('office documents are searched through the text cache', async () => {
+    // start from an idle indexer: fixture office files from the harness start must not count as pending here
+    await h.ctx.files.office.idle()
     const dir = fs.mkdtempSync(path.join(h.dataDir, 'xlsx-'))
     const put = (rel: string, s: string) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), s) }
     put('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
