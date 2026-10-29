@@ -28,7 +28,7 @@ function audience(ctx: AppContext, rel: string) {
  * never publish it again or guess that a same-hash independent file belongs to us.
  * The journal and hash quarantine precede linkat and survive any later failure. */
 export function recoverPublications(db: Database, root: string, own = false) {
-  for(const row of db.query("SELECT id,destination,owner_pid FROM safe_ops_publications WHERE cleanup!='clean'").all() as {id:string;destination:string;owner_pid:number}[]) {
+  for(const row of db.query("SELECT id,destination,owner_pid FROM safe_ops_publications WHERE cleanup!='clean' OR state='approved'").all() as {id:string;destination:string;owner_pid:number}[]) {
     if (!own) { try { process.kill(row.owner_pid,0); continue } catch(e:any) { if(e.code!=='ESRCH') continue } }
     try {
       broker(root,['clean',row.destination,row.id])
