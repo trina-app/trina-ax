@@ -24,7 +24,7 @@ const PLAN = {
   format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 3, diskGiB: 50, reserveMiB: 768,
   turnMemoryMaxMiB: null, turnPidsMax: 256, turnDiskMaxMiB: 1024, readMaxMiB: 128, convMemoryMaxMiB: null,
   localBackupRetentionDays: 3, updatedAt: '2026-10-22T00:00:00Z', maxActiveMembers: 12,
-  display: { name: { ko: '\uD300', en: 'Team', id: 'Tim' } },
+  display: { name: { ko: '\uD300', en: 'Team', id: 'Tim', ja: "チーム", es: "Equipo" } },
   links: { account: 'https://account.treesoop.com', status: 'https://status.treesoop.com', support: 'support@treesoop.com' },
 }
 const NOTICES = { format: 1, issuedAt: '2026-10-22T00:00:00Z', notices: [] as unknown[] }

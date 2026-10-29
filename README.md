@@ -2,6 +2,8 @@
 
 [English](README.md) · [한국어](README.ko.md) · [Website](https://ax.trina.app) · [Documentation](docs/README.md)
 
+The app supports English, Korean, Indonesian, Japanese (日本語), and Spanish (Español). Choose your account language in Settings.
+
 [![CI](https://github.com/trina-app/trina-ax/actions/workflows/ci.yml/badge.svg)](https://github.com/trina-app/trina-ax/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-orange)](LICENSE)
 

@@ -37,7 +37,7 @@ export function expiringNotices(cc: CredCtx) {
     if (r.kind !== 'anthropic-oauth' || r.disabled || !r.expires_at) continue
     const left = Date.parse(r.expires_at) - now
     if (left <= 0 || left > EXPIRING_MS) continue
-    notifyOnce(cc, r.id, { level: 'warn', code: 'credential_expiring', message: { ko: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'ko') }).ko, en: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'en') }).en, id: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'id') }).id }, link: '/admin/credentials' }, ownerAndAdminsPlusOwnerOf(cc, r), DAILY_MS)
+    notifyOnce(cc, r.id, { level: 'warn', code: 'credential_expiring', message: { ko: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'ko') }).ko, en: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'en') }).en, id: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'id') }).id, ja: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'ja') }).ja, es: ctAll('nExpiring', { label: r.label, date: fmtDate(r.expires_at, 'es') }).es }, link: '/admin/credentials' }, ownerAndAdminsPlusOwnerOf(cc, r), DAILY_MS)
   }
 }
 

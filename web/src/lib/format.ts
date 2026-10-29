@@ -1,7 +1,7 @@
 // Dates, sizes and numbers through Intl (tab 5: 날짜·숫자는 Intl API로).
 import type { Locale } from '@mycel/shared/api'
 
-const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID' }
+const TAG: Record<Locale, string> = { ko: 'ko-KR', en: 'en-US', id: 'id-ID', ja: 'ja-JP', es: 'es' }
 export const intlTag = (l: Locale) => TAG[l]
 
 export function formatSize(bytes: number | null | undefined, locale: Locale): string {

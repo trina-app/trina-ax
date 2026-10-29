@@ -9,6 +9,8 @@ import type { Plugin } from 'vite'
 import { PRODUCT } from '../../shared/src/product.ts'
 import { asLocale } from '../../shared/src/api/common'
 import { en } from '../src/i18n/en'
+import { ja } from '../src/i18n/ja'
+import { es } from '../src/i18n/es'
 import { id } from '../src/i18n/id'
 import { ko } from '../src/i18n/ko'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY, recoveryLocale } from '../src/i18n/recovery-locale'
@@ -39,7 +41,7 @@ export function pwaFile(name: keyof typeof PWA_FILES): string {
   let text = fillProduct(fs.readFileSync(path.join(PWA_DIR, name), 'utf8'), `web/pwa/${name}`, true)
   if (name === 'sw.js') {
     // JSON is embedded inside an HTML script inside a JS template literal: escape each boundary.
-    const messages = Object.fromEntries(Object.entries({ ko, en, id }).map(([locale, dict]) => [locale, {
+    const messages = Object.fromEntries(Object.entries({ ko, en, id, ja, es }).map(([locale, dict]) => [locale, {
       title: dict['conn.cantReach'], hint: dict['conn.cantReachHint'], retry: dict['common.retry'],
     }]))
     const script = `(() => {

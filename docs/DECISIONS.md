@@ -2741,3 +2741,45 @@ including same-account installs. Extend the same synthetic selection tests to co
   cases still assert actual activation/control and that the fallback response comes from the worker.
 - No locale policy, translations, credentials or cached account data change. Apply the same fix in the
   shared core (`potenlab/team-ax`).
+
+## Japanese and Spanish app languages (2026-10-29)
+
+- Add Japanese (`ja`, 日本語) and Spanish (`es`, Español) to Korean, English and Indonesian. Translate the full
+  web/mobile-web, server/error, recipient-specific push, relay, generated offline/recovery, Electron (including
+  welcome and edition-domain text), and macOS menu bar string sets. The mobile native shell has no separate
+  ko/en/id catalog; its native pre-connection/error chrome remains English, while its WebView displays the
+  translated app. Invitations/password resets use links, not a separate
+  localized email template. Dates and numbers use `Intl` with the selected language.
+- Keep account choice → team default → English precedence. Browser detection applies only to first-run setup,
+  when there is no team language yet; `ja-JP`, `es-ES`, `es-MX` and other supported regional tags normalize to
+  `ja`/`es`. Unsupported detection falls back to English. Browser/OS language never overrides an account choice.
+- **Future strings: require all five app-owned translations.** This follows the existing typed dictionaries and
+  Korean-literal guard and avoids silent translation debt while branches add keys. Run `bun run check:i18n`:
+  it lists every missing key/table entry and ja/es placeholder or ICU-form mismatch against English, exits
+  nonzero, and never copies English into a supposedly translated key. The unit suite runs the same audit;
+  typecheck also enforces all five arguments for server text helpers. Merge new keys with all five translations.
+  The existing runtime English fallback remains defensive. External cloud notices/release descriptions may
+  omit ja/es because older control planes still send three languages; those payloads alone keep optional ja/es
+  fields and English fallback. The no-Korean-literals-in-shared-code guard is unchanged.
+- Japanese uses polite です/ます wording; Spanish uses neutral, usted-compatible business wording. Preserve
+  product names, substitution parameters and English ICU branches (Japanese selects `other`).
+
+| Product term | Japanese | Spanish |
+| --- | --- | --- |
+| 팀장 / team owner | チームオーナー (role: オーナー) | propietario del equipo (role: Propietario) |
+| 관리자 / admin | 管理者 | Administrador |
+| 멤버 / member | メンバー | Miembro |
+| 팀 스킬 / team skills | チームスキル | Habilidades del equipo |
+| 휴지통 / trash | ゴミ箱 | Papelera |
+| 연결 / connection | 接続 | Conexión |
+| AI 연결 / AI connection | AI接続 | Conexión de IA |
+| 구독 공유 / subscription sharing | サブスクリプションの共有 | Uso compartido de suscripciones |
+| 정기 작업 / scheduled tasks | 定期タスク | Tareas programadas |
+| 충돌 사본 / conflict copy | 競合コピー | copia en conflicto |
+| 복원됨 / restored | 復元済み | restaurado |
+| 메모리 / memory | メモリ | Memoria |
+| 아티팩트 / artifact | アーティファクト | Artefacto |
+
+- Verification covers dictionary/table completeness and substitutions, ICU forms, native-name pickers and setup
+  detection, account persistence, recipient push language, formatting, stopped-server web offline pages, and
+  Electron native recovery. Browser screenshots cover settings, chat, files, skills, trash and offline in ja/es.

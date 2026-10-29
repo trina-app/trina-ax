@@ -21,7 +21,7 @@ export const JOBS_PER_USER = 5
 const JOBS_FULL: Record<string, string> = {
   ko: '진행 중이거나 기다리는 작업이 5개입니다. 앞의 작업이 끝난 뒤 다시 해 주세요.',
   en: 'You already have 5 jobs running or waiting. Try again when one of them is done.',
-  id: 'Sudah ada 5 pekerjaan yang berjalan atau menunggu. Coba lagi setelah salah satunya selesai.',
+  id: 'Sudah ada 5 pekerjaan yang berjalan atau menunggu. Coba lagi setelah salah satunya selesai.', ja: "実行中または待機中のジョブがすでに5件あります。いずれかが完了してから再試行してください。", es: "Ya tiene 5 tareas en ejecución o en espera. Reinténtelo cuando termine alguna.",
 }
 
 export class JobFailure extends Error {
@@ -37,7 +37,7 @@ const PROGRESS_EVERY_MS = 500
 export const INTERRUPTED: Record<Locale, string> = {
   ko: '서버가 다시 시작되어 작업이 중단되었습니다. 다시 시도해 주세요.',
   en: 'The server restarted and the job was interrupted. Please try again.',
-  id: 'Server dimulai ulang dan pekerjaan terhenti. Silakan coba lagi.',
+  id: 'Server dimulai ulang dan pekerjaan terhenti. Silakan coba lagi.', ja: "サーバーが再起動したため処理が中断されました。再試行してください。", es: "El servidor se reinició y la tarea se interrumpió. Vuelva a intentarlo.",
 }
 
 interface Row { id: string; user_id: string | null; kind: JobKind; status: JobStatus; progress: number | null; message: string | null; result: string | null; error: string | null; created_at: string; finished_at: string | null }

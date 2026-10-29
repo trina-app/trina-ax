@@ -45,7 +45,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSUIElement</key><true/>
   <key>MycelProductId</key><string>$ID</string>
   <key>CFBundleDevelopmentRegion</key><string>ko</string>
-  <key>CFBundleLocalizations</key><array><string>ko</string><string>en</string><string>id</string></array>
+  <key>CFBundleLocalizations</key><array><string>ko</string><string>en</string><string>id</string><string>ja</string><string>es</string></array>
 </dict></plist>
 EOF
 plutil -lint "$APP/Contents/Info.plist" >/dev/null

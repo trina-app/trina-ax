@@ -17,9 +17,9 @@ import type { RouteModule } from './module'
 import { feature } from '../system/deployment'
 
 const T = {
-  notOffice: { ko: '자동 업데이트는 사무실 모드 설치에서만 씁니다.', en: 'Automatic updates are part of an office mode installation.', id: 'Pembaruan otomatis hanya untuk instalasi mode kantor.' },
-  noAgent: { ko: '이 설치에는 자동 업데이트가 아직 없습니다. 서버 맥에서 새 zip의 office-install.sh를 한 번 실행하세요.', en: 'This installation has no automatic updates yet. Run office-install.sh from the new zip once on the server Mac.', id: 'Instalasi ini belum punya pembaruan otomatis. Jalankan office-install.sh dari zip baru sekali di Mac server.' },
-  running: { ko: '업데이트가 이미 진행 중입니다.', en: 'An update is already running.', id: 'Pembaruan sedang berjalan.' },
+  notOffice: { ko: '자동 업데이트는 사무실 모드 설치에서만 씁니다.', en: 'Automatic updates are part of an office mode installation.', id: 'Pembaruan otomatis hanya untuk instalasi mode kantor.', ja: "自動更新はオフィスモードのインストールに含まれます。", es: "Las actualizaciones automáticas forman parte de una instalación en modo oficina." },
+  noAgent: { ko: '이 설치에는 자동 업데이트가 아직 없습니다. 서버 맥에서 새 zip의 office-install.sh를 한 번 실행하세요.', en: 'This installation has no automatic updates yet. Run office-install.sh from the new zip once on the server Mac.', id: 'Instalasi ini belum punya pembaruan otomatis. Jalankan office-install.sh dari zip baru sekali di Mac server.', ja: "このインストールにはまだ自動更新がありません。サーバーのMacで新しいzipのoffice-install.shを一度実行してください。", es: "Esta instalación aún no tiene actualizaciones automáticas. Ejecute una vez office-install.sh del nuevo zip en la Mac del servidor." },
+  running: { ko: '업데이트가 이미 진행 중입니다.', en: 'An update is already running.', id: 'Pembaruan sedang berjalan.', ja: "更新はすでに実行中です。", es: "Ya hay una actualización en curso." },
 }
 const tr = (l: Locale, m: Record<Locale, string>) => m[l] ?? m.en
 

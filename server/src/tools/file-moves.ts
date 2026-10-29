@@ -21,18 +21,18 @@ import type { ToolRegistry } from './registry'
 
 export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file'] as const
 
-const t = (ko: string, en: string, id: string): Record<Locale, string> => ({ ko, en, id })
+const t = (ko: string, en: string, id: string, ja: string, es: string): Record<Locale, string> => ({ ko, en, id, ja, es })
 export const TEXT = {
-  move: t('AI가 {n}개 항목을 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n} item(s) to {to}.', 'AI ingin memindahkan {n} item ke {to}.'),
-  copy: t('AI가 파일 {n}개를 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n} file(s) to {to}.', 'AI ingin menyalin {n} berkas ke {to}.'),
-  added: t('지금보다 {n}명이 더 볼 수 있게 돼요.', '{n} more people will be able to see them.', '{n} orang lagi akan bisa melihatnya.'),
-  lost: t('지금 볼 수 있는 {n}명은 더 이상 볼 수 없게 돼요.', '{n} people who can see them now will no longer be able to.', '{n} orang yang kini bisa melihatnya tidak akan bisa lagi.'),
-  askMove: t('옮길까요?', 'Move them?', 'Pindahkan?'),
-  askCopy: t('복사할까요?', 'Copy them?', 'Salin?'),
-  more: t('외 {n}개', 'and {n} more', 'dan {n} lainnya'),
-  yesMove: t('옮기기', 'Move', 'Pindahkan'),
-  yesCopy: t('복사하기', 'Copy', 'Salin'),
-  no: t('하지 않기', 'Don’t', 'Jangan'),
+  move: t('AI가 {n}개 항목을 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n} item(s) to {to}.', 'AI ingin memindahkan {n} item ke {to}.', "AIが{n}個の項目を{to}に移動しようとしています。", "La IA quiere mover {n} elementos a {to}."),
+  copy: t('AI가 파일 {n}개를 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n} file(s) to {to}.', 'AI ingin menyalin {n} berkas ke {to}.', "AIが{n}個のファイルを{to}にコピーしようとしています。", "La IA quiere copiar {n} archivos a {to}."),
+  added: t('지금보다 {n}명이 더 볼 수 있게 돼요.', '{n} more people will be able to see them.', '{n} orang lagi akan bisa melihatnya.', "閲覧できる人が{n}人増えます。", "{n} personas más podrán verlos."),
+  lost: t('지금 볼 수 있는 {n}명은 더 이상 볼 수 없게 돼요.', '{n} people who can see them now will no longer be able to.', '{n} orang yang kini bisa melihatnya tidak akan bisa lagi.', "現在閲覧できる{n}人が閲覧できなくなります。", "{n} personas que ahora pueden verlos dejarán de tener acceso."),
+  askMove: t('옮길까요?', 'Move them?', 'Pindahkan?', "移動しますか？", "¿Moverlos?"),
+  askCopy: t('복사할까요?', 'Copy them?', 'Salin?', "コピーしますか？", "¿Copiarlos?"),
+  more: t('외 {n}개', 'and {n} more', 'dan {n} lainnya', "ほか{n}個", "y {n} más"),
+  yesMove: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover"),
+  yesCopy: t('복사하기', 'Copy', 'Salin', "コピー", "Copiar"),
+  no: t('하지 않기', 'Don’t', 'Jangan', "実行しない", "No hacerlo"),
 }
 const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
 

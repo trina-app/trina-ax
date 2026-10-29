@@ -44,7 +44,7 @@ describe('job service', () => {
     expect(fs.existsSync(C().jobs.dir(id))).toBe(false)
   })
   test('failures carry a message in the person\'s language; unexpected errors stay generic', async () => {
-    const a = C().jobs.start({ kind: 'export', userId: 'alice', run: async () => { throw new JobFailure('unavailable', { ko: '도구가 없습니다', en: 'tool missing', id: 'alat tidak ada' }) } })
+    const a = C().jobs.start({ kind: 'export', userId: 'alice', run: async () => { throw new JobFailure('unavailable', { ko: '도구가 없습니다', en: 'tool missing', id: 'alat tidak ada', ja: 'ツールがありません', es: 'falta la herramienta' }) } })
     expect((await C().jobs.wait(a))!.error).toEqual({ code: 'unavailable', message: '도구가 없습니다' }) // alice's locale is ko
     const b = C().jobs.start({ kind: 'export', userId: 'alice', run: async () => { throw new Error('secret internal detail') } })
     const jb = (await C().jobs.wait(b))!

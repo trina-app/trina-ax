@@ -54,17 +54,17 @@ export const Role = z.enum(['owner', 'admin', 'member'])
 export type Role = z.infer<typeof Role>
 export const UserStatus = z.enum(['active', 'disabled'])
 export type UserStatus = z.infer<typeof UserStatus>
-export const Locale = z.enum(['ko', 'en', 'id'])
+export const Locale = z.enum(['ko', 'en', 'id', 'ja', 'es'])
 export type Locale = z.infer<typeof Locale>
 /** Language when nothing else decides: no personal choice and no team default stored (a fresh install). */
 export const DEFAULT_LOCALE: Locale = 'en'
 /** Each language named in its own language (language pickers), in the order pickers list them. */
-export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', ko: '한국어', id: 'Bahasa Indonesia' }
-export const LOCALE_ORDER: readonly Locale[] = ['en', 'ko', 'id']
+export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', ko: '한국어', id: 'Bahasa Indonesia', ja: "日本語", es: "Español" }
+export const LOCALE_ORDER: readonly Locale[] = ['en', 'ko', 'id', 'ja', 'es']
 /** "ko" / "ko-KR" / "in" -> one of ours, else null. */
 export function asLocale(tag: string | null | undefined): Locale | null {
   const base = (tag ?? '').trim().toLowerCase().split(/[-_]/)[0]
-  if (base === 'ko' || base === 'en' || base === 'id') return base
+  if (base === 'ko' || base === 'en' || base === 'id' || base === 'ja' || base === 'es') return base
   if (base === 'in') return 'id' // old Java/Android code for Indonesian
   return null
 }
