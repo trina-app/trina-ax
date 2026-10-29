@@ -440,7 +440,11 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
  * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
 export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
-  if (s.startsWith('=') && startsLikeFormula(s.slice(1))) return formulaOf(s.slice(1))
+  if (s.startsWith('=') && startsLikeFormula(s.slice(1))) {
+    const r = formulaOf(s.slice(1))
+    // text such as "=3 days" or "=2x" starts like a formula but does not parse: it stays text
+    return 'notFormula' in r ? v : r
+  }
   if (s.startsWith("'=")) return s.slice(1)
   if (/^0\d/.test(s) || /^\+/.test(s) || s.replace(/\D/g, '').length > 15) return v
   if (/^-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ''))
@@ -494,12 +498,81 @@ function tokenize(f: string): Token[] | { error: string } {
   return out
 }
 
+const CELL_REF = /^\$?[A-Za-z]{1,3}\$?\d+$/
+const ERROR_LITERAL = /^#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA)/i
+const STRING_MARK = '\u0001', SHEET_MARK = '\u0002'
+
+/** Why the formula (from tokenize) does not parse as a whole, or null when it parses. The check is lexical: each
+ * operand must be a number, a "string", a function call NAME( (no space before "("), a cell or range reference
+ * ("B2", "$B$2", "B:B", "1:3"), a sheet-qualified reference ("Sheet!B2", "'Sheet 2'!B2"), TRUE/FALSE, an error
+ * value (#N/A) or an array {...}. Two operands next to each other ("3 days", "1 apple"), a number followed by letters
+ * ("2x") and other words ("Total", "see") do not parse. Note: this also refuses the intersection operator (a space
+ * between two ranges). */
+function structureError(tokens: Token[]): string | null {
+  const s = tokens.map((t) => (t.kind === 'code' ? t.text : t.kind === 'string' ? STRING_MARK : SHEET_MARK)).join('')
+  let operand = false // the last item ends an operand, so the next item must be an operator
+  let afterColon = false
+  const start = (): string | null => (operand ? 'two values are next to each other without an operator' : null)
+  for (let i = 0; i < s.length; ) {
+    const rest = s.slice(i)
+    const ch = s[i]!
+    if (/\s/.test(ch)) { i++; continue }
+    const colon = afterColon
+    afterColon = false
+    if (ch === STRING_MARK) { const e = start(); if (e) return e; operand = true; i++; continue }
+    if (ch === SHEET_MARK || /^[\p{L}_$]/u.test(rest)) {
+      const e = start(); if (e) return e
+      let word = ''
+      if (ch === SHEET_MARK) i++
+      else { word = /^[\p{L}\p{N}_.$]+/u.exec(rest)![0]; i += word.length }
+      if (ch === SHEET_MARK || s[i] === '!') {
+        // a sheet-qualified reference: the sheet name, "!", then a cell, column or row reference
+        if (ch !== SHEET_MARK && (word.includes('$') || /^\d/.test(word))) return `"${word}" is not a sheet name`
+        if (s[i] !== '!') return "a sheet name must be followed by '!'"
+        const ref = /^(?:\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}|\$?\d+)(?![\p{L}\p{N}_.$])/u.exec(s.slice(i + 1))
+        if (!ref) return 'a sheet name must be followed by a cell reference'
+        i += 1 + ref[0].length
+        operand = true
+        continue
+      }
+      if (s[i] === '(' && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(word)) { i++; operand = false; continue } // a function call
+      const nextColon = /^\s*:/.test(s.slice(i))
+      if (CELL_REF.test(word) || /^(?:TRUE|FALSE)$/i.test(word) || ((colon || nextColon) && /^\$?(?:[A-Za-z]{1,3}|\d+)$/.test(word))) {
+        operand = true
+        continue
+      }
+      return `"${word}" is not a function, a cell reference or TRUE/FALSE`
+    }
+    const num = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/.exec(rest)
+    if (num) {
+      const e = start(); if (e) return e
+      i += num[0].length
+      if (/^[\p{L}\p{N}_.$]/u.test(s.slice(i))) return 'a number is followed by letters'
+      operand = true
+      continue
+    }
+    if (ch === '#') {
+      const e = start(); if (e) return e
+      const lit = ERROR_LITERAL.exec(rest)
+      if (!lit) return 'the formula has an unknown error value'
+      i += lit[0].length
+      operand = true
+      continue
+    }
+    if (ch === '(' || ch === '{') { const e = start(); if (e) return e; operand = false; i++; continue }
+    if (ch === ')' || ch === '}' || ch === '%') { operand = true; i++; continue }
+    if ('+-*/^&=<>,;:'.includes(ch)) { operand = false; afterColon = ch === ':'; i++; continue }
+    return `the formula has the character "${ch}" in an unexpected place`
+  }
+  return null
+}
+
 const BLOCKED_CALL = new RegExp(`(${[...BLOCKED_FUNCTIONS].map((n) => n.replace('.', '\\.')).join('|')})\\s*\\(`, 'i')
 
 /** A formula (without the leading "=") as ExcelJS writes it, or why it is refused. Only text in "double quotes" is
  * not checked; code and 'quoted sheet names' may refer only to cells of this workbook ("B2", "Sheet2!B2",
  * "'Sheet 2'!B2"). */
-export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string } {
+export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string; notFormula?: true } {
   if (f.length > 8192) return { error: 'the formula is longer than 8192 characters' }
   if (!startsLikeFormula(f)) return { error: 'the formula does not start with a value, a reference or a function' }
   const tokens = tokenize(f)
@@ -518,6 +591,9 @@ export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string
   const code = tokens.map((t) => (t.kind === 'code' ? t.text : ' ')).join('')
   const call = BLOCKED_CALL.exec(code)
   if (call) return { error: `the function ${call[1]!.toUpperCase()} is not allowed in formulas (it can reach outside the workbook)` }
+  // the whole formula must parse; when it does not, cellValue keeps the cell as text ("=3 days", "=2x")
+  const bad = structureError(tokens)
+  if (bad) return { error: `the formula does not parse: ${bad}`, notFormula: true }
   let depth = 0
   for (const ch of code) if ((depth += ch === '(' ? 1 : ch === ')' ? -1 : 0) < 0) break
   if (depth !== 0) return { error: 'the parentheses of the formula do not match' }
