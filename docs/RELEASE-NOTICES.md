@@ -76,3 +76,8 @@ node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
 The notice tests use synthetic packages and generated in-memory signing keys. They cover actual resolved/nested versions, aliases, internal/external/dangling links, unsafe text, missing/optional/builtin dependencies, workspace grant boundaries, unchanged original bytes, stale/added/modified files, web replicas, outer signed-manifest inclusion, and standalone web/desktop selection. The existing office/Linux manifest regressions check the required notice entries. No provider or registry calls are needed.
 
 A separate local review exercised collection on a copy-on-write copy of a previously compiled macOS bundle, then generated a fixture Ed25519 signature, packed it and compared every packed notice to the signed manifest with OS networking denied. That validates the collection/pack path, not exact current-build provenance, production signing, native attribution completeness or permission to publish. The final filtered candidate must be rebuilt and reviewed with its actual installation and final source inputs.
+
+
+## PowerPoint distribution notices (2026-10-29)
+
+The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.
