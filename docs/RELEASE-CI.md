@@ -1,6 +1,6 @@
 # 태그 하나로 배포하기 (자동 배포)
 
-**현재 Trina 상태:** v0.2.3은 GitHub Releases에 게시되어 있습니다. 업데이트 피드는 아직 운영하지 않습니다.
+**현재 Trina 상태:** v0.2.5가 GitHub Releases와 업데이트 피드 `https://updates.trina.app`에 게시되어 있습니다. 피드는 2026-10-29부터 운영합니다.
 아래 피드 업로드 설명은 별도 피드 게시 설정을 켠 경우에만 적용됩니다. 현재 워크플로의 조건을 먼저 확인하세요.
 
 버전 태그를 push하면 GitHub Actions가 시험, 빌드, 서명과 GitHub Release 게시를 한다.

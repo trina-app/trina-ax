@@ -97,6 +97,10 @@ export const AppConfigFile = z.object({
   }).nullable().default(null),
   /** extra allowed Origins for CSRF / WebSocket checks, e.g. https://acme.treesoop.com. Same host is always allowed. */
   publicOrigins: z.array(z.string()).default([]),
+  /** app connectors (docs/INTEGRATIONS.md): people connect their own Claude to this server as a remote MCP server at
+   * https://<tunnel.host>. Needs tunnel. Off by default: it opens /oauth, /mcp and /connector-uploads on the public
+   * address. The environment variable MYCEL_REMOTE_MCP_ORIGIN, when set, wins (remote-mcp/oauth.ts connectorOrigin). */
+  appConnectors: z.boolean().default(false),
   teamRoot: z.string().optional(),
   dataDir: z.string().optional(),
   logDir: z.string().nullable().optional(),
@@ -170,6 +174,8 @@ export interface AppConfig {
   /** see AppConfigFile.tunnel; absent or null = no public address */
   tunnel?: { host: string; allowFrom: string[]; countries: string[] } | null
   publicOrigins: string[]
+  /** see AppConfigFile.appConnectors */
+  appConnectors?: boolean
   teamRoot: string
   dataDir: string
   logDir: string | null
@@ -251,6 +257,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     office: f.office,
     tunnel: f.tunnel,
     publicOrigins: origins,
+    appConnectors: f.appConnectors,
     teamRoot: env[P + 'TEAM_ROOT'] ? path.resolve(cwd, env[P + 'TEAM_ROOT']!) : f.teamRoot ? abs(f.teamRoot) : def.teamRoot,
     dataDir: env[P + 'DATA_DIR'] ? path.resolve(cwd, env[P + 'DATA_DIR']!) : f.dataDir ? abs(f.dataDir) : def.dataDir,
     logDir: logDirRaw ? path.resolve(base, logDirRaw) : null,

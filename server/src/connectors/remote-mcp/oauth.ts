@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
+import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
@@ -203,8 +204,16 @@ export class RemoteOAuth {
   }
 }
 
+/** The connector origin: MYCEL_REMOTE_MCP_ORIGIN when it is set (an invalid value = off), else https://<tunnel.host>
+ * when server.json has appConnectors: true and a tunnel, else null (off). */
+export function connectorOrigin(config: Pick<AppConfig, 'appConnectors' | 'tunnel'>, env: Record<string, string | undefined> = process.env): string | null {
+  const v = env.MYCEL_REMOTE_MCP_ORIGIN
+  if (v !== undefined && v !== '') return validOrigin(v)
+  return config.appConnectors && config.tunnel ? validOrigin(`https://${config.tunnel.host}`) : null
+}
+
 const instances = new WeakMap<AppContext, RemoteOAuth>()
 export function remoteOAuthOf(ctx: AppContext, opts?: { origin?: string | null; now?: () => number }) {
-  if (opts || !instances.has(ctx)) instances.set(ctx, new RemoteOAuth(ctx.db, opts))
+  if (opts || !instances.has(ctx)) instances.set(ctx, new RemoteOAuth(ctx.db, { ...opts, origin: opts?.origin !== undefined ? opts.origin : connectorOrigin(ctx.config) }))
   return instances.get(ctx)!
 }
