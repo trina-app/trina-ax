@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 import { extractText, officeWorkerScript } from '../../server/src/files/extract'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { isolation, runIsolated, sandboxProfile } from '../../server/src/tools/isolate'
-import { cellValue, markdownTables, parseCsv } from '../../server/src/tools/make-file'
+import { cellValue, formulaOf, markdownTables, parseCsv } from '../../server/src/tools/make-file'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { which } from '../../server/src/config'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
@@ -133,6 +133,41 @@ describe('make_file', () => {
     expect(parseCsv('a,"b ""q""\nc",d\r\n1,2,3')).toEqual([['a', 'b "q"\nc', 'd'], ['1', '2', '3']])
     expect(markdownTables('| a | b |\n| --- | :-: |\n| 1 | x \\| y |')).toEqual([{ title: undefined, rows: [['a', 'b'], ['1', 'x | y']] }])
     expect([cellValue('1,234.5'), cellValue('010-1234'), cellValue('+82'), cellValue('12345678901234567')]).toEqual([1234.5, '010-1234', '+82', '12345678901234567'])
+  })
+  test('xlsx: "=" cells become formulas (R2-GEN-02), "\'=" stays text, formulas that reach outside are refused', async () => {
+    const md = '## 지역별\n\n| 지역 | Q1 | Q2 | Q3 | Q4 | 합계 |\n|---|---|---|---|---|---|\n| 서울 | 10 | 20 | 30 | 40 | =SUM(B2:E2) |\n| 대전 | 2 | 4 | 6 | 8 | =sum(B3:E3) |\n| 합계 | =SUM(B2:B3) | | | | =SUM(F2:F3) |\n| note | \'=SUM(A1) | | | | |\n\n' +
+      '## 비율\n\n| 지역 | 비율 |\n|---|---|\n| 서울 | =지역별!F2/지역별!F4 |\n| 대전 | =IFERROR(\'지역별\'!F3/\'지역별\'!F4, 0) |\n| x | =XLOOKUP("서울",지역별!A2:A3,지역별!F2:F3) |\n'
+    const r = await call('alice', null, 'make_file', { content: md, format: 'xlsx', output: 'users/alice/out/f.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    expect(r.text).toContain('7 formula cells')
+    const dir = fs.mkdtempSync(path.join(A.data, 'unzip-'))
+    Bun.spawnSync(['unzip', '-o', '-q', path.join(A.team, 'users/alice/out/f.xlsx'), '-d', dir])
+    const sheet1 = fs.readFileSync(path.join(dir, 'xl/worksheets/sheet1.xml'), 'utf8')
+    const sheet2 = fs.readFileSync(path.join(dir, 'xl/worksheets/sheet2.xml'), 'utf8')
+    expect(sheet1).toContain('<f>SUM(B2:E2)</f>')
+    expect(sheet1).toContain('<f>SUM(B3:E3)</f>') // function names are written in upper case
+    expect(sheet1).toContain('<f>SUM(F2:F3)</f>')
+    expect(sheet2).toContain('<f>지역별!F2/지역별!F4</f>')
+    expect(sheet2).toContain('<f>_xlfn.XLOOKUP(&quot;서울&quot;,지역별!A2:A3,지역별!F2:F3)</f>')
+    expect(fs.readFileSync(path.join(dir, 'xl/workbook.xml'), 'utf8')).toMatch(/fullCalcOnLoad="1"/)
+    const wb = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')))
+    expect(wb.Sheets['지역별']!.B5.v).toBe('=SUM(A1)') // the apostrophe escape: plain text, no formula
+    expect(wb.Sheets['지역별']!.B5.f).toBeUndefined()
+
+    for (const [bad, why] of [
+      ["=cmd|'/c calc'!A1", 'DDE'], ['=[1]Sheet1!A1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
+      ['=HYPERLINK("https://example.com","x")', 'HYPERLINK'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
+    ]) {
+      const e = await call('alice', null, 'make_file', { content: `a,b\n1,"${bad!.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bad.xlsx' })
+      expect(e.isError, bad).toBe(true)
+      expect(e.text, bad).toContain(why!)
+      expect(e.text).toContain('cell B2')
+      expect(fs.existsSync(path.join(A.team, 'users/alice/out/bad.xlsx'))).toBe(false)
+    }
+    // text inside "quotes" is not checked as code; an unclosed quote is refused
+    expect(formulaOf('IF(A1="a|b[c]","HYPERLINK(",1)')).toEqual({ formula: 'IF(A1="a|b[c]","HYPERLINK(",1)' })
+    expect(formulaOf('"abc')).toHaveProperty('error')
+    expect([cellValue('=SUM(A1:A2)'), cellValue("'=x"), cellValue('='), cellValue("'quoted'")]).toEqual([{ formula: 'SUM(A1:A2)' }, '=x', '=', "'quoted'"])
   })
   test('source file and team images (only readable ones) work; an existing file gets a conflict copy unless read this turn', async () => {
     const png = path.join(A.data, 'p.png')

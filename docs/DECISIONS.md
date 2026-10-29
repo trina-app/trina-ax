@@ -2522,3 +2522,21 @@ including same-account installs. Extend the same synthetic selection tests to co
 - **No OS push for these events.** `push_deliveries` refers to `notification_inbox` only. `PushEventType` names the
   events that can go to push, and the service worker ignores the other codes.
 - **Tests.** `tests/unit/skill-notices.test.ts`, `web/test/unit/push-worker.test.ts`.
+## make_file: xlsx cells that start with "=" are formulas (R2-GEN-02, feat/qa2-makefile, 2026-10-29)
+
+- **Problem.** QA asked for an Excel file with row and column `SUM` totals. `make_file` wrote `=SUM(B2:E2)` as text,
+  so the file had no `<f>` node. The AI could only say that the formulas were not checked.
+- **Decision.** In a data row (not the header), a cell that starts with `=` becomes an ExcelJS formula cell. A cell
+  that starts with `'=` is the text after the apostrophe. Function names are written in upper case, and functions
+  newer than Excel 2007 (`XLOOKUP`, `IFS`, ...) get the `_xlfn.` prefix. The workbook sets `fullCalcOnLoad`, because
+  ExcelJS writes no results: Excel and LibreOffice calculate them on open. The tool result gives the number of
+  formula cells, and the tool description tells the AI the cell addresses (row 1 is the header, sheet name from the
+  heading).
+- **Safety.** The AI writes the cells, and a CSV `source` can be an upload, so a formula that can reach outside the
+  workbook is refused and nothing is saved: `[...]` (external workbooks), `|` (DDE), `\` (paths), and the functions
+  `HYPERLINK`, `WEBSERVICE`, `FILTERXML`, `INDIRECT`, `RTD`, `CALL`, `REGISTER`, `EXEC`, `IMAGE`, `CELL`, `INFO`,
+  `STOCKHISTORY` and the `IMPORT*` functions. Text in double quotes is not checked. The error names the sheet and
+  the cell and tells the AI to use `'=` for text.
+- **Changed behavior.** A CSV or Markdown cell that starts with `=` was text before and is a formula now.
+- **Tests.** `tests/unit/c-tools.test.ts`: `<f>` nodes in the sheet XML, a cross-sheet reference, `_xlfn.XLOOKUP`,
+  `fullCalcOnLoad="1"`, the `'=` escape, and each refused form writes no file.

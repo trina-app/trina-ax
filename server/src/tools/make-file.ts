@@ -4,7 +4,9 @@
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
 //   remote images are never fetched); Korean-capable fonts first
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
-//   filter + frozen header
+//   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
+//   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
+//   is refused and nothing is saved. The file has no stored results: Excel / LibreOffice calculate them on open.
 // Converters run isolated (tools/isolate.ts) in an empty work folder. Images the document refers to by a relative
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
 // The output goes through the policy function; an existing file is never overwritten silently: it gets a conflict
@@ -41,7 +43,7 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { deckMismatch, deckShape, readDeck, type Deck, type DeckShape } from './pptx-check'
 
 type Input = z.output<typeof MakeFileInput>
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number }
 
 const MAX_SOURCE = 10 * 1024 * 1024
 const MAX_IMAGE = 20 * 1024 * 1024
@@ -102,7 +104,8 @@ export class MakeFile {
       const produced = path.join(work, 'out.' + a.format)
       /** pptx from Markdown: what decides the slides (pptx-check.ts) */
       let shape: DeckShape | null = null
-      if (a.format === 'xlsx') await this.xlsx(text, kind, produced)
+      let formulas: number | undefined
+      if (a.format === 'xlsx') formulas = await this.xlsx(text, kind, produced)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
         let input: string
@@ -159,7 +162,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced)
-      return deck ? { ...made, deck } : made
+      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -267,7 +270,8 @@ export class MakeFile {
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string) {
+  /** Writes the workbook; returns the number of formula cells. */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<number> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -277,13 +281,24 @@ export class MakeFile {
     const wb = new ExcelJS.Workbook()
     wb.creator = PRODUCT.displayName
     wb.created = new Date()
+    // formulas are written without a result: the spreadsheet app calculates them when it opens the file
+    wb.calcProperties.fullCalcOnLoad = true
     const used = new Set<string>()
+    let formulas = 0
     for (const s of sheets) {
       let name = s.name.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || 'Sheet'
       for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
-      s.rows.forEach((row, ri) => ws.addRow(row.map((v) => (ri === 0 ? v : cellValue(v)))))
+      s.rows.forEach((row, ri) =>
+        ws.addRow(row.map((v, ci) => {
+          if (ri === 0) return v
+          const cv = cellValue(v)
+          if (typeof cv === 'object' && 'error' in cv) throw new ToolError(`sheet '${name}' cell ${columnName(ci + 1)}${ri + 1}: ${cv.error}; nothing was saved. Start the cell with '= to keep it as text.`)
+          if (typeof cv === 'object') formulas++
+          return cv
+        })),
+      )
       if (s.rows.length) {
         ws.getRow(1).font = { bold: true }
         const cols = Math.max(...s.rows.map((r) => r.length))
@@ -295,6 +310,7 @@ export class MakeFile {
       }
     }
     await wb.xlsx.writeFile(out)
+    return formulas
   }
 
   private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {
@@ -420,12 +436,56 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
   return out
 }
 
-/** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text. */
-export function cellValue(v: string): string | number {
+/** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text.
+ * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
+export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
+  if (s.startsWith('=') && s.length > 1) return formulaOf(s.slice(1))
+  if (s.startsWith("'=")) return s.slice(1)
   if (/^0\d/.test(s) || /^\+/.test(s) || s.replace(/\D/g, '').length > 15) return v
   if (/^-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ''))
   return v
 }
+
+/** Functions that read or open something outside the workbook, run code, or build references from text (which gets
+ * past the checks below). The AI writes the formula and a team-folder CSV can be an upload, so these are refused. */
+const BLOCKED_FUNCTIONS = new Set([
+  'HYPERLINK', 'WEBSERVICE', 'FILTERXML', 'ENCODEURL', 'RTD', 'CALL', 'REGISTER', 'REGISTER.ID', 'EXEC', 'DDE', 'DDEAUTO',
+  'IMAGE', 'INDIRECT', 'STOCKHISTORY', 'INFO', 'CELL', 'IMPORTDATA', 'IMPORTXML', 'IMPORTHTML', 'IMPORTFEED', 'IMPORTRANGE',
+])
+/** Functions newer than Excel 2007: the file format stores them with the "_xlfn." prefix, else Excel shows #NAME?. */
+const XLFN = new Set([
+  'IFS', 'SWITCH', 'MAXIFS', 'MINIFS', 'CONCAT', 'TEXTJOIN', 'XLOOKUP', 'XMATCH', 'IFNA', 'DAYS', 'STDEV.S', 'STDEV.P',
+  'VAR.S', 'VAR.P', 'RANK.EQ', 'RANK.AVG', 'MODE.SNGL', 'PERCENTILE.INC', 'PERCENTILE.EXC', 'QUARTILE.INC', 'QUARTILE.EXC',
+  'CEILING.MATH', 'FLOOR.MATH', 'UNIQUE', 'SORT', 'SORTBY', 'FILTER', 'SEQUENCE',
+])
+
+/** A formula (without the leading "=") as ExcelJS writes it, or why it is refused. Text in "double quotes" is kept as
+ * it is; everything else may refer only to cells of this workbook ("B2", "Sheet2!B2", "'Sheet 2'!B2"). */
+export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string } {
+  if (f.length > 8192) return { error: 'the formula is longer than 8192 characters' }
+  // split into "string literals" and the rest; "" inside a literal is a quote
+  const parts = f.split(/("(?:[^"]|"")*")/)
+  if (parts.some((p, i) => i % 2 === 0 && p.includes('"'))) return { error: 'the formula has an unclosed "' }
+  const code = parts.filter((_, i) => i % 2 === 0).join(' ')
+  if (/[[\]]/.test(code)) return { error: 'formulas may not refer to other files ([...])' }
+  if (code.includes('|')) return { error: 'formulas may not use DDE links (|)' }
+  if (code.includes('\\')) return { error: 'formulas may not refer to file paths' }
+  let blocked: string | null = null
+  const out = parts.map((p, i) => {
+    if (i % 2 === 1) return p
+    // 'quoted sheet names' are not code: keep them as they are
+    return p.split(/('(?:[^']|'')*')/).map((q, j) => (j % 2 === 1 ? q : q.replace(/(?<![A-Za-z0-9_.])(?:_xlfn\.)?([A-Za-z][A-Za-z0-9_.]*)(?=\s*\()/g, (_m, name: string) => {
+      const n = name.toUpperCase()
+      if (BLOCKED_FUNCTIONS.has(n)) blocked ??= n
+      return XLFN.has(n) ? `_xlfn.${n}` : n
+    }))).join('')
+  }).join('')
+  if (blocked) return { error: `the function ${blocked} is not allowed in formulas (it can reach outside the workbook)` }
+  return { formula: out }
+}
+
+/** 1 -> A, 27 -> AA */
+const columnName = (n: number): string => (n > 26 ? columnName(Math.floor((n - 1) / 26)) : '') + String.fromCharCode(65 + ((n - 1) % 26))
 const displayWidth = (s: string) => [...s].reduce((n, ch) => n + (/[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1), 0)
 
