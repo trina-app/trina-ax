@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { which } from '../../server/src/config'
 import { extractText } from '../../server/src/files/extract'
-import { HeicPreviews, heicToJpeg, heicTools, noPreviewError, PREVIEW_INPUT_MAX, PREVIEW_PER_USER_MAX, PREVIEW_QUEUE_MAX, PREVIEW_RUNS_MAX, previewKey, type HeicTools } from '../../server/src/files/heic-preview'
+import { HeicPreviews, heicToJpeg, heicTools, noPreviewError, PREVIEW_INPUT_MAX, PREVIEW_PER_USER_MAX, PREVIEW_PER_USER_WAIT_MAX, PREVIEW_QUEUE_MAX, PREVIEW_RUNS_MAX, PREVIEW_WAIT_MS, previewKey, type HeicTools } from '../../server/src/files/heic-preview'
 import { hashFile } from '../../server/src/team-files/place'
 import { ToolError } from '../../server/src/policy/errors'
 import { runIsolated } from '../../server/src/tools/isolate'
@@ -168,19 +168,84 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     for (let i = 0; i < 20 && f.calls.some((c) => c); i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
     await Promise.all(held)
   })
-  test('one person can wait for only a few conversions at a time', async () => {
+  test('one person runs one conversion and has at most one more waiting; more: "busy" at once', async () => {
+    expect(PREVIEW_PER_USER_MAX).toBe(1)
+    expect(PREVIEW_PER_USER_MAX).toBeLessThan(PREVIEW_RUNS_MAX)
+    expect(PREVIEW_PER_USER_WAIT_MAX).toBe(1)
     const f = fakeConverter()
     const pv = new HeicPreviews(path.join(tmp, 'cache-q2'), NONE, undefined, f.convert)
-    const held = Array.from({ length: PREVIEW_PER_USER_MAX }, () => pv.jpeg(photo(), { user: 'mallory' }).catch(() => null))
+    const held = Array.from({ length: 2 }, () => pv.jpeg(photo(), { user: 'mallory' }).catch(() => null))
     await tick()
+    // a free run is left, but it is not for mallory: her second file waits
+    expect(pv.stats()).toEqual({ running: 1, waiting: 1 })
     const over = await settle(pv.jpeg(photo(), { user: 'mallory' }))
     expect((over as { err: ToolError }).err?.code).toBe('busy')
-    // another person is not blocked by the limit
+    // another person is not blocked: the free run is hers at once
     const other = pv.jpeg(photo(), { user: 'alice' })
     await tick()
+    expect(f.calls.length).toBe(2)
     for (let i = 0; i < 20 && pv.stats().running + pv.stats().waiting > 0; i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
     expect((await other)?.bytes.equals(JPEG)).toBe(true)
     await Promise.all(held)
+  })
+  test('fairness: one person with many different files cannot keep another person waiting longer than one conversion', async () => {
+    const f = fakeConverter()
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q7'), NONE, undefined, f.convert)
+    // bob and mallory hold both runs; mallory has one more file waiting and sends more
+    const bob = pv.jpeg(photo('bob'), { user: 'bob' })
+    const mallory = Array.from({ length: 6 }, (_, i) => pv.jpeg(photo(`mallory ${i}`), { user: 'mallory' }).catch((e) => e))
+    await tick()
+    expect(pv.stats()).toEqual({ running: 2, waiting: 1 })
+    const alice = pv.jpeg(photo('alice'), { user: 'alice' })
+    await tick()
+    expect(pv.stats()).toEqual({ running: 2, waiting: 2 })
+    // mallory's conversion ends (one conversion time): the free run goes to alice, not to mallory's next file
+    const isMallory = (c: { bytes: Uint8Array }) => Buffer.from(c.bytes).toString().startsWith('mallory ')
+    expect(f.calls.filter(isMallory).length).toBe(1)
+    f.calls.find(isMallory)!.resolve(JPEG)
+    await tick()
+    expect(f.calls.some((c) => Buffer.from(c.bytes).toString() === 'alice')).toBe(true)
+    expect(f.calls.filter(isMallory).length).toBe(1)
+    // the requests past mallory's limits got "busy" at once (which ones depends on the hashing order)
+    const outs = await Promise.all(mallory.map((p) => settle(p, 50)))
+    expect(outs.filter((o) => o !== 'pending' && (o as { ok: { code?: string } }).ok?.code === 'busy').length).toBe(4)
+    for (let i = 0; i < 20 && pv.stats().running + pv.stats().waiting > 0; i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
+    expect((await alice)?.bytes.equals(JPEG)).toBe(true)
+    expect((await bob)?.bytes.equals(JPEG)).toBe(true)
+    await Promise.all(mallory)
+  })
+  test('a request that waits longer than the wait limit gets "busy" (try again), not an endless wait; "busy" is not remembered', async () => {
+    expect(PREVIEW_WAIT_MS).toBe(15_000)
+    const f = fakeConverter()
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q8'), NONE, undefined, f.convert, 100)
+    const a = pv.jpeg(photo(), { user: 'a' })
+    const b = pv.jpeg(photo(), { user: 'b' })
+    const late = photo()
+    const started = Date.now()
+    const out = await settle(pv.jpeg(late, { user: 'c' }), 2000)
+    expect((out as { err: ToolError }).err?.code).toBe('busy')
+    expect(Date.now() - started).toBeGreaterThanOrEqual(90)
+    expect(pv.stats()).toEqual({ running: 2, waiting: 0 })
+    // a later try of the same photo converts it (the busy answer is not in the failure cache)
+    for (const c of f.calls.splice(0)) c.resolve(JPEG)
+    await Promise.all([a, b])
+    const again = pv.jpeg(late, { user: 'c' })
+    await tick()
+    expect(f.calls.length).toBe(1)
+    f.calls[0]!.resolve(JPEG)
+    expect((await again)?.bytes.equals(JPEG)).toBe(true)
+  })
+  test('a converter that throws an error that is not a ToolError: "preview_failed", remembered like other failures', async () => {
+    let runs = 0
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q9'), NONE, undefined, async () => { runs++; throw new Error('spawn ENOENT') })
+    const bad = photo()
+    for (let i = 0; i < 3; i++) {
+      const e = await pv.jpeg(bad, { user: 'u' }).catch((x) => x)
+      expect(e).toBeInstanceOf(ToolError)
+      expect(e.code).toBe('preview_failed')
+      expect(noPreviewError(e)).toBe(true)
+    }
+    expect(runs).toBe(1)
   })
   test('a request that goes away leaves the queue; a conversion nobody waits for stops', async () => {
     const f = fakeConverter()

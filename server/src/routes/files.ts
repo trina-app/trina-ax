@@ -57,13 +57,14 @@ export const filesRoutes: RouteModule = {
     }))
 
     // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
-    // (files/heic-preview.ts). Other formats, machines without a converter, failed conversions and full queues: 503
-    // unavailable (the "cannot preview" panel). Only the input limit is 413. The same response headers as the
+    // (files/heic-preview.ts). Other formats, machines without a converter and failed conversions: 503 unavailable
+    // with reason no_preview (the "cannot preview" panel). Full queues and waits over the wait limit: 503 with reason
+    // busy (the panel says "busy, try again"). Only the input limit is 413. The same response headers as the
     // attachment thumbnail. A request that the browser cancels leaves the conversion queue.
     const previews = new HeicPreviews(path.join(ctx.config.dataDir, 'previewcache'))
     kit.handle(API.preview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
       const f = svc.fileForDownload(auth.user.id, query.path)
-      const noPreview = (reason = 'no_preview') => fileError('unavailable', 'noPreview', undefined, { reason })
+      const noPreview = (reason: 'no_preview' | 'busy' = 'no_preview') => fileError('unavailable', reason === 'busy' ? 'previewBusy' : 'noPreview', undefined, { reason })
       if (!isHeic(f.name)) return noPreview()
       let r: Awaited<ReturnType<typeof previews.jpeg>>
       try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal }) } catch (e) {

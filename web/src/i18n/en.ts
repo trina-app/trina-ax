@@ -335,6 +335,7 @@ export const en: Record<MessageKey, string> = {
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
   'preview.unsupported': "This format can't be previewed. Download it to open it.",
   'preview.truncated': 'Only the beginning of the file is shown.',
+  'preview.photoBusy': 'Many photo previews are being made now. Try again in a moment.',
   'preview.photoUnavailable': "This photo can't be previewed here. Download it to open it.",
   'preview.unsupportedShort': 'No preview for this format',
   'preview.sheetRowsCut': 'Only the first {rows} rows of this sheet are shown. Download the file to see all rows.',
