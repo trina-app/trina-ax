@@ -112,7 +112,8 @@ export class NativeHwpEngine implements HwpEngine {
       const rendered = await run(this.bin, ['export-png', input, '--page', String(page - 1), '--max-dimension', String(L.edge), '--font-path', fontDir, '-o', output])
       if (rendered.code !== 0) throw new HwpError('damaged')
       // Known progress lines are stdout. Parser warnings on stderr mean possible structural loss.
-      if (rendered.stderr.trim()) throw new HwpError('loss')
+      const diagnostics = rendered.stderr.split('\n').filter(line => line.trim() && !/^\d{4}-\d{2}-\d{2} [\d:.]+ rhwp[^ ]*\[\d+:\d+\] CoreText: System LastResort not available, using built-in copy\.$/.test(line))
+      if (diagnostics.length) throw new HwpError('loss')
       const files = fs.readdirSync(output)
       if (files.length !== 1 || !files[0].endsWith('.png')) throw new HwpError('damaged')
       const p = path.join(output, files[0]), st = fs.lstatSync(p)
