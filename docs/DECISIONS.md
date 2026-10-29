@@ -2450,3 +2450,12 @@ including same-account installs. Extend the same synthetic selection tests to co
   Indonesian server texts is already the localized name.
 - **Tests.** `tests/unit/ko-owner-role.test.ts` reads every Korean text of these tables (also the Linux and hosted
   variants) and fails on the word "owner".
+
+## Activity log date filters (R2-PERM-14, 2026-10-29)
+
+- **Problem.** `GET /api/admin/audit` accepts `from` and `to`, but Admin > Activity log had no date input.
+- **Decision.** The screen has two optional date inputs, "From" and "To". Both are inclusive calendar days in the
+  browser's time zone: `from` is local midnight of the start day, `to` is local midnight of the day after the end day
+  (`localDayBounds` in `web/src/lib/format.ts`). An empty input gives no bound on that side. "Load more" keeps the
+  same dates.
+- **Tests.** `web/test/unit/audit-dates.test.ts` (one-sided bounds, the whole end day, a 25-hour DST day).

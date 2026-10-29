@@ -970,6 +970,8 @@ export const id: Record<MessageKey, string> = {
   'audit.viaInternet': 'Internet',
   'audit.everyone': 'Semua orang',
   'audit.path': 'Path',
+  'audit.from': 'Dari',
+  'audit.to': 'Sampai',
   'audit.none': 'Tidak ada yang cocok.',
   'audit.source.admin': 'Admin',
   'audit.source.file': 'File',
