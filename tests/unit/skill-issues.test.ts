@@ -64,7 +64,11 @@ test('legacy headers keep their loose value format and valid YAML still loads', 
   expect(parseSkill('---\nname: 보고서\ndescription: 단계: 읽고 # 쓴다 - "인용" 포함\n---\nB')).toEqual({ name: '보고서', description: '단계: 읽고 # 쓴다 - "인용" 포함', body: 'B' })
   expect(parseSkill("---\nname: 'x y'\n# comment\n\ndescription:\n---\nB")).toEqual({ name: 'x y', description: '', body: 'B' })
   expect(parseSkill('---\nname: 블록\ndescription: >\n  여러 줄\n  설명\n---\nB')?.name).toBe('블록')
+  expect(parseSkill('---\nname:주간\ndescription:설명\n---\nB')).toEqual({ name: '주간', description: '설명', body: 'B' })
+  expect(parseSkill('---\nname: 보고서\n설명: 한국어 키는 무시\ndescription: [팀] 주간 {보고}\n---\nB')?.description).toBe('[팀] 주간 {보고}')
   expect(parseSkill('---\nname: a\nname: b\n---\nB')).toBeNull()
+  expect(parseSkill('---\nname: a\ndescription: [broken\n---\nB')).toBeNull()
+  expect(parseSkill('---\nname: a\ndescription: {broken\n---\nB')).toBeNull()
 })
 
 test('the header written for a registered suggestion always loads', () => {

@@ -2485,8 +2485,8 @@ including same-account installs. Extend the same synthetic selection tests to co
   skill (R2-SKILL-04).
 - **Decision.** `checkSkill()` (`server/src/chat/skills.ts`) returns the skill or a problem code (`header`,
   `location`, `name`, `name_folder`, `description`, `compatibility`, `too_large`). `parseSkill()` keeps its old
-  result. A legacy header is valid when each line is `key: value` with unique keys and each opened quote closes
-  again, or when it is valid YAML (for example a block scalar). Values keep their loose format, because
+  result. A legacy header is valid when each line is `key: value` (the space after the colon is optional) with
+  unique keys and each opened quote or bracket closes again, or when it is valid YAML (for example a block scalar). Values keep their loose format, because
   `skillFileText()` writes registered suggestions without YAML quoting. A legacy file with a broken header is not a
   skill and not a team rule (`skillFileKind` gives `other`).
 - **Warning.** `GET /api/skills/issues` lists the entries that do not load, with the code only. It checks only the
