@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
-import { SHEET_PREVIEW_ROWS, sheetMeta, type SheetMeta } from '../../lib/sheetPreview'
+import { SHEET_PREVIEW_ROWS, firstVisibleSheet, sheetMeta, type SheetMeta } from '../../lib/sheetPreview'
 
 /** Links in a drawn document: http(s) only, opened after asking, in a new window (lib/safeLinks.ts). */
 function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
@@ -119,8 +119,7 @@ export function SheetView({ blob }: { blob: Blob }) {
       const out = sheetMeta(wb, XLSX.utils.decode_range).map((m) => ({ ...m, html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
       if (live) {
         setSheets(out)
-        // open on the first visible sheet, as a spreadsheet app does
-        setActive(Math.max(0, out.findIndex((m) => !m.hidden)))
+        setActive(firstVisibleSheet(out))
       }
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
     return () => {
