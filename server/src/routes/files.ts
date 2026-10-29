@@ -4,13 +4,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
-import { mapErrors } from '../team-files/errors'
+import { fileError, mapErrors } from '../team-files/errors'
+import { HeicPreviews, isHeic } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
+import { ToolError } from '../policy/errors'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
@@ -52,6 +54,30 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.download, ({ c, query, auth }) => mapErrors(c.get('locale'), () => {
       const f = svc.fileForDownload(auth.user.id, query.path)
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
+    }))
+
+    // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
+    // (files/heic-preview.ts). Other formats and machines without a converter: 503 no_preview (the "cannot preview"
+    // panel). The same response headers as the attachment thumbnail.
+    const previews = new HeicPreviews(path.join(ctx.config.dataDir, 'previewcache'))
+    kit.handle(API.preview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
+      const f = svc.fileForDownload(auth.user.id, query.path)
+      const noPreview = () => fileError('unavailable', 'noPreview', undefined, { reason: 'no_preview' })
+      if (!isHeic(f.name)) return noPreview()
+      let r: Awaited<ReturnType<typeof previews.jpeg>>
+      try { r = await previews.jpeg(f.abs) } catch (e) {
+        if (e instanceof ToolError && !/too large/.test(e.message) && e.code !== 'not_found') {
+          ctx.log.debug('HEIC preview failed', { err: e })
+          return noPreview()
+        }
+        throw e
+      }
+      if (!r) return noPreview()
+      const etag = `"${r.etag}"`
+      const headers = new Headers({ 'Content-Type': 'image/jpeg', 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Length': String(r.bytes.length), 'Content-Disposition': contentDisposition('inline', f.name.replace(/\.[^.]+$/, '') + '.jpg') })
+      if (c.req.header('if-none-match')?.split(',').map((s) => s.trim()).includes(etag)) return new Response(null, { status: 304, headers })
+      return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(r.bytes), { status: 200, headers })
     }))
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {

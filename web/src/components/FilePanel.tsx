@@ -10,11 +10,11 @@ import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X
 import Papa from 'papaparse'
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, API, fetchFileBlob, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
+import { api, API, fetchFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
-import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
+import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
@@ -39,10 +39,13 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const navigate = useNavigate()
   const chatAttach = useTeamAttach()
   const [blob, setBlob] = useState<Blob | null>(file.source === 'local' ? file.blob : null)
-  const [error, setError] = useState<{ kind: 'missing' | 'large' | 'other'; text: string } | null>(null)
+  // 'unsupported': the server could not convert the file (no converter, a damaged photo): the "cannot preview" panel
+  const [error, setError] = useState<{ kind: 'missing' | 'large' | 'unsupported' | 'other'; text: string } | null>(null)
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
-  const kind = previewKind(file.name)
+  // a HEIC photo needs the server's JPEG, so a local one (not uploaded yet) has no preview
+  const viaServer = serverPreview(file.name)
+  const kind = file.source === 'local' && viaServer ? null : previewKind(file.name)
   const [rev, setRev] = useState(0)
   const [editing, setEditing] = useState<{ base: string; text: string; draft: string } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -97,11 +100,13 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     setError(null)
     if (!kind) return
     const limit = previewLimit(kind)
-    fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate }).then(
+    const load = viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
+    load.then(
       (b) => live && setBlob(b),
       (e: unknown) => {
         if (!live) return
-        if (e instanceof PreviewTooLargeError) setError({ kind: 'large', text: t('preview.tooLarge', { size: formatSize(e.size, locale) }) })
+        if (viaServer && isApiError(e, 'unavailable')) setError({ kind: 'unsupported', text: t('preview.photoUnavailable') })
+        else if (e instanceof PreviewTooLargeError) setError({ kind: 'large', text: t('preview.tooLarge', { size: formatSize(e.size, locale) }) })
         else if (isApiError(e, 'not_found')) setError({ kind: 'missing', text: t('preview.notFound') })
         else setError({ kind: 'other', text: errorText(e, locale, t('error.network')) })
       },
@@ -194,10 +199,11 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               </Button>
             </div>
           </div>
-        ) : !kind ? (
-          // No viewer for this format (HWP, HWPX, ZIP, ...): the notice and a download button, never an automatic download
+        ) : !kind || error?.kind === 'unsupported' ? (
+          // No viewer for this format (HWP, HWPX, ZIP, ...) or no server conversion (HEIC without a converter): the
+          // notice and a download button, never an automatic download
           <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
-            <p className="text-sm text-muted">{t('preview.unsupported')}</p>
+            <p className="text-sm text-muted">{error?.kind === 'unsupported' ? error.text : t('preview.unsupported')}</p>
             <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">
               <Download size={16} aria-hidden /> {t('common.download')}
             </Button>

@@ -3,6 +3,8 @@
 // (PDFKit); only pages without one are rendered and recognized, so a scanned page inside a normal PDF still reads.
 // Runs inside the converter sandbox (tools/isolate.ts). Output: UTF-8 text, pages separated by an empty line.
 //   mycel-ocr [--max-pages N]  < file
+//   mycel-ocr --jpeg N  < image   (a JPEG of the image, longest side at most N px, rotated as the file asks; the
+//                                  HEIC / HEIF preview of the file panel, server/src/files/heic-preview.ts)
 // Exit 2: not a PDF or an image.
 import CoreGraphics
 import Foundation
@@ -11,9 +13,11 @@ import PDFKit
 import Vision
 
 var maxPages = 100
+var jpegMax = 0
 var args = CommandLine.arguments.dropFirst()
 while let a = args.popFirst() {
   if a == "--max-pages", let v = args.popFirst(), let n = Int(v), n > 0 { maxPages = n }
+  if a == "--jpeg", let v = args.popFirst(), let n = Int(v), n > 0 { jpegMax = min(n, 16384) }
 }
 
 func fail(_ msg: String, _ code: Int32) -> Never {
@@ -57,7 +61,26 @@ func onWhite(_ img: CGImage) -> CGImage {
   return ctx.makeImage() ?? img
 }
 
+/** The primary image as a JPEG on white (ImageIO joins the tiles of a phone HEIC and applies the orientation). */
+func jpeg(_ data: Data, _ maxPx: Int) -> Never {
+  guard let src = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(src) > 0 else { fail("not an image", 2) }
+  let opts: [CFString: Any] = [
+    kCGImageSourceCreateThumbnailFromImageAlways: true,
+    kCGImageSourceCreateThumbnailWithTransform: true,
+    kCGImageSourceThumbnailMaxPixelSize: maxPx,
+    kCGImageSourceShouldCacheImmediately: true,
+  ]
+  guard let img = CGImageSourceCreateThumbnailAtIndex(src, CGImageSourceGetPrimaryImageIndex(src), opts as CFDictionary) else { fail("could not decode the image", 1) }
+  let out = NSMutableData()
+  guard let dst = CGImageDestinationCreateWithData(out as CFMutableData, "public.jpeg" as CFString, 1, nil) else { fail("could not write a JPEG", 1) }
+  CGImageDestinationAddImage(dst, onWhite(img), [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+  guard CGImageDestinationFinalize(dst) else { fail("could not write a JPEG", 1) }
+  FileHandle.standardOutput.write(out as Data)
+  exit(0)
+}
+
 let data = FileHandle.standardInput.readDataToEndOfFile()
+if jpegMax > 0 { jpeg(data, jpegMax) }
 var out: [String] = []
 if data.starts(with: Array("%PDF".utf8)), let doc = PDFDocument(data: data) {
   if doc.isLocked { fail("the PDF is password-protected", 1) }
