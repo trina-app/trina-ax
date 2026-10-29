@@ -105,7 +105,7 @@ the common ancestor hard limit remains enforced by the kernel.
 ## Sources and approved connected-root contract
 
 The only approved root for 1A is the configured team directory opened as a directory FD. Linux
-source access uses the native broker's `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS |
+1A image/presentation source access uses the native broker's `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS |
 RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`. There is no fallback when that syscall or these flags
 are unavailable. Same-device bind mounts are also refused. Files must be regular, singly
 linked and bounded. Native device/inode/size/mtime/ctime identity, hash, user/turn, source scope
@@ -171,7 +171,8 @@ hashes while corresponding files or copies may remain.
 
 The legacy flag-off PPTX count parser still runs in a separate bounded child. In a source checkout
 its first build can synchronously block for up to 30 s; installed bundles contain the worker.
-No HWP implementation is changed.
+HWP rendering from the latest main retains its own opt-in and limits; its source admission
+also refuses quarantined copies, including renamed extensions.
 
 ## Deferred work
 

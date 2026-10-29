@@ -2745,15 +2745,15 @@ including same-account installs. Extend the same synthetic selection tests to co
 ## Safe operations 1A: fixed images and bundled PowerPoint (2026-10-29; review fixes 2026-10-30)
 
 - Keep `MYCEL_SAFE_OPS_1A=1` opt-in, qualified Linux only. No general execution, ZIP, new Excel
-  writer, uploaded templates, skill publication or HWP changes. Model pixels require administrator
+  writer, uploaded templates, skill publication or new HWP features. Model pixels require administrator
   approval of the configured provider; medical remains separately gated.
 - Choose download-only quarantine for generated PPTX and normalized JPEG. Persist hashes and
   publication provenance; deny indexing, AI reads, legacy extraction/OCR, thumbnails and in-app
-  preview. The ko/en/id file panel offers download. A qualified consumer/preview origin is deferred.
+  preview. The ko/en/id/ja/es file panel offers download. A qualified consumer/preview origin is deferred.
 - Choose immutable new-file publication: native `linkat` no-replace, explicit conflict copies,
   final hash/destination/audience/policy-bound one-use approvals, durable journal and abort-only
   crash recovery. A crash after disclosure may leave a quarantined file without a success event;
-  recovery never retries publication. Schema reader 2 protects quarantine on rollback.
+  recovery never retries publication. Schema reader 3 protects quarantine and search admission on rollback.
 - Use native `openat2` beneath/no-symlink/no-magiclink/no-xdev source resolution. Direct connected
   mounts, including same-device binds, are refused; imported regular copies follow normal policy.
 - Admit whole workflows, cap per-user/turn/hour work and reserve cumulative converter CPU/transfers.
