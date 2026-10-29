@@ -28,6 +28,7 @@ export interface Turn {
    * (Codex does this for MCP servers) but cannot leave the session without setsid, which yields a new id. */
   pgid: number | null
   revoked: boolean
+  abort: AbortController
   waiters: (() => void)[]
   /** extra tools of this turn (chat runtime); absent = file tools only (stage 1) */
   tools?: TurnToolSet
@@ -46,7 +47,7 @@ export class TurnRegistry {
     const id = existingId ?? uuidv7()
     if (this.byId.has(id)) throw new Error('turn already registered')
     const token = crypto.randomBytes(32).toString('base64url')
-    const turn: Turn = { id, userId, chatId, tokenHash: h(token), files: new TurnFiles(), pgid: null, revoked: false, waiters: [] }
+    const turn: Turn = { id, userId, chatId, tokenHash: h(token), files: new TurnFiles(), pgid: null, revoked: false, abort: new AbortController(), waiters: [] }
     if (existingId) {
       const updated = this.db.query("UPDATE turns SET status = 'running', started_at = COALESCE(dispatched_at, started_at), engine = ?, model = ? WHERE id = ? AND user_id = ? AND chat_id = ? AND status IN ('queued','running')").run(engine, model, id, userId, chatId)
       if (updated.changes !== 1) throw new Error('turn is not available for registration')
@@ -62,17 +63,19 @@ export class TurnRegistry {
     const t = this.byId.get(turnId)
     if (!t) return
     t.revoked = true
+    t.abort.abort()
     this.byHash.delete(t.tokenHash)
     t.waiters.splice(0).forEach(f => f())
   }
   bind(turnId: string, pgid: number) {
     const t = this.byId.get(turnId); if (!t || t.revoked) return false
-    t.pgid = pgid; t.waiters.splice(0).forEach((f) => f()); return true
+    t.pgid = pgid; t.files.enginePid = pgid; t.waiters.splice(0).forEach((f) => f()); return true
   }
   /** end of turn: token is useless from now on */
   revoke(turnId: string, status: 'done' | 'error' | 'stopped' | 'interrupted' = 'done', err?: string) {
     const t = this.byId.get(turnId); if (!t) return
     t.revoked = true; this.byHash.delete(t.tokenHash); this.byId.delete(turnId)
+    t.abort.abort()
     t.waiters.splice(0).forEach((f) => f())
     this.db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(status, new Date().toISOString(), err ?? null, turnId)
   }

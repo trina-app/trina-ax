@@ -142,6 +142,7 @@ func cmdCgexec(args []string) {
 	cpu := fs.Int64("rlimit-cpu", 0, "RLIMIT_CPU seconds (0 = unchanged)")
 	fsize := fs.Int64("rlimit-fsize", 0, "RLIMIT_FSIZE bytes (0 = unchanged)")
 	nofile := fs.Int64("rlimit-nofile", 0, "RLIMIT_NOFILE (0 = unchanged)")
+	safeOps := fs.Bool("verify-safe-ops", false, "require effective per-job phase 1A limits")
 	prog := parse(fs, args)
 	if *cg != "" {
 		d, err := cgroupDir(*cg)
@@ -152,6 +153,21 @@ func cmdCgexec(args []string) {
 		if err := writeFile(filepath.Join(d, "cgroup.procs"), strconv.Itoa(os.Getpid())); err != nil {
 			fail("cgroup %s: %v", d, err)
 		}
+		if *safeOps {
+			for file, want := range map[string]string{"memory.max": "536870912", "memory.swap.max": "0", "pids.max": "64", "cpu.max": "100000 100000", "memory.oom.group": "1"} {
+				b, err := os.ReadFile(filepath.Join(d, file))
+				if err != nil || strings.TrimSpace(string(b)) != want {
+					fail("ineffective safe-ops limit: %s", file)
+				}
+			}
+			b, err := os.ReadFile(filepath.Join(d, "cgroup.procs"))
+			if err != nil || !strings.Contains("\n"+string(b), "\n"+strconv.Itoa(os.Getpid())+"\n") {
+				fail("safe-ops cgroup membership")
+			}
+		}
+	}
+	if *safeOps && (*cg == "" || *cpu != 25 || *fsize != 67108864 || *nofile != 128) {
+		fail("safe-ops limits missing")
 	}
 	if *oom != "" {
 		v, err := strconv.Atoi(*oom)

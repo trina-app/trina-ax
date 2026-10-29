@@ -1,3 +1,4 @@
+import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
@@ -46,9 +47,11 @@ export interface ChatToolSet extends TurnToolSet {
 }
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
+  const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   const tools = new Map<string, Tool>()
   const templateWrites = new Set<string>()
   const add = (t: Tool): boolean => {
+    if(confidential && !localTool(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     return true
@@ -62,7 +65,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
-  for (const p of exec.rt.ctx.services.turnToolProviders ?? []) {
+  for (const p of confidential ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
@@ -139,7 +142,7 @@ function toolContext(exec: TurnExec): TurnToolContext {
       signal: exec.abort.signal,
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
-      confirmWidening: (target, sources) => exec.confirmWidening(target, sources),
+      confirmWidening: (target, sources, binding) => exec.confirmWidening(target, sources, binding),
     },
   }
 }

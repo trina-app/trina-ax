@@ -5,6 +5,19 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+### Safe operations 1A — second review fixes
+
+- Admit immutable, hash-leased search inputs before raw/CP949 ripgrep, Office sidecar search and semantic embedding; keep quarantine active with the feature off.
+- Narrow policy epoch UPDATE triggers to changed authority fields; keep revocation/restore detection while excluding session and sync accounting. New migrations 318–319 require reader 3.
+- Document bounded search snapshots, conflicting-registration retry and offline crash-lease recovery. Independent release approval remains pending.
+
+- Security re-review: exclude quarantined files from semantic ingestion and historical browser previews; index durable safe-ops lookups. Require explicit versioned reads of grep-only sources before publication.
+
+- Safe operations 1A review fixes (default off): generated files are download-only; native no-replace publication,
+  durable approval/source/cleanup records, fail-closed workflow budgets and Linux openat2 mount-safe sources.
+  ko/en/id/ja/es quarantine notices; older schema readers must restore matching pre-enable DB and files to roll back.
+
+- Safe operations 1A (opt-in, qualified Linux): image pixels with OCR fallback for Claude Code/Codex, bounded PowerPoint with bundled layouts, fresh delivery authorization, and isolated output validation. Uploaded templates, ZIP and the new Excel writer remain deferred.
 - Fix desktop worker startup so offline recovery can initialize without hanging; retain the browser frame security checks.
 
 - Refresh the desktop team name and identity after sign-in even when an earlier anonymous lookup is still pending.

@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
 
-export interface DeckSlide { title: string; notes: boolean }
+export interface DeckSlide { title: string; notes: boolean; layout?: string }
 export interface Deck { slides: DeckSlide[]; notes: number }
 /** what the Markdown tree holds that changes the slide count (for the hint in the error) */
 export type SlideLevel = 1 | 2 | 3 | 4 | 5 | 6
@@ -90,9 +90,11 @@ export const PPTX_FORMAT_HINT = "Each slide starts with its own '## ' heading; '
   'Speaker notes: a `::: notes` … `:::` block under the heading of the slide they belong to.'
 
 /** null when the deck matches what was asked; otherwise the error for the AI (nothing is saved). */
-export function deckMismatch(d: Deck, shape: DeckShape, want: { slides?: number; notes?: number }): string | null {
+export function deckMismatch(d: Deck, shape: DeckShape, want: { slides?: number; notes?: number; layouts?: string[] }): string | null {
   const problems: string[] = []
   const n = d.slides.length
+  if(want.layouts && (want.layouts.length!==n || d.slides.some((s,i)=>s.layout!==want.layouts![i])))
+    problems.push('slide layouts differ from expected_layouts')
   if (want.slides !== undefined && n !== want.slides) {
     let why = ''
     if (n > want.slides) {

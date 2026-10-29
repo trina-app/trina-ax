@@ -2742,6 +2742,42 @@ including same-account installs. Extend the same synthetic selection tests to co
 - No locale policy, translations, credentials or cached account data change. Apply the same fix in the
   shared core (`potenlab/team-ax`).
 
+## Safe operations 1A: fixed images and bundled PowerPoint (2026-10-29; review fixes 2026-10-30)
+
+- Keep `MYCEL_SAFE_OPS_1A=1` opt-in, qualified Linux only. No general execution, ZIP, new Excel
+  writer, uploaded templates, skill publication or new HWP features. Model pixels require administrator
+  approval of the configured provider; medical remains separately gated.
+- Choose download-only quarantine for generated PPTX and normalized JPEG. Persist hashes and
+  publication provenance; deny indexing, AI reads, legacy extraction/OCR, thumbnails and in-app
+  preview. The ko/en/id/ja/es file panel offers download. A qualified consumer/preview origin is deferred.
+- Choose immutable new-file publication: native `linkat` no-replace, explicit conflict copies,
+  final hash/destination/audience/policy-bound one-use approvals, durable journal and abort-only
+  crash recovery. A crash after disclosure may leave a quarantined file without a success event;
+  recovery never retries publication. Schema reader 3 protects quarantine and search admission on rollback.
+- Use native `openat2` beneath/no-symlink/no-magiclink/no-xdev source resolution. Direct connected
+  mounts, including same-device binds, are refused; imported regular copies follow normal policy.
+- Admit whole workflows, cap per-user/turn/hour work and reserve cumulative converter CPU/transfers.
+  Retain cleanup debt and fail closed until cgroup/staging cleanup is proven. Require a bounded
+  common engine/server/converter ancestor (4 GiB, 512 pids, four CPUs, zero swap) and 640 MiB
+  admission headroom. No fair queue or per-turn engine scheduler is claimed. Target host
+  qualification remains a production gate, along with real pinned CLIs, codec/patch ownership
+  and independent review.
+- See [the exact guarantees, recovery procedure and deferred controls](SAFE-OPS-1A.md).
+
+Second-review remediation (2026-10-30): content search uses broker-admitted immutable
+snapshots, including raw/CP949, Office sidecars and semantic embedding. Durable hash leases
+serialize admission with quarantine registration across DB connections; conflicting registration
+fails before publication, and normal completion reaps consumers before release. Crashed leases
+have no time-based expiry; offline tenant/child shutdown and owned-snapshot cleanup precede
+lease-only recovery. Search remains active with the feature off. Reader level 3 prevents
+rollback to search without this boundary. Bounds, costs and recovery are specified in the admin doc.
+
+A new migration narrows all eight policy UPDATE triggers to actual changes in audited authority
+fields; auth heartbeat, connector usage and sync bookkeeping do not bump the epoch. INSERT/DELETE
+and null-safe comparisons retain revoke-and-restore detection. Do not edit applied migrations.
+Grep-only context still requires an explicit versioned read before publication. Feature default
+off, third independent READY decision, real CLI/host qualification and lifetime retention work remain.
+
 ## Keep the Electron subframe guard off workers (2026-10-29)
 
 - The frame guard's unfiltered CDP auto-attach paused service workers before startup, then awaited

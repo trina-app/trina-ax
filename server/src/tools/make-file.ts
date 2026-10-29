@@ -40,7 +40,14 @@ import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
 import { PRODUCT } from '@mycel/shared'
 import { typstJobs } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
-import { deckMismatch, deckShape, readDeck, type Deck, type DeckShape } from './pptx-check'
+import { deckMismatch, deckShape, type Deck, type DeckShape } from './pptx-check'
+import { readDeckIsolated } from '../safe-ops/deck-check'
+import { safeOpsEnabled } from '../safe-ops/runner'
+import { withWorkflow } from '../safe-ops/workflow'
+import { publishArtifact } from '../safe-ops/publication'
+import { preparePresentation } from '../safe-ops/presentation'
+import { snapshot, type SourceSnapshot } from '../safe-ops/source'
+import { safeText } from '../safe-ops/strings'
 
 type Input = z.output<typeof MakeFileInput>
 export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number }
@@ -70,6 +77,8 @@ export class MakeFile {
   constructor(private ctx: AppContext, private files: TeamFiles, private conv: Converters) {}
 
   async run(c: ToolCtx, a: Input): Promise<MadeFile> {
+    if(a.format==='pptx' && safeOpsEnabled()) return withWorkflow(this.ctx.files,c,() => this.safePresentation(c,a))
+    if(a.expected_layouts) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
     const fx = this.files.fx
     const rules = this.files.rules()
     // ---- input
@@ -155,7 +164,7 @@ export class MakeFile {
       // the slides that were really made, checked before the person is asked anything or a file is placed
       let deck: Deck | undefined
       if (a.format === 'pptx') {
-        deck = readDeck(produced)
+        deck = await readDeckIsolated(readRegular(produced,32*1024**2).bytes,c.signal)
         const bad = deckMismatch(deck, shape ?? { level: 1, metaTitle: false, sections: 0, textUnderSection: 0, rules: 0 }, { slides: a.expected_slides, notes: a.expected_notes })
         if (bad) throw new ToolError(bad)
       }
@@ -164,6 +173,26 @@ export class MakeFile {
       const made = await this.place(c, out.segs, produced)
       return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  }
+
+  private async safePresentation(c: ToolCtx, a: Input): Promise<MadeFile> {
+    if(a.template) throw new ToolError(safeText(this.ctx.db,c.user.id,'template'))
+    if((a.expected_slides??0)>30 || (a.expected_notes??0)>30) throw new ToolError(safeText(this.ctx.db,c.user.id,'limit'),'safe_ops_limit')
+    if(!this.conv.pandoc) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
+    const snapshots: SourceSnapshot[]=[]
+    let text=a.content??'', base: string[]=[]
+    if(a.source!==undefined) {
+      const s=snapshot(this.ctx.files,c,a.source,400_000)
+      if(!['md','markdown','txt'].includes(ext(s.path))) throw new ToolError(safeText(this.ctx.db,c.user.id,'source'))
+      snapshots.push(s); text=s.bytes.toString('utf8'); base=s.path.split('/').slice(0,-1)
+    }
+    const output=ext(a.output)==='pptx'?a.output:a.output+'.pptx'
+    c.user=this.ctx.files.principal(c.user.id)
+    const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,download:true})
+    const {bytes,deck}=await preparePresentation(this.ctx.files,c,this.conv.pandoc,text,base,{slides:a.expected_slides,notes:a.expected_notes,layouts:a.expected_layouts},snapshots)
+    const made=await publishArtifact(this.ctx,this.files,c,out.rel,bytes,snapshots,
+      (target,sources,binding)=>this.checkWidening(c,target,target.split('/'),sources,binding))
+    return {...made,deck}
   }
 
   /**
@@ -225,10 +254,10 @@ export class MakeFile {
    * into account), and when more people can read the output than those files (or what the chat read), the chat turn
    * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
    */
-  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[]) {
+  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
     for (const p of sources) c.files.readPaths.add(p)
     if (c.confirmWidening) {
-      const refusal = await c.confirmWidening(target, sources)
+      const refusal = await c.confirmWidening(target, sources, binding)
       if (refusal) throw new Denied(refusal)
       return
     }
@@ -322,12 +351,18 @@ export class MakeFile {
  * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
  * generated media such as generate_video). An existing file the AI has not read in this turn is kept (conflict copy).
  */
-export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file'): Promise<MadeFile> {
+export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void): Promise<MadeFile> {
   const cfg = ctx.engineConfig
   const size = fs.statSync(produced).size
   if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
+  // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
+  // check-to-install section is synchronous, so server saves and policy mutations cannot interleave.
+  const sha = await hashFile(produced)
+  c.signal?.throwIfAborted()
+  c.user=ctx.files.principal(c.user.id)
+  guard?.()
   const rules = files.rules()
   let conflictOf: string | undefined
   let action: 'create' | 'update' = 'create'
@@ -342,7 +377,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (now.exists) {
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)
-    const cur = await hashFile(abs)
+    const cur = sha256(readRegular(abs).bytes)
     if (c.files.readHashes.get(rel0) === cur) {
       snapshotVersion(ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
       action = 'update'
@@ -357,7 +392,6 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
     }
   }
   if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
-  const sha = await hashFile(produced)
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)
@@ -369,6 +403,8 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
   fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+  // All office consumers already run in workers; PPTX was validated before this
+  // publication. Never add an in-process document parser here.
   files.extractText(rel)
   publishChanges(ctx, [{ path: rel, action, by: { id: c.user.id, name: c.user.name }, turnId: c.turnId }])
   return { path: rel, size, sha256: sha, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) }

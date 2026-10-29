@@ -21,7 +21,7 @@ export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', '
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
 export const ext = (name: string) => (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
 
-export interface Tools { pandoc: string | null; pdftotext: string | null; ocr?: string | null }
+export interface Tools { pandoc: string | null; pdftotext: string | null; ocr?: string | null; quarantine?: { assertBytes(bytes: Uint8Array): void } }
 
 /** Images the OCR tool reads (read only; grep's text cache keeps to documents, an image folder would mean minutes). */
 export const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'heic', 'heif', 'tif', 'tiff', 'bmp', 'gif', 'webp'] as const
@@ -116,6 +116,7 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
 
 export async function extractText(name: string, bytes: Uint8Array, tools: Tools, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted()
+  tools.quarantine?.assertBytes(bytes)
   const e = ext(name)
   // a spreadsheet or Hangul file expands many times in memory: refused above 32 MB where limits apply (Linux, a plan;
   // system/limits.ts) before a worker starts; smaller ones still meet the worker's own limits

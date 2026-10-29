@@ -1,3 +1,4 @@
+import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // Model proxy (design tab 1 "모델 프록시 예산" / "프록시 동작", tab 3 "모델 호출" / "프록시 전달 규칙"; AI connections:
 // docs/DECISIONS.md "AI 연결"). The engine gets the proxy's address and a per-turn proxy token instead of a real
 // credential. The proxy checks the token (turn + person + the AI connection chosen for this attempt, expiry,
@@ -206,7 +207,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
-      const refused = checkProxyRequest(req.method, url, parsed)
+      const refused = (confidentialTurn(db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null) ?? checkProxyRequest(req.method, url, parsed)
       if (refused) {
         refusedAudit(row, refused)
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)

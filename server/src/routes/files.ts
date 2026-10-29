@@ -53,7 +53,11 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.saveContent, ({ c, body, auth }) => mapErrors(c.get('locale'), () => { assertStorageRoom(Buffer.byteLength(body.content)); return svc.save(auth.user.id, body.path, body.content, body.baseSha256) }), { jsonLimit: 25 * 1024 * 1024 })
 
     kit.handle(API.download, ({ c, query, auth }) => mapErrors(c.get('locale'), () => {
-      const f = svc.fileForDownload(auth.user.id, query.path)
+      const f = svc.fileForDownload(auth.user.id, query.path, !query.preview && query.disposition === 'attachment')
+      // Browser-owned Fetch Metadata also blocks stale clients and img/iframe/fetch
+      // consumers that request attachment bytes without the explicit preview flag.
+      // Headerless API/native clients may still perform an authorized download.
+      ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
     }))
 
@@ -64,7 +68,7 @@ export const filesRoutes: RouteModule = {
     // attachment thumbnail. A request that the browser cancels leaves the conversion queue.
     const previews = new HeicPreviews(path.join(ctx.config.dataDir, 'previewcache'))
     kit.handle(API.preview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
-      const f = svc.fileForDownload(auth.user.id, query.path)
+      const f = svc.fileForDownload(auth.user.id, query.path, false)
       const noPreview = (reason: 'no_preview' | 'busy' = 'no_preview') => fileError('unavailable', reason === 'busy' ? 'previewBusy' : 'noPreview', undefined, { reason })
       if (!isHeic(f.name)) return noPreview()
       let r: Awaited<ReturnType<typeof previews.jpeg>>
@@ -110,6 +114,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.history(auth.user.id, query.path)))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
+      ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
       return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment' })
     }))
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))

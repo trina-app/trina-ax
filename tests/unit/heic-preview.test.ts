@@ -207,7 +207,10 @@ describe('conversion queue (QA review: memory, starvation)', () => {
     const isMallory = (c: { bytes: Uint8Array }) => Buffer.from(c.bytes).toString().startsWith('mallory ')
     expect(f.calls.filter(isMallory).length).toBe(1)
     f.calls.find(isMallory)!.resolve(JPEG)
-    await tick()
+    // Release follows async cache write/rename, then Alice's descriptor read.
+    // Observe dispatch, not a 20 ms filesystem deadline. An unfair dispatch still
+    // fails: the next Mallory call remains held and Alice cannot start.
+    for (let i = 0; i < 50 && !f.calls.some((c) => Buffer.from(c.bytes).toString() === 'alice'); i++) await tick()
     expect(f.calls.some((c) => Buffer.from(c.bytes).toString() === 'alice')).toBe(true)
     expect(f.calls.filter(isMallory).length).toBe(1)
     // the requests past mallory's limits got "busy" at once (which ones depends on the hashing order)

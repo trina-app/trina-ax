@@ -12,7 +12,7 @@ ARCHS="${ARCHS:-arm64}"
 for arch in $ARCHS; do
   case "$arch" in arm64|amd64) ;; *) echo "native/build.sh: ARCHS takes arm64 and/or amd64, not $arch" >&2; exit 2 ;; esac
 done
-CMDS="mycel-bridge mycel-gate mycel-launcher mycel-bootstrap"
+CMDS="mycel-bridge mycel-gate mycel-launcher mycel-bootstrap mycel-safeops"
 LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-ocr"
 for os in darwin linux; do
   for arch in $ARCHS; do

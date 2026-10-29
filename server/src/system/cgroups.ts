@@ -109,6 +109,9 @@ function trySetup(o: SetupOptions): CgroupState {
     set('memory.swap.max', '0', true)
     set('pids.max', '128')
     if (have.has('cpu')) set('cpu.max', `${Math.min(2, o.cpus ?? os.availableParallelism()) * 100000} 100000`, true)
+    // Leaf processes live below conv so qualified per-job leaves can share its aggregate budget.
+    fs.mkdirSync(path.join(conv,'legacy'),{recursive:true,mode:0o755})
+    fs.writeFileSync(path.join(conv,'cgroup.subtree_control'),ctrls)
     return { state: 'delegated', conv: { dir: conv, helper, memoryMiB: mib } }
   } catch (e) {
     return { state: 'none', reason: (e as Error).message }
@@ -119,7 +122,7 @@ function trySetup(o: SetupOptions): CgroupState {
 export function cgexecPrefix(timeoutMs: number): string[] {
   const c = converterCgroup()
   if (!c) return []
-  return [c.helper, 'cgexec', '--cgroup', c.dir, '--oom-score-adj', '500', '--rlimit-cpu', String(Math.ceil(timeoutMs / 1000) + 5),
+  return [c.helper, 'cgexec', '--cgroup', path.join(c.dir,'legacy'), '--oom-score-adj', '500', '--rlimit-cpu', String(Math.ceil(timeoutMs / 1000) + 5),
     '--rlimit-fsize', String(1024 ** 3), '--rlimit-nofile', '1024', '--']
 }
 

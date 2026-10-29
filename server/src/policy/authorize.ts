@@ -1,4 +1,5 @@
 // THE permission function. Every tool and every human file API goes through authorize().
+import type { Quarantine } from '../safe-ops/quarantine'
 import fs from 'node:fs'
 import path from 'node:path'
 import { atLeast, type Principal, type RuleSet } from './access'
@@ -8,7 +9,7 @@ import { parseInput, realpathCheck, walk } from './resolve'
 
 export type Op = 'read' | 'write' | 'list'
 
-export interface FsCtx { root: string; caseInsensitive: boolean }
+export interface FsCtx { root: string; caseInsensitive: boolean; quarantine?: Quarantine }
 
 export interface Authorized {
   /** actual on-disk names (existing part + new names to create) */
@@ -24,7 +25,7 @@ export interface Authorized {
 const hidden = (input: unknown) => `not found or no access: '${typeof input === 'string' ? input : ''}'`
 
 export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unknown, op: Op,
-  opts: { mustExist?: boolean; createDirs?: boolean } = {}): Authorized {
+  opts: { mustExist?: boolean; createDirs?: boolean; download?: boolean } = {}): Authorized {
   const mustExist = opts.mustExist ?? op !== 'write'
   const segs = parseInput(input)
   const w = walk(fx.root, segs, fx.caseInsensitive)
@@ -68,6 +69,8 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
     }
   }
   realpathCheck(fx.root, w.actual)
+  if (exists && w.st.isFile() && !opts.download && fx.quarantine?.hasFile(path.join(fx.root, ...full)))
+    throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
   return { segs: full, rel: full.join('/'), abs: path.join(fx.root, ...full), exists, existing: w.actual.length, st: exists ? w.st : undefined }
 }
 
@@ -113,7 +116,7 @@ export function visiblePath(fx: FsCtx, rules: RuleSet, user: Principal, rel: str
   if (!atLeast(rules.access(user, segs), 'read')) return null
   try {
     const st = fs.lstatSync(path.join(fx.root, ...segs))
-    if (!st.isFile() || st.nlink > 1) return null
+    if (!st.isFile() || st.nlink > 1 || fx.quarantine?.hasFile(path.join(fx.root, ...segs))) return null
     return st
   } catch { return null }
 }

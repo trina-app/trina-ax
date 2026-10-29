@@ -94,7 +94,7 @@ export function thumbnailUrl(attachmentId: string): string {
  * once, and a response without one (chunked, or a relay that drops the header) is read up to `max` and then cut off.
  */
 export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
-  const res = await api.call(API.download, { query: { path, disposition: 'attachment' }, signal })
+  const res = await api.call(API.download, { query: { path, disposition: 'attachment', preview: 'true' }, signal })
   return readBounded(res, max, o)
 }
 

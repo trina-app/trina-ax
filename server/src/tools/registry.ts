@@ -5,6 +5,7 @@
 import { z } from 'zod'
 import type { FileService, ToolCtx, ToolOutput } from '../files/service'
 import { Denied, ToolError } from '../policy/errors'
+import { safeErrorText } from '../safe-ops/strings'
 
 export interface ToolResult extends ToolOutput {
   /** machine-readable result (contract output of the tool) for server-side callers and tests; the engine gets `text` */
@@ -22,6 +23,7 @@ export interface ToolDef<I extends z.ZodType = z.ZodType> {
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDef>()
+  constructor(private files?: FileService) {}
 
   register<I extends z.ZodType>(def: ToolDef<I>): void {
     if (this.tools.has(def.name)) throw new Error(`tool ${def.name} registered twice`)
@@ -52,7 +54,7 @@ export class ToolRegistry {
       return await t.run(parsed.data, ctx)
     } catch (e) {
       if (e instanceof Denied) return { text: 'Access denied: ' + e.message, isError: true, summary: `${what} -> denied: ${e.message}`.slice(0, 1000) }
-      if (e instanceof ToolError) return { text: 'Error: ' + e.message, isError: true, summary: `${what} -> error: ${e.message}`.slice(0, 1000) }
+      if (e instanceof ToolError) return { text: 'Error: ' + (this.files?safeErrorText(this.files.db,ctx.user.id,e.code,e.message):e.message), isError: true, summary: `${what} -> error: ${e.message}`.slice(0, 1000) }
       return { text: 'Error: internal error', isError: true, summary: `${what} -> internal: ${String((e as Error)?.message ?? e).slice(0, 200)}` }
     }
   }
@@ -62,6 +64,6 @@ const registries = new WeakMap<FileService, ToolRegistry>()
 /** The tool registry of a server instance (keyed by its FileService). */
 export function toolRegistry(files: FileService): ToolRegistry {
   let r = registries.get(files)
-  if (!r) { r = new ToolRegistry(); registries.set(files, r) }
+  if (!r) { r = new ToolRegistry(files); registries.set(files, r) }
   return r
 }

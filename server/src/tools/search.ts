@@ -41,7 +41,7 @@ export function registerSearch(ctx: AppContext, reg: ToolRegistry): boolean {
   // a host's read-only model folder ($MYCEL_MODELS_DIR/semantic, the hosted cloud) is used when it matches; else <data>/models
   const shared = process.env.MYCEL_MODELS_DIR ? path.join(process.env.MYCEL_MODELS_DIR, 'semantic') : null
   const embedder = localEmbedder(path.join(dataDir, 'models'), ctx.log, { sharedDir: shared })
-  const index = new SemanticIndex({ dataDir, root: ctx.files.fx.root, office: ctx.files.office, embedder })
+  const index = new SemanticIndex({ dataDir, root: ctx.files.fx.root, office: ctx.files.office, embedder, quarantine: ctx.files.quarantine })
   ctx.onClose(() => { index.db.close(); void embedder.unload() })
   if (process.env.NODE_ENV !== 'test') {
     const tick = () => { void index.refresh(60_000).catch((e) => ctx.log.warn('semantic index refresh failed', { err: String(e) })) }

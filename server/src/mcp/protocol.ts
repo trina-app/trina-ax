@@ -6,6 +6,8 @@ import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
 import { loadPrincipal } from '../policy/access'
 import type { TurnToolSet } from '../turns'
+import { confidentialTurn, localTool } from '../safe-ops/confidential'
+import { safeText } from '../safe-ops/strings'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as any
@@ -30,6 +32,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       case 'tools/list': return reply({ tools: [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())] })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
+        if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})
         // the person as they are now (tab 2 "권한 회수": access that shrank applies from the next tool call): role and
         // groups are loaded again for every call, and a disabled or deleted account gets nothing
         const user = loadPrincipal(db, ctx.user.id)
@@ -54,7 +57,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         const out = registry?.has(name) ? await registry.call(name, msg.params?.arguments ?? {}, ctx) : await files.call(name, msg.params?.arguments ?? {}, ctx)
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
         try { extra?.afterFileTool?.(name, !!out.isError, msg.params?.arguments) } catch {}
-        return reply({ content: [{ type: 'text', text: out.text }, ...(out.images ?? [])], ...(out.isError ? { isError: true } : {}) })
+        try { out.beforeDelivery?.() } catch {
+          return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'changed')}],isError:true})
+        }
+        const response=reply({ content: out.content ?? [{ type: 'text', text: out.text }, ...(out.images ?? [])], ...(out.isError ? { isError: true } : {}) })
+        if(out.beforeDelivery) Object.defineProperty(response,'beforeDelivery',{value:out.beforeDelivery})
+        return response
       }
       default:
         if (msg.id === undefined) return null // notification

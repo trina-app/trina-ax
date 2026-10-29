@@ -1,3 +1,4 @@
+import { SAFE_OPS_TEXT } from '../../server/src/safe-ops/strings'
 // English is the default language, so every user-facing text table has English (and Indonesian) next to Korean, with
 // no Korean left in them, and no Korean screen text hides outside those tables (docs/DECISIONS.md "언어").
 // The web app's dictionaries are checked in web/test/unit/i18n.test.ts, the desktop app's in e-desktop-common.test.ts.
@@ -68,6 +69,7 @@ describe('server and relay texts', () => {
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
     checkTable('budget periods', PERIOD, 2)
+    checkTable('safe operations', SAFE_OPS_TEXT, 9)
     checkTable('transcription', TRANSCRIBE_TEXT, 3)
     checkTable('one-liners', { INTERRUPTED, ARCHIVE_DIR, CONFLICT_COPY, RESTORED }, 4)
     // export headings: a table per language
@@ -89,52 +91,53 @@ describe('server and relay texts', () => {
  * `t('…', 'English', 'Indonesian')` / `fail('…', …)` call) may hold Korean, plus the lines a file's own pattern names.
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
-  'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en and id)' },
-  'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en and id)', also: /^\s*'[\w.]+': '/ },
+  'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
+  'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
+  'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
-  'relay/src/pages.ts': { why: 'relay page texts (ko next to en and id)', also: /if \(lang === 'ko'\)/ },
+  'relay/src/pages.ts': { why: 'relay page texts (ko next to en/id/ja/es)', also: /if \(lang === 'ko'\)/ },
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
-  'shared/src/api/errors.ts': { why: 'error messages (ko next to en and id)' },
-  'shared/src/step-labels.ts': { why: 'step words (ko next to en and id)' },
+  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es)' },
+  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es)' },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
-  'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en and id)' },
+  'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
-  'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en and id)' },
-  'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en and id)' },
-  'server/src/auth/messages.ts': { why: 'auth messages (ko next to en and id)' },
-  'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en and id)' },
-  'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en and id)' },
-  'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en and id)' },
-  'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en and id)' },
+  'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en/id/ja/es)' },
+  'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
+  'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
+  'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
+  'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
+  'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
+  'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en/id/ja/es)' },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
-  'server/src/files/store.ts': { why: 'conflict copy names (ko next to en and id)', also: /충돌 사본\|/ },
-  'server/src/jobs/service.ts': { why: 'job texts (ko next to en and id)' },
-  'server/src/jobs/transcribe.ts': { why: 'transcription texts (ko next to en and id) and a whisper marker', also: /^\s*'[^']*',$|MUSIC\|음악/ },
-  'server/src/jobs/openrouter-stt.ts': { why: 'voice input failures from OpenRouter (ko next to en and id)', also: /^\s*('[^']*'|`[^`]*`),$/ },
+  'server/src/files/store.ts': { why: 'conflict copy names (ko next to en/id/ja/es)', also: /충돌 사본\|/ },
+  'server/src/jobs/service.ts': { why: 'job texts (ko next to en/id/ja/es)' },
+  'server/src/jobs/transcribe.ts': { why: 'transcription texts (ko next to en/id/ja/es) and a whisper marker', also: /^\s*'[^']*',$|MUSIC\|음악/ },
+  'server/src/jobs/openrouter-stt.ts': { why: 'voice input failures from OpenRouter (ko next to en/id/ja/es)', also: /^\s*('[^']*'|`[^`]*`),$/ },
   'server/src/office/cli.ts': { why: 'office-mode terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/update-cli.ts': { why: 'teamax update terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/helper.ts': { why: 'the office certificate page, Korean then English on one page (no session, no language picker; docs/OFFICE.md)', also: /./ },
   'server/src/policy/names.ts': { why: 'invisible Hangul filler characters refused in names', also: /const INVISIBLE/ },
-  'server/src/routes/office-update.ts': { why: 'automatic update messages (ko next to en and id)' },
-  'server/src/relay-client/index.ts': { why: 'relay notices (ko next to en and id)' },
-  'server/src/routes/system.ts': { why: 'system screen texts (ko next to en and id)' },
-  'server/src/system/export.ts': { why: 'export headings (ko next to en and id)' },
-  'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en and id)' },
-  'server/src/team-files/errors.ts': { why: 'file errors (ko next to en and id)' },
-  'server/src/team-files/place.ts': { why: 'restored names (ko next to en and id)', also: /복원됨\|/ },
+  'server/src/routes/office-update.ts': { why: 'automatic update messages (ko next to en/id/ja/es)' },
+  'server/src/relay-client/index.ts': { why: 'relay notices (ko next to en/id/ja/es)' },
+  'server/src/routes/system.ts': { why: 'system screen texts (ko next to en/id/ja/es)' },
+  'server/src/system/export.ts': { why: 'export headings (ko next to en/id/ja/es)' },
+  'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
+  'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
+  'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
-  'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en and id)' },
-  'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en and id)' },
-  'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en and id)' },
-  'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en and id)' },
-  'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en and id)' },
-  'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en and id)' },
-  'server/src/system/limits.ts': { why: 'plan limit messages: seats, concurrency (ko next to en and id)' },
-  'server/src/system/storage.ts': { why: 'the storage notice (ko next to en and id)' },
-  'server/src/system/egress.ts': { why: 'the cloud API address refusal (ko next to en and id)' },
-  'server/src/system/messages-linux.ts': { why: 'Linux and cloud diagnostics texts (ko next to en and id)' },
-  'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en and id)' },
+  'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
+  'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
+  'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
+  'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
+  'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
+  'server/src/system/limits.ts': { why: 'plan limit messages: seats, concurrency (ko next to en/id/ja/es)' },
+  'server/src/system/storage.ts': { why: 'the storage notice (ko next to en/id/ja/es)' },
+  'server/src/system/egress.ts': { why: 'the cloud API address refusal (ko next to en/id/ja/es)' },
+  'server/src/system/messages-linux.ts': { why: 'Linux and cloud diagnostics texts (ko next to en/id/ja/es)' },
+  'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en/id/ja/es)' },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

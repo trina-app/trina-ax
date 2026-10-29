@@ -63,7 +63,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
       'LibreOffice calculate them when the file opens, so do not state computed values as read from the file. ' +
       'Images must be team-folder files referenced by relative path. If `output` exists and you did not read it in this turn, a conflict copy is saved next to it instead. `template`: a .docx/.pptx under skills/ for styles. ' +
       'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
-      'the result states the real slide and notes counts: report those, never other numbers.',
+      'the result states the real slide and notes counts: report those, never other numbers. ' +
+      'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +
+      'Limits: 30 slides, 20 PNG/JPEG/WebP/HEIC images, 100,000 text characters. expected_layouts checks the bundled layout for each slide.',
     input: MakeFileInput,
     describe: (a) => `make_file ${a.format} -> ${a.output}`,
     async run(a, t) {

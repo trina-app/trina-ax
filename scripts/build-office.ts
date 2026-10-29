@@ -74,6 +74,7 @@ const ENTRIES: [string, string][] = [
   ['server/src/auth/cli.ts', 'accounts.js'],
   // the bounded child process that reads spreadsheets and Hangul files
   ['server/src/files/office-worker.ts', 'office-worker.js'],
+  ['server/src/safe-ops/deck-worker.ts', 'deck-worker.js'],
   ['server/src/files/hwp-preflight.ts', 'hwp-preflight.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
