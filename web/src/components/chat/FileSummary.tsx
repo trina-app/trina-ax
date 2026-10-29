@@ -51,7 +51,7 @@ export default function FileSummary({ files, onAskOwnFolder, disabled }: { files
             <li key={`${x.path}-${i}`} className="space-y-1 rounded-lg bg-danger-soft px-2 py-1.5 text-xs text-danger">
               <span className="flex items-start gap-1.5">
                 <Ban size={13} className="mt-0.5 shrink-0" aria-hidden />
-                <span>{x.path ? t('files.summary.rejectedLine', { path: x.path }) : t('files.summary.rejectedHidden')} {x.reason && <span className="text-muted">({x.reason})</span>}</span>
+                <span>{x.path ? t('files.summary.rejectedLine', { path: x.path }) : t('files.summary.rejectedHidden')}</span>
               </span>
               <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onAskOwnFolder(x.path)}>
                 {t('files.summary.askOwnFolder')}

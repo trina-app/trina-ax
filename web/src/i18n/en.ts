@@ -492,8 +492,9 @@ export const en: Record<MessageKey, string> = {
   'files.summary.original': 'original',
   'files.summary.rejectedLine': "Couldn't save to {path}: no write access.",
   'files.summary.rejectedHidden': "Couldn't save to a location you can't see.",
-  'files.summary.askOwnFolder': 'Ask to save it in my folder instead',
+  'files.summary.askOwnFolder': 'Prepare a request to save in my folder',
   'files.summary.askOwnFolderPrompt': "You didn't have write access to {path}. Please save the same content inside my folder {folder}.",
+  'files.summary.askOwnFolderHiddenPrompt': "The previous save wasn't allowed. Please save the same content inside my folder {folder}.",
 
   'projects.title': 'Projects',
   'projects.desc': 'A folder of the team folder plus instructions; chats opened in a project share that context.',

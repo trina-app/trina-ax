@@ -492,8 +492,9 @@ export const id: Record<MessageKey, string> = {
   'files.summary.original': 'asli',
   'files.summary.rejectedLine': 'Tidak bisa menyimpan ke {path}: tidak ada izin tulis.',
   'files.summary.rejectedHidden': 'Tidak bisa menyimpan ke lokasi yang tidak bisa kamu lihat.',
-  'files.summary.askOwnFolder': 'Minta simpan di folder saya',
+  'files.summary.askOwnFolder': 'Siapkan permintaan untuk menyimpan di folder saya',
   'files.summary.askOwnFolderPrompt': 'Kamu tidak punya izin tulis ke {path}. Tolong simpan isi yang sama di folder saya {folder}.',
+  'files.summary.askOwnFolderHiddenPrompt': 'Penyimpanan sebelumnya tidak diizinkan. Tolong simpan isi yang sama di folder saya {folder}.',
 
   'projects.title': 'Proyek',
   'projects.desc': 'Satu folder di folder tim plus instruksi; chat yang dibuka di proyek memakai konteks yang sama.',

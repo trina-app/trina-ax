@@ -7,11 +7,12 @@
 // "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
 import { ArrowUp, Camera, Check, FileAudio, FileText, FolderOpen, Loader2, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
+import { mergeDraft } from '../../lib/composerDraft'
 import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
@@ -45,9 +46,11 @@ interface Pending {
 }
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
+export interface ComposerHandle { prepareDraft: (request: string) => void }
 
 
 export default function Composer({
+  ref,
   draftId,
   ensureChat,
   running,
@@ -60,6 +63,7 @@ export default function Composer({
   initialText,
   autoFocus,
 }: {
+  ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
   draftId: string
   /** the chat to upload attachments into (creates it on the first attachment of a new chat) */
@@ -119,6 +123,16 @@ export default function Composer({
   const camRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const recorder = useRecorder()
+
+  useImperativeHandle(ref, () => ({
+    prepareDraft(request) {
+      // Recovery is a draft edit, never a send. Keep text and all attachment states intact.
+      // Do not race a send or voice transcription that will replace the current text.
+      if (running || sending || transcribing || recorder.state !== 'idle') return
+      setText((current) => mergeDraft(current, request))
+      taRef.current?.focus()
+    },
+  }), [running, sending, transcribing, recorder.state])
 
   useEffect(() => writeDraft(userId, draftId, text), [userId, text, draftId])
   // a non-empty draft or an upload means "don't reload the page by yourself" after an update

@@ -2140,3 +2140,15 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   oversize by header and while streaming with few reads and no temp file left, revoked grant, narrowed scope,
   revoke during the stream, permission removed after creation, rate and open-link limits),
   `tests/unit/remote-mcp-http.test.ts` (through the app: no cookie, no CSRF header, once).
+
+## Review permission-recovery drafts before sending (2026-10-29)
+
+- A rejected file write's own-folder action prepares and focuses a localized composer draft. It never starts a turn;
+  the person reviews it and uses the existing Send action. Existing text is kept verbatim and the request is appended
+  as a separate paragraph; repeated clicks do not duplicate the same request. Attached files remain in the draft.
+- Preparation is refused during a running/sending turn or voice capture/transcription. Hidden-path rejections use a
+  generic localized request without inventing a source path. The existing private-folder destination stays unchanged.
+- Ordinary rejection summaries show only localized guidance. Raw technical reasons remain in server events and stored
+  messages for diagnostics, without being appended to the visible summary. Authorization and rejection events are unchanged.
+- Regression coverage includes real browser interactions and real read/edit/write tools through the scripted-engine
+  harness in ko/en/id. This does not establish model-quality behavior or close R2-RT-01's separate real stored-error retest.
