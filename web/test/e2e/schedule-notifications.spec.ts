@@ -43,7 +43,7 @@ test('templates stay dormant, select readable source/private output, and reuse t
 
 test('inbox shows generic events, persists preferences and marks items read without requesting OS permission', async ({ page }) => {
   await reset(page)
-  let prefs = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true }
+  let prefs = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }
   let readAt: string | null = null, reads = 0, preferenceUpdates = 0
   await page.addInitScript(() => {
     ;(window as unknown as { permissionCalls: number }).permissionCalls = 0
@@ -79,7 +79,7 @@ test('access revocation drops an inbox chat link; changing locale during a save 
   const held = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { received = resolve })
   await page.route('**/api/notification-preferences', async route => {
     if (route.request().method() === 'PATCH') { received(); await held; changed = true }
-    return route.fulfill({ json: { scheduleSuccess: !changed, scheduleFailure: true, connectionReconnect: true } })
+    return route.fulfill({ json: { scheduleSuccess: !changed, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true } })
   })
   await page.route('**/api/notifications?*', route => route.fulfill({ json: { items: [{ id: 'event-access', sourceId: 'opaque', eventType: 'schedule.success', code: 'schedule.success', createdAt: '2026-10-27T00:00:00Z', readAt: null, chatId: allowed ? 'private-result' : null, link: allowed ? 'chat' : null }], nextCursor: null, unreadCount: 1 } }))
   await signIn(page); await page.goto('/settings/notifications')

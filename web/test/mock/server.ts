@@ -1332,7 +1332,7 @@ export class MockServer {
     listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
-    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true }),
+    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }),
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
     listRemoteConnectors: () => ({ configured: false, resource: null, items: [] }),
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
