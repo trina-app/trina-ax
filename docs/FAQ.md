@@ -21,8 +21,8 @@ component exceptions are described in [LICENSE](../LICENSE) and [NOTICE](../NOTI
 ## Do team members install an AI CLI?
 
 The Claude Code and Codex CLI engines run on the team server. Members can use a web browser. In managed
-installations, the owner configures connections and may enable individual connections; development mode uses
-the Mac OS user's local CLI logins. The experimental API engine uses a team-configured OpenAI-compatible endpoint.
+installations, the owner configures team connections. Personal AI connections are enabled by default and the owner
+can disable them; sharing one subscription across members is disabled by default. Development mode uses the Mac OS user's local CLI logins. Personal external-service integrations are also enabled by default, with a separate admin setting. The experimental API engine uses a team-configured OpenAI-compatible endpoint.
 
 ## Does self-hosting mean files never leave the network?
 
@@ -38,9 +38,15 @@ ZIP is a server bundle. Mobile source in the repository does not imply an App St
 
 ## Will every document or model work?
 
-No. Extraction depends on document structure, fonts and installed conversion/OCR tools. The experimental API
+No. HWP/HWPX support is read-only text extraction, with no preview or creation. Images are read through OCR only,
+not visual scene understanding. Extraction depends on document structure, fonts and installed conversion/OCR tools. The experimental API
 engine needs compatible streaming Chat Completions and tool calls, and behavior varies by model/provider.
 AI answers should be checked against the source documents.
+
+## Are automatic updates available?
+
+v0.2.3 is published on GitHub Releases. The Trina update feed is not live; a configured feed URL and update controls
+in the code do not mean releases are being served there. Use the published kit and the installation guide to update.
 
 ## Where should I ask for help?
 

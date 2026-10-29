@@ -49,9 +49,9 @@ Use only synthetic files, keep it local, and press Ctrl-C in the first terminal 
 ## What your team can do
 
 - **Work with files under each person's permissions:** shared, group, project and personal folders; the server checks access on every file-tool call.
-- **Read business documents:** PDF, Word, Excel, PowerPoint and HWP/HWPX. Extraction and preview depend on the file and installed conversion/OCR tools.
+- **Read business documents:** PDF, Word (DOCX), Excel and PowerPoint (PPTX). HWP/HWPX support is text extraction only, with no preview or creation. Images are read through OCR, not visual scene understanding. Results depend on the file and installed conversion/OCR tools.
 - **Reuse procedures as skills:** Markdown and `SKILL.md` folders, permission-controlled editing and a review path for member suggestions. [Example](docs/EXAMPLES.md).
-- **Connect external services:** personal or team MCP servers and HTTP APIs, with access rules and write policies. [Supported connections and limits](docs/INTEGRATIONS.md).
+- **Connect external services:** personal or team MCP servers and HTTP APIs, with access rules and write policies. Personal integrations are enabled by default and can be disabled by an administrator. [Supported connections and limits](docs/INTEGRATIONS.md).
 - **Schedule work:** run tasks at a set time and review their results; queued work shares server capacity between people.
 - **Review usage:** per-person, model and skill usage with CSV export. Cost estimates are not provider invoices.
 - **Use web and desktop clients:** Windows and Mac desktop source, an in-app browser with site access controls, and a mobile web app.
@@ -64,8 +64,9 @@ Use only synthetic files, keep it local, and press Ctrl-C in the first terminal 
 | Codex CLI | ChatGPT login or OpenAI API key | Runs on the team server |
 | OpenAI-compatible API (experimental) | Team-configured endpoint, model and optional key | In-server agent loop using Chat Completions with tool calls; compatibility varies by provider/model |
 
-In managed installations, the owner configures team connections and can allow personal connections. Each person's
-own connection is preferred when enabled; team connections can be assigned to people or groups. Provider accounts,
+In managed installations, the owner configures team connections. Personal AI connections are enabled by default
+and take priority when enabled; the owner can disable them. Team connections can be assigned to people or groups.
+Sharing a subscription across members is disabled by default; provider terms still apply. Provider accounts,
 usage charges and terms are separate from Trina AX. Development mode uses the server OS user's local CLI logins.
 See [AI connection setup](docs/INSTALL.md#23a-ai-connections-owner-from-the-web).
 
@@ -117,7 +118,7 @@ operations console and website are private and are not included. [Deployment FAQ
 Find published builds and their checksums in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 The release pipeline builds Linux server kits (amd64/arm64), a Mac office bundle and a Windows desktop installer.
 The Mac office bundle is a server bundle; **a Mac desktop DMG is not distributed yet**, pending Apple signing and
-notarization. See the [changelog](CHANGELOG.md) for changes and publication status.
+notarization. v0.2.3 is available through GitHub Releases; the Trina update feed is not live, so do not rely on automatic updates. See the [changelog](CHANGELOG.md) for changes and publication status.
 
 ## Documentation and contributing
 

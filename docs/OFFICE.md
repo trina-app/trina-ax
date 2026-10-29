@@ -29,11 +29,8 @@
 > `office-install.sh --public-host <name> --tunnel-token-file <file>` or later `teamax public-address set|off|status`.
 > In-office fallback: `https://<mac IP>:8443` after installing the office CA once (thumbprint from the desk card
 > printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
-> `bun run build:office`; control: `~/TeamAX/teamax`. Automatic updates (section 6, from 0.2.0; the first 0.2.0
-> install is by hand): a third LaunchAgent checks `https://updates.treesoop.com/office/<channel>.json` (Ed25519-signed,
-> no downgrades) every night at 03:00, installs with the new zip's own installer, rolls back when the new version does
-> not answer `/api/health`, and puts the Windows desk app + `latest.yml` into `data/downloads` for electron-updater.
-> Releases: `bun scripts/release/publish.ts --channel beta|stable`.
+> `bun run build:office`; control: `~/TeamAX/teamax`. v0.2.3 is distributed through GitHub Releases only.
+> The Trina update feed is not live. Update manually using the release ZIP and installer (section 6).
 
 ## 1. 준비물
 
@@ -209,26 +206,29 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
   되돌리면 **모든 로그인이 끝납니다**: 대표님과 데스크 모두 다시 로그인합니다. 보관본을 만든 뒤 로그아웃했거나 비밀번호를
   바꾼 로그인이 되살아나지 않게 하려는 것입니다. 아직 안 쓴 초대·재설정 링크도 없어지므로 관리자 → 멤버에서 새로 만드세요.
 
-## 6. 업데이트 (자동 업데이트)
+## 6. 업데이트 (GitHub Releases에서 수동 설치)
 
-0.2.0부터 맥 미니가 **스스로 업데이트**합니다. 매일 밤 03:00(맥 미니 시간)에 `https://updates.treesoop.com`에서 새
-버전을 확인하고, 있으면 받아서 설치하고 서버를 다시 시작합니다(1–3분). 업데이트 때문에 연결하는 곳은 이 주소 하나입니다.
+v0.2.3은 [GitHub Releases](https://github.com/trina-app/trina-ax/releases/tag/v0.2.3)에 공개되어 있지만,
+트리나 업데이트 피드는 아직 운영하지 않습니다. 자동 업데이트 설정이나 예약이 있어도 새 버전이 공급된다는 뜻은 아닙니다.
+현재는 릴리스의 체크섬·서명을 확인한 사무실 ZIP을 받아 설치기를 다시 실행하세요. 기존 설치를 먼저 백업하고
+압축 파일과 폴더 이름이 내려받은 버전과 일치하는지 확인하세요. v0.2.3 예:
 
-**처음 한 번은 손으로.** 0.1.0에는 자동 업데이트가 없습니다. 새 zip(0.2.0 이상)을 맥 미니의 `다운로드`에 받아 한 번 설치하면 그다음부터 자동입니다:
 ```sh
-cd ~/Downloads && Z=$(ls -t TeamAX-office-*-mac.zip | head -1) && echo "$Z" && ditto -x -k "$Z" .
-bash ~/Downloads/"${Z%-mac.zip}"/office-install.sh
+cd ~/Downloads
+ditto -x -k TrinaAX-office-0.2.3-mac.zip .
+bash ./TrinaAX-office-0.2.3/office-install.sh
 ~/TeamAX/teamax update status
 ```
-`app/`만 바뀌고(이전 것은 `app.previous`) 데이터·팀 폴더·인증서·설정은 그대로입니다. 확인: `팀이 이미 설정되어
-있습니다`, `자동 업데이트 / automatic updates (app.team-ax.office.update): 매일 / every night 03:00, stable`,
-`=== 설치 끝 / installed: <버전> ===`. 0.2.0은 사무실 인증 기관(CA)을 한 번 새로 만듭니다(보안 점검 r4, 옛 것은
-`tls/ca.crt.old-<날짜>`): **사무실 안 대체 경로**(`https://<맥 IP>:8443`)를 쓰는 데스크만 새 데스크 카드(`teamax card`)를 보고
-4장 ①처럼 인증서를 한 번 다시 설치합니다. 인터넷 주소로 쓰는 데스크는 할 일이 없습니다. 인터넷이 막힌 곳에서는 지금처럼 새 zip + `office-install.sh`로 손으로 업데이트할
-수 있습니다(언제나 됨).
+
+설치기는 기존 데이터·팀 폴더·설정을 유지하며 앱을 교체합니다. 인증서가 바뀐 경우 데스크 카드를 다시 확인하세요.
+Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitHub Releases에서 별도로 받습니다.
+
+### 피드 운영 시의 업데이트 구현 (현재 공개 서비스 아님)
+
+아래는 코드에 구현된 피드 경로의 설명입니다. 현재 Trina 공개 피드에서 사용할 수 있다는 약속이 아닙니다.
 
 자동 업데이트가 하는 일 (`server/src/office/update.ts`, 기록 `~/TeamAX/logs/update.log`, 상태 `~/TeamAX/update/state.json`):
-1. 채널(stable 기본, beta)의 릴리스 정보를 받아 **서명**(Ed25519, 서명 키는 TreeSoop만 가짐, 공개 키는 프로그램 안)과
+1. 채널(stable 기본, beta)의 릴리스 정보를 받아 **서명**(Ed25519, 서명 키는 해당 배포 운영자만 보유, 공개 키는 프로그램 안)과
    채널을 확인합니다. **더 오래된 버전으로는 절대 내려가지 않고**, 릴리스가 정한 최소 버전보다 오래된 설치는 "손으로 한
    번 설치하세요"라고만 알립니다.
 2. zip을 받아 크기·SHA-256을 확인하고 풉니다. 새 zip의 설치 프로그램이 먼저 점검만 합니다(`--check-only`).
@@ -246,7 +246,7 @@ bash ~/Downloads/"${Z%-mac.zip}"/office-install.sh
 
 업데이트는 `data/`, `team/`, `tls/`, `config/`를 건드리지 않습니다. 데스크 로그인도 그대로입니다.
 
-**첫 설치 뒤에는 맥 미니 터미널이 필요 없습니다.** 소유자·관리자는 어느 데스크에서나(윈도우 앱·Edge·집) 웹의
+**운영자가 유효한 업데이트 피드를 제공한 설치에서만 다음 웹 업데이트 기능을 사용할 수 있습니다.** 소유자·관리자는 어느 데스크에서나(윈도우 앱·Edge·집) 웹의
 **관리자 > 시스템 > 자동 업데이트**에서 현재 버전, 채널, 다음 확인 시각, 마지막 결과를 보고 **지금 업데이트**(비밀번호를 한
 번 더 입력)와 **자동 업데이트 끄기/켜기**를 누릅니다. 진행 단계(내려받는 중 → 설치하고 서버를 다시 시작하는 중 → 새 버전
 확인)가 보이고, 서버가 다시 뜨면 화면이 스스로 다시 연결되어 새 버전으로 바뀝니다. 새 버전이 나오면 소유자·관리자에게만
@@ -265,7 +265,7 @@ bash ~/Downloads/"${Z%-mac.zip}"/office-install.sh
 (`office-uninstall.sh`)하면 함께 지워집니다.
 
 ### 릴리스 내보내기 (TreeSoop, 개발 맥에서)
-보통은 버전 태그 하나로 GitHub Actions가 빌드·서명·업로드까지 한다(`docs/RELEASE-CI.md`). 아래는 손으로 할 때다.
+GitHub Actions는 태그로 GitHub Release를 만든다. 아래 피드 게시 경로는 별도 운영 설정이 필요하며 현재 Trina 공개 피드는 운영하지 않는다(`docs/RELEASE-CI.md`). 아래는 손으로 할 때다.
 서명 키는 한 번 만들어 `~/.config/teamax-release/release-key.pem`(600)에만 둡니다(`bun scripts/release/keygen.ts`,
 저장소·zip·로그에 넣지 않음). 피드는 Cloudflare R2 버킷 `teamax-updates` 앞의 Worker(`scripts/release/worker.js`,
 `bun scripts/release/hosting.ts setup|status`)입니다. 새 버전은 먼저 beta로, 확인한 뒤 stable로:
@@ -295,8 +295,8 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 비밀번호 잊음 | 팀원: 관리자 → 멤버 → 재설정 링크. 대표님: 맥 미니에서 `~/TeamAX/teamax reset-link` |
 | 공유기를 바꿔 주소 대역이 달라짐 (예: 192.168.0.x → 192.168.1.x) | 인증서가 새 대역을 이름에 넣지 못합니다. `teamax stop` → `mv ~/TeamAX/tls ~/TeamAX/tls.old` → `teamax start` → 새 카드 인쇄 → 데스크마다 인증서 다시 설치 |
 | 포트가 이미 쓰이는 중 | 설치기의 안내대로 `--lan-port 9443` 등 다른 번호 |
-| 관리자 > 시스템 "이전 버전으로 되돌렸어요" | 새 버전이 제대로 뜨지 않아 자동으로 되돌림(데이터 그대로). `~/TeamAX/logs/update.log` 끝과 `teamax update status`를 TreeSoop에 보내 주세요. 고친 버전이 나오면 밤에 저절로 설치되고, 같은 버전을 다시 해 보려면 `teamax update now` |
-| 자동 업데이트가 안 됨 | `teamax update status`: "설치 안 됨"이면 새 zip(0.2.0 이상)으로 `office-install.sh`를 한 번(6장), "꺼짐"이면 `teamax update resume`, 마지막 결과가 `failed`면 이유(인터넷·`updates.treesoop.com` 차단 등)가 함께 나옵니다 |
+| 관리자 > 시스템 "이전 버전으로 되돌렸어요" | 새 버전이 제대로 뜨지 않아 자동으로 되돌림(데이터 그대로). `~/TeamAX/logs/update.log` 끝과 `teamax update status`를 TreeSoop에 보내 주세요. 현재 Trina 공개 배포는 GitHub Releases에서 받아 수동 설치합니다. 자체 피드를 운영하는 경우에만 `teamax update now`로 다시 시도합니다 |
+| 자동 업데이트가 안 됨 | Trina 공개 피드는 아직 운영하지 않으므로 현재는 GitHub Releases ZIP으로 수동 설치합니다. 자체 피드 운영자의 추가 진단: `teamax update status`: "설치 안 됨"이면 새 zip(0.2.0 이상)으로 `office-install.sh`를 한 번(6장), "꺼짐"이면 `teamax update resume`, 마지막 결과가 `failed`면 이유(인터넷·설정한 피드 주소 차단 등)가 함께 나옵니다 |
 
 명령 모음(`~/TeamAX/teamax …`): `status`, `info`(주소·지문, `~/TeamAX/ADDRESSES.txt`와 같음), `card`, `logs [n]`,
 `start` / `stop` / `restart`, `setup-link`, `reset-link [--username U]`, `backup`, `archive <파일>`,

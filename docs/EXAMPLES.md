@@ -33,6 +33,7 @@ names and dates against the source; the skill tells the model to mark missing in
 
 ## Connect an external service
 
+Personal external-service integrations are enabled by default; an administrator can disable them.
 Use **Settings → External services** for a personal connection or **Admin → External services** for a team one.
 See [INTEGRATIONS.md](INTEGRATIONS.md) for supported MCP transports, authentication, HTTPS restrictions and write
 policies. Credentials belong in connection settings, never in a skill or prompt. A service's availability and

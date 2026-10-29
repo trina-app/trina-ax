@@ -4,7 +4,9 @@
 
 The server runs on Linux or an office Mac; Trina also offers hosting. Clients include web, Windows desktop,
 Mac desktop source and mobile web. A Mac desktop DMG is not distributed yet. The OpenAI-compatible API engine is
-experimental. Files and chats are stored on the server, but selected context goes to the model provider.
+experimental. HWP/HWPX is read-only text extraction (no preview or creation); images are OCR only.
+Personal AI connections and personal external-service integrations are enabled by default.
+v0.2.3 is published on GitHub Releases; the Trina update feed is not live. Files and chats are stored on the server, but selected context goes to the model provider.
 Development mode lacks production OS isolation. The repository is AGPL-3.0-only with component exceptions in NOTICE;
 the hosted billing/operations code and website are not included. This index describes repository documentation,
 not a guarantee of feature availability, search indexing or model behavior.

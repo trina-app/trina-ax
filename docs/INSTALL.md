@@ -43,7 +43,7 @@ There is **no email** anywhere, by design. Invites and password resets are links
 - macOS: checked on 26.3.1. The menubar app needs macOS 13+.
 - For AI chat, a supported Claude Code or Codex CLI connection. Development mode uses your local CLI login.
   Managed installations support Claude subscriptions, Anthropic API keys, ChatGPT logins and OpenAI API keys,
-  with team assignments and optional personal connections; see [2.3a](#23a-ai-connections-owner-from-the-web).
+  with team assignments and personal connections enabled by default (the owner can disable them); see [2.3a](#23a-ai-connections-owner-from-the-web).
   Provider terms, limits and costs apply to the account used.
 - A Mac admin account. Dev mode asks for its password once, in the Homebrew installer; the production install asks on
   every `sudo`.
@@ -73,14 +73,14 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 |---|---|---|
 | Bun | **1.3.12** (pinned) | everything |
 | Go | 1.27.3 | native helpers (`mycel-gate`, `mycel-bridge`, `mycel-launcher`, `mycel-bootstrap`) |
-| Node | **25+** | the relay only. Without it `bun run dev` prints "relay skipped" and the direct address still works |
+| Node | **24+** (26.12.1 pinned for production) | the relay only. Without it `bun run dev` prints "relay skipped" and the direct address still works |
 | ripgrep, pandoc, poppler, typst | | file search, Office/PDF text, PDF output |
 | ffmpeg, whisper-cpp | | voice input (downloads a ~490 MB model on first use) |
 | Claude Code | **2.1.305** (pinned; the lockdown tests run against it) | the Claude engine |
 | Codex CLI (optional) | 0.163.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
 | Git | | clone the public repository (1.2); GitHub CLI is optional |
 
-Check: `bun --version` prints `1.3.12`, `node --version` prints v25 or later, `claude --version` prints
+Check: `bun --version` prints `1.3.12`, `node --version` prints v24 or later, `claude --version` prints
 `2.1.305 (Claude Code)`.
 
 Claude Code updates itself. Once it has moved past the pin, Admin → AI engines shows "Unsupported version"
@@ -255,8 +255,9 @@ bun run build:bundle             # this Mac's CPU: bun run build && bun scripts/
 bun run build:bundle:universal   # Apple silicon + Intel in one bundle (--arch universal; ~2x the size)
 ```
 
-This writes `dist/release/` with `VERSION`, `0.1.0.tar.zst` (~22 MB), `app/0.1.0/` and `root/`. It takes about 40
-seconds. There is no `manifest.sig` because no release key exists yet, so the installer needs `--allow-unsigned`.
+This writes `dist/release/` with `VERSION`, `<version>.tar.zst`, `app/<version>/` and `root/`. The version defaults
+to `server/package.json` (0.2.3 for this release). An unsigned local build needs `--allow-unsigned`; published
+release signatures are a separate path. Output examples below using 0.1.0 are historical examples, not the current version.
 `--arch amd64` / `universal` needs the Intel helpers (`ARCHS="arm64 amd64" bun run build:native`, which the
 universal script runs) and downloads the same Bun version for Intel once (checked against Bun's SHASUMS256.txt,
 cached in `dist/.cache/`). The installer refuses a bundle built for another CPU type.
@@ -382,10 +383,12 @@ them in the browser; nothing on the server's command line is needed.
   team will use. The server keeps the sign-in and refreshes it itself.
 - Subscriptions are meant for individual use: the screen says so and asks the owner to confirm before saving.
 - Tokens and keys are sealed in the browser before they are sent and stored encrypted (`secrets/credentials.key`);
-  nobody can read them back. The page must be opened over https (or on this Mac at `http://127.0.0.1`).
+  the UI/API does not return the stored secret. This does not protect against the server administrator. The page must be opened over https (or on this Mac at `http://127.0.0.1`).
 - One connection serves the whole team. Connections can be assigned to groups or people, ordered, given a monthly
   limit, switched off. When one hits its limit or is refused, the answer continues on the next one of the same engine.
-- Members can add their own connections (Settings > AI connections) when the owner switches that on.
+- Members can add their own connections (Settings > AI connections) by default; the owner can disable them.
+  Personal connections take priority. Sharing subscriptions across members is disabled by default and requires
+  explicit owner consent and compliance with provider terms.
 
 server.json (`engine`), for operators:
 
@@ -677,8 +680,8 @@ The full setup:
 git pull && bun install && bun run build && bun run dev:service restart
 ```
 
-**Update (production).** There is no release feed yet (`update.feedUrl` is null), so Admin → System → Update says
-"This server does not look for new versions online" and offers only Roll back. To update:
+**Update (production).** v0.2.3 is available through GitHub Releases, but the Trina update feed is not live.
+A configured feed URL does not imply that it serves releases. Do not rely on automatic updates. To update manually:
 - **New version (normal way):** read the running version with `curl -s http://127.0.0.1:47820/api/health`
   (`"version":"0.1.0"`), then build a **higher** one (raise the last number each time: 0.1.1, 0.1.2, …) and run the
   same installer command:
@@ -805,13 +808,13 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 6. *(fixed 2026-10-21)* Admin → System asks for the relay team name and hides "Team AX relay" while it is not running.
 7. **An office-only server cannot be added in the desktop app.** The app uses the office address once it knows the
    team address (`GET /api/connect-info`, pinned certificate); adding a server by QR code / fingerprint is not built.
-8. **No release feed.** The in-app update only offers Roll back; new versions come from re-running the installer.
+8. **No live Trina release feed.** Use GitHub Releases and re-run the appropriate installer; automatic updates are not available from the public feed.
 9. *(fixed 2026-10-21)* Socket paths that are too long are named by `bun run dev`, at server start and in Diagnostics.
 10. **Small doc and code mismatch:** the dev Diagnostics sandbox text is out of date.
 11. **Intel Macs:** `bun run build` and dev mode build arm64 helpers by default (`ARCHS=amd64`); the universal
     bundle and DMG cover both CPU types but have only been run under Rosetta, not on an Intel Mac.
-12. **Dev ports are fixed (19100/19161).** `bun run dev` now names the process holding one before it starts. A second
-    instance needs a copy of `scripts/dev.ts` with other ports; a port flag or env var would fix it.
+12. **Multiple dev instances:** use separate `TEAM_AX_DEV_DIR` values and set `TEAM_AX_DEV_PORT` and
+    `TEAM_AX_DEV_RELAY_PORT` (or `--no-relay`). The optional Vite port remains fixed at 19140.
 13. **Owner-blocked items.** Apple and Windows signing, the production relay and CI billing are waiting on the
     owner. Run `bun run typecheck && bun run test` locally.
 14. **Code follow-ups from the install-guide review (2026-10-21).** The docs work around each of these; the code

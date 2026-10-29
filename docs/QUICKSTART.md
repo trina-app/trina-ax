@@ -55,7 +55,8 @@ You have now tested the browser, server, seeded files and per-person folder acce
 
 ## 4. Optional: ask the AI
 
-With a supported CLI installed and logged in on the Mac, start a new chat as `alice` and ask:
+With a supported CLI installed and logged in on the Mac, start a new chat as `alice`. Choose the matching engine
+in the chat composer (Claude Code by default; select Codex if that is the CLI you connected), then ask:
 
 > Read shared/팀-용어집.md and explain 전환율 in one sentence. Cite the file.
 
