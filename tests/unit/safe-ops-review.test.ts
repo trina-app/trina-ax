@@ -72,6 +72,19 @@ test('model-authored output rechecks an earlier read even without explicit sourc
  expect(approved).toBe(false)
  expect(fs.existsSync(path.join(A.team,'users/alice/derived.pptx'))).toBe(false)
 })
+test('cancellation during approval cannot publish after a late answer',async()=>{
+ const c=A.toolCtx('alice',A.turn('alice',A.chat('alice'))),abort=new AbortController()
+ c.signal=abort.signal
+ let answer!:()=>void,started!:()=>void
+ const ready=new Promise<void>(r=>started=r)
+ const pending=publishArtifact(A.ctx,componentC(A.ctx).files,c,'users/alice/late.pptx',qbytes,[],async()=>{
+  started();await new Promise<void>(r=>answer=r)
+ })
+ await ready;abort.abort()
+ await expect(pending).rejects.toThrow()
+ answer();await Promise.resolve()
+ expect(fs.existsSync(path.join(A.team,'users/alice/late.pptx'))).toBe(false)
+})
 test('workflow admission spans awaited stages and charges cumulative jobs',async()=>{
  const c=A.toolCtx('bob',A.turn('bob',A.chat('bob')))
  let release!:()=>void, started!:()=>void

@@ -14,6 +14,7 @@ import { publishChanges } from '../team-files/changes'
 import { addSources, readScope, sourceOf } from '../chat/read-scope'
 import { assertStorageRoomForAI } from '../system/storage'
 import { broker } from './broker'
+import { waitForApproval } from './cancel'
 import { snapshot, recheck, type SourceSnapshot } from './source'
 
 export const policyGeneration = (db: Database) => (db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation
@@ -79,7 +80,7 @@ export async function publishArtifact(
    readVersions:[...c.files.readHashes],imageVersions:[...c.files.imageSources],scope:chat?readScope(db,chat):null})
  const policy=policyGeneration(db), viewers=audience(ctx,target)
  const binding=JSON.stringify({id,hash,destination:target,audience:JSON.parse(viewers),policy})
- await approve(target,sources.map(s=>s.path),binding)
+ await waitForApproval(approve(target,sources.map(s=>s.path),binding),c.signal)
  // A one-use journal entry is durable BEFORE the filesystem disclosure. Rollback of
  // the final SQL transaction cannot erase it. It is never reused on a retry/restart.
  c.signal?.throwIfAborted()
