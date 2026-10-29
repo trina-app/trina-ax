@@ -642,6 +642,7 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
   const ref = useRef<HTMLTableRowElement>(null)
+  const menuTrigger = useRef<HTMLButtonElement>(null)
   const folder = e.type === 'folder'
   const Icon = ICONS[iconKind(e.name, folder)]
   const dim = e.access === 'none'
@@ -691,12 +692,14 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
       <td className="hidden px-2 py-1.5 text-right text-xs whitespace-nowrap text-muted sm:table-cell">{folder ? '' : formatSize(e.size, locale)}</td>
       <td className="relative px-2 py-1.5 text-right">
         {!dim && (
-          <IconButton label={t('files.actionsFor', { name: e.name })} aria-expanded={menu} onClick={() => setMenu((v) => !v)} className="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" data-testid="file-menu">
+          <IconButton label={t('files.actionsFor', { name: e.name })} aria-expanded={menu} onClick={(ev) => { menuTrigger.current = ev.currentTarget; setMenu((v) => !v) }} className="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" data-testid="file-menu">
             <MoreHorizontal size={16} />
           </IconButton>
         )}
         {menu && (
-          <div role="menu" className="absolute top-9 right-2 z-30 w-56 rounded-lg border border-line bg-surface p-1 text-left shadow-lg" onClick={() => setMenu(false)}>
+          <div role="menu" className="absolute top-9 right-2 z-30 w-56 rounded-lg border border-line bg-surface p-1 text-left shadow-lg"
+            // Anchor dialog return focus before the item's handler runs and this menu unmounts.
+            onClickCapture={() => menuTrigger.current?.focus()} onClick={() => setMenu(false)}>
             {!folder && previewKind(e.name) && (
               <button role="menuitem" type="button" className={item} onClick={onOpen}>
                 <Eye size={14} aria-hidden /> {t('common.preview')}
