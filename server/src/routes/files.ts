@@ -12,6 +12,7 @@ import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
+import { HwpError } from '../files/hwp-engine'
 import { ToolError } from '../policy/errors'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
@@ -80,6 +81,18 @@ export const filesRoutes: RouteModule = {
         'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Length': String(r.bytes.length), 'Content-Disposition': contentDisposition('inline', f.name.replace(/\.[^.]+$/, '') + '.jpg') })
       if (c.req.header('if-none-match')?.split(',').map((s) => s.trim()).includes(etag)) return new Response(null, { status: 304, headers })
       return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(r.bytes), { status: 200, headers })
+    }))
+
+    kit.handle(API.hwpPreview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
+      c.header('Cache-Control', 'private, no-store')
+      c.header('X-Content-Type-Options', 'nosniff')
+      try {
+        const r = await C.hwp.page(auth.user.id, query.path, query.page, c.req.raw.signal, query.cacheId)
+        return { ...r.meta, id: r.id, png: r.bytes.toString('base64') }
+      } catch (e) {
+        if (e instanceof HwpError) return fileError('unavailable', 'noPreview', undefined, { reason: e.reason })
+        throw e
+      }
     }))
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {

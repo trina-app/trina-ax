@@ -229,7 +229,7 @@ test.describe('unsupported formats and spreadsheet limits', () => {
   })
   test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
 
-  test('HWPX opens the panel with the notice and a download button, not a download', async ({ page }) => {
+  test('Damaged HWPX opens the panel with the notice and a download button, not a download', async ({ page }) => {
     await reset(page, { teamLocale: 'en', usersFollowTeam: true })
     await signIn(page)
     await page.goto('/files?path=marketing')
@@ -238,7 +238,7 @@ test.describe('unsupported formats and spreadsheet limits', () => {
     page.on('download', (d) => downloads.push(d.suggestedFilename()))
     for (let attempt = 0; attempt < 2; attempt++) {
       const panel = await open(page, 'notice.hwpx')
-      await expect(panel.getByTestId('preview-unsupported')).toContainText("This format can't be previewed. Download it to open it.")
+      await expect(panel.getByTestId('preview-unsupported')).toContainText("This document appears damaged or incomplete. Download the original.")
       await page.waitForTimeout(300)
       expect(downloads).toEqual([])
       await panel.getByRole('button', { name: 'Close', exact: true }).click()

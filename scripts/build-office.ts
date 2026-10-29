@@ -32,6 +32,7 @@ import path from 'node:path'
 import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
+import { stageHwp } from './hwp-bundle'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -73,6 +74,7 @@ const ENTRIES: [string, string][] = [
   ['server/src/auth/cli.ts', 'accounts.js'],
   // the bounded child process that reads spreadsheets and Hangul files
   ['server/src/files/office-worker.ts', 'office-worker.js'],
+  ['server/src/files/hwp-preflight.ts', 'hwp-preflight.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
 const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
@@ -84,6 +86,7 @@ const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
 export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string[] {
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
+    'app/native/bin/hwp/rhwp-darwin-arm64', 'app/native/bin/hwp/rhwp-darwin-x64', 'app/resources/hwp/manifest.json', 'app/resources/hwp/fonts/NotoSansKR-Regular.ttf',
     'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md',
     ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [
@@ -248,6 +251,7 @@ export async function buildOffice(o: {
   // the installers built with this zip (office-install.sh offers only these: server/src/office/desktop.ts readManifest)
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
+  await stageHwp(REPO, app, ['darwin-arm64', 'darwin-x64'])
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: app, version: o.version, target: 'darwin', arch: 'universal', kind: 'office', includeWeb: true })
   reportReleaseNotices(notices)
   const lack = missingFromStage(stage, bundleManifest({ pandoc: o.pandoc, desktop: !!o.desktop?.length }))

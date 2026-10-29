@@ -11,6 +11,8 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
+// Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
+const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
   ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
@@ -759,6 +761,14 @@ export class MockServer {
       }
       this.putFile(path, c.body.content)
       return { path, conflict, entry: this.entry(path, this.files.get(path)!, c.user) }
+    },
+    hwpPreview: async (c) => {
+      const n = this.files.get(c.query.path!)
+      if (!n || n.type !== 'file' || this.access(c.query.path!, c.user) === 'none') fail('not_found', 404)
+      try {
+        const r = await (await hwpEngine).render(Buffer.from(n!.data!), c.query.path!.endsWith('.hwpx') ? 'hwpx' : 'hwp', Number(c.query.page))
+        return { ...r.meta, id: crypto.randomUUID(), png: r.bytes.toString('base64') }
+      } catch (e) { throw new Fail('unavailable', 503, undefined, undefined, { reason: e && typeof e === 'object' && 'reason' in e ? String(e.reason) : 'engine' }) }
     },
     download: (c) => {
       const n = this.files.get(c.query.path!)

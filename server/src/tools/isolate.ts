@@ -34,6 +34,8 @@ export interface IsolatedRun {
   /** Metal GPU (whisper.cpp): the per-user Metal shader cache must be readable / writable, otherwise every run
    * recompiles the shaders (15 s instead of 0.4 s, measured) */
   gpu?: boolean
+  /** HWP: deny host font directories; only explicitly staged fonts are available. */
+  curatedFonts?: boolean
   timeoutMs?: number
   /** stdout cap (bytes); the process is killed when it writes more */
   maxStdout?: number
@@ -86,7 +88,7 @@ function metalCacheDirs(): string[] {
   return metalCache
 }
 
-export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean }): string {
+export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
@@ -97,6 +99,10 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
     '(version 1)',
     '(allow default)',
     '(deny network*)',
+    ...(o.curatedFonts ? [
+      '(deny file-read-data (subpath "/System/Library/Fonts") (subpath "/Library/Fonts"))',
+      '(deny mach-lookup (global-name "com.apple.FontObjectsServer"))',
+    ] : []),
     '(deny process-fork)',
     '(deny process-exec)',
     `(allow process-exec (literal ${sq(real(o.cmd))}))`,
@@ -122,7 +128,7 @@ function bwrapIsModern(bin: string): boolean {
   return bwrapModern
 }
 
-function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; modern?: boolean }): string[] {
+function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; modern?: boolean; curatedFonts?: boolean }): string[] {
   const a = ['--die-with-parent', '--unshare-all', '--new-session', '--clearenv']
   // linux-runtime spec 3.8.2: no NESTED user namespaces, no capabilities. bwrap 0.12 wants --unshare-user spelled
   // out next to --disable-userns (--unshare-all alone is not enough for that check).
@@ -133,6 +139,7 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
   for (const p of o.readPaths) a.push('--ro-bind', p, p)
   const dir = path.dirname(o.cmd)
   if (!['/usr', '/bin'].some((d) => dir === d || dir.startsWith(d + '/'))) a.push('--ro-bind', dir, dir)
+  if (o.curatedFonts) for (const d of ['/usr/share/fonts', '/usr/local/share/fonts', '/etc/fonts']) if (fs.existsSync(d)) a.push('--tmpfs', d)
   a.push('--chdir', o.workDir)
   return a
 }
@@ -146,11 +153,11 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const kind = isolation()
   let argv: string[]
   if (kind === 'sandbox-exec') {
-    argv = ['/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu }), cmd, ...o.args]
+    argv = ['/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts }), cmd, ...o.args]
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...cgexecPrefix(o.timeoutMs ?? 60_000), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap) }),
+    argv = [...cgexecPrefix(o.timeoutMs ?? 60_000), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
       ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
   } else {
     argv = [cmd, ...o.args]

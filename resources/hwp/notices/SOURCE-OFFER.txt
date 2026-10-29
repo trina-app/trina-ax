@@ -1,0 +1,16 @@
+HWP preview bundle: rhwp 0.8.7, MIT
+Upstream source commit: 1a76570e833917d15817415a53c09ad61ab3203f
+https://github.com/edwardkim/rhwp/tree/1a76570e833917d15817415a53c09ad61ab3203f
+The unmodified upstream CLI releases are pinned by archive and executable SHA-256 in resources/hwp/manifest.json.
+Build/install recipe: scripts/hwp-bundle.ts; adapter: server/src/files/hwp-engine.ts.
+The application's corresponding source offer includes these recipes, adapter, worker, manifest, fixtures and notices at the exact application release commit, through its existing Source Code link. The renderer does not relicense the application or generated documents.
+
+Bundled font: Noto Sans KR Regular, OFL-1.1, unchanged TTF, weight 400.
+Source: rhwp upstream commit above, ttfs/opensource/NotoSansKR-Regular.ttf.
+Internal family, PostScript name, weight and SHA-256 are checked at startup.
+No system, customer, proprietary, GUST or vaguely licensed optional font is shipped.
+The misnamed Noto Serif KR Regular WOFF2 (internally ExtraLight) is excluded.
+
+Retained verbatim: rhwp MIT, upstream THIRD_PARTY_LICENSES.md and Noto OFL text.
+Upstream THIRD_PARTY_LICENSES.md still names npm 0.8.6; it is evidence, not a complete native SBOM.
+OPEN: upstream compiled metric-table provenance and exact native Skia feature/dependency inventory require upstream confirmation before public release clearance. The existing release notice manifest retains publicClear=false.

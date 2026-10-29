@@ -1,0 +1,11 @@
+{
+  "version": "0.8.7",
+  "source": "https://github.com/edwardkim/rhwp/tree/1a76570e833917d15817415a53c09ad61ab3203f",
+  "targets": {
+    "darwin-arm64": {"asset":"macos-aarch64", "archive":"6ed46aa63f6d10c447842999f73abc59cf9586c5645fefc5e763bd6a6d43662d", "binary":"03a104098641fd677e278100213f0340a60db548d71b7e218c06a8e1543422be"},
+    "darwin-x64": {"asset":"macos-x86_64", "archive":"07b1a5ea570e410d1b52b4d848a94f00c64674e84004883c62efad7daab61da4", "binary":"2d0c06bb0e90cc2ebc18811bd3e7c4aa11833a12e19114c0957631cf290ea1fe"},
+    "linux-arm64": {"asset":"linux-aarch64", "archive":"c4a70f5ed11b99586ee89d1ac9069145d58a0831d00e87858bb01626e2ebf313", "binary":"6427958afd8e39ef0f753e5440d04a527bc7d6f7f95fdbb4ade9c6df1e1d7c7a"},
+    "linux-x64": {"asset":"linux-x86_64", "archive":"f1e541a25cfe76b6bc1daf18bf9c1f9a5ac5e03e2c01b188daaf54107214f631", "binary":"6d1ccdfb5522d13cb9f6134357aeb718f705454709cf52627ccc127e249c3277"}
+  },
+  "fonts": [{"file":"NotoSansKR-Regular.ttf", "sha256":"6e06a7fe5d696ca719894a23f36bb2b1be8c816a5937cd4ad0f23ca67780dd74", "family":"Noto Sans KR", "postscript":"NotoSansKR-Regular", "weight":400, "license":"OFL-1.1"}]
+}

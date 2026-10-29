@@ -56,7 +56,7 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   const lvl = levelExp(route, who)
   if (lvl !== 'allow') return lvl
   // The preview probe uses Alice's text file: she passes access checks but gets 503 no_preview.
-  if (route === 'preview' && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
+  if ((route === 'preview' || route === 'hwpPreview') && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }
@@ -175,6 +175,12 @@ export const SPECS: Record<string, Spec> = {
   saveContent: { build: (c) => c.put('/api/files/content', { path: 'users/alice/todo.md', content: 'overwritten', baseSha256: null }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} wrote into users/alice`) } },
   download: { build: (c) => c.get('/api/files/download?path=users%2Falice%2Ftodo.md'), scope: 'users-alice' },
+  hwpPreview: { build: c => c.get('/api/files/hwp-preview?path=users%2Falice%2Ftodo.md&page=1'), scope: 'users-alice',
+    check: (r, _w, who) => {
+      const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : who === 'memberIn' ? 503 : 404
+      if (r.status !== status) throw new Error(who + ' hwpPreview status: ' + r.status)
+      if (who === 'memberIn' && r.json?.error?.params?.reason !== 'unsupported') throw new Error('expected unsupported')
+    } },
   preview: { build: (c) => c.get('/api/files/preview?path=users%2Falice%2Ftodo.md'), scope: 'users-alice',
     check: (r, _w, who) => {
       const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : who === 'memberIn' ? 503 : 404

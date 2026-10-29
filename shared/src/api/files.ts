@@ -1,6 +1,7 @@
 // Team folder (file screen), chat attachments, chunked uploads. Owner: C (server/src/routes/files.ts).
 // Every path is team-relative and goes through the policy function; "no access" and "not found" look the same.
 import { z } from 'zod'
+import { HwpPage } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
@@ -201,6 +202,7 @@ export const FILES = {
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
   saveContent: endpoint({ method: 'PUT', path: '/api/files/content', auth: 'user', owner: 'C', body: SaveContentBody, response: SaveResult, summary: 'Save a text file from the file screen (hash-based conflict copy, version history).' }),
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),
+  hwpPreview: endpoint({ method: 'GET', path: '/api/files/hwp-preview', auth: 'user', owner: 'C', query: z.object({ path: RelPath, page: z.coerce.number().int().min(1).max(200), cacheId: z.string().uuid().optional() }), response: HwpPage.extend({ id: z.string().uuid(), png: z.string().max(45 * 1024 * 1024) }), summary: 'Authorized HWP/HWPX raster page. Pages are 1-based. Original download stays available.' }),
   preview: endpoint({ method: 'GET', path: '/api/files/preview', auth: 'user', owner: 'C', query: PathQuery, response: stream(false), summary: 'JPEG preview of a HEIC / HEIF photo (converted on the server, cached). No converter or a failed conversion: 503 unavailable with params.reason no_preview.' }),
   upload: endpoint({ method: 'POST', path: '/api/files/upload', auth: 'user', owner: 'C', status: 201, body: multipart(UploadFields, SMALL_UPLOAD_MAX), response: FileEntry, summary: 'Upload one file up to 50 MB into a folder (write access).' }),
   mkdir: endpoint({ method: 'POST', path: '/api/files/mkdir', auth: 'user', owner: 'C', status: 201, body: MkdirBody, response: FileEntry, summary: 'Create a folder (name rules + collision check).' }),

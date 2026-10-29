@@ -48,6 +48,7 @@ import { RELEASE_CHANNEL } from '../shared/src/release-channel'
 import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, type LinuxArch } from './linux/downloads'
 import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
+import { stageHwp } from './hwp-bundle'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -57,7 +58,7 @@ export const hostArch = (): 'arm64' | 'amd64' => (process.arch === 'arm64' ? 'ar
 export const ROOT_FILES = ['mycel-bootstrap', 'mycel-launcher', 'mycel-account', 'engine.sb', 'pf-load'] as const
 /** server entry points: source -> bundled file in server/src/ */
 // office-worker.js: the bounded child process that reads spreadsheets and Hangul files (files/office-worker.ts)
-const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js']]
+const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js'], ['files/hwp-preflight.ts', 'hwp-preflight.js']]
 
 export async function buildBundle(o: { version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string; bunFor?: (arch: 'arm64' | 'amd64') => Promise<string> }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
@@ -94,6 +95,7 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   const web = path.join(REPO, 'web', 'dist')
   if (fs.existsSync(web)) fs.cpSync(web, path.join(dir, 'web'), { recursive: true })
   if (o.notes) fs.copyFileSync(o.notes, path.join(dir, 'RELEASE_NOTES.md'))
+  await stageHwp(REPO, dir, arch === 'universal' ? ['darwin-arm64', 'darwin-x64'] : [arch === 'amd64' ? 'darwin-x64' : 'darwin-arm64'])
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'darwin', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
   reportReleaseNotices(notices)
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
@@ -261,6 +263,7 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
+    'resources/hwp/manifest.json', 'resources/hwp/fonts/NotoSansKR-Regular.ttf', `native/bin/hwp/rhwp-linux-${o.arch === 'amd64' ? 'x64' : 'arm64'}`, 'server/src/hwp-preflight.js',
     'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js',
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
@@ -377,6 +380,7 @@ export async function buildLinuxBundle(o: {
   if (missing.length && o.strict) throw new Error(`--strict: missing ${missing.join(', ')}`)
   for (const m of missing) console.warn(`warning: ${m} is missing; the bundle is incomplete`)
 
+  await stageHwp(REPO, dir, [arch === 'amd64' ? 'linux-x64' : 'linux-arm64'])
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'linux', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
   reportReleaseNotices(notices)
 

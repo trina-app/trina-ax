@@ -18,6 +18,7 @@
     "start:server": "bun server/src/main.ts",
     "build": "bash native/build.sh && bun run --cwd web build",
     "admin": "bun server/src/auth/cli.ts",
+    "prepare:hwp": "bun scripts/hwp-bundle.ts",
     "build:native": "bash native/build.sh",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit && bun run --cwd web typecheck && bun run --cwd desktop typecheck",
     "test": "bun run scripts/test-all.ts",

@@ -3,6 +3,7 @@
 //   componentC(ctx).attachments.byIds(...)    B: attachments of a message being sent
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
 import fs from 'node:fs'
+import { HwpPreviews } from '../files/hwp-preview'
 import path from 'node:path'
 import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -22,6 +23,7 @@ import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { TeamFiles } from './service'
 
 export interface ComponentC {
+  hwp: HwpPreviews
   files: TeamFiles
   attachments: Attachments
   /** team files attached to chats by reference (the composer's "Add from team files") */
@@ -51,6 +53,7 @@ export function componentC(ctx: AppContext): ComponentC {
   const stt = transcribeConfig(ctx.config.dataDir)
   const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
+    hwp: new HwpPreviews(files),
     files, attachments, teamRefs, uploads, jobs,
     artifacts: new Artifacts(ctx),
     makeFile: new MakeFile(ctx, files, findConverters(ctx.engineConfig.pandoc)),
@@ -132,6 +135,8 @@ export function componentC(ctx: AppContext): ComponentC {
     view: (userId, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.view(userId, a) : a)),
     check: (userId, atts) => Promise.all(atts.map((a) => (a.source === 'team' ? teamRefs.check(userId, a) : a))),
   }
+  ctx.files.events.on('hwp-invalidate', () => c.hwp.invalidate())
+  ctx.onClose(() => { c.hwp.invalidate() })
   instances.set(ctx, c)
   return c
 }

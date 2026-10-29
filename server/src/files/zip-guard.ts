@@ -20,7 +20,7 @@ const damaged = (why: string) => new ToolError(`could not read this file (damage
 export const isZip = (b: Uint8Array) => b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04
 
 /** Throws a ToolError when the zip is damaged, uses zip64 or encryption, or expands past the limits. */
-export function checkZip(bytes: Uint8Array): void {
+export function checkZip(bytes: Uint8Array, limits = { total: ZIP_TOTAL_MAX, entries: ZIP_ENTRIES_MAX }): void {
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   // end of central directory: 22 bytes plus a comment of at most 65535 bytes
   let eocd = -1
@@ -32,7 +32,7 @@ export function checkZip(bytes: Uint8Array): void {
   const cdSize = v.getUint32(eocd + 12, true)
   const cdOff = v.getUint32(eocd + 16, true)
   if (count === 0xffff || cdOff === 0xffffffff || cdSize === 0xffffffff) throw tooComplex('zip64 container')
-  if (count > ZIP_ENTRIES_MAX) throw tooComplex(`more than ${ZIP_ENTRIES_MAX} parts in the file`)
+  if (count > limits.entries) throw tooComplex(`more than ${ZIP_ENTRIES_MAX} parts in the file`)
   if (cdOff + cdSize > eocd) throw damaged('central directory out of range')
   // first the declared sizes of every entry (cheap), then each entry's real size (bounded by the declared total)
   const parts: { method: number; csize: number; usize: number; local: number }[] = []
@@ -49,7 +49,7 @@ export function checkZip(bytes: Uint8Array): void {
     if (csize === 0xffffffff || usize === 0xffffffff || local === 0xffffffff) throw tooComplex('zip64 container')
     if (flags & 1) throw new ToolError('could not read this file (it is encrypted)')
     total += usize
-    if (total > ZIP_TOTAL_MAX) throw tooComplex(`it expands to more than ${ZIP_TOTAL_MAX / MIB} MB`)
+    if (total > limits.total) throw tooComplex(`it expands to more than ${ZIP_TOTAL_MAX / MIB} MB`)
     if (usize > ZIP_RATIO_FROM && usize > csize * ZIP_RATIO_MAX) throw tooComplex(`a part expands more than ${ZIP_RATIO_MAX} times`)
     if (method !== 0 && method !== 8) throw damaged(`compression method ${method}`)
     parts.push({ method, csize, usize, local })

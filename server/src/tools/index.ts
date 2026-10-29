@@ -2,6 +2,7 @@
 // make_file, share_file, artifact, web_fetch (design tab 3 "도구 목록"), and move_files / copy_files / rename_file
 // (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
+import { registerHwpRender } from './hwp-render'
 import { ArtifactInput, MakeFileInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
 import { fileShareUrl } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -20,7 +21,7 @@ import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
 import { resolveTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 
-export const C_TOOL_NAMES = ['make_file', 'share_file', 'artifact', 'web_fetch'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'share_file', 'artifact', 'web_fetch'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -46,7 +47,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
       name, description: entry.description, inputSchema: entry.inputSchema,
       async call(args, t) {
         const r = await reg.call(name, args, t.files)
-        return { content: [{ type: 'text', text: r.text }], ...(r.isError ? { isError: true } : {}), summary: r.summary }
+        return { content: [{ type: 'text', text: r.text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
       },
     })
   }
@@ -128,6 +129,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
       return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
     },
   })
+  registerHwpRender(ctx, reg)
   for (const name of C_TOOL_NAMES) exposeToTurns(name)
   // moving, copying and renaming any kind of file (tools/file-moves.ts)
   registerFileMoveTools(ctx, reg)

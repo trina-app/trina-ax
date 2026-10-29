@@ -54,7 +54,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         const out = registry?.has(name) ? await registry.call(name, msg.params?.arguments ?? {}, ctx) : await files.call(name, msg.params?.arguments ?? {}, ctx)
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
         try { extra?.afterFileTool?.(name, !!out.isError, msg.params?.arguments) } catch {}
-        return reply({ content: [{ type: 'text', text: out.text }], ...(out.isError ? { isError: true } : {}) })
+        return reply({ content: [{ type: 'text', text: out.text }, ...(out.images ?? [])], ...(out.isError ? { isError: true } : {}) })
       }
       default:
         if (msg.id === undefined) return null // notification
