@@ -1,7 +1,7 @@
 import path from 'node:path'
 // Real Electron + production web build + actual registered service worker. No page.route/network mocks.
 import { expect, test } from '@playwright/test'
-import { STRINGS } from '../src/common/i18n'
+import { STRINGS, t } from '../src/common/i18n'
 import { account, offlineServer, signInOfflineTeam, warmWorker } from '../../web/test/e2e/offline-server'
 import { close, launch, newUserData, teamPage, welcome } from './helpers'
 
@@ -127,5 +127,26 @@ for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       await expect(page.getByRole('heading')).toHaveText('Scheduled maintenance')
       await expect.poll(() => nativeRecoveryVisible(app)).toBe(false)
     } finally { await test.step('close Electron', () => close(app)); await server.close() }
+  })
+}
+
+for (const [locale, label] of [['ja', '日本語'], ['es', 'Español']] as const) {
+  test(`${label}: native welcome picker, edition domain and persisted choice`, async () => {
+    const userData = newUserData(null)
+    let app = await launch(userData)
+    try {
+      let shell = await welcome(app)
+      await shell.getByTestId('ui-locale').selectOption({ label })
+      await expect(shell.locator('html')).toHaveAttribute('lang', locale)
+      await expect(shell.getByRole('heading', { name: t(locale, 'welcome.title'), exact: true })).toBeVisible()
+      await expect(shell.getByText(t(locale, 'welcome.subtitle'), { exact: true })).toBeVisible()
+      await expect(shell.locator('#address')).toHaveAttribute('placeholder', t(locale, 'welcome.placeholder'))
+      if (process.env.I18N_SCREENSHOT_DIR) await shell.screenshot({ path: path.join(process.env.I18N_SCREENSHOT_DIR, `${locale}-desktop-welcome.png`) })
+      await close(app)
+      app = await launch(userData)
+      shell = await welcome(app)
+      await expect(shell.getByTestId('ui-locale')).toHaveValue(locale)
+      await expect(shell.locator('html')).toHaveAttribute('lang', locale)
+    } finally { await close(app) }
   })
 }

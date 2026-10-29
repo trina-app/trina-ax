@@ -56,7 +56,7 @@ export function ct(key: keyof typeof CT, locale: Locale, vars: Record<string, st
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }
-/** all three languages (notices go to people with different languages) */
+/** all five languages (notices go to people with different languages) */
 export function ctAll(key: keyof typeof CT, vars: Record<string, string> = {}): T {
   return { ko: ct(key, 'ko', vars), en: ct(key, 'en', vars), id: ct(key, 'id', vars), ja: ct(key, 'ja', vars), es: ct(key, 'es', vars) }
 }

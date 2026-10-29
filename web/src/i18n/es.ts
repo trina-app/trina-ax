@@ -586,7 +586,7 @@ export const es: Record<MessageKey, string> = {
   'scheduleTemplates.outcome.budget_exceeded': "El límite de uso impidió la ejecución",
   'scheduleTemplates.outcome.user_unavailable': "El estado del usuario impidió la ejecución",
   'notifications.title': "Notificaciones",
-  'connectors.title': "Conectores de aplicaciones",
+  'connectors.title': "Conectores de apps",
   'connectors.description': "Use archivos del equipo desde Claude con sus propios permisos.",
   'connectors.disabled': "Un administrador debe configurar primero los conectores de aplicaciones en este servidor.",
   'connectors.address': "Dirección del conector",

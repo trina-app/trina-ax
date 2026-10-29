@@ -1,7 +1,7 @@
 // Server-side account CLI (run on the server Mac; access to the Mac is the trust anchor, tab 4 "비밀번호 재설정").
 //
 //   bun server/src/auth/cli.ts status
-//   bun server/src/auth/cli.ts create-owner --username kim --name "Kim" --team "Acme" [--locale en|ko|id] < password
+//   bun server/src/auth/cli.ts create-owner --username kim --name "Kim" --team "Acme" [--locale en|ko|id|ja|es] < password
 //   bun server/src/auth/cli.ts reset-link [--username kim]      one-time link (24 h) for the owner or the named member
 //   bun server/src/auth/cli.ts list-owners                      the owner account(s): username, name, status
 //
@@ -82,7 +82,7 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         return rows.map((r) => `${r.username}\t${r.name}\t${r.status}`).join('\n')
       }
       default:
-        throw new CliError(`usage: ${PRODUCT.id}-account status | list-owners | create-owner --username U --name N --team T [--locale en|ko|id] < password | reset-link [--username U]`)
+        throw new CliError(`usage: ${PRODUCT.id}-account status | list-owners | create-owner --username U --name N --team T [--locale en|ko|id|ja|es] < password | reset-link [--username U]`)
     }
   } finally {
     await ctx.close()

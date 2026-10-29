@@ -1,5 +1,5 @@
 // Strings of the desktop app's own screens (welcome / team list, browser pane toolbar, permission prompts, menus,
-// dialogs). ko / en / id have the same keys (tests/unit/e-desktop-common.test.ts). Which one (docs/DECISIONS.md "언어"):
+// dialogs). ko / en / id / ja / es have the same keys (tests/unit/e-desktop-common.test.ts). Which one (docs/DECISIONS.md "언어"):
 // the language the open team page shows (its person's choice, else the team default, reported over the bridge),
 // or the one picked on the team list screen, kept in <user data>/ui-locale.json; English before either. The
 // system language does not decide. The team page itself is translated by the web app.
