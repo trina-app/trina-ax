@@ -14,7 +14,7 @@ import { api, API, fetchFileBlob, fileUrl, isApiError, PreviewTooLargeError, sav
 import { wrapHtml } from '../lib/artifacts'
 import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
-import { languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
+import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
@@ -266,7 +266,7 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
   const [text, setText] = useState<string | null>(null)
   useEffect(() => {
     let live = true
-    blob.slice(0, MAX_TEXT).text().then((v) => live && setText(v))
+    blob.slice(0, MAX_TEXT).arrayBuffer().then((b) => live && setText(decodePreviewText(new Uint8Array(b), blob.size > MAX_TEXT)))
     return () => {
       live = false
     }
