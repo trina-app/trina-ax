@@ -828,7 +828,7 @@ export const ko = {
   'engines.status.ok': '연결됨',
   'engines.status.not_installed': '설치 안 됨',
   'engines.status.not_logged_in': '로그인 필요',
-  'engines.status.version_unsupported': '지원하지 않는 버전',
+  'engines.status.version_unsupported': '검증하지 않은 버전',
   'engines.status.lockdown_failed': '잠금 시험 실패',
   'engines.status.error': '오류',
   'engines.status.unknown': '확인 안 됨',

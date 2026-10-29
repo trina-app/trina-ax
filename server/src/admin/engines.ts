@@ -69,7 +69,7 @@ export const T: Record<string, Record<Locale, string>> = {
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없습니다.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.' },
   managedNone: { ko: 'AI 연결이 없어요. 관리자 > AI 연결에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > AI connections.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Koneksi AI.' },
   managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > AI 연결을 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > AI connections.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Koneksi AI.' },
-  version: { ko: '고정 버전과 다릅니다(잠금 시험을 통과한 버전: {pinned}).', en: 'Differs from the pinned version (lockdown-tested: {pinned}).', id: 'Berbeda dari versi yang dikunci (lulus uji penguncian: {pinned}).' },
+  version: { ko: '아직 검증하지 않은 버전입니다(고정 버전: {pinned}; 잠금 시험을 통과한 버전: {tested}).', en: 'This version has not been tested (pinned: {pinned}; lockdown-tested: {tested}).', id: 'Versi ini belum diuji (versi yang dikunci: {pinned}; lulus uji penguncian: {tested}).' },
   lockdown: { ko: '이 버전의 엔진 잠금 시험이 실패했습니다.', en: 'The engine lockdown test failed for this version.', id: 'Uji penguncian mesin gagal untuk versi ini.' },
   error: { ko: '상태를 확인하지 못했습니다: {e}', en: 'Could not check the status: {e}', id: 'Tidak dapat memeriksa status: {e}' },
 }
@@ -209,9 +209,12 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
   // pinned version + lockdown regression result
   const pin = pinned(env, id)
   const compatible = id === 'codex' && CODEX_COMPATIBLE_VERSIONS.some(v => v === version)
-  if (pin && pin !== version && !compatible) return out('version_unsupported', t('version', locale, { pinned: pin }))
   const lock = lockdownResult(env, id)
   if (lock && !lock.ok && (lock.version === null || lock.version === version)) return out('lockdown_failed', t('lockdown', locale))
+  if (pin && pin !== version && !compatible) {
+    const tested = [...new Set([pin, ...(id === 'codex' ? CODEX_COMPATIBLE_VERSIONS : [])])].join(', ')
+    return out('version_unsupported', t('version', locale, { pinned: pin, tested }))
+  }
   return out('ok', null)
 }
 

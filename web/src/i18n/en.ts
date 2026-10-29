@@ -829,7 +829,7 @@ export const en: Record<MessageKey, string> = {
   'engines.status.ok': 'Connected',
   'engines.status.not_installed': 'Not installed',
   'engines.status.not_logged_in': 'Sign-in needed',
-  'engines.status.version_unsupported': 'Unsupported version',
+  'engines.status.version_unsupported': 'Untested version',
   'engines.status.lockdown_failed': 'Lockdown test failed',
   'engines.status.error': 'Error',
   'engines.status.unknown': 'Not checked',

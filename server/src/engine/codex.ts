@@ -131,11 +131,11 @@ export function prepareCodexTurn(conf: CodexConf, chatDir: string, realAuth?: st
 /** the pinned Codex CLI version (versions.json): sent as the `version` header the built-in provider sends (C8) */
 export const CODEX_VERSION: string = (() => {
   try { const v = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'versions.json'), 'utf8'))['codex-cli']; if (typeof v === 'string') return v } catch {}
-  return '0.165.0'
+  return '0.163.0'
 })()
 
-/** Older CLIs verified with the same locked profile. Installers still install CODEX_VERSION. */
-export const CODEX_COMPATIBLE_VERSIONS = ['0.163.0', '0.164.0'] as const
+/** Additional CLIs verified with the same locked profile. Installers still install CODEX_VERSION. */
+export const CODEX_COMPATIBLE_VERSIONS = ['0.164.0', '0.165.0'] as const
 
 /** seconds codex waits for one MCP tool call (ask_user waits for a person; codex's default is about 60 s) */
 export const CODEX_TOOL_TIMEOUT_SEC = 1800
