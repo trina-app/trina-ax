@@ -3,7 +3,7 @@
 // connections (adding and replacing ask for the password again); admins see and re-check; a member manages only
 // their own connections, and only while the team allows them. Secrets arrive sealed (seal.ts) and are checked
 // without spending tokens (validate.ts). Audit details hold kinds, labels, hints (last 4) and plans, never a secret.
-import type { Credential, CredentialAssignment, CredentialKind, Locale, SpendLimit } from '@mycel/shared/api'
+import type { Credential, CredentialAssignment, CredentialKind, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { setSetting } from '../admin/settings'
 import { newId } from '../db'
@@ -24,7 +24,7 @@ const secretOfKind = (kind: ApiKind, s: string): Secrets[ApiKind] => (kind === '
 const hintOf = (kind: CredentialKind, s: string) => (kind === 'anthropic-api-key' || kind === 'openai-api-key' ? s.slice(-4) : null)
 
 /** open a sealed secret for this purpose, or answer 400 (never says what it was) */
-export async function unsealOrFail(cc: CredCtx, sealed: Parameters<CredCtx['sealer']['unseal']>[0], purpose: 'credential.create' | 'credential.replace', locale: Locale): Promise<string> {
+export async function unsealOrFail(cc: CredCtx, sealed: Parameters<CredCtx['sealer']['unseal']>[0], purpose: SealPurpose, locale: Locale): Promise<string> {
   try { return await cc.sealer.unseal(sealed, purpose) } catch (e) {
     if (e instanceof SealError) return fail('validation', ct('sealed', locale), { fields: { 'body.sealed': e.reason === 'kid' ? 'sealed with another key' : e.reason === 'purpose' ? 'sealed for another request' : e.reason === 'replay' ? 'already used' : 'cannot be opened' } })
     throw e

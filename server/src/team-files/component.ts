@@ -8,6 +8,10 @@ import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
 import { transcribe, transcribeConfig, type TranscribeConfig } from '../jobs/transcribe'
+import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
+import { getTeamSettings } from '../admin/settings'
+import { credentialsOf } from '../credentials/store'
+import { readSpeechKey } from '../credentials/speech-key'
 import { Artifacts } from '../tools/artifact'
 import { findConverters, MakeFile } from '../tools/make-file'
 import { Attachments } from '../uploads/attachments'
@@ -59,7 +63,16 @@ export function componentC(ctx: AppContext): ComponentC {
       return jobs.start({
         kind: 'transcribe', userId,
         run: async (h) => {
-          try { return await transcribe(stt, own, name, { language: o.language, locale: locale(userId) }, h) } finally { fs.rmSync(own, { force: true }) }
+          try {
+            // the team's speech provider when the job runs (Admin > Team settings): off (default), OpenRouter, this server
+            const opts = { language: o.language, locale: locale(userId) }
+            const s = getTeamSettings(ctx.db)
+            if (s.speechProvider === 'local') return await transcribe(stt, own, name, opts, h)
+            if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
+            const key = readSpeechKey(credentialsOf(ctx))
+            if (!key) throw SPEECH_NO_KEY()
+            return await transcribeOpenRouter(stt, key, s.speechModel, own, name, opts, h)
+          } finally { fs.rmSync(own, { force: true }) }
         },
         // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
         discard: () => fs.rmSync(own, { force: true }),
