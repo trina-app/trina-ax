@@ -31,4 +31,4 @@ setpriv --reuid axserver --regid axserver --init-groups env MYCEL_SAFE_OPS_BWRAP
 setpriv --reuid axserver --regid axserver --init-groups /test-native/safebroker-tests -test.v
 setpriv --reuid axserver --regid axserver --init-groups /test-native/safeops-tests -test.v
 setpriv --reuid axserver --regid axserver --init-groups env MYCEL_WORK=/tmp/s1a-fix-units bun test tests/unit/safe-ops-review.test.ts
-setpriv --reuid axserver --regid axserver --init-groups env PATH=/opt/safe1a-fix:/usr/local/bin:/usr/bin:/bin MYCEL_WORK=/tmp/s1a-fix-converters MYCEL_SANDBOX_HELPER="$MYCEL_NATIVE_BIN/mycel-sandbox" bun test --preload tests/linux/safe-ops-cgroups.ts tests/unit/c-tools.test.ts --test-name-pattern isolation
+setpriv --reuid axserver --regid axserver --init-groups env PATH=/opt/safe1a-fix:/usr/local/bin:/usr/bin:/bin MYCEL_WORK=/tmp/s1a-fix-converters MYCEL_SANDBOX_HELPER="$MYCEL_NATIVE_BIN/mycel-sandbox" bun test --preload /opt/mycel/tests/linux/safe-ops-cgroups.ts tests/unit/c-tools.test.ts --test-name-pattern isolation
