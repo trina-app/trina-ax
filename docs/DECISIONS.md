@@ -1207,6 +1207,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 ### 무엇이 바뀌었나 (명세의 결정 그대로)
 
 - **D1 풀**: 자격 증명은 팀 DB의 `engine_credentials`(마이그레이션 106). 종류 4개(`anthropic-oauth`, `anthropic-api-key`, `chatgpt`, `openai-api-key`), 계열 2개(D2). 팀 공용 1개로 팀 전체가 쓰는 것이 기본. 그룹·사람 지정, 팀 설정 `credentials.memberOwn`(기본 꺼짐)으로 팀원 개인 연결.
+  - **구독 공유 기본값(대표 결정 2026-10-29)**: `credentials.sharedSubscriptions`의 새 설치 기본값은 `PRODUCT.sharedSubscriptionsDefault`를 따른다. 트리나 AX는 **켜짐**(팀 연결 하나가 기본, 본인 연결이 있으면 본인 것 먼저), 업종 중립 코어는 꺼짐. 설정 행이 없을 때만 기본값이고, owner가 명시적으로 끈 값·깨진 값은 그대로 닫힘. 켜기 스위치의 위험 경고(계정 정지·약관)는 그대로 둔다. 코어에도 필요함: 확장 지점(`PRODUCT.sharedSubscriptionsDefault`, `policy.ts`).
 - **D3 턴마다 하나**: 시도마다 해석기(`credentials/resolve.ts`)가 하나를 골라 `proxy_tokens.credential_id`·`family`에 묶는다. 프록시는 요청마다 그 행을 다시 읽는다(끄거나 지우면 다음 요청부터 막힘). 엔진이 보낸 헤더(계정 id, 키)로는 절대 고르지 않는다.
 - **D4/D5 해석 순서**: 본인 연결(설정이 켜졌을 때만) → 사람 지정 → 그룹 지정(지금 속한 그룹) → 팀 공용. 같은 단계는 priority → 구독 먼저 → created_at → id. 쓸 수 없는 것은 건너뛰고, 지정된 것을 못 쓰면 팀 공용으로 넘어간다. 남의 개인 연결은 어떤 경우에도 후보가 아니다.
 - **D6 보관**: 비밀값은 `secret_enc`(AES-256-GCM, AAD `mycel-cred-v1|<id>|<kind>`)에만. 열쇠 `<secrets>/credentials.key`(32바이트, 600, `O_EXCL|O_NOFOLLOW`로 만들고 링크·다른 권한·다른 소유자·크기 이상이면 거부). 복호화 실패 → 그 연결만 `needs_reconnect`, 감사, 관리자 알림, 서버는 계속.
