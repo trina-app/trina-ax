@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
 import { fileError, mapErrors } from '../team-files/errors'
-import { HeicPreviews, isHeic } from '../files/heic-preview'
+import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { searchFileContents } from '../team-files/content-search'
@@ -57,18 +57,19 @@ export const filesRoutes: RouteModule = {
     }))
 
     // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
-    // (files/heic-preview.ts). Other formats and machines without a converter: 503 no_preview (the "cannot preview"
-    // panel). The same response headers as the attachment thumbnail.
+    // (files/heic-preview.ts). Other formats, machines without a converter, failed conversions and full queues: 503
+    // unavailable (the "cannot preview" panel). Only the input limit is 413. The same response headers as the
+    // attachment thumbnail. A request that the browser cancels leaves the conversion queue.
     const previews = new HeicPreviews(path.join(ctx.config.dataDir, 'previewcache'))
     kit.handle(API.preview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
       const f = svc.fileForDownload(auth.user.id, query.path)
-      const noPreview = () => fileError('unavailable', 'noPreview', undefined, { reason: 'no_preview' })
+      const noPreview = (reason = 'no_preview') => fileError('unavailable', 'noPreview', undefined, { reason })
       if (!isHeic(f.name)) return noPreview()
       let r: Awaited<ReturnType<typeof previews.jpeg>>
-      try { r = await previews.jpeg(f.abs) } catch (e) {
-        if (e instanceof ToolError && !/too large/.test(e.message) && e.code !== 'not_found') {
+      try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal }) } catch (e) {
+        if (noPreviewError(e)) {
           ctx.log.debug('HEIC preview failed', { err: e })
-          return noPreview()
+          return noPreview((e as ToolError).code === 'busy' ? 'busy' : 'no_preview')
         }
         throw e
       }

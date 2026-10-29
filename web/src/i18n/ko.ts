@@ -334,7 +334,7 @@ export const ko = {
   'preview.tooLarge': '파일이 커서({size}) 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.unsupported': '이 형식은 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.truncated': '파일 앞부분만 보여요.',
-  'preview.photoUnavailable': '이 사진은 여기서 미리 볼 수 없어요(서버가 HEIC 사진을 바꿀 수 없어요). 내려받아서 열어 주세요.',
+  'preview.photoUnavailable': '이 사진은 여기서 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.unsupportedShort': '미리 볼 수 없는 형식',
   'preview.sheetRowsCut': '이 시트는 처음 {rows}행만 보여요. 모든 행을 보려면 파일을 내려받아 주세요.',
   'preview.sheetHidden': '숨김',

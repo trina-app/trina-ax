@@ -10,7 +10,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { which } from '../../server/src/config'
 import { extractText } from '../../server/src/files/extract'
-import { HeicPreviews, heicToJpeg, heicTools, PREVIEW_INPUT_MAX, type HeicTools } from '../../server/src/files/heic-preview'
+import { HeicPreviews, heicToJpeg, heicTools, noPreviewError, PREVIEW_INPUT_MAX, PREVIEW_PER_USER_MAX, PREVIEW_QUEUE_MAX, PREVIEW_RUNS_MAX, previewKey, type HeicTools } from '../../server/src/files/heic-preview'
+import { hashFile } from '../../server/src/team-files/place'
+import { ToolError } from '../../server/src/policy/errors'
+import { runIsolated } from '../../server/src/tools/isolate'
 import { imageSize } from '../../server/src/uploads/image'
 import { makeCApp, type CApp } from '../lib/c-app'
 
@@ -96,7 +99,24 @@ describe('fallback', () => {
     const big = path.join(tmp, 'big.heic')
     fs.writeFileSync(big, '')
     fs.truncateSync(big, PREVIEW_INPUT_MAX + 1)
-    await expect(new HeicPreviews(path.join(tmp, 'cache-big'), { heifDec: '/bin/false', imageIo: null }).jpeg(big)).rejects.toThrow('too large')
+    const e = await new HeicPreviews(path.join(tmp, 'cache-big'), { heifDec: '/bin/false', imageIo: null }).jpeg(big).catch((x) => x)
+    expect(e).toBeInstanceOf(ToolError)
+    expect(e.code).toBe('too_large')
+  })
+  test('a converter killed by a limit: no second converter runs after it', async () => {
+    // /usr/bin/yes writes its arguments without end: the stdout limit kills it in milliseconds. Before the fix the
+    // second converter (here /bin/echo) ran as well and its error replaced the first one.
+    const e = await heicToJpeg(fs.readFileSync(FIXTURE), { heifDec: '/usr/bin/yes', imageIo: '/bin/echo' }).catch((x) => x)
+    expect(e).toBeInstanceOf(ToolError)
+    expect(e.message).toContain('heif-dec')
+    expect(e.message).not.toContain('no JPEG mode')
+  })
+  test('only the input limit is "too large" (HTTP 413); a failed conversion is "cannot preview", whatever its text', () => {
+    expect(noPreviewError(new ToolError('could not make a preview of the photo (heif-dec: image too large)', 'preview_failed'))).toBe(true)
+    expect(noPreviewError(new ToolError('the converter failed: Security limit exceeded, too large'))).toBe(true)
+    expect(noPreviewError(new ToolError('too large to preview (over 50 MB)', 'too_large'))).toBe(false)
+    expect(noPreviewError(new ToolError('not found', 'not_found'))).toBe(false)
+    expect(noPreviewError(new Error('other'))).toBe(false)
   })
   test('the cache keeps at most its byte limit (least recently used go first)', () => {
     const dir = path.join(tmp, 'cache-prune')
@@ -108,6 +128,136 @@ describe('fallback', () => {
     }
     new HeicPreviews(dir, NONE, 250).prune()
     expect(fs.readdirSync(dir).sort()).toEqual(['2.jpg', '3.jpg'])
+  })
+})
+
+/** A fake converter: each call waits until the test settles it. */
+function fakeConverter() {
+  const calls: { bytes: Uint8Array; signal?: AbortSignal; resolve: (b: Buffer) => void; reject: (e: unknown) => void }[] = []
+  const convert = (bytes: Uint8Array, _t: HeicTools, signal?: AbortSignal) => new Promise<Buffer | null>((resolve, reject) => {
+    calls.push({ bytes, signal, resolve, reject })
+    signal?.addEventListener('abort', () => reject(new Error('converter stopped')), { once: true })
+  })
+  return { calls, convert }
+}
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+let seq = 0
+function photo(content?: string): string {
+  const p = path.join(tmp, 'q', `p${seq++}.heic`)
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  fs.writeFileSync(p, content ?? `heic-${seq}-${Math.random()}`)
+  return p
+}
+/** the settled outcome of p, or 'pending' when it does not settle within ms */
+const settle = <T>(p: Promise<T>, ms = 300) =>
+  Promise.race([p.then((v) => ({ ok: v }), (e) => ({ err: e })), new Promise<'pending'>((r) => setTimeout(() => r('pending'), ms))])
+const tick = () => new Promise((r) => setTimeout(r, 20))
+
+describe('conversion queue (QA review: memory, starvation)', () => {
+  test('the queue has a limit: over it, "busy" at once (not a long wait)', async () => {
+    const f = fakeConverter()
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q1'), NONE, undefined, f.convert)
+    const held = Array.from({ length: PREVIEW_RUNS_MAX + PREVIEW_QUEUE_MAX }, (_, i) => pv.jpeg(photo(), { user: `u${i}` }).catch(() => null))
+    await tick()
+    expect(f.calls.length).toBe(PREVIEW_RUNS_MAX)
+    const over = await settle(pv.jpeg(photo(), { user: 'late' }))
+    expect(over).not.toBe('pending')
+    expect((over as { err: ToolError }).err?.code).toBe('busy')
+    // the waiting requests hold no file bytes: only the running conversions have read their file
+    expect(pv.stats()).toEqual({ running: PREVIEW_RUNS_MAX, waiting: PREVIEW_QUEUE_MAX })
+    for (let i = 0; i < 20 && f.calls.some((c) => c); i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
+    await Promise.all(held)
+  })
+  test('one person can wait for only a few conversions at a time', async () => {
+    const f = fakeConverter()
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q2'), NONE, undefined, f.convert)
+    const held = Array.from({ length: PREVIEW_PER_USER_MAX }, () => pv.jpeg(photo(), { user: 'mallory' }).catch(() => null))
+    await tick()
+    const over = await settle(pv.jpeg(photo(), { user: 'mallory' }))
+    expect((over as { err: ToolError }).err?.code).toBe('busy')
+    // another person is not blocked by the limit
+    const other = pv.jpeg(photo(), { user: 'alice' })
+    await tick()
+    for (let i = 0; i < 20 && pv.stats().running + pv.stats().waiting > 0; i++) { for (const c of f.calls.splice(0)) c.resolve(JPEG); await tick() }
+    expect((await other)?.bytes.equals(JPEG)).toBe(true)
+    await Promise.all(held)
+  })
+  test('a request that goes away leaves the queue; a conversion nobody waits for stops', async () => {
+    const f = fakeConverter()
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q3'), NONE, undefined, f.convert)
+    const a = new AbortController(), b = new AbortController(), w = new AbortController()
+    const ra = pv.jpeg(photo(), { user: 'a', signal: a.signal }).catch((e) => e)
+    const rb = pv.jpeg(photo(), { user: 'b', signal: b.signal }).catch((e) => e)
+    const rw = pv.jpeg(photo(), { user: 'w', signal: w.signal })
+    await tick()
+    expect(pv.stats()).toEqual({ running: 2, waiting: 1 })
+    w.abort()
+    const out = await settle(rw)
+    expect((out as { err: ToolError }).err?.code).toBe('aborted')
+    expect(pv.stats()).toEqual({ running: 2, waiting: 0 })
+    // the only caller of a running conversion goes away: the converter gets the stop signal and the slot is free
+    a.abort()
+    await tick()
+    expect(f.calls[0]!.signal?.aborted).toBe(true)
+    expect(pv.stats()).toEqual({ running: 1, waiting: 0 })
+    b.abort()
+    await Promise.all([ra, rb])
+  })
+  test('a shared conversion goes on when one of its callers goes away', async () => {
+    const f = fakeConverter()
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q4'), NONE, undefined, f.convert)
+    const same = photo('same bytes')
+    const copy = photo('same bytes')
+    const gone = new AbortController()
+    const r1 = pv.jpeg(same, { user: 'a', signal: gone.signal }).catch((e) => e)
+    const r2 = pv.jpeg(copy, { user: 'b' })
+    await tick()
+    expect(f.calls.length).toBe(1)
+    gone.abort()
+    await tick()
+    expect(f.calls[0]!.signal?.aborted).toBe(false)
+    f.calls[0]!.resolve(JPEG)
+    expect((await r2)?.bytes.equals(JPEG)).toBe(true)
+    expect((await r1).code).toBe('aborted')
+  })
+  test('a failed conversion is remembered for a while (a bad photo does not use the converter again and again)', async () => {
+    let runs = 0
+    const pv = new HeicPreviews(path.join(tmp, 'cache-q5'), NONE, undefined, async () => { runs++; throw new ToolError('could not make a preview of the photo (heif-dec: timeout)', 'preview_failed') })
+    const bad = photo()
+    for (let i = 0; i < 3; i++) {
+      const e = await pv.jpeg(bad, { user: 'u' }).catch((x) => x)
+      expect(e).toBeInstanceOf(ToolError)
+      expect(e.code).toBe('preview_failed')
+    }
+    expect(runs).toBe(1)
+  })
+  test('the converter gets the file bytes; a cache hit runs no converter', async () => {
+    const f = fakeConverter()
+    const dir = path.join(tmp, 'cache-q6')
+    const pv = new HeicPreviews(dir, NONE, undefined, f.convert)
+    const p = photo('photo bytes')
+    const r = pv.jpeg(p)
+    await tick()
+    expect(Buffer.from(f.calls[0]!.bytes).toString()).toBe('photo bytes')
+    f.calls[0]!.resolve(JPEG)
+    const first = await r
+    expect(first?.etag).toBe(previewKey(await hashFile(p)))
+    expect(fs.existsSync(path.join(dir, first!.etag + '.jpg'))).toBe(true)
+    const again = await pv.jpeg(p)
+    expect(again?.etag).toBe(first!.etag)
+    expect(f.calls.length).toBe(1)
+  })
+})
+
+describe('runIsolated work-folder limit', () => {
+  test('a converter that fills its work folder is stopped', async () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'heic-disk-'))
+    try {
+      const r = await runIsolated({
+        cmd: '/bin/bash', args: ['-c', 'while :; do printf "%01024d" 0 >> fill; done'], workDir: work, timeoutMs: 10_000, maxWorkBytes: 2 * 1024 * 1024,
+      })
+      expect(r.killed).toBe('disk')
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
   })
 })
 
@@ -140,5 +290,31 @@ describe('GET /api/files/preview', () => {
     expect((await A.req(q('shared/photos/missing.heic'), { as: 'alice' })).status).toBe(404)
     expect((await A.req(q('groups/finance/x.heic'), { as: 'alice' })).status).toBe(404)
     expect((await A.req(q('shared/photos/IMG_0001.HEIC'))).status).toBe(401)
+  })
+  test('the cache never shows a photo to somebody who cannot read it; links are refused', async () => {
+    // the same bytes at a readable path and in groups/finance (alice cannot read it). The cache entry for them is
+    // planted, so this works on a machine with no converter too.
+    const bytes = Buffer.concat([fs.readFileSync(FIXTURE), Buffer.from('finance')])
+    fs.mkdirSync(path.join(A.team, 'shared', 'photos'), { recursive: true })
+    fs.writeFileSync(path.join(A.team, 'groups', 'finance', 'secret.heic'), bytes)
+    fs.writeFileSync(path.join(A.team, 'shared', 'photos', 'same.heic'), bytes)
+    const key = previewKey(await hashFile(path.join(A.team, 'shared', 'photos', 'same.heic')))
+    const planted = Buffer.concat([JPEG, Buffer.from('planted')])
+    fs.mkdirSync(path.join(A.data, 'previewcache'), { recursive: true })
+    fs.writeFileSync(path.join(A.data, 'previewcache', key + '.jpg'), planted)
+    // the cache is hit for the readable copy (the planted bytes come back) ...
+    const ok = await A.req(q('shared/photos/same.heic'), { as: 'alice' })
+    expect(ok.status).toBe(200)
+    expect(Buffer.from(await ok.arrayBuffer()).equals(planted)).toBe(true)
+    // ... but not for the hidden one: the authorization check comes first
+    const hidden = await A.req(q('groups/finance/secret.heic'), { as: 'alice' })
+    expect(hidden.status).toBe(404)
+    expect(hidden.headers.get('content-type')).not.toBe('image/jpeg')
+    // a symbolic link from a readable folder to the hidden photo: refused like the download endpoint refuses it
+    fs.symlinkSync(path.join(A.team, 'groups', 'finance', 'secret.heic'), path.join(A.team, 'shared', 'photos', 'link.heic'))
+    const viaLink = await A.req(q('shared/photos/link.heic'), { as: 'alice' })
+    expect(viaLink.status).not.toBe(200)
+    expect(viaLink.headers.get('content-type')).not.toBe('image/jpeg')
+    expect(viaLink.status).toBe((await A.req('/api/files/download?' + new URLSearchParams({ path: 'shared/photos/link.heic' }), { as: 'alice' })).status)
   })
 })
