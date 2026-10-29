@@ -37,7 +37,8 @@ export const TEXT = {
 const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
 
 const SKILLS = 'skills/ (team skills and rules) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
-const clean = (p: string) => p.normalize('NFC').replace(/^\/+|\/+$/g, '')
+// Match the policy resolver's dot/empty-segment normalization before checking protected skills paths.
+const clean = (p: string) => p.normalize('NFC').split('/').filter(s => s !== '' && s !== '.').join('/')
 const nameOf = (p: string) => p.split('/').pop() ?? ''
 const parentOf = (p: string) => p.split('/').slice(0, -1).join('/')
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name)
