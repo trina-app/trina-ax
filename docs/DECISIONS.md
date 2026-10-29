@@ -2787,6 +2787,7 @@ including same-account installs. Extend the same synthetic selection tests to co
   RTCDataChannel, but cannot construct a connection/channel themselves; receiving an existing channel
   requires cooperation by a Window already permitted to create it. Worker exclusion is not a blanket claim
   that workers expose no RTC-related interfaces. Port this correction and native test to `potenlab/team-ax`.
+
 ## Japanese and Spanish app languages (2026-10-29)
 
 - Add Japanese (`ja`, 日本語) and Spanish (`es`, Español) to Korean, English and Indonesian. Translate the full
@@ -2828,3 +2829,9 @@ including same-account installs. Extend the same synthetic selection tests to co
 - Verification covers dictionary/table completeness and substitutions, ICU forms, native-name pickers and setup
   detection, account persistence, recipient push language, formatting, stopped-server web offline pages, and
   Electron native recovery. Browser screenshots cover settings, chat, files, skills, trash and offline in ja/es.
+
+### Merge-train locale completeness (2026-10-30)
+
+- Integrate the desktop worker-startup correction and default-off HWP preview before Japanese/Spanish.
+- Supply all 20 HWP web keys in both new locales, including the disabled-preview and Debian 12/glibc notices.
+  Preserve the five-language requirement and placeholder checks; no English placeholder translations.

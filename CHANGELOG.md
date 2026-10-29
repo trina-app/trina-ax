@@ -1,15 +1,13 @@
 # Changelog
 
+Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
+This file summarizes user-visible changes; it is not a list of every commit.
+
 ## Unreleased
 
 - Keep experimental HWP previews disabled and exclude their native runtime from default release bundles pending licence/platform review; document Debian 12 availability in System and installation guidance. Restrict HWP macOS file reads to runtime and authorized job inputs.
 
 - Add guarded HWP/HWPX server PNG previews and the AI `hwp_render` page tool, with pinned engine/fonts and original downloads.
-
-Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
-This file summarizes user-visible changes; it is not a list of every commit.
-
-## Unreleased
 
 - Add Japanese (日本語) and Spanish (Español) across the app, notifications, offline recovery and desktop, with localized dates and numbers.
 

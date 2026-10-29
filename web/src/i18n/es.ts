@@ -369,7 +369,7 @@ export const es: Record<MessageKey, string> = {
   'hwp.page': "Página {page} de {count}",
   'hwp.limitations': "Vista previa aproximada con fuentes alternativas. El diseño puede variar; descargue el original para ver el formato exacto. Use «Preguntar a la IA» para leer el texto del documento.",
   'hwp.locked': "Este documento está bloqueado o cifrado. Descargue el original para abrirlo.",
-  'hwp.distribution': "Los documentos de solo distribución no se pueden previsualizar. Descargue el original.",
+  'hwp.distribution': "Los documentos en modo de distribución no se pueden previsualizar. Descargue el original.",
   'hwp.damaged': "Este documento parece dañado o incompleto. Descargue el original.",
   'hwp.unsupported': "Este documento contiene un formato o una función no compatibles. Descargue el original.",
   'hwp.limit': "Este documento supera los límites de procesamiento seguro de la vista previa. Descargue el original.",
