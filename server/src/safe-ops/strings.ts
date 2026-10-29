@@ -1,5 +1,15 @@
 import type { Database } from 'bun:sqlite'
 export const SAFE_OPS_TEXT = {
+  destination: {
+    ko: '생성 파일은 skills 밖의 기존 폴더에 저장해 주세요.',
+    en: 'Save generated files in an existing folder outside skills.',
+    id: 'Simpan berkas yang dihasilkan di folder yang sudah ada di luar skills.',
+  },
+  conflict: {
+    ko: '승인 후 저장 위치에 다른 파일이 생겼습니다. 덮어쓰지 않았습니다. 다시 시도하면 별도의 충돌 사본을 만듭니다.',
+    en: 'Another file claimed the destination after approval. It was not overwritten. Retry to create an explicit conflict copy.',
+    id: 'Berkas lain memakai tujuan setelah persetujuan. Berkas itu tidak ditimpa. Coba lagi untuk membuat salinan konflik terpisah.',
+  },
   quarantined: {
     ko: '이 생성 파일은 다운로드 전용입니다. 안전한 소비 경로가 검증될 때까지 색인, 텍스트 추출 및 앱 내 미리보기를 제공하지 않습니다.',
     en: 'This generated file is download-only. Indexing, text extraction and in-app previews are disabled until a safe consumer is qualified.',
@@ -90,6 +100,8 @@ export function safeErrorText(db: Database, userId: string, code: string, messag
       safe_ops_busy: 'busy',
       safe_ops_image_limit: 'imageLimit',
       safe_ops_quarantined: 'quarantined',
+      safe_ops_conflict: 'conflict',
+      safe_ops_destination: 'destination',
       safe_ops_workflow: 'workflow',
       safe_ops_changed: 'changed',
     } as const

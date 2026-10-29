@@ -62,7 +62,7 @@ export async function publishArtifact(
  c.user=ctx.files.principal(c.user.id)
  const out=authorize(files.fx,files.rules(),c.user,requested,'write',{mustExist:false,download:true})
  // Skill publication requires a different artifact-specific approval UI; not qualified in 1A.
- if(out.segs[0]==='skills') throw changed()
+ if(out.segs[0]==='skills') throw new ToolError('Choose an existing folder outside skills.', 'safe_ops_destination')
  let target=out.rel, conflictCopyOf:string|undefined
  if(out.exists) {
    const extension=path.posix.extname(out.rel)
@@ -96,11 +96,11 @@ export async function publishArtifact(
      if(policy!==policyGeneration(db) || viewers!==audience(ctx,target) || sha256(bytes)!==hash) throw changed()
      if(chat && JSON.stringify(readScope(db,chat))!==JSON.stringify(JSON.parse(provenance).scope)) throw changed()
      for(const s of sources) recheck(ctx.files,c,s)
-     authorize(files.fx,files.rules(),c.user,target,'write',{mustExist:false})
+     authorize(files.fx,files.rules(),c.user,target,'write',{mustExist:false,download:true})
      const row=db.query('SELECT state,hash,destination,policy,audience FROM safe_ops_publications WHERE id=?').get(id) as any
      if(row.state!=='publishing'||row.hash!==hash||row.destination!==target||row.policy!==policy||row.audience!==viewers) throw changed()
      const result=broker(files.fx.root,['publish',target,id,hash],bytes)
-     if(result===null) throw new ToolError('Destination changed; retry to create an explicit conflict copy.', 'conflict')
+     if(result===null) throw new ToolError('Destination changed; retry to create an explicit conflict copy.', 'safe_ops_conflict')
      const st=fs.lstatSync(path.join(files.fx.root,target))
      db.query('INSERT OR IGNORE INTO safe_ops_inodes(identity) VALUES(?)').run(`${st.dev}:${st.ino}`)
      db.query("UPDATE safe_ops_publications SET state='published',cleanup='clean' WHERE id=?").run(id)
@@ -109,7 +109,9 @@ export async function publishArtifact(
    }).immediate()
  } catch(e) {
    // No automatic retry, even if the helper died after linking the file.
-   recoverPublications(db,files.fx.root,true)
+   if(e instanceof ToolError && e.code==='safe_ops_conflict')
+     db.query("UPDATE safe_ops_publications SET state='conflict',cleanup='clean' WHERE id=?").run(id)
+   else recoverPublications(db,files.fx.root,true)
    throw e
  }
  c.files.bytesWritten+=bytes.length; c.files.filesWritten.add(target)

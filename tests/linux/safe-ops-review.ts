@@ -26,6 +26,7 @@ try {
    assert(child.status===0)
   })}catch{denied=true}
   assert(denied);assert(fs.readFileSync(path.join(app.team,rel),'utf8')==='human edit')
+  assert(!app.ctx.files.quarantine.hasFile(path.join(app.team,rel)),'known conflict must not quarantine the independent writer')
   let target=''
   const made=await publishArtifact(app.ctx,files,c,rel,bytes,[],async(t)=>{target=t})
   assert(made.path===target&&target!==rel&&made.conflictCopyOf===rel)

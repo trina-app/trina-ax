@@ -20,7 +20,7 @@ export class Quarantine {
   }
   hasFile(abs: string) {
     const st = fs.lstatSync(abs)
-    if (this.db.query('SELECT 1 FROM safe_ops_publications WHERE destination=? LIMIT 1').get(path.relative(this.root,abs))) return true
+    if (this.db.query("SELECT 1 FROM safe_ops_publications WHERE destination=? AND state!='conflict' LIMIT 1").get(path.relative(this.root,abs))) return true
     if (this.db.query('SELECT 1 FROM safe_ops_inodes WHERE identity=?').get(`${st.dev}:${st.ino}`)) return true
     if (!st.isFile() || !this.db.query('SELECT 1 FROM safe_ops_artifacts WHERE size=? LIMIT 1').get(st.size)) return false
     return this.hasBytes(readRegular(abs, 32 * 1024 ** 2).bytes)
