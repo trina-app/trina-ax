@@ -67,6 +67,8 @@ export class RedactingText {
   /** everything held back (the text ended, or a tool call, a retry or a stop comes next) */
   flush(): string { return this.take(true) }
   get held(): string { return this.pending }
+  /** drop what is held back (the text it belongs to is discarded) */
+  clear() { this.pending = '' }
 
   private take(all: boolean): string {
     const text = this.pending

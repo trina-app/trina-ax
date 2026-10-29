@@ -128,6 +128,20 @@ describe('hub', () => {
     hub.close()
   })
 
+  test('a reset delta is not merged into the deltas before it; the deltas after it merge into it', async () => {
+    const hub = new Hub(fakeCtx())
+    const m = uuidv7()
+    hub.publish('alice', delta(m, 0, 'Hello'))
+    hub.publish('alice', { type: 'message.delta', data: { chatId: uuidv7(), messageId: m, offset: 0, text: '', reset: true } })
+    hub.publish('alice', delta(m, 0, 'Hi'))
+    const r = await connect(hub, 'alice', 'windowId=win-alice-3&epoch=epoch-1&after=0')
+    const ev = r.events()
+    expect(ev).toHaveLength(2)
+    expect(ev[0]).toMatchObject({ data: { offset: 0, text: 'Hello' } })
+    expect(ev[1]).toMatchObject({ seq: 3, data: { offset: 0, text: 'Hi', reset: true } })
+    hub.close()
+  })
+
   test('window-targeted events reach only that window, also on resume; acked browser calls are not replayed', async () => {
     const hub = new Hub(fakeCtx())
     const w1 = await connect(hub, 'alice', 'windowId=win-desk-1')

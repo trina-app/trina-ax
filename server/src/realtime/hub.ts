@@ -137,7 +137,7 @@ export class Hub implements RealtimeHub {
 
   private remember(u: UserState, ev: ServerEvent, window: string | null, bytes: number, now: number) {
     const last = u.buffer[u.buffer.length - 1]
-    if (ev.type === 'message.delta' && last && last.ev.type === 'message.delta' && last.window === window
+    if (ev.type === 'message.delta' && !ev.data.reset && last && last.ev.type === 'message.delta' && last.window === window
       && last.ev.data.messageId === ev.data.messageId && last.ev.data.offset + last.ev.data.text.length === ev.data.offset
       && last.ev.data.text.length + ev.data.text.length <= MAX_MERGED_DELTA) {
       // one entry per run of consecutive deltas of the same message (tab 4): it takes the newest seq
