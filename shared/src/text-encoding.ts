@@ -5,7 +5,7 @@
 // Many Western files (Windows-1252 / Latin-1) also decode without error as CP949, but then give rare Hangul syllables
 // and Hanja. Thus the rule is strict: a wrong "Korean" text is worse than visible replacement characters.
 
-const HANGUL_SYLLABLE = /[가-힣]/u
+const HANGUL_SYLLABLE = /[\uAC00-\uD7A3]/u
 // CJK ideographs (Hanja): extension A, the unified block and the compatibility block (CP949 maps bytes to all three)
 const HANJA = /[㐀-䶿一-鿿豈-﫿]/u
 
