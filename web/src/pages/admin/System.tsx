@@ -57,6 +57,7 @@ function useJobRunner() {
 export default function System() {
   // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
   // updater's card; v null = not office mode, an error (older server) = the production card
+  const t = useT()
   const office = useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
   const me = useMeStrict()
   // a finished backup changes the diagnostics card's "last backup" line
@@ -66,6 +67,7 @@ export default function System() {
   // an admin: the storage use, and (office mode) the automatic update card
   if (!isOwner(me)) return (
     <>
+      <p className="text-sm text-muted" data-testid="hwp-admin-notice">{t('hwp.adminNotice')}</p>
       <PlanCard />
       <Storage />
       {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : null}
@@ -74,6 +76,7 @@ export default function System() {
   return (
     <>
       <Diagnostics rev={rev} />
+      <p className="text-sm text-muted" data-testid="hwp-admin-notice">{t('hwp.adminNotice')}</p>
       <PlanCard />
       <Storage />
       <Connection canChange={features?.connectionChange !== false} />

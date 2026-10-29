@@ -333,6 +333,8 @@ export const id: Record<MessageKey, string> = {
   'preview.panel': 'Pratinjau file',
   'preview.notFound': 'File tidak ditemukan atau kamu tidak punya akses.',
   'preview.tooLarge': 'File terlalu besar untuk dipratinjau ({size}). Unduh untuk membukanya.',
+  'hwp.disabled': "Pratinjau Hangul dinonaktifkan hingga peninjauan rilis selesai. Anda tetap dapat mengunduh berkas asli dan meminta AI membaca teksnya.",
+  'hwp.adminNotice': "Pratinjau HWP/HWPX bersifat eksperimental dan dinonaktifkan secara bawaan hingga peninjauan rilis selesai. Fitur ini tidak tersedia di Debian 12 (glibc 2.36; perender memerlukan 2.39). Unduhan berkas asli dan pembacaan teks tetap tersedia.",
   'hwp.viewer': "Pratinjau dokumen Hangul",
   'hwp.pages': "Navigasi halaman",
   'hwp.previous': "Sebelumnya",

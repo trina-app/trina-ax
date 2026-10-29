@@ -14,6 +14,9 @@ import { toolRegistry } from '../../server/src/tools/registry'
 import { runIsolated } from '../../server/src/tools/isolate'
 
 setDefaultTimeout(30000)
+const previousHwpOptIn = process.env.MYCEL_HWP_PREVIEW
+beforeAll(() => { process.env.MYCEL_HWP_PREVIEW = '1' })
+afterAll(() => { if (previousHwpOptIn === undefined) delete process.env.MYCEL_HWP_PREVIEW; else process.env.MYCEL_HWP_PREVIEW = previousHwpOptIn })
 const fixture = (name: string) => fs.readFileSync(path.join(import.meta.dir, '../fixtures/hwp', name))
 let app: CApp
 beforeAll(async () => { app = await makeCApp('hwp'); fs.writeFileSync(path.join(app.team, 'users/alice/test.hwp'), fixture('agreement.hwp')) })
@@ -162,9 +165,11 @@ test('renderer isolation denies unrelated files, system fonts and network; stdou
   const os=await import('node:os'), root=fs.mkdtempSync(path.join(os.tmpdir(),'hp-iso-'))
   const work=path.join(root,'work');fs.mkdirSync(work)
   const outside=path.join(root,'outside');fs.writeFileSync(outside,'private')
+  const other = path.join(process.platform === 'darwin' ? '/private/var/tmp' : '/tmp', 'hwp-unrelated-' + crypto.randomUUID())
+  fs.writeFileSync(other, 'synthetic private file')
   const script=path.join(work,'probe.js')
   const font=process.platform==='darwin'?'/System/Library/Fonts/Apple Color Emoji.ttc':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-  fs.writeFileSync(script,`import fs from 'node:fs'; for(const p of ${JSON.stringify([outside,font])}){try {fs.readFileSync(p);process.exit(9)}catch{}} try{await fetch('https://1.1.1.1',{signal:AbortSignal.timeout(500)});process.exit(8)}catch{} console.log('denied')`)
+  fs.writeFileSync(script,`import fs from 'node:fs'; for(const p of ${JSON.stringify([outside,font,other])}){try {fs.readFileSync(p);process.exit(9)}catch{}} try{await fetch('https://1.1.1.1',{signal:AbortSignal.timeout(500)});process.exit(8)}catch{} console.log('denied')`)
   try {
     const r=await runIsolated({cmd:process.execPath,args:[script],workDir:work,curatedFonts:true,timeoutMs:2000})
     expect(r.code).toBe(0);expect(r.stdout.toString().trim()).toBe('denied')
@@ -172,7 +177,7 @@ test('renderer isolation denies unrelated files, system fonts and network; stdou
     expect((await runIsolated({cmd:process.execPath,args:[script],workDir:work,maxStdout:100,curatedFonts:true})).killed).toBe('output')
     fs.writeFileSync(script,"await Bun.write('output',new Uint8Array(1024*1024));await Bun.sleep(5000)")
     expect((await runIsolated({cmd:process.execPath,args:[script],workDir:work,maxWorkBytes:10000,curatedFonts:true})).killed).toBe('disk')
-  } finally {fs.rmSync(root,{recursive:true,force:true})}
+  } finally {fs.rmSync(root,{recursive:true,force:true});fs.rmSync(other,{force:true})}
 })
 
 test('startup rejects absent and tampered binaries before any document is processed', async () => {

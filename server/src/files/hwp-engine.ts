@@ -101,8 +101,9 @@ export class NativeHwpEngine implements HwpEngine {
       fs.writeFileSync(input, bytes, { mode: 0o600 }); fs.mkdirSync(fontDir); fs.mkdirSync(output)
       fs.writeFileSync(path.join(work, 'fonts.conf'), '<fontconfig><dir>' + fontDir + '</dir><cachedir>' + work + '/font-cache</cachedir></fontconfig>')
       for (const f of this.fonts) fs.writeFileSync(path.join(fontDir, f.name), f.bytes, { mode: 0o600 })
-      const script = await workerScript()
-      const checked = await run(process.execPath, [script, input, ext], { readPaths: [path.dirname(script)] })
+      const script = path.join(work, 'hwp-preflight.js')
+      fs.copyFileSync(await workerScript(), script)
+      const checked = await run(process.execPath, [script, input, ext])
       if (checked.code !== 0) {
         const reason = checked.stdout.toString()
         throw new HwpError(['locked','distribution','damaged','unsupported','limit'].includes(reason) ? reason as HwpReason : 'damaged')
@@ -136,4 +137,8 @@ export class NativeHwpEngine implements HwpEngine {
 
 let defaultEngine: NativeHwpEngine | undefined
 /** One verified immutable engine/font bundle per process; jobs still use fresh isolated processes. */
-export function nativeHwpEngine(): HwpEngine { return defaultEngine ??= new NativeHwpEngine() }
+export function nativeHwpEngine(): HwpEngine {
+  // Independent runtime gate: merely installing assets must not activate an uncleared renderer.
+  if (process.env.MYCEL_HWP_PREVIEW !== '1') return { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') } }
+  return defaultEngine ??= new NativeHwpEngine()
+}

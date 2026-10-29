@@ -7,6 +7,12 @@ import manifest from '../resources/hwp/manifest.json'
 export type HwpTarget = keyof typeof manifest.targets
 const hash = (p: string) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 export async function stageHwp(repo: string, destination: string, targets: HwpTarget[]) {
+  // prepare:hwp may provision local review assets. Release staging must opt in
+  // separately; disabling execution alone would still redistribute the binary.
+  if (destination !== repo && process.env.MYCEL_HWP_PREVIEW !== '1') {
+    for (const rel of ['native/bin/hwp', 'resources/hwp']) fs.rmSync(path.join(destination, rel), { recursive: true, force: true })
+    return
+  }
   const bins = path.join(repo, 'native/bin/hwp')
   fs.mkdirSync(bins, { recursive: true })
   for (const target of targets) {

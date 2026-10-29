@@ -86,7 +86,7 @@ const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
 export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string[] {
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
-    'app/native/bin/hwp/rhwp-darwin-arm64', 'app/native/bin/hwp/rhwp-darwin-x64', 'app/resources/hwp/manifest.json', 'app/resources/hwp/fonts/NotoSansKR-Regular.ttf',
+    ...(process.env.MYCEL_HWP_PREVIEW === '1' ? ['app/native/bin/hwp/rhwp-darwin-arm64', 'app/native/bin/hwp/rhwp-darwin-x64', 'app/resources/hwp/manifest.json', 'app/resources/hwp/fonts/NotoSansKR-Regular.ttf'] : []),
     'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md',
     ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [

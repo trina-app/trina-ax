@@ -100,7 +100,12 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
     '(allow default)',
     '(deny network*)',
     ...(o.curatedFonts ? [
-      '(deny file-read-data (subpath "/System/Library/Fonts") (subpath "/Library/Fonts"))',
+      // HWP must not inherit the general converters' deny-list: e.g. /var/tmp and
+      // /opt can contain unrelated private files. Permit only OS runtime data,
+      // the executable and the explicit per-job inputs below.
+      '(deny file-read-data)',
+      '(allow file-read-data (subpath "/System/Library/Frameworks") (subpath "/System/Library/PrivateFrameworks") (subpath "/usr/lib") (subpath "/usr/share/icu") (subpath "/private/var/db/dyld") (subpath "/private/var/db/timezone") (subpath "/System/Library/dyld") (literal "/") (literal "/dev/null") (literal "/dev/random") (literal "/dev/urandom"))',
+      `(allow file-read-data (literal ${sq(real(o.cmd))}))`,
       '(deny mach-lookup (global-name "com.apple.FontObjectsServer"))',
     ] : []),
     '(deny process-fork)',

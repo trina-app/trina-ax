@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /** Stable diagnostics; clients translate codes, never display parser stderr or document-controlled text. */
-export const HwpReason = z.enum(['locked', 'distribution', 'damaged', 'unsupported', 'limit', 'timeout', 'cancelled', 'busy', 'engine', 'isolation', 'changed', 'loss'])
+export const HwpReason = z.enum(['disabled', 'locked', 'distribution', 'damaged', 'unsupported', 'limit', 'timeout', 'cancelled', 'busy', 'engine', 'isolation', 'changed', 'loss'])
 export type HwpReason = z.infer<typeof HwpReason>
 export const HwpWarning = z.enum(['font_substitution', 'layout_approximation', 'memory_watchdog'])
 export type HwpWarning = z.infer<typeof HwpWarning>

@@ -46,7 +46,7 @@ The UI rechecks version equality and URL/contact validation. It does not cache t
 
 ## Publication gate remains separate
 
-HWP previews ship the pinned rhwp 0.8.7 CLI (MIT) and the unchanged Noto Sans KR Regular font (OFL-1.1). Their source identity, build recipe, upstream notices and remaining native dependency/metric provenance questions are recorded in `resources/hwp/notices/SOURCE-OFFER.txt` and copied into each release's `licenses/hwp/`. Include the exact release's HWP manifest, adapter, preflight worker and packaging scripts in its corresponding source materials. This addition does not clear the existing publication gate.
+Opt-in HWP review bundles ship the pinned rhwp 0.8.7 CLI (MIT) and the unchanged Noto Sans KR Regular font (OFL-1.1). Their source identity, build recipe, upstream notices and remaining native dependency/metric provenance questions are recorded in `resources/hwp/notices/SOURCE-OFFER.txt` and copied into each release's `licenses/hwp/`. Include the exact release's HWP manifest, adapter, preflight worker and packaging scripts in its corresponding source materials. Default release bundles exclude this renderer runtime, and preview is disabled unless separately opted in. This addition does not clear the existing publication gate.
 
 Before an operator enters a real download URL, the responsible owner must approve publication rights, review the filtered corresponding-source tree and its build/install materials, publish that approved artifact, and verify direct access plus the release/content identity. Preserve the resulting revision, manifest/hash, and download evidence in the release review. A matching version and syntactically valid URL alone are not that evidence.
 

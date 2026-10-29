@@ -332,6 +332,8 @@ export const ko = {
   'preview.panel': '파일 미리보기',
   'preview.notFound': '파일을 찾을 수 없거나 볼 권한이 없어요.',
   'preview.tooLarge': '파일이 커서({size}) 미리 볼 수 없어요. 내려받아서 열어 주세요.',
+  'hwp.disabled': "한글 미리보기는 출시 검토가 끝날 때까지 비활성화되어 있습니다. 원본 다운로드와 AI의 글자 읽기는 계속 사용할 수 있습니다.",
+  'hwp.adminNotice': "HWP/HWPX 미리보기는 실험 기능이며 출시 검토가 끝날 때까지 기본 비활성화됩니다. Debian 12에서는 사용할 수 없습니다(glibc 2.36, 렌더러는 2.39 필요). 원본 다운로드와 글자 읽기는 계속 사용할 수 있습니다.",
   'hwp.viewer': "한글 문서 미리보기",
   'hwp.pages': "페이지 이동",
   'hwp.previous': "이전",

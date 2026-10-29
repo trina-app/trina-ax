@@ -333,6 +333,8 @@ export const en: Record<MessageKey, string> = {
   'preview.panel': 'File preview',
   'preview.notFound': "The file can't be found, or you don't have access to it.",
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
+  'hwp.disabled': "Hangul preview is disabled pending release review. You can still download the original and ask AI to read its text.",
+  'hwp.adminNotice': "HWP/HWPX preview is experimental and disabled by default pending release review. It is unavailable on Debian 12 (glibc 2.36; the renderer requires 2.39). Original downloads and text reading remain available.",
   'hwp.viewer': "Hangul document preview",
   'hwp.pages': "Page navigation",
   'hwp.previous': "Previous",
