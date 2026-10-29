@@ -1,6 +1,8 @@
 // ⌘/Ctrl+K: search own chats by title and content (GET /api/chats?q=). Arrow keys move, Enter opens.
+// The last row opens the file screen's content search with the same text (R2-ETC-02). The dialog does not search
+// files itself, so a key press starts no file search.
 import clsx from 'clsx'
-import { MessageSquare, Search } from 'lucide-react'
+import { FileSearch, MessageSquare, Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
@@ -9,6 +11,7 @@ import { formatRelative } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { useFocusTrap } from './ui'
+import { contentQueryReady } from './FileContentSearch'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -55,6 +58,14 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     onClose()
     navigate(`/c/${c.id}`)
   }
+  /** the row after the chats: search the same text in file contents */
+  const fileRow = contentQueryReady(q) && items !== null
+  const count = (items?.length ?? 0) + (fileRow ? 1 : 0)
+  const goFiles = () => {
+    onClose()
+    navigate(`/files?q=${encodeURIComponent(q.trim())}`)
+  }
+  const pick = (i: number) => (items && i < items.length ? go(items[i]!) : goFiles())
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]" onMouseDown={onClose}>
@@ -66,22 +77,22 @@ function SearchBox({ onClose }: { onClose: () => void }) {
             role="combobox"
             aria-expanded
             aria-controls="search-results"
-            aria-activedescendant={items?.[sel] ? `sr-${items[sel]!.id}` : undefined}
+            aria-activedescendant={items?.[sel] ? `sr-${items[sel]!.id}` : fileRow && sel === count - 1 ? 'sr-files' : undefined}
             className="h-12 min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-faint"
             placeholder={t('search.placeholder')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
-              if (!items?.length) return
+              if (!count) return
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                setSel((s) => Math.min(items.length - 1, s + 1))
+                setSel((s) => Math.min(count - 1, s + 1))
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 setSel((s) => Math.max(0, s - 1))
               } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                 e.preventDefault()
-                go(items[sel]!)
+                pick(sel)
               }
             }}
           />
@@ -98,6 +109,14 @@ function SearchBox({ onClose }: { onClose: () => void }) {
               </button>
             </li>
           ))}
+          {fileRow && (
+            <li id="sr-files" role="option" aria-selected={sel === count - 1} className="mt-1 border-t border-line pt-1">
+              <button type="button" onMouseEnter={() => setSel(count - 1)} onClick={goFiles} className={clsx('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm', sel === count - 1 && 'bg-hover')} data-testid="search-in-files">
+                <FileSearch size={15} className="shrink-0 text-faint" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{t('search.inFiles', { q: q.trim() })}</span>
+              </button>
+            </li>
+          )}
         </ul>
       </div>
     </div>

@@ -18,6 +18,8 @@ const KINDS: Record<string, PreviewKind> = {
   svg: 'svg',
   xml: 'xml',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
+  // iPhone photos: the server converts them to JPEG first (serverPreview below, QA R2-FMT-10)
+  heic: 'image', heif: 'image',
   mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio',
   // WebM can contain video or only audio; the video viewer supports both without hiding video tracks.
   mp4: 'video', mov: 'video', webm: 'video',
@@ -36,6 +38,10 @@ export function previewLimit(kind: PreviewKind): { max: number; truncate: boolea
 }
 
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
+
+/** Photos that browsers (other than Safari) cannot draw: the panel shows the server's JPEG (GET /api/files/preview)
+ * instead of the file bytes. A local file (not uploaded yet) of this kind has no preview. */
+export const serverPreview = (name: string): boolean => ['heic', 'heif'].includes(extOf(name))
 
 /**
  * Text of a text preview (QA R2-FMT-08): UTF-8 when the bytes are valid UTF-8 (a BOM is dropped), else legacy Korean
@@ -68,7 +74,7 @@ export type FileIconKind = 'folder' | 'image' | 'pdf' | 'doc' | 'sheet' | 'slide
 export function iconKind(name: string, folder = false): FileIconKind {
   if (folder) return 'folder'
   const e = extOf(name)
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'heic'].includes(e)) return 'image'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'heic', 'heif'].includes(e)) return 'image'
   if (e === 'pdf') return 'pdf'
   if (['doc', 'docx', 'odt', 'rtf', 'hwp', 'hwpx'].includes(e)) return 'doc'
   if (['xls', 'xlsx', 'ods', 'csv', 'tsv'].includes(e)) return 'sheet'

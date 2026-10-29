@@ -14,7 +14,7 @@ import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
 import { fmtDuration, formatSize } from '../../lib/format'
-import { previewKind } from '../../lib/preview'
+import { previewKind, serverPreview } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
 import { micState, SPEECH_SETTINGS_PATH } from '../../lib/voice'
 import { navigateTo } from '../../lib/nav'
@@ -394,7 +394,7 @@ export default function Composer({
                     <button
                       type="button"
                       className="max-w-[180px] truncate text-left font-medium hover:underline"
-                      onClick={() => (f.source === 'team' || !f.file ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))}
+                      onClick={() => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))}
                     >
                       {f.name}
                     </button>

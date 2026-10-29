@@ -2580,3 +2580,144 @@ including same-account installs. Extend the same synthetic selection tests to co
   The body shows a short note in place of the error text, so the error shows only once.
 - **Tests.** `web/test/unit/artifacts.test.ts` (unsupported import and compile error give `build`, a frame error
   gives `run`). `web/test/e2e/artifacts.spec.ts` has a `d3` case with a mock answer for it.
+
+## Files: people can search file contents (R2-ETC-02, feat/qa3-file-search, 2026-10-29)
+
+- **Problem.** People could search files only by name (`GET /api/files/find`). Only the AI could search the text in
+  files, with its `grep` tool. QA found no content search on the file screen, and a marker that was only in a file
+  gave no result.
+- **Decision.** `GET /api/files/search?q=&path=&limit=` (`server/src/team-files/content-search.ts`) uses the AI's
+  `grepFiles()` (`server/src/files/search.ts`). Thus it has the same permission checks: `allowedRoots()` gives
+  ripgrep only the folders the person can read, and `visiblePath()` checks each hit again (name rules, server
+  folders, read access, regular file with one link). A person never gets more than they can open. The base folder
+  gets the same check as the name search: a folder the person cannot list answers 404. Office documents are searched
+  through the same text cache as the AI's grep, and legacy CP949 text through the same second pass.
+- **Query.** The query is literal text in any case (ripgrep `-F -i`), never a regular expression. Thus a person
+  cannot send a slow or bad pattern. The query has 1 to 200 characters on one line. A line break, a NUL or another
+  control character (a tab is permitted) answers `validation`: ripgrep would cut the query at a NUL and search for a
+  shorter text. ripgrep gets the query in NFC and in NFD, so Korean text in either form is found; the snippet is NFC.
+- **Limits.** At most 100 lines (default 50), at most 5 lines from one file (`-m 5`), files up to 50 MB (`RG_BASE`).
+  ripgrep's `--json` ignores `--max-columns` and gives the whole line, so `runRg` drops a record longer than 64 K
+  characters (`RG_MAX_RECORD_CHARS`) while it arrives: a matching line in a minified file is skipped and never held in
+  memory. The limit applies to the JSON record, not to the line: each match adds about 45 characters and JSON escapes
+  add more, so a shorter line with very many matches or escaped characters can also be skipped. The answer gives the
+  number of skipped lines (`longSkipped`), and the screen shows a note. The whole search has 10 seconds (the AI's limit
+  is longer): with the `strictTime` option, all passes share one deadline. A pass that has no time left is not run and
+  the answer has `timedOut`, so the search ends near 10 s (before, the second and last pass had at least 1 s and
+  0.5 s more). A line is cut to 160 characters around the first match. The answer says when the list was cut
+  (`truncated`), when the time limit stopped the search (`timedOut`) and how many office documents were not searched
+  because their text is not made yet (`indexing`: the files that wait in the background queue or are being
+  extracted; `notQueued`: the files that the queue did not take). Each person can start 60 searches in a minute; more answers `rate_limited`
+  (429) with `retryAfter`. A person runs at most 2 searches at the same time: a new search stops the oldest one (kills
+  its ripgrep), because the screen shows only the newest answer. A search also stops when the client goes away. Thus
+  typing gets no 429. The state is in memory, so a restart clears it.
+- **The content search extracts nothing itself (review fix).** Before, a content search extracted up to 8 office
+  files before its answer, in the same 4 slots as the AI grep. A stopped search did not stop its extractions, so one
+  person with slow files (scanned PDFs) could hold all 4 slots for minutes, and the AI grep of other people waited.
+  Now the content search (`officeBudget: 0`) searches text files and only office files with fresh text (cache mtime =
+  file mtime). It sends every stale or new office file to the background queue and counts it in `indexing`. The screen
+  shows a short note ("Indexing N office documents. Not searched yet."). Thus a new office document is found only
+  after the background indexer has made its text. The AI grep does not change: it extracts
+  up to 40 files before its answer.
+- **Office text cache.** One server extracts at most 4 office files at the same time (`OFFICE_EXTRACT_PARALLEL`). The
+  background is one queue for the whole server (each path once with its mtime; a file that waits or is being
+  extracted is not added again; at most 10,000) with one worker. The worker has low priority: it holds at most one
+  slot, and when a slot is free, a foreground job that waits (the AI grep, an upload, the semantic index) gets it
+  first. Thus a content search never takes a slot from a foreground job. Foreground jobs can still fill all 4 slots
+  together (uploads still extract in the foreground; this change does not touch them). When a foreground caller needs
+  a file that the worker already extracts or waits for, that job gets high priority (`raise()`), so the foreground
+  caller does not wait behind other foreground jobs with a low job.
+- **Fair background queue (review fix).** Before, the queue was first in, first out with a limit of 100 new files a
+  minute per person. The limit did not control a person's share of the one worker: with 150 stale files from alice
+  and 1 from bob, bob's file was extracted as number 100 of 101 (hours with OCR), and one person could fill the
+  10,000 places. Now the queue keeps the files of each owner (`owner`: the person whose content search added them;
+  the AI grep and other callers use the shared owner `system`, `OFFICE_SYSTEM_OWNER`; a person's key is `user:` + id, so no user id can be the same key). The worker takes one file from
+  each owner in turn (round robin). One owner has at most 200 files in the queue (`OFFICE_QUEUE_PER_OWNER`); the per
+  minute limit is removed. When the whole queue is full, a new file of an owner with fewer files takes the place of
+  the last file of the owner with the most files, so another owner can always add files. A file that the queue does
+  not take is left to a later search. `refresh()` gives `pending` (files that wait or are being extracted for this
+  search) and `notQueued` (the other stale files). The content search sends them as `indexing` and `notQueued`, and
+  the screen shows a note for each ("… not searched and not indexed yet: too many wait. Search again later."). The AI
+  grep text has a note for `notQueued` too. `update()` checks the cache again before it extracts, so many searches do not extract the same file again. The
+  office pass shows only text of the current version of a document (cache mtime = file mtime): after a change (a
+  redaction) the old text is not found while the new text waits. When a file cannot be read (too large, no access),
+  its old text is replaced by an empty text with the file's mtime, so it is not tried again until the file changes.
+- **`grepFiles()` change.** New options `fixed`, `maxPerFile`, `strictTime`, `officeBudget`, `officeOwner` and
+  `signal` (`OfficeCache.refresh()` takes `{ budget, listTimeoutMs, deadline, signal, owner }`), and the result also gives `hits`
+  (path, line, text of each matching line) and `timedOut`. The AI tool does not use the new options. Its text
+  changes in 3 cases only: a line longer than 64 K characters is skipped (with a note), stale office text is not
+  shown, and a note gives the number of stale office files that are not in the background queue (`notQueued`). The
+  background files of all AI greps share the owner `system`, so together they have at most 200 files in the queue
+  (before: no limit for one caller, only the total of 10,000). The AI grep still extracts up to 40 files before its
+  answer, so a later AI grep makes the rest.
+- **UI.** The file screen has a search box in its header. With 2 characters (or 1 non-ASCII character) it shows the
+  lines that match in the open folder and its sub-folders, grouped by file: name, path, line number and snippet with
+  each match in `<mark>`. The snippet is shown as text, never as HTML. A click opens the file in the side panel. The
+  viewer cannot go to a line yet, so the line number is shown only. The query is in the URL (`/files?q=`). Requests
+  wait 300 ms after the last key press, and an older answer never replaces a newer one. The ⌘K dialog stays a chat
+  search (the QA case expects that). Its last row, "Search file contents for …", opens `/files?q=…`. Thus a key
+  press in ⌘K starts no file search.
+- **Tests.** `tests/unit/file-content-search.test.ts`: another group's folder, a 'none' rule folder, another
+  person's folder, a hard link and a symbolic link never show; 404 for a folder the person cannot list; literal
+  queries; a line break, a NUL and a control character in the query; Korean NFC and NFD queries on NFC and on NFD
+  text; CP949 text; an xlsx through the text cache after the background indexer (also hidden in another group); old
+  office text after a change; `indexing`; a 3 MB line (`longSkipped`); result limit, lines per file, snippet cut,
+  query length, rate limit per person, a new search stops the oldest. Capacity: with a fake extraction that never
+  ends for one person's 30 office files, 5 content searches answer in less than 1.5 s each (before: 10 s) and the AI
+  grep of another person extracts its file at once (before: it waited); one person has at most 200 files in the
+  queue, `indexing` counts only the files that wait or run and `notQueued` the rest.
+  `tests/unit/file-search-limits.test.ts`: the record cap of `runRg`, the extraction deadline (`timedOut`, pending),
+  one background queue with at most 4 extractions, and an unreadable file. Fairness (fake extraction with a gate per
+  file): alice 150 stale files, then bob 1: bob's file is among the first 3 extractions (before: number 100); the
+  per-owner limit gives true `pending` and `notQueued` counts and another owner can still add files; a foreground
+  caller that joins a low job makes it start before foreground jobs that came later. `web/test/unit/highlight.test.ts`: the highlight parts.
+  `tests/security/lib/cases.ts` has a matrix case for the new route.
+## File panel: HEIC / HEIF photos preview as a server JPEG (R2-FMT-10, feat/qa3-heic, 2026-10-29)
+
+- **Problem.** iPhone photos (`.heic`, `.heif`) had no preview. Browsers other than Safari cannot draw HEIC, so the
+  file panel showed only "cannot preview" and a download button.
+- **Decision.** `GET /api/files/preview?path=` (`server/src/files/heic-preview.ts`, route in `routes/files.ts`)
+  gives a JPEG of the primary image. The same read check as the download applies, and the bytes come through the
+  checked descriptor (`openChecked`). The web (`serverPreview()` in `web/src/lib/preview.ts`) uses this endpoint for
+  HEIC / HEIF in place of the file bytes. A local HEIC that is not uploaded yet has no preview; an uploaded chat
+  attachment opens as its team file, so it uses the server JPEG too.
+- **Converters.** Each one runs isolated (`runIsolated`), like the other converters:
+  1. libheif `heif-dec` (`heif-convert` in libheif < 1.17). The Linux server has it (`libheif-examples`). On a Mac it
+     comes from Homebrew libheif.
+  2. macOS: `mycel-ocr --jpeg <px>` (new mode in `native/ocr/main.swift`). Apple ImageIO decodes the photo inside the
+     sandbox, applies the orientation and limits the longest side to 4096 px.
+  We do not use `sips`, because it writes to the per-user temp folder and the sandbox refuses that (measured, the
+  same as the thumbnail decision). We do not use `ffmpeg`, because its CLI decodes only the first 512x512 tile of a
+  tiled phone HEIC (measured with ffmpeg 8.0, the same as the OCR decision for 7.1). An old `mycel-ocr` without
+  `--jpeg` writes text; the server accepts only output that starts with the JPEG marker.
+- **Limits.** Input at most 50 MB, output at most 20 MB (the web image limit), 30 s and 1.5 GB of memory per run,
+  at most 2 runs at the same time and at most 8 conversions waiting. One conversion is shared by callers that ask for
+  the same content.
+- **Fairness.** One person runs at most 1 conversion (`PREVIEW_PER_USER_MAX`, less than the 2 runs, so another
+  person always has a run) and has at most 1 more conversion waiting (`PREVIEW_PER_USER_WAIT_MAX`). A free run goes
+  first to a waiting conversion of a person other than the one who just used it. So one person with many different
+  files (for example crafted variants that each use the 30 s limit) cannot keep another person waiting longer than one
+  conversion. A conversion that waits longer than 15 s (`PREVIEW_WAIT_MS`) leaves the queue. Over a limit and after
+  the wait limit the answer is 503 `unavailable` with `params.reason = busy`; the panel shows "busy, try again"
+  (`preview.photoBusy`) and a retry button. A failed conversion is remembered for 10 minutes (by content); `busy` is
+  not remembered. An error that is not a ToolError (for example a converter that was removed after the server found
+  it) is a failed conversion too: 503 `no_preview`, not 500, and remembered.
+- **Cache.** `<dataDir>/previewcache/<sha256 of the content>.jpg`, files 0600, at most 200 MB (the least recently
+  used go first). The key is the content hash, so a caller must read the bytes first to get a cached preview.
+- **Fallback.** No converter, a damaged photo or a run over a run limit: 503 `unavailable` with
+  `params.reason = no_preview`. The panel then shows the "cannot preview" notice (`preview.photoUnavailable`) and the
+  download button. Other formats on this endpoint get the same answer.
+- **AI path.** No change. `IMAGE_EXT` already has `heic` / `heif`; `mycel-ocr` reads HEIC on macOS (ImageIO) and on
+  Linux (`heif-dec` to PNG, then tesseract).
+- **Tests.** `tests/unit/heic-preview.test.ts`: the tiled fixture `tests/fixtures/ocr/photo.heic` gives a full-size
+  JPEG (2126x426, not one tile) with `heif-dec` or with `mycel-ocr` built by `swiftc` (skipped, with a reason, when
+  neither exists), the cache, a damaged file, no converter, a converter without JPEG output, the input limit, cache
+  pruning and the endpoint (200 or 503 `no_preview`, 404 for hidden files, 401 without a session). OCR of the HEIC is
+  tested when Apple Vision works in the sandbox on the machine. The queue tests use a fake converter: the queue limit,
+  1 run and 1 waiting conversion per person, fairness (after one conversion the free run goes to the other person),
+  the wait limit (`busy`, not remembered), aborts, shared conversions and the failure memory.
+  `web/test/unit/preview-heic.test.ts`: which names use the server preview.
+- **Open items.** The work-folder limit is checked every 200 ms, so a fast writer can go past it by what it writes in
+  200 ms (a file-size rlimit in the sandbox would be a hard limit). For a HEIF file with many top-level images,
+  `out-1.jpg` is used, which is not always the primary image. On Linux `heif-dec` keeps the full size, so a JPEG over
+  20 MB gives no preview.

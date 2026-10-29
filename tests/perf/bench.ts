@@ -25,7 +25,7 @@ export async function runBench(reps = 5, keep = false) {
   const t0 = performance.now()
   const rules = RuleSet.load(db)
   const { roots, excludes } = allowedRoots(files.fx, rules, user, [])
-  await files.office.refresh(cfg.rg, roots, excludes, (rel) => fs.lstatSync(path.join(team, rel)), 100000)
+  await files.office.refresh(cfg.rg, roots, excludes, (rel) => fs.lstatSync(path.join(team, rel)), { budget: 100000 })
   const indexMs = Math.round(performance.now() - t0)
   const big = (() => { let best = '', bs = 0; const w = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) w(p); else if (p.endsWith('.md')) { const s = fs.statSync(p).size; if (s > bs) { bs = s; best = p } } } }; w(path.join(team, 'shared/area00')); return path.relative(team, best) })()
   const Q: [string, string, any][] = [

@@ -99,6 +99,15 @@ export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal
 }
 
 /**
+ * A JPEG made on the server for a photo the browser cannot draw (HEIC / HEIF, `serverPreview` in ./preview), never
+ * more than `max`. No converter on the server: ApiError 'unavailable' (the panel shows "cannot preview").
+ */
+export async function fetchServerPreview(path: string, max: number, signal?: AbortSignal): Promise<Blob> {
+  const res = await api.call(API.preview, { query: { path }, signal })
+  return readBounded(res, max)
+}
+
+/**
  * The body of `res`, at most `max` bytes. Too large: PreviewTooLargeError — or, with `truncate` (text previews show
  * only the beginning), the first `max` + 1 bytes (one more than `max`, so the caller can tell it was cut).
  */

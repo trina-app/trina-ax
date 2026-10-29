@@ -3,6 +3,12 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Files: search the contents of files (text, PDF and Office through the text cache, Korean CP949 too) with the same
+  permissions as the person. Office documents that are not indexed yet are indexed in the background, fairly per person.
+- Files: HEIC/HEIF photos from iPhones show in the preview (converted on the server, with limits per person).
+
 ## 0.2.7 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.7).

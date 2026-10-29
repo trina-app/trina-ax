@@ -31,6 +31,8 @@ export const MSG = {
   ruleFolderToUsers: { ko: '그룹·프로젝트 폴더나 권한 규칙이 걸린 폴더는 개인 폴더(users/) 안으로 옮길 수 없습니다.', en: 'Group, project and rule folders cannot be moved into a personal folder (users/).', id: 'Folder grup, proyek, dan folder berizin tidak dapat dipindah ke folder pribadi (users/).' },
   audienceNarrowed: { ko: '개인 폴더로 옮기면 지금 이 항목을 보는 다른 사람들이 더 이상 볼 수 없습니다. 확인한 뒤 다시 시도하세요.', en: 'Moving this into your personal folder means the other people who can see it now will lose it. Confirm to continue.', id: 'Memindahkan ini ke folder pribadi membuat orang lain yang kini bisa melihatnya kehilangan akses. Konfirmasi untuk melanjutkan.' },
   folderInTrash: { ko: '이 버전의 폴더가 휴지통에 있습니다. 휴지통에서 폴더를 먼저 되돌린 뒤 버전을 되돌리세요.', en: 'The folder of this version is in the trash. Restore the folder from the trash first, then the version.', id: 'Folder versi ini ada di tempat sampah. Pulihkan foldernya dulu, lalu versinya.' },
+  noPreview: { ko: '\uc774 \ud30c\uc77c\uc740 \ubbf8\ub9ac \ubcfc \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. \ub0b4\ub824\ubc1b\uc544 \uc5f4\uc5b4 \uc8fc\uc138\uc694.', en: 'This file cannot be previewed. Download it to open it.', id: 'Berkas ini tidak bisa dipratinjau. Unduh untuk membukanya.' },
+  previewBusy: { ko: '\uc0ac\uc9c4 \ubbf8\ub9ac\ubcf4\uae30\ub97c \ub9cc\ub4dc\ub294 \uc0ac\ub78c\uc774 \ub9ce\uc2b5\ub2c8\ub2e4. \uc7a0\uc2dc \ub4a4\uc5d0 \ub2e4\uc2dc \uc2dc\ub3c4\ud558\uc138\uc694.', en: 'Many photo previews are being made now. Try again in a moment.', id: 'Banyak pratinjau foto sedang dibuat. Coba lagi sebentar lagi.' },
   restoreTaken: { ko: '같은 이름이 있어 되돌릴 수 없습니다.', en: 'Cannot restore: the name is taken.', id: 'Tidak dapat dipulihkan: nama sudah dipakai.' },
 } satisfies Record<string, Msg>
 export type MsgKey = keyof typeof MSG
@@ -69,6 +71,7 @@ export function toHttp(e: unknown, locale: Locale, field = 'path'): unknown {
       case 'is_folder': return httpError('validation', 'isFolder', locale, { [field]: e.message })
       case 'not_folder': return httpError('validation', 'notFolder', locale, { [field]: e.message })
       case 'conflict': return new HttpError('conflict', e.message)
+      case 'too_large': return httpError('payload_too_large', 'tooLarge', locale)
     }
     if (/too large/.test(e.message)) return httpError('payload_too_large', 'tooLarge', locale)
     return new HttpError('bad_request', e.message)

@@ -156,6 +156,42 @@ export const FindFilesQuery = z.object({
   path: RelPath.default(''),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 })
+/** Content search for people (the file screen, R2-ETC-02): the query is literal text, never a pattern. */
+export const FILE_SEARCH_QUERY_MAX = 200
+export const FILE_SEARCH_LIMIT_MAX = 100
+export const SearchFileContentsQuery = z.object({
+  /** literal text on one line (ripgrep searches line by line, so a line break is refused; a NUL would cut the query
+   * where it goes to ripgrep, so all control characters but a tab are refused) */
+  q: z.string().trim().min(1).max(FILE_SEARCH_QUERY_MAX).refine((s) => !/\p{Cc}/u.test(s.replace(/\t/g, ' ')), 'one line of text only, no control characters'),
+  /** optional folder to search under (default: the whole team folder) */
+  path: RelPath.default(''),
+  limit: z.coerce.number().int().min(1).max(FILE_SEARCH_LIMIT_MAX).default(50),
+})
+/** One matching line. `snippet` is a short part of the line around the first match (plain text, not HTML). */
+export const FileContentHit = z.object({
+  path: z.string(),
+  name: z.string(),
+  line: z.number().int().positive(),
+  snippet: z.string(),
+})
+export type FileContentHit = z.infer<typeof FileContentHit>
+export const FileContentHits = z.object({
+  items: z.array(FileContentHit),
+  /** more lines matched than the limit; the person should narrow the search */
+  truncated: z.boolean(),
+  /** the time limit stopped the search; the list can be incomplete */
+  timedOut: z.boolean(),
+  /** office documents that were not searched because their text is not made yet, and that the background indexer
+   * has in its queue or extracts now; a later search can find more */
+  indexing: z.number().int().nonnegative(),
+  /** office documents that were not searched because their text is not made yet, and that the background queue did
+   * not take (the person already has the most files in the queue); a later search adds them */
+  notQueued: z.number().int().nonnegative(),
+  /** matching lines that were skipped because their ripgrep record was longer than 64 K characters (a very long line,
+   * or a long line with very many matches) */
+  longSkipped: z.number().int().nonnegative(),
+})
+export type FileContentHits = z.infer<typeof FileContentHits>
 export const RecentFilesQuery = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
 export const FileList = z.object({ items: z.array(FileEntry), truncated: z.boolean() })
 export type FileList = z.infer<typeof FileList>
@@ -165,6 +201,7 @@ export const FILES = {
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
   saveContent: endpoint({ method: 'PUT', path: '/api/files/content', auth: 'user', owner: 'C', body: SaveContentBody, response: SaveResult, summary: 'Save a text file from the file screen (hash-based conflict copy, version history).' }),
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),
+  preview: endpoint({ method: 'GET', path: '/api/files/preview', auth: 'user', owner: 'C', query: PathQuery, response: stream(false), summary: 'JPEG preview of a HEIC / HEIF photo (converted on the server, cached). No converter or a failed conversion: 503 unavailable with params.reason no_preview.' }),
   upload: endpoint({ method: 'POST', path: '/api/files/upload', auth: 'user', owner: 'C', status: 201, body: multipart(UploadFields, SMALL_UPLOAD_MAX), response: FileEntry, summary: 'Upload one file up to 50 MB into a folder (write access).' }),
   mkdir: endpoint({ method: 'POST', path: '/api/files/mkdir', auth: 'user', owner: 'C', status: 201, body: MkdirBody, response: FileEntry, summary: 'Create a folder (name rules + collision check).' }),
   move: endpoint({ method: 'POST', path: '/api/files/move', auth: 'user', owner: 'C', body: MoveBody, response: MoveResult, summary: 'Move / rename (write access at both ends; folders.path follows). Group / project / rule folders: admin or owner only, never into users/ (400). Into users/<me>/ when others lose sight of it: 409 audience_narrowed unless confirm.' }),
@@ -181,6 +218,7 @@ export const FILES = {
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
   attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
   findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name contains q, among the files the caller can read (newest first).' }),
+  searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires after 24 h.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),

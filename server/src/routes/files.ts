@@ -4,12 +4,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
-import { mapErrors } from '../team-files/errors'
+import { fileError, mapErrors } from '../team-files/errors'
+import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
+import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
 import { registerCTools } from '../tools'
+import { ToolError } from '../policy/errors'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
@@ -53,6 +56,32 @@ export const filesRoutes: RouteModule = {
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
     }))
 
+    // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
+    // (files/heic-preview.ts). Other formats, machines without a converter and failed conversions: 503 unavailable
+    // with reason no_preview (the "cannot preview" panel). Full queues and waits over the wait limit: 503 with reason
+    // busy (the panel says "busy, try again"). Only the input limit is 413. The same response headers as the
+    // attachment thumbnail. A request that the browser cancels leaves the conversion queue.
+    const previews = new HeicPreviews(path.join(ctx.config.dataDir, 'previewcache'))
+    kit.handle(API.preview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
+      const f = svc.fileForDownload(auth.user.id, query.path)
+      const noPreview = (reason: 'no_preview' | 'busy' = 'no_preview') => fileError('unavailable', reason === 'busy' ? 'previewBusy' : 'noPreview', undefined, { reason })
+      if (!isHeic(f.name)) return noPreview()
+      let r: Awaited<ReturnType<typeof previews.jpeg>>
+      try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal }) } catch (e) {
+        if (noPreviewError(e)) {
+          ctx.log.debug('HEIC preview failed', { err: e })
+          return noPreview((e as ToolError).code === 'busy' ? 'busy' : 'no_preview')
+        }
+        throw e
+      }
+      if (!r) return noPreview()
+      const etag = `"${r.etag}"`
+      const headers = new Headers({ 'Content-Type': 'image/jpeg', 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Length': String(r.bytes.length), 'Content-Disposition': contentDisposition('inline', f.name.replace(/\.[^.]+$/, '') + '.jpg') })
+      if (c.req.header('if-none-match')?.split(',').map((s) => s.trim()).includes(etag)) return new Response(null, { status: 304, headers })
+      return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(r.bytes), { status: 200, headers })
+    }))
+
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
@@ -94,6 +123,7 @@ export const filesRoutes: RouteModule = {
 
     // ---------------- team files in chats (picker + reference attachments) ----------------
     kit.handle(API.findFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => findFiles(svc, auth.user.id, query.q, query.path, query.limit)))
+    kit.handle(API.searchFileContents, ({ c, query, auth }) => mapErrors(c.get('locale'), () => searchFileContents(svc, auth.user.id, query.q, query.path, query.limit, c.req.raw.signal)))
     kit.handle(API.recentFiles, ({ c, query, auth }) => mapErrors(c.get('locale'), () => recentFiles(svc, auth.user.id, query.limit)))
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
 

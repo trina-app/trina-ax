@@ -202,6 +202,7 @@ export const SPECS: Record<string, Spec> = {
   attachTeamFile: { build: async (c, w) => { const own = await c.post('/api/chats', { title: 'attach probe' }); return c.post('/api/attachments/team-file', { chatId: own.json?.id ?? w.ids.chatA, path: `users/alice/${C.aliceFileName}.md` }) }, scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached a file from users/alice`) } },
   findFiles: { build: (c) => c.get('/api/files/find?q=SEC&limit=100'), scope: 'self' },
+  searchFileContents: { build: (c) => c.get('/api/files/search?q=SEC&limit=100'), scope: 'self' },
   recentFiles: { build: (c) => c.get('/api/files/recent?limit=50'), scope: 'self' },
   createUploadSession: { build: (c) => c.post('/api/upload-sessions', { target: { kind: 'path', path: 'users/alice/sess.bin', onExists: 'rename' }, size: 4, sha256: 'ab'.repeat(32) }), scope: 'users-alice' },
   uploadChunk: { build: (c, w) => c.req('PUT', `/api/upload-sessions/${w.ids.uploadAlice}/chunks/0`, undefined, { raw: '0123456789', headers: { 'content-type': 'application/octet-stream', [CSRF_HEADER]: '1' } }), scope: 'own-alice' },
