@@ -36,6 +36,25 @@ export function previewLimit(kind: PreviewKind): { max: number; truncate: boolea
 
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
 
+/**
+ * Text of a text preview (QA R2-FMT-08): UTF-8 when the bytes are valid UTF-8 (a BOM is dropped), else legacy Korean
+ * (CP949 / EUC-KR, the Korean Excel CSV default) when they decode cleanly as that and contain Hangul, else UTF-8 with
+ * replacement characters. The server reads files for the AI the same way (server/src/files/extract.ts decodeText).
+ * `cut`: the bytes are only the beginning of the file, so a character cut at the end is dropped before the check.
+ */
+export function decodePreviewText(bytes: Uint8Array, cut = false): string {
+  for (let drop = 0; drop <= (cut ? 3 : 0) && drop < bytes.length; drop++) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytes.length - drop)) } catch {}
+  }
+  for (let drop = 0; drop <= (cut ? 1 : 0) && drop < bytes.length; drop++) {
+    try {
+      const text = new TextDecoder('euc-kr', { fatal: true }).decode(bytes.subarray(0, bytes.length - drop))
+      if (/[\uac00-\ud7a3]/.test(text)) return text
+    } catch {}
+  }
+  return new TextDecoder('utf-8').decode(bytes)
+}
+
 /** Highlight.js language for a file name (code preview). */
 export function languageOf(name: string): string | undefined {
   const e = extOf(name)
