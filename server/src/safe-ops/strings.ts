@@ -1,5 +1,30 @@
 import type { Database } from 'bun:sqlite'
 export const SAFE_OPS_TEXT = {
+  imageLimit: {
+    ko: "이미지 형식 또는 크기를 지원하지 않습니다. PNG, JPEG, WebP, HEIC 형식의 8 MiB 이하 이미지를 사용하세요.",
+    en: "Unsupported image format or size. Use PNG, JPEG, WebP or HEIC images up to 8 MiB.",
+    id: "Format atau ukuran gambar tidak didukung. Gunakan gambar PNG, JPEG, WebP, atau HEIC hingga 8 MiB.",
+  },
+  input: {
+    ko: "지원하지 않는 발표 자료 내용입니다. 원시 마크업, 링크, 사용자 지정 속성 없이 Markdown을 사용하고 메타데이터는 제목·작성자·날짜만 지정하세요.",
+    en: "Unsupported presentation content. Use Markdown without raw markup, links or custom attributes; metadata may contain only title, author and date.",
+    id: "Konten presentasi tidak didukung. Gunakan Markdown tanpa markup mentah, tautan, atau atribut khusus; metadata hanya boleh berisi judul, penulis, dan tanggal.",
+  },
+  source: {
+    ko: "PowerPoint 원본은 Markdown 또는 텍스트 파일이어야 합니다.",
+    en: "The PowerPoint source must be a Markdown or text file.",
+    id: "Sumber PowerPoint harus berupa berkas Markdown atau teks.",
+  },
+  sourceChanged: {
+    ko: "원본 파일이 변경되었거나 안전한 읽기 한도를 초과했습니다. 파일을 확인하고 다시 읽어 주세요.",
+    en: "The source changed or exceeds the safe read limit. Check the file and read it again.",
+    id: "Sumber berubah atau melampaui batas baca aman. Periksa berkas dan baca kembali.",
+  },
+  sourceMount: {
+    ko: "이 연결 폴더는 안전한 이미지·PowerPoint 변환을 지원하지 않습니다.",
+    en: "This mounted folder is not qualified for safe image/PowerPoint conversion.",
+    id: "Folder terpasang ini belum memenuhi syarat konversi gambar/PowerPoint yang aman.",
+  },
   failed: {
     ko: "안전 한도 내에서 파일을 변환하지 못했습니다. 파일을 저장하지 않았습니다.",
     en: "The file could not be converted within the safety limits. Nothing was saved.",
@@ -53,6 +78,7 @@ export function safeErrorText(db: Database, userId: string, code: string, messag
       safe_ops_limit: 'limit',
       safe_ops_failed: 'failed',
       safe_ops_busy: 'busy',
+      safe_ops_image_limit: 'imageLimit',
     } as const
   )[code as 'safe_ops_unavailable']
   return key ? safeText(db, userId, key) : message

@@ -313,7 +313,7 @@ async function run(
 export async function normalizeImage(format: string, bytes: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
   const f = format === 'jpg' ? 'jpeg' : format === 'heif' ? 'heic' : format
   if (!['png', 'jpeg', 'webp', 'heic'].includes(f) || bytes.byteLength > SAFE_INPUT_MAX)
-    throw new ToolError('Unsupported or oversized image.', 'safe_ops_limit')
+    throw new ToolError('Unsupported or oversized image.', 'safe_ops_image_limit')
   const codec = f === 'heic' ? (which('heif-dec') ?? which('heif-convert') ?? undefined) : undefined
   if (f === 'heic' && !codec) throw unavailable()
   return run(path.join(nativeBinDir(), 'mycel-safeops'), [f], bytes, {}, SAFE_OUTPUT_MAX, signal, codec)

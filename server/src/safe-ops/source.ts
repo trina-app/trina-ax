@@ -3,6 +3,7 @@ import type { FileService, ToolCtx } from '../files/service'
 import { authorize } from '../policy/authorize'
 import { Denied } from '../policy/errors'
 import { readRegular, sha256 } from '../files/store'
+import { safeText } from './strings'
 
 export interface SourceSnapshot {
   path: string
@@ -34,11 +35,11 @@ export function snapshot(files: FileService, ctx: ToolCtx, input: string, cap: n
             (i < r.segs.length - 1 ? fs.constants.O_DIRECTORY : 0),
         )
         fds.push(fd)
-        if (fs.fstatSync(fd).dev !== dev) throw new Denied('source mount is not qualified for safe operations')
+        if (fs.fstatSync(fd).dev !== dev) throw new Denied(safeText(files.db, ctx.user.id, 'sourceMount'))
       }
       st = fs.fstatSync(fd)
       if (!st.isFile() || st.nlink !== 1 || st.size > cap || identity(st) !== identity(r.st!))
-        throw new Denied('source changed or exceeds the safety limit')
+        throw new Denied(safeText(files.db, ctx.user.id, 'sourceChanged'))
       bytes = Buffer.alloc(st.size)
       let off = 0
       while (off < bytes.length) {
@@ -47,7 +48,7 @@ export function snapshot(files: FileService, ctx: ToolCtx, input: string, cap: n
         off += n
       }
       if (off !== bytes.length || identity(fs.fstatSync(fd)) !== identity(st))
-        throw new Denied('source changed while reading')
+        throw new Denied(safeText(files.db, ctx.user.id, 'sourceChanged'))
     } finally {
       for (const fd of fds.reverse()) fs.closeSync(fd)
     }
@@ -55,7 +56,7 @@ export function snapshot(files: FileService, ctx: ToolCtx, input: string, cap: n
     ;({ bytes, st } = readRegular(r.abs, cap))
   }
   const now = authorize(files.fx, files.rules(), files.principal(ctx.user.id), r.rel, 'read')
-  if (identity(now.st!) !== identity(st)) throw new Denied('source changed while reading')
+  if (identity(now.st!) !== identity(st)) throw new Denied(safeText(files.db, ctx.user.id, 'sourceChanged'))
   return { path: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
 }
 
@@ -63,5 +64,5 @@ export function snapshot(files: FileService, ctx: ToolCtx, input: string, cap: n
  * Account/group membership, path identity, content and policy are all read again. */
 export function recheck(files: FileService, ctx: ToolCtx, source: SourceSnapshot) {
   const now = snapshot(files, ctx, source.path, source.bytes.length)
-  if (now.hash !== source.hash || now.identity !== source.identity) throw new Denied('source changed; read it again')
+  if (now.hash !== source.hash || now.identity !== source.identity) throw new Denied(safeText(files.db, ctx.user.id, 'sourceChanged'))
 }

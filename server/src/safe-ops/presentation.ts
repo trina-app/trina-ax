@@ -22,7 +22,7 @@ export async function preparePresentation(
   if (text.length > 100_000) throw limit()
   const ast = JSON.parse((await pptxAst(pandoc, text, c.signal)).toString())
   for (const key of Object.keys(ast.meta ?? {}))
-    if (!['title', 'author', 'date'].includes(key)) throw new ToolError('Unsupported presentation metadata')
+    if (!['title', 'author', 'date'].includes(key)) throw new ToolError(safeText(files.db, c.user.id, 'input'))
   const shape = deckShape(ast)
   const inputs: Record<string, Uint8Array> = { 'reference.pptx': referencePptx() }
   const stack: unknown[] = [ast]
@@ -45,7 +45,7 @@ export async function preparePresentation(
     if (!v || typeof v !== 'object') continue
     const node = v as any
     if (['RawBlock', 'RawInline', 'Link'].includes(node.t))
-      throw new ToolError('Raw markup and links are not supported in safe presentations')
+      throw new ToolError(safeText(files.db, c.user.id, 'input'))
     // Only layout classes survive; all attributes (especially background-image) are refused.
     const attr =
       node.t === 'Header'
@@ -54,7 +54,7 @@ export async function preparePresentation(
           ? node.c?.[0]
           : null
     if (Array.isArray(attr) && Array.isArray(attr[2]) && attr[2].length)
-      throw new ToolError('Presentation attributes are not supported')
+      throw new ToolError(safeText(files.db, c.user.id, 'input'))
     if (node.t === 'Image') {
       if (++images > 20) throw limit()
       const target = node.c?.[2]?.[0]

@@ -181,7 +181,7 @@ export class MakeFile {
     let text=a.content??'', base: string[]=[]
     if(a.source!==undefined) {
       const s=snapshot(this.ctx.files,c,a.source,400_000)
-      if(!['md','markdown','txt'].includes(ext(s.path))) throw new ToolError('PowerPoint source must be Markdown')
+      if(!['md','markdown','txt'].includes(ext(s.path))) throw new ToolError(safeText(this.ctx.db,c.user.id,'source'))
       snapshots.push(s); text=s.bytes.toString('utf8'); base=s.path.split('/').slice(0,-1)
     }
     const output=ext(a.output)==='pptx'?a.output:a.output+'.pptx'
