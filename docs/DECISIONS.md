@@ -1892,3 +1892,10 @@ The package notice collector now includes subject-prefixed copyright/notice file
 ## File-tool skills aliases (2026-10-29)
 
 Normalize empty and `.` path segments before the AI file tools check the protected `skills/` boundary, matching the policy resolver. Otherwise `./skills/file` and `.//skills/.` reached team-rule files through move/copy/rename without the required rule-edit approval. A regression reproduces the bypass and checks all three source operations plus both destination operations; no confirmation can override this boundary.
+
+## Defer incomplete voice-provider selection (2026-10-29)
+
+- Revert `31c640e` to unblock CI and the release. Its six added files depend on missing shared API types,
+  speech settings, vault purpose, transcription helpers and settings-screen wiring; later commits do not use them.
+- Keep the preceding local-whisper behavior. Re-apply with `git revert <this revert commit>` when the shared
+  types, settings, vault purpose and settings screen land together and pass the full CI job.
