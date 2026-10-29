@@ -2593,19 +2593,31 @@ including same-account installs. Extend the same synthetic selection tests to co
   gets the same check as the name search: a folder the person cannot list answers 404. Office documents are searched
   through the same text cache as the AI's grep, and legacy CP949 text through the same second pass.
 - **Query.** The query is literal text in any case (ripgrep `-F -i`), never a regular expression. Thus a person
-  cannot send a slow or bad pattern. The query is NFC-normalized and has 1 to 200 characters.
+  cannot send a slow or bad pattern. The query has 1 to 200 characters on one line (a line break answers
+  `validation`). ripgrep gets the query in NFC and in NFD, so Korean text in either form is found; the snippet is NFC.
 - **Limits.** At most 100 lines (default 50), at most 5 lines from one file (`-m 5`), files up to 50 MB (`RG_BASE`).
-  The whole search has 10 seconds (the AI's limit is longer): with the new `strictTime` option, the office listing
-  and the office pass get only the time that is left. At most 8 office files are extracted before the answer
-  (`officeBudget`); the rest are extracted in the background. A line is cut to 160 characters around the first match. The answer says
-  when the list was cut (`truncated`), when the time limit stopped the search (`timedOut`) and how many office
-  documents are still being read (`officePending`). Each person can start 30 searches in a minute and run 2 at the
-  same time; more answers `rate_limited` (429) with `retryAfter`. The state is in memory, so a restart clears it.
-  The server does not stop a search when the browser aborts it. Thus fast typing can get a 429; the screen then
-  waits `retryAfter` (up to 5 seconds) once and tries again without a message.
-- **`grepFiles()` change.** New options `fixed`, `maxPerFile`, `strictTime` and `officeBudget`
-  (`OfficeCache.refresh()` takes a listing time limit too), and the result also gives `hits` (path, line,
-  text of each matching line) and `timedOut`. The AI tool does not use the new options; its text is the same.
+  ripgrep's `--json` ignores `--max-columns` and gives the whole line, so `runRg` drops a record longer than 64 K
+  characters (`RG_MAX_RECORD_CHARS`) while it arrives: a matching line in a minified file is skipped
+  (`stats.longSkipped`) and never held in memory. The whole search has 10 seconds (the AI's limit is longer): with
+  the new `strictTime` option, the office listing, the office extraction and the office pass share one deadline. At
+  most 8 office files are extracted before the answer (`officeBudget`); the files that are not done at the deadline
+  and the rest go to the background. A line is cut to 160 characters around the first match. The answer says when the
+  list was cut (`truncated`), when the time limit stopped the search (`timedOut`) and how many office documents are
+  still being read (`officePending`). Each person can start 60 searches in a minute; more answers `rate_limited`
+  (429) with `retryAfter`. A person runs at most 2 searches at the same time: a new search stops the oldest one (kills
+  its ripgrep), because the screen shows only the newest answer. A search also stops when the client goes away. Thus
+  typing gets no 429. The state is in memory, so a restart clears it.
+- **Office text cache.** One server extracts at most 4 office files at the same time (`OFFICE_EXTRACT_PARALLEL`,
+  foreground and background together). The background is one queue (each file once, at most 10,000) with one worker,
+  and `update()` checks the cache again before it extracts, so many searches do not extract the same file again. The
+  office pass shows only text of the current version of a document (cache mtime = file mtime): after a change (a
+  redaction) the old text is not found while the new text waits. When a file cannot be read (too large, no access),
+  its old text is replaced by an empty text with the file's mtime, so it is not tried again until the file changes.
+- **`grepFiles()` change.** New options `fixed`, `maxPerFile`, `strictTime`, `officeBudget` and `signal`
+  (`OfficeCache.refresh()` takes `{ budget, listTimeoutMs, deadline, signal }`), and the result also gives `hits`
+  (path, line, text of each matching line) and `timedOut`. The AI tool does not use the new options. Its text
+  changes in 2 cases only: a line longer than 64 K characters is skipped (with a note), and stale office text is not
+  shown.
 - **UI.** The file screen has a search box in its header. With 2 characters (or 1 non-ASCII character) it shows the
   lines that match in the open folder and its sub-folders, grouped by file: name, path, line number and snippet with
   each match in `<mark>`. The snippet is shown as text, never as HTML. A click opens the file in the side panel. The
@@ -2614,7 +2626,10 @@ including same-account installs. Extend the same synthetic selection tests to co
   search (the QA case expects that). Its last row, "Search file contents for …", opens `/files?q=…`. Thus a key
   press in ⌘K starts no file search.
 - **Tests.** `tests/unit/file-content-search.test.ts`: another group's folder, a 'none' rule folder, another
-  person's folder and a hard link never show; 404 for a folder the person cannot list; literal queries; Korean in
-  NFC and NFD; CP949 text; an xlsx through the text cache (also hidden in another group); result limit, lines per
-  file, snippet cut, query length, rate limit per person. `web/test/unit/highlight.test.ts`: the highlight parts.
+  person's folder, a hard link and a symbolic link never show; 404 for a folder the person cannot list; literal
+  queries; a line break in the query; Korean NFC and NFD queries on NFC and on NFD text; CP949 text; an xlsx through
+  the text cache (also hidden in another group); old office text after a change; `officePending`; a 3 MB line;
+  result limit, lines per file, snippet cut, query length, rate limit per person, a new search stops the oldest.
+  `tests/unit/file-search-limits.test.ts`: the record cap of `runRg`, the extraction deadline (`timedOut`, pending),
+  one background queue with at most 4 extractions, and an unreadable file. `web/test/unit/highlight.test.ts`: the highlight parts.
   `tests/security/lib/cases.ts` has a matrix case for the new route.
