@@ -70,6 +70,7 @@ export function toHttp(e: unknown, locale: Locale, field = 'path'): unknown {
       case 'is_folder': return httpError('validation', 'isFolder', locale, { [field]: e.message })
       case 'not_folder': return httpError('validation', 'notFolder', locale, { [field]: e.message })
       case 'conflict': return new HttpError('conflict', e.message)
+      case 'too_large': return httpError('payload_too_large', 'tooLarge', locale)
     }
     if (/too large/.test(e.message)) return httpError('payload_too_large', 'tooLarge', locale)
     return new HttpError('bad_request', e.message)

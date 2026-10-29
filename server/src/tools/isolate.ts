@@ -40,6 +40,9 @@ export interface IsolatedRun {
   /** resident memory cap (MiB) of the converter and its children, checked a few times a second; the process is
    * killed above it. Where the converter cgroup is set up (production Linux) its memory.max applies as well. */
   maxRssMiB?: number
+  /** bytes the converter may write into its work folder (all files together, inputs included), checked a few times a
+   * second; the process is killed above it ('disk') */
+  maxWorkBytes?: number
   env?: Record<string, string>
   /** called with stderr text as it arrives (progress parsing) */
   onStderr?: (s: string) => void
@@ -50,7 +53,7 @@ export interface IsolatedResult {
   code: number | null
   stdout: Buffer
   stderr: string
-  killed: null | 'timeout' | 'output' | 'aborted' | 'memory'
+  killed: null | 'timeout' | 'output' | 'aborted' | 'memory' | 'disk'
   workDir: string
 }
 
@@ -156,8 +159,9 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   let killed: IsolatedResult['killed'] = null
   const kill = (why: NonNullable<IsolatedResult['killed']>) => { if (!killed) { killed = why; try { p.kill('SIGKILL') } catch {} } }
   const timer = setTimeout(() => kill('timeout'), o.timeoutMs ?? 60_000)
-  const watch = o.maxRssMiB ? setInterval(() => {
-    void treeRssKiB(p.pid).then((kib) => { if (kib > o.maxRssMiB! * 1024) kill('memory') })
+  const watch = o.maxRssMiB || o.maxWorkBytes ? setInterval(() => {
+    if (o.maxRssMiB) void treeRssKiB(p.pid).then((kib) => { if (kib > o.maxRssMiB! * 1024) kill('memory') })
+    if (o.maxWorkBytes && dirBytes(workDir) > o.maxWorkBytes) kill('disk')
   }, RSS_POLL_MS) : null
   const onAbort = () => kill('aborted')
   if (o.signal) { if (o.signal.aborted) onAbort(); else o.signal.addEventListener('abort', onAbort, { once: true }) }
@@ -196,6 +200,19 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
 }
 
 const RSS_POLL_MS = 200
+
+/** Bytes of the files in a folder and its subfolders (links are not followed). */
+function dirBytes(dir: string): number {
+  let n = 0
+  try {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) n += dirBytes(p)
+      else if (e.isFile()) { try { n += fs.lstatSync(p).size } catch {} }
+    }
+  } catch {}
+  return n
+}
 
 /** Resident memory (KiB) of a process and its descendants (Linux: /proc; macOS: ps). 0 when it is gone. */
 export async function treeRssKiB(pid: number): Promise<number> {
