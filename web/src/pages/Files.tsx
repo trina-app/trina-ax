@@ -558,8 +558,8 @@ export default function Files() {
                           />
                         </th>
                         <th className="px-2 py-2 font-medium">{t('files.name')}</th>
-                        <th className="hidden px-2 py-2 font-medium sm:table-cell">{t('files.modified')}</th>
-                        <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
+                        <th className="hidden whitespace-nowrap px-2 py-2 font-medium sm:table-cell">{t('files.modified')}</th>
+                        <th className="hidden whitespace-nowrap px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
                         <th className="w-10 px-2 py-2">
                           <span className="sr-only">{t('files.actions')}</span>
                         </th>

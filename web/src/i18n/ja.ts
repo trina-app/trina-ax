@@ -640,7 +640,7 @@ export const ja: Record<MessageKey, string> = {
   'settings.browser.ask': "新しいサイトごとに確認",
   'settings.browser.askHint': "AIが初めてサイトを開くときに確認します。",
   'settings.browser.all': "すべてのWebサイトを許可",
-  'settings.browser.allHint': "AIは確認なしに公開Webサイトを開き、読み取った内容を送信できます。社内ネットワークやこのコンピューターのアドレスは引き続き確認するかブロックし、パスワードとカード情報の入力欄は操作できません。有効にする際、アプリが開くウィンドウでもう一度確認します。",
+  'settings.browser.allHint': "AIは確認なしに公開Webサイトを開き、読み取った内容をそれらのサイトに送信できます。社内ネットワークやこのコンピューターのアドレスは引き続き確認するかブロックし、パスワードとカード情報の入力欄は操作できません。有効にする際、アプリが開くウィンドウでもう一度確認します。",
   'settings.browser.allOn': "すべてのサイトを許可中",
   'settings.browser.confirmInApp': "アプリが開いたウィンドウで「すべてのWebサイトを許可」を押して確認してください。",
   'settings.browser.policyOff': "チーム管理者が「すべてのWebサイトを許可」を無効にしています。AIは新しいサイトごとに確認します。よく使うサイトは確認時に「常に許可」を選んでください。",
