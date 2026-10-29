@@ -9,6 +9,7 @@ import { snapshot, recheck } from '../../server/src/safe-ops/source'
 import { safeText } from '../../server/src/safe-ops/strings'
 import * as XLSX from 'xlsx'
 import { deckMismatch } from '../../server/src/tools/pptx-check'
+import { send, flush } from '../../server/src/mcp/socket'
 let A: CApp
 const jpeg = Buffer.from([255, 216, 255, 217]) // fake codec result; real decoding is covered by Go/Linux tests
 beforeAll(async () => {
@@ -149,4 +150,28 @@ test('expected layouts reuse the slide-count mismatch gate', () => {
   const shape = { level: 2 as const, metaTitle: false, sections: 0, textUnderSection: 0, rules: 0 }
   expect(deckMismatch(d, shape, { slides: 1, layouts: ['Title and Content'] })).toBeNull()
   expect(deckMismatch(d, shape, { layouts: ['Two Content'] })).toContain('nothing was saved')
+})
+test('permission revocation while socket output is queued discards the undelivered image', () => {
+  const ctx = A.toolCtx('bob')
+  fs.writeFileSync(path.join(A.team, 'groups/finance/queued.png'), 'synthetic')
+  const source = snapshot(A.ctx.files, ctx, 'groups/finance/queued.png', 1024)
+  let writes = 0,
+    closed = false
+  const socket = {
+    data: { out: [], stage: 'mcp' },
+    write() {
+      writes++
+      return 0
+    },
+    end() {
+      closed = true
+    },
+  }
+  send(socket, 'synthetic-image-block', () => recheck(A.ctx.files, ctx, source))
+  expect(socket.data.out.length).toBe(1)
+  A.ctx.db.query("DELETE FROM group_members WHERE user_id='bob'").run()
+  flush(socket)
+  expect(writes).toBe(1)
+  expect(closed).toBe(true)
+  expect(socket.data.out).toEqual([])
 })

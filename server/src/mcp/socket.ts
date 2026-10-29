@@ -13,23 +13,26 @@ export interface McpSocketServer { path: string; secret: string; stop(): void; c
 
 type S = { buf: string; dec: TextDecoder; stage: 'gate' | 'hello' | 'auth' | 'mcp' | 'closed'; peer?: Peer; turn?: Turn; handle?: (m: any) => Promise<any>; queue: Promise<void>
   /** bytes the kernel did not take yet (Bun's socket.write may write only part; the rest goes out on drain) */
-  out: Buffer[] }
+  out: { bytes: Buffer; guard?: () => void }[] }
 
 /** Write everything, in order: what the socket does not take now is kept and flushed on drain. */
-function send(sock: any, data: string) {
+export function send(sock: any, data: string, guard?: () => void) {
   const s: S = sock.data
   const b = Buffer.from(data)
-  if (s.out.length) { s.out.push(b); return }
+  if (s.out.length) { s.out.push({ bytes: b, guard }); return }
+  guard?.()
   const n = sock.write(b)
-  if (n < b.length) s.out.push(b.subarray(Math.max(0, n)))
+  if (n < b.length) s.out.push({ bytes: b.subarray(Math.max(0, n)), guard })
 }
-function flush(sock: any) {
+export function flush(sock: any) {
   const s: S = sock.data
   if(s.turn?.revoked) { s.out=[]; sock.end(); return }
   while (s.out.length) {
-    const b = s.out[0]!
+    const pending = s.out[0]!
+    try { pending.guard?.() } catch { s.out=[]; s.stage='closed'; sock.end(); return }
+    const b = pending.bytes
     const n = sock.write(b)
-    if (n < b.length) { s.out[0] = b.subarray(Math.max(0, n)); return }
+    if (n < b.length) { pending.bytes = b.subarray(Math.max(0, n)); return }
     s.out.shift()
   }
 }
@@ -82,7 +85,7 @@ export function startMcpSocket(sockPath: string, files: FileService, db: Databas
           const out = await s.handle!(msg).catch((e) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }))
           if (turn.revoked) { s.out=[]; return reject(sock,s,'turn ended') }
           try { out?.beforeDelivery?.() } catch { s.out=[]; return reject(sock,s,'source access changed') }
-          if (out && s.stage === 'mcp') try { send(sock, JSON.stringify(out) + '\n') } catch {}
+          if (out && s.stage === 'mcp') try { send(sock, JSON.stringify(out) + '\n', out.beforeDelivery) } catch {}
         })
       }
     }
