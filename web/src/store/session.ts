@@ -4,6 +4,7 @@ import type { Locale, Me, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { applyTeamIcon } from '../lib/team-icon'
 
@@ -78,8 +79,7 @@ export const useSession = create<SessionState>((set, get) => ({
         return
       }
       // Only the error screen uses the recovery hint. A server response still decides account/team language.
-      const recent = recentLocale()
-      if (recent) useLocaleStore.getState().setLocale(recent)
+      useLocaleStore.getState().setLocale(recoveryLocale(recentLocale(), storedLocale()))
       set({ status: { kind: 'error', error: e } })
     }
   },

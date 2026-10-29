@@ -7,6 +7,11 @@ import path from 'node:path'
 import type { Plugin } from 'vite'
 // relative, not @mycel/shared: Vite bundles the config's relative imports, the workspace package it would load raw
 import { PRODUCT } from '../../shared/src/product.ts'
+import { asLocale } from '../../shared/src/api/common'
+import { en } from '../src/i18n/en'
+import { id } from '../src/i18n/id'
+import { ko } from '../src/i18n/ko'
+import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY, recoveryLocale } from '../src/i18n/recovery-locale'
 
 const PWA_DIR = path.resolve(import.meta.dirname, '../pwa')
 /** the generated files: served at /<name>, emitted as dist/<name> */
@@ -31,7 +36,26 @@ export function fillProduct(text: string, file: string, inString = false): strin
 }
 
 export function pwaFile(name: keyof typeof PWA_FILES): string {
-  const text = fillProduct(fs.readFileSync(path.join(PWA_DIR, name), 'utf8'), `web/pwa/${name}`, true)
+  let text = fillProduct(fs.readFileSync(path.join(PWA_DIR, name), 'utf8'), `web/pwa/${name}`, true)
+  if (name === 'sw.js') {
+    // JSON is embedded inside an HTML script inside a JS template literal: escape each boundary.
+    const messages = Object.fromEntries(Object.entries({ ko, en, id }).map(([locale, dict]) => [locale, {
+      title: dict['conn.cantReach'], hint: dict['conn.cantReachHint'], retry: dict['common.retry'],
+    }]))
+    const script = `(() => {
+      const read = key => { try { return (${asLocale.toString()})(localStorage.getItem(key)) } catch { return null } };
+      const locale = (${recoveryLocale.toString()})(read(${JSON.stringify(RECENT_LOCALE_KEY)}), read(${JSON.stringify(SIGN_IN_LOCALE_KEY)}));
+      const messages = ${JSON.stringify(messages).replace(/</g, '\\u003c')};
+      document.documentElement.lang = locale;
+      for (const key of ['title', 'hint', 'retry']) document.getElementById(key).textContent = messages[locale][key];
+      document.getElementById('retry').onclick = () => location.reload();
+      try { window.mycelDesktop?.setLocale?.(locale) } catch {}
+    })();`
+    text = text.replace('__OFFLINE_TITLE__', () => jsText(html(en['conn.cantReach'])))
+      .replace('__OFFLINE_HINT__', () => jsText(html(en['conn.cantReachHint'])))
+      .replace('__OFFLINE_RETRY__', () => jsText(html(en['common.retry'])))
+      .replace('__OFFLINE_SCRIPT__', () => jsText(script))
+  }
   if (name === 'manifest.webmanifest') JSON.parse(text) // a broken manifest fails the build, not the phone
   return text
 }

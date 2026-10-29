@@ -1,5 +1,5 @@
 // Bahasa Indonesia. Kunci sama dengan ko.ts (dicek TypeScript dan test/unit/i18n.test.ts).
-import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES } from '../../../shared/src/api/errors'
 import type { MessageKey } from './ko'
 
 export const id: Record<MessageKey, string> = {

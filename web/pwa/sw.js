@@ -1,11 +1,12 @@
 // The service worker (tab 5 PWA; web/scripts/product-pages.ts fills the product name in at build): caches only hashed static files (/assets/*, /vendor/chunk-*). index.html, /api
-// and the WebSocket always go to the network; when the network is down, page loads get a small offline page (English:
-// the worker cannot know the person's language, and English is the default, docs/DECISIONS.md "언어").
+// and the WebSocket always go to the network. The offline document is self-contained, with table text and the
+// same bounded recovery-language policy as the app (injected at build). It reads origin storage in the page,
+// never stores account content in this worker or its cache, and also works with an empty static cache.
 const CACHE = 'mycel-static-v1'
-const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>__PRODUCT_NAME_HTML__</title>
+const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="mycel-offline" content="navigation-v1"><title>__PRODUCT_NAME_HTML__</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",system-ui,sans-serif;background:#fcfbf8;color:#14110f;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}
 @media (prefers-color-scheme:dark){body{background:#0e0c0b;color:#f6f2ea}}button{margin-top:16px;padding:8px 16px;border-radius:8px;border:0;background:#e8521a;color:#14110f;font-size:15px}</style></head>
-<body><main><h1 style="font-size:20px">Can't reach the team server</h1><p>Check your internet connection and try again.</p><button onclick="location.reload()">Retry</button></main></body></html>`
+<body><main><h1 id="title" style="font-size:20px">__OFFLINE_TITLE__</h1><p id="hint">__OFFLINE_HINT__</p><button id="retry">__OFFLINE_RETRY__</button></main><script>__OFFLINE_SCRIPT__</script></body></html>`
 
 self.addEventListener('install', () => self.skipWaiting())
 

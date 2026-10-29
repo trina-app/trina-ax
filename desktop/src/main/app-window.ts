@@ -234,9 +234,7 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
-    app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
-      if (!isMainFrame || code === -3) return // -3: aborted (a new navigation replaced it)
-      debug('team page failed to load', code, url)
+    const failedNavigation = (url: string) => {
       if (this.app !== app || !this.team) return
       // the office address stopped answering (left the office, Wi-Fi changed): straight to the team address
       if (this.directOrigin && originOf(url) === this.directOrigin) {
@@ -254,9 +252,27 @@ export class AppWindow {
       this.mode = 'offline'
       this.layout()
       this.sendWelcome()
+    }
+    app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return // -3: aborted (a new navigation replaced it)
+      debug('team page failed to load', code, url)
+      failedNavigation(url)
     })
-    app.webContents.on('did-finish-load', () => {
+    let navigation = 0
+    app.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) navigation++
+    })
+    app.webContents.on('did-finish-load', async () => {
       if (this.app !== app) return
+      const loaded = navigation
+      const url = app.webContents.getURL()
+      // A service-worker navigation fallback loads successfully (HTTP 503), so did-fail-load never runs.
+      // Only our explicit document marker opens native recovery; ordinary application/server errors stay visible.
+      const offline = await app.webContents.executeJavaScript(
+        `document.querySelector('meta[name="mycel-offline"]')?.content === 'navigation-v1'`,
+      ).catch(() => false)
+      if (this.app !== app || app.webContents.isDestroyed() || navigation !== loaded) return
+      if (offline === true) { failedNavigation(url); return }
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
       this.layout()
       void this.refreshTeamInfo()

@@ -1,5 +1,5 @@
 // English. Same keys as ko.ts (checked by TypeScript and test/unit/i18n.test.ts).
-import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES } from '../../../shared/src/api/errors'
 import type { MessageKey } from './ko'
 
 export const en: Record<MessageKey, string> = {

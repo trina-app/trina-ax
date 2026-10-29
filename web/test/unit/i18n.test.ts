@@ -132,7 +132,7 @@ describe('translations', () => {
       for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, korean: HANGUL.test(v) }).toEqual({ loc, k, korean: false })
     }
   })
-  test('pages outside src (index.html, the offline page of the service worker) are English', () => {
+  test('unlocalized bootstrap pages (index.html and public files) default to English', () => {
     const root = path.resolve(import.meta.dir, '../..')
     for (const f of ['index.html', ...fs.readdirSync(path.join(root, 'public')).filter((x) => /\.(js|html)$/.test(x)).map((x) => `public/${x}`)]) {
       const text = stripComments(fs.readFileSync(path.join(root, f), 'utf8'))

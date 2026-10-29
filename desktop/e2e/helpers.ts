@@ -1,6 +1,7 @@
 // Helpers for the desktop e2e tests: launch the built app with a throw-away user data folder, find its views
 // (welcome / pane toolbar / team page / browser tabs are separate web contents), and drive the fake team server.
 import { mkdtempSync, writeFileSync } from 'node:fs'
+import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
@@ -176,7 +177,9 @@ export const tabPage = (app: ElectronApplication, match: (url: string) => boolea
 export async function close(app: ElectronApplication | undefined) {
   if (!app) return
   const proc = app.process()
+  // A registered worker can keep Playwright's close RPC pending after Electron has already exited.
+  const exited = proc.exitCode !== null || proc.signalCode !== null ? Promise.resolve() : once(proc, 'exit')
   const timer = setTimeout(() => proc.kill('SIGKILL'), 10_000)
-  await app.close().catch(() => proc.kill('SIGKILL'))
+  await Promise.race([app.close().catch(() => proc.kill('SIGKILL')), exited])
   clearTimeout(timer)
 }

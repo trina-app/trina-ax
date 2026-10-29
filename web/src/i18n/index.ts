@@ -6,6 +6,7 @@
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
+import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { en } from './en'
 import { id } from './id'
 import { ko, type MessageKey } from './ko'
@@ -77,7 +78,7 @@ export function browserLocale(languages: readonly string[] | undefined): Locale 
   return null
 }
 
-const STORED_KEY = 'mycel.locale'
+const STORED_KEY = SIGN_IN_LOCALE_KEY
 /** The language picked on the sign-in / invite / reset / setup screens (this browser only), or null. */
 export function storedLocale(): Locale | null {
   try {
@@ -95,7 +96,7 @@ export function storeLocale(l: Locale | null): void {
   }
 }
 
-const RECENT_KEY = 'mycel.recentLocale'
+const RECENT_KEY = RECENT_LOCALE_KEY
 /** Last signed-in screen language, scoped to this team origin. Never a sign-in choice to adopt into an account. */
 export function recentLocale(): Locale | null {
   try {
