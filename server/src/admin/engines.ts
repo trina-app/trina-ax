@@ -164,7 +164,9 @@ export function codexModels(env: EngineEnv): { id: string; label: string }[] {
   return []
 }
 
-const versionOf = (s: string) => /(\d+\.\d+\.\d+)/.exec(s)?.[1] ?? null
+// keep a prerelease suffix (0.164.0-alpha.1): the admin sees the real version, and the exact pin and
+// compatible checks do not take a prerelease for the tested release
+const versionOf = (s: string) => /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)/.exec(s)?.[1] ?? null
 
 export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean, locale: Locale): Promise<EngineStatus> {
   if (id === 'api') return checkApiEngine(env, enabled, locale)

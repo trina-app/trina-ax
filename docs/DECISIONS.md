@@ -2225,6 +2225,10 @@ use only the installer-configured executable and its locked catalog, with no PAT
 remains 0.163.0; this change neither installs a CLI nor changes credentials. Regression coverage uses synthetic
 executables and a model catalog in `tests/unit/codex-local-launch.test.ts`.
 
+Follow-up for B-W47-1 (2026-10-29): the admin engine check keeps the prerelease suffix of `--version`. Before, the
+check read `codex-cli 0.162.0-alpha.3` as `0.162.0`, and a `0.164.0-alpha.1` build showed as the compatible
+`0.164.0` with status Connected. Now the admin screen shows the real version, and a prerelease is an untested version.
+
 R4 integration review also found the separate System diagnostics/menubar lookup in `system/ops.ts`. It now
 uses the same resolver in development and only the configured executable for every production install,
 including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.
