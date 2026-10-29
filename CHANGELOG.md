@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Security re-review: exclude quarantined files from semantic ingestion and historical browser previews; index durable safe-ops lookups. Raw grep consumption and grep-only source versions still block 1A review approval.
+
 - Safe operations 1A review fixes (default off): generated files are download-only; native no-replace publication,
   durable approval/source/cleanup records, fail-closed workflow budgets and Linux openat2 mount-safe sources.
   ko/en/id quarantine notices; older schema readers must restore matching pre-enable DB and files to roll back.

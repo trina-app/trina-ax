@@ -191,3 +191,18 @@ budgets and the same publication/provenance contract.
 **Release gates:** independent branch review, real pinned CLI image workflows, native codec advisory
 and patch ownership/version qualification, operational hosted/medical review where applicable.
 The feature flag is the immediate disable switch. This slice does not approve general execution.
+
+### Independent second-review limitations
+
+Do not enable or describe this revision as release-approved. Raw grep still traverses permitted
+directories and filters quarantined matches only after ripgrep has consumed the file; it does
+not yet implement the required quarantine boundary before search consumption. Also, grep-only
+reads record paths/scopes but not immutable content versions, so final publication cannot reject
+a changed or deleted grep-only source. These are unresolved 1A acceptance requirements, not
+features deferred to general execution. Semantic indexing now excludes quarantined files before
+reading and drops their retained index rows; historical downloads enforce the same browser
+Fetch Metadata restrictions as current-file downloads.
+
+Journal lookup indexes avoid full-table scans on ordinary file access and admission. They do
+not bound lifetime metadata growth; a retention/quota design must preserve quarantine identities
+and unresolved cleanup debt. Deployment capacity and backup sizing must account for these records.

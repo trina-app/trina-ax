@@ -188,7 +188,7 @@ export class SemanticIndex {
   private cache: { paths: string[]; texts: string[]; vecs: Float32Array } | null = null
   private running: Promise<{ pending: number }> | null = null
 
-  constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null> }) {
+  constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null>; quarantine?: { hasFile(abs: string): boolean } }) {
     this.db = new Database(path.join(o.dataDir, 'semantic.db'), { create: true })
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -211,7 +211,11 @@ export class SemanticIndex {
         if (n.startsWith('.')) continue
         const segs = [...rel, n]
         let st: fs.Stats
-        try { st = fs.lstatSync(path.join(this.o.root, ...segs)) } catch { continue }
+        try {
+          const abs = path.join(this.o.root, ...segs)
+          st = fs.lstatSync(abs)
+          if (st.isFile() && this.o.quarantine?.hasFile(abs)) continue
+        } catch { continue }
         if (st.isDirectory()) visit(segs)
         else if (st.isFile() && st.nlink === 1) {
           const ext = (/\.([^./]+)$/.exec(n)?.[1] ?? '').toLowerCase()
@@ -224,6 +228,7 @@ export class SemanticIndex {
   }
 
   private async textOf(rel: string, st: fs.Stats): Promise<string> {
+    if (this.o.quarantine?.hasFile(path.join(this.o.root, ...rel.split('/')))) return ''
     if (isOffice(rel)) {
       if (!this.o.office.fresh(rel, st)) await this.o.office.update(rel)
       try { return fs.readFileSync(this.o.office.cachePath(rel), 'utf8').slice(0, FILE_TEXT_MAX) } catch { return '' }

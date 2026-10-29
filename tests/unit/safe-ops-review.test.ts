@@ -9,6 +9,8 @@ import { FileService } from '../../server/src/files/service'
 import { policyGeneration, publishArtifact } from '../../server/src/safe-ops/publication'
 import { Quarantine } from '../../server/src/safe-ops/quarantine'
 import { SAFE_OPS_TEXT } from '../../server/src/safe-ops/strings'
+import { SemanticIndex } from '../../server/src/search/semantic'
+import { saveVersion } from '../../server/src/files/store'
 let A:CApp
 beforeAll(async()=>{A=await makeCApp('safe-review')})
 afterAll(async()=>{await A.close()})
@@ -119,4 +121,38 @@ test('cleanup debt fails closed, remains charged, and dead-owner recovery clears
 })
 test('download-only and unhealthy notices cover ko/en/id',()=>{
  for(const key of ['quarantined','workflow'] as const)for(const lang of ['ko','en','id'] as const) expect(SAFE_OPS_TEXT[key][lang].length).toBeGreaterThan(20)
+})
+
+test('semantic refresh removes quarantined copies before embedding, including renamed text and old index rows',async()=>{
+ const rel='shared/semantic-quarantine.txt',bytes=Buffer.from('Synthetic generated output must never enter the embedding consumer.')
+ fs.writeFileSync(path.join(A.team,rel),bytes)
+ const consumed:string[]=[]
+ const index=new SemanticIndex({dataDir:A.data,root:A.team,office:A.ctx.files.office,quarantine:A.ctx.files.quarantine,
+  embedder:async()=>async(texts)=>{consumed.push(...texts);return texts.map(()=>new Float32Array(384))}})
+ try {
+  await index.refresh(60000)
+  expect(index.db.query('SELECT 1 FROM chunks WHERE path=?').get(rel)).not.toBeNull()
+  A.ctx.files.quarantine.add(bytes,'pptx')
+  fs.copyFileSync(path.join(A.team,rel),path.join(A.team,'shared/semantic-copy.txt'))
+  consumed.length=0
+  await index.refresh(60000)
+  expect(consumed.some(t=>t.includes(bytes.toString()))).toBe(false)
+  expect(index.db.query('SELECT 1 FROM files WHERE path=?').get(rel)).toBeNull()
+  expect(index.db.query('SELECT 1 FROM chunks WHERE path=?').get(rel)).toBeNull()
+  expect(index.db.query('SELECT 1 FROM files WHERE path=?').get('shared/semantic-copy.txt')).toBeNull()
+ }finally{index.db.close()}
+})
+
+test('historical copies use the same download-only browser boundary for every authorized user',async()=>{
+ const rel='shared/quarantine-history.pptx',bytes=Buffer.from('Synthetic historical generated output')
+ saveVersion(A.ctx.db,A.team,rel,bytes,{userId:'alice',turnId:null})
+ A.ctx.files.quarantine.add(bytes,'pptx')
+ const row=A.ctx.db.query('SELECT id FROM file_versions WHERE path=?').get(rel) as {id:string}
+ const url=`/api/files/history/${row.id}/download`
+ for(const user of ['alice','bob'] as const) {
+  expect((await A.req(url,{as:user,headers:{'sec-fetch-mode':'cors','sec-fetch-dest':'empty'}})).status).toBe(503)
+  const result=await A.req(url,{as:user,headers:{'sec-fetch-mode':'navigate','sec-fetch-dest':'empty'}})
+  expect(result.status).toBe(200)
+  expect(Buffer.from(await result.arrayBuffer())).toEqual(bytes)
+ }
 })

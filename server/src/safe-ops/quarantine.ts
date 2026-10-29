@@ -28,4 +28,10 @@ export class Quarantine {
   assertBytes(bytes: Uint8Array) {
     if (this.hasBytes(bytes)) throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
   }
+  assertDownload(abs: string, headers: Headers) {
+    if (!this.hasFile(abs)) return
+    const mode = headers.get('sec-fetch-mode'), dest = headers.get('sec-fetch-dest')
+    if ((mode && mode !== 'navigate') || (dest && dest !== 'document' && dest !== 'empty'))
+      throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
+  }
 }

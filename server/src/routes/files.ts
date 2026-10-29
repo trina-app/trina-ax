@@ -56,11 +56,7 @@ export const filesRoutes: RouteModule = {
       // Browser-owned Fetch Metadata also blocks stale clients and img/iframe/fetch
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.
-      if (ctx.files.quarantine.hasFile(f.abs)) {
-        const mode=c.req.header('sec-fetch-mode'), dest=c.req.header('sec-fetch-dest')
-        if ((mode && mode!=='navigate') || (dest && dest!=='document' && dest!=='empty'))
-          throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
-      }
+      ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition })
     }))
 
@@ -105,6 +101,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.history(auth.user.id, query.path)))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
+      ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
       return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment' })
     }))
     kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))

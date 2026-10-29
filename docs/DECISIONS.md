@@ -2763,3 +2763,8 @@ including same-account installs. Extend the same synthetic selection tests to co
   qualification remains a production gate, along with real pinned CLIs, codec/patch ownership
   and independent review.
 - See [the exact guarantees, recovery procedure and deferred controls](SAFE-OPS-1A.md).
+
+Second independent review: keep the feature off and release approval withheld until raw grep
+excludes quarantined input before consumption and grep-only source versions are bound to final
+publication. Semantic indexing and historical browser downloads now enforce quarantine; retained
+journal lookups are indexed, while lifetime metadata retention/quota remains an operational gap.
