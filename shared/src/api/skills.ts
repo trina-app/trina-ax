@@ -25,6 +25,11 @@ export const PopularSkills = z.object({
   days: z.literal(30),
 })
 export type PopularSkills = z.infer<typeof PopularSkills>
+/** Why a skill entry does not load (R2-SKILL-03). The screens translate the code. */
+export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility'])
+export type SkillProblem = z.infer<typeof SkillProblem>
+export const SkillIssue = z.object({ path: z.string(), problem: SkillProblem })
+export type SkillIssue = z.infer<typeof SkillIssue>
 
 /** skills/ itself or a folder below it (at most two levels: skills/재무/월말). */
 export const SkillFolderPath = RelPath.refine((p) => {
@@ -143,6 +148,7 @@ export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object(
 export const SKILLS = {
   popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
   listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, by name.' }),
+  listSkillIssues: endpoint({ method: 'GET', path: '/api/skills/issues', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillIssue) }), summary: 'Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header.' }),
   skillsOverview: endpoint({ method: 'GET', path: '/api/skills/overview', auth: 'user', owner: 'B', response: SkillsOverview, summary: 'The skills folders the caller manages / can suggest into, and how many suggestions wait.' }),
   listSkillSuggestions: endpoint({ method: 'GET', path: '/api/skills/suggestions', auth: 'user', owner: 'B', query: SkillSuggestionsQuery, response: page(SkillSuggestion), summary: 'My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them.' }),
   getSkillSuggestion: endpoint({ method: 'GET', path: '/api/skills/suggestions/:id', auth: 'user', owner: 'B', response: SkillSuggestion, summary: 'One suggestion: its suggester and the managers of its target folder only (404 for anyone else).' }),

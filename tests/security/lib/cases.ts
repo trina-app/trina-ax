@@ -144,6 +144,7 @@ export const SPECS: Record<string, Spec> = {
   clearMemories: { build: (c) => c.del('/api/memories'), scope: 'self' },
   // team skills (skills/**/*.md readable by the caller): the canary check covers every name in the list
   listSkills: { build: (c) => c.get('/api/skills'), scope: 'self' },
+  listSkillIssues: { build: (c) => c.get('/api/skills/issues'), scope: 'self' },
   // team skills: suggestions are seen by their suggester and the managers of the target folder only (skills/suggestions.ts)
   skillsOverview: { build: (c) => c.get('/api/skills/overview'), scope: 'self' },
   listSkillSuggestions: { build: (c) => c.get('/api/skills/suggestions?scope=review'), scope: 'self',

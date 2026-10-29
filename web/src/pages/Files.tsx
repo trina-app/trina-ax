@@ -22,6 +22,8 @@ import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import FolderPicker from '../components/FolderPicker'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
+import { SkillIssues } from '../components/SkillIssues'
+import { isSkillsPath } from '../lib/skillIssues'
 import { useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, Tabs, confirmDialog, promptDialog } from '../components/ui'
 
@@ -476,6 +478,7 @@ export default function Files() {
               )}
             </nav>
           )}
+          {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
           {uploads.length > 0 && <UploadList items={uploads} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {error && (
