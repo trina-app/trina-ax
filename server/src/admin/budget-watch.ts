@@ -33,7 +33,7 @@ export function afterUsage(db: Database, userId: string, notify: (n: Notice, to?
       const msg = (l: Locale) => ct(level === 'near' ? 'nBudgetNear' : 'nBudgetReached', l, { subject: subject(l), period: PERIOD[b.period][l] })
       const to = admins(db)
       if (b.subjectType === 'user' && b.subjectId && !to.includes(b.subjectId)) to.push(b.subjectId)
-      notify({ level: 'warn', code: 'budget_warn', message: { ko: msg('ko'), en: msg('en'), id: msg('id') }, link: '/admin/engines' }, to)
+      notify({ level: 'warn', code: 'budget_warn', message: { ko: msg('ko'), en: msg('en'), id: msg('id'), ja: msg('ja'), es: msg('es') }, link: '/admin/engines' }, to)
     }
   }
 }

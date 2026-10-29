@@ -8,6 +8,8 @@ import { updateTeamSettings } from '../../server/src/admin/settings'
 let h: Harness
 afterEach(async () => { await h?.close() })
 const expected = {
+  ja: ['定期タスクが完了しました。', '定期タスクの確認が必要です。', '接続のために再ログインが必要です。'],
+  es: ['Se completó una tarea programada.', 'Una tarea programada requiere su atención.', 'Una conexión requiere que vuelva a iniciar sesión.'],
   ko: ['예약 작업이 완료됐어요.', '예약 작업에 확인할 일이 있어요. 실행 결과를 확인해 주세요.', '연결에 다시 로그인이 필요해요.'],
   en: ['A scheduled task completed.', 'A scheduled task needs your attention.', 'A connection needs you to sign in again.'],
   id: ['Tugas terjadwal selesai.', 'Tugas terjadwal perlu perhatian Anda.', 'Koneksi perlu login ulang.'],
@@ -64,5 +66,5 @@ test('no account choice follows the current team default, or English without a t
   setUserLocale(h.ctx.db, 'olga', 'ko')
   check(await c.call('GET', '/api/push'), 'ko')
   setUserLocale(h.ctx.db, 'olga', null)
-  check(await c.call('GET', '/api/push'), 'id')
+  check(await c.call('GET', '/api/push'), Locale.options.at(-1)!)
 })

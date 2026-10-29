@@ -106,7 +106,7 @@ export interface DesktopBridge {
   openTeams(): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
    * screens, menus and prompts follow it. Optional: desktop apps before this addition do not have it. */
-  setLocale?(locale: 'ko' | 'en' | 'id'): void
+  setLocale?(locale: 'ko' | 'en' | 'id' | 'ja' | 'es'): void
   /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its

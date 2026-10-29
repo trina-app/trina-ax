@@ -4,6 +4,7 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { STRINGS } from '../src/common/i18n'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { ACME, bindWindow, chrome, close, launch, newUserData, ROOT, teamPage, welcome } from './helpers'
 
@@ -21,7 +22,7 @@ test('fresh install on a Korean system: English; a pick on the team list applies
     await expect(w.getByRole('heading', { name: 'Enter your team address' })).toBeVisible()
     await expect(w.locator('html')).toHaveAttribute('lang', 'en')
     await expect(w.getByTestId('ui-locale')).toHaveValue('en')
-    await expect(w.getByTestId('ui-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia'])
+    await expect(w.getByTestId('ui-locale').locator('option')).toHaveText(['English', '한국어', 'Bahasa Indonesia', '日本語', 'Español'])
     expect(await menuLabels(app)).toContain('View')
     const expectDomain = async () => {
       await expect(w.locator('.sub')).toContainText(`acme.${SERVICE_HOSTS.teamDomain}`)
@@ -76,6 +77,12 @@ test('the team page reports its language: menus, pane toolbar and team list foll
     expect(await allMenuItems(app)).toEqual(expect.arrayContaining(['실행 취소', '복사하기', '붙여넣기', '최소화']))
     await expect(c.locator('html')).toHaveAttribute('lang', 'ko')
     await expect(c.getByRole('button', { name: '새 탭' })).toHaveCount(1)
+    for (const locale of ['ja', 'es'] as const) {
+      await page.evaluate(l => (window as any).mycelDesktop.setLocale(l), locale)
+      await expect(c.locator('html')).toHaveAttribute('lang', locale)
+      await expect.poll(() => menuLabels(app)).toContain(STRINGS[locale]['menu.team'])
+      await expect(c.getByRole('button', { name: STRINGS[locale]['pane.newTab'], exact: true })).toHaveCount(1)
+    }
     // nonsense is ignored
     await page.evaluate(() => (window as any).mycelDesktop.setLocale('fr'))
     await page.evaluate(() => (window as any).mycelDesktop.setLocale('en'))

@@ -51,7 +51,7 @@ export function chatPath(rows: MsgRow[], activeLeaf: string | null): MsgRow[] {
 export const MD_WORDS: Record<Locale, { untitled: string; user: string }> = {
   ko: { untitled: '(제목 없음)', user: '사용자' },
   en: { untitled: '(untitled)', user: 'User' },
-  id: { untitled: '(tanpa judul)', user: 'Pengguna' },
+  id: { untitled: '(tanpa judul)', user: 'Pengguna' }, ja: { untitled: "（無題）", user: "ユーザー" }, es: { untitled: "(sin título)", user: "Usuario" },
 }
 
 /** One chat as Markdown, headings in the language of the person exporting. */

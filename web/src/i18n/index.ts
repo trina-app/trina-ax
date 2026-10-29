@@ -1,18 +1,17 @@
-// Screen text by key (tab 5 "다국어"): ko / en / id must have the same keys (TypeScript checks it; test/unit/i18n.test.ts
-// also checks the {placeholders}, empty texts and Korean left in the English and Indonesian texts).
-// Which language (docs/DECISIONS.md "언어"): signed in, the person's own choice, else the team default; before sign-in,
-// what the visitor picked on the sign-in screen (kept in this browser), else the team default (GET /api/setup), else
-// English. The browser's language does not decide.
+// All five app dictionaries share keys and placeholders (bun run check:i18n).
+// Account choice wins, then team default, then English. Browser detection is only for first-run setup.
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { en } from './en'
+import { ja } from './ja'
+import { es } from './es'
 import { id } from './id'
 import { ko, type MessageKey } from './ko'
 
 export type { MessageKey }
-export const DICTS: Record<Locale, Record<MessageKey, string>> = { ko, en, id }
+export const DICTS: Record<Locale, Record<MessageKey, string>> = { ko, en, id, ja, es }
 /** Each language named in its own language, English first. */
 export const LOCALES: { id: Locale; label: string }[] = LOCALE_ORDER.map((l) => ({ id: l, label: LOCALE_NAMES[l] }))
 

@@ -1,6 +1,7 @@
+import path from 'node:path'
 // Real Electron + production web build + actual registered service worker. No page.route/network mocks.
 import { expect, test } from '@playwright/test'
-import { STRINGS } from '../src/common/i18n'
+import { STRINGS, t } from '../src/common/i18n'
 import { account, offlineServer, signInOfflineTeam, warmWorker } from '../../web/test/e2e/offline-server'
 import { close, launch, newUserData, teamPage, welcome } from './helpers'
 
@@ -21,7 +22,7 @@ const nativeRecoveryState = (app: Awaited<ReturnType<typeof launch>>) => app.eva
   }
 })
 
-for (const locale of ['ko', 'en', 'id'] as const) {
+for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
   test(`${locale}: network failure keeps recovery in the visible window; Retry preserves session; Other teams works`, async () => {
     const server = await offlineServer({ serviceWorker: false })
     const app = await launch(newUserData('en')).catch(async error => { await server.close(); throw error })
@@ -44,6 +45,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       await expect.poll(() => nativeRecoveryVisible(app)).toBe(true)
       await expect.poll(() => nativeRecoveryState(app)).toEqual({ visible: true, fillsWindow: true })
       await expect(shell.getByRole('heading')).toHaveText(strings['offline.title'])
+      if (process.env.I18N_SCREENSHOT_DIR && (locale === 'ja' || locale === 'es')) await shell.screenshot({ path: path.join(process.env.I18N_SCREENSHOT_DIR, `${locale}-desktop-recovery.png`) })
       const retry = shell.getByRole('button', { name: strings['offline.retry'], exact: true })
       await retry.focus()
       await expect(retry).toBeFocused()
@@ -74,7 +76,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
   })
 }
 
-for (const locale of ['ko', 'en', 'id'] as const) {
+for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
   test(`${locale}: SW 503 opens native recovery; Other teams and Retry work; ordinary 503 stays visible`, async () => {
     const server = await test.step('start stoppable server', () => offlineServer())
     const app = await test.step('launch Electron', () => launch(newUserData('en'))).catch(async error => {
@@ -141,5 +143,26 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       await expect(page.getByRole('heading')).toHaveText('Scheduled maintenance')
       await expect.poll(() => nativeRecoveryVisible(app)).toBe(false)
     } finally { await test.step('close Electron', () => close(app)); await server.close() }
+  })
+}
+
+for (const [locale, label] of [['ja', '日本語'], ['es', 'Español']] as const) {
+  test(`${label}: native welcome picker, edition domain and persisted choice`, async () => {
+    const userData = newUserData(null)
+    let app = await launch(userData)
+    try {
+      let shell = await welcome(app)
+      await shell.getByTestId('ui-locale').selectOption({ label })
+      await expect(shell.locator('html')).toHaveAttribute('lang', locale)
+      await expect(shell.getByRole('heading', { name: t(locale, 'welcome.title'), exact: true })).toBeVisible()
+      await expect(shell.getByText(t(locale, 'welcome.subtitle'), { exact: true })).toBeVisible()
+      await expect(shell.locator('#address')).toHaveAttribute('placeholder', t(locale, 'welcome.placeholder'))
+      if (process.env.I18N_SCREENSHOT_DIR) await shell.screenshot({ path: path.join(process.env.I18N_SCREENSHOT_DIR, `${locale}-desktop-welcome.png`) })
+      await close(app)
+      app = await launch(userData)
+      shell = await welcome(app)
+      await expect(shell.getByTestId('ui-locale')).toHaveValue(locale)
+      await expect(shell.locator('html')).toHaveAttribute('lang', locale)
+    } finally { await close(app) }
   })
 }

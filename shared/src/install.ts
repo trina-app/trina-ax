@@ -78,7 +78,7 @@ export const StatusFile = z.object({
    * cloud-status). Absent from older servers. */
   checks: z.array(z.object({ id: z.string().max(64), status: z.enum(['ok', 'warn', 'fail', 'unknown']) })).max(100).optional(),
   /** the team's default language: the menubar app's own words follow it (English when missing) */
-  locale: z.enum(['ko', 'en', 'id']).optional(),
+  locale: z.enum(['ko', 'en', 'id', 'ja', 'es']).optional(),
 })
 export type StatusFile = z.infer<typeof StatusFile>
 

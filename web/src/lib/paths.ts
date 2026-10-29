@@ -25,7 +25,7 @@ export function nameProblem(name: string): 'empty' | 'chars' | 'dots' | 'long' |
   return null
 }
 
-const CONFLICT_RE = / \((충돌 사본|conflict copy|salinan konflik)[^)]*\)(\.[^.]+)?$/i
+const CONFLICT_RE = / \((충돌 사본|conflict copy|salinan konflik|競合コピー|copia en conflicto)[^)]*\)(\.[^.]+)?$/i
 /** Conflict copies made by the server: "이름 (충돌 사본 - 사람 날짜 HH.mm).확장자". */
 export const isConflictCopy = (name: string) => CONFLICT_RE.test(name)
 

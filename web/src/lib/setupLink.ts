@@ -1,5 +1,5 @@
 // The first-run setup link (control-plane D7 / SV-7): the hosted service's account console shows the owner
-// https://<team>/setup#token=<setup token>&team=<display name>&lang=<ko|en|id>. A fragment never reaches a server log or
+// https://<team>/setup#token=<setup token>&team=<display name>&lang=<ko|en|id|ja|es>. A fragment never reaches a server log or
 // a Referer header. Older links (and the installer) use ?token=. Whatever carried the token, it leaves the address bar
 // as soon as the page has read it (history.replaceState), so it is not in the history or a shared screenshot.
 import { asLocale, type Locale } from '@mycel/shared/api'

@@ -114,18 +114,18 @@ struct MenubarApp: App {
             if let a = monitor.state.alert { Text("⚠︎ " + a) }
             ForEach(Array(monitor.state.lines.enumerated()), id: \.offset) { _, l in Text(l) }
             Divider()
-            if monitor.state.webUrl != nil { Button(label("웹 화면 열기", "Open web screen", "Buka layar web")) { monitor.openWeb(monitor.state.webUrl) } }
-            if monitor.state.offerLoginItems { Button(label("로그인 항목 설정 열기", "Open Login Items settings", "Buka pengaturan Item Masuk")) { monitor.openLoginItems() } }
-            Button(label("로그 폴더 열기", "Open logs folder", "Buka folder log")) { monitor.openLogs() }
-            Button(label("새로 고침", "Refresh", "Muat ulang")) { monitor.refresh() }
+            if monitor.state.webUrl != nil { Button(label("웹 화면 열기", "Open web screen", "Buka layar web", "Web画面を開く", "Abrir pantalla web")) { monitor.openWeb(monitor.state.webUrl) } }
+            if monitor.state.offerLoginItems { Button(label("로그인 항목 설정 열기", "Open Login Items settings", "Buka pengaturan Item Masuk", "ログイン項目の設定を開く", "Abrir ajustes de ítems de inicio")) { monitor.openLoginItems() } }
+            Button(label("로그 폴더 열기", "Open logs folder", "Buka folder log", "ログフォルダーを開く", "Abrir carpeta de registros")) { monitor.openLogs() }
+            Button(label("새로 고침", "Refresh", "Muat ulang", "更新", "Actualizar")) { monitor.refresh() }
             Divider()
-            Button(label("메뉴바 앱 종료", "Quit menubar app", "Keluar aplikasi menubar")) { NSApplication.shared.terminate(nil) }
+            Button(label("메뉴바 앱 종료", "Quit menubar app", "Keluar aplikasi menubar", "メニューバーアプリを終了", "Salir de la aplicación de la barra de menús")) { NSApplication.shared.terminate(nil) }
         } label: {
             Image(systemName: symbol(monitor.state.icon))
         }
     }
 
-    func label(_ ko: String, _ en: String, _ id: String) -> String { let l = monitor.lang; return l == .ko ? ko : l == .en ? en : id }
+    func label(_ ko: String, _ en: String, _ id: String, _ ja: String, _ es: String) -> String { let l = monitor.lang; return l == .ko ? ko : l == .id ? id : l == .ja ? ja : l == .es ? es : en }
     func symbol(_ i: MenuState.Icon) -> String {
         switch i {
         case .ok: return "checkmark.circle"

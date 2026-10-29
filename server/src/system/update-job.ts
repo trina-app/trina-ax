@@ -16,8 +16,8 @@ export const AUTO_HOLD_MS = 7 * 86_400_000
 /** the team's update window when Admin > Settings has none (team time zone) */
 export const DEFAULT_UPDATE_WINDOW = '03:00-05:00'
 
-const waitingTurns = (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai` })
-const restarting = { ko: '서버를 다시 시작합니다.', en: 'Restarting the server.', id: 'Memulai ulang server.' }
+const waitingTurns = (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai`, ja: `${String(n) + "件の実行中の回答"}の完了を待機中`, es: `Esperando a que termine ${enPlural(n, "respuesta en curso", "respuestas en curso")}` })
+const restarting = { ko: '서버를 다시 시작합니다.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor." }
 
 export interface RunUpdateDeps {
   updates: UpdateManager

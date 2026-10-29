@@ -154,7 +154,9 @@
       "name": {
        "ko": "팀",
        "en": "Team",
-       "id": "Tim"
+       "id": "Tim",
+       "ja": "チーム",
+       "es": "Equipo"
       }
      },
      "links": {
@@ -256,7 +258,9 @@
       "name": {
        "ko": "팀",
        "en": "Team",
-       "id": "Tim"
+       "id": "Tim",
+       "ja": "チーム",
+       "es": "Equipo"
       }
      },
      "links": {
@@ -478,7 +482,9 @@
     "name": {
      "ko": "팀",
      "en": "Team",
-     "id": "Tim"
+     "id": "Tim",
+     "ja": "チーム",
+     "es": "Equipo"
     }
    },
    "links": {

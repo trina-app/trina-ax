@@ -31,7 +31,8 @@ test('the navigation fallback is self-contained, uncached, localized and reports
   expect(html).not.toMatch(/__OFFLINE_|<script[^>]+src=|<link/)
   const script = html.match(/<script>([\s\S]*?)<\/script>/)![1]!
   for (const [recent, signIn, expected] of [
-    ['ko', 'id', 'ko'], ['en', 'ko', 'en'], ['id', null, 'id'],
+    ['ko', 'id', 'ko'], ['en', 'ko', 'en'], ['id', null, 'id'], ['ja', 'es', 'ja'], ['es', 'ja', 'es'],
+    ['ja-JP', null, 'ja'], [null, 'es-MX', 'es'],
     [null, 'id', 'id'], ['fr', 'ko', 'ko'], ['__proto__', 'toString', 'en'],
     ['ko-KR', null, 'ko'], [null, 'in', 'id'],
     ['<script>alert(1)</script>', null, 'en'], [null, null, 'en'],
