@@ -3,6 +3,10 @@
 import { z } from 'zod'
 import { endpoint, empty } from './endpoint'
 
+/** Result of a scheduled run, separate from "the run ended" (server/src/chat/schedule-outcome.ts). */
+export const ScheduleRunOutcome = z.enum(['succeeded', 'problems', 'failed'])
+export type ScheduleRunOutcome = z.infer<typeof ScheduleRunOutcome>
+
 export const Schedule = z.object({
   id: z.string(),
   title: z.string(),
@@ -21,7 +25,7 @@ export const Schedule = z.object({
   templateId: z.string().nullable().optional(), templateVersion: z.number().nullable().optional(),
   sourcePath: z.string().nullable().optional(), outputPath: z.string().nullable().optional(),
   pendingDueAt: z.string().nullable().optional(), retryAt: z.string().nullable().optional(), deferredCount: z.number().optional(),
-  lastOutcome: z.enum(['done', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable']).nullable().optional(),
+  lastOutcome: z.enum(['done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable']).nullable().optional(),
 })
 export type Schedule = z.infer<typeof Schedule>
 

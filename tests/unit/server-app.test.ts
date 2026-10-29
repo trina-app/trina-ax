@@ -218,7 +218,7 @@ describe('route registry', () => {
       'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp',
       'GET /.well-known/oauth-authorization-server', 'GET /oauth/authorize',
       'POST /oauth/register', 'POST /oauth/token', 'POST /oauth/revoke',
-      'GET /mcp', 'POST /mcp', 'DELETE /mcp',
+      'GET /mcp', 'POST /mcp', 'DELETE /mcp', 'PUT /connector-uploads/:token',
     ])
     for (const [k, mod] of ctx.implemented) if (mod !== 'test') expect(contract.has(k) || offContract.has(k), `${k} (${mod})`).toBe(true)
   })

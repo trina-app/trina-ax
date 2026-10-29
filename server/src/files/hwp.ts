@@ -1,14 +1,18 @@
 // Text of Hangul (한글) documents for read/grep: .hwp (HWP 5.x, an OLE compound file of zlib-compressed record
 // streams) and .hwpx (OWPML, a zip of XML). Korean offices and public bodies send forms and notices in these, and
-// pandoc / pdftotext don't read them. Pure TypeScript in-process like SheetJS for xlsx (SheetJS's CFB reads both
-// containers), with output caps against decompression bombs. Distribution (배포용) and password-protected .hwp keep
+// pandoc / pdftotext don't read them. Pure TypeScript like SheetJS for xlsx (SheetJS's CFB reads both containers),
+// run in the office worker (office-parse.ts), never in the server process, with caps against decompression bombs:
+// a .hwpx zip is checked first (zip-guard.ts), a .hwp body stream inflates to at most STREAM_MAX and all of them
+// together to at most INFLATE_TOTAL_MAX. Distribution (배포용) and password-protected .hwp keep
 // their body encrypted: only the preview text (PrvText, the first page or so) comes out, with a note.
 import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
+import { checkZip, isZip, tooComplex } from './zip-guard'
 
 const TEXT_MAX = 8 * 1024 * 1024
 const STREAM_MAX = 64 * 1024 * 1024
+const INFLATE_TOTAL_MAX = 200 * 1024 * 1024
 const SECTIONS_MAX = 500
 
 interface Entry { path: string; content: Uint8Array }
@@ -16,6 +20,7 @@ interface Entry { path: string; content: Uint8Array }
 const asBytes = (v: Uint8Array | number[] | undefined) => (v instanceof Uint8Array ? v : Uint8Array.from(v ?? []))
 
 function entries(bytes: Uint8Array): Entry[] {
+  if (isZip(bytes)) checkZip(bytes)
   let c: { FullPaths: string[]; FileIndex: { content?: Uint8Array | number[] }[] }
   try { c = XLSX.CFB.read(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), { type: 'buffer' }) } catch { throw new ToolError('could not read this Hangul document (damaged or not a .hwp / .hwpx file)') }
   return c.FullPaths.map((p: string, i: number): Entry => ({ path: p.replace(/^Root Entry\//, ''), content: asBytes(c.FileIndex[i]?.content) }))
@@ -80,8 +85,12 @@ function paraText(rec: Uint8Array): string {
   return s
 }
 
-function inflate(data: Uint8Array): Uint8Array {
-  try { return zlib.inflateRawSync(data, { maxOutputLength: STREAM_MAX }) } catch { throw new ToolError('could not read this Hangul document (a body section is damaged or too large)') }
+function inflate(data: Uint8Array, left: number): Uint8Array {
+  if (left <= 0) throw tooComplex(`the body expands to more than ${INFLATE_TOTAL_MAX / 1024 / 1024} MB`)
+  try { return zlib.inflateRawSync(data, { maxOutputLength: Math.min(STREAM_MAX, left) }) } catch (e) {
+    if (left < STREAM_MAX && (e as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') throw tooComplex(`the body expands to more than ${INFLATE_TOTAL_MAX / 1024 / 1024} MB`)
+    throw new ToolError('could not read this Hangul document (a body section is damaged or too large)')
+  }
 }
 
 /** The text records of one BodyText/SectionN stream, a paragraph per line. */
@@ -125,7 +134,18 @@ export function hwpText(bytes: Uint8Array): string {
   }
   const sections = all.filter((e) => /^BodyText\/Section\d+$/.test(e.path)).sort((a, b) => sectionNo(a.path) - sectionNo(b.path))
   if (!sections.length) return tidy(preview())
-  return tidy(sections.slice(0, SECTIONS_MAX).map((s) => sectionText(compressed ? inflate(s.content) : s.content)).join('\n'))
+  let left = INFLATE_TOTAL_MAX
+  const texts: string[] = []
+  let size = 0
+  for (const s of sections.slice(0, SECTIONS_MAX)) {
+    const body = compressed ? inflate(s.content, left) : s.content
+    left -= body.byteLength
+    const t = sectionText(body)
+    texts.push(t)
+    size += t.length
+    if (size > TEXT_MAX) break
+  }
+  return tidy(texts.join('\n'))
 }
 
 /** No trailing spaces, at most one empty line in a row, capped. */

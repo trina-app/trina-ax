@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import type { FileEntry, FileVersion, TrashItem, TreeResponse } from '@mycel/shared/api'
+import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, clickSelect, failureList, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -786,6 +786,9 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
   // every stored version is an earlier content of the file (the newest one is what it was before the last change),
   // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
   const [current, setCurrent] = useState<{ sha256: string | null; canRestore: boolean }>({ sha256: null, canRestore: true })
+  // the content as it is now with the person who saved it, and the changes (created / edited / moved / ...)
+  const [now, setNow] = useState<NonNullable<HistoryResponse['current']> | null>(null)
+  const [events, setEvents] = useState<FileHistoryEvent[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   useEffect(() => {
@@ -795,6 +798,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
         if (!live) return
         setItems([...r.items].sort((a, b) => b.version - a.version))
         setCurrent({ sha256: r.currentSha256 ?? null, canRestore: r.canRestore ?? true })
+        setNow(r.current ?? null)
+        setEvents(r.events ?? [])
       },
       (e) => live && setError(errorText(e, locale, t('error.network'))),
     )
@@ -821,17 +826,32 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     <Modal open onClose={onClose} title={t('files.historyOf', { name: baseName(path) })} width={600}>
       {error && <ErrorNote>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={4} />}
-      {items && !items.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
-      {items && items.length > 0 && (
+      {items && !items.length && !now && !events.length && <p className="text-sm text-muted">{t('files.noHistory')}</p>}
+      {items && (items.length > 0 || now) && (
         <ul className="divide-y divide-line" data-testid="history-list">
+          {now && (
+            <li className="flex flex-wrap items-center gap-2 py-2.5 text-sm" data-current data-version={now.version}>
+              <span className="w-10 font-medium tabular-nums">v{now.version}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block">{now.author?.name ?? t('files.unknownAuthor')}</span>
+                <span className="block text-xs text-faint">
+                  {now.at ? `${formatDateTime(now.at, locale)} · ` : ''}{formatSize(now.size, locale)}
+                  {now.turnId && ` · ${t('files.byAiTurn')}`}
+                </span>
+              </span>
+              <Badge tone="neutral">{t('files.currentVersion')}</Badge>
+            </li>
+          )}
           {items.map((v) => (
             <li key={v.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm" data-version={v.version}>
               <span className="w-10 font-medium tabular-nums">v{v.version}</span>
               <span className="min-w-0 flex-1">
-                <span className="block">{v.author?.name ?? t('files.byAi')}</span>
+                {/* the person whose save made this content; for versions stored before that was recorded only the
+                    person who replaced it is known, and the line says so */}
+                <span className="block">{v.savedBy ? v.savedBy.name : t('files.replacedBy', { name: v.author?.name ?? t('files.byAi') })}</span>
                 <span className="block text-xs text-faint">
                   {formatDateTime(v.createdAt, locale)} · {formatSize(v.size, locale)}
-                  {v.turnId && ` · ${t('files.byAiTurn')}`}
+                  {v.savedBy ? v.savedTurnId && ` · ${t('files.byAiTurn')}` : v.turnId && ` · ${t('files.replacedDuringAi')}`}
                 </span>
                 {v.kind === 'conflict_copy' && v.conflictPath && (
                   <button type="button" className="block text-xs text-warn underline" onClick={() => openTeamFile(v.conflictPath!)}>
@@ -856,8 +876,38 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
           ))}
         </ul>
       )}
+      {events.length > 0 && (
+        <section className="mt-4">
+          <h3 className="mb-1 text-xs font-medium text-muted">{t('files.activity')}</h3>
+          <ul className="divide-y divide-line" data-testid="history-events">
+            {events.map((e) => (
+              <li key={e.id} className="py-2 text-sm" data-kind={e.kind}>
+                <span className="block">{eventText(e, t)}</span>
+                <span className="block text-xs text-faint">
+                  {e.by?.name ?? t('files.unknownAuthor')} · {formatDateTime(e.at, locale)}
+                  {e.turnId && ` · ${t('files.ev.duringAi')}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </Modal>
   )
+}
+
+/** One line of the file's changes: what happened, with the earlier path when the caller may see it. */
+function eventText(e: FileHistoryEvent, t: ReturnType<typeof useT>): string {
+  switch (e.kind) {
+    case 'created': return t('files.ev.created')
+    case 'edited': return t('files.ev.edited')
+    case 'uploaded': return t('files.ev.uploaded')
+    case 'restored': return e.from ? t('files.ev.restoredFrom', { from: e.from }) : t('files.ev.restored')
+    case 'moved': return e.from ? t('files.ev.movedFrom', { from: e.from }) : t('files.ev.moved')
+    case 'renamed': return e.from ? t('files.ev.renamedFrom', { from: baseName(e.from) }) : t('files.ev.renamed')
+    case 'copied': return e.from ? t('files.ev.copiedFrom', { from: e.from }) : t('files.ev.copied')
+    case 'conflict': return t('files.ev.conflict')
+  }
 }
 
 function TrashView() {

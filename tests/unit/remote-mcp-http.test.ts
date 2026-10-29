@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { afterEach, expect, test } from 'bun:test'
 import { buildApp } from '../../server/src/app'
 import { remoteMcpRoutes } from '../../server/src/routes/remote-mcp'
@@ -79,6 +81,10 @@ test('stateless JSON MCP negotiation, notifications, tools and malformed message
   expect((await f.rpc(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { 'mcp-protocol-version': 'invalid' })).status).toBe(400)
   expect((await f.rpc(token, { jsonrpc: '2.0', id: {}, method: 'ping' })).status).toBe(400)
   expect((await f.rpc(token, { jsonrpc: '2.0', id: 1, method: 'ping', params: { huge: 'x'.repeat(1024 * 1024) } })).status).toBe(413)
+  // only an upload_file call may be larger than 1 MiB (here refused for scope, but the body is accepted)
+  const upload = await f.rpc(token, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'upload_file', arguments: { path: 'shared/big.bin', content_base64: 'A'.repeat(4 * 1024 * 1024) } } })
+  expect(upload.status).toBe(200); expect(((await upload.json()) as any).result.isError).toBe(true)
+  expect((await f.rpc(token, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'write', arguments: { file_path: 'x', content: 'x'.repeat(2 * 1024 * 1024) } } })).status).toBe(413)
 })
 test('OAuth duplicate form parameters, bad JSON and oversized body are bounded without reflection', async () => {
   const f = await fixture('bodies')
@@ -102,4 +108,20 @@ test('session revocation while a request body streams cannot release an authenti
   f.oauth.revokeGrant(f.oauth.authenticate(token).id)
   close()
   expect((await pending).status).toBe(401)
+})
+
+test('an upload link from tools/call works through the app with curl-like PUT: no cookie, no CSRF header, once', async () => {
+  const f = await fixture('upload-link'), { access_token: token } = await f.issue()
+  f.h.ctx.db.query('UPDATE remote_mcp_grants SET scopes=?').run(JSON.stringify(['mcp:read', 'mcp:write', 'offline_access']))
+  fs.mkdirSync(path.join(f.h.ctx.config.teamRoot, 'shared'), { recursive: true })
+  const call = await (await f.rpc(token, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'create_upload_link', arguments: { path: 'shared/big.bin' } } })).json() as any
+  const link = JSON.parse(call.result.content[0].text), url = new URL(link.url)
+  expect(url.origin).toBe(base)
+  const data = Buffer.from(Array.from({ length: 300_000 }, (_, i) => i & 0xff))
+  const put = () => f.fetch(url.pathname, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'content-length': String(data.length) }, body: data })
+  const res = await put()
+  expect(res.status).toBe(200)
+  expect(await res.json()).toEqual({ path: 'shared/big.bin', size: data.length, conflictCopy: false, replaced: false })
+  expect(Buffer.compare(fs.readFileSync(path.join(f.h.ctx.config.teamRoot, 'shared/big.bin')), data)).toBe(0)
+  expect((await put()).status).toBe(404)
 })

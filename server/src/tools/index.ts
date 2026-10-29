@@ -9,6 +9,7 @@ import type { ToolCtx } from '../files/service'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
+import { deckSummary, PPTX_FORMAT_HINT } from './pptx-check'
 import { toolRegistry } from './registry'
 import { egressOf } from './egress'
 import { registerHiggsfield } from './higgsfield'
@@ -55,15 +56,19 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
     description: 'Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx) or PDF file in the team folder from Markdown or CSV. ' +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
       'pipe table becomes a sheet. Images must be team-folder files referenced by relative path. If `output` exists and you did not read it ' +
-      'in this turn, a conflict copy is saved next to it instead. `template`: a .docx/.pptx under skills/ for styles.',
+      'in this turn, a conflict copy is saved next to it instead. `template`: a .docx/.pptx under skills/ for styles. ' +
+      'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
+      'the result states the real slide and notes counts: report those, never other numbers.',
     input: MakeFileInput,
     describe: (a) => `make_file ${a.format} -> ${a.output}`,
     async run(a, t) {
       const r = await c.makeFile.run(t, a)
-      const text = r.conflictCopyOf
+      const saved = r.conflictCopyOf
         ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
-      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256 } }
+      const text = r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.` : saved
+      const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
+      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}) } }
     },
   })
 

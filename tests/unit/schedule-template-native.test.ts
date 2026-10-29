@@ -30,7 +30,9 @@ test('scheduled template uses current scope at MCP boundary and records one gene
   expect(fs.readFileSync(path.join(h.team,'users/alice/reports/result.md'),'utf8')).toBe('# Private synthetic report')
   expect(h.ctx.db.query("SELECT COUNT(*) n FROM memories WHERE user_id='alice'").get()).toEqual({ n: 0 })
   const page = await h.api('alice').call(API.listNotifications)
-  expect(page.items).toMatchObject([{ eventType: 'schedule.success', chatId }])
+  // The three blocked calls above are refused tool calls, so the run finished with problems (SCHED-03).
+  expect(h.ctx.db.query('SELECT run_outcome FROM turns WHERE chat_id = ?').get(chatId)).toEqual({ run_outcome: 'problems' })
+  expect(page.items).toMatchObject([{ eventType: 'schedule.failure', outcome: 'problems', chatId }])
   expect(JSON.stringify(page)).not.toContain('Private synthetic report')
   expect((await h.api('bob').call(API.listNotifications)).items).toHaveLength(0)
 })

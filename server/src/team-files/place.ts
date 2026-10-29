@@ -11,6 +11,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { verifyChain } from '../policy/resolve'
 import { foldKey } from '../policy/names'
 import { newId } from '../db'
+import { insertVersion } from '../files/store'
 
 const C = fs.constants
 
@@ -144,9 +145,7 @@ export function snapshotVersion(db: Database, root: string, rel: string, by: { u
   fs.mkdirSync(path.join(root, ...blob.slice(0, -1)), { recursive: true, mode: 0o700 })
   fs.copyFileSync(abs, path.join(root, ...blob), C.COPYFILE_EXCL | C.COPYFILE_FICLONE)
   const id = newId()
-  const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(rel) as { v: number }).v
-  db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, storage_path) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, rel, v, sha256, st.size, by.userId, by.turnId, kind, blob.join('/'))
+  insertVersion(db, { id, rel, sha256, size: st.size, by, kind, storage: blob.join('/') })
   return id
 }
 

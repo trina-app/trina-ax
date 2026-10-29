@@ -13,6 +13,8 @@
 // file (design tab 7 "공용 폴더를 거친 유출"): they join the chat's read scope, and before the output is placed the
 // chat turn asks the person when more people can read the output folder than those files (ToolCtx.confirmWidening).
 // Without a chat turn there is nobody to ask: such a save is refused.
+// - pptx: the slide level is set from the headings and the slides pandoc made are checked against expected_slides /
+//   expected_notes before anything is saved (tools/pptx-check.ts)
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -36,9 +38,10 @@ import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
 import { PRODUCT } from '@mycel/shared'
 import { typstJobs } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
+import { deckMismatch, deckShape, readDeck, type Deck, type DeckShape } from './pptx-check'
 
 type Input = z.output<typeof MakeFileInput>
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck }
 
 const MAX_SOURCE = 10 * 1024 * 1024
 const MAX_IMAGE = 20 * 1024 * 1024
@@ -97,6 +100,8 @@ export class MakeFile {
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
       const produced = path.join(work, 'out.' + a.format)
+      /** pptx from Markdown: what decides the slides (pptx-check.ts) */
+      let shape: DeckShape | null = null
       if (a.format === 'xlsx') await this.xlsx(text, kind, produced)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -117,6 +122,7 @@ export class MakeFile {
           const ast = JSON.parse(fs.readFileSync(astFile, 'utf8'))
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
+          if (a.format === 'pptx') shape = deckShape(ast)
           fs.writeFileSync(astFile, JSON.stringify(ast))
           input = 'ast.json'
           from = 'json'
@@ -131,6 +137,8 @@ export class MakeFile {
           // the copies, which are the only image paths left in the tree (and the OS sandbox, when there is one,
           // keeps it inside the work folder anyway)
           const args = [...(images.length === 0 ? ['--sandbox'] : []), '--fail-if-warnings', '--resource-path=.', '-f', from, '-t', a.format, '-o', path.basename(produced), input]
+          // pptx: an explicit slide level, never pandoc's guess from the document shape (B-W24-1: one slide)
+          if (shape) args.push(`--slide-level=${shape.level}`)
           if (a.template) {
             const tpl = this.template(c, a.template, a.format, work)
             sources.push(tpl.rel)
@@ -141,9 +149,17 @@ export class MakeFile {
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
+      // the slides that were really made, checked before the person is asked anything or a file is placed
+      let deck: Deck | undefined
+      if (a.format === 'pptx') {
+        deck = readDeck(produced)
+        const bad = deckMismatch(deck, shape ?? { level: 1, metaTitle: false, sections: 0, textUnderSection: 0, rules: 0 }, { slides: a.expected_slides, notes: a.expected_notes })
+        if (bad) throw new ToolError(bad)
+      }
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
-      return await this.place(c, out.segs, produced)
+      const made = await this.place(c, out.segs, produced)
+      return deck ? { ...made, deck } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 

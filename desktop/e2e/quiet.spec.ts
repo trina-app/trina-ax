@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, activityLog, addTeam, answer, ATTACKER, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, tabPage, teamPage, text } from './helpers'
+import { ACME, activityLog, addTeam, answer, ATTACKER, bindWindow, call, chrome, close, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, tabPage, teamPage, text, signIn } from './helpers'
 
 const prompts = async (app: ElectronApplication) => (await chrome(app)).getByTestId('permission-prompt').count()
 
@@ -16,7 +16,7 @@ test.describe('quiet browsing', () => {
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
-    await addTeam(app, 'acme.localhost:19151', ACME)
+    await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
   })
   test.afterAll(async () => close(app))
 
@@ -133,7 +133,7 @@ test('allow all websites: public sites open without asking, office addresses sti
   const userData = newUserData()
   let app = await launch(userData)
   try {
-    const page = await addTeam(app, 'acme.localhost:19151', ACME)
+    const page = await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
     await page.evaluate(() => (window as any).mycelDesktop.pane.open())
     const c = await chrome(app)
     await c.getByTestId('sites-button').click()

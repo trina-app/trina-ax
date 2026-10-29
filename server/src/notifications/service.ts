@@ -1,4 +1,5 @@
-import type { InboxNotification, NotificationEventType, NotificationPreferences } from '@mycel/shared/api'
+import type { InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
+import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -13,7 +14,7 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }
-type Terminal = { id: string; user_id: string; status: string; ended_at: string }
+type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -32,8 +33,8 @@ export class Notifications {
   }
   afterTurn(turnId: string) {
     try {
-      const row = this.ctx.db.query("SELECT id,user_id,status,ended_at FROM turns WHERE id=? AND schedule_id IS NOT NULL AND status IN ('done','error','stopped','interrupted') AND ended_at IS NOT NULL").get(turnId) as Terminal | null
-      if (row) this.record(row.user_id, row.status === 'done' ? 'schedule.success' : 'schedule.failure', row.id, row.ended_at)
+      const row = this.ctx.db.query("SELECT id,user_id,status,ended_at,run_outcome FROM turns WHERE id=? AND schedule_id IS NOT NULL AND status IN ('done','error','stopped','interrupted') AND ended_at IS NOT NULL").get(turnId) as Terminal | null
+      if (row) this.record(row.user_id, outcomeEvent(storedRunOutcome(row)), row.id, row.ended_at)
     } catch { this.ctx.log.warn('notification recording deferred to reconciliation') }
   }
   connectionReconnect(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
@@ -47,12 +48,12 @@ export class Notifications {
     const db = this.ctx.db
     db.query('DELETE FROM notification_inbox WHERE created_at < ?').run(this.cutoff())
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
-    const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at FROM turns t
+    const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
       AND t.schedule_id IS NOT NULL AND t.status IN ('done','error','stopped','interrupted') AND t.ended_at >= ?
       ${userId ? 'AND t.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=t.user_id AND n.source_id=t.id AND n.event_type IN ('schedule.success','schedule.failure'))
       ORDER BY t.ended_at,t.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as Terminal[]
-    for (const row of rows) this.record(row.user_id, row.status === 'done' ? 'schedule.success' : 'schedule.failure', row.id, row.ended_at)
+    for (const row of rows) this.record(row.user_id, outcomeEvent(storedRunOutcome(row)), row.id, row.ended_at)
     const skips = db.query(`SELECT s.id,s.user_id,s.created_at FROM schedule_outcomes s
       WHERE s.created_at>=? AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL)
       ${userId ? 'AND s.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=s.user_id AND n.source_id=s.id AND n.event_type='schedule.failure')
@@ -75,8 +76,11 @@ export class Notifications {
     return result
   }
   private out(row: Row): InboxNotification {
-    let chatId: string | null = null
+    let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null
     if (row.event_type !== 'connection.reconnect') {
+      // Metadata only: the stored result code, never the turn's error text. No turn = an admission skip (failed).
+      const run = this.ctx.db.query('SELECT status,run_outcome FROM turns WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { status: string; run_outcome: string | null } | null
+      outcome = run ? storedRunOutcome(run) : 'failed'
       const chat = this.ctx.db.query(`SELECT c.id,c.project_id,t.template_source_path FROM turns t JOIN chats c ON c.id=t.chat_id
         WHERE t.id=? AND t.user_id=? AND c.user_id=? AND c.deleted_at IS NULL`).get(row.source_id, row.user_id, row.user_id) as { id: string; project_id: string | null; template_source_path: string | null } | null
       if (chat) {
@@ -104,7 +108,7 @@ export class Notifications {
       }
     }
     return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at,
-      chatId, link: chatId ? 'chat' : row.event_type === 'connection.reconnect' ? 'connections' : null }
+      chatId, link: chatId ? 'chat' : row.event_type === 'connection.reconnect' ? 'connections' : null, outcome }
   }
   list(userId: string, o: { cursor?: string; limit?: number }) {
     const cur = decodeCursor(o.cursor, ['t', 'id'])

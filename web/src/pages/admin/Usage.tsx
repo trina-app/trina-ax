@@ -91,7 +91,10 @@ export default function Usage() {
                             <div className="h-full rounded bg-accent" style={{ width: `${(tok / max) * 100}%` }} />
                           </div>
                         </td>
-                        <td className="py-2 text-right text-muted tabular-nums">{formatUsd(r.costUsd, locale)}</td>
+                        <td className="py-2 text-right text-muted tabular-nums">
+                          {formatUsd(r.costUsd, locale)}
+                          {!!r.unpricedTurns && <span className="ml-1 text-warn" title={t('usage.unpricedMark')} aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span>}
+                        </td>
                       </tr>
                     )
                   })}
@@ -102,11 +105,15 @@ export default function Usage() {
                     <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(d.totals.turns, locale)}</td>
                     <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale)}</td>
                     <td />
-                    <td className="py-2 text-right tabular-nums">{formatUsd(d.totals.costUsd, locale)}</td>
+                    <td className="py-2 text-right tabular-nums">
+                      {formatUsd(d.totals.costUsd, locale)}
+                      {!!d.totals.unpricedTurns && <span className="ml-1 text-warn" title={t('usage.unpricedMark')} aria-label={t('usage.unpricedMark')}>+?</span>}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
               <p className="mt-2 text-xs text-faint">{t('usage.costNote')}</p>
+              {!!d.totals.unpricedTurns && <p className="mt-1 text-xs text-warn" data-testid="usage-unpriced-note">{t('usage.unpriced', { n: d.totals.unpricedTurns })}</p>}
               {groupBy === 'credential' && <p className="mt-1 text-xs text-faint">{t('usage.credentialNote')}</p>}
             </div>
           )

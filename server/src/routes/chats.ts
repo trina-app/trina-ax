@@ -1,6 +1,7 @@
 // Route module "chats" — owner: component B (docs/WORKPLAN.md).
 // Implements: CHATS (chats, messages, stop, regenerate, edit, branch, turn cards, projects)
 // Contract: shared/src/api/chats.ts. Only the person's own chats; "not yours" and "missing" are both not_found.
+import { redactorFor } from '../integrations/connections/redact'
 import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
@@ -35,7 +36,12 @@ function ownChat(rt: ChatRuntime, auth: AuthInfo, id: string, o: { deleted?: boo
   if (!r) fail('not_found')
   return r!
 }
-function chatOut(rt: ChatRuntime, r: ChatRow): Chat { return rt.store.toChat(r, rt.runState(r.id)) }
+/** A chat as the API shows it: a stored connection secret of its person never shows in the title (a title made before
+ * the key was saved, or a rename; QA B-W5-1). `hide`: one redactor for a whole list. */
+function chatOut(rt: ChatRuntime, r: ChatRow, hide: (s: string) => string = redactorFor(rt.ctx, r.user_id).hide): Chat {
+  const c = rt.store.toChat(r, rt.runState(r.id))
+  return { ...c, title: hide(c.title) }
+}
 
 function principal(ctx: AppContext, auth: AuthInfo) {
   try { return ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
@@ -147,7 +153,8 @@ export const chatsRoutes: RouteModule = {
       const more = rows.length > limit
       const items = rows.slice(0, limit)
       const last = items[items.length - 1]
-      return { items: items.map((r) => chatOut(rt, r)), nextCursor: more && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
+      const hide = redactorFor(ctx, auth.user.id).hide
+      return { items: items.map((r) => chatOut(rt, r, hide)), nextCursor: more && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
     })
 
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
@@ -161,7 +168,8 @@ export const chatsRoutes: RouteModule = {
       const id = newId()
       const now = new Date().toISOString()
       // a title given here is the person's own (the AI does not rename it); none: the first message gives one
-      const title = body.title?.trim() ?? ''
+      // a stored connection secret is never kept in a title (QA B-W5-1, SEC-16): not in the list, search or export
+      const title = redactorFor(ctx, auth.user.id).hide(body.title?.trim() ?? '')
       ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now)
       rt.publishChat(auth.user.id, id, 'created')
@@ -181,7 +189,7 @@ export const chatsRoutes: RouteModule = {
       const sets: string[] = []
       const args: (string | null)[] = []
       // a rename is the person's: the AI does not name this chat after it (chat/title.ts)
-      if (body.title !== undefined) { sets.push('title = ?', "title_source = 'user'"); args.push(body.title.trim()) }
+      if (body.title !== undefined) { sets.push('title = ?', "title_source = 'user'"); args.push(redactorFor(ctx, auth.user.id).hide(body.title.trim())) }
       if (body.projectId !== undefined) { sets.push('project_id = ?'); args.push(body.projectId) }
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
