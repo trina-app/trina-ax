@@ -88,7 +88,7 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
     ...(process.env.MYCEL_HWP_PREVIEW === '1' ? ['app/native/bin/hwp/rhwp-darwin-arm64', 'app/native/bin/hwp/rhwp-darwin-x64', 'app/resources/hwp/manifest.json', 'app/resources/hwp/fonts/NotoSansKR-Regular.ttf'] : []),
-    'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md',
+    'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md', 'app/docs/OFFICE.en.md',
     ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [
       ...['bun', 'rg', 'cloudflared', ...(o.pandoc ? ['pandoc'] : [])].map((b) => `app/bin/${a.dir}/${b}`),
@@ -162,6 +162,39 @@ function walk(d: string): string[] {
   return out
 }
 
+/** Stage the exact documentation shipped in an office ZIP, also usable without native/runtime downloads. */
+export function stageOfficeDocs(stage: string, o: { guide?: string; deskGuide?: string; teamHost?: string } = {}) {
+  const app = path.join(stage, 'app')
+  const scripts = path.join(REPO, 'scripts', 'office')
+  // the guide travels with the program (the person at the office has no copy of the repository)
+  fs.mkdirSync(path.join(app, 'docs'), { recursive: true })
+  for (const name of ['OFFICE.md', 'OFFICE.en.md']) {
+    // The full runbooks are self-contained; preserve offline language navigation.
+    // Additional reference pages not in the kit point to the public source.
+    const text = fs.readFileSync(path.join(REPO, 'docs', name), 'utf8').replace(/\]\((?!https?:|#)([^)]+)\)/g, (_, target: string) => {
+      if (['OFFICE.md', 'OFFICE.en.md'].includes(target)) return `](${target})`
+      const rel = path.posix.normalize(path.posix.join('docs', target))
+      return `](https://github.com/trina-app/trina-ax/blob/main/${rel})`
+    })
+    fs.writeFileSync(path.join(app, 'docs', name), text)
+  }
+  const pdf = o.guide ?? path.join(REPO, 'docs', 'office', OFFICE_PDF)
+  if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, path.basename(pdf)))
+  else if (o.guide) throw new Error(`--guide ${pdf}: not found`)
+  else console.warn(`warning: ${pdf} not built (bun docs/install/build-pdf.ts --office): the zip has only app/docs/OFFICE.md`)
+  const deskPdf = o.deskGuide ?? path.join(REPO, 'docs', 'office', DESK_PDF)
+  if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, path.basename(deskPdf)))
+  else if (o.deskGuide) throw new Error(`--desk-guide ${deskPdf}: not found`)
+  else console.warn(`warning: ${deskPdf} not built (bun docs/install/build-pdf.ts --windows)`)
+  // the first thing the office reads: the guides' real file names and (for one team's kit) its address
+  if (o.teamHost !== undefined && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(o.teamHost)) throw new Error(`--team-host ${o.teamHost}: not a host name`)
+  const readme = fs.readFileSync(path.join(scripts, 'README.txt'), 'utf8')
+    .split(OFFICE_PDF).join(path.basename(pdf)).split(DESK_PDF).join(path.basename(deskPdf))
+    .split('team.example.com').join(o.teamHost ?? 'team.example.com')
+  fs.writeFileSync(path.join(stage, '설치-먼저-읽기.txt'), readme)
+  return { pdf, deskPdf }
+}
+
 export async function buildOffice(o: {
   version: string; out: string; pandoc: boolean; keepStage?: boolean; desktop?: { file: string; sha256: string }[]
   /** one team's guide PDFs (default docs/office/OFFICE_PDF and DESK_PDF), copied under their own names */
@@ -229,23 +262,7 @@ export async function buildOffice(o: {
     fs.copyFileSync(path.join(scripts, f), path.join(stage, f))
     fs.chmodSync(path.join(stage, f), 0o755)
   }
-  // the guide travels with the program (the person at the office has no copy of the repository)
-  fs.mkdirSync(path.join(app, 'docs'), { recursive: true })
-  fs.copyFileSync(path.join(REPO, 'docs', 'OFFICE.md'), path.join(app, 'docs', 'OFFICE.md'))
-  const pdf = o.guide ?? path.join(REPO, 'docs', 'office', OFFICE_PDF)
-  if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, path.basename(pdf)))
-  else if (o.guide) throw new Error(`--guide ${pdf}: not found`)
-  else console.warn(`warning: ${pdf} not built (bun docs/install/build-pdf.ts --office): the zip has only app/docs/OFFICE.md`)
-  const deskPdf = o.deskGuide ?? path.join(REPO, 'docs', 'office', DESK_PDF)
-  if (fs.existsSync(deskPdf)) fs.copyFileSync(deskPdf, path.join(stage, path.basename(deskPdf)))
-  else if (o.deskGuide) throw new Error(`--desk-guide ${deskPdf}: not found`)
-  else console.warn(`warning: ${deskPdf} not built (bun docs/install/build-pdf.ts --windows)`)
-  // the first thing the office reads: the guides' real file names and (for one team's kit) its address
-  if (o.teamHost !== undefined && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(o.teamHost)) throw new Error(`--team-host ${o.teamHost}: not a host name`)
-  const readme = fs.readFileSync(path.join(scripts, 'README.txt'), 'utf8')
-    .split(OFFICE_PDF).join(path.basename(pdf)).split(DESK_PDF).join(path.basename(deskPdf))
-    .split('team.example.com').join(o.teamHost ?? 'team.example.com')
-  fs.writeFileSync(path.join(stage, '설치-먼저-읽기.txt'), readme)
+  const { pdf } = stageOfficeDocs(stage, o)
   fs.writeFileSync(path.join(app, 'VERSION'), o.version + '\n')
   // the product's names for office-install.sh / office-uninstall.sh (they print them; nothing is run from it)
   fs.writeFileSync(path.join(app, 'product.env'), productEnv({ PRODUCT_OFFICE_PDF: fs.existsSync(pdf) ? path.basename(pdf) : '' }))

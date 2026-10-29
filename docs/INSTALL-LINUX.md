@@ -1,17 +1,19 @@
 # 리눅스 서버에 설치하기 (자체 설치)
 
-같은 코드를 세 가지로 쓴다: **Team AX Cloud**(우리가 호스팅, 가장 쉬움), **자기 리눅스 서버**(이 문서, 무료), **사무실 맥 미니**
+같은 코드를 세 가지로 쓴다: **Trina AX 호스팅**(별도 서비스), **자기 리눅스 서버**(이 문서, 무료), **사무실 맥 미니**
 (`docs/OFFICE.md`). 호스팅도 이 문서와 같은 설치 키트(`install-linux.sh` + 리눅스 번들)를 `--hosted`로 쓴다.
 
 릴리스 키트와 설치기는 공개되어 있습니다. [GitHub Releases](https://github.com/trina-app/trina-ax/releases)에서
 게시된 버전과 파일을 확인하세요. 이 문서는 설치 절차를 설명하며 모든 배포판·장비에서의 동작 보장은 아닙니다.
 
-현재 버전은 v0.2.5입니다. GitHub Releases와 트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 설치된 서버는 피드의 `server/stable.json`(서명됨)에서 업데이트를 받습니다(8장).
+현재 버전은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인하세요. GitHub Releases와 트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 설치된 서버는 피드의 `server/stable.json`(서명됨)에서 업데이트를 받습니다(8장).
+
+[English](INSTALL-LINUX.en.md) · 전용 서버나 VM에서 설치하세요. **systemd가 PID 1이고 cgroup v2가 필요합니다. 일반 Docker 컨테이너는 운영 설치 대상이 아닙니다.**
 
 ## 1. 이런 경우에 씀
 
 - 회사 서버나 클라우드 VM(우리 호스팅이 아닌 곳)에 팀 서버를 직접 둘 때. 파일을 회사 서버에 보관하려는 경우. 단, AI가 읽는 문맥은 모델 제공사로 전송된다.
-- 맥 미니 없이 리눅스 한 대로 팀(약 20명까지)을 받을 때.
+- 맥 미니 없이 리눅스 한 대로 팀 서버를 운영할 때(처리 인원 실측 보장 아님).
 - 한 서버 = 한 팀이다. 여러 팀이면 팀마다 VM(또는 LXC 컨테이너)을 하나씩 둔다.
 
 ## 2. 요구 사항
@@ -37,14 +39,31 @@ sudo ./install-linux.sh check --from .
 
 릴리스 키트는 GitHub Releases에 있다(태그 `v<버전>`마다 amd64·arm64 키트, `SHA256SUMS`와 서명).
 
+빈 다운로드 폴더에서 최신 버전을 한 번만 선택해 모든 파일에 같은 버전을 사용합니다.
+
 ```sh
-V=0.2.3   # 받을 버전
-curl -fLO https://github.com/trina-app/trina-ax/releases/download/v$V/TrinaAX-server-$V-linux-amd64.tar.gz   # arm64면 linux-arm64
-tar xzf TrinaAX-server-$V-linux-amd64.tar.gz && cd TrinaAX-server-$V-linux-amd64
-./app/$V/root/mycel-ctl verify-bundle ./app/$V      # 릴리스 서명 확인(공개 키 내장)
+V=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/trina-app/trina-ax/releases/latest)
+V=${V##*/v}
+ARCH=amd64 # use arm64 for an ARM server
+BASE="https://github.com/trina-app/trina-ax/releases/download/v$V"
+KIT="TrinaAX-server-$V-linux-$ARCH.tar.gz"
+curl -fLO "$BASE/$KIT"
+curl -fLO "$BASE/SHA256SUMS"
+python3 - "$KIT" <<'CHECK'
+import hashlib, pathlib, sys
+name = sys.argv[1]
+entries = {parts[1].lstrip('*'): parts[0] for line in pathlib.Path('SHA256SUMS').read_text().splitlines() if len(parts := line.split()) == 2}
+assert name in entries, 'Artifact missing from SHA256SUMS'
+assert hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() == entries[name], 'Checksum mismatch'
+print('Checksum OK')
+CHECK
+tar xzf "$KIT"
+cd "TrinaAX-server-$V-linux-$ARCH"
+./app/$V/root/mycel-ctl verify-bundle "./app/$V"
+sudo ./install-linux.sh check --from .
 ```
 
-설치기도 같은 확인을 한다(`--allow-unsigned`가 아니면 서명 없는 묶음을 받지 않음).
+체크섬은 전송 손상을 확인하며 독립적인 진위 보증은 아닙니다. 번들 검증기는 내장 릴리스 서명을 확인하고 설치기도 재확인합니다. 공개 릴리스에 `--allow-unsigned`를 쓰지 마세요. 실행 전에 소스와 배포 신뢰 경로를 확인하세요.
 
 ### 3a. 소스에서 키트 만들기 (릴리스가 없을 때, 개발용)
 
@@ -62,12 +81,14 @@ bun install --frozen-lockfile
 ARCHS=amd64 bash native/build.sh                                   # arm64면 ARCHS=arm64
 bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper   # 음성 받아쓰기(없으면 --no-whisper)
 bun run build:web                                                  # 웹 앱. 빠뜨리면 키트에 앱 화면이 없다
-bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.2-dev.1 --whisper-dir dist/whisper --out dist/linux
+bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whisper-dir dist/whisper --out dist/linux
 cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
 ```
 
 - 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
-- 스캔 PDF·사진의 글자 읽기(OCR, `mycel-ocr`)는 지금 macOS에서만 빌드된다. 리눅스 서버는 글자가 들어 있는 PDF·문서만 읽는다.
+- `mycel-ocr`(Apple Vision)는 macOS 전용이다. Linux 설치기는 poppler와 tesseract-ocr를 설치하며 파일 종류와 설치 도구에 따라 추출 결과가 달라진다.
+
+소스 빌드 버전은 예시입니다. 소스의 버전에서 고유한 개발 버전을 정하세요. 공식 릴리스 설치·업데이트에는 서명 확인을 우회하지 마세요.
 
 ## 4. 설치
 
@@ -108,6 +129,24 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 
 팀 이름, 언어, owner 계정을 만든다. **팀 시간대는 이 브라우저의 시간대로 정해진다**(관리자 › 설정 › 팀 시간대에서 바꿈).
 오늘·이번 달 사용량, 예약 작업, 야간 백업이 이 시간대를 따른다(서버 자체는 보통 UTC로 돈다).
+
+첫 주: **권한 → AI 연결 → 팀원 초대 → 첫 스킬 → 첫 백업**.
+
+1. 관리자 → 그룹·폴더 권한에서 접근 범위를 정하고 두 계정으로 확인합니다.
+2. 아래 6장에서 허용된 AI 연결을 등록합니다. 새 팀 구독 공유는 기본 켜짐이며 기존 선택은 유지됩니다. 개인 연결이 우선이고 연결별 동의가 필요합니다. 설정은 제공사 약관상 허가가 아닙니다.
+3. 7장의 HTTPS 주소를 준비한 뒤 관리자 → 멤버에서 초대 링크를 만들어 소수 팀원에게 전달합니다.
+4. 파일 화면에서 팀장이 `skills/회의-정리/SKILL.md`를 만들고 아래 예시를 저장합니다. 새 채팅에서 `/`로 골라 가상 회의록의 출처·결과를 비교합니다.
+5. 10장의 백업·보관본과 복구 연습을 완료합니다.
+
+```md
+---
+name: 회의-정리
+description: 허용된 회의록의 결정과 할 일을 정리합니다.
+---
+읽을 수 있는 회의록만 사용하세요. 결정·담당·기한을 표로 정리하세요.
+없는 정보는 확인 필요로 표시하고 출처 파일을 적으세요.
+사람이 검토할 초안을 내 개인 폴더에 저장하세요.
+```
 
 ## 6. AI 연결
 
@@ -155,7 +194,7 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 `sudo mycel-ctl apply-plan < plan.json`(root 소유 `/var/lib/mycel/root/plan.json`, 서버 계정은 읽기만). 바로 반영되고
 재시작이 필요 없다. 동시 실행 = min(관리자 설정, `maxConcurrency`), 인원(활성 계정) = `maxActiveMembers`까지(넘으면 409
 `plan_limit`), 로컬 백업 보존일 = `localBackupRetentionDays`. 스키마는 `shared/src/cloud-protocol/files.ts`의 `PlanFile` 하나다
-(Team AX Cloud가 더 쓰는 `display`·`links`는 관리자 › 시스템 › 요금제 카드에 보인다). 파일이 있으면 그 카드가 생긴다.
+(Trina AX Cloud가 더 쓰는 `display`·`links`는 관리자 › 시스템 › 요금제 카드에 보인다). 파일이 있으면 그 카드가 생긴다.
 
 리눅스에서는 요금제 파일이 없어도 서버의 보조 프로그램이 코어를 다 쓰지 않는다(ripgrep 2스레드, 받아쓰기 최대 4스레드,
 의미 검색 모델 2스레드, 32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
@@ -172,6 +211,27 @@ server account can reach public https hosts (openrouter.ai), so the firewall nee
 - 로컬 백업: 매일 팀 시간대 03:00 이후, `/var/lib/mycel/team/.system/backups`(DB는 `data/backups`), 14일.
 - 다른 곳에 두기(권장): `admin.js archive`로 age 암호화 아카이브를 만들어 서버 밖에 보관한다(비밀값 제외).
 - 오래된 기록 정리: 도구 기록(감사 보존일, 기본 90일), 파일 활동(1년 이상), 턴(400일, 채팅마다 마지막 턴은 남김)은 자동으로 지운다.
+
+### 백업·복구 명령 (기본 설치)
+
+```sh
+trina_admin() (
+  cd / && sudo -u axserver env MYCEL_CONFIG=/var/lib/mycel/config/server.json \
+    /var/lib/mycel/app/current/bin/bun /var/lib/mycel/app/current/server/src/admin.js "$@"
+)
+trina_admin backup --scope full
+trina_admin list-backups
+trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-stdin
+```
+
+암호는 8자 이상이며 비공개 터미널에서 echo를 끄거나 암호 관리자에서 표준 입력으로 전달하고 EOF로 끝내세요. 명령 인자·로그에 넣지 마세요. `encrypted: true`를 확인하고 mode 600 보관본을 보호된 외부 저장소로 복사해 양쪽 SHA-256을 비교합니다. 암호는 별도로 보관합니다.
+
+- DB만 복원: 현재 백업 후 관리자 → 시스템 → 백업 → 복원(암호 확인), 또는 `trina_admin stage-restore --backup ID`. `sudo systemctl restart mycel-server` 뒤 모든 사용자가 다시 로그인합니다. 팀 파일은 그대로이며 이전 DB는 `data/backups/before-restore-*`에 남습니다.
+- 파일만 복구: `trina_admin restore-team --backup ID --to /var/lib/mycel/data/recovered-team`. 새 폴더로 복구하며 전체·증분 백업 묶음이 모두 필요합니다. 비교 후 필요한 파일만 앱으로 되돌립니다.
+- 보관본 연습: `trina_admin restore-archive --in /var/lib/mycel/data/off-host.tar.zst.age --to /var/lib/mycel/data/recovery-drill --password-stdin`. 새 폴더의 `db/app.sqlite`와 `team/`을 확인합니다. 추출 자체는 서버나 세션을 바꾸지 않습니다.
+- 새 서버: 호환 버전을 설치하고 새 폴더에 추출한 뒤 서비스를 멈추고 운영자가 DB·팀 파일을 올바른 소유권으로 배치해야 합니다. 설정·서비스·CA·비밀 키는 보관본에 없으므로 새 설치에서 준비하고 연결을 재인증합니다. 이 전체 새 장비 복구는 검증되지 않았습니다.
+
+앱 롤백은 DB·팀 파일을 되돌리지 않습니다. 업데이트 전 백업과 호환 버전을 사용하세요. 복구 뒤 SQLite 무결성, 알려진 파일, 두 계정의 권한, 스킬, 진단·백업 일정을 확인하고 새 백업을 만듭니다. 실행 중인 DB를 단순 `cp`로 백업하지 마세요.
 
 ## 11. 문제 해결
 

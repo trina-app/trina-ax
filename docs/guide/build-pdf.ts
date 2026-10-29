@@ -12,18 +12,19 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { PRODUCT } from '../../shared/src/product'
 // @playwright/test is a dependency of the tests workspace (not hoisted to the repo root)
 import { chromium } from '../../tests/node_modules/@playwright/test/index.js'
 
 const DIR = import.meta.dir
 const HTML = path.join(DIR, 'guide.html')
-const OUT = path.join(DIR, 'Team-AX-사용설명서.pdf')
+const OUT = path.join(DIR, `${PRODUCT.artifactBase}-사용설명서.pdf`)
 const pngIdx = process.argv.indexOf('--png')
 const PNG_DIR = pngIdx > 0 ? process.argv[pngIdx + 1] : null
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'teamax-guide-'))
 
 const FOOTER = `<div style="width:100%;padding:0 17mm;font-size:10.5px;font-family:'Inter','Apple SD Gothic Neo',sans-serif;color:#8a8a85;display:flex;justify-content:space-between;align-items:center;">
-  <span>Team AX 사용 설명서</span><span style="font-weight:700;color:#0A0A0A;"><span class="pageNumber"></span></span></div>`
+  <span>${PRODUCT.displayName} 사용 설명서</span><span style="font-weight:700;color:#0A0A0A;"><span class="pageNumber"></span></span></div>`
 
 const pdfText = (file: string, page: number) =>
   execFileSync('pdftotext', ['-f', String(page), '-l', String(page), '-layout', file, '-'], { encoding: 'utf8' }).replace(/\s+/g, '')

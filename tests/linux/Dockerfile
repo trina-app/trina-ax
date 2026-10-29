@@ -17,6 +17,9 @@ RUN useradd --system -m -U -s /usr/sbin/nologin axserver && useradd --system -m 
 COPY package.json bun.lock /opt/mycel/
 COPY shared /opt/mycel/shared
 COPY server /opt/mycel/server
+# T1 runs server sources directly: runtime resource imports (including the HWP
+# manifest) must exist even when the optional preview renderer is disabled.
+COPY resources /opt/mycel/resources
 COPY tests/package.json /opt/mycel/tests/package.json
 COPY web/package.json /opt/mycel/web/package.json
 COPY desktop/package.json /opt/mycel/desktop/package.json

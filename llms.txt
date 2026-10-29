@@ -1,38 +1,24 @@
 # Trina AX
 
-> A self-hosted team workspace connecting company files and per-person folder permissions to Claude Code and the Codex CLI.
+> Your company's own AI workspace: company files, reusable team skills and folder permissions.
 
-The server runs on Linux or an office Mac; Trina also offers hosting. Clients include web, Windows desktop,
-Mac desktop source and mobile web. A Mac desktop DMG is not distributed yet. The OpenAI-compatible API engine is
-experimental. HWP/HWPX is read-only text extraction (no preview or creation); images are OCR only.
-Personal AI connections and personal external-service integrations are enabled by default.
-v0.2.3 is published on GitHub Releases; the Trina update feed is not live. Files and chats are stored on the server, but selected context goes to the model provider.
-Development mode lacks production OS isolation. The repository is AGPL-3.0-only with component exceptions in NOTICE;
-the hosted billing/operations code and website are not included. This index describes repository documentation,
-not a guarantee of feature availability, search indexing or model behavior.
+Hosting enquiries and current $39/$69/$129 plans (USD before tax; AI usage separate): https://ax.trina.app/#pricing
+Hosted in AWS Seoul. Self-hosted software is free; infrastructure and operations are separate.
+Latest release: https://github.com/trina-app/trina-ax/releases/latest
+Update feed: https://updates.trina.app (Linux server and office Mac).
 
-## Start
+Fresh teams allow shared subscriptions by default; saved choices persist. Eligible personal connections take priority; connection-level consent still applies. Software settings are not provider permission. Use only authorized accounts/plans.
+Files/chats are stored on the server, but selected context goes to model providers. Server operators can read stored data. Revoked access does not retract earlier answers.
 
-- [README](https://github.com/trina-app/trina-ax/blob/main/README.md): Overview, architecture, engines and license.
-- [Documentation](https://github.com/trina-app/trina-ax/blob/main/docs/README.md): Documentation index.
-- [Quickstart](https://github.com/trina-app/trina-ax/blob/main/docs/QUICKSTART.md): Prepared-Mac demo with synthetic data.
-- [Examples](https://github.com/trina-app/trina-ax/blob/main/docs/EXAMPLES.md): File access and a reusable SKILL.md.
-- [FAQ](https://github.com/trina-app/trina-ax/blob/main/docs/FAQ.md): Deployment choices and limitations.
-- [한국어](https://github.com/trina-app/trina-ax/blob/main/README.ko.md): Korean overview.
+- [Team guide](docs/for-teams.md)
+- [IT guide](docs/for-admins.md)
+- [Model-free local demo](docs/QUICKSTART.md)
+- [Skills and fictional inputs](examples/README.md)
+- [Linux install](docs/INSTALL-LINUX.en.md)
+- [Office Mac](docs/OFFICE.en.md)
+- [Backup and restore](docs/BACKUP-RESTORE.md)
+- [Security and permissions](docs/security-and-permissions.md)
+- [Support](SUPPORT.md)
+- [Documentation index](docs/README.md)
 
-## Installation and security
-
-- [Mac](https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL.md): Prerequisites and production setup.
-- [Linux](https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL-LINUX.md): Linux installation, Korean.
-- [Office](https://github.com/trina-app/trina-ax/blob/main/docs/OFFICE.md): Office Mac installation, Korean.
-- [Permissions](https://github.com/trina-app/trina-ax/blob/main/docs/PERMISSIONS.md): Access model, Korean.
-- [Security](https://github.com/trina-app/trina-ax/blob/main/SECURITY.md): Private reporting and trust boundaries.
-- [External services](https://github.com/trina-app/trina-ax/blob/main/docs/INTEGRATIONS.md): MCP/HTTP support and limits.
-
-## Project
-
-- [Releases](https://github.com/trina-app/trina-ax/releases): Published artifacts and release notes.
-- [Changelog](https://github.com/trina-app/trina-ax/blob/main/CHANGELOG.md): Changes and publication status.
-- [Contributing](https://github.com/trina-app/trina-ax/blob/main/CONTRIBUTING.md): Development and contribution workflow.
-- [License](https://github.com/trina-app/trina-ax/blob/main/LICENSE): AGPL text.
-- [Notice](https://github.com/trina-app/trina-ax/blob/main/NOTICE): Provenance and component-specific scope.
+Browser/mobile web and Windows installer are available. No released Mac desktop DMG or app-store claim. Current source includes EN/KO/ID/JA/ES. HWP visual preview is experimental, off by default, excluded from default runtime bundles and unavailable on Debian 12; text extraction and original downloads remain. Check release notes for published-build availability. The local demo disables AI and is not a production installation.

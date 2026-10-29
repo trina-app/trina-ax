@@ -5,13 +5,20 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-- Security re-review: exclude quarantined files from semantic ingestion and historical browser previews; index durable safe-ops lookups. Require explicit versioned reads of grep-only sources before publication. Raw grep consumption still blocks 1A review approval.
+### Safe operations 1A — second review fixes
+
+- Admit immutable, hash-leased search inputs before raw/CP949 ripgrep, Office sidecar search and semantic embedding; keep quarantine active with the feature off.
+- Narrow policy epoch UPDATE triggers to changed authority fields; keep revocation/restore detection while excluding session and sync accounting. New migrations 318–319 require reader 3.
+- Document bounded search snapshots, conflicting-registration retry and offline crash-lease recovery. Independent release approval remains pending.
+
+- Security re-review: exclude quarantined files from semantic ingestion and historical browser previews; index durable safe-ops lookups. Require explicit versioned reads of grep-only sources before publication.
 
 - Safe operations 1A review fixes (default off): generated files are download-only; native no-replace publication,
   durable approval/source/cleanup records, fail-closed workflow budgets and Linux openat2 mount-safe sources.
-  ko/en/id quarantine notices; older schema readers must restore matching pre-enable DB and files to roll back.
+  ko/en/id/ja/es quarantine notices; older schema readers must restore matching pre-enable DB and files to roll back.
 
 - Safe operations 1A (opt-in, qualified Linux): image pixels with OCR fallback for Claude Code/Codex, bounded PowerPoint with bundled layouts, fresh delivery authorization, and isolated output validation. Uploaded templates, ZIP and the new Excel writer remain deferred.
+- Fix desktop worker startup so offline recovery can initialize without hanging; retain the browser frame security checks.
 
 - Refresh the desktop team name and identity after sign-in even when an earlier anonymous lookup is still pending.
 
@@ -20,6 +27,14 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Add guarded HWP/HWPX server PNG previews and the AI `hwp_render` page tool, with pinned engine/fonts and original downloads.
 
 - Add Japanese (日本語) and Spanish (Español) across the app, notifications, offline recovery and desktop, with localized dates and numbers.
+### Team-first onboarding / 팀 중심 도입 안내
+
+- Team leads get matching EN/KO/JA/ES entry pages, role examples, realistic permission boundaries and hosted/self-host choices. / 팀장용 4개 언어 안내·업무 예제·권한 경계·호스팅과 직접 설치 경로.
+- Evaluators can run `bun run demo` for a loopback-only, model-free fictional team with six loadable starter skills. / 한 명령으로 AI를 끈 가상 팀·스킬 체험.
+- Administrators get corrected release filenames, EN/KO Linux/office guides and backup/restore instructions. Both office guides travel with the next ZIP; PDFs are optional. / 파일명 수정·영한 운영 안내·복구 안내, 다음 ZIP에 두 언어 사무실 가이드 포함.
+- Connection notices distinguish the existing default-on setting from provider authorization. No default is changed. / 기본 켜짐과 제공사 사용 허가를 구분하며 설정 기본값은 바꾸지 않습니다.
+
+Real AI screenshots and full replacement-host recovery still need authorized operational validation. HWP preview remains off and its release gate is unchanged. These source changes do not publish new installers. / 실 AI 화면·새 장비 전체 복구는 별도 검증이 필요합니다. HWP 미리보기는 기본 꺼짐과 기존 출시 조건을 유지하며, 이 소스 변경만으로 새 설치 파일을 배포하지 않습니다.
 
 ## 0.2.9 — 2026-10-29
 
@@ -132,9 +147,3 @@ See [design and validation records](docs/DECISIONS.md) for implementation detail
 
 The Mac desktop DMG is not included: Apple signing and notarization are pending. Release checksum signatures are
 separate from operating-system application signing.
-
-### Safe operations 1A — second review fixes
-
-- Admit immutable, hash-leased search inputs before raw/CP949 ripgrep, Office sidecar search and semantic embedding; keep quarantine active with the feature off.
-- Narrow policy epoch UPDATE triggers to changed authority fields; keep revocation/restore detection while excluding session and sync accounting. New migrations 318–319 require reader 3.
-- Document bounded search snapshots, conflicting-registration retry and offline crash-lease recovery. Independent release approval remains pending.

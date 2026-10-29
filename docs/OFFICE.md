@@ -1,10 +1,12 @@
-# 사무실 모드: 설치 가이드 (맥 미니 한 대 + 데스크 PC 10대)
+# 사무실 모드: 설치 가이드 (맥 미니 한 대 + 데스크 PC)
 
-작은 사무실·매장·학원·병원 등에서 **맥 미니 한 대**가 Team AX를 돌리고, **윈도우 데스크 PC 10대 정도**가 Edge로 접속하는
-구성입니다. 중계 서버(`<팀>.treesoop.com`)도, 운영 설치(역할 계정)도 필요 없습니다.
+[English](OFFICE.en.md) · 이 문서는 ZIP에 함께 들어가는 오프라인 운영 안내입니다.
+
+작은 사무실·매장·학원·병원 등에서 **맥 미니 한 대**가 Trina AX를 돌리고, **여러 윈도우 데스크 PC**가 Edge로 접속하는
+구성 예입니다(처리 용량 실측 보장 아님). 중계 서버(`<팀>.trina.app`)도, 운영 설치(역할 계정)도 필요 없습니다.
 
 - AI는 대표님(팀장)의 **Claude 구독**으로 돕니다. 두 가지 방식이 있습니다(8장):
-  - **권장: 구독 토큰**(`claude setup-token`으로 만든 1년짜리 토큰, 설치 때 `--claude-token-file`). 토큰은 서버만 갖고
+  - **권장: 구독 토큰**(`claude setup-token`으로 만든 구독 토큰, 설치 때 `--claude-token-file`). 토큰은 서버만 갖고
     (`~/TeamAX/config/claude-oauth-token`, 600), AI 엔진은 턴마다 바뀌는 가짜 토큰으로 맥 안의 모델 프록시하고만 말합니다.
     엔진은 **이 맥의 Claude 로그인을 볼 수 없습니다.**
   - **이 맥의 Claude 로그인**(토큰 파일 없이 설치했을 때). 엔진의 네트워크는 맥 안의 프록시 하나뿐이고 프록시는
@@ -16,12 +18,12 @@
 - **기본 경로: 인터넷 주소** (예: `https://team.example.com`). 데스크는 Edge로 이 주소를 열기만 하면 됩니다
   (**인증서 설치 없음**, 사무실 밖·휴대폰에서도). 맥 미니의 `cloudflared`(Cloudflare Tunnel)가 바깥으로 연결을 열어
   두므로 공유기 포트 열기·고정 IP가 필요 없습니다. 자세히: [9장 인터넷 주소](#9-인터넷-주소-cloudflare-tunnel).
-- **사무실 안 대체 경로**: `https://<맥 IP>:8443`. 인터넷이 끊겨도 됩니다. 인증서는 맥이 처음 한 번 만드는 **사무실 전용
+- **사무실 안 대체 경로**: `https://<맥 IP>:8443`. 인터넷이 끊겨도 로컬 파일을 볼 수 있습니다. 클라우드 AI에는 인터넷이 필요합니다. 인증서는 맥이 처음 한 번 만드는 **사무실 전용
   인증 기관(CA)**이 서명하고, 이 경로를 쓰는 데스크만 이 CA를 **한 번** 설치합니다.
 - 관리자 암호(sudo) 없이 설치됩니다. 모든 것이 `~/TeamAX`에 들어갑니다.
-- 같은 내용의 인쇄용 PDF: `Team-AX-사무실모드-설치가이드.pdf`(zip 안, `docs/office/`; 한 팀용 사본은 부록 A).
+- 같은 내용의 인쇄용 PDF: `Trina-AX-사무실모드-설치가이드.pdf`(빌드해 포함한 ZIP에만 있음; 없으면 이 문서의 절차를 따르세요. 한 팀용 사본은 부록 A).
 
-> English summary: one Mac runs Team AX as the signed-in user with that Mac's Claude Code login (dev mode's engine
+> English summary: one Mac runs Trina AX as the signed-in user with that Mac's Claude Code login (dev mode's engine
 > setup, no DEV banner, no Codex). Main path: an internet address (`https://app.example.com`) through a Cloudflare
 > Tunnel: the bundled cloudflared runs as a second LaunchAgent and delivers it to the loopback app port; desks just
 > open it (public certificate, nothing to install). The address is made on the owner's Mac with
@@ -29,7 +31,7 @@
 > `office-install.sh --public-host <name> --tunnel-token-file <file>` or later `teamax public-address set|off|status`.
 > In-office fallback: `https://<mac IP>:8443` after installing the office CA once (thumbprint from the desk card
 > printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
-> `bun run build:office`; control: `~/TeamAX/teamax`. v0.2.5 is on GitHub Releases and on the Trina update feed
+> `bun run build:office`; control: `~/TeamAX/teamax`. The latest release is on GitHub Releases and on the Trina update feed
 > (`https://updates.trina.app`, live since 2026-10-29). The Mac checks `<feed>/office/<channel>.json` nightly;
 > `teamax update now` installs at once (section 6). There is no Mac desktop DMG yet.
 
@@ -37,22 +39,22 @@
 
 | | |
 |---|---|
-| 맥 미니 | macOS 13 이상(Apple Silicon 또는 Intel). **Team AX 전용**으로 두고 개인 자료·다른 프로그램을 두지 마세요 |
+| 맥 미니 | macOS 13 이상(Apple Silicon 또는 Intel). **Trina AX 전용**으로 두고 개인 자료·다른 프로그램을 두지 마세요 |
 | FileVault | 켜 두세요(시스템 설정 → 개인정보 보호 및 보안 → FileVault). 민감한 자료가 디스크에 암호화되어 저장됩니다 |
 | Claude Code | 맥 미니의 그 사용자 계정에 설치. **권장**: 대표님이 아무 맥에서나 `claude setup-token`으로 만든 토큰을 한 줄짜리 파일(`claude-token.txt`)로 가져오기(2장). 토큰 없이 설치하면 이 맥에서 구독 계정으로 로그인되어 있어야 합니다 |
 | 네트워크 | 인터넷 연결(유선 권장). 사무실 안 대체 경로도 쓰려면 공유기에서 맥 미니 주소를 **고정(DHCP 예약)** |
 | 인터넷 주소 | 설치 담당자 맥(Cloudflare에 로그인하는 맥)에서 미리 만든 **연결 토큰 파일**(`team.example.com.tunnel-token`, [9장 ①·②](#9-인터넷-주소-cloudflare-tunnel)). 공유기 설정은 필요 없음 |
-| zip 파일 | `TeamAX-office-<버전>-mac.zip` (USB·AirDrop로 맥 미니의 `다운로드` 폴더에) |
+| zip 파일 | `TrinaAX-office-<버전>-mac.zip` (USB·AirDrop로 맥 미니의 `다운로드` 폴더에) |
 | 데스크 | 윈도우 10/11 + Edge. 데스크마다 직원 윈도우 계정으로 하면 됩니다(관리자 암호 필요 없음) |
 | 그 밖에 | 프린터(데스크 카드 1장), 외장 디스크(주 1회 보관용), 가능하면 UPS |
 
-맥 미니에는 git·Go·Node·Homebrew·GitHub 접근이 **필요 없습니다**. zip 하나에 프로그램이 모두 들어 있습니다.
+맥 미니에는 git·Go·Node·Homebrew·GitHub 접근이 **필요 없습니다**. zip에 런타임 도구가 들어 있습니다. Claude Code는 별도 설치해야 합니다. 받은 ZIP의 `app/versions.json`에 있는 `claude-code` 버전을 사용하세요.
 
 ## 2. 맥 미니 설치 (15분)
 
 맥 미니에서 **AI가 쓸 Claude 로그인이 있는 그 사용자**로 로그인한 뒤, 터미널을 열고 한 줄씩 붙여 넣습니다.
 
-Claude Code가 없으면 `curl -fsSL https://claude.ai/install.sh | bash` 후 터미널을 다시 엽니다.
+Claude Code가 없으면 `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.305` 후 터미널을 다시 엽니다(이 소스의 검증 버전; 받은 ZIP의 `app/versions.json`이 다르면 그 버전 사용). 기본 local-login은 전용 Mac 사용자로 `claude`를 실행해 허용된 계정으로 로그인합니다. 구독이 팀 사용을 자동 허가하지 않으므로 계정·요금제의 약관을 확인하세요.
 
 **권장: 구독 토큰.** 대표님이 아무 맥에서나 `claude setup-token`을 실행하고(브라우저에서 구독 계정으로 승인) 나온
 `sk-ant-oat01-…` 한 줄을 파일 `claude-token.txt`에 넣어 AirDrop·USB로 맥 미니의 `다운로드`에 둡니다. 아래 설치 명령에
@@ -69,15 +71,21 @@ claude auth status
 연결 토큰 파일(9장)을 AirDrop·USB로 맥 미니의 `다운로드` 폴더에 받아 둔 뒤:
 
 ```sh
-cd ~/Downloads && Z=$(ls -t TeamAX-office-*-mac.zip | head -1) && echo "$Z" && ditto -x -k "$Z" .
-bash ~/Downloads/"${Z%-mac.zip}"/office-install.sh \
+# 최신 릴리스에서 받은 정확한 버전으로 VERSION을 바꾸세요.
+OFFICE_ZIP="$HOME/Downloads/TrinaAX-office-VERSION-mac.zip"
+shasum -a 256 "$OFFICE_ZIP"
+# 같은 릴리스의 SHA256SUMS와 일치하는지 확인한 뒤 풉니다.
+ditto -x -k "$OFFICE_ZIP" "$HOME/Downloads"
+OFFICE_DIR="${OFFICE_ZIP%-mac.zip}"
+bash "$OFFICE_DIR/office-install.sh" --check-only
+bash "$OFFICE_DIR/office-install.sh" \
   --public-host team.example.com --tunnel-token-file ~/Downloads/team.example.com.tunnel-token \
   --claude-token-file ~/Downloads/claude-token.txt
 rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt
 ```
 (토큰 없이: 마지막 옵션과 `claude-token.txt`를 뺍니다. 이미 설치한 맥을 나중에 바꾸기:
 `~/TeamAX/teamax configure --claude-token-file <파일> && ~/TeamAX/teamax restart`. 되돌리기: `--claude-auth local-login`.)
-(`Z`는 `다운로드`에서 가장 최근에 받은 office zip입니다. 첫 줄에 그 이름이 나오니 받은 버전인지 확인하세요.)
+체크섬은 손상 확인이며 독립적인 진위 증명은 아닙니다. 최신 릴리스와 SHA256SUMS를 함께 확인하세요.
 확인: 마지막에 `=== 설치 끝 / installed: <버전> ===`, 그 위에 `https://team.example.com 답함 / answers`,
 **인터넷 주소**, 사무실 안 대체 경로(**데스크 주소** `https://192.168.x.x:8443`, **인증서 받는 곳**
 `http://192.168.x.x:8442`, **인증서 지문**), **첫 설정 링크**가 나오고, 첫 설정 페이지가 맥 미니의 브라우저에 열립니다.
@@ -128,12 +136,28 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 
 확인: 홈 화면이 열리고 오른쪽 위에 대표님 이름이 보입니다.
 
+첫 주는 **권한 → AI 연결 → 팀원 초대 → 첫 스킬 → 첫 백업** 순서입니다. 먼저 관리자 → 폴더 권한에서 그룹별 접근을 두 계정으로 확인하고, 이 Mac의 허용된 Claude 연결로 가상 자료 질문을 시험하세요. 새 팀의 구독 공유 설정은 기본 **켜짐**이며 저장된 선택은 유지됩니다. 관리형 연결의 연결별 동의도 필요하고, 소프트웨어 설정은 제공사 약관상 허가가 아닙니다. office local-login은 이 Mac의 CLI 연결을 사용합니다.
+
 그다음 **관리자 → 멤버**에서 데스크마다 **초대 링크**를 만듭니다(메일 발송 없음, 링크 복사). 맥 미니에서 만들면 링크는
 인터넷 주소(`https://team.example.com/invite/…`; 인터넷 주소가 없으면 데스크 주소 `https://192.168.x.x:8443/…`)로
 나옵니다. 메신저 등으로 각 데스크에 전달합니다.
 초대 대신 **직접 추가**도 됩니다: 임시 비밀번호 칸에 외우기 쉬운 비밀번호(예: `tiger4271`)가 미리 들어 있고, 그대로 쓰거나 직접 정할 수 있습니다(8자 이상). 처음 로그인하면 새 비밀번호만 정하면 되고(임시 비밀번호를 다시 묻지 않음), 임시 비밀번호는 7일 뒤 쓸 수 없습니다.
 
-## 4. 데스크 PC 10대 연결 (PC마다 2분)
+초대 뒤 팀장으로 파일 화면에서 `skills/회의-정리/SKILL.md`를 만들고 아래 내용을 저장하세요. 팀 스킬 변경 확인이 나오면 내용을 검토하고 승인합니다.
+
+```md
+---
+name: 회의-정리
+description: 허용된 회의록에서 결정과 할 일을 정리합니다.
+---
+읽을 수 있는 회의록만 사용하세요. 결정 사항과 담당자·기한을 표로 정리하세요.
+없는 담당자나 날짜를 만들지 말고 확인 필요로 표시하세요.
+출처 파일을 적고 사람이 검토할 초안을 users/<내 아이디>/에 저장하세요.
+```
+
+가상 회의록으로 새 채팅에서 `/` 목록의 스킬을 골라 결과와 출처를 확인합니다. 마지막으로 `~/TeamAX/teamax backup`과 5장의 암호화 보관본을 만들고 복구를 연습하세요.
+
+## 4. 데스크 PC 연결 (PC마다 2분)
 
 ### 기본: 인터넷 주소
 
@@ -154,7 +178,7 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 2. **윈도우용 인증서 받기(.cer)**. Edge가 "안전하게 다운로드할 수 없습니다"라고 하면 **⋯ → 유지**(이 페이지가 http라서
    나오는 안내입니다).
 3. 받은 파일을 엽니다 → 인증서 창 **자세히** 탭 → **지문**. 값이 **카드의 지문과 같은지** 확인합니다(대소문자·띄어쓰기 무시,
-   적어도 앞 8자리와 끝 8자리). **다르면 설치하지 말고** 대표님께 알립니다.
+   전체 지문). **다르면 설치하지 말고** 대표님께 알립니다.
 4. **일반** 탭 → **인증서 설치…** → **현재 사용자** → 다음 → **모든 인증서를 다음 저장소에 저장** → 찾아보기 →
    **신뢰할 수 있는 루트 인증 기관** → 확인 → 다음 → 마침.
 5. "보안 경고" 창의 지문이 카드와 같으면 **예**.
@@ -170,7 +194,7 @@ Edge를 **모두 닫았다가** 다시 열고 카드의 데스크 주소 `https:
 
 ### ③ 앱으로 설치
 
-Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설치. 바탕화면·작업 표시줄에 Team AX 아이콘이 생기고 별도 창으로
+Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설치. 바탕화면·작업 표시줄에 Trina AX 아이콘이 생기고 별도 창으로
 열립니다. (Chrome: ⋮ → 전송, 저장, 공유 → 페이지를 앱으로 설치)
 
 ### ④ 초대 링크로 가입
@@ -178,16 +202,16 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
 받은 초대 링크를 Edge에서 엽니다 → 이름·아이디·비밀번호 → 가입. 다음부터는 바탕화면 아이콘으로 열고 로그인합니다.
 확인: 채팅에서 "안녕하세요"를 보내면 답이 옵니다.
 
-데스크 직원용 안내(인쇄용): `Team-AX-윈도우-데스크-가이드.pdf`(zip 안, `docs/office/windows-guide.html`): Edge 앱 설치,
+데스크 직원용 안내(인쇄용): `Trina-AX-윈도우-데스크-가이드.pdf`(빌드해 ZIP에 포함한 경우; 없으면 이 장과 7장의 절차 사용): Edge 앱 설치,
 데스크톱 앱, 문제 해결(530, 로그인, 비밀번호 재설정 링크, 캐시), 하지 말 것. 데스크는 **Edge 앱이 기본**이고, 데스크톱 앱
-(`Team-AX-Setup-<버전>-x64.exe`)은 AI가 웹사이트를 직접 열어야 하는 자리에만 설치합니다([부록 C](#부록-c-윈도우-데스크톱-앱-키트)).
+(`Trina-AX-Setup-<버전>-win-x64.exe`)은 AI가 웹사이트를 직접 열어야 하는 자리에만 설치합니다([부록 C](#부록-c-윈도우-데스크톱-앱-키트)).
 
 ## 5. 매일 운영
 
 **꺼지지 않게**
-- Team AX는 맥 미니 사용자가 **로그인해 있는 동안** 돌고, 멈추면 스스로 다시 켜집니다. 화면이 잠겨 있어도 됩니다.
+- Trina AX는 맥 미니 사용자가 **로그인해 있는 동안** 돌고, 멈추면 스스로 다시 켜집니다. 화면이 잠겨 있어도 됩니다.
   **로그아웃하지 마세요.**
-- 정전·재시동 뒤: FileVault가 켜져 있으면 맥 미니 앞에서 **암호를 한 번** 입력해야 합니다(그러면 Team AX가 스스로 켜집니다).
+- 정전·재시동 뒤: FileVault가 켜져 있으면 맥 미니 앞에서 **암호를 한 번** 입력해야 합니다(그러면 Trina AX가 스스로 켜집니다).
   FileVault와 자동 로그인은 함께 쓸 수 없습니다. 민감한 자료가 있으므로 FileVault + 암호 한 번을 권장합니다.
 - 상태 보기: `~/TeamAX/teamax status` (확인: `running`, 주소마다 `answers`).
 
@@ -209,16 +233,16 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
 
 ## 6. 업데이트 (GitHub Releases에서 수동 설치)
 
-현재 버전은 v0.2.5입니다. [GitHub Releases](https://github.com/trina-app/trina-ax/releases/tag/v0.2.5)와
+현재 버전은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인하세요. [GitHub Releases](https://github.com/trina-app/trina-ax/releases/latest)와
 트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 사무실 맥은 밤마다
 `<피드>/office/<채널>.json`을 확인해 새 버전을 설치합니다. 바로 설치하려면 `teamax update now`를 실행하세요.
 손으로 설치하려면 릴리스의 체크섬·서명을 확인한 사무실 ZIP을 받아 설치기를 다시 실행하세요. 기존 설치를 먼저 백업하고
-압축 파일과 폴더 이름이 내려받은 버전과 일치하는지 확인하세요. v0.2.5 예:
+압축 파일과 폴더 이름이 내려받은 버전과 일치하는지 확인하세요. 아래 VERSION은 받은 릴리스 버전으로 바꾸세요:
 
 ```sh
 cd ~/Downloads
-ditto -x -k TrinaAX-office-0.2.5-mac.zip .
-bash ./TrinaAX-office-0.2.5/office-install.sh
+ditto -x -k TrinaAX-office-VERSION-mac.zip .
+bash ./TrinaAX-office-VERSION/office-install.sh
 ~/TeamAX/teamax update status
 ```
 
@@ -241,7 +265,7 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
    답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
    되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).
 6. 릴리스에 든 **데스크용 윈도우 앱**(설치 파일 + `latest.yml`)을 `data/downloads`에 넣습니다(설정 > 앱에 보이는 곳,
-   이전 윈도우 설치 파일은 지움). 데스크의 Team AX 앱(0.2.0부터)은 시작할 때와 4시간마다 팀 주소의 `/downloads/`를
+   이전 윈도우 설치 파일은 지움). 데스크의 Trina AX 앱(0.2.0부터)은 시작할 때와 4시간마다 팀 주소의 `/downloads/`를
    확인해 뒤에서 받고, "업데이트 준비됨 — 다시 시작"을 띄웁니다. 나중에를 누르면 앱을 닫을 때 설치됩니다. 0.1.0
    데스크 앱은 자동 업데이트가 없으니 한 번만 설정 > 앱에서 새 앱을 받아 설치합니다. 맥용 데스크톱 앱은 스스로 바뀌지
    않고(애플 서명이 필요) "새 버전이 있어요"와 내려받기 버튼만 보여 줍니다.
@@ -266,7 +290,9 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 세 번째 LaunchAgent `app.team-ax.office.update`가 이 일을 합니다(맥이 그 시각에 잠들어 있었다면 깨어날 때). 제거
 (`office-uninstall.sh`)하면 함께 지워집니다.
 
-### 릴리스 내보내기 (TreeSoop, 개발 맥에서)
+### 릴리스 내보내기 (유지보수자, 개발 맥에서)
+
+아래 버전은 과거 예시입니다. 실제 게시에는 승인된 새 릴리스 버전을 사용합니다.
 GitHub Actions는 태그로 GitHub Release를 만들고, 피드 게시 설정이 있으면 피드에도 게시한다(`docs/RELEASE-CI.md`). Trina 공개 피드는 2026-10-29부터 운영한다. 아래는 손으로 할 때다.
 서명 키는 한 번 만들어 `~/.config/teamax-release/release-key.pem`(600)에만 둡니다(`bun scripts/release/keygen.ts`,
 저장소·zip·로그에 넣지 않음). 피드는 Cloudflare R2 버킷 `teamax-updates` 앞의 Worker(`scripts/release/worker.js`,
@@ -285,7 +311,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 증상 | 할 일 |
 |---|---|
 | 인터넷 주소: Cloudflare 오류 **530 / 1033** | 터널에 연결된 맥 미니가 없음: 맥 미니가 꺼졌거나, 로그아웃했거나, 인터넷이 끊김(또는 토큰이 다른 터널 것). 맥 미니에서 `teamax public-address status`(`cloudflared running`), `teamax logs`(끝에 `tunnel.log`) |
-| 인터넷 주소: Cloudflare 오류 **502** | 터널은 연결됐지만 맥 미니의 앱 포트가 아닌 곳을 가리킴(설치 때 `--app-port`를 바꾼 경우) 또는 Team AX 서버가 멈춤. `teamax public-address status`가 알려 주는 대로: 설치 담당자 맥에서 `public-address.ts set <이름> --port <app port>`; 서버가 멈췄으면 `teamax restart` |
+| 인터넷 주소: Cloudflare 오류 **502** | 터널은 연결됐지만 맥 미니의 앱 포트가 아닌 곳을 가리킴(설치 때 `--app-port`를 바꾼 경우) 또는 Trina AX 서버가 멈춤. `teamax public-address status`가 알려 주는 대로: 설치 담당자 맥에서 `public-address.ts set <이름> --port <app port>`; 서버가 멈췄으면 `teamax restart` |
 | 인터넷 주소: 403 "not open to your network" | 허용 목록(`TEAMAX_PUBLIC_ALLOW_FROM`·`TEAMAX_PUBLIC_COUNTRIES`, 9장)에 그 네트워크가 없음 |
 | 첫 설정 "인터넷 주소에서 할 수 없습니다" | 정상. 맥 미니에서 `teamax setup-link`의 `http://localhost…` 링크로 |
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
@@ -336,7 +362,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 **사무실 모드가 지키는 것**
 - 폴더 권한과 채팅 비공개는 운영 모드와 **같은 권한 함수**가 모든 파일 접근(AI 도구 포함)에서 판단합니다. AI는 질문한
   사람이 볼 수 있는 파일만 봅니다([PERMISSIONS.md](PERMISSIONS.md)).
-- **엔진 잠금**: Claude Code 자체 도구(셸·파일·웹)는 꺼져 있고 Team AX 도구만 씁니다. **macOS 샌드박스**(`engine.sb`)가
+- **엔진 잠금**: Claude Code 자체 도구(셸·파일·웹)는 꺼져 있고 Trina AX 도구만 씁니다. **macOS 샌드박스**(`engine.sb`)가
   엔진이 그 채팅 폴더 밖(`/Users`, 다른 채팅, 서버 데이터, 인증서 키)을 못 읽게 막습니다.
 - 데이터(DB, 팀 폴더, 백업)는 **그 사무실의 맥 미니에만** 있습니다. 중계 서버를 거치지 않습니다.
 - **민감한 자료는 AI에게 묻는 요청의 일부로만 Anthropic(Claude)에 전송됩니다**: 질문 내용과 AI가 그 질문에 답하려고 읽은
@@ -352,7 +378,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 - **이 맥의 Claude 로그인 방식**(토큰 없이 설치): 엔진 잠금과 샌드박스가 **둘 다 뚫리면** 그 턴은 이 맥의 Claude 로그인
   토큰(키체인, `~/.claude.json`)을 읽고 `api.anthropic.com`·`platform.claude.com`으로 보낼 수 있습니다(다른 곳은 프록시가
   막음; 그래도 그 토큰으로 대표님 구독을 쓸 수 있음). **이것을 닫는 것은 구독 토큰 방식뿐입니다.** 이 방식으로 둘 때는 이
-  맥을 **Team AX 전용**으로 두고 다른 서비스의 암호를 키체인에 저장하지 마세요.
+  맥을 **Trina AX 전용**으로 두고 다른 서비스의 암호를 키체인에 저장하지 마세요.
 - 이 방식에서는 엔진이 `~/.claude.json`을 쓸 수 있으므로 서버가 시작할 때와 매 턴 뒤에 그 파일과 백업
   (`~/.claude.json.backup`, `~/.claude/backups/`)에서 **MCP 서버를 지우고**, 그 자리에 링크가 있으면 보통 파일로 바꿉니다
   (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 이 맥 계정에서
@@ -372,7 +398,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 - 엔진이 **별도 계정**(`_axagent`)으로 돌아 OS 계정 경계가 하나 더 생기고, **pf 방화벽**이 샌드박스와 별도로 엔진의
   네트워크를 모델 프록시 하나로 막습니다. 사무실 모드의 엔진은 맥 미니 사용자 계정으로 돌고(샌드박스 안, 네트워크는 프록시
   포트만), 이 맥의 Claude 로그인 방식이면 그 계정의 Claude 로그인(키체인, `~/.claude.json`)을 읽을 수 있습니다.
-- 그래서 지금은 **Team AX 전용 맥 미니, 개인 자료 없음, FileVault 켜기, 맥 미니 사용자 암호는 대표님만**을 권장합니다.
+- 그래서 지금은 **Trina AX 전용 맥 미니, 개인 자료 없음, FileVault 켜기, 맥 미니 사용자 암호는 대표님만**을 권장합니다.
 - 서명·공증된 앱이 아닙니다(설치기가 다운로드 격리 표시를 지웁니다).
 
 ## 9. 인터넷 주소 (Cloudflare Tunnel)
@@ -387,7 +413,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 Cloudflare 자격 증명 하나.
 
 ```sh
-gh repo clone potenlab/team-ax ~/team-ax && cd ~/team-ax && bun install   # 이미 있으면: git pull && bun install
+git clone https://github.com/trina-app/trina-ax.git ~/trina-ax && cd ~/trina-ax && bun install   # 이미 있으면: git pull && bun install
 ```
 
 자격 증명은 둘 중 하나:
@@ -401,7 +427,7 @@ gh repo clone potenlab/team-ax ~/team-ax && cd ~/team-ax && bun install   # 이�
 ### ② 주소와 연결 토큰 만들기
 
 ```sh
-cd ~/team-ax
+cd ~/trina-ax
 bun scripts/office/public-address.ts set team.example.com --cert ~/.cloudflared/cert-example.pem
 ```
 확인: 마지막에 `https://team.example.com → tunnel … → http://127.0.0.1:47830`, `connector token: …(600; not
@@ -439,8 +465,8 @@ rm ~/Downloads/team.example.com.tunnel-token
 
 그다음:
 - **데스크 카드 다시 인쇄**: 맥 미니에서 `~/TeamAX/teamax card`.
-- **데스크마다** (로그인·앱은 주소마다 따로): 옛 앱 제거(Edge **⋯ → 앱 → 앱 관리** → 옛 Team AX → **제거**; 남겨 두면 오류
-  530만 보이는 "Team AX"와 새 "Team AX 1"이 함께 생김) → 새 주소를 Edge로 열어 **앱으로 설치** → 다시 로그인. 채팅·파일은
+- **데스크마다** (로그인·앱은 주소마다 따로): 옛 앱 제거(Edge **⋯ → 앱 → 앱 관리** → 옛 Trina AX → **제거**; 남겨 두면 오류
+  530만 보이는 "Trina AX"와 새 "Trina AX 1"이 함께 생김) → 새 주소를 Edge로 열어 **앱으로 설치** → 다시 로그인. 채팅·파일은
   그대로입니다.
 - **아직 안 쓴 초대·재설정 링크**는 옛 주소로 만들어졌습니다. 관리자 → 멤버에서 새로 만들거나, 링크의 주소 부분만 새 주소로
   바꿔 보내도 됩니다(`/invite/…` 뒷부분은 그대로 유효).
@@ -466,28 +492,28 @@ rm ~/Downloads/team.example.com.tunnel-token
 
 ```sh
 bun install
-bun run build:office        # = ARCHS="arm64 amd64" bash native/build.sh && web 빌드 && bun scripts/build-office.ts
-# → dist/office/TeamAX-office-<버전>-mac.zip  (약 170 MB)
-bun docs/install/build-pdf.ts --office   # docs/office/Team-AX-사무실모드-설치가이드.pdf (zip에 함께 들어감)
-bun docs/install/build-pdf.ts --windows  # docs/office/Team-AX-윈도우-데스크-가이드.pdf
+bun docs/install/build-pdf.ts --office   # docs/office/Trina-AX-사무실모드-설치가이드.pdf (zip에 함께 들어감)
+bun docs/install/build-pdf.ts --windows  # docs/office/Trina-AX-윈도우-데스크-가이드.pdf
+bun run build:office        # PDF를 먼저 만든 뒤 ZIP에 포함
+# → dist/office/TrinaAX-office-<버전>-mac.zip
 # 데스크톱 앱 설치 파일도 zip 옆에: --with-desktop (desktop dist:win + dist:mac을 빌드) 또는 --desktop-prebuilt (desktop/release에 있는 것)
 TEAMAX_KIT_TEAM=team.example.com TEAMAX_KIT_LOCALE=ko bun scripts/build-office.ts --with-desktop
-# → dist/office/Team-AX-Setup-<버전>-x64.exe, dist/office/Team-AX-<버전>-mac-universal.dmg
+# → dist/office/Trina-AX-Setup-<버전>-win-x64.exe, dist/office/Trina-AX-<버전>-mac-universal.dmg
 ```
 
 **한 팀용 키트**(그 팀의 주소가 들어간 설치 파일과 안내서). 저장소의 원본은 고치지 않고 빌드할 때 넣습니다:
 ```sh
 bun docs/install/build-pdf.ts --office --team-host team.example.com --place 사무실 --boss 대표님 \
-  --title '사무실 모드 설치 가이드' --out out/Team-AX-사무실모드-설치가이드.pdf     # --img-dir <폴더>: 그 팀 화면으로 찍은 그림
-bun docs/install/build-pdf.ts --windows --team-host team.example.com --out out/Team-AX-윈도우-데스크-가이드.pdf
+  --title '사무실 모드 설치 가이드' --out out/Trina-AX-사무실모드-설치가이드.pdf     # --img-dir <폴더>: 그 팀 화면으로 찍은 그림
+bun docs/install/build-pdf.ts --windows --team-host team.example.com --out out/Trina-AX-윈도우-데스크-가이드.pdf
 TEAMAX_KIT_TEAM=team.example.com TEAMAX_KIT_LOCALE=ko bun scripts/build-office.ts --with-desktop --out out \
-  --guide out/Team-AX-사무실모드-설치가이드.pdf --desk-guide out/Team-AX-윈도우-데스크-가이드.pdf
+  --guide out/Trina-AX-사무실모드-설치가이드.pdf --desk-guide out/Trina-AX-윈도우-데스크-가이드.pdf
 ```
 옵션 전체는 `docs/install/build-pdf.ts`와 `scripts/build-office.ts` 머리말에 있습니다. 고객별 값(주소, 터널 이름, 인증 파일
 위치, 그 팀용 안내서 제목·그림)은 이 저장소가 아니라 저장소 밖의 비공개 배포 폴더에 두고, 그 폴더의 스크립트가 위 명령을
 부릅니다.
 bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리스에서 버전과 SHA-256을 고정해 받습니다(`scripts/build-office.ts`의 `DOWNLOADS`,
-`dist/cache/`에 보관). zip에는 이 문서(`app/docs/OFFICE.md`)와 PDF가 들어갑니다.
+`dist/cache/`에 보관). zip에는 이 문서(`app/docs/OFFICE.md`)와 영문 운영 안내(`OFFICE.en.md`)가 들어갑니다. 위 순서대로 PDF를 먼저 빌드해야 함께 들어갑니다. PDF가 없는 키트도 이 문서의 설치·운영 절차를 사용할 수 있습니다.
 
 ## 부록 B. 운영 설치(역할 계정)로 옮기기
 
@@ -497,11 +523,13 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
 2. 운영 설치에서 `_axserver`로 `admin.js restore-archive --in <파일> --to <새 폴더> --password-stdin`
    → 그 안의 `db/app.sqlite`를 `data/app.db`로, `team/`을 `team/`으로(서버를 멈춘 상태에서, 소유자 `_axserver`).
 
-사무실 모드 보관본 → 새로 설치한 사무실 모드 복원은 시험했습니다(팀원 로그인·파일 확인). 운영 설치로의 복원은 아직 시험하지
+로컬 암호화 보관본 추출·파일 복구는 확인했지만, 실제 교체 Mac 전체 복구는 별도 검증이 필요합니다. 운영 설치로의 복원은 아직 시험하지
 않았습니다. 운영 설치는 자기 LAN 인증서를 쓰므로 데스크는 그때 다시 연결해야 합니다. 새 맥으로 옮길 때도
 보관본에는 CA가 없으므로 데스크는 새 인증서를 설치합니다(같은 CA를 쓰려면 `~/TeamAX/tls/`를 따로 옮기세요).
 
 ## 부록 C. 윈도우 데스크톱 앱 (키트)
+
+공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 미배포이며 직접 빌드한 파일이 있는 경우에만 아래 DMG 단계를 따릅니다.
 
 데스크 대부분은 Edge 앱이면 됩니다. AI가 웹사이트를 직접 열어 읽고 클릭해야 하는 자리만 데스크톱 앱을 씁니다(앱 안
 브라우저 창, 사이트마다 묻기). 그 팀용 설치 파일은 개발 맥에서 만듭니다(맥에서 윈도우용으로 빌드됨, wine 필요 없음):
@@ -509,7 +537,7 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
 ```sh
 cd desktop
 TEAMAX_KIT_TEAM=team.example.com TEAMAX_KIT_LOCALE=ko bun run dist:win
-# → desktop/release/Team-AX-Setup-<버전>-win-x64.exe (약 110 MB)
+# → desktop/release/Trina-AX-Setup-<버전>-win-x64.exe (약 110 MB)
 ```
 
 - `TEAMAX_KIT_TEAM`: 첫 화면 "팀 주소를 입력하세요"에 그 주소가 **미리 채워집니다**(직원은 `연결`만). 제안일 뿐이라 같은
@@ -527,7 +555,7 @@ TEAMAX_KIT_TEAM=team.example.com TEAMAX_KIT_LOCALE=ko bun run dist:win
 SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기` 안내가 함께 나옴). "아직 팀
 서버에 올라온 데스크톱 앱이 없어요"가 나오면 맥 미니에 설치 파일이 아직 없는 것입니다. 올리는 길은 둘입니다:
 
-- **설치할 때 자동으로**: `Team-AX-Setup-<버전>-x64.exe`(윈도우)·`Team-AX-<버전>-mac-universal.dmg`(맥)를 office zip과 같은
+- **설치할 때 자동으로**: `Trina-AX-Setup-<버전>-win-x64.exe`(윈도우)·`Trina-AX-<버전>-mac-universal.dmg`(맥)를 office zip과 같은
   폴더(보통 `~/Downloads`)에 두고 `office-install.sh`를 실행(또는 다시 실행)하면, 압축을 푼 폴더와 그 옆에서 찾아 플랫폼마다
   가장 새 버전을 올리고 무엇을 올렸는지 출력합니다(`--no-desktop`으로 끔, `--check-only`는 실제 실행과 같은 판단으로 올릴
   파일만 보여 줌). zip 옆이 아닌 `~/Downloads`는 그 플랫폼 파일이 zip 옆에 없을 때만 보고, **물어본 뒤에만** 올립니다(예전
@@ -535,12 +563,12 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
   목록의 파일(이름과 SHA-256이 같은 것)만 올리고 나머지는 건너뛴다고 알려 줍니다.
 - **명령으로**:
   ```sh
-  ~/TeamAX/teamax desktop add ~/Downloads/Team-AX-Setup-<버전>-x64.exe   # 검사 → data/downloads에 복사 → 목록 갱신
+  ~/TeamAX/teamax desktop add ~/Downloads/Trina-AX-Setup-<버전>-win-x64.exe   # 검사 → data/downloads에 복사 → 목록 갱신
   ~/TeamAX/teamax desktop list                                           # 올라간 것 (버전, 크기, 서명 여부)
-  ~/TeamAX/teamax desktop remove Team-AX-Setup-<버전>-x64.exe
+  ~/TeamAX/teamax desktop remove Trina-AX-Setup-<버전>-win-x64.exe
   ```
   `.exe`는 NSIS 설치 파일인지, `.dmg`는 디스크 이미지인지, 그리고 **끝까지 다 있는지**(설치 파일 머리에 적힌 길이와 비교:
-  복사·내려받기가 중간에 끊긴 파일은 거절) 확인하고 받습니다. 버전은 파일 이름에서 읽고, 이름에 없으면 `--version 0.2.0`.
+  복사·내려받기가 중간에 끊긴 파일은 거절) 확인하고 받습니다. 버전은 파일 이름에서 읽고, 이름에 없으면 실제 버전을 `--version <버전>`으로 지정합니다.
   같은 플랫폼의 이전 버전은 지워집니다(둘 다 두려면 `--keep`). 서버를 다시 시작할 필요는 없습니다. 파일은
   `~/TeamAX/data/downloads/`(폴더 700, 파일 600)에 있고 `index.json`이 목록입니다. 서버는 **목록에 있는 파일만** 내줍니다
   (폴더에 다른 파일·링크가 있어도 안 보임).
@@ -574,7 +602,7 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
 - PDF는 번들의 `mycel-ocr`(애플 Vision)로도 읽습니다: 글자 층이 없는 스캔 쪽은 글자 인식(쪽당 약 1초, 최대 100쪽), `pdftotext`(Homebrew `poppler`)가 있으면 글자 층은 그것으로 더 깔끔하게. 사진(png·jpg·heic 등)도 AI가 읽을 때 글자를 인식합니다. docx·pptx는 번들의 pandoc으로, 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
 - 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared, 자동 업데이트도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
-- 자동 업데이트(6장): 데이터베이스는 되돌리지 않습니다(마이그레이션은 더하기만 하므로 이전 버전이 그대로 읽음; 필요하면
+- 자동 업데이트(6장): 데이터베이스는 되돌리지 않습니다(호환되는 앱 버전인지 먼저 확인하고 필요하면
   `업데이트 전` 백업으로 복원). 키트로 만든 데스크 앱(부록 C)은 자동 업데이트 뒤 일반 빌드가 되고, 새로 설치하는 데스크는
   첫 화면에서 팀 주소를 직접 입력합니다(이미 쓰던 데스크는 저장된 주소 그대로). 윈도우 앱 자동 업데이트는 실제 윈도우
   PC에서 아직 확인하지 않았습니다(맥에서 피드·인증·latest.yml까지 확인).

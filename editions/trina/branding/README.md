@@ -1,42 +1,25 @@
-# 트리나 사이트 브랜드 자산
+# 트리나 공개 브랜드 설정
+
+이 폴더는 공개 앱의 이름, 업데이트 채널, 서비스 주소와 소스 링크 설정을 담습니다. 호스팅 결제·운영 코드와 웹사이트 원본은 이 저장소에 포함되지 않습니다.
 
 ## 앱·설치 파일 이름
 
-`product.json`은 판매판 앱 이름 설정이다. 최신 코어의 `scripts/product-brand.ts`로 별도 빌드 사본에 적용한다. `bun scripts/product-brand.ts editions/trina/branding/product.json`으로 검토한 뒤 같은 명령에 `--apply`를 붙인다. 이후 웹·서버·데스크톱 등 필요한 묶음을 다시 빌드한다. 설치 ID·기존 사용자 데이터 경로는 유지한다. 상세 절차는 코어 `docs/EDITION-BRANDING.md`를 따른다. 이는 P6 사이트 자산 스냅샷 이후 root가 추가한 공통 빌드 도구 연동이며, 원본 코어 이름을 바꾸지 않는다.
+[product.json](product.json)을 `bun scripts/product-brand.ts editions/trina/branding/product.json`으로 검토합니다. 적용할 별도 빌드 사본에서 같은 명령에 `--apply`를 붙인 뒤 필요한 앱을 다시 빌드하세요. 설치 ID와 기존 데이터 경로는 유지합니다. [브랜드 적용 절차](../../../docs/EDITION-BRANDING.md).
 
-## 배포 채널 (업데이트 주소·서명 키)
+## 업데이트 채널
 
-`release-channel.json`은 Trina AX 설치가 업데이트를 받는 주소(`https://updates.trina.app`)와 믿는 서명 키를 정한다. 코어 `scripts/edition-release.ts`로 적용한다. 검토는 `bun scripts/edition-release.ts editions/trina/branding/release-channel.json`, 적용은 같은 명령에 `--apply`를 붙인다. 이 명령은 `shared/src/release-channel.ts`와 `native/internal/bundle/release_keys.go`만 바꾼다. 상세 절차는 코어 `docs/EDITION-RELEASE.md`를 따른다.
+[release-channel.json](release-channel.json)은 업데이트 주소와 신뢰할 공개 서명 키를 정합니다. `bun scripts/edition-release.ts editions/trina/branding/release-channel.json`으로 검토하고, 적용할 빌드 사본에서 `--apply`를 사용합니다. 생성 대상은 `shared/src/release-channel.ts`와 `native/internal/bundle/release_keys.go`입니다.
 
-- 키 ID `a8f40309cdceb532`(2026-10-28 생성, 지금 서명에 쓰는 키). 개인키는 배포하는 맥의 `~/.config/trina-ax-release/release-key.pem`과 GitHub 비밀값 `RELEASE_SIGNING_KEY`에만 있다. 레포·로그·채팅에 넣지 않고 따로 백업한다.
-- 키 ID `086478d11148fd06`(2026-10-27 생성): 개인키를 찾지 못해 새 키를 더했다. 목록에는 남겨 둔다(찾으면 다시 쓸 수 있다).
-- Team AX(`updates.treesoop.com`)와 의료판(`medical-updates.treesoop.com`)과 키가 다르다. 그래서 서로의 업데이트를 받지 않는다.
-- 고객 주소 `updates.trina.app`이 생기지 않도록 `update(s)`, `release(s)`, `download(s)`는 고객 주소로 쓸 수 없다(비공개 `trina-ax-core`의 `editions/trina/domains/names.ts`).
-- Cloudflare의 `updates.trina.app` Worker·R2 bucket(`trina-ax-updates`)은 아직 만들지 않았다. 만들기(`bun scripts/release/hosting.ts setup`)와 첫 배포(`scripts/release/publish.ts`)는 대표 확인 뒤에 한다.
+공개 피드 `https://updates.trina.app`는 Linux 서버와 사무실 Mac 업데이트를 제공합니다. 현재 배포 버전과 파일은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인하세요. 피드가 없다는 이전 작업 기록은 현재 상태가 아닙니다. 개인 서명 키는 저장소·로그·채팅에 넣지 않습니다. 키 교체와 운영 인프라 변경은 담당자의 별도 배포 절차를 따릅니다. [채널과 서명](../../../docs/EDITION-RELEASE.md).
 
-## 호스팅 서비스 주소
+## 서비스 주소
 
-`service.json`은 Trina 호스팅 서비스의 주소다: 팀 주소 `<회사>.trina.app`, 공식 중계 `wss://relay.trina.app/connect`, 연결 코드를 받는 `account.trina.app`, 상태 페이지 `status.trina.app`. 코어 `scripts/edition-service.ts`로 적용한다(`--apply`가 `shared/src/service-hosts.ts`의 네 필드만 바꾼다). 코어(Team AX)는 `treesoop.com`을 그대로 쓴다. 설치된 맥의 LaunchDaemon 이름(`app.treesoop.*`)은 바꾸지 않는다.
+[service.json](service.json)은 팀 도메인과 공식 중계·계정·상태 페이지의 기본 주소를 정합니다. `bun scripts/edition-service.ts editions/trina/branding/service.json`으로 검토하고, `--apply`로 `shared/src/service-hosts.ts`에 적용합니다. 주소 설정 자체는 서비스 가용성이나 무료 등록을 보장하지 않습니다. 공식 중계 등록에는 발급받은 연결 코드가 필요합니다. 기존 LaunchDaemon 이름과 데이터 경로는 호환성을 위해 유지합니다.
 
-## 소스 코드 링크 (AGPL-3.0)
+## 소스 링크
 
-`source.json`은 Trina AX 앱의 "소스 코드" 링크와 소스 요청 메일 주소다. 코어 `scripts/edition-source.ts`로 적용한다(`--apply`가 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다).
+[source.json](source.json)은 공개 저장소 `trina-app/trina-ax`, `published: true`, 요청 메일 `contact@trina.app`을 정합니다. `bun scripts/edition-source.ts editions/trina/branding/source.json`으로 검토하고, `--apply`로 `shared/src/source.ts`에 적용합니다. 앱은 유효한 실행 버전에 해당하는 소스 태그로 연결하며, 버전이 없거나 유효하지 않으면 소스 요청 경로를 사용합니다. [소스 제공 범위](../../../docs/SOURCE-OFFER.md).
 
-- `repository`: `https://github.com/trina-app/trina-ax`
-- `published`: `true`(2026-10-28, 공개 준비). 링크는 실행 중인 판의 태그 `/tree/v<판>`을 연다. 공개 전에는 `false`였고 그동안 링크는 메일 요청이었다.
-- `requestEmail`: `contact@trina.app`(2026-10-28 대표 결정).
+## 웹사이트 출처 기록
 
-## 사이트 자산
-
-P6 후보는 기존 `~/src/trina-ax/website`의 tracked 파일을 복사해 시각 디자인을 유지한다. 실제 사용 자산은 `../website/public`과 `../website/src/assets/fonts`에 두며 중복 배포하지 않는다. 고객 문서·실제 앱 데이터·계정 설정은 복사 대상이 아니다.
-
-- 로고·아이콘: 기존 Trina AX SVG/PNG를 그대로 사용한다. 브랜드명은 한글 ‘트리나 AX’, 영문 ‘Trina AX’다. 코드 라이선스와 별도로 상표 사용 범위를 확인한다.
-- 색상·타이포그래피·밝은/어두운 테마: 기존 Astro CSS와 컴포넌트를 보존한다. 새 구조도는 같은 카드 형식의 앱→팀 서버→Anthropic 흐름이다.
-- 배경 WebP: 기존 사이트 README에 2026-10-26 Higgsfield 생성 이미지로 기록되어 있다. 추상 폴더·빛·보관함이며 신규 생성하지 않았다. 해당 기록은 출처 설명이고 제3자 권리 실사를 대신하지 않는다.
-- 화면 예시: 이름·조직·수치는 기존 합성 예시다. 실사용 고객 사례로 소개하지 않는다.
-- Geist/Geist Mono와 Pretendard: SIL OFL 고지를 유지한다. 새 한국어 문구에 맞춰 부분 생성한 폰트는 예약 이름을 쓰지 않는 `Trina UI`로 명명했다. glyph/metrics/layout은 유지하며 내부 이름·파일명·CSS 참조만 변경했다. `../website/public/fonts/NOTICE-Trina-UI.txt`에 변경 기록을 보존한다. 원본 폰트는 로컬 `~/src/website/src/app/fonts/PretendardVariable.woff2`이며 글꼴 내용만 읽었다.
-- Open Graph PNG: `../website/scripts/render-social.mjs`가 새 서버판 한·영 카피로 로컬 렌더한다.
-
-원본 웹사이트의 Apache-2.0 라이선스와 저작권 고지는 `LICENSE.website-upstream.txt` 및 `NOTICE.website-upstream.md`에 유지한다. 파생 후보의 라이선스 표시는 코어/판매판 AGPL 정책에 맞추며 기존 고지를 삭제하지 않는다.
-
-파일별 복사 SHA와 기준 커밋은 작업 증거 `.validation/p6/old-website-provenance.json`에 있다. 공개 산출물에 포함할 최종 provenance는 배포 검토에서 별도로 확정한다. 원본 사이트와 기업 홈의 운영 배포는 이 작업에서 변경하지 않았다.
+[웹사이트 원본 라이선스](LICENSE.website-upstream.txt)와 [기존 출처 고지](NOTICE.website-upstream.md)는 보존합니다. 이 고지는 과거 웹사이트 작업의 출처 기록이며, 비공개 웹사이트 파일이나 당시 로컬 경로가 이 공개 폴더에 존재한다는 뜻은 아닙니다. 현재 공개 앱 화면과 가상 자료의 출처는 [스크린샷 기록](../../../docs/images/README.md)에 있습니다. 상표·제3자 고지는 코드 라이선스와 별도로 확인하세요.

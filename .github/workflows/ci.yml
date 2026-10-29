@@ -54,8 +54,22 @@ jobs:
           curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           sudo dpkg -i /tmp/pandoc.deb
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
+      - name: Enable and smoke-test converter isolation
+        run: |
+          # Ubuntu 24.04 restricts unprivileged user namespaces. Use the installer's
+          # bwrap-only AppArmor allowance; keep the global restriction enabled.
+          # Probe network isolation too: --unshare-user alone can miss loopback failures.
+          if ! bwrap --unshare-all --ro-bind / / true &&
+             [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
+            sudo apt-get install -y --no-install-recommends apparmor
+            sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
+          fi
+          bwrap --unshare-all --ro-bind / / true
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - name: Onboarding documentation contracts
+        run: bun run check:docs
       - name: Native build (darwin + linux, amd64 + arm64), go vet and go test
         run: |
           ARCHS="amd64 arm64" bash native/build.sh

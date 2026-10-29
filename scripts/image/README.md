@@ -1,7 +1,6 @@
-# Team AX tenant template (`scripts/image/`)
+# Trina AX tenant-template tooling (`scripts/image/`)
 
-One qcow2 is both the Team AX Cloud tenant template on our Proxmox hosts and the self-host download
-(isolation.md §5.1–5.3, D10, D21, task H-05): Debian 13 "trixie" genericcloud + the Team AX Linux kit installed in
+Maintainer tooling for a qcow2 tenant template; this source does not promise an official production Docker or VM image download. The template uses Debian 13 "trixie" genericcloud and the Linux kit installed in
 image mode + the first-boot pieces (`mycel-enroll`).
 
 | File | What |

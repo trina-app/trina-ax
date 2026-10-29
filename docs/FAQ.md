@@ -1,57 +1,41 @@
 # Frequently asked questions
 
-## Who is Trina AX for?
+[한국어](FAQ.ko.md) · [Support](../SUPPORT.md)
 
-Company IT teams and developers who want a shared AI workspace over company files, with folder access checked for
-the person making the request. The user interface supports English, Korean and Indonesian; PDF, Office and HWP/HWPX
-reading are useful for teams working with Korean business documents.
+## Is Trina for developers?
 
-## What is included in this repository?
+It is a company AI workspace for teams. People use a browser; IT operates self-hosted servers. Shared files, reusable task instructions and per-person folder permissions are the difference from a separate personal chat. [Team guide](for-teams.md).
 
-The team server, web and desktop clients, native helpers, relay, mobile source and Trina branding.
-The hosted service's billing, provisioning, operations console and website are private. The software license and
-component exceptions are described in [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
+## What does it cost?
 
-| Choice | Server operator | Where to start |
-|---|---|---|
-| Self-host on Linux | Your company manages the machine, updates, backups and access | [Linux guide](INSTALL-LINUX.md) |
-| Self-host on an office Mac | Your company keeps the Mac running and manages installation and backups | [Office guide](OFFICE.md) |
-| Trina hosting | Trina operates the hosted service; agree service details with Trina | [Product site](https://ax.trina.app) |
+Self-hosted software is free; infrastructure, operations and AI usage are separate. Hosting in AWS Seoul, checked 2026-10-30: Starter $39/month up to 5 people, Team $69 up to 15, Business $129 up to 40, USD before tax and AI charges. [Current pricing/contact](https://ax.trina.app/#pricing). Hosting is contact-led; no hosted free trial is promised.
 
-## Do team members install an AI CLI?
+## Can we try it without an AI account?
 
-The Claude Code and Codex CLI engines run on the team server. Members can use a web browser. In managed
-installations, the owner configures team connections. Personal AI connections are enabled by default and the owner
-can disable them; sharing one subscription across members is disabled by default. Development mode uses the Mac OS user's local CLI logins. Personal external-service integrations are also enabled by default, with a separate admin setting. The experimental API engine uses a team-configured OpenAI-compatible endpoint.
+Yes. [The local demo](QUICKSTART.md) starts with fictional files and AI disabled. It is not a production install or a test of model output.
 
-## Does self-hosting mean files never leave the network?
+## How do AI connections work?
 
-Files and chats are stored on the team server, but context used for an answer is sent to the selected model
-provider. External-service tools send requests to the configured service. Server administrators can read the
-stored data. See [SECURITY.md](../SECURITY.md).
+Managed installations can use permitted Claude subscription/Anthropic API and ChatGPT/OpenAI API connections, subject to operator settings and provider terms. Eligible personal → person-assigned → group-assigned → whole-team is the selection order. Another person's private connection is not selected for you.
 
-## Which clients can I use?
+Fresh Trina teams allow shared subscriptions by default. Existing saved choices persist. Connection-level consent still applies, including to new connections when the setting was already on. This is a software capability, not permission under Anthropic's or OpenAI's plans or terms. Use only authorized accounts/plans; do not assume one personal subscription covers a company. Provider limits and charges remain separate.
 
-Web, Windows desktop, Mac desktop source and mobile web. Check [Releases](https://github.com/trina-app/trina-ax/releases)
-for available installers. A Mac desktop DMG is not distributed yet, pending signing and notarization. The Mac office
-ZIP is a server bundle. Mobile source in the repository does not imply an App Store or Play Store release.
+Development and office local-login modes use the server OS user's CLI login; they do not use the managed selector in the same way. The one-command demo disables engines entirely. Office mode is Claude-only; choose Linux managed installation when you need its connection capabilities.
 
-## Will every document or model work?
+## Can administrators read everything?
 
-No. HWP/HWPX supports read-only text extraction. Experimental page previews are disabled by default pending release review and are unavailable on Debian 12. Creation is not supported. Images are read through OCR only,
-not visual scene understanding. Extraction depends on document structure, fonts and installed conversion/OCR tools. The experimental API
-engine needs compatible streaming Chat Completions and tool calls, and behavior varies by model/provider.
-AI answers should be checked against the source documents.
+App admins do not have a browser for everyone's private chats. Server/storage operators can read stored files and chats; hosted operators are included. Selected context goes to AI providers. Permissions do not retract earlier answers. [Security and permissions](security-and-permissions.md).
 
-## Are automatic updates available?
+## Which files and clients work?
 
-Yes. The Trina update feed (`https://updates.trina.app`) is live since 2026-10-29. v0.2.5 is the current release, on
-GitHub Releases and on the feed. Linux servers apply app-only releases by themselves in the update window. Releases
-that change root parts are applied by `mycel-update.timer` daily, or at once with `sudo mycel-ctl update`. Office Macs
-check the feed nightly; `teamax update now` installs at once. There is no Mac desktop DMG yet.
+Text/Markdown and supported Office/PDF extraction and generation depend on installed converters. HWP/HWPX text extraction is available. Experimental visual previews are in this source but off by default, and their runtime is excluded from default release bundles. Debian 12 does not support visual previews (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits and release gate](../resources/hwp/README.md). Complex layout fidelity is not guaranteed.
 
-## Where should I ask for help?
+Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. Native mobile source is not an app-store release. This source supports EN/KO/ID/JA/ES throughout the app; check published builds’ release notes for availability.
 
-Use [Issues](https://github.com/trina-app/trina-ax/issues) for reproducible problems and suggestions, in English or
-Korean. Check the [installation guide](INSTALL.md) first for setup problems. Report security concerns privately
-using [SECURITY.md](../SECURITY.md). Discussions are not currently enabled; there is no dedicated discussion link.
+## Do updates and backups exist?
+
+[Latest release](https://github.com/trina-app/trina-ax/releases/latest) is the version source of truth. The Trina update feed serves signed Linux and office updates at `https://updates.trina.app`. Review release notes and back up first. App rollback is not data rollback. [Backup/restore](BACKUP-RESTORE.md).
+
+## Docker, offline use, and support?
+
+No official production Docker image is promised. Linux installation requires systemd/cgroup v2. Self-hosting does not make cloud model inference offline. [Troubleshooting](TROUBLESHOOTING.md) · [Support and community](../SUPPORT.md).

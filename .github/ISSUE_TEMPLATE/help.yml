@@ -1,0 +1,52 @@
+name: Ask a question / 사용·설치 질문
+description: Using or operating Trina; pricing enquiries go to contact@trina.app. / 사용·운영 질문, 요금은 이메일 문의.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English / 한국어 welcome. Use fictional data only. / 가상 자료만 사용하세요.
+        Never include names, customer files, keys, tokens, cookies, private links or raw logs.
+        실명·고객 자료·키·토큰·쿠키·비공개 링크·원본 로그를 올리지 마세요.
+        Security reports / 보안 신고: contact@trina.app privately.
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your role / 맡은 역할
+      options:
+        - Team member / 팀원
+        - Admin / 관리자
+        - Owner or team lead / 소유자·팀장
+        - Unsure / 잘 모르겠어요
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Where you use Trina / 사용 방식
+      options:
+        - Trina hosting / 트리나 호스팅
+        - Our own server / 회사 서버
+        - Local demo / 로컬 체험
+        - Unsure / 잘 모르겠어요
+  - type: textarea
+    id: task
+    attributes:
+      label: What are you trying to do? / 무엇을 하려고 하나요?
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Where do you need help? / 어느 부분에 도움이 필요한가요?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried? / 이미 해 본 일
+    validations:
+      required: false
+  - type: textarea
+    id: version
+    attributes:
+      label: Version if known / 버전을 알면 적어 주세요
+    validations:
+      required: false

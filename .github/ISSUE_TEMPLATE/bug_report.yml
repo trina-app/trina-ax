@@ -1,48 +1,64 @@
-name: Bug report / 버그 신고
-description: Report a reproducible problem using synthetic data.
-title: "[Bug]: "
+name: Something is not working / 잘 안 돼요
+description: Tell us what you tried and what happened. / 하려던 일과 실제 결과를 알려 주세요.
 body:
   - type: markdown
     attributes:
       value: |
-        English and Korean are welcome. For vulnerabilities, email contact@trina.app privately.
-        Do not include customer files, real names, passwords, tokens, setup/invite links, cookies or unredacted logs.
-  - type: input
-    id: version
+        English / 한국어 welcome. Use fictional data only. / 가상 자료만 사용하세요.
+        Never include names, customer files, keys, tokens, cookies, private links or raw logs.
+        실명·고객 자료·키·토큰·쿠키·비공개 링크·원본 로그를 올리지 마세요.
+        Security reports / 보안 신고: contact@trina.app privately.
+  - type: dropdown
+    id: role
     attributes:
-      label: Version or commit
-      placeholder: Release version or Git commit
+      label: Your role / 맡은 역할
+      options:
+        - Team member / 팀원
+        - Admin / 관리자
+        - Owner or team lead / 소유자·팀장
+        - Unsure / 잘 모르겠어요
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Where you use Trina / 사용 방식
+      options:
+        - Trina hosting / 트리나 호스팅
+        - Our own server / 회사 서버
+        - Local demo / 로컬 체험
+        - Unsure / 잘 모르겠어요
+  - type: textarea
+    id: task
+    attributes:
+      label: What were you trying to do? / 어떤 일을 하려고 했나요?
     validations:
       required: true
   - type: textarea
-    id: environment
+    id: actual
     attributes:
-      label: Environment
-      description: Server OS, self-hosted/hosted/dev mode, browser or desktop client version, and engine/version if relevant. No private addresses.
+      label: What happened? / 실제로 무슨 일이 일어났나요?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect? / 무엇을 기대했나요?
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
-      description: Use invented data. Include the relevant role and folder permission setup.
+      label: Steps with invented data / 가상 자료로 재현하는 순서
     validations:
       required: true
   - type: textarea
-    id: result
+    id: version
     attributes:
-      label: Expected and actual result
+      label: Version in Settings → About, if known / 설정 → 정보 버전, 알면 적어 주세요
     validations:
-      required: true
+      required: false
   - type: textarea
-    id: evidence
+    id: device
     attributes:
-      label: Sanitized evidence (optional)
-      description: Short error text or a synthetic screenshot. Inspect it for private data before posting.
-  - type: checkboxes
-    id: privacy
-    attributes:
-      label: Before submitting
-      options:
-        - label: I checked that this report contains no customer information, secrets or private links.
-          required: true
+      label: Browser or device, if relevant / 관련 있을 때 브라우저·기기
+    validations:
+      required: false

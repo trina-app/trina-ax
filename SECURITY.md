@@ -27,5 +27,7 @@ which version you tested; a fix may require upgrading.
 - Selected context goes to the model provider; external-service connections send requests to their configured services. Self-hosting alone does not keep all processing offline.
 - Revoking access does not remove information already quoted in an earlier answer.
 
-See the [security model](README.md#security-model-defense-in-depth), [Mac installation](docs/INSTALL.md),
+See the [security model](README.md#what-we-dont-promise), [Mac installation](docs/INSTALL.md),
 [Linux installation](docs/INSTALL-LINUX.md) and [permissions (한국어)](docs/PERMISSIONS.md).
+
+User-facing boundaries: [Security and permissions](docs/security-and-permissions.md) / [보안·권한](docs/security-and-permissions.ko.md).

@@ -183,7 +183,8 @@ say(`data: ${DEV_HOME}`)
 say(`direct: http://localhost:${SERVER_PORT}`)
 if (relay) say(`relay:  http://${TEAM}.localhost:${RELAY_PORT}  (the team registers itself a few seconds after start)`)
 if (flag('--vite')) say('vite:   http://localhost:19140')
-say(`engines run as ${os.userInfo().username} with your own Claude Code / Codex logins (local-login). Ctrl-C stops everything.`)
+say('local-login mode: enabled engines use the server OS user’s CLI login. Explicit config can disable them; the evaluator demo does. Ctrl-C stops this run.')
+say(`first setup: open the local address; the private setup token is in ${dataEnv().MYCEL_DATA_DIR}/setup-token. Do not share it.`)
 
 let stopping = false
 const stop = () => { if (stopping) return; stopping = true; for (const p of running) p.child.kill('SIGTERM') }

@@ -1,0 +1,4 @@
+id,date,category,amount,currency,people,receipt
+DEMO-1,2026-10-21,meal,45,USD,1,yes
+DEMO-2,2026-10-22,supplies,40,USD,1,no
+DEMO-3,2026-10-23,meal,40,USD,2,yes

@@ -1,30 +1,46 @@
-name: Feature request / 기능 제안
-description: Explain a problem and the behavior that would help.
-title: "[Feature]: "
+name: Suggest a team workflow improvement / 팀 업무 개선 제안
+description: Describe a recurring task and what would help. / 반복 업무와 필요한 개선을 알려 주세요.
 body:
   - type: markdown
     attributes:
-      value: English and Korean are welcome. Use invented examples; do not include customer data or credentials.
-  - type: textarea
-    id: problem
+      value: |
+        English / 한국어 welcome. Use fictional data only. / 가상 자료만 사용하세요.
+        Never include names, customer files, keys, tokens, cookies, private links or raw logs.
+        실명·고객 자료·키·토큰·쿠키·비공개 링크·원본 로그를 올리지 마세요.
+        Security reports / 보안 신고: contact@trina.app privately.
+  - type: dropdown
+    id: role
     attributes:
-      label: Problem and who it affects
-      description: Describe the workflow and what is difficult today.
+      label: Your role / 맡은 역할
+      options:
+        - Team member / 팀원
+        - Admin / 관리자
+        - Owner or team lead / 소유자·팀장
+        - Unsure / 잘 모르겠어요
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Where you use Trina / 사용 방식
+      options:
+        - Trina hosting / 트리나 호스팅
+        - Our own server / 회사 서버
+        - Local demo / 로컬 체험
+        - Unsure / 잘 모르겠어요
+  - type: textarea
+    id: task
+    attributes:
+      label: What task repeats? / 반복되는 업무는 무엇인가요?
     validations:
       required: true
   - type: textarea
-    id: proposal
+    id: workaround
     attributes:
-      label: Proposed behavior
-      description: What should happen? Include relevant roles or permissions.
+      label: How do you handle it today? / 지금은 어떻게 처리하나요?
     validations:
       required: true
   - type: textarea
-    id: alternatives
+    id: example
     attributes:
-      label: Alternatives and workarounds
-  - type: textarea
-    id: context
-    attributes:
-      label: Additional context (optional)
-      description: Synthetic examples only. A request does not imply a delivery commitment.
+      label: A fictional example and desired result / 가상 예시와 원하는 결과
+    validations:
+      required: true
