@@ -544,6 +544,7 @@ export class MockServer {
   handlers: Partial<Record<ApiName, Handler>> = {
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
     popularSkills: () => ({ items: [], days: 30 }),
+    listSkillIssues: () => ({ items: [] }),
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {

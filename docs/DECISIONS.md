@@ -2477,3 +2477,20 @@ including same-account installs. Extend the same synthetic selection tests to co
   A wrong password keeps the dialog open and shows the server message. The server rules do not change.
 - **Tests.** `web/test/unit/transfer-owner.test.tsx` (who can be chosen, the button, the Korean texts) and
   `web/test/e2e/admin.spec.ts` (wrong password, then the transfer; the mock server has `transferOwnership`).
+## Team skills: entries that do not load are shown with a reason (R2-SKILL-03, R2-SKILL-04, 2026-10-29)
+
+- **Problem.** A `SKILL.md` whose `name` is not its folder name (or that fails another check) did not appear in the
+  "/" list, and no screen told the person why (R2-SKILL-03). The legacy parser needed only a valid `name`. A legacy
+  file with a broken header (a quote that does not close, a line that is not `key: value`) was listed as a working
+  skill (R2-SKILL-04).
+- **Decision.** `checkSkill()` (`server/src/chat/skills.ts`) returns the skill or a problem code (`header`,
+  `location`, `name`, `name_folder`, `description`, `compatibility`, `too_large`). `parseSkill()` keeps its old
+  result. A legacy header is valid when each line is `key: value` with unique keys and each opened quote closes
+  again, or when it is valid YAML (for example a block scalar). Values keep their loose format, because
+  `skillFileText()` writes registered suggestions without YAML quoting. A legacy file with a broken header is not a
+  skill and not a team rule (`skillFileKind` gives `other`).
+- **Warning.** `GET /api/skills/issues` lists the entries that do not load, with the code only. It checks only the
+  entries the caller can read (the same walk as `listSkills`), so it never shows a hidden path. The Skills screen
+  shows all issues. The Files screen shows the issues in and below the open `skills/` folder. Each line links to
+  the file.
+- **Tests.** `tests/unit/skill-issues.test.ts`, `web/test/unit/skill-issues.test.ts`.
