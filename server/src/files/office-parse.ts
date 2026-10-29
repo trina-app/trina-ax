@@ -7,8 +7,11 @@ import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, tooComplex } from './zip-guard'
+import { docxExtraText, pptxExtraText } from './ooxml'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
+/** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
+export const EXTRA_MODES = new Set(['docx-extra', 'pptx-extra'])
 /** the worker's exit code when stderr holds a ToolError message (office-worker.ts) */
 export const TOOL_ERROR_EXIT = 3
 /** UTF-8 bytes of text out of one file (the worker's stdout cap in extract.ts is a little larger; hwp.ts keeps its
@@ -68,9 +71,11 @@ export function sheetText(bytes: Uint8Array): string {
   return out.join('\n\n')
 }
 
-/** Text of one file of a WORKER_EXT format; ToolError for a file it cannot or will not read. */
+/** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read. */
 export function officeText(ext: string, bytes: Uint8Array): string {
   switch (ext) {
+    case 'docx-extra': return docxExtraText(bytes)
+    case 'pptx-extra': return pptxExtraText(bytes)
     case 'xlsx': case 'xls': case 'ods': return sheetText(bytes)
     case 'hwp': return hwpText(bytes)
     case 'hwpx': return hwpxText(bytes)
