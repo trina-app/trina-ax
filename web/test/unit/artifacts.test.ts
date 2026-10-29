@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { artifactCsp, artifactFileName, buildArtifactDocument, findImports, SANDBOX, scriptJson, sucraseCompile, unsupportedImports, wrapHtml } from '../../src/lib/artifacts'
+import { artifactCsp, artifactFailure, artifactFileName, buildArtifactDocument, findImports, SANDBOX, scriptJson, sucraseCompile, unsupportedImports, wrapHtml } from '../../src/lib/artifacts'
 
 const O = 'https://acme.treesoop.com'
 const MSG = { unsupportedImports: (l: string) => `unsupported: ${l}`, compileError: (m: string) => `compile: ${m}`, noDefaultExport: 'no default' }
@@ -82,3 +82,18 @@ describe('other types and file names', () => {
     expect(artifactFileName({ key: 'k', title: 'x', type: 'code', language: 'weird lang!' })).toBe('x.txt')
   })
 })
+
+describe('"ask the AI to fix it" (R2-GEN-09)', () => {
+  test('offered for a build error (unsupported import, compile error) and for a runtime error', () => {
+    const compile = (c: string) => { if (c.includes('(')) throw new Error('Unexpected token'); return c }
+    const d3 = buildArtifactDocument('react', 'import * as d3 from "d3"\nexport default () => null', O, compile, MSG)
+    expect(artifactFailure(d3, null)).toEqual({ kind: 'build', error: 'unsupported: d3' })
+    const bad = buildArtifactDocument('react', 'export default function A( { return <div> }', O, compile, MSG)
+    expect(artifactFailure(bad, null)).toEqual({ kind: 'build', error: 'compile: Unexpected token' })
+    const good = buildArtifactDocument('html', '<p>x</p>', O, null, MSG)
+    expect(artifactFailure(good, 'boom')).toEqual({ kind: 'run', error: 'boom' })
+    expect(artifactFailure(good, null)).toBeNull()
+    expect(artifactFailure(null, null)).toBeNull()
+  })
+})
+

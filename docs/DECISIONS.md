@@ -2540,3 +2540,16 @@ including same-account installs. Extend the same synthetic selection tests to co
 - **Changed behavior.** A CSV or Markdown cell that starts with `=` was text before and is a formula now.
 - **Tests.** `tests/unit/c-tools.test.ts`: `<f>` nodes in the sheet XML, a cross-sheet reference, `_xlfn.XLOOKUP`,
   `fullCalcOnLoad="1"`, the `'=` escape, and each refused form writes no file.
+
+## Artifacts: "ask the AI to fix it" also for build errors (R2-GEN-09, feat/qa2-makefile, 2026-10-29)
+
+- **Problem.** The artifact panel showed "ask the AI to fix it" only for an error at runtime in the frame. A React
+  artifact with an unsupported import (QA used `d3`), a compile error or no default export showed only the error
+  text. The person had to write the request to the AI by hand.
+- **Decision.** `artifactFailure()` (`web/src/lib/artifacts.ts`) gives one failure for the panel: `build` when the
+  artifact could not be made into a page, `run` when it failed in the frame. Both use the same error bar and button.
+  A build error sends `artifact.fixPromptBuild` ("cannot be shown"), because the artifact did not run. The error
+  text still goes through `fixPromptError` (URLs defanged, 1,000 characters), because an import list can hold a URL.
+  The body shows a short note in place of the error text, so the error shows only once.
+- **Tests.** `web/test/unit/artifacts.test.ts` (unsupported import and compile error give `build`, a frame error
+  gives `run`). `web/test/e2e/artifacts.spec.ts` has a `d3` case with a mock answer for it.

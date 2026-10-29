@@ -79,6 +79,18 @@ test('a failing artifact: "ask the AI to fix it" sends the error', async ({ page
   await expect(page.getByTestId('user-text').last()).toContainText('boom')
 })
 
+test('an artifact that cannot be built (unsupported import): "ask the AI to fix it" sends the error (R2-GEN-09)', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'make a react chart with d3')
+  const panel = page.getByTestId('artifact-panel')
+  await expect(panel.getByRole('alert')).toContainText('d3')
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+  await panel.getByTestId('ask-fix').click()
+  await expect(page.getByTestId('user-text').last()).toContainText('표시할 수 없어요')
+  await expect(page.getByTestId('user-text').last()).toContainText('d3')
+})
+
 test.describe('slow device', () => {
   // the app's service worker would answer the chunk request itself, past page.route
   test.use({ serviceWorkers: 'block' })
