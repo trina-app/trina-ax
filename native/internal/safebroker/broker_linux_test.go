@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -112,5 +114,66 @@ func TestOpenat2Unavailable(t *testing.T) {
 	cmd.Env = append(os.Environ(), "SAFE_BROKER_TEST_NO_OPENAT2=1", "SAFE_BROKER_TEST_ROOT="+root)
 	if out, e := cmd.CombinedOutput(); e != nil {
 		t.Fatalf("%v: %s", e, out)
+	}
+}
+
+func TestPublishIndependentWriterRace(t *testing.T) {
+	if dst := os.Getenv("SAFE_BROKER_WRITER"); dst != "" {
+		f, e := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if e != nil {
+			os.Exit(2)
+		}
+		if _, e = f.WriteString("independent writer"); e != nil {
+			os.Exit(3)
+		}
+		if f.Close() != nil {
+			os.Exit(4)
+		}
+		os.Exit(0)
+	}
+	root := t.TempDir()
+	fd, e := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer unix.Close(fd)
+	job := "00000000-0000-0000-0000-000000000002"
+	input, feed := io.Pipe()
+	defer input.Close()
+	defer feed.Close()
+	content := []byte("artifact")
+	done := make(chan error, 1)
+	go func() { done <- Publish(fd, "race", job, fmt.Sprintf("%x", sha256.Sum256(content)), input) }()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, e = os.Stat(filepath.Join(root, ".mycel-tmp-safe-"+job)); e == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("spool not created")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The native publisher has already resolved the parent and opened its spool.
+	// A separate OS process now claims the destination before the atomic link.
+	writer := exec.Command(os.Args[0], "-test.run=^TestPublishIndependentWriterRace$")
+	writer.Env = append(os.Environ(), "SAFE_BROKER_WRITER="+filepath.Join(root, "race"))
+	if out, e := writer.CombinedOutput(); e != nil {
+		t.Fatalf("writer: %v %s", e, out)
+	}
+	if _, e = feed.Write(content); e != nil {
+		t.Fatal(e)
+	}
+	feed.Close()
+	if e = <-done; !errors.Is(e, unix.EEXIST) {
+		t.Fatalf("expected EEXIST, got %v", e)
+	}
+	got, _ := os.ReadFile(filepath.Join(root, "race"))
+	if string(got) != "independent writer" {
+		t.Fatal("overwrote writer")
+	}
+	entries, _ := os.ReadDir(root)
+	if len(entries) != 1 {
+		t.Fatal("temporary file leaked")
 	}
 }
