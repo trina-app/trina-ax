@@ -45,8 +45,8 @@ import { readDeckIsolated } from '../safe-ops/deck-check'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { withWorkflow } from '../safe-ops/workflow'
 import { publishArtifact } from '../safe-ops/publication'
-import { preparePresentation, policyStamp } from '../safe-ops/presentation'
-import { snapshot, recheck, type SourceSnapshot } from '../safe-ops/source'
+import { preparePresentation } from '../safe-ops/presentation'
+import { snapshot, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
 
 type Input = z.output<typeof MakeFileInput>

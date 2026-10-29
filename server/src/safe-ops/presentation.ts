@@ -96,7 +96,3 @@ export async function preparePresentation(
   return { bytes, deck }
 }
 
-/** Relevant authorization generation, including membership and folder audience, not tool/audit writes. */
-export function policyStamp(files: FileService): string {
-  return String((files.db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation)
-}

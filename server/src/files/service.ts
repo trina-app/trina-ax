@@ -186,7 +186,7 @@ export class FileService {
     if(pixels) { this.quarantine.add(pixels, 'image'); ctx.files.imageBytes+=pixels.length }
     const text=[safeText(this.db,ctx.user.id,pixels?'image':'fallback'),'Source: '+source.path,'SHA-256: '+source.hash,ocr.slice(0,16000)].join('\n')
     const content: McpContent[]=[{type:'text',text},...(pixels?[{type:'image' as const,mimeType:'image/jpeg',data:pixels.toString('base64')}]:[])]
-    return {text,content,beforeDelivery,summary:'read '+source.path+' -> '+(pixels?'image + OCR':'OCR fallback')}
+    return {text,content,beforeDelivery,summary:'read '+source.path+' -> '+(pixels?'image':'OCR fallback')}
   }
 
   async read(ctx: ToolCtx, a: { file_path: string; offset?: number; limit?: number }): Promise<ToolOutput> {
