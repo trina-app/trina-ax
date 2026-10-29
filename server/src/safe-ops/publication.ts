@@ -8,7 +8,6 @@ import type { ToolCtx } from '../files/service'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { ToolError } from '../policy/errors'
-import { ensureParents } from '../team-files/place'
 import { fileEvent, sha256 } from '../files/store'
 import { publishChanges } from '../team-files/changes'
 import { addSources, readScope, sourceOf } from '../chat/read-scope'
@@ -61,10 +60,9 @@ export async function publishArtifact(
  assertStorageRoomForAI(bytes.length)
  if(db.query("SELECT 1 FROM safe_ops_publications WHERE cleanup!='clean' LIMIT 1").get()) throw new ToolError('Publication cleanup debt.', 'safe_ops_workflow')
  c.user=ctx.files.principal(c.user.id)
- const out=authorize(files.fx,files.rules(),c.user,requested,'write',{mustExist:false,createDirs:true,download:true})
+ const out=authorize(files.fx,files.rules(),c.user,requested,'write',{mustExist:false,download:true})
  // Skill publication requires a different artifact-specific approval UI; not qualified in 1A.
  if(out.segs[0]==='skills') throw changed()
- ensureParents(files.fx.root,out.segs)
  let target=out.rel, conflictCopyOf:string|undefined
  if(out.exists) {
    const extension=path.posix.extname(out.rel)

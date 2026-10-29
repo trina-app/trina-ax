@@ -129,6 +129,7 @@ generation and a unique publication ID. Artifact approvals bypass the legacy dir
 approval cache. Normal policy approval suffices when there is no audience widening. Saving
 under `skills/` is refused in this path; the old wildcard skill approval is not used.
 
+Destination folders must already exist; safe publication does not create directories during approval.
 If a requested name already exists, a new explicit `(conflict <UUID>)` file is approved. A writer
 that wins the name after approval receives no overwrite: native `linkat` fails with `EEXIST`;
 the operation fails and a new user/tool attempt needs a new final-target approval. The native

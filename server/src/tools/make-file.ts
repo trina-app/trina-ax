@@ -188,7 +188,7 @@ export class MakeFile {
     }
     const output=ext(a.output)==='pptx'?a.output:a.output+'.pptx'
     c.user=this.ctx.files.principal(c.user.id)
-    const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,createDirs:true,download:true})
+    const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,download:true})
     const {bytes,deck}=await preparePresentation(this.ctx.files,c,this.conv.pandoc,text,base,{slides:a.expected_slides,notes:a.expected_notes,layouts:a.expected_layouts},snapshots)
     const made=await publishArtifact(this.ctx,this.files,c,out.rel,bytes,snapshots,
       (target,sources,binding)=>this.checkWidening(c,target,target.split('/'),sources,binding))
