@@ -54,6 +54,10 @@ export const CHAT_ERROR_MESSAGES = {
   user_disabled: { code: 'forbidden', ko: '계정을 사용할 수 없습니다.', en: 'This account is not active.', id: 'Akun ini tidak aktif.' },
   no_credential: { code: 'engine_unavailable', ko: '이 엔진에 쓸 AI 연결이 없습니다. 관리자에게 알려 주세요.', en: 'There is no AI connection for this engine. Let your admin know.', id: 'Tidak ada koneksi AI untuk mesin ini. Beri tahu admin Anda.' },
   credential_unusable: { code: 'engine_unavailable', ko: 'AI 연결을 쓸 수 없습니다(거절되었거나 다시 연결이 필요해요). 관리자에게 알려 주세요.', en: 'The AI connection cannot be used (refused, or it needs to be connected again). Let your admin know.', id: 'Koneksi AI tidak bisa dipakai (ditolak, atau perlu dihubungkan lagi). Beri tahu admin Anda.' },
+  // the API engine (server/src/engine/api-agent.ts): what the provider said, without its raw text
+  model_not_found: { code: 'engine_unavailable', ko: 'AI 서비스에 설정한 모델이 없어요. 관리자에게 API 엔진의 모델 이름을 확인해 달라고 해 주세요.', en: 'The AI service does not know the model that is set. Ask your admin to check the model name of the API engine.', id: 'Layanan AI tidak mengenal model yang diatur. Minta admin memeriksa nama model mesin API.' },
+  endpoint_unreachable: { code: 'engine_unavailable', ko: 'AI 서비스 주소에 연결하지 못했어요. 잠시 뒤 다시 해 보고, 계속되면 관리자에게 API 주소를 확인해 달라고 해 주세요.', en: 'The AI service address could not be reached. Try again later. If it keeps happening, ask your admin to check the API address.', id: 'Alamat layanan AI tidak bisa dihubungi. Coba lagi nanti. Jika terus terjadi, minta admin memeriksa alamat API.' },
+  provider_error: { code: 'engine_unavailable', ko: 'AI 서비스가 오류를 보냈어요. 다시 해 보고, 계속되면 관리자에게 알려 주세요.', en: 'The AI service sent back an error. Try again. If it keeps happening, let your admin know.', id: 'Layanan AI mengirim galat. Coba lagi. Jika terus terjadi, beri tahu admin Anda.' },
 } as const satisfies Record<string, { code: ErrorCode } & Record<Locale, string>>
 
 export type ChatErrorReason = keyof typeof CHAT_ERROR_MESSAGES

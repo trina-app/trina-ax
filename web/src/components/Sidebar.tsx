@@ -7,6 +7,7 @@ import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { chatTrashDays } from '../lib/chat-trash'
 import { dateBucket, type DateBucket } from '../lib/format'
 import { clearLocalData } from '../lib/localData'
 import { platform } from '../lib/pwa'
@@ -148,6 +149,7 @@ export default function Sidebar() {
 
 function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) {
   const t = useT()
+  const me = useMeStrict()
   const locale = useLocale()
   const { chatId } = useParams()
   const [menu, setMenu] = useState(false)
@@ -176,7 +178,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
   }
   const del = async () => {
     setMenu(false)
-    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody'), confirm: t('common.delete'), danger: true }))) return
+    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
     try {
       await api.call(API.deleteChat, { params: { id: chat.id } })
       remove(chat.id)

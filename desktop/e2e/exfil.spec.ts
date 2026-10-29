@@ -7,7 +7,7 @@
 // no other site the person has not allowed (common/net-policy.ts, main/pane/net-guard.ts).
 // attacker.test (fake-team-server.ts, port 19158) logs every request URL.
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text } from './helpers'
+import { ACME, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn } from './helpers'
 
 const leaked = async (marker: string): Promise<string[]> =>
   ((await (await fetch('http://127.0.0.1:19158/__log')).json()) as { log: string[] }).log.filter((u) => u.includes(marker))
@@ -18,7 +18,7 @@ test.describe('the AI cannot carry data out of the in-app browser without the pe
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
-    await addTeam(app, 'acme.localhost:19151', ACME)
+    await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
   })
   test.afterAll(async () => close(app))
 

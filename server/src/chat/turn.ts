@@ -28,6 +28,7 @@ import { safeModel } from './engines'
 import { engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { recordSkillUse } from '../admin/skill-usage'
 import { notificationsOf } from '../notifications/service'
+import { scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
 import type { ChatRuntime } from './runtime'
@@ -54,6 +55,7 @@ import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
+import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -112,7 +114,8 @@ export class TurnExec {
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
   private error: ApiErrorBody | null = null
-  private usage = { i: 0, o: 0, c: 0, seen: false }
+  /** unknown: a usage without a cost and without a list price (API engine); ids: the provider's request ids */
+  private usage = { i: 0, o: 0, c: 0, seen: false, unknown: false, ids: [] as string[] }
   private dirty = false
   private saver: ReturnType<typeof setInterval> | null = null
   private clock: ReturnType<typeof setInterval> | null = null
@@ -142,6 +145,10 @@ export class TurnExec {
   private lastCredential: string | null = null
   /** this turn's tools (step labels of per-person tools) */
   private toolSet: ChatToolSet | null = null
+  /** the stored secrets of the person's connections, hidden in the answer, the steps, the audit lines and the title
+   * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
+  private redactorNow: Redactor | null = null
+  private readonly answerText = new RedactingText(() => this.redactor())
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
@@ -152,6 +159,9 @@ export class TurnExec {
   }
 
   get id() { return this.spec.turnId }
+  redactor(): Redactor { return (this.redactorNow ??= redactorFor(this.rt.ctx, this.spec.userId)) }
+  /** a text the turn shows or saves, with the person's stored connection secrets hidden */
+  redact(text: string): string { return this.redactor().hide(text) }
   /** The person as they are now (role and groups change while a turn runs; tab 2 "권한 회수"). Tools use this, not
    * the copy taken when the turn started. Throws Denied for a disabled or deleted account. */
   livePrincipal(): Principal {
@@ -285,7 +295,8 @@ export class TurnExec {
     const message = scheduled + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message
     const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
-    const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, spec.model, spec.turnId)
+    // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
+    const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, api ? api.model : spec.model, spec.turnId)
     this.registered = true
     if (invoked) {
       // Reporting is auxiliary: keep permission checks outside this boundary and omit file/body/error details.
@@ -361,7 +372,7 @@ export class TurnExec {
           const next = rt.fallbackModel(model)
           this.addStep({ kind: 'tool', tool: 'refusal', label: tr('refusedRetry', spec.locale, { model: next }), status: 'ok' })
           rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_refused_retry', message: tr('refusedRetry', spec.locale, { model: next }) } })
-          if (this.content && !this.content.endsWith('\n\n')) this.appendText('\n\n')
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
           model = next
           // the declined attempt may have left a half turn in the session: continue on a fresh session with history
           resume = false; sid = crypto.randomUUID()
@@ -374,7 +385,7 @@ export class TurnExec {
         if (err) this.error = engineError(err.code, spec.locale)
         else if (crashed) this.error = engineError('crash', spec.locale)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
-        if (!this.content && !this.error && parser.text) this.appendText(parser.text)
+        if (!this.writtenText && !this.error && parser.text) this.appendText(parser.text)
         break
       }
     } else if (codex) {
@@ -386,12 +397,12 @@ export class TurnExec {
       const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files }, toolSet)
       const errors: EngineEvent[] = []
       this.attemptHadOutput = false
-      await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal })
+      await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins })
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (err && !this.stopReason) {
-        rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, message: err.message.slice(0, 300) })
-        this.error = engineError(err.code, spec.locale)
+        rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
+        this.error = engineError(err.code, spec.locale, undefined, err.status)
       }
     }
     // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
@@ -431,7 +442,7 @@ export class TurnExec {
     rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_credential_switch', message: label } })
     audit(rt.db, { actor: spec.userId, action: 'engine.credential_switch', target: spec.turnId, detail: { from: f.id, to: next.credentialId, reason: f.reason } })
     rt.log.info('AI connection switch', { turn: this.id, reason: f.reason })
-    if (this.content && !this.content.endsWith('\n\n')) this.appendText('\n\n')
+    if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
     return true
   }
 
@@ -519,7 +530,7 @@ export class TurnExec {
     this.error = null
     this.proxyError = null
     this.credentialFailure = null
-    if (this.content && !this.content.endsWith('\n\n')) this.appendText('\n\n')
+    if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
     // the answer and the turn are Codex's now (usage, the "answered by" label); the Claude session lacks this answer,
     // so the next Claude turn starts fresh from the history
     rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
@@ -617,10 +628,12 @@ export class TurnExec {
         this.appendText(e.delta)
         return
       case 'thinking':
+        this.flushText()
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
       case 'tool_start': {
         this.closeThinking()
+        this.flushText()
         this.attemptHadOutput = true
         const tool = e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
@@ -642,11 +655,14 @@ export class TurnExec {
           const sources = searchSources(e.output)
           if (sources.length) patch.sources = sources
         }
+        this.redactorNow = null // a call may have refreshed a token: read the secrets again
         this.updateStep(e.id, patch)
         return
       }
       case 'usage':
         this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0; this.usage.seen = true
+        if (e.costUnknown) this.usage.unknown = true
+        if (e.requestId && this.usage.ids.length < 50) this.usage.ids.push(e.requestId)
         return
       case 'error':
         errors.push(e)
@@ -655,7 +671,15 @@ export class TurnExec {
     }
   }
 
-  appendText(t: string) {
+  /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
+  appendText(t: string) { this.emitText(this.answerText.push(t)) }
+  /** Everything held back by the redactor, let out now (before a step, a retry's separator, the end). */
+  flushText() { this.emitText(this.answerText.flush()) }
+  /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
+  get writtenText(): string { return this.content + this.answerText.held }
+
+  private emitText(t: string) {
+    if (!t) return
     const offset = this.content.length
     this.content += t
     this.dirty = true
@@ -663,6 +687,7 @@ export class TurnExec {
   }
 
   addStep(s: Partial<Step> & Pick<Step, 'kind' | 'label' | 'status'>): Step {
+    s = this.redactStep(s)
     const step: Step = {
       id: s.id !== undefined ? stepId(s.id) : `s-${crypto.randomUUID()}`, kind: s.kind, label: s.label.slice(0, 500), status: s.status,
       startedAt: s.startedAt ?? new Date().toISOString(), endedAt: s.status === 'running' ? null : (s.endedAt ?? new Date().toISOString()),
@@ -681,7 +706,7 @@ export class TurnExec {
     id = stepId(id)
     const s = this.steps.find((x) => x.id === id)
     if (!s) return
-    Object.assign(s, patch)
+    Object.assign(s, this.redactStep(patch))
     if (s.label.length > 500) s.label = s.label.slice(0, 500)
     if (s.detail && s.detail.length > 4000) s.detail = s.detail.slice(0, 4000)
     if (s.images && s.images.length > 20) s.images = s.images.slice(-20)
@@ -705,6 +730,17 @@ export class TurnExec {
     const q = this.pendingPatches.get(tool) ?? []
     q.push(patch)
     this.pendingPatches.set(tool, q)
+  }
+
+  /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
+  private redactStep<T extends Partial<Step>>(s: T): T {
+    const r = this.redactor()
+    if (!r.re) return s
+    const out: T = { ...s }
+    if (out.label !== undefined) out.label = r.hide(out.label)
+    if (out.detail) out.detail = r.hide(out.detail)
+    if (out.sources) out.sources = out.sources.map((x) => ({ ...x, title: r.hide(x.title), url: r.hide(x.url) }))
+    return out
   }
 
   private publishStep(step: Step) {
@@ -1000,6 +1036,11 @@ export class TurnExec {
 
   private async finish() {
     if (this.saver) clearInterval(this.saver)
+    this.flushText()
+    // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
+    // carries the saved answer, which the apps show in place of the streamed one)
+    this.redactorNow = null
+    this.content = this.redact(this.content)
     if (this.clock) clearInterval(this.clock)
     if (this.wallClock) clearTimeout(this.wallClock)
     if (this.stopGrace) clearTimeout(this.stopGrace)
@@ -1021,13 +1062,24 @@ export class TurnExec {
       db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.steps), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         new Date().toISOString(), this.spec.assistantId)
+      // A scheduled run's result goes in before its terminal status: the notification reconciler records any
+      // terminal scheduled turn, and an inbox event cannot change once recorded (chat/schedule-outcome.ts).
+      // '(connect)' rows are bridge connection checks (mcp/socket.ts), not tool calls.
+      if (this.spec.clientKind === 'schedule') {
+        const refused = (db.query("SELECT count(*) AS n FROM tool_events WHERE turn_id = ? AND ok = 0 AND tool <> '(connect)'").get(this.id) as { n: number }).n
+        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error').length
+        db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: refused + failedSteps }), this.id)
+      }
       const core = this.registered ? this.activeCore : null
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)
       else db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(turnStatus, new Date().toISOString(), this.error?.message ?? null, this.id)
       if (this.usage.seen) {
         // in company-key mode the model proxy already counted (authoritative); engine numbers only fill in otherwise
-        db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = 'engine' WHERE id = ? AND input_tokens = 0 AND output_tokens = 0")
-          .run(this.usage.i, this.usage.o, this.usage.c, this.id)
+        // 'engine_unpriced': the provider gave no cost for some request and the model has no list price, so the amount
+        // is the known part only (the usage page says "price unknown"; never shown as free)
+        db.query("UPDATE turns SET input_tokens = ?, output_tokens = ?, cost_usd = ?, usage_source = ? WHERE id = ? AND input_tokens = 0 AND output_tokens = 0")
+          .run(this.usage.i, this.usage.o, this.usage.c, this.usage.unknown ? 'engine_unpriced' : 'engine', this.id)
+        if (this.usage.ids.length) this.rt.log.info('provider request ids', { turn: this.id, requestIds: this.usage.ids })
       }
       this.rt.store.touchChat(this.spec.chatId)
     } catch (e) {

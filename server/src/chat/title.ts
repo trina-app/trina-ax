@@ -7,6 +7,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Attachment } from '@mycel/shared/api'
 import { hasSecret, maskSecrets } from '@mycel/shared'
+import { HIDDEN } from '../integrations/connections/hide'
 
 /** Placeholder length in graphemes (the sidebar shows about this much). */
 export const PLACEHOLDER_MAX = 40
@@ -57,14 +58,22 @@ export function cutTitle(s: string, max: number): string {
   return (space >= text.length / 2 ? text.slice(0, space) : text).replace(/[\s\-–—:;,.]+$/u, '') + '…'
 }
 
-/** A line as a title, or null when it is not worth one: empty, only symbols or an address, or mostly a secret. */
-function lineTitle(line: string): string | null {
+/** Replaces each stored connection secret in a text by HIDDEN (integrations/connections/redact.ts), for a title. */
+export type KnownSecrets = (text: string) => string
+
+/** A line as a title, or null when it is not worth one: empty, only symbols or an address, or mostly a secret (one
+ * that looks like a secret, or a stored connection secret: `known`, QA INT-13 / B-W5-1). */
+function lineTitle(line: string, known?: KnownSecrets): string | null {
   let s = stripMarkdown(line.replace(INVISIBLE, ' '))
   if (!MEANINGFUL.test(s.replace(URL, ''))) return null
   // an address becomes its host: never its path, query or credentials
   s = s.replace(URL, hostOf)
-  const secret = hasSecret(s)
-  if (secret) s = maskSecrets(s, ' ')
+  let secret = false
+  if (known) {
+    const k = known(s)
+    if (k !== s) { secret = true; s = k.split(HIDDEN).join(' ') }
+  }
+  if (hasSecret(s)) { secret = true; s = maskSecrets(s, ' ') }
   s = tidy(s)
   if (!MEANINGFUL.test(s)) return null
   // "키 aipm_… 연결해줘" keeps "키 연결해줘"; "Authorization: Bearer …" or "API_KEY=…" leave one word: skipped
@@ -77,7 +86,7 @@ function lineTitle(line: string): string | null {
  * inside them only when there is nothing else), else the name of an uploaded attachment (a team file's name is not
  * used: the title outlives the person's access to the file), else '' (the apps show "New chat" in their language).
  */
-export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = []): string {
+export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' | 'source'>[] = [], known?: KnownSecrets): string {
   const prose: string[] = [], code: string[] = []
   let fence = false, pem = false
   for (const raw of content.split(/\r?\n/)) {
@@ -89,11 +98,11 @@ export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' 
     ;(fence ? code : prose).push(l)
   }
   for (const l of [...prose, ...code]) {
-    const t = lineTitle(l)
+    const t = lineTitle(l, known)
     if (t) return t
   }
   const file = atts.find((a) => a.source !== 'team')?.name
-  return (file && lineTitle(file)) || ''
+  return (file && lineTitle(file, known)) || ''
 }
 
 export type AiTitle = { ok: true; title: string } | { ok: false; reason: 'secret' | 'empty' }

@@ -3,13 +3,14 @@
 // what the caller may not read looks exactly like what does not exist.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FileChange, FileContent, FileEntry, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
+import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { resetEngineSessions } from '../chat/runtime'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
+import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
 import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
@@ -42,7 +43,9 @@ const segsOf = (rel: string) => (rel === '' ? [] : rel.split('/'))
 const isUnder = (anc: string, p: string) => anc === '' ? p !== '' : p.startsWith(anc + '/')
 const iso = (ms: number) => new Date(ms).toISOString()
 
-interface VersionRow { id: string; path: string; version: number; sha256: string; size: number; author_id: string | null; turn_id: string | null; kind: FileVersion['kind']; conflict_path: string | null; storage_path: string | null; created_at: string; folder_id: string | null; path_at_save: string | null }
+/** GET /api/files/history `current` */
+interface HistoryCurrent { version: number; sha256: string; size: number; author: UserRef | null; turnId: string | null; at: string | null }
+interface VersionRow { id: string; path: string; version: number; sha256: string; size: number; author_id: string | null; turn_id: string | null; saved_by?: string | null; saved_turn_id?: string | null; kind: FileVersion['kind']; conflict_path: string | null; storage_path: string | null; created_at: string; folder_id: string | null; path_at_save: string | null }
 interface TrashRow { id: string; original_path: string; storage_path: string; size: number; deleted_by: string; turn_id: string | null; deleted_at: string; purge_at: string; kind: 'file' | 'folder'; folder_id: string | null }
 
 export interface Actor { userId: string; turnId?: string | null }
@@ -605,13 +608,14 @@ export class TeamFiles {
    * Also: the current file's hash (to tell which versions differ) and whether the caller may restore (write access to
    * the path, the rule restoreVersion checks; false for a path hidden from the caller).
    */
-  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean }> {
+  async history(userId: string, rel: string): Promise<{ path: string; items: FileVersion[]; currentSha256: string | null; canRestore: boolean; current: HistoryCurrent | null; events: FileHistoryEvent[] }> {
     const user = this.principal(userId)
     const rules = this.rules()
     let at = parseInput(rel).join('/') // malformed input is refused the same way for everyone
     let exists = false
     let canRestore = false
     let currentSha256: string | null = null
+    let currentSize = 0
     try {
       const r = authorize(this.fx, rules, user, rel, 'read', { mustExist: false })
       at = r.rel
@@ -620,23 +624,52 @@ export class TeamFiles {
       // the newest version is the content before the last change, not the current file
       // (a deleted file's versions too; a path hidden from the caller never gets here and stays false)
       canRestore = atLeast(rules.access(user, r.segs), 'write')
-      if (r.exists && r.st!.isFile()) { try { currentSha256 = await this.sha(r.abs, checkRegular(r.abs)) } catch {} }
+      if (r.exists && r.st!.isFile()) { try { const st = checkRegular(r.abs); currentSha256 = await this.sha(r.abs, st); currentSize = st.size } catch {} }
     } catch (e) {
       if (!(e instanceof Denied) && !(e instanceof ToolError && e.code === 'not_found')) throw e
     }
-    const rows = (this.ctx.db.query('SELECT id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(at) as VersionRow[])
+    const db = this.ctx.db
+    const rows = (db.query('SELECT id, path, version, sha256, size, author_id, turn_id, saved_by, saved_turn_id, kind, conflict_path, storage_path, created_at, folder_id, path_at_save FROM file_versions WHERE path = ? ORDER BY version DESC LIMIT 500').all(at) as VersionRow[])
       .filter((v) => this.versionVisible(user, rules, v))
     if (!exists && rows.length === 0) throw new HttpError('not_found')
     // versions whose folder is in the trash cannot be restored until the folder is (restoreVersion refuses them)
     if (rows.length && rows.every((v) => this.versionInTrash(v))) canRestore = false
-    const refs = this.userRefs(rows.map((v) => v.author_id))
+    // the changes of the file (moves followed back), each only where the caller may read the path it happened at:
+    // a file moved out of a private folder does not show what happened in there, nor that folder's name
+    const readable = (p: string) => atLeast(rules.access(user, segsOf(p)), 'read')
+    // The live rules are keyed by the live folder paths: a folder above the old path that was renamed or trashed since
+    // took its rules along, and the old path string fell back to the folder above (shared/: everyone). So the place is
+    // judged where it is now too (placeNow), like versionVisible judges a version by its folder row. Still in the
+    // trash (or purged): its rules are not in place, only owner / admin (review round 1).
+    const seen = (p: string | null, id: number): boolean => {
+      if (!p || !readable(p)) return false
+      const now = placeNow(db, p, id)
+      if ('at' in now) return now.at === p || readable(now.at)
+      return user.role === 'owner' || user.role === 'admin'
+    }
+    const timeline = exists ? fileTimeline(db, at).filter((e) => seen(e.path, e.id)) : []
+    // who made the content as it is now: the newest content change, when it made exactly this content
+    const head = timeline.find((e) => CONTENT_KINDS.has(e.kind))
+    const top = (db.query('SELECT MAX(version) AS v FROM file_versions WHERE path = ?').get(at) as { v: number | null }).v ?? 0
+    const refs = this.userRefs([...rows.flatMap((v) => [v.author_id, v.saved_by ?? null]), ...timeline.map((e) => e.userId)])
+    const ref = (id: string | null | undefined) => (id ? refs.get(id) ?? { id, name: id } : null)
+    const headKnown = !!head && !!currentSha256 && head.sha256 === currentSha256
     return {
       path: at,
       currentSha256,
       canRestore,
+      current: exists && currentSha256 ? {
+        version: top + 1, sha256: currentSha256, size: currentSize,
+        author: headKnown ? ref(head!.userId) : null, turnId: headKnown ? head!.turnId : null, at: headKnown ? normIso(head!.at) : null,
+      } : null,
+      events: timeline.map((e) => ({
+        id: e.id, at: normIso(e.at), kind: e.kind, by: ref(e.userId), turnId: e.turnId, path: e.path,
+        from: seen(e.from, e.id) ? e.from : null, size: e.size,
+      })),
       items: rows.map((v) => ({
-        id: v.id, path: v.path, version: v.version, sha256: v.sha256, size: v.size, author: v.author_id ? refs.get(v.author_id) ?? { id: v.author_id, name: v.author_id } : null,
+        id: v.id, path: v.path, version: v.version, sha256: v.sha256, size: v.size, author: ref(v.author_id),
         turnId: v.turn_id, kind: v.kind, conflictPath: v.conflict_path, createdAt: normIso(v.created_at),
+        savedBy: ref(v.saved_by), savedTurnId: v.saved_by ? v.saved_turn_id ?? null : null,
       })),
     }
   }

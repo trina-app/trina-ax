@@ -673,7 +673,7 @@ describe('build-office.ts: the staged bundle is checked before the zip is made',
 
   test('both architectures, what office-install.sh reads; pandoc and desktop.sha256 only when built in', () => {
     const m = bundleManifest({ pandoc: true, desktop: false })
-    for (const f of ['office-install.sh', 'app/VERSION', 'app/product.env', 'app/server/src/office.js', 'app/server/migrations/',
+    for (const f of ['office-install.sh', 'app/VERSION', 'app/product.env', 'app/server/src/office.js', 'app/server/src/office-worker.js', 'app/server/migrations/',
       'app/bin/darwin-arm64/bun', 'app/bin/darwin-amd64/cloudflared', 'app/bin/darwin-amd64/pandoc', 'app/native/bin/darwin-arm64/mycel-launcher',
       'app/native/bin/darwin-amd64/mycel-ocr', 'app/scripts/macos/engine.sb', 'app/web/dist/index.html']) expect(m).toContain(f)
     expect(m).not.toContain('desktop.sha256')

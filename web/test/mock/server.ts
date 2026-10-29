@@ -223,8 +223,8 @@ export class MockServer {
       { id: uuidv7(), path: 'finance', exists: true, createdAt: now(), rules: [] },
     ]
     this.folders[0]!.rules = [{ id: uuidv7(), folderId: this.folders[0]!.id, subjectType: 'group', subjectId: g.id, access: 'read', updatedBy: null, updatedAt: now() }]
-    this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 1, sha256: 'a'.repeat(64), size: 20, author: { id: 'bob', name: 'Bob' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now() })
-    this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 2, sha256: 'b'.repeat(64), size: 26, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now() })
+    this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 1, sha256: 'a'.repeat(64), size: 20, author: { id: 'bob', name: 'Bob' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: 'olga', name: 'Olga' }, savedTurnId: null })
+    this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 2, sha256: 'b'.repeat(64), size: 26, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'edit', conflictPath: null, createdAt: now(), savedBy: { id: 'bob', name: 'Bob' }, savedTurnId: null })
     // a version identical to the file as it is now (after a restore): shown as "same as now", not offered
     this.versions.push({ id: uuidv7(), path: 'marketing/plan.md', version: 3, sha256: sha256Hex(this.files.get('marketing/plan.md')!.data!), size: 26, author: { id: 'olga', name: 'Olga' }, turnId: null, kind: 'restore', conflictPath: null, createdAt: now() })
     // finance is read-only for the owner here: versions can be downloaded, not restored
@@ -329,7 +329,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set) },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -832,7 +832,10 @@ export class MockServer {
     },
     history: (c) => {
       const f = this.files.get(c.query.path!)
-      return { path: c.query.path, items: this.versions.filter((v) => v.path === c.query.path), currentSha256: f?.data ? sha256Hex(f.data) : null, canRestore: this.access(c.query.path!, c.user) === 'write' }
+      const items = this.versions.filter((v) => v.path === c.query.path)
+      const current = f?.data ? { version: Math.max(0, ...items.map((v) => v.version)) + 1, sha256: sha256Hex(f.data), size: f.data.byteLength, author: { id: 'olga', name: 'Olga' }, turnId: null, at: f.mtime } : null
+      const events = current ? [{ id: 1, at: f!.mtime, kind: 'edited' as const, by: current.author, turnId: null, path: c.query.path!, from: null, size: current.size }] : []
+      return { path: c.query.path, items, currentSha256: current?.sha256 ?? null, canRestore: this.access(c.query.path!, c.user) === 'write', current, events }
     },
     versionDownload: (c) => {
       const v = this.versions.find((x) => x.id === c.params.versionId) ?? fail('not_found', 404)
@@ -841,7 +844,7 @@ export class MockServer {
     restoreVersion: (c) => {
       const v = this.versions.find((x) => x.id === c.body.versionId) ?? fail('not_found', 404)
       if (this.access(v.path, c.user) !== 'write') fail('forbidden', 403)
-      this.versions.push({ ...v, id: uuidv7(), version: this.versions.filter((x) => x.path === v.path).length + 1, kind: 'restore', createdAt: now() })
+      this.versions.push({ ...v, id: uuidv7(), version: this.versions.filter((x) => x.path === v.path).length + 1, kind: 'restore', createdAt: now(), author: { id: c.user.id, name: c.user.name }, savedBy: null, savedTurnId: null })
       return { path: v.path, conflict: false, entry: this.entry(v.path, this.files.get(v.path)!, c.user) }
     },
     trash: () => ({ items: this.trash.map(({ node: _n, ...t }) => t), nextCursor: null }),

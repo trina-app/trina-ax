@@ -20,6 +20,9 @@ export interface ExportRequest {
   locale?: Locale
   what: ('chats' | 'memories' | 'files')[]
   password?: string
+  /** hides the person's stored connection secrets (integrations/connections/redact.ts) in the chat titles: the file
+   * names and the headings (QA SEC-16, B-W5-1). A title made before the fix can still hold one in the database. */
+  hide?: (text: string) => string
 }
 
 interface ChatRow { id: string; title: string; created_at: string; updated_at: string; engine: string; active_leaf_id: string | null }
@@ -97,7 +100,9 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
       yield { name: `${root}/chats`, type: 'dir' }
       const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model FROM messages WHERE chat_id = ?')
       const used = new Set<string>()
-      for (const c of chats) {
+      const hide = req.hide ?? ((t: string) => t)
+      for (const raw of chats) {
+        const c = { ...raw, title: hide(raw.title) }
         let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
         if (used.has(base)) base += ` ${c.id.slice(-6)}`
         used.add(base)

@@ -8,7 +8,7 @@ import { updateTeamSettings } from '../../server/src/admin/settings'
 let h: Harness
 afterEach(async () => { await h?.close() })
 const expected = {
-  ko: ['예약 작업이 완료됐어요.', '예약 작업을 마치지 못했어요. 실행 결과를 확인해 주세요.', '연결에 다시 로그인이 필요해요.'],
+  ko: ['예약 작업이 완료됐어요.', '예약 작업에 확인할 일이 있어요. 실행 결과를 확인해 주세요.', '연결에 다시 로그인이 필요해요.'],
   en: ['A scheduled task completed.', 'A scheduled task needs your attention.', 'A connection needs you to sign in again.'],
   id: ['Tugas terjadwal selesai.', 'Tugas terjadwal perlu perhatian Anda.', 'Koneksi perlu login ulang.'],
 }

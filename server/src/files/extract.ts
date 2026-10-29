@@ -1,13 +1,17 @@
-// Text for read/grep. Office formats: pandoc (docx/pptx/odt), SheetJS (xlsx/xls/ods), pdftotext (pdf), hwp.ts (hwp/hwpx).
+// Text for read/grep. Office formats: pandoc (docx/pptx/odt), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
+// worker (office-worker.ts, a bun child process), pdftotext (pdf).
 // Scanned PDFs and images: mycel-ocr (native/ocr, Apple Vision, macOS) when it is built.
 // Input bytes always come from an fd opened with O_NOFOLLOW and checked (nlink==1), and are fed to the
 // converters on stdin, so a converter never opens a path itself. Converters run isolated (tools/isolate.ts:
 // sandbox-exec on macOS, bwrap on Linux): no network, no reading of the team folder or server data.
-import * as XLSX from 'xlsx'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { ToolError } from '../policy/errors'
-import { hwpText, hwpxText } from './hwp'
 import { runIsolated } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
+import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
+import { tooComplex } from './zip-guard'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
@@ -41,28 +45,82 @@ async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, 
   return r.stdout.toString('utf8')
 }
 
-/** formats parsed inside the server process (no converter, no isolation): capped where the limits apply */
-export const IN_PROCESS_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
+/** formats parsed by the office worker (pure TypeScript parsers, never in the server process); capped where the
+ * limits apply (the name stays from when they ran in-process) */
+export const IN_PROCESS_EXT = WORKER_EXT
 export const TOO_BIG_IN_PROCESS = 'too large to read as text (over 32 MB); download it to look at it'
+
+/** the office worker's limits: wall clock, resident memory (where no converter cgroup applies; the cgroup's memory.max
+ * applies on production Linux as well), workers at the same time (the rest wait) */
+export const OFFICE_WORKER_TIMEOUT_MS = 60_000
+export const OFFICE_WORKER_RSS_MIB = 2048
+const OFFICE_WORKERS_MAX = 2
+
+/** The worker script: built next to main.js in the bundles; in a repository checkout built once per process from the
+ * TypeScript source into a private temp folder. The isolation lets the worker read that folder (bun reads the
+ * script's folder, not only the file): the bundle's server/src holds only the built server files. */
+let workerScript: Promise<string> | null = null
+export function officeWorkerScript(): Promise<string> {
+  return (workerScript ??= (async () => {
+    const built = path.join(import.meta.dir, 'office-worker.js')
+    if (fs.existsSync(built)) return fs.realpathSync(built)
+    const src = path.join(import.meta.dir, 'office-worker.ts')
+    if (!fs.existsSync(src)) throw new Error('office-worker.js is missing next to the server files')
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'office-worker-')))
+    process.once('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }) } catch {} })
+    const res = await Bun.build({ entrypoints: [src], target: 'bun', outdir: dir, naming: 'office-worker.js', minify: false })
+    if (!res.success) throw new Error('office worker build failed: ' + res.logs.map(String).join('\n'))
+    return path.join(dir, 'office-worker.js')
+  })().catch((e) => { workerScript = null; throw e }))
+}
+
+let running = 0
+const waiting: (() => void)[] = []
+/** At most OFFICE_WORKERS_MAX workers; a finished one hands its slot straight to the next waiting caller. */
+async function slot<T>(f: () => Promise<T>): Promise<T> {
+  if (running >= OFFICE_WORKERS_MAX) await new Promise<void>((r) => waiting.push(r))
+  else running++
+  try { return await f() } finally {
+    const next = waiting.shift()
+    if (next) next()
+    else running--
+  }
+}
+
+/** A spreadsheet or Hangul file's text from the office worker, isolated like the other converters. */
+export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+  const script = await officeWorkerScript()
+  return slot(async () => {
+    signal?.throwIfAborted()
+    const r = await runIsolated({
+      cmd: process.execPath, args: ['--smol', '--no-env-file', script, e], stdin: bytes, readPaths: [path.dirname(script)],
+      timeoutMs: OFFICE_WORKER_TIMEOUT_MS, maxStdout: OFFICE_TEXT_MAX + 1024 * 1024, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
+    })
+    if (r.killed === 'aborted') signal?.throwIfAborted()
+    if (r.killed === 'timeout') throw tooComplex(`reading it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`)
+    if (r.killed === 'memory') throw tooComplex(`reading it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
+    if (r.killed === 'output') throw tooComplex(`more than ${OFFICE_TEXT_MAX / 1024 / 1024} MB of text`)
+    if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 500))
+    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal, no exit code
+    if (r.code === null || r.code >= 128) throw tooComplex('the reader ran out of memory or time')
+    if (r.code !== 0) throw new ToolError(`could not convert the file to text (office reader: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code})`)
+    return r.stdout.toString('utf8')
+  })
+}
 
 export async function extractText(name: string, bytes: Uint8Array, tools: Tools, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted()
   const e = ext(name)
   // a spreadsheet or Hangul file expands many times in memory: refused above 32 MB where limits apply (Linux, a plan;
-  // system/limits.ts), so one big file cannot take the tenant's server down
+  // system/limits.ts) before a worker starts; smaller ones still meet the worker's own limits
   if (IN_PROCESS_EXT.has(e) && bytes.byteLength > inProcessParseMax()) throw new ToolError(TOO_BIG_IN_PROCESS)
   switch (e) {
     case 'docx': case 'pptx': case 'odt':
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
       return pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal)
-    case 'xlsx': case 'xls': case 'ods': {
-      const wb = XLSX.read(bytes, { type: 'array', cellFormula: false, cellHTML: false })
-      return wb.SheetNames.map((s) => `# sheet: ${s} (tab-separated)\n` + XLSX.utils.sheet_to_csv(wb.Sheets[s], { FS: '\t', blankrows: false })).join('\n\n')
-    }
-    case 'hwp':
-      return hwpText(bytes)
-    case 'hwpx':
-      return hwpxText(bytes)
+    case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
+      return officeWorkerText(e, bytes, signal)
     case 'pdf': {
       if (!tools.pdftotext && !tools.ocr) throw new ToolError('pdftotext is not installed on the server')
       if (tools.pdftotext) {

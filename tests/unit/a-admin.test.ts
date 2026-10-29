@@ -46,7 +46,7 @@ describe('engines', () => {
 
   test('installed + logged in + pinned version -> ok, with models; no model call is made', async () => {
     const r = await admin.call('GET', '/api/admin/engines')
-    expect(r.engines.map((e: any) => [e.id, e.status, e.version, e.authMode])).toEqual([['claude-code', 'ok', '2.1.305', 'local-login'], ['codex', 'ok', '0.163.0', 'local-login'], ['api', 'not_installed', null, 'local-login']])
+    expect(r.engines.map((e: any) => [e.id, e.status, e.version, e.authMode])).toEqual([['claude-code', 'ok', '2.1.305', 'local-login'], ['codex', 'ok', '0.163.0', 'local-login'], ['api', 'not_installed', null, 'api-key']])
     expect(r.engines[0].models.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku'])
     expect(r.engines[1].models).toEqual([{ id: 'gpt-x', label: 'GPT-X' }])
     expect(r).toMatchObject({ defaultEngine: 'claude-code', defaultModel: null, concurrency: 3, accounts: [] })
@@ -210,6 +210,13 @@ describe('settings, budgets, usage, audit', () => {
     expect((await owner.call('PATCH', '/api/admin/settings', { browserAllowAll: true })).browserAllowAll).toBe(true)
     expect((await mem.client.call('GET', '/api/me')).team.browserAllowAll).toBe(true)
     expect(announced()).toBeGreaterThan(0)
+  })
+  test('chat retention is in Me for every member: the chat trash and account deletion texts show the saved value', async () => {
+    expect((await mem.client.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(7)
+    expect((await admin.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 3 })).chatTrashRetentionDays).toBe(3)
+    expect((await mem.client.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(3)
+    expect((await owner.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(3)
+    expect((await admin.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 7 })).chatTrashRetentionDays).toBe(7)
   })
   test('budgets: subjects checked, current spend shown, checkBudgets for proxy mode', async () => {
     const team = await admin.call('POST', '/api/admin/budgets', { subjectType: 'team', subjectId: null, period: 'month', limitUsd: 100, action: 'warn' })

@@ -50,8 +50,11 @@ export const MakeFileInput = z.strictObject({
   format: z.enum(['docx', 'pptx', 'xlsx', 'pdf']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
   template: optRelPath.describe('Template file under skills/'),
+  expected_slides: z.number().int().min(1).max(500).optional().describe('pptx only: the number of slides the user asked for, title slide included. Give it whenever the user names a number; a different result is an error and nothing is saved.'),
+  expected_notes: z.number().int().min(0).max(500).optional().describe('pptx only: how many slides must have speaker notes (e.g. the slide count when the user wants notes on every slide)'),
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
-export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string() })
+  .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
+export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional() })
 
 export const ShareFileInput = z.strictObject({ path: relPath, mode: z.enum(['preview', 'download']) })
 export const ShareFileOutput = z.object({ url: z.string() })

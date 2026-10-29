@@ -173,7 +173,8 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
   if (p === '/test/login') {
     const user = url.searchParams.get('user')
     const v = user && /^[a-z0-9-]{1,40}$/.test(user) ? `u-${user}.${crypto.randomUUID()}` : crypto.randomUUID()
-    return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax` })
+    // a 30-day cookie like the real server's (auth/service.ts sessionCookie): the sign-in survives an app restart
+    return json({ value: v }, 200, { 'set-cookie': secure ? `__Host-sid=${v}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000` : `mycel-dev-sid=${v}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000` })
   }
   if (p === '/test/lan' && req.method === 'POST') {
     await lanControl(t, Boolean(((await req.json()) as { up?: boolean }).up))

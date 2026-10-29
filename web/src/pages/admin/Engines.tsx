@@ -115,9 +115,10 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
           <h2 id={`eng-${e.id}`} className="font-semibold">
             {e.label}
             {e.beta && <span className="ml-2 align-middle"><Badge tone="warn">{t('engines.beta')}</Badge></span>}
+            {e.id === 'api' && <span className="ml-2 align-middle" data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
           </h2>
           <p className="text-xs text-muted">
-            <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge> {e.version && <span className="ml-1">v{e.version}</span>} · {t(`engines.mode.${e.authMode}`)}
+            <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge> {e.version && <span className="ml-1">v{e.version}</span>} · {e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })}
           </p>
         </div>
         <IconButton label={t('engines.check')} onClick={onCheck} disabled={checking}>
@@ -125,6 +126,7 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
         </IconButton>
       </div>
       {e.beta && <p className="mt-2 text-xs text-muted" data-testid="engine-beta">{t('engines.betaHint')}</p>}
+      {e.id === 'api' && <p className="mt-2 text-xs text-muted">{t('engines.experimentalHint')}</p>}
       {e.detail && (
         <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm" data-testid="engine-detail">
           {e.detail}
