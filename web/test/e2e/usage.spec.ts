@@ -7,7 +7,7 @@ const tokens = [133879, 40198, 34524]
 const tokenSum = tokens.reduce((sum, n) => sum + n, 0)
 
 async function barWidths(page: Page) {
-  return page.getByTestId('usage-table').locator('tbody td[aria-hidden] [style]').evaluateAll((bars) =>
+  return page.getByTestId('usage-table').locator('tbody [aria-hidden] [style]').evaluateAll((bars) =>
     bars.map((bar) => Number.parseFloat((bar as HTMLElement).style.width)))
 }
 
@@ -33,6 +33,7 @@ test('all groupings show shares of displayed row tokens and preserve report tota
     expect(widths).toHaveLength(3)
     widths.forEach((width, i) => expect(width).toBeCloseTo(tokens[i]! / tokenSum * 100, 3))
     expect(widths.reduce((sum, n) => sum + n, 0)).toBeCloseTo(100, 3)
+    await expect(page.getByTestId('usage-share')).toHaveText(tokens.map((n) => new Intl.NumberFormat('ko', { style: 'percent', maximumFractionDigits: 1 }).format(n / tokenSum)))
     const total = group === 'skill' || group === 'group' ? tokens[0]! : group === 'credential' ? tokenSum + 1000 : tokenSum
     await expect(table.locator('tfoot td').nth(2)).toHaveText(total.toLocaleString('ko'))
     if (group === 'skill') await expect(page.getByTestId('usage-skill-note')).toContainText('중복')
@@ -69,9 +70,9 @@ test('zero usage produces finite zero-width bars and an empty range remains expo
 })
 
 for (const [locale, phrases] of [
-  ['en', ['API key amounts use provider-reported costs when available, otherwise list-price estimates.', 'Managed subscription connections show 0', 'Development local-login may show an engine-reported estimate, even with a subscription.', 'not bills or subscription fees', 'Rows may overlap.']],
-  ['ko', ['API 키 연결 금액은 제공자가 보고한 비용을 우선 쓰고, 없으면 정가로 추정해요.', '관리형 구독 연결은 요청 단가가 없어 금액이 0', '개발용 로컬 로그인(local-login)은 구독이어도 엔진이 보고한 추정 비용이 표시될 수 있어요.', '실제 청구액이나 구독료가 아니에요', '중복']],
-  ['id', ['Jumlah untuk kunci API memakai biaya yang dilaporkan penyedia jika tersedia, atau perkiraan berdasarkan harga daftar.', 'Koneksi langganan terkelola menampilkan 0', 'Login lokal untuk pengembangan (local-login) dapat menampilkan perkiraan dari mesin, meskipun memakai langganan.', 'bukan tagihan atau biaya langganan', 'Penggunaan dapat terhitung di beberapa baris.']],
+  ['en', ['Amounts are estimates of the equivalent API cost.', 'Managed subscription connections have no per-request price, so they add 0', 'Development local-login shows the engine’s estimate of the equivalent API cost, also with a subscription.', 'not bills or subscription fees', 'Rows may overlap.', 'Est. cost']],
+  ['ko', ['금액은 같은 사용량을 API로 썼을 때의 추정 비용이에요.', '관리형 구독 연결은 요청 단가가 없어 0으로 더해요', '개발용 로컬 로그인(local-login)은 구독이어도 엔진이 추정한 API 환산 비용을 보여요.', '실제 청구액이나 구독료가 아니에요', '중복', '추정 금액']],
+  ['id', ['Jumlah adalah perkiraan biaya API yang setara.', 'Koneksi langganan terkelola tidak punya harga per permintaan, jadi menambah 0', 'Login lokal untuk pengembangan (local-login) menampilkan perkiraan biaya API setara dari mesin, juga dengan langganan.', 'bukan tagihan atau biaya langganan', 'Penggunaan dapat terhitung di beberapa baris.', 'Perkiraan biaya']],
 ] as const) {
   test(`cost explanation covers managed zero, API and local-login estimates in ${locale}`, async ({ page }, testInfo) => {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
@@ -88,6 +89,8 @@ for (const [locale, phrases] of [
     await page.goto('/admin/usage')
     await expect(page.getByTestId('usage-table')).toContainText('Development local-login')
     for (const phrase of phrases.slice(0, 4)) await expect(page.getByText(phrase, { exact: false })).toBeVisible()
+    // The column header names the amount an estimate, so a non-zero local-login amount does not read as a bill.
+    await expect(page.getByTestId('usage-table').locator('thead th').last()).toHaveText(phrases[5])
     for (const [i, cost] of [0, 0.125, 0.5142].entries()) {
       await expect(page.getByTestId('usage-table').locator('tbody tr').nth(i).locator('td').last()).toHaveText(
         new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(cost))
