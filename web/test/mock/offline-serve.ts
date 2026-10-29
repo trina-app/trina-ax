@@ -9,6 +9,7 @@ const handle = mock.handle.bind(mock)
 let mode = 'online'
 mock.handle = async (req, root) => {
   const url = new URL(req.url)
+  if (url.pathname === '/sw.js' && process.env.OFFLINE_FIXTURE_SW === '0') return new Response('Not found', { status: 404 })
   if (mode === 'api-down' && url.pathname.startsWith('/api/')) return new Response('Unavailable', { status: 503 })
   if (mode === '503' && req.headers.get('sec-fetch-mode') === 'navigate') {
     return new Response('<!doctype html><html><body><h1>Scheduled maintenance</h1></body></html>', {

@@ -5,12 +5,13 @@ import { expect, type Page } from '@playwright/test'
 import { OWNER } from './helpers'
 
 /** Separate from the normal suite server: only this fixture owns/stops these listeners. */
-export async function offlineServer() {
-  const port = 19842
+export async function offlineServer({ serviceWorker = true } = {}) {
+  // Keep this listener separate from the regular web suite's MOCK_PORT server.
+  const port = Number(process.env.OFFLINE_MOCK_PORT ?? 19842)
   const url = `http://127.0.0.1:${port}`
   const control = `http://127.0.0.1:${port + 1}`
   const child = spawn('bun', [fileURLToPath(new URL('../mock/offline-serve.ts', import.meta.url))], {
-    env: { ...process.env, MOCK_PORT: String(port) }, stdio: ['ignore', 'ignore', 'pipe'],
+    env: { ...process.env, MOCK_PORT: String(port), OFFLINE_FIXTURE_SW: serviceWorker ? '1' : '0' }, stdio: ['ignore', 'ignore', 'pipe'],
   })
   let errors = ''
   child.stderr.on('data', chunk => { errors += chunk })

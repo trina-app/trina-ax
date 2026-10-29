@@ -2721,3 +2721,23 @@ including same-account installs. Extend the same synthetic selection tests to co
   200 ms (a file-size rlimit in the sandbox would be a hard limit). For a HEIF file with many top-level images,
   `out-1.jpg` is used, which is not always the primary image. On Linux `heif-dec` keeps the full size, so a JPEG over
   20 MB gives no preview.
+
+## Keep Electron recovery visible after a failed navigation (qa5-electron-offline, 2026-10-29)
+
+- B-W52-1: Chromium can emit `did-finish-load` for its error document after `did-fail-load`, while the main
+  process still reports the team URL. The old completion handler changed offline mode back to team mode,
+  detaching the localized recovery view and revealing a blank error page. This predates round-4 `6340439`:
+  the same handler is present at `3080b71`; the stopped-server regression fails both on `b166a2e` and with
+  the `3080b71` AppWindow implementation built into the current test harness.
+- Remember failure for the current main-frame navigation, reset it only when a new main-frame navigation
+  starts, and ignore failed-document completion both before and after the asynchronous SW marker read.
+  Attach recovery through the existing layout and focus its WebContents. Keep aborted/subframe failures,
+  direct-address failover, explicit SW marker detection and ordinary HTTP 503 behavior unchanged.
+- Real Electron regressions stop/restart the production-web fixture with no service worker in ko/en/id.
+  Assert native-window attachment, full window bounds and keyboard focus after error-document completion,
+  keyboard Retry with the same signed-in session, and visible Other teams. Keep the active-worker path and
+  ordinary 503 controls. `OFFLINE_MOCK_PORT` selects the fixture's child `MOCK_PORT` independently of the
+  regular web suite's server; the fixture can omit its worker for deterministic coverage. Worker-backed
+  cases still assert actual activation/control and that the fallback response comes from the worker.
+- No locale policy, translations, credentials or cached account data change. Apply the same fix in the
+  shared core (`potenlab/team-ax`).

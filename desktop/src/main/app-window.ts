@@ -252,18 +252,26 @@ export class AppWindow {
       this.mode = 'offline'
       this.layout()
       this.sendWelcome()
+      this.shell.webContents.focus()
     }
+    let navigationFailed = false
     app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return // -3: aborted (a new navigation replaced it)
       debug('team page failed to load', code, url)
+      navigationFailed = true
       failedNavigation(url)
     })
     let navigation = 0
     app.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace) navigation++
+      if (isMainFrame && !isInPlace) {
+        navigation++
+        navigationFailed = false
+      }
     })
     app.webContents.on('did-finish-load', async () => {
-      if (this.app !== app) return
+      // Chromium also finishes its error document after did-fail-load, while getURL() can still
+      // report the team URL. That completion must not detach recovery and reveal the blank error page.
+      if (this.app !== app || navigationFailed) return
       const loaded = navigation
       const url = app.webContents.getURL()
       // A service-worker navigation fallback loads successfully (HTTP 503), so did-fail-load never runs.
@@ -271,7 +279,7 @@ export class AppWindow {
       const offline = await app.webContents.executeJavaScript(
         `document.querySelector('meta[name="mycel-offline"]')?.content === 'navigation-v1'`,
       ).catch(() => false)
-      if (this.app !== app || app.webContents.isDestroyed() || navigation !== loaded) return
+      if (this.app !== app || app.webContents.isDestroyed() || navigation !== loaded || navigationFailed) return
       if (offline === true) { failedNavigation(url); return }
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
       this.layout()
