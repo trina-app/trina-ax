@@ -62,6 +62,16 @@ test('approval binds final hash, target, audience and monotonic policy generatio
  })).rejects.toThrow()
  expect(bound).toBeDefined();expect(fs.existsSync(path.join(A.team,'users/alice/revoked.pptx'))).toBe(false)
 })
+test('model-authored output rechecks an earlier read even without explicit source references',async()=>{
+ const rel='users/alice/earlier.txt',c=A.toolCtx('alice',A.turn('alice',A.chat('alice')))
+ fs.writeFileSync(path.join(A.team,rel),'earlier authorized source')
+ await A.ctx.files.read(c,{file_path:rel})
+ fs.writeFileSync(path.join(A.team,rel),'replacement')
+ let approved=false
+ await expect(publishArtifact(A.ctx,componentC(A.ctx).files,c,'users/alice/derived.pptx',qbytes,[],async()=>{approved=true})).rejects.toThrow()
+ expect(approved).toBe(false)
+ expect(fs.existsSync(path.join(A.team,'users/alice/derived.pptx'))).toBe(false)
+})
 test('workflow admission spans awaited stages and charges cumulative jobs',async()=>{
  const c=A.toolCtx('bob',A.turn('bob',A.chat('bob')))
  let release!:()=>void, started!:()=>void

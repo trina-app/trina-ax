@@ -47,7 +47,8 @@ export async function publishArtifact(
  sources=[...sources]
  let sourceBytes=sources.reduce((n,s)=>n+s.bytes.length,0)
  for(const [rel,expectedHash] of c.files.readHashes) {
-   if(sources.some(s=>s.path===rel)) continue
+   const explicit=sources.find(s=>s.path===rel)
+   if(explicit) { if(explicit.hash!==expectedHash) throw changed(); continue }
    if(sources.length>=32) throw new ToolError('Safe source limit.', 'safe_ops_workflow')
    const source=snapshot(ctx.files,c,rel,Math.max(0,32*1024**2-sourceBytes))
    const image=c.files.imageSources.get(rel)
