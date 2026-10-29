@@ -6,7 +6,7 @@ Mac에서 트리나 AX를 실행하고 팀원은 브라우저로 접속합니다
 
 ## 1. 준비물·다운로드
 
-macOS 13 이상, Apple Silicon 또는 Intel, 전용 로그인 계정, FileVault, 인터넷(유선 권장), 허용된 Claude 연결이 필요합니다. Mac 처리 용량의 실측 보장은 없습니다. ZIP에 런타임 도구가 있어 받는 사람은 Git·Go·Bun을 설치하지 않아도 됩니다. 로컬 로그인을 쓰려면 Claude Code를 별도 설치합니다. 개인 구독이 자동으로 팀 사용 권한을 주는 것은 아니므로 계정·요금제의 허용 범위를 확인하세요.
+macOS 13 이상, Apple Silicon 또는 Intel, 전용 로그인 계정, FileVault, 인터넷(유선 권장), 허용된 Claude 연결이 필요합니다. Mac 처리 용량의 실측 보장은 없습니다. ZIP에 런타임 도구가 있어 받는 사람은 Git·Go·Bun을 설치하지 않아도 됩니다. 설치기를 실행하기 전에 Claude Code를 별도로 설치하세요. ZIP에는 포함되지 않습니다. 기본 local-login 방식에서는 전용 Mac 사용자로 `claude`를 실행해 허용된 계정으로 로그인하고, `claude auth status`에서 로그인 상태를 확인하세요. 또는 허용된 `claude setup-token` 출력을 보호된 파일에 저장해 `--claude-token-file /path/to/token-file`로 설치기에 전달할 수 있습니다. 개인 구독이 자동으로 팀 사용 권한을 주는 것은 아니므로 계정·요금제의 허용 범위를 확인하세요.
 
 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 `TrinaAX-office-<버전>-mac.zip`과 `SHA256SUMS`를 받으세요. 와일드카드의 최신 파일 대신 정확한 파일 이름을 사용합니다. 내부 폴더는 `TrinaAX-office-<버전>/`이고 `office-install.sh`, `app/docs/OFFICE.md`가 있습니다. **PDF는 선택 빌드 산출물로 ZIP에 있다고 보장하지 않습니다.** 포함된 Markdown 또는 온라인 가이드를 읽으세요.
 

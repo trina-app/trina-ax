@@ -13,7 +13,7 @@ A local backup is on the same disk. Keep an encrypted off-host copy and test rec
 | `archive` / `restore-archive` | Database + team files (including file history present there), extracted to `db/app.sqlite` and `team/` | OS accounts, services, config, CA keys, provider secret keys and data-directory session state |
 | Office `teamax restore-archive` | Stops the app and swaps the recovered DB/team into the office installation | Does not reconstruct missing deployment settings or external accounts |
 
-Keep all members of a full/incremental backup chain. Do not copy a running SQLite database with plain `cp`; the CLI uses a consistent snapshot. All restore paths invalidate sessions. Backups may contain encrypted credential rows but not the sealing keys: on a new machine reconnect providers and integrations. Do not publish archives or passwords.
+Keep all members of a full/incremental backup chain. Do not copy a running SQLite database with plain `cp`; the CLI uses a consistent snapshot. Restored database copies invalidate saved sessions, unused invitations and password-reset links. Extracting an archive or restoring team files to a new folder does not end sessions on the running server; replacing its database requires everyone to sign in again. Backups may contain encrypted credential rows but not the sealing keys: on a new machine reconnect providers and integrations. Do not publish archives or passwords.
 
 ## Make a backup now
 
@@ -31,9 +31,11 @@ The wrapper asks for the archive password without echo. Store it separately; a l
 Linux (default install; run as the service account):
 
 ```sh
-trina_admin() {
-  sudo -u axserver env MYCEL_CONFIG=/var/lib/mycel/config/server.json     /var/lib/mycel/app/current/bin/bun     /var/lib/mycel/app/current/server/src/admin.js "$@"
-}
+trina_admin() (
+  cd / && sudo -u axserver env MYCEL_CONFIG=/var/lib/mycel/config/server.json \
+    /var/lib/mycel/app/current/bin/bun \
+    /var/lib/mycel/app/current/server/src/admin.js "$@"
+)
 trina_admin backup --scope full
 trina_admin list-backups
 trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-stdin

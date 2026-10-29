@@ -1,7 +1,7 @@
 Trina AX office / 트리나 AX 사무실 설치
 =====================================
 
-Read app/docs/OFFICE.md (한국어) or app/docs/OFFICE.md (English).
+Read app/docs/OFFICE.md (한국어) or app/docs/OFFICE.en.md (English).
 Online: https://github.com/trina-app/trina-ax/blob/main/docs/OFFICE.md
 PDF guides are optional build outputs, not guaranteed in this ZIP.
 PDF는 선택 산출물이며 ZIP에 포함된다고 보장하지 않습니다.

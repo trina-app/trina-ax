@@ -4,9 +4,7 @@ This guide covers the **server Mac**. It runs the team server and AI engines, Cl
 Team members use the web app, desktop clients or a phone browser. For a synthetic local preview, start with the
 [quickstart](QUICKSTART.md). For a Linux server, use [INSTALL-LINUX.md](INSTALL-LINUX.md).
 
-Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on macOS 26.3.1 (Apple Silicon). A Korean, illustrated version for
-the person who installs it is in [Korean installation guide](install/guide.html) (source
-`docs/install/guide.html`, rebuild with `bun docs/install/build-pdf.ts`).
+Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on macOS 26.3.1 (Apple Silicon). The [Korean installation entry](install/guide.html) now links to the current operator guides; it is not a translation of every advanced command below.
 
 ## Historical validation notes (2026-10-21)
 
@@ -211,15 +209,13 @@ The owner's steps, in order:
 | 2.1 Prepare | Full Disk Access for Terminal; `bun run dev:service uninstall` (optional) | |
 | 2.2 Bundle | `bun run build:bundle` | `dist/release/root/` has `set-claude-token` and `mycel-account` |
 | 2.3 Check, then install | `scripts/install-macos.sh --check …`, then the same with `sudo` and without `--check` | `install: installed mycel 0.1.0 …`; `curl -s http://127.0.0.1:47820/api/health` |
+| 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
 | 2.3a AI connections | Admin → AI connections (`/admin/credentials`) in the browser | the connection shows "OK" |
 | 2.4 Claude token (optional; 2.3a is the usual way) | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
 | 2.5 Codex login (older setup; 2.3a is the usual way) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
-| 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
 | 2.7 Verify | Admin → System → Diagnostics, then a chat | Claude Code "Signed in (setup-token)", model proxy "Listening on 127.0.0.1:47821", Claude answers |
 
-The token tool is installed by the installer, so the token is stored after 2.3. The Korean PDF numbers these steps
-differently (2.0 = 2-2, 2.2 = 2-3, 2.3 = 2-4/2-5, 2.4 = 2-6, 2.5 = 2-7, 2.6 = 2-8); server messages cite the numbers
-used here.
+Create the first owner (2.6) immediately after installing, before using the web administration screens. Then configure permissions, an authorized AI connection, invitations, a skill and a backup. The optional token tool is installed by the installer, so it is available only after 2.3.
 
 ### 2.0 Role-account test first (recommended, ~10 minutes)
 
@@ -258,7 +254,7 @@ bun run build:bundle:universal   # Apple silicon + Intel in one bundle (--arch u
 ```
 
 This writes `dist/release/` with `VERSION`, `<version>.tar.zst`, `app/<version>/` and `root/`. The version defaults
-to `server/package.json` (0.2.5 for this release). An unsigned local build needs `--allow-unsigned`; published
+to `server/package.json`. An unsigned local build needs `--allow-unsigned`; published
 release signatures are a separate path. Output examples below using 0.1.0 are historical examples, not the current version.
 `--arch amd64` / `universal` needs the Intel helpers (`ARCHS="arm64 amd64" bun run build:native`, which the
 universal script runs) and downloads the same Bun version for Intel once (checked against Bun's SHASUMS256.txt,
@@ -380,7 +376,7 @@ them in the browser; nothing on the server's command line is needed.
 - **Claude API key** / **OpenAI API key** (pay as you go, made for team use): paste a key made for this team in the
   provider's console (set a monthly limit there too). Checked with `GET /models` (no tokens spent).
 - **Claude subscription (Pro, Max, Team)**: on any computer run `claude setup-token`, paste the `sk-ant-oat01-…` token.
-  One year; the screen warns 14 days before. Checked without spending tokens where the provider allows it.
+  Trina estimates expiry from the stored issue time and warns 14 days before; actual validity depends on the provider. Checked without spending tokens where the provider allows it.
 - **ChatGPT plan (Codex)**: "Start sign-in" shows an address and a one-time code; sign in with an account authorized for the intended use. The server keeps the sign-in and refreshes it itself.
 - Confirm that the account and plan authorize the intended use. The screen requires connection-level acknowledgment; it does not grant provider permission.
 - Tokens and keys are sealed in the browser before they are sent and stored encrypted (`secrets/credentials.key`);
@@ -422,10 +418,10 @@ otherwise be stored half, reported as stored for a year, and refused on the firs
 - `set-claude-token` (root-owned, installed by the installer) reads the token from standard input, never from the
   command line, checks that it looks like a setup-token, and stores it as
   `secrets/claude-oauth-token` (`_axserver`, mode 600). The engine account cannot read it.
-- No restart: the server reads the file on every model request.
+- No restart: legacy connection import checks the file periodically (up to five minutes); it does not reread it for every model request.
 - Diagnostics then show Claude Code as "Signed in (setup-token)". They also say when the token is older than a year
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
-- The token expires after a year; replace it with the same commands. `--remove` forgets it.
+- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI connections.
 
 ### 2.5 Codex login for the engine account (older setup)
 
@@ -439,7 +435,7 @@ B="/Library/Application Support/mycel"
 cd / && sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" codex-login
 ```
 
-It prints a link (`the provider address printed by the device-login command`) and a one-time code. Open the link in any browser, sign in,
+It prints a provider sign-in link and a one-time code. Open the link in any browser, sign in,
 enter the code (it expires after 15 minutes). The command waits and ends with "Codex is signed in for the engine
 account."
 
@@ -519,7 +515,7 @@ run the installer again with the bundle you last installed; it repairs pf, the s
 LaunchDaemons and keeps the data, the token and the engines:
 
 ```sh
-cd ~/team-ax && sudo scripts/install-macos.sh --from dist/release --allow-unsigned
+cd ~/trina-ax && sudo scripts/install-macos.sh --from dist/release --allow-unsigned
 ```
 
 For the launcher alone, `sudo launchctl kickstart -k system/app.treesoop.mycel.launcher` is enough.
@@ -550,7 +546,7 @@ server does not start until someone unlocks it at the Mac (not tested). Decide w
 |---|---|---|
 | Dev mode | `http://localhost:19100`, `http://demo.localhost:19161` | The server Mac only |
 | Office mode ([OFFICE.md](OFFICE.md)) | `https://<LAN-IP>:8443`, `https://<LocalHostName>.local:8443` | Desks and phones on the Mac's office subnet after installing the office CA once (page on `http://<LAN-IP>:8442`, thumbprint compared with the desk card from `teamax card`). Chats work. |
-| Production, office network | `https://<LocalHostName>.local:8443` or `https://<LAN-IP>:8443` | Browsers and phones on the same network (not tested on a real install). The certificate is self-signed, so each person clicks through the warning once (again after it is renewed for a new address): Chrome/Edge **Advanced → Proceed to … (unsafe)**; Safari on the Mac **Show Details → visit this website → Visit Website** (asks for the Mac password); Safari on iPhone **Show Details → visit this website → Visit Website**. |
+| Production, office network | `https://<LocalHostName>.local:8443` or `https://<LAN-IP>:8443` | Browsers and phones on the same network (not tested on a real install). The certificate is self-signed. Have the operator verify the hostname and SHA-256 fingerprint against `setup/lan-cert.sha256` through a separate trusted channel before configuring client trust. Recheck after renewal; do not blindly bypass certificate warnings. |
 | Trina relay | `https://<team>.trina.app` | Official registration requires an issued connection code; it is not open hostname signup. Check availability with the operator. |
 | Your own relay | your domain | Advanced and not tested end to end; see below. The "Cloudflare tunnel" and "Tailscale" modes are rejected with "not available in this version". |
 
@@ -574,7 +570,7 @@ software" setting may already cover it.
 
 **The link uses the address you are on.** Create invites while signed in at the address members will use, not at
 `127.0.0.1:47820`. In production that means opening `https://<LocalHostName>.local:8443` (on the server Mac or
-another office computer), clicking through the certificate warning, and signing in as the owner again: it is a
+another office computer), verifying certificate trust, and signing in as the owner again: it is a
 different origin from `127.0.0.1:47820`. Check: the member shows up in Admin → Members & invites once they join.
 
 Alternatives:
@@ -584,14 +580,12 @@ Alternatives:
   The member opens it and picks a new password, which signs them out everywhere else. A new link cancels the old
   one. The owner's own password is reset only on the server Mac (`bun run dev admin reset-link` in dev).
 
-**Mac app.** Today the desktop apps connect only on the server Mac itself (`http://127.0.0.1:47820`, or
-`http://127.0.0.1:19100` in dev): any other address needs a publicly trusted HTTPS certificate, which only the team
-address will give. Members use the browser for now.
+**Mac desktop source build (advanced).** No Mac desktop DMG is published. A locally built client accepts loopback HTTP for evaluation and publicly trusted HTTPS team addresses for remote access. The office ZIP is the server bundle, not this client.
 1. Build it:
    ```sh
    bun run dist:mac            # = cd desktop && bun run dist:mac
    ```
-   This writes `desktop/release/Trina-AX-<version>-mac-universal.dmg` (~230 MB, unsigned, Apple silicon and Intel).
+   This writes `desktop/release/Trina-AX-<version>-mac-universal.dmg` (unsigned local build, Apple Silicon and Intel; size varies).
    `bun run --cwd desktop dist:mac:arm64` / `dist:mac:x64` build a smaller single-CPU DMG.
 2. Drag the app to Applications, then right-click → Open. On macOS 15+, use System Settings → Privacy & Security →
    **Open Anyway**.
@@ -638,18 +632,18 @@ to `_axserver`, so copy with `sudo` and give the folder back to the server accou
 ```sh
 D="/Library/Application Support/mycel/data/downloads"
 sudo mkdir -p "$D"
-sudo cp desktop/release/Trina-AX-<version>-mac-universal.dmg index.json "$D/"
+DMG="desktop/release/Trina-AX-VERSION-mac-universal.dmg" # replace VERSION with the built version
+sudo cp "$DMG" index.json "$D/"
 sudo chown -R _axserver "$D"
 ```
 
-Until desktop apps can connect from other computers, this has little use.
+Published Windows clients and local Mac client builds use the address rules above. Verify the exact artifact, version and signature status before offering a download.
 
 **Phone.**
 - iPhone: Safari → Share → **Add to Home Screen**.
 - Android: Chrome menu → **Install app**.
 
-Then sign in once more in the installed app. Today the only address a phone can reach is the production office
-address. With a self-signed certificate it may only work as a bookmark (not tested).
+Then sign in once more in the installed web app. Phones can use the configured public HTTPS team address or a reachable office LAN address with verified certificate trust. Install-to-home-screen support depends on the browser and certificate; this is not a native app-store release.
 
 ### Your own relay (advanced, not tested end to end)
 
@@ -699,9 +693,9 @@ These backups are on the same disk. For an off-machine copy:
 - **Production:** make an encrypted archive. `--password-stdin` takes at least 8 characters; end the input with
   Ctrl-D.
   ```sh
-  sudo -u _axserver env MYCEL_MODE=prod "/Library/Application Support/mycel/app/current/bin/bun" "/Library/Application Support/mycel/app/current/server/src/admin.js" archive --out /Users/Shared/trina.tar.zst.age --password-stdin
+  cd / && sudo -u _axserver env MYCEL_CONFIG="/Library/Application Support/mycel/config/server.json" "/Library/Application Support/mycel/app/current/bin/bun" "/Library/Application Support/mycel/app/current/server/src/admin.js" archive --out /Users/Shared/trina.tar.zst.age --password-stdin
   ```
-  It prints `{"file":"/Users/Shared/teamax.tar.zst.age","size":…,"sha256":"…","encrypted":true,"files":N}`. The file
+  It prints `{"file":"/Users/Shared/trina.tar.zst.age","size":…,"sha256":"…","encrypted":true,"files":N}`. The file
   belongs to `_axserver` (mode 600), so copy it to the external disk with `sudo cp`. Keep the password somewhere safe.
   `restore-archive --in F --to NEWDIR` decrypts and unpacks it into a new folder (`db/app.sqlite` and `team/`), for
   taking files out after a disk failure. There is no command yet to run a server from that folder.
