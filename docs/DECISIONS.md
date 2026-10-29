@@ -2679,7 +2679,8 @@ including same-account installs. Extend the same synthetic selection tests to co
 - **Decision.** `GET /api/files/preview?path=` (`server/src/files/heic-preview.ts`, route in `routes/files.ts`)
   gives a JPEG of the primary image. The same read check as the download applies, and the bytes come through the
   checked descriptor (`openChecked`). The web (`serverPreview()` in `web/src/lib/preview.ts`) uses this endpoint for
-  HEIC / HEIF in place of the file bytes. A local HEIC that is not uploaded yet has no preview.
+  HEIC / HEIF in place of the file bytes. A local HEIC that is not uploaded yet has no preview; an uploaded chat
+  attachment opens as its team file, so it uses the server JPEG too.
 - **Converters.** Each one runs isolated (`runIsolated`), like the other converters:
   1. libheif `heif-dec` (`heif-convert` in libheif < 1.17). The Linux server has it (`libheif-examples`). On a Mac it
      comes from Homebrew libheif.

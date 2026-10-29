@@ -121,8 +121,9 @@ describe('GET /api/files/preview', () => {
     fs.mkdirSync(path.join(A.team, 'shared', 'photos'), { recursive: true })
     fs.copyFileSync(FIXTURE, path.join(A.team, 'shared', 'photos', 'IMG_0001.HEIC'))
     const res = await A.req(q('shared/photos/IMG_0001.HEIC'), { as: 'alice' })
-    const t = heicTools()
-    if (t.heifDec || t.imageIo) {
+    // the outcome on this machine (an old mycel-ocr build without --jpeg converts nothing: 503 as well)
+    const here = await heicToJpeg(fs.readFileSync(FIXTURE), heicTools()).catch(() => null)
+    if (here) {
       expect(res.status).toBe(200)
       expect(res.headers.get('content-type')).toBe('image/jpeg')
       expect(res.headers.get('content-security-policy')).toContain('sandbox')
