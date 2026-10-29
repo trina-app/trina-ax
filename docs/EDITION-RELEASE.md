@@ -1,6 +1,6 @@
 # 판매판의 배포 채널
 
-**현재 Trina 상태:** 현재 버전은 v0.2.5입니다. GitHub Releases와 업데이트 피드 `https://updates.trina.app`(2026-10-29부터 운영)에서 배포합니다. 피드는 `server/stable.json`(리눅스 서버, 서명됨)과 `office/stable.json`(사무실 맥 ZIP과 윈도우 설치 파일)을 제공합니다. 아래는 채널 구성과 피드의 기술 설명입니다.
+**현재 Trina 상태:** 최신 버전은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인합니다. `https://updates.trina.app` 피드는 Linux 서버와 사무실 Mac에 업데이트를 제공합니다. 아래는 유지보수자용 배포 절차입니다.
 
 배포 채널은 이 제품의 업데이트가 어디서 오고 어떤 키로 서명되는지를 정한다. 코어와 각 판매판(Trina AX, 의료판)은 채널을 따로 쓴다. 설치된 서버는 자기 제품의 업데이트만 받는다. 업데이트가 이 빌드에 들어 있는 키로 검증되어야 하고, 사무실 모드 업데이트 목록의 `product`도 맞아야 한다.
 

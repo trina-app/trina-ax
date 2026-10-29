@@ -11,6 +11,7 @@
 - [ ] The change is focused and relevant documentation is updated.
 - [ ] Tests/checks relevant to the change were run, with any limits described above.
 - [ ] No customer information, credentials, private links or unredacted logs/screenshots are included.
+- [ ] For user-visible/docs changes: audience/page, matching EN/KO entry pages, defaults, FAQ, llms.txt and artifact names were checked.
 - [ ] Existing license, copyright and source-offer notices are preserved.
 
 <!-- English and Korean are welcome. Report undisclosed vulnerabilities through SECURITY.md, not here. -->

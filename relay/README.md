@@ -1,13 +1,13 @@
 # relay
 
-The Team AX relay (component F): gives every team server a public address `https://<team>.<domain>` without opening
+The Trina AX relay (component F): gives every team server a public address `https://<team>.<domain>` without opening
 ports. The team server keeps 2-4 outbound WebSockets to the relay (`wss://relay.<domain>/connect`); the relay
 multiplexes browser HTTP requests, streams and WebSockets over them (protocol v2, `shared/src/relay-protocol`).
 The relay stores nothing it forwards. Its log holds team ids, byte counts and times only; the real client IP goes to
 the team server inside the stream's OPEN frame and nowhere else.
 
 Runs on **Node 26 LTS** in production (24+ works; `node:http` + `ws`): Bun.serve has no backpressure on streaming
-bodies (spike report). Production deployment (Team AX Cloud, `relay.treesoop.com`): [`deploy/README.md`](deploy/README.md).
+bodies (spike report). Deployment reference (operator-managed relay): [`deploy/README.md`](deploy/README.md).
 
 ## Run
 
@@ -16,7 +16,7 @@ bun run dev:relay              # http://<team>.localhost:19161, registry in .dev
 bun run dev:server:relay       # dev server that registers "myteam" and connects: http://myteam.localhost:19161
 # or: MYCEL_RELAY_URL=ws://127.0.0.1:19161/connect MYCEL_RELAY_TEAM=acme bun run dev:server
 
-node relay/src/main.ts --domain treesoop.com --port 8080 --data /var/lib/mycel-relay   # behind Cloudflare / a tunnel
+node relay/src/main.ts --domain relay.example.com --port 8080 --data /var/lib/mycel-relay   # behind Cloudflare / a tunnel
 bun scripts/build-relay.ts     # production bundle dist/relay/teamax-relay-<v>.tar.zst (relay/deploy/relay-deploy.sh)
 ```
 

@@ -186,17 +186,18 @@ function OwnerChecklist() {
   const [hidden, setHidden] = useState(() => {
     try { return localStorage.getItem(CHECK_KEY) === '1' } catch { return false }
   })
-  const [state, setState] = useState<{ engine: boolean; members: boolean; folders: boolean; backup: boolean } | null>(null)
+  const [state, setState] = useState<{ engine: boolean; members: boolean; folders: boolean; skill: boolean; backup: boolean } | null>(null)
   useEffect(() => {
     if (hidden) return
     let live = true
-    Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups)]).then(([e, u, i, f, b]) => {
+    Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills)]).then(([e, u, i, f, b, sk]) => {
       if (!live) return
       setState({
         engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),
         members: (u.status === 'fulfilled' && u.value.items.length > 1) || (i.status === 'fulfilled' && i.value.items.length > 0),
         // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
         folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
+        skill: sk.status === 'fulfilled' && sk.value.items.length > 0,
         backup: b.status === 'fulfilled' && b.value.items.length > 0,
       })
     })
@@ -206,9 +207,10 @@ function OwnerChecklist() {
   }, [hidden])
   if (hidden || !state || Object.values(state).every(Boolean)) return null
   const items: { done: boolean; label: MessageKey; to: string }[] = [
+    { done: state.folders, label: 'owner.check.folders', to: '/admin/folders' },
     { done: state.engine, label: 'owner.check.engine', to: '/admin/engines' },
     { done: state.members, label: 'owner.check.members', to: '/admin/members' },
-    { done: state.folders, label: 'owner.check.folders', to: '/admin/folders' },
+    { done: state.skill, label: 'owner.check.skill', to: '/skills' },
     { done: state.backup, label: 'owner.check.backup', to: '/admin/system' },
   ]
   return (
@@ -229,6 +231,7 @@ function OwnerChecklist() {
           <X size={15} />
         </button>
       </div>
+      {!state.engine && <p className="mb-3 text-sm text-muted">{t('owner.check.filesReady')}</p>}
       <ul className="grid gap-1 sm:grid-cols-2">
         {items.map((it) => (
           <li key={it.label}>

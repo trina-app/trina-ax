@@ -1,4 +1,4 @@
-# Team AX mobile
+# Trina AX mobile
 
 An independent Expo SDK 58 wrapper around a team's HTTPS web app. The neutral app asks for a team URL or invitation URL; only the origin is saved in SecureStore. Login, invitations, password changes, attachments and file selection use the existing web UI and its session cookie.
 
@@ -30,11 +30,11 @@ WebView navigation permits the selected HTTPS origin. Other HTTPS pages open ext
 
 The web integration calls `openExternal(url, {purpose: 'google-oauth'})`. The only accepted OAuth destination is `https://accounts.google.com/o/oauth2/v2/auth` without credentials, another port, or fragment. Native opens that HTTPS URL in the system browser with `Linking.openURL`; generic external pages use `WebBrowser.openBrowserAsync`.
 
-The external browser must be signed into the **same Team AX user** for the server's OAuth callback. WebView and external-browser cookies are not assumed to be shared. After Google consent, the user manually returns to the app; the original app session polls its flow, displays the account and explicitly completes the connection. No code, refresh token or app-return token crosses this bridge. Native app foreground dispatches a focus event to refresh polling. This design does not require an app OAuth callback scheme. [Expo WebBrowser's cookie behavior](https://docs.expo.dev/versions/v58.0.0/sdk/webbrowser/) is why an embedded browser modal is not treated as an authenticated cookie-sharing session.
+The external browser must be signed into the **same Trina AX user** for the server's OAuth callback. WebView and external-browser cookies are not assumed to be shared. After Google consent, the user manually returns to the app; the original app session polls its flow, displays the account and explicitly completes the connection. No code, refresh token or app-return token crosses this bridge. Native app foreground dispatches a focus event to refresh polling. This design does not require an app OAuth callback scheme. [Expo WebBrowser's cookie behavior](https://docs.expo.dev/versions/v58.0.0/sdk/webbrowser/) is why an embedded browser modal is not treated as an authenticated cookie-sharing session.
 
 ## Editions and validation boundary
 
-`app.config.ts` accepts only `config.extra.teamAxEdition` fields `name`, `accent`, `userAgent`, `scheme`, and `bundleId`, validated by `src/product.ts`. Editions may supply these presentation/identifier values in their own app configuration. Team server URLs, permissions, credentials and executable hooks are not edition settings. Defaults use Team AX and a development bundle identifier. No EAS project, distribution certificate, store account, medical branding or deployment credential is included.
+`app.config.ts` accepts only `config.extra.teamAxEdition` fields `name`, `accent`, `userAgent`, `scheme`, and `bundleId`, validated by `src/product.ts`. Editions may supply these presentation/identifier values in their own app configuration. Team server URLs, permissions, credentials and executable hooks are not edition settings. This unpublished upstream mobile source retains neutral Team AX defaults and a development bundle identifier; it is not a released Trina mobile app. No EAS project, distribution certificate, store account, medical branding or deployment credential is included.
 
 The focused tests cover serialization, forged/outdated messages, generation reset, cancellation, sequence/size/hash failures, timeout cleanup, navigation policy, streamed download bounds and browser fallback. The browser mock covers mobile login classification, file-input upload and CSV bridge bytes. These are not actual iOS/Android device tests.
 

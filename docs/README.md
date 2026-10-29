@@ -1,38 +1,34 @@
 # Trina AX documentation
 
-Trina AX runs a shared AI workspace on a team server. Start with a local demo, then use the installation guide for
-your operating system before introducing real company data.
+## For your team / 팀 안내
 
-## Start and evaluate
+- [Team lead guide](for-teams.md) · [대표·팀장 안내](for-teams.ko.md)
+- [Pricing and hosting enquiries](https://ax.trina.app/#pricing) · [Support / 지원](../SUPPORT.md)
+- [Security and permissions](security-and-permissions.md) · [보안·권한](security-and-permissions.ko.md)
+- [Examples](../examples/README.md) · [예제](../examples/README.ko.md)
+- [FAQ](FAQ.md) · [한국어 FAQ](FAQ.ko.md)
+- [Real-app screenshot gallery and provenance](images/README.md)
 
-- [Local demo in about 10 minutes](QUICKSTART.md) — prepared Mac, synthetic data, optional AI connection.
-- [Examples](EXAMPLES.md) — file summary, folder permissions and a reusable skill.
-- [FAQ and deployment choices](FAQ.md) — self-hosting, hosting, engines and limitations.
-- [한국어 제품 소개](../README.ko.md).
+## Evaluate, install and operate / 체험·운영
 
-## Install and operate
+- [Local model-free demo](QUICKSTART.md) · [AI 계정 없이 체험](QUICKSTART.ko.md)
+- [IT handoff](for-admins.md) · [IT 담당자 안내](for-admins.ko.md)
+- [Linux](INSTALL-LINUX.en.md) · [Linux 한국어](INSTALL-LINUX.md)
+- [Office Mac](OFFICE.en.md) · [사무실 Mac](OFFICE.md)
+- [Role-account Mac / advanced development](INSTALL.md)
+- [Backup and restore](BACKUP-RESTORE.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Configuration](CONFIGURATION.md)
+- [Team HTML entry](guide/guide.html) · [Install HTML entry](install/guide.html) · [Office HTML entry](office/guide.html) · [Windows browser entry](office/windows-guide.html)
 
-- [Mac setup](INSTALL.md) — prerequisites, development and production installation, troubleshooting.
-- [Office Mac with desk PCs (한국어)](OFFICE.md).
-- [Linux server (한국어)](INSTALL-LINUX.md).
-- [Korean user guide (HTML)](guide/guide.html), [installation guide (HTML)](install/guide.html), [office guide (HTML)](office/guide.html), [Windows desk guide (HTML)](office/windows-guide.html).
+Markdown is the canonical operating guide. Printable PDFs are optional generated outputs, not guaranteed release contents. [Latest release](https://github.com/trina-app/trina-ax/releases/latest) is the version source of truth.
 
-The long installation guides also contain dated validation notes from earlier development. Use the current
-[release page](https://github.com/trina-app/trina-ax/releases) to check which artifacts are published; historical
-notes do not imply that a current release is unavailable. Printable PDFs can be generated from the HTML sources;
-PDF outputs and the older guides' screenshot assets are not committed here. Those guides show omission notes
-in place of missing captures; the current synthetic demo screenshot is in the project README.
+## Features and development
 
-## Features and boundaries
+- [Detailed permissions (Korean)](PERMISSIONS.md), [security reporting](../SECURITY.md)
+- [MCP / HTTP integrations](INTEGRATIONS.md), [Google Drive](GOOGLE-DRIVE.md)
+- [Development and tests](DEVELOPMENT.md), [contributing](../CONTRIBUTING.md), [conduct](../CODE_OF_CONDUCT.md)
+- [Changelog](../CHANGELOG.md), [release CI](RELEASE-CI.md), [release channels](EDITION-RELEASE.md)
+- [Source offer](SOURCE-OFFER.md), [third-party notices](THIRD-PARTY-NOTICES.md), [release notices](RELEASE-NOTICES.md)
 
-- [Folder permissions (한국어)](PERMISSIONS.md) and [security policy](../SECURITY.md).
-- [MCP and HTTP service connections](INTEGRATIONS.md) — personal/team access, supported transports and limits.
-- [Personal Google Drive integration](GOOGLE-DRIVE.md) — operator configuration and read-only tools.
+## Maintainer records (historical context)
 
-## Contribute and maintain
-
-- [Contributing](../CONTRIBUTING.md), [code of conduct](../CODE_OF_CONDUCT.md), [changelog](../CHANGELOG.md).
-- [Repository rules](REPOSITORY-RULES.md), [design decisions](DECISIONS.md) and [upstream provenance](UPSTREAM.md).
-- [Branding](EDITION-BRANDING.md), [release channels](EDITION-RELEASE.md), [release CI](RELEASE-CI.md).
-- [Source offer](SOURCE-OFFER.md), [release notices](RELEASE-NOTICES.md), [third-party notices](THIRD-PARTY-NOTICES.md), [publication records](PUBLICATION.md).
-- [LLM-readable index](../llms.txt).
+[Repository rules](REPOSITORY-RULES.md), [upstream provenance](UPSTREAM.md), [design decisions](DECISIONS.md), [publication records](PUBLICATION.md), [branding](EDITION-BRANDING.md). Dated validation records do not establish current availability or replace the operating guides.

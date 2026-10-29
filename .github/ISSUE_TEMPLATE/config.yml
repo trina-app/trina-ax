@@ -1,8 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Security report / 보안 신고
+  - name: Hosting and support / 호스팅·지원
+    url: https://ax.trina.app/#contact
+    about: Contact Trina for pricing and hosted customer help. / 요금·호스팅 이용 지원 문의
+  - name: Private security report / 비공개 보안 신고
     url: https://github.com/trina-app/trina-ax/blob/main/SECURITY.md
-    about: Report vulnerabilities privately to contact@trina.app. Do not post sensitive details in an issue.
-  - name: Setup guide / 설치 안내
-    url: https://github.com/trina-app/trina-ax/blob/main/docs/README.md
-    about: Read the installation guides and FAQ before reporting a setup problem. English and Korean are welcome.
+    about: Email contact@trina.app; do not post vulnerabilities publicly. / 취약점은 공개하지 말고 이메일로 알려 주세요.

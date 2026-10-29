@@ -1,4 +1,4 @@
-# desktop — Team AX desktop app (component E)
+# desktop — Trina AX desktop app (component E)
 
 Electron shell around the team's web page, plus the in-app **browser pane** the AI drives over CDP
 (design tab 5 "맥·윈도우 앱", "데스크톱 앱 규칙", "앱 안 브라우저 도구"). Ported from Saram `desktop/` (d315378).

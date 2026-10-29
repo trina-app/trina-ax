@@ -1,6 +1,6 @@
 # 태그 하나로 배포하기 (자동 배포)
 
-**현재 Trina 상태:** v0.2.5가 GitHub Releases와 업데이트 피드 `https://updates.trina.app`에 게시되어 있습니다. 피드는 2026-10-29부터 운영합니다.
+**현재 Trina 상태:** 최신 버전은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인합니다. `https://updates.trina.app` 피드는 Linux 서버와 사무실 Mac에 업데이트를 제공합니다. 아래는 유지보수자용 배포 절차입니다.
 아래 피드 업로드 설명은 별도 피드 게시 설정을 켠 경우에만 적용됩니다. 현재 워크플로의 조건을 먼저 확인하세요.
 
 버전 태그를 push하면 GitHub Actions가 시험, 빌드, 서명과 GitHub Release 게시를 한다.
@@ -178,3 +178,7 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 6. 트리나 AX는 공개 레포다.
    - 공개 레포에서도 fork PR은 비밀값을 받지 않고, release.yml은 PR로 돌지 않는다.
    - 공개 전에 `gh secret list`로 필요한 비밀값만 있는지 본다.
+
+## User-facing release notes
+
+Write the annotated tag message from [the EN/KO release template](../.github/RELEASE_TEMPLATE.md). The workflow carries it into Linux bundles, signed feeds and the GitHub release body. Review default changes, artifact names, README/FAQ/llms parity before tagging. Backfilling published release bodies is a separate authorized maintainer action; this docs branch does not publish them.

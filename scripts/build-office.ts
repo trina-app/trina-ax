@@ -87,7 +87,7 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
     ...(process.env.MYCEL_HWP_PREVIEW === '1' ? ['app/native/bin/hwp/rhwp-darwin-arm64', 'app/native/bin/hwp/rhwp-darwin-x64', 'app/resources/hwp/manifest.json', 'app/resources/hwp/fonts/NotoSansKR-Regular.ttf'] : []),
-    'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md',
+    'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md', 'app/docs/OFFICE.en.md',
     ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [
       ...['bun', 'rg', 'cloudflared', ...(o.pandoc ? ['pandoc'] : [])].map((b) => `app/bin/${a.dir}/${b}`),
@@ -230,7 +230,14 @@ export async function buildOffice(o: {
   }
   // the guide travels with the program (the person at the office has no copy of the repository)
   fs.mkdirSync(path.join(app, 'docs'), { recursive: true })
-  fs.copyFileSync(path.join(REPO, 'docs', 'OFFICE.md'), path.join(app, 'docs', 'OFFICE.md'))
+  for (const name of ['OFFICE.md', 'OFFICE.en.md']) {
+    // Bundled guides point to the public source for supporting pages not in the kit.
+    const text = fs.readFileSync(path.join(REPO, 'docs', name), 'utf8').replace(/\]\((?!https?:|#)([^)]+)\)/g, (_, target: string) => {
+      const rel = path.posix.normalize(path.posix.join('docs', target))
+      return `](https://github.com/trina-app/trina-ax/blob/main/${rel})`
+    })
+    fs.writeFileSync(path.join(app, 'docs', name), text)
+  }
   const pdf = o.guide ?? path.join(REPO, 'docs', 'office', OFFICE_PDF)
   if (fs.existsSync(pdf)) fs.copyFileSync(pdf, path.join(stage, path.basename(pdf)))
   else if (o.guide) throw new Error(`--guide ${pdf}: not found`)

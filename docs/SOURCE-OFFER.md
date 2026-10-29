@@ -1,6 +1,6 @@
 # Source offer for an installed release
 
-The default source repository is private and `SOURCE_CODE.published` remains `false`. Login and Settings → About offer a source-request email. A repository root, missing version, or invalid version is never represented as the source of an exact release.
+The default source repository is public (`trina-app/trina-ax`) and `SOURCE_CODE.published` is `true`. Login and Settings → About link valid release versions to their exact source tag; missing or invalid versions use the source-request email. A repository root, missing version, or invalid version is never represented as the source of an exact release.
 
 An operator may configure a source URL for one release. This is metadata provided by the operator: the application validates its syntax and compares the declared version with the running server version. It does **not** establish permission to publish, verify that the URL can be downloaded, compare archive contents or hashes, or certify that source-delivery obligations have been fulfilled. The request email and source-download link remain separate.
 

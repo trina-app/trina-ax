@@ -147,9 +147,14 @@ try {
   const cover = path.join(tmp, 'cover.pdf')
   const body = path.join(tmp, 'body.pdf')
   await print(cover, { pageRanges: '1' })
-  await print(body, { pageRanges: `2-${n}`, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: FOOTER })
   fs.mkdirSync(path.dirname(OUT), { recursive: true })
-  execFileSync('pdfunite', [cover, body, OUT])
+  if (n === 1) {
+    // The public HTML entry guides can be a single page; there is no body range 2-1.
+    fs.copyFileSync(cover, OUT)
+  } else {
+    await print(body, { pageRanges: `2-${n}`, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: FOOTER })
+    execFileSync('pdfunite', [cover, body, OUT])
+  }
   const total = pageCount(OUT)
   if (total !== n) throw new Error(`page count changed between passes: ${n} -> ${total}`)
   console.log(`${OUT}\n${total} pages; chapters start on: ${chapters.map((c) => `${c.id}=${toc[c.id]}`).join(' ')}`)

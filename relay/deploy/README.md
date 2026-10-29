@@ -1,6 +1,6 @@
-# Production relay (relay.treesoop.com)
+# Relay deployment reference (operator guide)
 
-How the official relay runs (control-plane spec 3.6.1, decisions D17–D21). One Linux VM (Lightsail Seoul 4 GB,
+Historical deployment design (control-plane spec 3.6.1, decisions D17–D21), not a public service-availability or recovery-time promise. Substitute your own domain, accounts and storage configuration. One Linux VM (Lightsail Seoul 4 GB,
 Ubuntu 24.04), Node 26 LTS, two systemd instances `mycel-relay@a` / `@b` for zero-downtime deploys, the registry in
 SQLite replicated to R2 by Litestream, TLS terminated by the relay itself with a Cloudflare Origin CA certificate and
 Cloudflare Authenticated Origin Pulls (our own zone certificate), the firewall open on 443 to Cloudflare only.
@@ -26,11 +26,11 @@ Cloudflare Authenticated Origin Pulls (our own zone certificate), the firewall o
 3. **Build and copy a bundle**: on a dev machine `bun scripts/build-relay.ts` → `dist/relay/teamax-relay-<v>.tar.zst`
    (+ `.sha256`); copy both to the VM, unpack once (`zstd -dc … | tar -x`) and run `sudo ./teamax-relay-<v>/deploy/setup-host.sh`.
 4. **Origin certificate** (Cloudflare → SSL/TLS → Origin Server → Create certificate, ECC, 15 years, hosts
-   `*.treesoop.com`, `treesoop.com`): save as `/etc/mycel-relay/credentials/origin.pem` and `origin.key` (root 0600).
+   `*.example.com`, `example.com`): save as `/etc/mycel-relay/credentials/origin.pem` and `origin.key` (root 0600).
 5. **Authenticated Origin Pulls with our own certificate** (zone level, not the shared global certificate):
    ```sh
    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -sha256 -days 5475 \
-     -keyout aop-ca.key -out aop-ca.pem -subj "/CN=Team AX AOP CA" -addext basicConstraints=critical,CA:TRUE
+     -keyout aop-ca.key -out aop-ca.pem -subj "/CN=Trina AX AOP CA" -addext basicConstraints=critical,CA:TRUE
    openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -sha256 -keyout aop.key -out aop.csr -subj "/CN=cloudflare-aop"
    openssl x509 -req -sha256 -days 5475 -in aop.csr -CA aop-ca.pem -CAkey aop-ca.key -CAcreateserial -out aop.pem \
      -extfile <(printf 'extendedKeyUsage=clientAuth')
@@ -45,20 +45,20 @@ Cloudflare Authenticated Origin Pulls (our own zone certificate), the firewall o
    `/etc/default/litestream` (`LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`);
    `/etc/mycel-relay/backup.env` with `ORG_RECIPIENT=age1…` (the organisation recovery key's public part) and
    `R2_ACCOUNT_ID`. Lifecycle rule: `relay/daily/` 30 days. `systemctl enable --now litestream`.
-8. **DNS / Cloudflare** (zone treesoop.com): `*` A → relay IP (proxied), `relay` A (proxied); SSL/TLS **Full (strict)**;
-   Always Use HTTPS; Cache Rule "bypass cache" for `*.treesoop.com` except `updates.` and `www.`; Configuration Rule
+8. **DNS / Cloudflare** (zone example.com): `*` A → relay IP (proxied), `relay` A (proxied); SSL/TLS **Full (strict)**;
+   Always Use HTTPS; Cache Rule "bypass cache" for `*.example.com` except `updates.` and `www.`; Configuration Rule
    (same hosts) Email Obfuscation off, Rocket Loader off; WebSockets on.
-9. **First deploy**: `sudo relay-deploy /path/teamax-relay-<v>.tar.zst` → `https://relay.treesoop.com/healthz` 200.
+9. **First deploy**: `sudo relay-deploy /path/teamax-relay-<v>.tar.zst` → `https://relay.example.com/healthz` 200.
    Check that the origin refuses a direct TLS connection: `curl -vk https://<static ip>/healthz` must fail the handshake.
 
 ## Deploy, roll back
 
 ```sh
-sudo relay-deploy /tmp/teamax-relay-0.2.1.tar.zst   # starts the idle instance, checks it, stops the old one
+sudo relay-deploy /path/to/teamax-relay-<version>.tar.zst   # starts the idle instance, checks it, stops the old one
 sudo relay-deploy --rollback                          # the previous release, same a/b way
 ```
 
-## Restore (RTO 15 minutes)
+## Restore (target timing requires a deployment-specific drill)
 
 New VM from the Lightsail snapshot (or `setup-host.sh` on a fresh one) → `litestream restore -o
 /var/lib/mycel-relay/registry.db /var/lib/mycel-relay/registry.db` (as root, then `chown mycel-relay`) → credentials and

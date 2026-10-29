@@ -1,6 +1,7 @@
 # Contributing to Trina AX
 
 Bug reports, documentation fixes and small, focused improvements are welcome in English or Korean.
+Submit to this public repository; private-core access is not required. Maintainers handle upstream routing. See [focused development checks](docs/DEVELOPMENT.md).
 Read the [code of conduct](CODE_OF_CONDUCT.md) and [repository rules](docs/REPOSITORY-RULES.md) first.
 
 ## Report a problem or suggest a change

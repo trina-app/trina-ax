@@ -1,4 +1,4 @@
-# web — Team AX web client (component D)
+# web — Trina AX web client (component D)
 
 React + Vite + TypeScript + Tailwind. Built to `web/dist` and served by the team server (`server/src/routes/web.ts`);
 the desktop app and the PWA load the same build. Talks to the server only through the shared contract

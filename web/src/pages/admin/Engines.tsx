@@ -125,6 +125,7 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
           <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
         </IconButton>
       </div>
+      {e.authMode === 'local-login' && <p className="mt-2 text-xs text-muted">{t('engines.localHelp')}</p>}
       {e.beta && <p className="mt-2 text-xs text-muted" data-testid="engine-beta">{t('engines.betaHint')}</p>}
       {e.id === 'api' && <p className="mt-2 text-xs text-muted">{t('engines.experimentalHint')}</p>}
       {e.detail && (

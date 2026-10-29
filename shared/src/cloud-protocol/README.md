@@ -1,4 +1,4 @@
-# cloud-protocol — contracts between Team AX and Team AX Cloud
+# cloud-protocol — contracts between the team server and hosting control plane
 
 **License: MIT** (see `LICENSE` in this folder). This folder is dual-licensed with the rest of the repository: the
 repository is AGPL-3.0, and the files in `shared/src/cloud-protocol/` are *also* offered under the MIT license, so

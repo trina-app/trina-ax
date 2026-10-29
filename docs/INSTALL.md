@@ -49,6 +49,8 @@ There is **no email** anywhere, by design. Invites and password resets are links
   every `sudo`.
 - The source code: `git clone https://github.com/trina-app/trina-ax.git` (public, AGPL-3.0-only).
 
+> Current team installation paths: [Linux](INSTALL-LINUX.en.md) / [Office Mac](OFFICE.en.md). The role-account Mac and source-build instructions below are advanced operator paths. Dated validation and output examples are historical, not current release claims.
+
 ## 1. Quick try: dev mode on one Mac
 
 The engines run as **you**, with your own Claude Code and Codex logins. There is no OS isolation, usage comes out of
@@ -155,7 +157,7 @@ them is `teamax-demo-1`; sign in at `http://localhost:19100`. Running it again o
 with a different owner.
 
 **Check.** The home screen shows the yellow "Development mode: no OS isolation…" banner and a **Before you start**
-list: Check the AI connection, Invite your team, Set folder permissions, Make the first backup. In **Admin → AI
+list. Follow permissions → AI connection → invite the team → first skill → first backup. In **Admin → AI
 engines**, Claude Code shows "Connected" with the owner's subscription login. Send "hello" in a new chat.
 
 **Language.**
@@ -379,16 +381,14 @@ them in the browser; nothing on the server's command line is needed.
   provider's console (set a monthly limit there too). Checked with `GET /models` (no tokens spent).
 - **Claude subscription (Pro, Max, Team)**: on any computer run `claude setup-token`, paste the `sk-ant-oat01-…` token.
   One year; the screen warns 14 days before. Checked without spending tokens where the provider allows it.
-- **ChatGPT plan (Codex)**: "Start sign-in" shows an address and a one-time code; sign in with the ChatGPT account the
-  team will use. The server keeps the sign-in and refreshes it itself.
-- Subscriptions are meant for individual use: the screen says so and asks the owner to confirm before saving.
+- **ChatGPT plan (Codex)**: "Start sign-in" shows an address and a one-time code; sign in with an account authorized for the intended use. The server keeps the sign-in and refreshes it itself.
+- Confirm that the account and plan authorize the intended use. The screen requires connection-level acknowledgment; it does not grant provider permission.
 - Tokens and keys are sealed in the browser before they are sent and stored encrypted (`secrets/credentials.key`);
   the UI/API does not return the stored secret. This does not protect against the server administrator. The page must be opened over https (or on this Mac at `http://127.0.0.1`).
 - One connection serves the whole team. Connections can be assigned to groups or people, ordered, given a monthly
   limit, switched off. When one hits its limit or is refused, the answer continues on the next one of the same engine.
 - Members can add their own connections (Settings > AI connections) by default; the owner can disable them.
-  Personal connections take priority. Sharing subscriptions across members is disabled by default and requires
-  explicit owner consent and compliance with provider terms.
+  Eligible personal connections take priority. Fresh Trina teams allow shared subscriptions by default; existing saved choices persist. Connection-level consent still applies. This software setting is not permission under provider terms; use only authorized accounts and plans.
 
 server.json (`engine`), for operators:
 
@@ -439,7 +439,7 @@ B="/Library/Application Support/mycel"
 cd / && sudo -u _axserver env MYCEL_MODE=prod HOME="$B/data" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" codex-login
 ```
 
-It prints a link (`https://auth.openai.com/codex/device`) and a one-time code. Open the link in any browser, sign in,
+It prints a link (`the provider address printed by the device-login command`) and a one-time code. Open the link in any browser, sign in,
 enter the code (it expires after 15 minutes). The command waits and ends with "Codex is signed in for the engine
 account."
 
@@ -527,7 +527,7 @@ For the launcher alone, `sudo launchctl kickstart -k system/app.treesoop.mycel.l
 ### 2.8 Menubar app (optional)
 
 ```sh
-menubar/build.sh            # menubar/build/Team AX.app, ad-hoc signed; --test runs the model tests
+menubar/build.sh            # menubar/build/Trina AX.app, ad-hoc signed; --test runs the model tests
 ```
 
 1. Copy the app to `/Applications` and open it.
@@ -551,7 +551,7 @@ server does not start until someone unlocks it at the Mac (not tested). Decide w
 | Dev mode | `http://localhost:19100`, `http://demo.localhost:19161` | The server Mac only |
 | Office mode ([OFFICE.md](OFFICE.md)) | `https://<LAN-IP>:8443`, `https://<LocalHostName>.local:8443` | Desks and phones on the Mac's office subnet after installing the office CA once (page on `http://<LAN-IP>:8442`, thumbprint compared with the desk card from `teamax card`). Chats work. |
 | Production, office network | `https://<LocalHostName>.local:8443` or `https://<LAN-IP>:8443` | Browsers and phones on the same network (not tested on a real install). The certificate is self-signed, so each person clicks through the warning once (again after it is renewed for a new address): Chrome/Edge **Advanced → Proceed to … (unsafe)**; Safari on the Mac **Show Details → visit this website → Visit Website** (asks for the Mac password); Safari on iPhone **Show Details → visit this website → Visit Website**. |
-| Team AX relay | `https://<team>.treesoop.com` | Not available: `wss://relay.treesoop.com/connect` is not running. Admin → System does not offer it until `relay.officialAvailable` is `true` in `config/server.json`. |
+| Trina relay | `https://<team>.trina.app` | Official registration requires an issued connection code; it is not open hostname signup. Check availability with the operator. |
 | Your own relay | your domain | Advanced and not tested end to end; see below. The "Cloudflare tunnel" and "Tailscale" modes are rejected with "not available in this version". |
 
 Find the host name with `scutil --get LocalHostName`. If the macOS application firewall blocks the server, allow the
@@ -591,18 +591,18 @@ address will give. Members use the browser for now.
    ```sh
    bun run dist:mac            # = cd desktop && bun run dist:mac
    ```
-   This writes `desktop/release/Team-AX-0.1.0-mac-universal.dmg` (~230 MB, unsigned, Apple silicon and Intel).
+   This writes `desktop/release/Trina-AX-<version>-mac-universal.dmg` (~230 MB, unsigned, Apple silicon and Intel).
    `bun run --cwd desktop dist:mac:arm64` / `dist:mac:x64` build a smaller single-CPU DMG.
 2. Drag the app to Applications, then right-click → Open. On macOS 15+, use System Settings → Privacy & Security →
    **Open Anyway**.
 3. If the file was copied from another Mac, run:
    ```sh
-   xattr -dr com.apple.quarantine "/Applications/Team AX.app"
+   xattr -dr com.apple.quarantine "/Applications/Trina AX.app"
    ```
 
 Addresses the app accepts:
 - plain `http` only for `localhost`, `*.localhost` and 127.x;
-- a bare name becomes `https://<name>.treesoop.com`;
+- a bare name becomes `https://<name>.trina.app`;
 - any other address needs a publicly trusted HTTPS certificate.
 
 The office address is not typed in. Signed in at the team address, the app asks `GET /api/connect-info` for the
@@ -619,7 +619,7 @@ connection" with the count. A server with no team address (office network only) 
 cd desktop && bun run dist:win
 ```
 
-This writes `desktop/release/Team-AX-Setup-0.1.0-win-x64.exe`; it builds on a Mac. It is unsigned, so SmartScreen
+This writes `desktop/release/Trina-AX-Setup-<version>-win-x64.exe`; it builds on a Mac. It is unsigned, so SmartScreen
 warns: click **More info → Run anyway**. The same address rules apply.
 
 **Offer the apps in the product.** Put the installers and an `index.json` in `<data>/downloads/`. Members then see
@@ -629,7 +629,7 @@ Only the files `index.json` lists are served (plain files, not links). Set `"sig
 verified (it hides the SmartScreen / Gatekeeper steps). `index.json` looks like this (`size` in bytes: `stat -f %z <file>`):
 
 ```json
-{"items":[{"platform":"mac","file":"Team-AX-0.1.0-mac-universal.dmg","version":"0.1.0","size":123,"signed":false}]}
+{"items":[{"platform":"mac","file":"Trina-AX-<version>-mac-universal.dmg","version":"0.1.0","size":123,"signed":false}]}
 ```
 
 In dev `<data>` is `~/.team-ax-dev/data`. In production it is `/Library/Application Support/mycel/data`, which belongs
@@ -638,7 +638,7 @@ to `_axserver`, so copy with `sudo` and give the folder back to the server accou
 ```sh
 D="/Library/Application Support/mycel/data/downloads"
 sudo mkdir -p "$D"
-sudo cp desktop/release/Team-AX-0.1.0-mac-universal.dmg index.json "$D/"
+sudo cp desktop/release/Trina-AX-<version>-mac-universal.dmg index.json "$D/"
 sudo chown -R _axserver "$D"
 ```
 
@@ -680,34 +680,11 @@ The full setup:
 git pull && bun install && bun run build && bun run dev:service restart
 ```
 
-**Update (production).** v0.2.5 is the current release, on GitHub Releases and on the Trina update feed
-(`https://updates.trina.app`, live since 2026-10-29). The feed serves Linux servers and office Macs. To update this server Mac manually:
-- **New version (normal way):** read the running version with `curl -s http://127.0.0.1:47820/api/health`
-  (`"version":"0.1.0"`), then build a **higher** one (raise the last number each time: 0.1.1, 0.1.2, …) and run the
-  same installer command:
-  ```sh
-  git pull && bun install && bun run build
-  bun scripts/build-bundle.ts --version 0.1.1
-  sudo scripts/install-macos.sh --from dist/release --allow-unsigned
-  ```
-  It switches to 0.1.1, keeps 0.1.0 for Roll back, and goes back by itself if 0.1.1 does not start (2.3; not tested
-  on a real install). Building the same number again replaces that version in place and leaves nothing to roll back
-  to.
-- **Same version string (repair only):** run `bun run build:bundle`, then the same installer command. It replaces
-  `app/versions/0.1.0`.
-- **By hand as `_axserver`** (what the in-app update does). The bundle must be readable by `_axserver`, and your
-  home folder is not, so copy it to `/Users/Shared` first:
+**Update (production).** Use the [latest release](https://github.com/trina-app/trina-ax/releases/latest) as the version source of truth. Linux and office Mac receive updates from `https://updates.trina.app`; follow their [Linux](INSTALL-LINUX.en.md) and [office](OFFICE.en.md) guides. This role-account Mac path is an operator-managed source-bundle installation, not the office feed path or a released desktop DMG.
 
-  ```sh
-  bun scripts/build-bundle.ts --version 0.1.1
-  cp dist/release/0.1.1.tar.zst /Users/Shared/
-  ADMIN='cd / && sudo -u _axserver env MYCEL_MODE=prod "/Library/Application Support/mycel/app/current/bin/bun" "/Library/Application Support/mycel/app/current/server/src/admin.js"'
-  eval "$ADMIN stage-update /Users/Shared/0.1.1.tar.zst"
-  eval "$ADMIN switch 0.1.1 --restart"      # roll back: eval "$ADMIN rollback --restart"
-  ```
+Before changing it: read release/admin notes, make a full backup and encrypted off-host archive, verify recovery, then stage a reviewed compatible bundle. Check release signatures when using signed artifacts, restart, verify status/login/files and keep the prior app bundle. App rollback does not undo database/file changes. See [backup and restore](BACKUP-RESTORE.md).
 
-  The bootstrap rolls back by itself if the new version does not answer within 120 s or crashes 3 times (not tested
-  on a real install).
+**Advanced source builds only:** derive a unique development version from `server/package.json`; do not invent official release versions or overwrite a running version. An unsigned build needs explicit `--allow-unsigned` consent on a disposable/reviewed operator environment. This is not normal release-update advice.
 
 **Backups.**
 - Nightly after 03:00, kept 14 days: a full backup every 7 days, incremental in between.
@@ -722,7 +699,7 @@ These backups are on the same disk. For an off-machine copy:
 - **Production:** make an encrypted archive. `--password-stdin` takes at least 8 characters; end the input with
   Ctrl-D.
   ```sh
-  eval "$ADMIN archive --out /Users/Shared/teamax.tar.zst.age --password-stdin"
+  sudo -u _axserver env MYCEL_MODE=prod "/Library/Application Support/mycel/app/current/bin/bun" "/Library/Application Support/mycel/app/current/server/src/admin.js" archive --out /Users/Shared/trina.tar.zst.age --password-stdin
   ```
   It prints `{"file":"/Users/Shared/teamax.tar.zst.age","size":…,"sha256":"…","encrypted":true,"files":N}`. The file
   belongs to `_axserver` (mode 600), so copy it to the external disk with `sudo cp`. Keep the password somewhere safe.

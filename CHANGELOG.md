@@ -12,6 +12,14 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Add guarded HWP/HWPX server PNG previews and the AI `hwp_render` page tool, with pinned engine/fonts and original downloads.
 
 - Add Japanese (日本語) and Spanish (Español) across the app, notifications, offline recovery and desktop, with localized dates and numbers.
+### Team-first onboarding / 팀 중심 도입 안내
+
+- Team leads get matching EN/KO/JA/ES entry pages, role examples, realistic permission boundaries and hosted/self-host choices. / 팀장용 4개 언어 안내·업무 예제·권한 경계·호스팅과 직접 설치 경로.
+- Evaluators can run `bun run demo` for a loopback-only, model-free fictional team with six loadable starter skills. / 한 명령으로 AI를 끈 가상 팀·스킬 체험.
+- Administrators get corrected release filenames, EN/KO Linux/office guides and backup/restore instructions. Both office guides travel with the next ZIP; PDFs are optional. / 파일명 수정·영한 운영 안내·복구 안내, 다음 ZIP에 두 언어 사무실 가이드 포함.
+- Connection notices distinguish the existing default-on setting from provider authorization. No default is changed. / 기본 켜짐과 제공사 사용 허가를 구분하며 설정 기본값은 바꾸지 않습니다.
+
+Real AI screenshots and full replacement-host recovery still need authorized operational validation. No pending HWP preview, JA/ES UI or safe-operations branch is released by these changes. / 실 AI 화면·새 장비 전체 복구는 별도 검증이 필요하며 진행 중 기능을 출시하지 않습니다.
 
 ## 0.2.9 — 2026-10-29
 

@@ -56,6 +56,8 @@ jobs:
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - name: Onboarding documentation contracts
+        run: bun run check:docs
       - name: Native build (darwin + linux, amd64 + arm64), go vet and go test
         run: |
           ARCHS="amd64 arm64" bash native/build.sh

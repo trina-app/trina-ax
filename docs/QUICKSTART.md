@@ -1,80 +1,43 @@
 # Try Trina AX locally
 
-Allow about **10 minutes on a prepared Mac** to install dependencies, build and explore the synthetic demo.
-A fresh Mac needs additional tool installation time (the [full guide](INSTALL.md#11-tools) estimates 30–60 minutes).
-Network speed and build caches affect the time. This is a development preview, not a production installation.
+[한국어](QUICKSTART.ko.md) · [Team guide](for-teams.md)
 
-## Prerequisites
+This is a fictional, model-free evaluation, **not a production install**. No AI account is required. It demonstrates files, team skills and application permissions, not AI quality or production isolation.
 
-- Git, Bun **1.3.12** (the CI pin), Go **1.27+**, and a free port **19720**.
-- macOS developer tools for native builds. Building both architectures below also covers Intel Macs.
-- Optional for AI chat: supported Claude Code or Codex CLI, installed and signed in on this Mac. See [engine versions](INSTALL.md#11-tools).
-- PDF/Office extraction, PDF output and voice input need additional tools from the full installation guide. They are not needed to browse the seeded Markdown glossary.
+## Requirements
 
-## 1. Build and start
+Use macOS or Linux with Git, Bun 1.3.12 (CI pin), Go 1.27+ and native build tools (Xcode command-line tools on Mac). The initial build downloads dependencies. Windows users can use a browser connected to a prepared demo host; a native Windows server walkthrough is not provided. Allow about ten minutes on a prepared machine; new tool installation takes longer. This walkthrough was exercised on macOS; Linux source evaluation needs validation on your machine.
 
 ```sh
 git clone https://github.com/trina-app/trina-ax.git
 cd trina-ax
 bun install --frozen-lockfile
-ARCHS="arm64 amd64" bun run build
-TEAM_AX_DEV_DIR="$HOME/.trina-ax-demo" TEAM_AX_DEV_PORT=19720 bun run dev --no-relay
+bun run demo
 ```
 
-Leave this terminal running. The server serves the built web app. `--no-relay` avoids needing a relay or Node for
-this walkthrough. Do not use `--vite` here; it starts a separate development port.
+The single foreground command builds the app, starts it on **http://127.0.0.1:19760**, and seeds fictional data, six starter skills and a clearly labeled illustrative result file. It prints the dedicated data directory and process ID. It binds to loopback, starts no relay, and disables both AI engines, even if this computer has existing CLI logins. Do not expose it or add real data.
 
-Use a fresh `.trina-ax-demo` directory and synthetic data. Engines run as your OS account with your local CLI logins;
-**development mode has no production OS isolation**. Do not expose the demo to the internet or use company documents.
-
-## 2. Seed a team
-
-In another terminal, change into the same `trina-ax` checkout and run:
+Optional choices:
 
 ```sh
-TEAM_AX_DEV_DIR="$HOME/.trina-ax-demo" bun run demo:seed --base http://127.0.0.1:19720
+bun run demo --port 19761 --data "$HOME/.trina-evaluation-new" --locale ko
 ```
 
-Do this before creating your own team in the setup screen. The seed uses the local setup token without requiring
-you to copy it. It refuses an existing team with a different owner and only fills missing seed data on repeat runs.
+The data directory must **not exist**. Existing and non-demo directories are refused. Choose a short path outside `/tmp` on macOS because sandbox/socket paths have platform limits. A busy port is refused before seeding. Each default run creates a new directory; old runs are never silently reset.
 
-Open **http://127.0.0.1:19720**. Sign in as `alice` with `teamax-demo-1`. These are intentionally public demo
-credentials, never credentials for a real deployment. The seed's owner and other users are listed in
-[`scripts/demo/seed.ts`](../scripts/demo/seed.ts).
+## Your first result
 
-The demo is Korean. Use **Settings → Profile → Language** to switch to English, or keep it in Korean.
+1. Sign in as `alice`, password `teamax-demo-1` (public fictional demo credentials).
+2. Open **Files → shared → 팀-용어집.md** to preview the glossary.
+3. Open a separate browser profile as `bob` with the same demo password. Alice sees the marketing group; Bob sees finance. Bob cannot see its payroll subfolder.
+4. Sign in as `dion` (fictional owner) to explore team skills and administration. [Copy a starter skill](../examples/README.md).
 
-## 3. Reach a first result without a model
+The files are Korean; the UI starts in English unless `--locale ko` is supplied. The sign-in screen has English / 한국어 language buttons. In the app use Settings → Profile → Language.
 
-1. Open **Files → shared → 팀-용어집.md**. You should see a glossary table, including the term `전환율`.
-2. Browse the marketing group folder. It is available to `alice`.
-3. In a private browser window, open the same address and sign in as `bob` with the same demo password.
-4. Bob can browse the finance group; the marketing group's files and the finance payroll subfolder are hidden from him. This exercises application permissions, not production OS isolation.
+## Stop and clean up
 
-You have now tested the browser, server, seeded files and per-person folder access without a model call.
+Press **Ctrl-C** in the foreground terminal. The launcher stops its own server by PID. Data stays in the directory printed at startup. Once stopped, delete only that dedicated demo directory if you no longer need it. Never delete a real team's directory. A failed build can leave an empty demo directory; choose a new path on retry.
 
-## 4. Optional: ask the AI
+AI is deliberately unavailable here. For an optional real model task, use a separate development environment with a permitted account as described in [DEVELOPMENT.md](DEVELOPMENT.md), or arrange [hosting](https://ax.trina.app/#contact). Provider charges and terms apply.
 
-With a supported CLI installed and logged in on the Mac, start a new chat as `alice`. Choose the matching engine
-in the chat composer (Claude Code by default; select Codex if that is the CLI you connected), then ask:
-
-> Read shared/팀-용어집.md and explain 전환율 in one sentence. Cite the file.
-
-An answer uses your local CLI account and its provider's usage allowance. Expand the tool steps to inspect which
-file was read. If the engine is unavailable, check its installation/login and the native build; file browsing
-still works. [More examples](EXAMPLES.md).
-
-## Stop and troubleshoot
-
-Press **Ctrl-C in the first terminal**. The development supervisor stops its child processes. The files remain in
-`$HOME/.trina-ax-demo`; after stopping, you may remove that dedicated demo directory if you want a fresh start.
-Do not remove a directory used by a real team.
-
-- **Port in use:** stop your own demo process, or choose another free port and use it consistently in both commands and the browser.
-- **Existing team:** choose a new data directory in both terminals; do not reset a real team's data to seed a demo.
-- **Sign-in repeats:** keep using `127.0.0.1`; `localhost` has a separate cookie origin.
-- **Socket path too long:** use a short directory under your home folder, as shown above.
-- **Missing converter:** install the relevant tool from [INSTALL.md](INSTALL.md); a text-only demo does not require every converter.
-
-For a real team, follow [Linux installation](INSTALL-LINUX.md) or [office Mac installation](OFFICE.md), with fresh
-accounts and the production isolation setup.
+[Problems starting?](TROUBLESHOOTING.md) · [Linux production](INSTALL-LINUX.en.md) · [Office Mac](OFFICE.en.md)
