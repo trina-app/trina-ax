@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { OFFICE_EXTRACT_PARALLEL, OfficeCache, RG_BASE, runRg } from '../../server/src/files/search'
+import { OFFICE_EXTRACT_PARALLEL, OFFICE_QUEUE_PER_OWNER, OfficeCache, RG_BASE, runRg } from '../../server/src/files/search'
 
 const rg = Bun.which('rg')
 const tools = { pandoc: 'pandoc', pdftotext: 'pdftotext', ocr: null } as never
@@ -96,5 +96,93 @@ describe.skipIf(!rg)('office text cache', () => {
       expect((await c.refresh(rg!, ['shared'], [], t.filter, { budget: 8 })).pending).toBe(0)
       expect(c.calls.get(rel)).toBe(1)
     } finally { fs.chmodSync(abs, 0o644) }
+  })
+})
+
+/** An OfficeCache whose extraction waits for a gate per file and records the start order. */
+class GatedCache extends OfficeCache {
+  order: string[] = []
+  gates = new Map<string, () => void>()
+  constructor(dir: string, root: string) { super(dir, { root } as never, tools) }
+  protected override async extract(rel: string): Promise<string> {
+    this.order.push(rel)
+    await new Promise<void>((r) => this.gates.set(rel, r))
+    return 'text of ' + rel
+  }
+  open(rel: string) { this.gates.get(rel)?.(); this.gates.delete(rel) }
+  async openAll() { while (this.queued() > 0 || this.gates.size) { for (const r of [...this.gates.keys()]) this.open(r); await sleep(5) } await this.idle() }
+}
+
+function people(counts: Record<string, number>) {
+  const root = tmp('team-')
+  const rels: Record<string, string[]> = {}
+  for (const [who, n] of Object.entries(counts)) {
+    fs.mkdirSync(path.join(root, 'users', who), { recursive: true })
+    rels[who] = Array.from({ length: n }, (_, i) => `users/${who}/d${String(i).padStart(3, '0')}.docx`)
+    for (const r of rels[who]!) fs.writeFileSync(path.join(root, r), 'doc ' + r)
+  }
+  return { root, rels, filter: (rel: string) => fs.lstatSync(path.join(root, rel)) }
+}
+
+describe.skipIf(!rg)('background queue fairness', () => {
+  test('the queue takes files from each owner in turn: one person with many files does not delay another', async () => {
+    const t = people({ alice: 150, bob: 1 })
+    const c = new GatedCache(tmp('cache-'), t.root)
+    try {
+      const a = await c.refresh(rg!, ['users/alice'], [], t.filter, { budget: 0, owner: 'alice' })
+      expect(a.pending + (a.notQueued ?? 0)).toBe(150)
+      const b = await c.refresh(rg!, ['users/bob'], [], t.filter, { budget: 0, owner: 'bob' })
+      expect(b.pending).toBe(1)
+      // the worker extracts one file at a time: open them one by one until bob's file starts
+      for (let i = 0; i < 5 && !c.order.includes(t.rels.bob![0]!); i++) { await sleep(20); for (const r of [...c.gates.keys()]) c.open(r); await sleep(20) }
+      expect(c.order.indexOf(t.rels.bob![0]!)).toBeGreaterThanOrEqual(0)
+      expect(c.order.indexOf(t.rels.bob![0]!)).toBeLessThan(3)
+    } finally { await c.openAll() }
+  })
+
+  test('one owner queues at most OFFICE_QUEUE_PER_OWNER files; the rest are notQueued, and other owners can still enqueue', async () => {
+    const N = OFFICE_QUEUE_PER_OWNER + 30
+    const t = people({ carol: N, dan: 2 })
+    const c = new GatedCache(tmp('cache-'), t.root)
+    try {
+      const r = await c.refresh(rg!, ['users/carol'], [], t.filter, { budget: 0, owner: 'carol' })
+      // indexing counts only files that are queued or running for this search
+      expect(r.pending).toBeLessThanOrEqual(OFFICE_QUEUE_PER_OWNER + 1)
+      expect(r.pending).toBe(c.queued())
+      expect(r.notQueued).toBe(N - r.pending)
+      // the same search again counts the files that wait or run (the worker took one, so one more place is free)
+      const again = await c.refresh(rg!, ['users/carol'], [], t.filter, { budget: 0, owner: 'carol' })
+      expect(again.pending).toBeLessThanOrEqual(OFFICE_QUEUE_PER_OWNER + 1)
+      expect(again.pending).toBe(c.queued())
+      expect(again.notQueued).toBe(N - again.pending)
+      const d = await c.refresh(rg!, ['users/dan'], [], t.filter, { budget: 0, owner: 'dan' })
+      expect(d).toMatchObject({ pending: 2, notQueued: 0 })
+    } finally { await c.openAll() }
+  })
+
+  test('a foreground caller that joins a background job raises it to high priority', async () => {
+    const t = people({ fg: OFFICE_EXTRACT_PARALLEL, bg: 1, hi: 2 })
+    const c = new GatedCache(tmp('cache-'), t.root)
+    const f = t.rels.bg![0]!
+    try {
+      // all slots are in use by foreground jobs
+      const held = t.rels.fg!.map((r) => c.update(r).catch(() => {}))
+      await sleep(20)
+      // the background worker takes f; it waits for a slot with low priority
+      await c.refresh(rg!, ['users/bg'], [], t.filter, { budget: 0, owner: 'bg' })
+      await sleep(20)
+      // a foreground caller (the AI grep) needs f too, then two other foreground files wait
+      const joined = c.update(f)
+      const others = t.rels.hi!.map((r) => c.update(r).catch(() => {}))
+      await sleep(20)
+      expect(c.order).toEqual(t.rels.fg)
+      // one slot is free: f goes first, before the foreground files that came later
+      c.open(t.rels.fg![0]!)
+      for (let i = 0; i < 50 && c.order.length === OFFICE_EXTRACT_PARALLEL; i++) await sleep(10)
+      expect(c.order[OFFICE_EXTRACT_PARALLEL]).toBe(f)
+      c.open(f)
+      await joined
+      void held; void others
+    } finally { await c.openAll() }
   })
 })

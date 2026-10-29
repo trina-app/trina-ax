@@ -150,9 +150,14 @@ const VERSION_FILE = '.format-version' // cache files all end in .txt, so no fil
 export const OFFICE_EXTRACT_PARALLEL = 4
 /** the most office files that wait in the background queue; more are left to a later search */
 const OFFICE_QUEUE_MAX = 10_000
-/** office files that one person (the content search) may add to the background queue in one minute */
-export const OFFICE_QUEUE_PER_PERSON_MINUTE = 100
-const OFFICE_QUEUE_WINDOW_MS = 60_000
+/** the most office files that wait in the background queue for one owner; more are left to a later search */
+export const OFFICE_QUEUE_PER_OWNER = 200
+/** the owner of the files that the AI grep (and other callers without a person) adds to the background queue; a
+ * person's owner key is 'user:' + id, so no user id can be the same key */
+export const OFFICE_SYSTEM_OWNER = 'system'
+
+/** one extraction job: it waits with low priority until a foreground caller needs the same file */
+interface ExtractTicket { low: boolean; wake?: () => void }
 
 export interface OfficeRefreshOpts {
   /** office files extracted before the answer (default 40); the rest go to the background queue */
@@ -163,24 +168,24 @@ export interface OfficeRefreshOpts {
   deadline?: number
   /** stop waiting when this signal aborts */
   signal?: AbortSignal
-  /** the person whose search adds files to the background queue: at most OFFICE_QUEUE_PER_PERSON_MINUTE new files a
-   * minute (none: no limit, the AI grep) */
+  /** the person whose search adds files to the background queue (default OFFICE_SYSTEM_OWNER). The worker takes
+   * files from each owner in turn, and one owner has at most OFFICE_QUEUE_PER_OWNER files in the queue. */
   owner?: string
 }
 
 export class OfficeCache {
-  private inflight = new Map<string, Promise<void>>()
+  private inflight = new Map<string, { job: Promise<void>; ticket: ExtractTicket }>()
   private marked = false
   /** extraction slots in use, and the jobs that wait for one: a foreground job (the AI grep, an upload, the semantic
    * index) always gets a free slot before a background job */
   private active = 0
   private waitingHigh: (() => void)[] = []
   private waitingLow: (() => void)[] = []
-  /** the background queue (in order; each path once, with the mtime it had when it was added) and its one worker */
-  private queue = new Map<string, number>()
+  /** the background queue: per owner (in turn order) the files in order, each with the mtime it had when it was
+   * added; `owners` gives the owner of each queued path (each path is queued once). One worker. */
+  private queue = new Map<string, Map<string, number>>()
+  private owners = new Map<string, string>()
   private worker: Promise<void> | null = null
-  /** per person: the times at which their searches added a file to the queue (last OFFICE_QUEUE_WINDOW_MS) */
-  private added = new Map<string, number[]>()
   constructor(readonly dir: string, private fx: FsCtx, private tools: Tools) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     // text of an older format is removed; an empty cache gets the version file only with its first text (a fresh
@@ -196,13 +201,26 @@ export class OfficeCache {
   }
   /** the text of one file (a test can replace it) */
   protected extract(rel: string, bytes: Buffer): Promise<string> { return extractText(rel, bytes, this.tools) }
-  private async slot<T>(f: () => Promise<T>, low: boolean): Promise<T> {
+  private async slot<T>(f: () => Promise<T>, t: ExtractTicket): Promise<T> {
     // a low job also waits while a foreground job waits, so a freed slot goes to the foreground first
-    while (this.active >= OFFICE_EXTRACT_PARALLEL || (low && this.waitingHigh.length)) {
-      await new Promise<void>((r) => (low ? this.waitingLow : this.waitingHigh).push(r))
+    while (this.active >= OFFICE_EXTRACT_PARALLEL || (t.low && this.waitingHigh.length)) {
+      await new Promise<void>((r) => { t.wake = r; (t.low ? this.waitingLow : this.waitingHigh).push(r) })
+      t.wake = undefined
     }
     this.active++
     try { return await f() } finally { this.active--; (this.waitingHigh.shift() ?? this.waitingLow.shift())?.() }
+  }
+  /** a foreground caller joins a low job: the job gets high priority (it moves to the foreground waiters) */
+  private raise(t: ExtractTicket) {
+    if (!t.low) return
+    t.low = false
+    const wake = t.wake
+    if (!wake) return
+    const i = this.waitingLow.indexOf(wake)
+    if (i < 0) return
+    this.waitingLow.splice(i, 1)
+    // a free slot: the job checks again at once; else it waits with the foreground jobs
+    if (this.active < OFFICE_EXTRACT_PARALLEL) wake(); else this.waitingHigh.push(wake)
   }
   private write(rel: string, text: string, st: fs.Stats) {
     const dst = this.cachePath(rel)
@@ -218,7 +236,9 @@ export class OfficeCache {
    * file is gone, its text is deleted.
    */
   update(rel: string, o: { background?: boolean } = {}): Promise<void> {
-    const running = this.inflight.get(rel); if (running) return running
+    const running = this.inflight.get(rel)
+    if (running) { if (!o.background) this.raise(running.ticket); return running.job }
+    const ticket: ExtractTicket = { low: !!o.background }
     const job = this.slot(async () => {
       const abs = path.join(this.fx.root, ...rel.split('/'))
       let lst: fs.Stats
@@ -232,51 +252,73 @@ export class OfficeCache {
       let text: string
       try { text = await this.extract(rel, got.bytes) } catch { text = '' }
       this.write(rel, text, got.st)
-    }, !!o.background).finally(() => this.inflight.delete(rel))
-    this.inflight.set(rel, job)
+    }, ticket).finally(() => this.inflight.delete(rel))
+    this.inflight.set(rel, { job, ticket })
     return job
   }
   /** for tests and tools: resolves when no extraction runs and the background queue is empty */
-  async idle() { while (this.worker || this.inflight.size) await Promise.all([this.worker, ...this.inflight.values()].map((p) => p?.catch(() => {}))) }
+  async idle() { while (this.worker || this.inflight.size) await Promise.all([this.worker, ...[...this.inflight.values()].map((x) => x.job)].map((p) => p?.catch(() => {}))) }
   /** for tests: files in the background queue (also the one the worker extracts now) */
-  queued() { return this.queue.size + (this.worker ? 1 : 0) }
+  queued() { return this.owners.size + (this.worker ? 1 : 0) }
   /**
-   * Add stale files to the one background queue of the server. A file that waits (same path and mtime) or is being
-   * extracted is not added again. With `owner`, at most OFFICE_QUEUE_PER_PERSON_MINUTE new files a minute are taken
-   * from that person; the rest are left to a later search.
+   * Add stale files to the one background queue of the server, for `owner`. A file that waits (any owner) or is being
+   * extracted is not added again. One owner has at most OFFICE_QUEUE_PER_OWNER files in the queue. When the whole
+   * queue is full, an owner with fewer files takes the place of the last file of the owner with the most files, so a
+   * new owner can always add files. Files that are not added are left to a later search. Returns the number of the
+   * items that wait or are being extracted after the call.
    */
-  private enqueue(items: { rel: string; mtime: number }[], owner?: string) {
-    let times: number[] | undefined
-    if (owner) {
-      const now = Date.now()
-      times = (this.added.get(owner) ?? []).filter((t) => t > now - OFFICE_QUEUE_WINDOW_MS)
-      this.added.set(owner, times)
-    }
+  private enqueue(items: { rel: string; mtime: number }[], owner: string): number {
+    let accepted = 0
     for (const { rel, mtime } of items) {
-      if (this.queue.size >= OFFICE_QUEUE_MAX) break
-      if (this.inflight.has(rel)) continue
-      const had = this.queue.get(rel)
-      if (had === mtime) continue
-      if (had === undefined && times) {
-        if (times.length >= OFFICE_QUEUE_PER_PERSON_MINUTE) continue
-        times.push(Date.now())
-      }
-      this.queue.set(rel, mtime)
+      if (this.inflight.has(rel)) { accepted++; continue }
+      const had = this.owners.get(rel)
+      if (had !== undefined) { this.queue.get(had)!.set(rel, mtime); accepted++; continue }
+      const mine = this.queue.get(owner)
+      if ((mine?.size ?? 0) >= OFFICE_QUEUE_PER_OWNER) continue
+      if (this.owners.size >= OFFICE_QUEUE_MAX && !this.dropFromLargest(mine?.size ?? 0)) continue
+      if (mine) mine.set(rel, mtime); else this.queue.set(owner, new Map([[rel, mtime]]))
+      this.owners.set(rel, owner)
+      accepted++
     }
-    if (owner && !times!.length) this.added.delete(owner)
-    if (this.worker || !this.queue.size) return
+    this.startWorker()
+    return accepted
+  }
+  /** remove the last file of the owner with the most files, when that owner has more than `than` files */
+  private dropFromLargest(than: number): boolean {
+    let big: Map<string, number> | undefined
+    for (const m of this.queue.values()) if (!big || m.size > big.size) big = m
+    if (!big || big.size <= than + 1) return false
+    const last = [...big.keys()].pop()!
+    big.delete(last); this.owners.delete(last)
+    return true
+  }
+  /** the next file of the background queue: the first file of the first owner; that owner then goes to the end */
+  private takeNext(): string | undefined {
+    for (const [owner, files] of this.queue) {
+      this.queue.delete(owner)
+      const [first] = files.keys()
+      if (first === undefined) continue
+      files.delete(first); this.owners.delete(first)
+      if (files.size) this.queue.set(owner, files)
+      return first
+    }
+    return undefined
+  }
+  private startWorker() {
+    if (this.worker || !this.owners.size) return
     this.worker = (async () => {
       // one worker with low priority: it holds at most one extraction slot, and a foreground job gets a free slot first
-      for (const [r] of this.queue) { this.queue.delete(r); await this.update(r, { background: true }).catch(() => {}) }
-    })().finally(() => { this.worker = null; if (this.queue.size) this.enqueue([]) })
+      for (let r = this.takeNext(); r !== undefined; r = this.takeNext()) await this.update(r, { background: true }).catch(() => {})
+    })().finally(() => { this.worker = null; this.startWorker() })
   }
   /**
    * Make sure cached text exists for the office files under the roots. Extracts at most `budget` now and waits for
    * them until `deadline`; the rest (and those still running at the deadline) go on in the background. `pending` is
-   * the number of files whose text was not ready at the answer.
+   * the number of files whose text was not ready at the answer and that wait or are being extracted; `notQueued` is
+   * the number of the other stale files (the queue did not take them; a later search adds them).
    */
-  async refresh(rg: string, roots: string[], excludes: string[], filter: (rel: string) => fs.Stats | null, o: OfficeRefreshOpts = {}): Promise<{ pending: number; timedOut: boolean }> {
-    if (!roots.length) return { pending: 0, timedOut: false }
+  async refresh(rg: string, roots: string[], excludes: string[], filter: (rel: string) => fs.Stats | null, o: OfficeRefreshOpts = {}): Promise<{ pending: number; notQueued: number; timedOut: boolean }> {
+    if (!roots.length) return { pending: 0, notQueued: 0, timedOut: false }
     const budget = o.budget ?? 40
     const stale: string[] = []
     const mtimes = new Map<string, number>()
@@ -309,8 +351,8 @@ export class OfficeCache {
         break
       }
     }
-    if (later.length) this.enqueue(later.map((rel) => ({ rel, mtime: mtimes.get(rel)! })), o.owner)
-    return { pending: later.length + unfinished, timedOut }
+    const queued = later.length ? this.enqueue(later.map((rel) => ({ rel, mtime: mtimes.get(rel)! })), o.owner !== undefined ? 'user:' + o.owner : OFFICE_SYSTEM_OWNER) : 0
+    return { pending: queued + unfinished, notQueued: later.length - queued, timedOut }
   }
 }
 
@@ -355,7 +397,8 @@ export interface GrepOpts {
    * its own d.timeoutMs (the AI tool). */
   strictTime?: boolean
   /** office files extracted before the answer (default 40); the rest are extracted in the background. 0: no
-   * extraction before the answer (the content search); then stats.officePending counts all stale office files */
+   * extraction before the answer (the content search); then stats.officePending counts the stale office files that
+   * the background queue holds, and stats.officeNotQueued the stale office files that it did not take */
   officeBudget?: number
   /** the person who adds stale office files to the background queue (OfficeRefreshOpts.owner) */
   officeOwner?: string
@@ -374,7 +417,7 @@ export interface GrepHit { path: string; line: number; text: string }
 
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
-  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, longSkipped: 0 }
+  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, longSkipped: 0 }
   const hits: GrepHit[] = []
   if (!roots.length) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
@@ -475,6 +518,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     const ref = await d.office.refresh(d.rg, roots, excludes, (rel) => visiblePath(d.fx, d.rules, d.user, rel),
       { budget: o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
     stats.officePending = ref.pending
+    stats.officeNotQueued = ref.notQueued
     if (ref.timedOut && o.strictTime) timedOut = true
     const croots = roots.map((r) => (isOffice(r) ? r + '.txt' : r)).filter((r) => fs.existsSync(path.join(d.office.dir, r)))
     const lastLeft = o.strictTime ? deadline - Date.now() : d.timeoutMs
@@ -501,6 +545,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let text = out.join('\n') || 'No matches'
   if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
+  if (stats.officeNotQueued) text += `\n(${stats.officeNotQueued} office documents were not searched; they are not in the index queue yet; search again later)`
   if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
   return { text, truncated, timedOut, stats, files, hits }
 }

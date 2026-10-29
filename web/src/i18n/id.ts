@@ -392,6 +392,7 @@ export const id: Record<MessageKey, string> = {
   'files.search.truncated': 'Hanya {n} baris pertama yang ditampilkan. Ketik teks lain untuk mempersempit pencarian.',
   'files.search.timedOut': 'Pencarian berhenti karena batas waktu. Sebagian hasil bisa tidak ada.',
   'files.search.indexing': 'Mengindeks {n} dokumen office. Belum dicari.',
+  'files.search.notQueued': '{n} dokumen office belum dicari dan belum diindeks: terlalu banyak yang menunggu. Cari lagi nanti.',
   'files.search.longSkipped': '{n} baris yang sangat panjang dilewati.',
   'files.breadcrumb': 'Lokasi saat ini',
   'files.upload': 'Unggah',

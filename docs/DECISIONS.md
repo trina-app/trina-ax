@@ -2606,7 +2606,8 @@ including same-account installs. Extend the same synthetic selection tests to co
   the answer has `timedOut`, so the search ends near 10 s (before, the second and last pass had at least 1 s and
   0.5 s more). A line is cut to 160 characters around the first match. The answer says when the list was cut
   (`truncated`), when the time limit stopped the search (`timedOut`) and how many office documents were not searched
-  because their text is not made yet (`indexing`). Each person can start 60 searches in a minute; more answers `rate_limited`
+  because their text is not made yet (`indexing`: the files that wait in the background queue or are being
+  extracted; `notQueued`: the files that the queue did not take). Each person can start 60 searches in a minute; more answers `rate_limited`
   (429) with `retryAfter`. A person runs at most 2 searches at the same time: a new search stops the oldest one (kills
   its ripgrep), because the screen shows only the newest answer. A search also stops when the client goes away. Thus
   typing gets no 429. The state is in memory, so a restart clears it.
@@ -2623,17 +2624,32 @@ including same-account installs. Extend the same synthetic selection tests to co
   extracted is not added again; at most 10,000) with one worker. The worker has low priority: it holds at most one
   slot, and when a slot is free, a foreground job that waits (the AI grep, an upload, the semantic index) gets it
   first. Thus a content search never takes a slot from a foreground job. Foreground jobs can still fill all 4 slots
-  together (uploads still extract in the foreground; this change does not touch them). One person's content searches add at most 100 new files a minute to the queue
-  (`OFFICE_QUEUE_PER_PERSON_MINUTE`, `owner`); the rest are still counted in `indexing` and are added by a later
-  search. `update()` checks the cache again before it extracts, so many searches do not extract the same file again. The
+  together (uploads still extract in the foreground; this change does not touch them). When a foreground caller needs
+  a file that the worker already extracts or waits for, that job gets high priority (`raise()`), so the foreground
+  caller does not wait behind other foreground jobs with a low job.
+- **Fair background queue (review fix).** Before, the queue was first in, first out with a limit of 100 new files a
+  minute per person. The limit did not control a person's share of the one worker: with 150 stale files from alice
+  and 1 from bob, bob's file was extracted as number 100 of 101 (hours with OCR), and one person could fill the
+  10,000 places. Now the queue keeps the files of each owner (`owner`: the person whose content search added them;
+  the AI grep and other callers use the shared owner `system`, `OFFICE_SYSTEM_OWNER`; a person's key is `user:` + id, so no user id can be the same key). The worker takes one file from
+  each owner in turn (round robin). One owner has at most 200 files in the queue (`OFFICE_QUEUE_PER_OWNER`); the per
+  minute limit is removed. When the whole queue is full, a new file of an owner with fewer files takes the place of
+  the last file of the owner with the most files, so another owner can always add files. A file that the queue does
+  not take is left to a later search. `refresh()` gives `pending` (files that wait or are being extracted for this
+  search) and `notQueued` (the other stale files). The content search sends them as `indexing` and `notQueued`, and
+  the screen shows a note for each ("… not searched and not indexed yet: too many wait. Search again later."). The AI
+  grep text has a note for `notQueued` too. `update()` checks the cache again before it extracts, so many searches do not extract the same file again. The
   office pass shows only text of the current version of a document (cache mtime = file mtime): after a change (a
   redaction) the old text is not found while the new text waits. When a file cannot be read (too large, no access),
   its old text is replaced by an empty text with the file's mtime, so it is not tried again until the file changes.
 - **`grepFiles()` change.** New options `fixed`, `maxPerFile`, `strictTime`, `officeBudget`, `officeOwner` and
   `signal` (`OfficeCache.refresh()` takes `{ budget, listTimeoutMs, deadline, signal, owner }`), and the result also gives `hits`
   (path, line, text of each matching line) and `timedOut`. The AI tool does not use the new options. Its text
-  changes in 2 cases only: a line longer than 64 K characters is skipped (with a note), and stale office text is not
-  shown.
+  changes in 3 cases only: a line longer than 64 K characters is skipped (with a note), stale office text is not
+  shown, and a note gives the number of stale office files that are not in the background queue (`notQueued`). The
+  background files of all AI greps share the owner `system`, so together they have at most 200 files in the queue
+  (before: no limit for one caller, only the total of 10,000). The AI grep still extracts up to 40 files before its
+  answer, so a later AI grep makes the rest.
 - **UI.** The file screen has a search box in its header. With 2 characters (or 1 non-ASCII character) it shows the
   lines that match in the open folder and its sub-folders, grouped by file: name, path, line number and snippet with
   each match in `<mark>`. The snippet is shown as text, never as HTML. A click opens the file in the side panel. The
@@ -2648,8 +2664,11 @@ including same-account installs. Extend the same synthetic selection tests to co
   office text after a change; `indexing`; a 3 MB line (`longSkipped`); result limit, lines per file, snippet cut,
   query length, rate limit per person, a new search stops the oldest. Capacity: with a fake extraction that never
   ends for one person's 30 office files, 5 content searches answer in less than 1.5 s each (before: 10 s) and the AI
-  grep of another person extracts its file at once (before: it waited); one person adds at most 100 files a minute
-  to the queue, and a repeated search adds nothing.
+  grep of another person extracts its file at once (before: it waited); one person has at most 200 files in the
+  queue, `indexing` counts only the files that wait or run and `notQueued` the rest.
   `tests/unit/file-search-limits.test.ts`: the record cap of `runRg`, the extraction deadline (`timedOut`, pending),
-  one background queue with at most 4 extractions, and an unreadable file. `web/test/unit/highlight.test.ts`: the highlight parts.
+  one background queue with at most 4 extractions, and an unreadable file. Fairness (fake extraction with a gate per
+  file): alice 150 stale files, then bob 1: bob's file is among the first 3 extractions (before: number 100); the
+  per-owner limit gives true `pending` and `notQueued` counts and another owner can still add files; a foreground
+  caller that joins a low job makes it start before foreground jobs that came later. `web/test/unit/highlight.test.ts`: the highlight parts.
   `tests/security/lib/cases.ts` has a matrix case for the new route.
