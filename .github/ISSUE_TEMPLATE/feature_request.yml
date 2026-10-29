@@ -1,0 +1,30 @@
+name: Feature request / 기능 제안
+description: Explain a problem and the behavior that would help.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: English and Korean are welcome. Use invented examples; do not include customer data or credentials.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and who it affects
+      description: Describe the workflow and what is difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should happen? Include relevant roles or permissions.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context (optional)
+      description: Synthetic examples only. A request does not imply a delivery commitment.

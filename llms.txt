@@ -1,0 +1,36 @@
+# Trina AX
+
+> A self-hosted team workspace connecting company files and per-person folder permissions to Claude Code and the Codex CLI.
+
+The server runs on Linux or an office Mac; Trina also offers hosting. Clients include web, Windows desktop,
+Mac desktop source and mobile web. A Mac desktop DMG is not distributed yet. The OpenAI-compatible API engine is
+experimental. Files and chats are stored on the server, but selected context goes to the model provider.
+Development mode lacks production OS isolation. The repository is AGPL-3.0-only with component exceptions in NOTICE;
+the hosted billing/operations code and website are not included. This index describes repository documentation,
+not a guarantee of feature availability, search indexing or model behavior.
+
+## Start
+
+- [README](https://github.com/trina-app/trina-ax/blob/main/README.md): Overview, architecture, engines and license.
+- [Documentation](https://github.com/trina-app/trina-ax/blob/main/docs/README.md): Documentation index.
+- [Quickstart](https://github.com/trina-app/trina-ax/blob/main/docs/QUICKSTART.md): Prepared-Mac demo with synthetic data.
+- [Examples](https://github.com/trina-app/trina-ax/blob/main/docs/EXAMPLES.md): File access and a reusable SKILL.md.
+- [FAQ](https://github.com/trina-app/trina-ax/blob/main/docs/FAQ.md): Deployment choices and limitations.
+- [한국어](https://github.com/trina-app/trina-ax/blob/main/README.ko.md): Korean overview.
+
+## Installation and security
+
+- [Mac](https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL.md): Prerequisites and production setup.
+- [Linux](https://github.com/trina-app/trina-ax/blob/main/docs/INSTALL-LINUX.md): Linux installation, Korean.
+- [Office](https://github.com/trina-app/trina-ax/blob/main/docs/OFFICE.md): Office Mac installation, Korean.
+- [Permissions](https://github.com/trina-app/trina-ax/blob/main/docs/PERMISSIONS.md): Access model, Korean.
+- [Security](https://github.com/trina-app/trina-ax/blob/main/SECURITY.md): Private reporting and trust boundaries.
+- [External services](https://github.com/trina-app/trina-ax/blob/main/docs/INTEGRATIONS.md): MCP/HTTP support and limits.
+
+## Project
+
+- [Releases](https://github.com/trina-app/trina-ax/releases): Published artifacts and release notes.
+- [Changelog](https://github.com/trina-app/trina-ax/blob/main/CHANGELOG.md): Changes and publication status.
+- [Contributing](https://github.com/trina-app/trina-ax/blob/main/CONTRIBUTING.md): Development and contribution workflow.
+- [License](https://github.com/trina-app/trina-ax/blob/main/LICENSE): AGPL text.
+- [Notice](https://github.com/trina-app/trina-ax/blob/main/NOTICE): Provenance and component-specific scope.

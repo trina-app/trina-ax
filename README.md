@@ -1,83 +1,139 @@
 # Trina AX
 
-[English](README.md) · [한국어](README.ko.md)
+[English](README.md) · [한국어](README.ko.md) · [Website](https://ax.trina.app) · [Documentation](docs/README.md)
 
-Trina AX is a team app for company files and AI. Your team signs in to one web app. The AI (Claude Code, and
-optionally the Codex CLI) runs on your team server. Each file tool checks the permissions of the person who asks.
+[![CI](https://github.com/trina-app/trina-ax/actions/workflows/ci.yml/badge.svg)](https://github.com/trina-app/trina-ax/actions/workflows/ci.yml)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-orange)](LICENSE)
+
+**Trina AX is a self-hosted team workspace that connects company files and folder permissions to Claude Code and the Codex CLI.**
+
+For company IT teams and developers who want to run a shared AI workspace on a Linux server or an office Mac.
+Team members use a web browser, desktop app or mobile web app; the AI engines run on the team server.
+Trina also offers hosting through [ax.trina.app](https://ax.trina.app).
+
+[Try the local demo](#try-it-in-about-10-minutes) · [Install for a team](#self-hosting-and-trina-hosting) · [Report a bug](https://github.com/trina-app/trina-ax/issues/new/choose)
+
+![Trina AX file workspace with a glossary from the synthetic demo team](docs/images/demo-workspace.png)
+
+*Actual local development build with synthetic demo data; no model-generated answer is shown.*
+
+## Try it in about 10 minutes
+
+On a **Mac with Git, Bun 1.3.12 and Go 1.27+ already installed**, allow about 10 minutes to build, seed and browse
+the local demo. Downloads and first-time tool installation take longer; see the [prerequisites](docs/INSTALL.md#11-tools).
+An AI conversation additionally needs a supported Claude Code or Codex CLI installation and login on the server.
+You can explore files and folder permissions without calling a model.
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git
+cd trina-ax
+bun install --frozen-lockfile
+ARCHS="arm64 amd64" bun run build
+TEAM_AX_DEV_DIR="$HOME/.trina-ax-demo" TEAM_AX_DEV_PORT=19720 bun run dev --no-relay
+```
+
+Keep that terminal open. In a second terminal, from the same checkout:
+
+```sh
+TEAM_AX_DEV_DIR="$HOME/.trina-ax-demo" bun run demo:seed --base http://127.0.0.1:19720
+```
+
+Open **http://127.0.0.1:19720** and sign in as `alice` with the public demo password `teamax-demo-1`.
+Open **Files → shared → 팀-용어집.md** to read the sample glossary. The seed starts in Korean; change the language in
+**Settings → Profile → Language** if needed. See the [demo walkthrough](docs/QUICKSTART.md) for a two-user
+permission check, an optional first AI prompt and cleanup.
+
+Use a fresh demo data directory. **Development mode runs engines as your OS user, without production OS isolation.**
+Use only synthetic files, keep it local, and press Ctrl-C in the first terminal to stop it.
+
+## What your team can do
+
+- **Work with files under each person's permissions:** shared, group, project and personal folders; the server checks access on every file-tool call.
+- **Read business documents:** PDF, Word, Excel, PowerPoint and HWP/HWPX. Extraction and preview depend on the file and installed conversion/OCR tools.
+- **Reuse procedures as skills:** Markdown and `SKILL.md` folders, permission-controlled editing and a review path for member suggestions. [Example](docs/EXAMPLES.md).
+- **Connect external services:** personal or team MCP servers and HTTP APIs, with access rules and write policies. [Supported connections and limits](docs/INTEGRATIONS.md).
+- **Schedule work:** run tasks at a set time and review their results; queued work shares server capacity between people.
+- **Review usage:** per-person, model and skill usage with CSV export. Cost estimates are not provider invoices.
+- **Use web and desktop clients:** Windows and Mac desktop source, an in-app browser with site access controls, and a mobile web app.
+
+## AI engines
+
+| Engine | Connection | Scope |
+|---|---|---|
+| Claude Code | Claude subscription or Anthropic API key | Runs on the team server |
+| Codex CLI | ChatGPT login or OpenAI API key | Runs on the team server |
+| OpenAI-compatible API (experimental) | Team-configured endpoint, model and optional key | In-server agent loop using Chat Completions with tool calls; compatibility varies by provider/model |
+
+In managed installations, the owner configures team connections and can allow personal connections. Each person's
+own connection is preferred when enabled; team connections can be assigned to people or groups. Provider accounts,
+usage charges and terms are separate from Trina AX. Development mode uses the server OS user's local CLI logins.
+See [AI connection setup](docs/INSTALL.md#23a-ai-connections-owner-from-the-web).
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  A[Team member: web, desktop or phone] -->|Signed-in session| B[Team server: permission check]
-  B --> Q[Fair queue per person]
-  Q --> C[AI engine on the server]
-  C -->|Only what the person may read| F[Company files and private folders]
-  C -->|Model requests| P[Model provider]
+  U[Web / desktop / mobile web] -->|Signed-in session| S[Team server]
+  subgraph H[Linux server or office Mac]
+    S --> Q[Per-person queue]
+    Q --> E[Claude Code / Codex CLI / experimental API engine]
+    E -->|File-tool call as the asking person| G[Server permission check]
+    S -->|File browsing as the signed-in person| G
+    G --> F[(Company files and personal folders)]
+  end
+  E -->|Selected context for inference| P[Model provider]
+  E -->|Configured connection tools| X[MCP / HTTP services]
 ```
 
-## Status
+## Security model: defense in depth
 
-This is a **pre-release**. There is no signed release and no public download yet. Some paths are tested only in
-code and tests, not on a real production install. [docs/INSTALL.md](docs/INSTALL.md) shows the status of each
-part.
+Folder access is enforced by server code, not by instructions to the model. Linux and role-account Mac installations
+combine it with engine tool restrictions, dedicated engine accounts, a sandbox and network rules. The
+[Mac](docs/INSTALL.md) and [Linux](docs/INSTALL-LINUX.md) guides describe setup and diagnostics.
+[Office Mac mode](docs/OFFICE.md) runs under the logged-in Mac user with its own sandbox/proxy setup; it does not
+provide the same dedicated-account boundary. Use a dedicated machine and review that guide's limitations.
 
-## Features
+Files and chats are stored on the team server. Context used to answer a question is sent to the selected model
+provider; configured external services receive the requests made to them. **Self-hosting does not mean all AI
+processing stays on your network.** Server administrators can read stored data. Removing folder access does not
+erase content already quoted in an earlier answer.
 
-- **Files with permissions.** Team, group, project and personal folders. The AI sees only the files that the
-  person who asks can see.
-- **Chat with the AI on the server.** Team members do not need Claude on their own computers.
-- **Team skills.** Save a work procedure as a file. Managers review and approve changes.
-- **Fair queue.** Each person's work runs in order. The server shares turns between people.
-- **Schedules and inbox.** Run a task at a set time. The result goes to a private folder by default.
-- **Usage and limits.** See usage per person, model and skill, and export it as CSV. Costs are estimates, not
-  provider invoices.
-- **Office documents.** Preview and read PDF, Word, Excel, PowerPoint and HWP/HWPX files. Results depend on the
-  file.
-- **Desktop app.** Mac and Windows app with an in-app browser that the AI can use. You approve each new site.
+Read the [permission model (한국어)](docs/PERMISSIONS.md) and [security policy](SECURITY.md).
+Report suspected vulnerabilities privately to **contact@trina.app**, not in a public issue.
 
-## Run it
+## Self-hosting and Trina hosting
 
-| Use | Guide |
-|---|---|
-| Try it on one Mac (dev mode) | [docs/INSTALL.md](docs/INSTALL.md), part 1 |
-| Production install on a Mac | [docs/INSTALL.md](docs/INSTALL.md), part 2 |
-| One Mac for an office, with desk PCs on the office network | [docs/OFFICE.md](docs/OFFICE.md) (Korean) |
-| Linux server | [docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md) (Korean) |
+| Deployment | Who operates it | Start here |
+|---|---|---|
+| Linux server | Your company | [Linux installation (한국어)](docs/INSTALL-LINUX.md) |
+| Office Mac | Your company | [Office setup (한국어)](docs/OFFICE.md) or [Mac installation](docs/INSTALL.md) |
+| Trina hosting | Trina | [Hosting enquiries](https://ax.trina.app) |
 
-To let people reach a self-hosted server from outside the office, use the office network, a Cloudflare Tunnel,
-Tailscale or your own relay (`relay/`).
+This repository contains the team server, clients and Trina branding. The hosted service's billing, provisioning,
+operations console and website are private and are not included. [Deployment FAQ](docs/FAQ.md).
 
-## Development
+## Releases
 
-```sh
-bun install
-bun run build:native   # needs Go
-bun run dev            # server, web app and a local relay
-bun run test:unit
-```
+Find published builds and their checksums in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
+The release pipeline builds Linux server kits (amd64/arm64), a Mac office bundle and a Windows desktop installer.
+The Mac office bundle is a server bundle; **a Mac desktop DMG is not distributed yet**, pending Apple signing and
+notarization. See the [changelog](CHANGELOG.md) for changes and publication status.
 
-Requirements and the full setup: [docs/INSTALL.md](docs/INSTALL.md), part 1. Design decisions:
-[docs/DECISIONS.md](docs/DECISIONS.md) (Korean).
+## Documentation and contributing
 
-## Repository layout
+- [Documentation index](docs/README.md), [examples](docs/EXAMPLES.md), [FAQ](docs/FAQ.md) and [한국어 안내](README.ko.md).
+- [Contributing](CONTRIBUTING.md), [community conduct](CODE_OF_CONDUCT.md) and [issue templates](https://github.com/trina-app/trina-ax/issues/new/choose). English and Korean reports are welcome.
+- [Machine-readable documentation index](llms.txt).
+
+For local development and checks, follow [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Folder | Contents |
 |---|---|
-| `server/` | Team server (Bun) |
-| `web/` | Web app (React) |
-| `desktop/` | Desktop app (Electron) |
-| `relay/` | Relay that connects a team server to the internet |
-| `native/` | Tool gate, launcher and enrolment tools (Go) |
-| `shared/` | Code that the parts share. `shared/src/cloud-protocol/` is MIT |
-| `editions/trina/branding/` | Trina name, source link and release channel |
-| `mobile/`, `menubar/` | Phone app and Mac menu bar app |
-
-The Trina hosted service (billing, hosting, operations console) and the trina.app website are private. They are not
-in this repository.
-
-## Data and privacy
-
-Files and chats stay on your team server. The server sends the context that the person may read to the model
-provider (for example Anthropic) to get an answer. Server administrators can read the stored data.
+| `server/`, `web/`, `desktop/` | Bun server, React web app, Electron desktop client |
+| `native/`, `relay/` | Go helpers and relay |
+| `shared/` | Shared contracts; `shared/src/cloud-protocol/` has its own MIT license |
+| `editions/trina/branding/` | Product name, source link and release channel |
+| `mobile/`, `menubar/` | Mobile source and Mac menu bar app |
 
 ## License
 

@@ -3,9 +3,8 @@
 같은 코드를 세 가지로 쓴다: **Team AX Cloud**(우리가 호스팅, 가장 쉬움), **자기 리눅스 서버**(이 문서, 무료), **사무실 맥 미니**
 (`docs/OFFICE.md`). 호스팅도 이 문서와 같은 설치 키트(`install-linux.sh` + 리눅스 번들)를 `--hosted`로 쓴다.
 
-> 상태(2026-10-22): 서버 쪽(배포 형태, 요금제 한도, 팀 시간대, 저장 공간, 리눅스 진단, 업데이트 경로)은 들어갔다. 설치기
-> `scripts/install-linux.sh`, root 도구 `mycel-ctl`, 턴 샌드박스(`mycel-sandbox`, bwrap + Landlock + seccomp), 리눅스 번들은
-> 함께 진행 중인 네이티브 작업에서 들어온다. 아래 명령은 그 설치기의 인터페이스(리눅스 런타임 명세 3.5)를 따른다.
+릴리스 키트와 설치기는 공개되어 있습니다. [GitHub Releases](https://github.com/trina-app/trina-ax/releases)에서
+게시된 버전과 파일을 확인하세요. 이 문서는 설치 절차를 설명하며 모든 배포판·장비에서의 동작 보장은 아닙니다.
 
 ## 1. 이런 경우에 씀
 
@@ -100,7 +99,7 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 - owner가 브라우저에서 **관리자 › AI 연결**로 연결한다: Claude(구독의 `claude setup-token` 붙여 넣기 또는 Anthropic API
   키), Codex(ChatGPT 기기 로그인 또는 OpenAI API 키). 진짜 토큰·키는 서버의 열쇠로 봉인되고 AI 엔진에는 가지 않는다(모델
   프록시가 요청마다 바꿔 끼움). 자체 설치는 네 종류를 다 쓸 수 있고(구독을 팀이 함께 쓸 때의 약관 안내가 화면에 뜸),
-  `server.json`의 `engine.credentialKinds`로 좁힐 수 있다. Team AX Cloud는 기본이 API 키 두 종류다.
+  `server.json`의 `engine.credentialKinds`로 좁힐 수 있다. 호스팅도 기본으로 네 종류를 지원하지만 실제 허용 범위는 운영 설정과 제공사 약관을 따릅니다.
 - CLI 대체(브라우저 연결이 안 될 때만): `sudo /var/lib/mycel/root/set-claude-token < 토큰파일`(표준 입력만),
   Codex는 `sudo mycel-ctl codex-login`. 다음 시작 때 AI 연결로 옮겨진다.
 - 팀 API 엔진(OpenAI 호환)은 관리자 › AI 엔진 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
