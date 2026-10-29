@@ -8,6 +8,7 @@ import { CHAT_ERROR_MESSAGES, chatErrorReason, ERROR_MESSAGES, LOCALE_NAMES, Loc
 import { AUTH_MESSAGES } from '../../server/src/auth/messages'
 import { engineError, TEXT as CHAT_TEXT } from '../../server/src/chat/i18n'
 import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
+import { ML as LINUX_TEXT } from '../../server/src/system/messages-linux'
 import { MSG as FILE_TEXT } from '../../server/src/team-files/errors'
 import { pageMessage, type PageKind } from '../../relay/src/pages'
 import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_TEXT } from '@mycel/shared'
@@ -233,4 +234,13 @@ describe('stored chat error reasons', () => {
     expect(chatErrorReason(engineError('wall_timeout', 'ko'))).toBe('wall_timeout')
     expect(chatErrorReason(engineError('timeout', 'ko'))).toBe('timeout')
   })
+})
+
+test('storage diagnostics use Spanish decimal separators on Mac and Linux', () => {
+  const bytes = 1.5 * 1024 ** 3
+  for (const messages of [SYSTEM_TEXT.diskOk(bytes, 25), SYSTEM_TEXT.diskLow(bytes, 10), SYSTEM_TEXT.diskReadOnly(bytes), LINUX_TEXT.storageOk(bytes, 25), LINUX_TEXT.storageHigh(bytes, 90), LINUX_TEXT.storageFull(bytes, 99)]) {
+    expect(messages.es).toContain('1,5 GB')
+    expect(messages.ja).toContain('1.5 GB')
+    expect(messages.en).toContain('1.5 GB')
+  }
 })

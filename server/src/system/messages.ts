@@ -5,7 +5,7 @@ import type { Locale } from '@mycel/shared/api'
 type T = { ko: string; en: string; id: string; ja: string; es: string }
 export const tr = (l: Locale, t: T) => t[l] ?? t.en
 
-const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
+const gb = (n: number, locale: Locale = 'en') => `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }).format(n / 1024 ** 3)} GB`
 /** English singular / plural ("1 rule", "3 rules"); Korean and Indonesian have one form. */
 export const enPlural = (n: number, one: string, other: string) => `${n} ${n === 1 ? one : other}`
 
@@ -54,9 +54,9 @@ export const M = {
 
   diskTeam: { ko: '디스크 여유 공간(팀 폴더)', en: 'Free disk space (team folder)', id: 'Ruang disk kosong (folder tim)', ja: "ディスク空き容量（チームフォルダー）", es: "Espacio libre en disco (carpeta del equipo)" },
   diskData: { ko: '디스크 여유 공간(서버 데이터)', en: 'Free disk space (server data)', id: 'Ruang disk kosong (data server)', ja: "ディスク空き容量（サーバーデータ）", es: "Espacio libre en disco (datos del servidor)" },
-  diskLow: (free: number, pct: number): T => ({ ko: `남은 공간 ${gb(free)} (${pct}%). 15% 아래입니다. 휴지통 비우기·오래된 버전 정리로 공간을 늘려 주세요.`, en: `${gb(free)} free (${pct}%), below 15%. Empty the trash or clean up old versions.`, id: `${gb(free)} kosong (${pct}%), di bawah 15%. Kosongkan tempat sampah atau hapus versi lama.`, ja: `空き容量${gb(free)}（${pct}%）で、15%を下回っています。ゴミ箱を空にするか、古いバージョンを整理してください。`, es: `${gb(free)} libres (${pct}%), menos del 15%. Vacíe la papelera o elimine versiones antiguas.` }),
-  diskReadOnly: (free: number): T => ({ ko: `남은 공간 ${gb(free)}. 공간이 거의 없어 답변·업로드·파일 저장이 실패할 수 있습니다. 휴지통 비우기·오래된 버전 정리로 바로 공간을 비워 주세요.`, en: `${gb(free)} free. Space is almost gone, so answers, uploads and file saves can fail. Free up space now (empty the trash, clean up old versions).`, id: `${gb(free)} kosong. Ruang hampir habis sehingga jawaban, unggahan, dan penyimpanan berkas bisa gagal. Segera kosongkan ruang.`, ja: `空き容量${gb(free)}。ほぼ空きがないため、回答、アップロード、保存が失敗する場合があります。今すぐ空き容量を確保してください（ゴミ箱を空にする、古いバージョンを整理する）。`, es: `${gb(free)} libres. Casi no queda espacio y pueden fallar las respuestas, cargas y guardados. Libere espacio ahora (vacíe la papelera o elimine versiones antiguas).` }),
-  diskOk: (free: number, pct: number): T => ({ ko: `${gb(free)} 남음 (${pct}%)`, en: `${gb(free)} free (${pct}%)`, id: `${gb(free)} kosong (${pct}%)`, ja: `空き容量${gb(free)}（${pct}%）`, es: `${gb(free)} libres (${pct}%)` }),
+  diskLow: (free: number, pct: number): T => ({ ko: `남은 공간 ${gb(free)} (${pct}%). 15% 아래입니다. 휴지통 비우기·오래된 버전 정리로 공간을 늘려 주세요.`, en: `${gb(free)} free (${pct}%), below 15%. Empty the trash or clean up old versions.`, id: `${gb(free)} kosong (${pct}%), di bawah 15%. Kosongkan tempat sampah atau hapus versi lama.`, ja: `空き容量${gb(free)}（${pct}%）で、15%を下回っています。ゴミ箱を空にするか、古いバージョンを整理してください。`, es: `${gb(free, 'es')} libres (${pct}%), menos del 15%. Vacíe la papelera o elimine versiones antiguas.` }),
+  diskReadOnly: (free: number): T => ({ ko: `남은 공간 ${gb(free)}. 공간이 거의 없어 답변·업로드·파일 저장이 실패할 수 있습니다. 휴지통 비우기·오래된 버전 정리로 바로 공간을 비워 주세요.`, en: `${gb(free)} free. Space is almost gone, so answers, uploads and file saves can fail. Free up space now (empty the trash, clean up old versions).`, id: `${gb(free)} kosong. Ruang hampir habis sehingga jawaban, unggahan, dan penyimpanan berkas bisa gagal. Segera kosongkan ruang.`, ja: `空き容量${gb(free)}。ほぼ空きがないため、回答、アップロード、保存が失敗する場合があります。今すぐ空き容量を確保してください（ゴミ箱を空にする、古いバージョンを整理する）。`, es: `${gb(free, 'es')} libres. Casi no queda espacio y pueden fallar las respuestas, cargas y guardados. Libere espacio ahora (vacíe la papelera o elimine versiones antiguas).` }),
+  diskOk: (free: number, pct: number): T => ({ ko: `${gb(free)} 남음 (${pct}%)`, en: `${gb(free)} free (${pct}%)`, id: `${gb(free)} kosong (${pct}%)`, ja: `空き容量${gb(free)}（${pct}%）`, es: `${gb(free, 'es')} libres (${pct}%)` }),
 
   engineClaude: { ko: 'AI 엔진: Claude Code', en: 'AI engine: Claude Code', id: 'Mesin AI: Claude Code', ja: "AIエンジン：Claude Code", es: "Motor de IA: Claude Code" },
   engineCodex: { ko: 'AI 엔진: Codex', en: 'AI engine: Codex', id: 'Mesin AI: Codex', ja: "AIエンジン：Codex", es: "Motor de IA: Codex" },
