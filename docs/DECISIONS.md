@@ -2212,3 +2212,15 @@ regression also checks those markers while keeping the original CSV values.
   three languages, native Other teams/reopen/Retry and the same recovered session. Unit coverage checks the
   generated fallback, bounded hints, cache exclusions and existing account/team language transitions.
 - Needed in `potenlab/team-ax` too: these are common web/PWA and desktop behaviors, not edition branding.
+
+## Codex executable resolution in local-login (2026-10-29)
+
+Admin engine diagnostics use the same `findCodexBin` lookup as chat runtime and the local launcher's allow-list.
+Previously diagnostics could report a supported Homebrew version while chat ran an older executable in
+`~/.local/bin`. An unresolved lookup now reports Codex missing instead of invoking a bare command through PATH;
+a missing explicitly configured executable also leaves the runtime unavailable, even when a model catalog exists.
+
+Explicit executable overrides and an empty string disabling Codex retain their meaning. Production continues to
+use only the installer-configured executable and its locked catalog, with no PATH fallback. The production pin
+remains 0.163.0; this change neither installs a CLI nor changes credentials. Regression coverage uses synthetic
+executables and a model catalog in `tests/unit/codex-local-launch.test.ts`.
