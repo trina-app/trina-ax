@@ -1,7 +1,6 @@
 //go:build linux
 
 // Synthetic adversarial helper, built only for T1. Never included in a release bundle.
-//
 package main
 
 import (
@@ -16,6 +15,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "exec-control" {
+		return
+	}
 	b, _ := io.ReadAll(io.LimitReader(os.Stdin, 100))
 	mode := string(b)
 	switch mode {
@@ -50,7 +52,15 @@ func main() {
 		if c != nil {
 			c.Close()
 		}
-		denied["exec"] = exec.Command("/bin/sh", "-c", "exit 0").Run() != nil
+		// A missing /bin/sh only tests the mount view. Copy a real executable to
+		// writable scratch so this assertion exercises Landlock's execute denial.
+		self, readErr := os.ReadFile("/proc/self/exe")
+		copyErr := os.WriteFile("/work/exec-control", self, 0700)
+		execErr := exec.Command("/work/exec-control", "exec-control").Run()
+		denied["exec"] = readErr == nil && copyErr == nil && os.IsPermission(execErr)
+		status, statusErr := os.ReadFile("/proc/self/status")
+		denied["seccomp-active"] = statusErr == nil && strings.Contains(string(status), "Seccomp:\t2\n")
+		denied["no-new-privileges"] = statusErr == nil && strings.Contains(string(status), "NoNewPrivs:\t1\n")
 		denied["namespace"] = syscall.Unshare(syscall.CLONE_NEWUSER) != nil
 		l, e := net.Listen("tcp", "127.0.0.1:19728")
 		denied["listen"] = e != nil
