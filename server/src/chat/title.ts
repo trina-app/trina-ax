@@ -105,6 +105,12 @@ export function placeholderTitle(content: string, atts: Pick<Attachment, 'name' 
   return (file && lineTitle(file, known)) || ''
 }
 
+/** A title the person gives (create, rename): every stored connection secret (`known`) and every secret-looking part
+ * is replaced by HIDDEN, so the database, the list, search and export never get it (QA SEC-16, B-W47-3, B-W5-1). */
+export function hideTitle(title: string, known?: KnownSecrets): string {
+  return maskSecrets(known ? known(title) : title, HIDDEN)
+}
+
 export type AiTitle = { ok: true; title: string } | { ok: false; reason: 'secret' | 'empty' }
 
 /** The AI's proposed title made safe to show: one line, no markdown, quotes or trailing punctuation; refused when it
@@ -138,7 +144,8 @@ export function setAiTitle(db: Database, chatId: string, title: string): boolean
 }
 
 export const TITLE_SCAN_KEY = 'chat.titleSecretScan'
-export const TITLE_SCAN_VERSION = 1
+// 2: named test keys and prefixed keys with one segment (shared/src/secrets.ts, QA SEC-16 / B-W47-3)
+export const TITLE_SCAN_VERSION = 2
 
 /**
  * Once per detector version, at server start: titles of existing chats that look like they hold a secret are masked;
