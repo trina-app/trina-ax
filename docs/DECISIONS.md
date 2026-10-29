@@ -2459,3 +2459,15 @@ including same-account installs. Extend the same synthetic selection tests to co
   (`localDayBounds` in `web/src/lib/format.ts`). An empty input gives no bound on that side. "Load more" keeps the
   same dates.
 - **Tests.** `web/test/unit/audit-dates.test.ts` (one-sided bounds, the whole end day, a 25-hour DST day).
+
+## Owner transfer in Team settings (R2-PERM-10, 2026-10-29)
+
+- **Problem.** `POST /api/admin/transfer-ownership` (owner, password again) existed, but no screen called it. The
+  owner could give the role to another person only through the API.
+- **Decision.** Team settings has a "Transfer ownership" card for the owner only (`web/src/pages/admin/TransferOwner.tsx`).
+  The owner chooses an active admin or member and enters the password again in the shared `ReauthDialog` (moved from
+  `System.tsx` to `admin/common.tsx`). The dialog says that the new owner gets all owner rights and that the old owner
+  becomes an admin at once. After the transfer the screen reloads `/api/me`, so the owner-only controls go away.
+  A wrong password keeps the dialog open and shows the server message. The server rules do not change.
+- **Tests.** `web/test/unit/transfer-owner.test.tsx` (who can be chosen, the button, the Korean texts) and
+  `web/test/e2e/admin.spec.ts` (wrong password, then the transfer; the mock server has `transferOwnership`).
