@@ -34,7 +34,7 @@ describe('engines', () => {
     admin = (await addMember(h, owner, { username: 'adam', role: 'admin' })).client
     bins = path.join(h.ctx.config.dataDir, '..', 'bins')
     const claudeOk = fakeBin(bins, 'claude-ok', `case "$1" in --version) echo "2.1.305 (Claude Code)";; auth) echo '{"loggedIn": true, "authMethod": "claude.ai"}';; *) exit 2;; esac`)
-    const codexOk = fakeBin(bins, 'codex-ok', `case "$1" in --version) echo "codex-cli 0.163.0";; login) echo "Logged in using ChatGPT";; *) exit 2;; esac`)
+    const codexOk = fakeBin(bins, 'codex-ok', `case "$1" in --version) echo "codex-cli 0.165.0";; login) echo "Logged in using ChatGPT";; *) exit 2;; esac`)
     h.ctx.config.engine = { authMode: 'local-login', claudeBin: claudeOk, codexBin: codexOk }
     fs.mkdirSync(path.join(h.ctx.config.dataDir, 'engine'), { recursive: true }) // lockdown results
     // the dev catalog chat/engines.ts locks from the owner's models cache (one place: <data>/codex-catalog.json)
@@ -45,7 +45,7 @@ describe('engines', () => {
 
   test('installed + logged in + pinned version -> ok, with models; no model call is made', async () => {
     const r = await admin.call('GET', '/api/admin/engines')
-    expect(r.engines.map((e: any) => [e.id, e.status, e.version, e.authMode])).toEqual([['claude-code', 'ok', '2.1.305', 'local-login'], ['codex', 'ok', '0.163.0', 'local-login'], ['api', 'not_installed', null, 'local-login']])
+    expect(r.engines.map((e: any) => [e.id, e.status, e.version, e.authMode])).toEqual([['claude-code', 'ok', '2.1.305', 'local-login'], ['codex', 'ok', '0.165.0', 'local-login'], ['api', 'not_installed', null, 'local-login']])
     expect(r.engines[0].models.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku'])
     expect(r.engines[1].models).toEqual([{ id: 'gpt-x', label: 'GPT-X' }])
     expect(r).toMatchObject({ defaultEngine: 'claude-code', defaultModel: null, concurrency: 3, accounts: [] })
@@ -59,14 +59,24 @@ describe('engines', () => {
     expect(out.detail).toContain('claude')
     h.ctx.config.engine.claudeBin = fakeBin(bins, 'claude-new', `case "$1" in --version) echo "2.2.0 (Claude Code)";; auth) echo '{"loggedIn": true}';; esac`)
     expect(await check('claude-code')).toMatchObject({ status: 'version_unsupported', version: '2.2.0' })
-    h.ctx.config.engine.codexBin = fakeBin(bins, 'codex-out', `case "$1" in --version) echo "codex-cli 0.163.0";; login) echo "Not logged in"; exit 1;; esac`)
+    h.ctx.config.engine.codexBin = fakeBin(bins, 'codex-out', `case "$1" in --version) echo "codex-cli 0.165.0";; login) echo "Not logged in"; exit 1;; esac`)
     expect(await check('codex')).toMatchObject({ status: 'not_logged_in' })
     h.ctx.config.engine.codexBin = path.join(bins, 'codex-ok')
-    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'engine', 'lockdown-codex.json'), JSON.stringify({ ok: false, version: '0.163.0' }))
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'engine', 'lockdown-codex.json'), JSON.stringify({ ok: false, version: '0.165.0' }))
     expect(await check('codex')).toMatchObject({ status: 'lockdown_failed' })
+    fs.writeFileSync(path.join(h.ctx.config.dataDir, 'engine', 'lockdown-codex.json'), JSON.stringify({ ok: false, version: '0.163.0' }))
+    expect(await check('codex')).toMatchObject({ status: 'ok' }) // a stale result is not the installed version's verdict
     fs.rmSync(path.join(h.ctx.config.dataDir, 'engine', 'lockdown-codex.json'))
     expect(await check('codex')).toMatchObject({ status: 'ok' })
     expect((await admin.try('POST', '/api/admin/engines/gpt/check')).status).toBe(404)
+  })
+  test('verified older Codex versions are supported; an unverified version still warns', async () => {
+    try {
+      for (const version of ['0.163.0', '0.164.0', '0.162.0']) {
+        h.ctx.config.engine.codexBin = fakeBin(bins, 'codex-compatible', `case "$1" in --version) echo "codex-cli ${version}";; login) echo "Logged in using ChatGPT";; esac`)
+        expect(await check('codex')).toMatchObject({ version, status: version === '0.162.0' ? 'version_unsupported' : 'ok' })
+      }
+    } finally { h.ctx.config.engine.codexBin = path.join(bins, 'codex-ok') }
   })
   test('managed mode (installed server): an engine without an AI connection says to add one; a usable connection is "ok"', async () => {
     h.ctx.config.engine.claudeBin = path.join(bins, 'claude-ok')

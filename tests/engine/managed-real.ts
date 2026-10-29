@@ -20,6 +20,10 @@ import { createBroker } from '../../server/src/credentials/broker'
 import { makeCredCtx } from '../../server/src/credentials/store'
 import { insertRow } from '../../server/src/credentials/service'
 import { dummyAuthJson } from '../../server/src/credentials/codex-home'
+import { setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
+import { FILE_TOOLS, OTHER_TOOLS } from '@mycel/shared'
+import { SCHEDULE_TOOL_NAMES } from '../../server/src/tools/schedules'
 
 const argv = process.argv.slice(2)
 const opt = (n: string) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined }
@@ -75,6 +79,8 @@ const up = `http://127.0.0.1:${fake.port}`
 
 // ---------------- the team server's pieces ----------------
 const db = openDb(path.join(W, 'app.db'))
+// This fixture intentionally exercises a team-shared subscription; fresh installs default to personal connections.
+setSetting(db, SHARED_SUBSCRIPTIONS_KEY, true)
 db.query("INSERT INTO users (id, username, name, role) VALUES ('owner', 'owner', 'Owner', 'owner')").run()
 const cc = makeCredCtx({ db, secretsDir: path.join(W, 'secrets'), config: { mode: 'dev', dataDir: W, engine: { authMode: 'managed', modelUpstreams: { chatgpt: up + '/backend-api/codex', openai: up + '/v1', openaiAuth: up } } }, log: { info() {}, warn() {}, error() {} } })
 const G = insertRow(cc, { kind: 'chatgpt', label: 'fake plan', secret: { idToken: 'x.eyJ9.y', accessToken: REAL_ACCESS, refreshToken: 'rt-REAL', accountId: 'acc-real', lastRefresh: new Date().toISOString() }, ownerUserId: null, priority: 100, assignments: [], createdBy: null, meta: { planType: 'pro' } })
@@ -87,6 +93,20 @@ const proxy = await startModelProxy({ db, broker: createBroker(cc), codexModels:
 
 const checks: { name: string; ok: boolean; detail?: string }[] = []
 const check = (name: string, ok: boolean, detail = '') => { checks.push({ name, ok, detail: String(detail).slice(0, 500) }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `  ${String(detail).slice(0, 500)}`}`) }
+
+// Inspect the actual request sent by the real CLI, including deferred tool definitions.
+// A successful answer alone cannot prove that a catalog/feature change kept exec or patch disabled.
+const teamTools = new Set([...Object.keys(FILE_TOOLS), ...Object.keys(OTHER_TOOLS), ...SCHEDULE_TOOL_NAMES, 'search'])
+const builtinTools = new Set(['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource', 'request_user_input'])
+function lockedTools(body: any): boolean {
+  const offered = [...(body?.tools ?? []), ...(body?.input ?? []).filter((i: any) => Array.isArray(i?.tools)).flatMap((i: any) => i.tools)]
+  return offered.length > 0 && offered.every((t: any) => {
+    if (t.type === 'web_search' || t.type === 'web_search_preview') return true
+    if (t.type !== 'namespace' || !Array.isArray(t.tools)) return false
+    const allowed = t.name === 'mcp__team' ? teamTools : t.name === 'functions' ? builtinTools : null
+    return allowed !== null && t.tools.every((f: any) => f.type === 'function' && allowed.has(f.name))
+  })
+}
 
 async function turn(mode: 'chatgpt' | 'openai', cred: string) {
   const turnId = `mr-${mode}-${Math.random().toString(36).slice(2, 8)}`
@@ -121,10 +141,10 @@ try {
   for (const [mode, cred] of [['chatgpt', G], ['openai', K]] as const) {
     const r = await turn(mode, cred)
     const resp = r.mine.filter((s) => s.path.endsWith('/responses'))
-    check(`${mode}: the turn completed with the answer from the (fake) model service (exit 0)`, r.code === 0 && r.events.some((e: any) => e.type === 'turn.completed') && r.text.includes('MANAGED-OK'), `exit ${r.code}; ${r.err.split('\n').slice(-5).join(' | ')}; events ${r.events.map((e: any) => e.type).join(',')}`)
+    check(`${mode}: the turn completed with the answer from the (fake) model service (exit 0)`, r.code === 0 && r.events.some((e: any) => e.type === 'turn.completed') && r.text.includes('MANAGED-OK'), `exit ${r.code}; ${r.err.split('\n').slice(-5).join(' | ')}; events ${r.events.map((e: any) => e.error?.message ?? e.message ?? e.type).join(',')}`)
     check(`${mode}: requests went to the provider base_url (our proxy) and on to the real path`, resp.length > 0 && resp.every((s) => s.path === (mode === 'chatgpt' ? '/backend-api/codex/responses' : '/v1/responses')), JSON.stringify(r.mine.map((s) => s.path)))
     check(`${mode}: upstream got the connection's credential, never the turn token`, resp.length > 0 && resp.every((s) => (mode === 'chatgpt' ? s.headers.authorization === 'Bearer ' + REAL_ACCESS && s.headers['chatgpt-account-id'] === 'acc-real' : s.headers.authorization?.startsWith('Bearer sk-proj-REALKEY'))) && !JSON.stringify(r.mine).includes(r.token), JSON.stringify(resp.map((s) => ({ a: s.headers.authorization?.slice(0, 20), acct: s.headers['chatgpt-account-id'] }))))
-    check(`${mode}: store false, model from the locked catalog, only allowed tool types`, resp.every((s) => s.body?.store === false && models.includes(s.body?.model)), JSON.stringify(resp.map((s) => ({ store: s.body?.store, model: s.body?.model, tools: (s.body?.tools ?? []).map((x: any) => x.type) }))))
+    check(`${mode}: store false, model from the locked catalog, only allowed tool types`, resp.length > 0 && resp.every((s) => s.body?.store === false && models.includes(s.body?.model) && lockedTools(s.body)), JSON.stringify(resp.map((s) => ({ store: s.body?.store, model: s.body?.model, tools: (s.body?.tools ?? []).map((x: any) => x.type) }))))
     check(`${mode}: Codex never refreshed and never rewrote auth.json`, r.authAfter === r.auth && !r.refused.some((x) => /engine refresh attempt/.test(x.detail)), r.refused.map((x) => x.detail).join(' '))
     check(`${mode}: usage counted by the proxy`, r.turnRow.input_tokens >= 1234 && r.turnRow.output_tokens >= 7, JSON.stringify(r.turnRow))
     check(`${mode}: the version header (as the built-in provider) was sent`, resp.every((s) => s.headers.version === CODEX_VERSION), JSON.stringify(resp.map((s) => s.headers.version)))
@@ -159,6 +179,8 @@ try {
     if (process.env.DEBUG_TOOLS) console.log('TOOLS', JSON.stringify(seen.slice(n0).map((x) => (x.body?.input ?? []).filter((i: any) => Array.isArray(i?.tools)).map((i: any) => i.tools.map((t: any) => `${t.type}:${t.name ?? ''}${Array.isArray(t.tools) ? '[' + t.tools.map((u: any) => u.name).join(',') + ']' : ''}`)))).slice(0, 3000))
     check('launcher: the managed turn ran (placeholder login written and accepted by the launcher)', r.done.status === 'done', JSON.stringify(r.done.error) + ' events: ' + lines.map((l) => { try { const j = JSON.parse(l); return j.type === 'error' || j.type === 'turn.failed' ? JSON.stringify(j) : j.type + (j.item?.type ? ':' + j.item.type : '') } catch { return l.slice(0, 80) } }).join(' | '))
     check('team tools: Codex called our list tool through the bridge and the gate', tools.some((t) => t.tool === 'list' && t.ok === 1), JSON.stringify(tools) + ' tools offered: ' + JSON.stringify((seen[n0]?.body?.input ?? []).filter((x: any) => Array.isArray(x?.tools)).flatMap((x: any) => toolNames(x.tools))))
+    const requests = seen.slice(n0).filter(s => s.path.endsWith('/responses'))
+    check('lockdown: only team MCP, web search and inert built-ins are offered', requests.length > 0 && requests.every(s => lockedTools(s.body)))
     check('the tool result went back to the model and the answer came', r.done.content.includes('TEAM-TOOL-OK saw-shared'), r.done.content)
     check('the chat folder kept nothing of the turn\'s login', !fs.existsSync(path.join(h.ctx.engineConfig.agentRoot, chat.id, '.codex')), '')
     sock.close()
@@ -168,5 +190,11 @@ try {
   if (!argv.includes('--keep')) fs.rmSync(W, { recursive: true, force: true })
 }
 const failed = checks.filter((c) => !c.ok).length
+const report = opt('--report')
+if (report) {
+  const version = Bun.spawnSync([codexBin, '--version']).stdout.toString().match(/\d+\.\d+\.\d+/)?.[0] ?? null
+  fs.mkdirSync(path.dirname(report), { recursive: true })
+  fs.writeFileSync(report, JSON.stringify({ ok: failed === 0, version, checkedAt: new Date().toISOString(), scope: 'real-cli-fake-provider', checks }, null, 2) + '\n')
+}
 console.log(`${checks.length - failed}/${checks.length} checks passed`)
 process.exit(failed ? 1 : 0)

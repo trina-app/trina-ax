@@ -14,7 +14,7 @@ import { makeEnv } from './env'
 // Recheck even if engine-mode was previously imported before installed mode was requested.
 requireDeveloperEngineMode()
 export const CLAUDE_BIN = which('claude', [path.join(os.homedir(), '.local', 'bin')])!
-export const CODEX_BIN = which('codex', [path.join(os.homedir(), '.local', 'bin')])
+export const CODEX_BIN = process.env.MYCEL_CODEX_BIN ?? which('codex', [path.join(os.homedir(), '.local', 'bin')])
 
 export async function engineEnv(name: string) {
   requireDeveloperEngineMode()
@@ -30,7 +30,8 @@ export async function engineEnv(name: string) {
     codex = { bin: CODEX_BIN, codexHome, agentHome: path.join(env.fx.data, 'codex-agent-home'), catalog, model: process.env.MYCEL_CODEX_MODEL ?? models[0], auth: 'dev-owner-symlink' }
   }
   // the same OS sandbox as the dev server (macOS: engine.sb with the owner's login opened)
-  const sandbox = devEngineSandbox()
+  const baseSandbox = devEngineSandbox()
+  const sandbox = baseSandbox ? { ...baseSandbox, localCodex: !!CODEX_BIN } : undefined
   const srv = await startServer(env.cfg, { launcher: { allowCmds: [CLAUDE_BIN, ...(CODEX_BIN ? [CODEX_BIN] : [])], sessionRoots: [path.join(os.homedir(), '.claude', 'projects')], ...(sandbox ? { sandbox } : {}) } })
   const runner = new TurnRunner(srv, { claude, codex })
   return { env, srv, runner, claude, codex }
