@@ -69,7 +69,8 @@ function paragraphs(xml: string, ns: 'w' | 'a'): string[] {
   return out
 }
 
-const tidy = (lines: string[]) => lines.map((l) => l.replace(/[ \t]+$/g, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+// other line breaks (CR, U+0085, U+2028, U+2029, VT, FF) become '\n', so `quoteLine` sees every line
+const tidy = (lines: string[]) => lines.map((l) => l.replace(/\r\n|[\r\v\f\u0085\u2028\u2029]/g, '\n').replace(/[ \t]+$/gm, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim()
 
 /** A line of the file's own text that starts like a section label gets a space in front, so it cannot end a section. */
 const quoteLine = (text: string) => text.split('\n').map((l) => (l.startsWith(SECTION_MARK) ? ' ' + l : l)).join('\n')
