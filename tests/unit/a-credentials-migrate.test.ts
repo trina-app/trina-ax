@@ -11,7 +11,8 @@ import { fakeJwt, testCredCtx } from '../lib/credentials'
 import { FILE_TOKEN_KEY, importCodexAuth, importEngineAccounts, importTokenFile, migrateCredentials, MIGRATED_KEY } from '../../server/src/credentials/migrate'
 import { getRow, listRows, metaOf, secretOf, stateOf } from '../../server/src/credentials/store'
 import { markTokenRejected, tokenFile } from '../../server/src/proxy/subscription'
-import { getSetting } from '../../server/src/admin/settings'
+import { getSetting, setSetting } from '../../server/src/admin/settings'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 
 const env = makeEnv('a-cred-migrate')
 const secrets = path.join(env.fx.base, 'secrets')
@@ -20,6 +21,7 @@ const TOK = 'sk-ant-oat01-' + 'F'.repeat(50)
 
 describe('the owner\'s token file', () => {
   test('imported once as "Claude subscription" (issued = the file time, one year), the file stays; running again changes nothing', () => {
+    setSetting(env.db, SHARED_SUBSCRIPTIONS_KEY, false) // an owner who keeps sharing off: importing must not open it
     fs.mkdirSync(secrets, { recursive: true, mode: 0o700 })
     fs.writeFileSync(tokenFile(secrets), TOK + '\n', { mode: 0o600 })
     const mtime = new Date(Date.now() - 30 * 86400_000)
@@ -87,6 +89,7 @@ function fakeLauncher(sock: string, o: { auth: string | null; known: boolean }) 
 describe('the engine account\'s Codex login', () => {
   const auth = JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: fakeJwt({ email: 'e@x.com', 'https://api.openai.com/auth': { chatgpt_account_id: 'acc-old', chatgpt_plan_type: 'team' } }), access_token: 'at-old', refresh_token: 'rt-old', account_id: 'acc-old' }, last_refresh: '2026-10-01T00:00:00Z' })
   test('exported once, stored as "ChatGPT (existing)", then the old login is removed; recorded so it never runs again', async () => {
+    setSetting(env.db, SHARED_SUBSCRIPTIONS_KEY, false)
     const R = fs.mkdtempSync('/tmp/mycel-mg-')
     const f = fakeLauncher(path.join(R, 'l.sock'), { auth, known: true })
     try {

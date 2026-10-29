@@ -6,6 +6,7 @@
 // secret field, purpose, replay, key id), S-13 (redirects of the provider check are not followed).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { SealingKey } from '@mycel/shared/api'
+import { PRODUCT } from '../../shared/src/product'
 import { createLogger } from '../../server/src/log'
 import { sealSecret } from '../../web/src/lib/seal'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
@@ -83,7 +84,9 @@ describe('sealing key and sealed secrets (S-10)', () => {
 describe('adding connections (checked without spending tokens)', () => {
   test('shared subscriptions need an explicit owner choice and acknowledged risk', async () => {
     const initial = await owner.call('GET', '/api/admin/credentials')
-    expect(initial).toMatchObject({ memberOwn: true, sharedSubscriptions: false })
+    expect(initial).toMatchObject({ memberOwn: true, sharedSubscriptions: PRODUCT.sharedSubscriptionsDefault })
+    // an owner who switched sharing off: from here the explicit choice rules, whatever the edition default
+    expect(await owner.call('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: false })).toEqual({ memberOwn: true, sharedSubscriptions: false })
     hits.length = 0
     expect((await create(owner, 'anthropic-oauth', CLAUDE('sharing-off'))).status).toBe(403)
     expect(hits).toEqual([])

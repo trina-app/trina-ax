@@ -31,6 +31,10 @@ export const PRODUCT = {
   tmpPrefix: '.mycel-tmp-',
   /** reserved top-level folder for history / trash (tools can never reach it) */
   systemDir: '.system',
+  /** fresh-install value of the team setting `credentials.sharedSubscriptions` (one Claude / ChatGPT subscription
+   *  answering for the whole team). Trina AX: on (owner decision 2026-10-29: the team connection is the default, a
+   *  member's own connection still comes first). The neutral core keeps false. An owner's explicit choice always wins. */
+  sharedSubscriptionsDefault: true,
 } as const
 
 export const TEAM_TOOL_PREFIX = `mcp__${PRODUCT.mcpServerName}__`

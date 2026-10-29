@@ -6,6 +6,8 @@ import { addCred, chatgptSecret, fakeJwt, testCredCtx } from '../lib/credentials
 import { setSetting } from '../../server/src/admin/settings'
 import { budgetBlock, createBudget } from '../../server/src/admin/budgets'
 import { memberOwnAllowed, MEMBER_OWN_KEY, resolveCredential } from '../../server/src/credentials/resolve'
+import { sharedSubscriptionsAllowed } from '../../server/src/credentials/policy'
+import { PRODUCT } from '../../shared/src/product'
 import { createCredential, setCredentialSettings } from '../../server/src/credentials/service'
 import { credentialLogins } from '../../server/src/credentials/login'
 import { refreshIdle } from '../../server/src/credentials/chatgpt-tokens'
@@ -40,6 +42,16 @@ test('fresh DB permits personal connections; explicit false and corrupt settings
   expect(memberOwnAllowed(env.db)).toBe(false)
 })
 
+test('fresh DB follows the edition default for shared subscriptions; explicit false and corrupt settings remain closed', () => {
+  expect(sharedSubscriptionsAllowed(env.db)).toBe(PRODUCT.sharedSubscriptionsDefault)
+  setSetting(env.db, SHARED, false)
+  expect(sharedSubscriptionsAllowed(env.db)).toBe(false)
+  env.db.query('UPDATE settings SET value = ? WHERE key = ?').run('invalid-json', SHARED)
+  expect(sharedSubscriptionsAllowed(env.db)).toBe(false)
+  setSetting(env.db, SHARED, true)
+  expect(sharedSubscriptionsAllowed(env.db)).toBe(true)
+})
+
 test('personal subscription is the default and never answers another person', () => {
   const personal = addCred(cc, 'anthropic-oauth', secret('alice'), { owner: 'alice' })
   const key = addCred(cc, 'anthropic-api-key', 'sk-ant-api03-' + 'k'.repeat(40))
@@ -47,7 +59,8 @@ test('personal subscription is the default and never answers another person', ()
   expect(who('bob')).toMatchObject({ ok: true, credentialId: key, tier: 'team' })
 })
 
-test('existing team subscriptions are blocked by default, including user/group assignments', async () => {
+test('existing team subscriptions are blocked while sharing is off, including user/group assignments', async () => {
+  setSetting(env.db, SHARED, false)
   for (const assignments of [[], [{ subjectType: 'user' as const, subjectId: 'alice' }], [{ subjectType: 'group' as const, subjectId: 'marketing' }]]) {
     const id = addCred(cc, 'anthropic-oauth', secret(String(assignments.length) + JSON.stringify(assignments)), { assignments })
     expect(who('alice').ok).toBe(false)
@@ -87,6 +100,7 @@ test('assignment revocation is checked again on the next company key request', a
 })
 
 test('team subscription creation requires shared opt-in before any provider check', async () => {
+  setSetting(env.db, SHARED, false)
   await expect(createCredential(cc, { kind: 'anthropic-oauth', label: 'shared', secret: secret('new'), ownerUserId: null,
     actor: 'owner', priority: 100, assignments: [], acknowledgedPlanNotice: true }, 'en')).rejects.toThrow()
   expect(providerChecks).toBe(0)
@@ -115,6 +129,7 @@ test('deployment allowed kinds continue to reject subscriptions even with both p
 })
 
 test('an opt-in without risk acknowledgement does not partially change the personal setting', () => {
+  setSetting(env.db, SHARED, false) // an owner who switched sharing off
   expect(() => setCredentialSettings(cc, { memberOwn: false, sharedSubscriptions: true }, 'owner', 'en')).toThrow()
   expect(memberOwnAllowed(env.db)).toBe(true)
   expect(setCredentialSettings(cc, { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true }, 'owner', 'en')).toEqual({ memberOwn: true, sharedSubscriptions: true })
@@ -122,6 +137,7 @@ test('an opt-in without risk acknowledgement does not partially change the perso
 })
 
 test('ChatGPT shared login cannot start the launcher without the shared opt-in', async () => {
+  setSetting(env.db, SHARED, false)
   let calls = 0
   const manager = credentialLogins(cc, { async launcher() { calls++; return null } })
   await expect(manager.start({ userId: 'alice', locale: 'en', personal: false, label: 'shared', assignments: [], priority: 100 })).rejects.toThrow()
@@ -154,6 +170,7 @@ test('revoking sharing while an OpenAI token refresh is pending prevents token i
 
 
 test('idle token maintenance does not contact providers for policy-disabled subscriptions', async () => {
+  setSetting(env.db, SHARED, false)
   const old = { ...chatgptSecret('idle-shared'), lastRefresh: '2020-01-01T00:00:00Z' }
   addCred(cc, 'chatgpt', old)
   const personal = { ...chatgptSecret('idle-personal'), lastRefresh: '2020-01-01T00:00:00Z' }
