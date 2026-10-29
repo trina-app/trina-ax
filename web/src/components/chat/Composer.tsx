@@ -6,7 +6,7 @@
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, FileAudio, FileText, FolderOpen, Loader2, Mic, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Check, FileAudio, FileText, FolderOpen, Loader2, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -15,6 +15,8 @@ import { readDraft, writeDraft } from '../../lib/localData'
 import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
+import { micState, SPEECH_SETTINGS_PATH } from '../../lib/voice'
+import { navigateTo } from '../../lib/nav'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile } from '../../lib/upload'
@@ -77,7 +79,10 @@ export default function Composer({
 }) {
   const t = useT()
   const locale = useLocale()
-  const userId = useMe()?.user.id ?? '-'
+  const me = useMe()
+  const userId = me?.user.id ?? '-'
+  // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
+  const mic = micState(me)
   const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
   const skillMenu = useSkillMenu(text, setText)
   // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
@@ -585,9 +590,16 @@ export default function Composer({
                 )}
               </div>
               <div className="flex items-center gap-1.5">
-                <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending} className="h-10 w-10 rounded-full sm:h-9 sm:w-9">
-                  {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
-                </IconButton>
+                {mic === 'on' && (
+                  <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending} className="h-10 w-10 rounded-full sm:h-9 sm:w-9">
+                    {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
+                  </IconButton>
+                )}
+                {mic === 'adminHint' && (
+                  <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="h-10 w-10 rounded-full text-faint sm:h-9 sm:w-9" data-testid="voice-off-hint">
+                    <MicOff size={18} />
+                  </IconButton>
+                )}
                 {running ? (
                   <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="flex h-10 w-10 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40 sm:h-9 sm:w-9" data-testid="stop">
                     {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}

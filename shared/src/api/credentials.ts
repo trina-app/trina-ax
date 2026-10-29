@@ -39,7 +39,7 @@ export const SealingKey = z.object({
 })
 export type SealingKey = z.infer<typeof SealingKey>
 /** what the sealed plaintext says (JSON): the secret, a one-time nonce and what it is for */
-export type SealPurpose = 'credential.create' | 'credential.replace'
+export type SealPurpose = 'credential.create' | 'credential.replace' | 'speech.key'
 export const SpendLimit = z.object({ usd: z.number().nonnegative().nullable(), tokens: z.number().int().nonnegative().nullable(), action: z.enum(['warn', 'block']) })
 export type SpendLimit = z.infer<typeof SpendLimit>
 export const Credential = z.object({

@@ -1899,3 +1899,40 @@ Normalize empty and `.` path segments before the AI file tools check the protect
   speech settings, vault purpose, transcription helpers and settings-screen wiring; later commits do not use them.
 - Keep the preceding local-whisper behavior. Re-apply with `git revert <this revert commit>` when the shared
   types, settings, vault purpose and settings screen land together and pass the full CI job.
+
+## Voice input through OpenRouter (feat/stt-openrouter, 2026-10-28)
+
+On a 2 vCPU Linux server, whisper.cpp needs 10–38 s for a 2 s voice clip and loads the CPU. Product owner decision:
+voice input is optional and uses OpenRouter's speech-to-text API with a key that the team enters.
+
+- **Setting.** `TeamSettings.speechProvider`: `off` (default) | `openrouter` | `local`, and `speechModel` (default
+  `openai/whisper-large-v3-turbo`). An admin changes them in Admin › Team settings › Voice input
+  (`PATCH /api/admin/settings`, audit `settings.update`, notice `speech_changed`).
+- **Key.** `PUT /api/admin/speech-key` (owner and admins). The browser seals the key (`lib/seal.ts`, purpose
+  `speech.key`). The body also holds the password again, which is checked like `owner-reauth` (rate-limited); admins
+  may do it too, because the provider is an admin setting. `sealed: null` removes the key. The server stores it in
+  `settings` under the internal key `speech.openrouterKey`, encrypted with the credentials vault (AES-256-GCM, AAD
+  `speech.openrouter|openrouter-api-key`, `server/src/credentials/speech-key.ts`). No response, log line or audit
+  entry holds it: only `set`, the last 4 characters and the time (`GET /api/admin/speech-key`; audit `speech.key` with
+  `{key: set, hint}` or `{key: removed}`). `credentials-rekey` encrypts it again and keeps its key file.
+- **Job.** `team-files/component.ts` reads the provider when the job runs. `off`: the job fails at once ("Voice input is
+  off. An admin can turn it on …"). `local`: whisper.cpp as before (`jobs/transcribe.ts`). `openrouter`
+  (`jobs/openrouter-stt.ts`): ffmpeg (isolated) converts to 16 kHz mono WAV; without ffmpeg only
+  wav/mp3/flac/ogg/m4a/aac go as they are. Audio over 25 MB is refused before it is sent. Then one POST with base64
+  audio, `response_format: verbose_json`, `provider: {zdr: true, data_collection: deny}`, a 60 s timeout plus the job's
+  abort signal, and no redirects. 401/403, 402, 429 and 5xx/network errors give localized failures (bad key, no
+  credits, rate limited, provider down) that never hold the key. Without `segments`, one segment holds the whole text.
+- **Client.** `Me.team.voiceInput` is true for `local`, and for `openrouter` with a key. When it is false, the composer
+  hides the mic for members, and admins see a mic-off button that opens Admin › Team settings (`web/src/lib/voice.ts`).
+  An older server (field absent) counts as on.
+- **Privacy trade-off.** With `openrouter`, the recordings go to OpenRouter and the provider it picks. Zero data
+  retention is requested, but this is a request to a third party, not something this server can enforce. The settings
+  screen says so. A team that must keep audio in-house picks `local`.
+- **Egress.** The URL is a fixed constant, not a setting. The server account may reach public https hosts
+  (`mycel-ctl` `server_out` blocks only private and link-local ranges), the same as the whisper model download, so no
+  firewall change.
+- **Tests.** `tests/unit/c-speech-openrouter.test.ts` (fake OpenRouter: off, no key, success with and without segments,
+  401/402/429/503, Korean failure text, over 25 MB, webm without ffmpeg), `tests/unit/a-speech-settings.test.ts`
+  (default off, Me flag, admin/member rights, wrong password, wrong seal purpose, plaintext body refused, stored
+  encrypted, rekey, remove, no key in responses/audit/logs), `tests/unit/c-jobs.test.ts` (whisper tests now set
+  `local`), `web/test/unit/voice.test.ts` (mic visibility).

@@ -92,6 +92,11 @@ export function dispatch(ev: ServerEvent) {
         void useSession.getState().refreshMe()
         return
       }
+      if (ev.data.code === 'speech_changed') {
+        // an admin turned voice input on or off: the composer shows or hides the mic (Me.team.voiceInput)
+        void useSession.getState().refreshMe()
+        return
+      }
       if (ev.data.code === 'locale_changed') {
         // the team default or this person's language changed (admin, another window): switch without a reload
         void useSession.getState().refreshMe()

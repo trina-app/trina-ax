@@ -1,4 +1,5 @@
-// Transcription (tab 4 "음성", tab 2 OS table) with whisper.cpp — no Python. On first use the multilingual GGML model
+// Transcription (tab 4 "음성", tab 2 OS table), the 'local' speech provider: whisper.cpp on this server — no Python.
+// The default provider is 'off'; 'openrouter' sends the audio to OpenRouter (jobs/openrouter-stt.ts). On first use the multilingual GGML model
 // is downloaded into <data>/models/whisper/ (size and sha256 pinned below, written to a .part file, verified, then
 // renamed). Audio is converted to 16 kHz mono WAV by ffmpeg first (browsers record webm/opus or mp4/aac, which
 // whisper-cli can't read); without ffmpeg only wav/mp3/flac/ogg work. Both run isolated (tools/isolate.ts).
@@ -48,7 +49,10 @@ export interface TranscribeConfig {
   /** scratch folder parent for the converter work folders */
   workBase: string
   threads: number
+  /** OpenRouter's speech-to-text endpoint (fixed; tests point it at a local fake) */
+  openRouterUrl: string
 }
+export const OPENROUTER_STT_URL = 'https://openrouter.ai/api/v1/audio/transcriptions'
 
 export function transcribeConfig(dataDir: string, env: Record<string, string | undefined> = process.env): TranscribeConfig {
   const m = env.MYCEL_WHISPER_MODEL as WhisperModel | undefined
@@ -62,6 +66,7 @@ export function transcribeConfig(dataDir: string, env: Record<string, string | u
     workBase: path.join(dataDir, 'work'),
     // min(8, cores − 1) as before; where limits apply max(1, min(4, plan cores − 1)) (system/limits.ts)
     threads: whisperThreads(),
+    openRouterUrl: OPENROUTER_STT_URL,
   }
 }
 
@@ -71,7 +76,7 @@ export const LABELS = {
   run: { ko: '받아쓰는 중', en: 'Transcribing', id: 'Mentranskripsi' },
 }
 
-const fail = (ko: string, en: string, id: string, code: 'unavailable' | 'bad_request' | 'internal' = 'unavailable') => new JobFailure(code, { ko, en, id })
+export const fail = (ko: string, en: string, id: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' = 'unavailable') => new JobFailure(code, { ko, en, id })
 
 export const MISSING_WHISPER = () => fail(
   '받아쓰기 도구(whisper.cpp)가 서버에 없습니다. 서버 맥에서 `brew install whisper-cpp`를 실행한 뒤 다시 해 주세요.',
@@ -168,14 +173,7 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
     const src = path.join(work, converterInputName(name))
     fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
     let audio = path.basename(src)
-    if (cfg.ffmpegBin) {
-      h.progress(0.5, LABELS.convert[loc])
-      const r = await runIsolated({ cmd: cfg.ffmpegBin, workDir: work, timeoutMs: 10 * 60_000, signal: h.signal,
-        args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
-      if (h.signal.aborted) throw new Error('aborted')
-      if (r.code !== 0) throw fail('오디오 파일을 읽을 수 없습니다.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', 'bad_request')
-      audio = 'audio.wav'
-    }
+    if (cfg.ffmpegBin) audio = await convertToWav(cfg.ffmpegBin, work, audio, h, loc, 0.5)
     const label = LABELS.run[loc]
     h.progress(0.55, label)
     const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'
@@ -196,6 +194,16 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
     }
     return parseWhisperJson(fs.readFileSync(out, 'utf8'))
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+/** ffmpeg (isolated) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM. Returns "audio.wav". */
+export async function convertToWav(ffmpeg: string, work: string, audio: string, h: JobHandle, loc: Locale, at: number): Promise<string> {
+  h.progress(at, LABELS.convert[loc])
+  const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 10 * 60_000, signal: h.signal,
+    args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
+  if (h.signal.aborted) throw new Error('aborted')
+  if (r.code !== 0) throw fail('오디오 파일을 읽을 수 없습니다.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', 'bad_request')
+  return 'audio.wav'
 }
 
 /** whisper-cli -oj output -> TranscribeResult */

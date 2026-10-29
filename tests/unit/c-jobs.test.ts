@@ -8,6 +8,7 @@ import { JobFailure, JobServiceImpl } from '../../server/src/jobs/service'
 import { ensureModel, parseWhisperJson, WHISPER_MODELS, type TranscribeConfig } from '../../server/src/jobs/transcribe'
 import { componentC } from '../../server/src/team-files/component'
 import { which } from '../../server/src/config'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 import { jsonBody, makeCApp, sha256hex, type CApp } from '../lib/c-app'
 
 let A: CApp
@@ -105,6 +106,8 @@ describe('jobs API', () => {
 })
 
 describe('transcription', () => {
+  // whisper.cpp on this server is the 'local' speech provider (the default is 'off'; OpenRouter: c-speech-openrouter)
+  beforeAll(() => { updateTeamSettings(A.ctx.db, { speechProvider: 'local' }) })
   const upload = async (bytes: Uint8Array, name: string, fields: Record<string, string> = {}) => {
     const fd = new FormData()
     for (const [k, v] of Object.entries(fields)) fd.set(k, v)

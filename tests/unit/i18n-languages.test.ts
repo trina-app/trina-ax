@@ -110,6 +110,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/store.ts': { why: 'conflict copy names (ko next to en and id)', also: /충돌 사본\|/ },
   'server/src/jobs/service.ts': { why: 'job texts (ko next to en and id)' },
   'server/src/jobs/transcribe.ts': { why: 'transcription texts (ko next to en and id) and a whisper marker', also: /^\s*'[^']*',$|MUSIC\|음악/ },
+  'server/src/jobs/openrouter-stt.ts': { why: 'voice input failures from OpenRouter (ko next to en and id)', also: /^\s*('[^']*'|`[^`]*`),$/ },
   'server/src/office/cli.ts': { why: 'office-mode terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/update-cli.ts': { why: 'teamax update terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/helper.ts': { why: 'the office certificate page, Korean then English on one page (no session, no language picker; docs/OFFICE.md)', also: /./ },

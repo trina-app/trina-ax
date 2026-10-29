@@ -75,7 +75,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 | Go | 1.27.3 | native helpers (`mycel-gate`, `mycel-bridge`, `mycel-launcher`, `mycel-bootstrap`) |
 | Node | **24+** (26.12.1 pinned for production) | the relay only. Without it `bun run dev` prints "relay skipped" and the direct address still works |
 | ripgrep, pandoc, poppler, typst | | file search, Office/PDF text, PDF output |
-| ffmpeg, whisper-cpp | | voice input (downloads a ~490 MB model on first use) |
+| ffmpeg, whisper-cpp | | voice input. ffmpeg converts recordings. whisper-cpp is only for the speech provider "On this server" (downloads a ~490 MB model on first use). Voice input is off by default; Admin › Team settings turns it on with OpenRouter (team API key) or this server |
 | Claude Code | **2.1.305** (pinned; the lockdown tests run against it) | the Claude engine |
 | Codex CLI (optional) | 0.163.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
 | Git | | clone the public repository (1.2); GitHub CLI is optional |

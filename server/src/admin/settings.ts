@@ -1,7 +1,7 @@
 // Team settings (tab 1 `settings`: key -> JSON value). One key per TeamSettings field; internal keys use a dot
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { defaultTimeZone, isValidTimeZone } from '../system/time-zone'
 
@@ -23,6 +23,10 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   /** people may turn on "Allow all websites" in the desktop app's in-app browser; each team (the director) decides */
   browserAllowAll: true,
   personalIntegrations: true,
+  /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
+   * through OpenRouter") */
+  speechProvider: 'off',
+  speechModel: DEFAULT_SPEECH_MODEL,
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
@@ -75,6 +79,12 @@ export const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'lo
  * every minute). The message carries nothing.
  */
 export const BROWSER_POLICY_CHANGED = { type: 'notice', data: { level: 'info', code: 'browser_policy_changed', message: '' } } as const
+
+/**
+ * Realtime notice: voice input was turned on or off (speechProvider, the OpenRouter key). Open windows ask GET /api/me
+ * again (Me.team.voiceInput) and show or hide the mic. The message carries nothing.
+ */
+export const SPEECH_CHANGED = { type: 'notice', data: { level: 'info', code: 'speech_changed', message: '' } } as const
 
 /** The team default language alone (cheap: read for every request without a session). */
 export function teamDefaultLocale(db: Database): Locale {

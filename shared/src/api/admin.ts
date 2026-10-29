@@ -8,6 +8,7 @@ import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
 import { TEAM_ICON_MAX_BYTES, TEAM_ICON_TYPES, TEAM_ICON_VERSION_RE } from '../team-icon'
+import { SealedSecret } from './credentials'
 
 // ---------------- users ----------------
 export const CreateUserBody = z.object({
@@ -176,6 +177,11 @@ export const TeamIconInfo = z.object({
   size: z.number().int().positive(),
 })
 export type TeamIconInfo = z.infer<typeof TeamIconInfo>
+/** The team's OpenRouter key for voice input: never returned, only whether one is set and its last 4 characters. */
+export const SpeechKeyStatus = z.object({ set: z.boolean(), hint: z.string().nullable(), updatedAt: IsoTime.nullable() })
+export type SpeechKeyStatus = z.infer<typeof SpeechKeyStatus>
+/** sealed in the browser (purpose 'speech.key'); null removes the key. The password again, like AI connections. */
+export const SetSpeechKeyBody = z.object({ sealed: SealedSecret.nullable(), password: z.string().min(1).max(256) })
 export const UsageQuery = z.object({
   from: IsoTime.optional(),
   to: IsoTime.optional(),
@@ -232,6 +238,8 @@ export const ADMIN = {
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings (team name change also renames the relay address: owner only).' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (tab icon, home-screen app icon): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: back to the default icon; audited.' }),
+  speechKey: endpoint({ method: 'GET', path: '/api/admin/speech-key', auth: 'admin', owner: 'A', response: SpeechKeyStatus, summary: 'Whether the OpenRouter key for voice input is set (last 4 characters only, never the key).' }),
+  setSpeechKey: endpoint({ method: 'PUT', path: '/api/admin/speech-key', auth: 'admin', owner: 'A', body: SetSpeechKeyBody, response: SpeechKeyStatus, summary: 'Set (sealed in the browser) or remove (null) the OpenRouter key for voice input; asks for the password again.' }),
   usage: endpoint({ method: 'GET', path: '/api/admin/usage', auth: 'admin', owner: 'A', query: UsageQuery, response: UsageResponse, summary: 'Usage and cost per person / engine / model / day / group / AI connection / skill. Skill rows attribute the entire turn and may overlap.' }),
   audit: endpoint({ method: 'GET', path: '/api/admin/audit', auth: 'admin', owner: 'A', query: AuditQuery, response: page(AuditEntry), summary: 'Admin actions, file changes, tool calls, sign-ins.' }),
 } as const

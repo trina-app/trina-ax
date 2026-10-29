@@ -409,6 +409,14 @@ export const AuditEntry = z.object({
 })
 export type AuditEntry = z.infer<typeof AuditEntry>
 
+/** Voice input (speech to text): off (default), OpenRouter's speech-to-text API with the team's key (cloud), or
+ * whisper.cpp on this server (private, slow on small servers). docs/DECISIONS.md "Voice input through OpenRouter". */
+export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
+export type SpeechProvider = z.infer<typeof SpeechProvider>
+export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
+/** an OpenRouter model id: "<vendor>/<model>" */
+export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({
   teamName: z.string().min(1).max(100),
@@ -433,5 +441,9 @@ export const TeamSettings = z.object({
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
+  /** voice input: 'off' (default) | 'openrouter' (needs the OpenRouter key, Admin > Team settings) | 'local' */
+  speechProvider: SpeechProvider,
+  /** the OpenRouter speech-to-text model */
+  speechModel: SpeechModel,
 })
 export type TeamSettings = z.infer<typeof TeamSettings>
