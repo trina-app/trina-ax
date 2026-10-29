@@ -130,12 +130,16 @@ export function legacyKoreanFile(abs: string): boolean {
       while (off < n) { const k = fs.readSync(fd, b, off, n - off, off); if (k <= 0) break; off += k }
       return b.subarray(0, off)
     }
-    const head = read(Math.min(st.size, UTF8_PROBE))
-    const whole = head.length >= st.size
-    // a character cut at the end of the probe is not an error
-    for (let drop = 0; drop <= (whole ? 0 : 3) && drop < head.length; drop++) if (isUtf8(head.subarray(0, head.length - drop))) return false
-    return isLegacyKorean(whole ? head : read(st.size))
+    return legacyKoreanHead(read(Math.min(st.size, UTF8_PROBE)), st.size, () => read(st.size))
   } catch { return false } finally { fs.closeSync(fd) }
+}
+
+/** Classify admitted buffers directly: no extra filesystem probe of each snapshot. */
+function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): boolean {
+  const whole = head.length >= size
+  // A character cut at the end of the probe is not an error.
+  for (let drop = 0; drop <= (whole ? 0 : 3) && drop < head.length; drop++) if (isUtf8(head.subarray(0, head.length - drop))) return false
+  return isLegacyKorean(whole ? head : wholeFile())
 }
 
 // ---------------- office text sidecar cache ----------------
@@ -520,6 +524,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       if (listed.code === 2 && /type.*(unrecognized|unknown)/i.test(listed.err)) throw new ToolError(listed.err)
       admissionLimited ||= listed.killed !== null
       let bytes = 0
+      const directories = new Set<string>()
       admission.transaction(() => {
         for (const rel of candidates) {
           if (o.signal?.aborted || Date.now() >= until) { admissionLimited = true; break }
@@ -538,9 +543,10 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
           if (bytes + input.bytes.length > 256 * 1024 ** 2) { admissionLimited = true; break }
           bytes += input.bytes.length
           const dst = path.join(frozen!, rel)
-          fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
+          const parent = path.dirname(dst)
+          if (!directories.has(parent)) { fs.mkdirSync(parent, { recursive: true, mode: 0o700 }); directories.add(parent) }
           fs.writeFileSync(dst, input.bytes, { mode: 0o400, flag: 'wx' })
-          if (!office) legacy.set(real, legacyKoreanFile(dst))
+          if (!office) legacy.set(real, legacyKoreanHead(input.bytes.subarray(0, UTF8_PROBE), input.bytes.length, () => input.bytes))
         }
       })
     }
