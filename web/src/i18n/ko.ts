@@ -391,6 +391,7 @@ export const ko = {
   'files.search.truncated': '처음 {n}줄만 보여요. 검색어를 더 넣어 범위를 좁혀 주세요.',
   'files.search.timedOut': '시간 제한으로 검색을 멈췄어요. 빠진 결과가 있을 수 있어요.',
   'files.search.indexing': '오피스 문서 {n}개를 색인하는 중이에요. 아직 검색하지 않았어요.',
+  'files.search.notQueued': '오피스 문서 {n}개는 아직 검색하지도 색인하지도 않았어요. 기다리는 문서가 너무 많아요. 나중에 다시 검색해 주세요.',
   'files.search.longSkipped': '아주 긴 줄 {n}개는 건너뛰었어요.',
   'files.breadcrumb': '현재 위치',
   'files.upload': '올리기',

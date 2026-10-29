@@ -181,9 +181,12 @@ export const FileContentHits = z.object({
   truncated: z.boolean(),
   /** the time limit stopped the search; the list can be incomplete */
   timedOut: z.boolean(),
-  /** office documents that were not searched because their text is not made yet (the background indexer makes it);
-   * a later search can find more */
+  /** office documents that were not searched because their text is not made yet, and that the background indexer
+   * has in its queue or extracts now; a later search can find more */
   indexing: z.number().int().nonnegative(),
+  /** office documents that were not searched because their text is not made yet, and that the background queue did
+   * not take (the person already has the most files in the queue); a later search adds them */
+  notQueued: z.number().int().nonnegative(),
   /** matching lines that were skipped because their ripgrep record was longer than 64 K characters (a very long line,
    * or a long line with very many matches) */
   longSkipped: z.number().int().nonnegative(),

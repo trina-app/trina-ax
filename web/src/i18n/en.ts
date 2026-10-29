@@ -392,6 +392,7 @@ export const en: Record<MessageKey, string> = {
   'files.search.truncated': '{n, plural, one {Only the first line is shown.} other {Only the first # lines are shown.}} Type more text to narrow the search.',
   'files.search.timedOut': 'The search stopped at the time limit. Some results can be missing.',
   'files.search.indexing': 'Indexing {n, plural, one {# office document} other {# office documents}}. Not searched yet.',
+  'files.search.notQueued': '{n, plural, one {# office document} other {# office documents}} not searched and not indexed yet: too many wait. Search again later.',
   'files.search.longSkipped': '{n, plural, one {# very long line was} other {# very long lines were}} skipped.',
   'files.breadcrumb': 'Current location',
   'files.upload': 'Upload',

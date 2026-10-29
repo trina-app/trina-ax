@@ -2,9 +2,10 @@
 // has the same permission checks: allowedRoots() picks the folders ripgrep may enter and visiblePath() checks every
 // hit again. A person never finds a line in a file that they cannot open. Office documents are searched through the
 // same text cache as the AI's grep, but only their fresh text: the content search extracts nothing itself. A stale or
-// new office document goes to the one background queue of the server (low priority, at most
-// OFFICE_QUEUE_PER_PERSON_MINUTE files a minute from one person) and is counted in `indexing`. Thus a person's search
-// never takes the extraction slots that the AI grep of another person needs. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
+// new office document goes to the one background queue of the server (low priority, each person in turn, at most
+// OFFICE_QUEUE_PER_OWNER files of one person) and is counted in `indexing`; a file that the queue did not take is
+// counted in `notQueued`. Thus a person's search never takes the extraction slots that the AI grep of another person
+// needs, and one person's files do not delay the files of other people. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
 // bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
 // file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
 import type { FileContentHits } from '@mycel/shared/api'
@@ -105,6 +106,6 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
-    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, longSkipped: res.stats.longSkipped }
+    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, longSkipped: res.stats.longSkipped }
   } finally { done() }
 }

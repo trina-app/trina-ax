@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FileContentHits } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { OFFICE_QUEUE_PER_PERSON_MINUTE } from '../../server/src/files/search'
+import { OFFICE_QUEUE_PER_OWNER } from '../../server/src/files/search'
 import { admitContentSearch, CONTENT_SEARCH_PARALLEL_MAX, CONTENT_SEARCH_PER_FILE, CONTENT_SEARCH_RATE_MAX, resetContentSearchLimits, SNIPPET_CHARS, snippetOf } from '../../server/src/team-files/content-search'
 
 setDefaultTimeout(60_000)
@@ -148,7 +148,7 @@ describe('query handling', () => {
     fs.utimesSync(abs, new Date(), new Date(Date.now() + 60_000))
     const office = h.ctx.files.office
     const real = office.refresh.bind(office)
-    office.refresh = (async () => ({ pending: 1, timedOut: false })) as typeof office.refresh
+    office.refresh = (async () => ({ pending: 1, notQueued: 0, timedOut: false })) as typeof office.refresh
     try {
       const r = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared')
       expect(r.items).toEqual([])
@@ -232,7 +232,7 @@ describe('limits', () => {
     const gate = new Promise<void>((r) => { release = r })
     let entered!: () => void
     const inRefresh = new Promise<void>((r) => { entered = r })
-    office.refresh = (async () => { entered(); await gate; return { pending: 0, timedOut: false } }) as typeof office.refresh
+    office.refresh = (async () => { entered(); await gate; return { pending: 0, notQueued: 0, timedOut: false } }) as typeof office.refresh
     try {
       const first = raw('alice', 'QA-STOPPED-4410', '&path=shared%2Ffs-stopped')
       await inRefresh
@@ -286,7 +286,7 @@ describe('office extraction capacity', () => {
     }
   })
 
-  test('one person adds at most a fixed number of files a minute to the background queue; the rest are still counted', async () => {
+  test('one person has at most a fixed number of files in the background queue; the rest are counted as notQueued', async () => {
     const office = h.ctx.files.office
     await office.idle()
     let release!: () => void
@@ -294,17 +294,18 @@ describe('office extraction capacity', () => {
     const o = office as unknown as { extract: (rel: string, b: Buffer) => Promise<string> }
     const real = o.extract
     o.extract = async (rel: string) => { await gate; return 'text of ' + rel }
-    const N = OFFICE_QUEUE_PER_PERSON_MINUTE + 20
+    const N = OFFICE_QUEUE_PER_OWNER + 20
     for (let i = 0; i < N; i++) write(`users/carol/fs-flood/d${String(i).padStart(3, '0')}.docx`, 'doc ' + i)
     try {
       const r = await search('carol', 'QA-FLOOD', '&path=users%2Fcarol%2Ffs-flood')
-      expect(r.indexing).toBe(N)
-      // queued (or running) for carol: at most the per-person limit
-      expect(office.queued()).toBeLessThanOrEqual(OFFICE_QUEUE_PER_PERSON_MINUTE)
-      // the same files again add nothing (the queue holds each path and mtime once)
-      const before = office.queued()
-      await search('carol', 'QA-FLOOD-2', '&path=users%2Fcarol%2Ffs-flood')
-      expect(office.queued()).toBe(before)
+      // indexing counts only the files that wait or run; the others are notQueued
+      expect(r.indexing).toBe(office.queued())
+      expect(r.indexing).toBeLessThanOrEqual(OFFICE_QUEUE_PER_OWNER + 1)
+      expect(r.indexing + r.notQueued).toBe(N)
+      // the same files again: the queue holds each path once, so the counts stay true
+      const again = await search('carol', 'QA-FLOOD-2', '&path=users%2Fcarol%2Ffs-flood')
+      expect(again.indexing).toBe(office.queued())
+      expect(again.indexing + again.notQueued).toBe(N)
     } finally {
       release()
       await office.idle()
