@@ -8,8 +8,11 @@ import { sourceKey, sourceOf, widening, type ReadSource } from '../../chat/read-
 import { audit } from '../../admin/audit'
 import { hash, OAuthError } from './policy'
 import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
+import { uploadFile, uploadTool } from './upload'
+import { createUploadLink, uploadLinkTool } from './upload-link'
 
-const WRITE = new Set(['write', 'edit'])
+const WRITE = new Set(['write', 'edit', 'upload_file', 'create_upload_link'])
+const CONNECTOR_ONLY = new Set(['upload_file', 'create_upload_link'])
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as Record<string, unknown>
   delete schema.$schema
@@ -25,7 +28,7 @@ export class RemoteTools {
   constructor(readonly ctx: AppContext, readonly oauth: () => RemoteOAuth = () => remoteOAuthOf(ctx)) {}
   list(g: Grant) {
     const scopes = JSON.parse(g.scopes) as string[]
-    return [...toolList.filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool]
+    return [...[...toolList, uploadTool, uploadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool]
   }
   private policy(user: string) {
     return hash(JSON.stringify({
@@ -36,7 +39,7 @@ export class RemoteTools {
   async call(token: string, name: string, args: unknown, signal?: AbortSignal) {
     const oauth = this.oauth(), grant = oauth.authenticate(token)
     oauth.rate('tool-user', grant.user_id, 120)
-    if (name !== 'skills_list' && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
+    if (name !== 'skills_list' && !CONNECTOR_ONLY.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
     // Bound idle memory; read sources survive eviction/restart in the grant row.
     for (const [id, m] of this.memory) if (!m.queued && m.touched < oauth.now() - 10 * 60_000) this.memory.delete(id)
     let m = this.memory.get(grant.id)
@@ -61,6 +64,13 @@ export class RemoteTools {
         if (args !== undefined && (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length)) return result('Invalid input.', true)
         const skills = listSkills(this.ctx.files, user).map(({ path, name, description }) => ({ path, name, description }))
         return result(JSON.stringify(skills))
+      }
+      if (CONNECTOR_ONLY.has(name)) {
+        // Same scope, write rule, skills and widening checks as write. No await before the bytes are placed.
+        const out = name === 'upload_file' ? await uploadFile(this.ctx, user, args, JSON.parse(fresh.sources) as ReadSource[]) : createUploadLink(this.ctx, oauth, fresh, user, args)
+        // The audit row holds actor, path and size, never the content.
+        audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: !out.isError, via: 'connector', ...out.audit } })
+        return result(out.text, out.isError)
       }
       const input = FILE_TOOLS[name as FileToolName].input.safeParse(args ?? {})
       if (!input.success) return result('Invalid tool input.', true)

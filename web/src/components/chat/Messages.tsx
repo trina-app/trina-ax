@@ -270,7 +270,7 @@ export function AssistantMessage({
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
   const errText = m.error
-    ? reason ? t(`chat.error.${reason}`)
+    ? reason ? t(`chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
       : m.error.params?.reason === undefined && known && Object.values(known).includes(m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)

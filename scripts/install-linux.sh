@@ -256,7 +256,7 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
          systemd/update.service.in systemd/update.timer.in; do
   [ -f "$KROOT/$f" ] || die "$KROOT/$f missing (not a Linux kit? bun scripts/build-bundle.ts --os linux)"
 done
-for f in bin/bun server/src/main.js server/src/admin.js server/src/account.js native/mycel-gate native/mycel-bridge; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
+for f in bin/bun server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "the kit is not signed (use --allow-unsigned for development builds)"; fi
 
 # ---- 1) system checks (also `check`) ----

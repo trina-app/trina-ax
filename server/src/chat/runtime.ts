@@ -26,6 +26,7 @@ import { fairOrder, selectFairHead, type QueueTiming } from './fair-queue'
 import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
 import { maskStoredTitles, placeholderTitle } from './title'
+import { redactorFor } from '../integrations/connections/redact'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -429,7 +430,8 @@ export class ChatRuntime {
       this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for)
         VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
-      const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments) : '')
+      // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
+      const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide) : '')
       this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
         .run(assistantId, title, o.engine, o.model, now, chat.id)
       o.scheduled?.commit(chat.id)
@@ -539,7 +541,10 @@ export class ChatRuntime {
 
   publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged') {
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
-    this.hub.publish(userId, { type: 'chat.updated', data: { chatId, change, chat: r ? this.store.toChat(r, this.runState(chatId)) : null } })
+    const chat = r ? this.store.toChat(r, this.runState(chatId)) : null
+    // never a stored connection secret of the person in the title (QA B-W5-1)
+    if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
+    this.hub.publish(userId, { type: 'chat.updated', data: { chatId, change, chat } })
   }
 
   // ---------------- start / stop ----------------

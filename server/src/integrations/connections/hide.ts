@@ -53,20 +53,32 @@ function base64Patterns(value: string): string[] {
   return out
 }
 
-/** A function that replaces every form of these values with HIDDEN. Values shorter than MIN_SECRET are left out. */
-export function secretHider(values: Iterable<string | null | undefined>): (text: string) => string {
-  const patterns = new Set<string>()
+/** The values worth hiding: each as given and trimmed, MIN_SECRET characters or longer. */
+export function secretValuesOf(values: Iterable<string | null | undefined>): string[] {
+  const out = new Set<string>()
   for (const raw of values) {
     if (!raw) continue
-    for (const v of new Set([raw, raw.trim()])) {
-      if (v.length < MIN_SECRET) continue
-      patterns.add(textPattern(v))
-      for (const p of base64Patterns(v)) patterns.add(p)
-    }
+    for (const v of [raw, raw.trim()]) if (v.length >= MIN_SECRET) out.add(v)
   }
-  if (!patterns.size) return (s) => s
+  return [...out]
+}
+
+/** One pattern (flag g) for every form of these values, or null when there is nothing to hide. */
+export function secretRegex(values: Iterable<string | null | undefined>): RegExp | null {
+  const patterns = new Set<string>()
+  for (const v of secretValuesOf(values)) {
+    patterns.add(textPattern(v))
+    for (const p of base64Patterns(v)) patterns.add(p)
+  }
+  if (!patterns.size) return null
   // longer patterns first: a whole base64 text before its core, a value before a shorter one inside it
-  const re = new RegExp([...patterns].sort((a, b) => b.length - a.length).join('|'), 'g')
+  return new RegExp([...patterns].sort((a, b) => b.length - a.length).join('|'), 'g')
+}
+
+/** A function that replaces every form of these values with HIDDEN. Values shorter than MIN_SECRET are left out. */
+export function secretHider(values: Iterable<string | null | undefined>): (text: string) => string {
+  const re = secretRegex(values)
+  if (!re) return (s) => s
   return (text) => text.replace(re, HIDDEN)
 }
 

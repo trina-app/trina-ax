@@ -144,7 +144,10 @@ for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
         for (const [title, reason] of [['Completed once', 'completed'], ['Expired once', 'expired']] as const) {
           await expect(row(title)).toContainText(dict[`schedules.${reason}Hint`])
           await expect(row(title).getByText(dict[`schedules.${reason}`], { exact: true })).toBeVisible()
-          await expect(row(title).getByRole('button', { name: dict['schedules.resume'], exact: true })).toHaveCount(0)
+          // visible but disabled, described by the reason (no silent no-op, no PATCH)
+          const resume = row(title).getByRole('button', { name: dict['schedules.resume'], exact: true })
+          await expect(resume).toBeDisabled()
+          await expect(resume).toHaveAccessibleDescription(dict[`schedules.${reason}Hint`])
         }
         await expect(row('Deferred once').getByRole('button', { name: dict['schedules.pause'], exact: true })).toBeVisible()
         for (const title of ['Future once', 'Recurring task']) {

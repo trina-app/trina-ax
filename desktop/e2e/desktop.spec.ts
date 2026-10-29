@@ -5,8 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import {
-  ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome,
-} from './helpers'
+  ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn } from './helpers'
 
 const refOf = (s: string, label: string) => {
   const line = s.split('\n').find((l) => l.includes(label))
@@ -113,7 +112,7 @@ test.describe('browser tools over the team WebSocket', () => {
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
-    await addTeam(app, 'acme.localhost:19151', ACME)
+    await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
   })
   test.afterAll(async () => close(app))
 
@@ -268,7 +267,7 @@ test.describe('what the in-app browser never opens', () => {
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
-    await addTeam(app, 'acme.localhost:19151', ACME)
+    await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
   })
   test.afterAll(async () => close(app))
 
@@ -279,6 +278,9 @@ test.describe('what the in-app browser never opens', () => {
       [`${ACME}/api/me`, "team's own address"],
       ['http://localhost:19153/', 'this computer'],
       ['http://127.0.0.1:19153/', 'this computer'],
+      // the team server itself on its loopback address (QA R2-DESK-07 step 2): this computer, never the team page
+      ['http://127.0.0.1:19151/api/health', 'this computer'],
+      ['http://localhost:19151/files', 'this computer'],
       ['http://[::1]:19153/', 'this computer'],
       ['http://0.0.0.0:19153/', 'this computer'],
       ['data:text/html,<iframe src="http://shop.test:19153/cookie"></iframe>', 'Only http(s)'],
@@ -342,7 +344,7 @@ test.describe('office network and allowed sites', () => {
   test('private addresses need approval, sub-requests are blocked, redirects ask again, typed addresses do not', async () => {
     const app = await launch(newUserData())
     try {
-      await addTeam(app, 'acme.localhost:19151', ACME)
+      await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
       newTurn()
       const denied = await call(ACME, 'navigate', { url: `${OFFICE_SITE}/` })
       await answer(app, '거부', 'private')
@@ -379,7 +381,7 @@ test.describe('office network and allowed sites', () => {
     const userData = newUserData()
     let app = await launch(userData)
     try {
-      await addTeam(app, 'acme.localhost:19151', ACME)
+      await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
       const first = await call(ACME, 'navigate', { url: `${SHOP}/set-cookie` })
       await answer(app, '항상 허용', 'site')
       expect((await result(ACME, first.callId)).result.ok).toBe(true)
@@ -422,7 +424,7 @@ test.describe('office network and allowed sites', () => {
       // a second team: own partition, its browser has no cookie from the first team
       await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].focus())
       await (await view(app, (u) => u.startsWith(ACME))).evaluate(() => (window as any).mycelDesktop.openTeams())
-      await addTeam(app, 'beta.localhost:19152', BETA)
+      await signIn(await addTeam(app, 'beta.localhost:19152', BETA))
       newTurn()
       const b = await call(BETA, 'navigate', { url: `${SHOP}/cookie` })
       await answer(app, '이번만 허용', 'site')

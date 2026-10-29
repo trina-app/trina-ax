@@ -28,6 +28,7 @@ import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
+import { ScheduleItem } from '../components/settings/ScheduleItem'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
 
@@ -350,34 +351,7 @@ function Schedules() {
       {items && items.length > 0 && (
         <>
           <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
-            {items.map((s) => (
-              <li key={s.id} className="flex items-start gap-3 px-4 py-3 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2 font-medium">
-                    {s.templateId === 'daily-file-index' || s.templateId === 'weekly-summary' ? t(`scheduleTemplates.${s.templateId}`) : s.title}
-                    {!s.enabled && <Badge>{t(s.resumeBlockedReason ? `schedules.${s.resumeBlockedReason}` : 'schedules.paused')}</Badge>}
-                  </span>
-                  <span className="mt-0.5 block text-xs text-muted">{when(s)}</span>
-                  <span className="mt-1 line-clamp-2 block text-xs text-faint">{s.templateId ? `${s.sourcePath} → ${s.outputPath}` : s.prompt}</span>
-                  {s.resumeBlockedReason && <span className="mt-1 block text-xs text-muted">{t(`schedules.${s.resumeBlockedReason}Hint`)}</span>}
-                  {s.pendingDueAt && <span className="mt-1 block text-xs text-muted">{t('scheduleTemplates.deferred', { time: formatDateTime(s.retryAt ?? s.pendingDueAt, locale, tz || undefined) })}</span>}
-                  {s.lastOutcome && <span className="mt-1 block text-xs text-muted">{t(`scheduleTemplates.outcome.${s.lastOutcome}`)}</span>}
-                  <span className="mt-1 block text-xs text-faint">
-                    {s.enabled && s.nextRunAt && t('schedules.next', { time: formatDateTime(s.nextRunAt, locale, tz || undefined) })}
-                    {s.lastChatId && (
-                      <>
-                        {s.enabled && s.nextRunAt && ' · '}
-                        <Link to={`/c/${s.lastChatId}`} className="text-accent-text hover:underline">{t('schedules.lastRun')}</Link>
-                      </>
-                    )}
-                  </span>
-                </span>
-                {!s.resumeBlockedReason && <Button size="sm" onClick={() => void toggle(s)}>{s.enabled ? t('schedules.pause') : t('schedules.resume')}</Button>}
-                <button type="button" aria-label={t('schedules.delete')} title={t('schedules.delete')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => void remove(s)}>
-                  <Trash2 size={15} />
-                </button>
-              </li>
-            ))}
+            {items.map((s) => <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} />)}
           </ul>
           {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
         </>

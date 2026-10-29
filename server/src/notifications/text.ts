@@ -1,7 +1,8 @@
 import { PRODUCT } from '@mycel/shared'
 import type { Locale, NotificationEventType } from '@mycel/shared/api'
 
-/** Lock-screen text is generic: never interpolate task names, results or connection details. */
+/** Lock-screen text is generic: never interpolate task names, results or connection details.
+ *  'schedule.failure' also covers a run that finished with problems, so its text says "needs attention", not "failed". */
 export const TEXT = {
   title: { ko: PRODUCT.displayName, en: PRODUCT.displayName, id: PRODUCT.displayName },
   'schedule.success': {
@@ -10,7 +11,7 @@ export const TEXT = {
     id: 'Tugas terjadwal selesai.',
   },
   'schedule.failure': {
-    ko: '예약 작업을 마치지 못했어요. 실행 결과를 확인해 주세요.',
+    ko: '예약 작업에 확인할 일이 있어요. 실행 결과를 확인해 주세요.',
     en: 'A scheduled task needs your attention.',
     id: 'Tugas terjadwal perlu perhatian Anda.',
   },

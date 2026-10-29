@@ -11,6 +11,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { verifyChain } from '../policy/resolve'
 import { newId } from '../db'
 import { zonedParts } from '../system/time-zone'
+import { contentOrigin } from './timeline'
 
 const C = fs.constants
 export const sha256 = (b: Uint8Array | string) => crypto.createHash('sha256').update(b).digest('hex')
@@ -76,12 +77,19 @@ function storeBlob(root: string, kind: 'history' | 'trash', bytes: Uint8Array): 
   return rel.join('/')
 }
 
-/** Keep the pre-write version in .system/history and record it in file_versions. */
+/** Keep the pre-write version in .system/history and record it in file_versions.
+ * `by`: whose save replaces it (author_id / turn_id); saved_by / saved_turn_id: whose save produced it (timeline.ts). */
 export function saveVersion(db: Database, root: string, rel: string, bytes: Uint8Array, by: { userId: string; turnId: string | null }, kind: 'edit' | 'restore' = 'edit') {
   const storage = storeBlob(root, 'history', bytes)
-  const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(rel) as any).v
-  db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, storage_path) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(newId(), rel, v, sha256(bytes), bytes.length, by.userId, by.turnId, kind, storage)
+  insertVersion(db, { id: newId(), rel, sha256: sha256(bytes), size: bytes.length, by, kind, storage })
+}
+
+/** One file_versions row of stored content (saveVersion, place.ts snapshotVersion). */
+export function insertVersion(db: Database, o: { id: string; rel: string; sha256: string; size: number; by: { userId: string; turnId: string | null }; kind: 'edit' | 'restore'; storage: string }) {
+  const origin = contentOrigin(db, o.rel, o.sha256)
+  const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(o.rel) as { v: number }).v
+  db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, storage_path, saved_by, saved_turn_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .run(o.id, o.rel, v, o.sha256, o.size, o.by.userId, o.by.turnId, o.kind, o.storage, origin?.userId ?? null, origin ? origin.turnId : null)
 }
 
 export interface FileEventInput { turnId: string | null; userId: string; path: string; action: string; size?: number; sha256?: string; detail?: unknown }
@@ -127,8 +135,8 @@ export function recordConflictCopy(db: Database, events: { emit(name: string, e:
   const last = db.query(`SELECT e.user_id, u.name FROM file_events e LEFT JOIN users u ON u.id = e.user_id
     WHERE e.path = ? AND e.action IN ('update','create','upload','restore') ORDER BY e.id DESC LIMIT 1`).get(o.original) as { user_id: string; name: string | null } | null
   const v = (db.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM file_versions WHERE path = ?').get(o.original) as { v: number }).v
-  db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(newId(), o.original, v, o.sha256, o.size, o.userId, o.turnId, 'conflict_copy', o.copy, null)
+  db.query('INSERT INTO file_versions (id, path, version, sha256, size, author_id, turn_id, kind, conflict_path, storage_path, saved_by, saved_turn_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(newId(), o.original, v, o.sha256, o.size, o.userId, o.turnId, 'conflict_copy', o.copy, null, o.userId, o.turnId)
   fileEvent(db, { turnId: o.turnId, userId: o.userId, path: o.original, action: 'conflict', size: o.size, sha256: o.sha256, detail: { copy: o.copy, changedBy: last?.user_id ?? null, tool: o.tool } })
   events.emit('conflict', { path: o.original, copy: o.copy, by: o.userId, users: [o.userId, last?.user_id].filter(Boolean) })
   return { changedBy: last ? { id: last.user_id, name: last.name } : null }

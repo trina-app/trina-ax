@@ -40,8 +40,9 @@ export default function TeamSettingsPage() {
     const r = await act(() => api.call(API.updateSettings, { body: changed }), t('common.saved'))
     setBusy(false)
     if (r) { state.setData(r); setF(r) }
-    // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once
-    if (r && (changed.defaultLocale || changed.speechProvider)) await api.call(API.me).then(signedIn, () => {})
+    // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
+    // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
+    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
   return (
     <>

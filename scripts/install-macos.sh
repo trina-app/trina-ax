@@ -116,7 +116,7 @@ PRODUCT_NAME=$(sed -n 's/^PRODUCT_NAME=//p' "$FROM/product.env" 2>/dev/null | he
 BUNDLE="$FROM/app/$VERSION"
 [ -f "$BUNDLE/manifest.json" ] || die "$BUNDLE/manifest.json missing"
 for f in mycel-bootstrap mycel-launcher mycel-account engine.sb pf-load set-claude-token safe-fs.sh; do [ -f "$FROM/root/$f" ] || die "$FROM/root/$f missing (rebuild the bundle: bun run build:bundle)"; done
-for f in bin/bun server/src/main.js server/src/admin.js server/src/account.js native/mycel-gate native/mycel-bridge; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
+for f in bin/bun server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "bundle is not signed (use --allow-unsigned for development builds)"; fi
 # CPU type: every program of the bundle must run on this Mac (bun scripts/build-bundle.ts --arch universal builds both)
 MACH=$(uname -m)

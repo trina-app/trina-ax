@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 
 test('admin screens: members, groups, folder rules with "who sees what", engines, usage, audit, system', async ({ page }) => {
@@ -238,6 +239,9 @@ for (const locale of ['ko', 'en', 'id'] as const) {
   test(`members: deletion explains private archive transfer, including after cancel (${locale})`, async ({ page }) => {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)
+    // the chat retention the dialog names is the saved team setting, not a fixed 7 days
+    const saved = await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { chatTrashRetentionDays: 3 } })
+    expect(saved.ok()).toBeTruthy()
     await page.goto('/admin/members')
     const t = DICTS[locale]
     const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
@@ -247,7 +251,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     for (const cancel of [true, false]) {
       await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
       const dialog = page.getByRole('dialog')
-      await expect(dialog).toContainText(t['members.removeBody'])
+      await expect(dialog).toContainText(translate(locale, 'members.removeBody', { days: 3 }))
+      await expect(dialog).not.toContainText('{days')
       await expect(dialog).not.toContainText('users/')
       await expect(dialog).not.toContainText('{id}')
       if (cancel) {
@@ -264,6 +269,47 @@ for (const locale of ['ko', 'en', 'id'] as const) {
         await expect(member).toHaveCount(0)
       }
     }
+  })
+
+  test(`chat trash names the saved chat retention, not a fixed 7 days (${locale})`, async ({ page }) => {
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    const saved = await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { chatTrashRetentionDays: 14 } })
+    expect(saved.ok()).toBeTruthy()
+    await page.goto('/trash')
+    await expect(page.getByText(translate(locale, 'trash.desc', { days: 14 }))).toBeVisible()
+    await expect(page.getByText(translate(locale, 'trash.desc', { days: 7 }))).toHaveCount(0)
+  })
+
+  test(`chat retention saved in Team settings shows at once in the member and chat delete dialogs (${locale})`, async ({ page }) => {
+    const t = DICTS[locale]
+    await reset(page, { teamLocale: locale, usersFollowTeam: true })
+    await signIn(page)
+    const created = await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: 'Retention chat' } })
+    expect(created.ok()).toBeTruthy()
+    await page.goto('/admin/settings')
+    await page.getByLabel(t['teamSettings.chatTrashDays'], { exact: true }).fill('5')
+    await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+    await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+    // no page.goto from here: the dialogs must use the new value without a reload
+    let loads = 0
+    page.on('load', () => loads++)
+    await page.getByRole('link', { name: t['admin.members'], exact: true }).click()
+    const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
+    await member.getByRole('button', { name: t['members.disable'], exact: true }).click()
+    await page.getByTestId('dialog-confirm').click()
+    await expect(member).toContainText(t['members.disabled'])
+    await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText(translate(locale, 'members.removeBody', { days: 5 }))
+    await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
+    const item = page.getByRole('listitem').filter({ hasText: 'Retention chat' })
+    await item.hover()
+    await item.getByRole('button', { name: t['chat.menu'], exact: true }).click()
+    await item.getByRole('menuitem', { name: t['common.delete'] }).click()
+    await expect(page.getByRole('dialog')).toContainText(translate(locale, 'chat.deleteBody', { days: 5 }))
+    await expect(page.getByRole('dialog')).not.toContainText(translate(locale, 'chat.deleteBody', { days: 7 }))
+    await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
+    expect(loads).toBe(0)
   })
 
   test(`settings: update window validates while typing and after blur, then recovers (${locale})`, async ({ page }) => {

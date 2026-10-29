@@ -8,6 +8,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
+import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
@@ -238,7 +239,7 @@ function TrashedBanner({ chat, onRestored }: { chat: Chat; onRestored: (c: Chat)
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
-  const purge = new Date(Date.parse(chat.deletedAt!) + 7 * 86400_000).toISOString()
+  const purge = chatPurgeAt(chat.deletedAt!, chatTrashDays(useMeStrict()))
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/40 bg-warn-soft px-4 py-3 text-sm text-warn">
       <Trash2 size={16} className="shrink-0" aria-hidden />

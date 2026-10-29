@@ -13,6 +13,7 @@ import { BackupError } from '../system/backup'
 import { connectInfo } from '../system/connect-info'
 import { ConnectionChangeError, connectionStatus, modeOf, saveClaimCodeFor, saveConnectionMode } from '../system/connection'
 import { runExport } from '../system/export'
+import { redactorFor } from '../integrations/connections/redact'
 import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
@@ -182,7 +183,7 @@ export const systemRoutes: RouteModule = {
       const jobId = exclusive('export', locale, () => jobs().start({
         kind: 'export', userId: auth.user.id,
         run: async (h) => {
-          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
+          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
       return { jobId }

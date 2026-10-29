@@ -90,9 +90,11 @@ export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, 
 }
 
 /** Engine error -> message.error. Persist the reason as well as the localized fallback for older clients. */
-export function engineError(reason: ChatErrorReason, locale: Locale, retryAfter?: number): ApiErrorBody {
+export function engineError(reason: ChatErrorReason, locale: Locale, retryAfter?: number, status?: number): ApiErrorBody {
   const text = CHAT_ERROR_MESSAGES[reason]
-  return { code: text.code, message: text[locale], params: { reason }, ...(retryAfter !== undefined ? { retryAfter } : {}) }
+  // the provider's HTTP status (API engine) goes with the error: the screen adds "(HTTP 502)" after the text
+  const withStatus = status !== undefined && Number.isInteger(status)
+  return { code: text.code, message: text[locale] + (withStatus ? ` (HTTP ${status})` : ''), params: { reason, ...(withStatus ? { status } : {}) }, ...(retryAfter !== undefined ? { retryAfter } : {}) }
 }
 
 /** The launcher ended the turn at a Linux limit (LaunchEvent exit.signal "oom" | "disk_limit", shared/src/engine.ts):

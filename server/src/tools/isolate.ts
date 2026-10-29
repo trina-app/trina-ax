@@ -37,6 +37,9 @@ export interface IsolatedRun {
   timeoutMs?: number
   /** stdout cap (bytes); the process is killed when it writes more */
   maxStdout?: number
+  /** resident memory cap (MiB) of the converter and its children, checked a few times a second; the process is
+   * killed above it. Where the converter cgroup is set up (production Linux) its memory.max applies as well. */
+  maxRssMiB?: number
   env?: Record<string, string>
   /** called with stderr text as it arrives (progress parsing) */
   onStderr?: (s: string) => void
@@ -47,7 +50,7 @@ export interface IsolatedResult {
   code: number | null
   stdout: Buffer
   stderr: string
-  killed: null | 'timeout' | 'output' | 'aborted'
+  killed: null | 'timeout' | 'output' | 'aborted' | 'memory'
   workDir: string
 }
 
@@ -153,6 +156,9 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   let killed: IsolatedResult['killed'] = null
   const kill = (why: NonNullable<IsolatedResult['killed']>) => { if (!killed) { killed = why; try { p.kill('SIGKILL') } catch {} } }
   const timer = setTimeout(() => kill('timeout'), o.timeoutMs ?? 60_000)
+  const watch = o.maxRssMiB ? setInterval(() => {
+    void treeRssKiB(p.pid).then((kib) => { if (kib > o.maxRssMiB! * 1024) kill('memory') })
+  }, RSS_POLL_MS) : null
   const onAbort = () => kill('aborted')
   if (o.signal) { if (o.signal.aborted) onAbort(); else o.signal.addEventListener('abort', onAbort, { once: true }) }
   if (o.stdin) {
@@ -182,10 +188,44 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   })()
   const [stdout, stderr, code] = await Promise.all([outP, errP, p.exited])
   clearTimeout(timer)
+  if (watch) clearInterval(watch)
   o.signal?.removeEventListener('abort', onAbort)
   const res: IsolatedResult = { code: killed ? null : code, stdout, stderr, killed, workDir }
   if (ownDir) fs.rmSync(workDir, { recursive: true, force: true })
   return res
+}
+
+const RSS_POLL_MS = 200
+
+/** Resident memory (KiB) of a process and its descendants (Linux: /proc; macOS: ps). 0 when it is gone. */
+export async function treeRssKiB(pid: number): Promise<number> {
+  if (process.platform === 'linux') {
+    let kib = 0
+    const todo = [pid]
+    for (let n = 0; todo.length && n < 64; n++) {
+      const q = todo.pop()!
+      try {
+        const m = /^VmRSS:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${q}/status`, 'utf8'))
+        if (m) kib += Number(m[1])
+        for (const t of fs.readdirSync(`/proc/${q}/task`)) {
+          for (const c of fs.readFileSync(`/proc/${q}/task/${t}/children`, 'utf8').split(' ')) if (c.trim()) todo.push(Number(c))
+        }
+      } catch { /* gone */ }
+    }
+    return kib
+  }
+  try {
+    // the converter and its children (sandbox-exec execs the converter in place, so pid is the converter)
+    const r = Bun.spawn(['/bin/ps', '-A', '-o', 'pid=,ppid=,rss='], { stdout: 'pipe', stderr: 'ignore' })
+    const rows = (await new Response(r.stdout).text()).trim().split('\n').map((l) => l.trim().split(/\s+/).map(Number))
+    const kids = new Map<number, number[]>()
+    const rss = new Map<number, number>()
+    for (const [p, pp, k] of rows) { if (p === undefined || pp === undefined) continue; rss.set(p, k ?? 0); kids.set(pp, [...(kids.get(pp) ?? []), p]) }
+    let kib = 0
+    const todo = [pid]
+    for (let n = 0; todo.length && n < 64; n++) { const q = todo.pop()!; kib += rss.get(q) ?? 0; todo.push(...(kids.get(q) ?? [])) }
+    return kib
+  } catch { return 0 }
 }
 
 /** A fresh empty work folder for a multi-step conversion (caller removes it). */

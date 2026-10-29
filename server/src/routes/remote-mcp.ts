@@ -5,6 +5,7 @@ import { remoteOAuthOf } from '../connectors/remote-mcp/oauth'
 import { OAuthError } from '../connectors/remote-mcp/policy'
 import { json, mcpRequest, noStore, oauthBody, oauthError, uniqueParams } from '../connectors/remote-mcp/transport'
 import { fail } from '../http/errors'
+import { linkUpload } from '../connectors/remote-mcp/upload-link'
 import type { AppContextC } from '../http/env'
 
 function browser<T>(fn: () => T): T {
@@ -50,5 +51,7 @@ export const remoteMcpRoutes: RouteModule = {
     kit.raw('POST', '/mcp', c => mcpRequest(ctx, c.req.raw, ip(c)))
     kit.raw('GET', '/mcp', c => mcpRequest(ctx, c.req.raw, ip(c)))
     kit.raw('DELETE', '/mcp', c => mcpRequest(ctx, c.req.raw, ip(c)))
+    // One-time upload links from create_upload_link (outside /api: the token is the auth, no cookie or CSRF header).
+    kit.raw('PUT', '/connector-uploads/:token', c => linkUpload(ctx, c.req.raw, c.req.param('token') ?? '', ip(c)))
   },
 }

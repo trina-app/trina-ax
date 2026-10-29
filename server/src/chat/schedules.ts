@@ -15,8 +15,11 @@ import { HttpError } from '../http/errors'
 import { tr } from './i18n'
 import type { Locale } from '@mycel/shared/api'
 import { notificationsOf } from '../notifications/service'
+import { storedRunOutcome } from './schedule-outcome'
 import type { ChatRuntime } from './runtime'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
+
+type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable'
 
 export const SCHEDULES_PER_PERSON = 20
 /** a run refused because the queue was full is tried again this much later */
@@ -136,12 +139,17 @@ export class Schedules {
     return this.db.query('DELETE FROM schedules WHERE id = ? AND user_id = ?').run(id, userId).changes > 0
   }
 
-  lastOutcome(userId: string, id: string): 'done' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | null {
-    const row = this.db.query(`SELECT code FROM (
-      SELECT status code, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
-      UNION ALL SELECT code,created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId) as { code: 'done' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' } | null
-    return row?.code ?? null
+  /** The last run's result: 'done' only for a clean success; a finished run with refused/failed tools is 'problems',
+   *  a finished run without an answer is 'error' (chat/schedule-outcome.ts). */
+  lastOutcome(userId: string, id: string): LastOutcome | null {
+    const row = this.db.query(`SELECT code, run_outcome FROM (
+      SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
+      UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+    if (!row) return null
+    if (row.code !== 'done') return row.code
+    const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
+    return outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error'
   }
 
   /** One pending occurrence per schedule. A retry never changes its original due key. */
