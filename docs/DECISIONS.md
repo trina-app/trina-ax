@@ -2747,7 +2747,8 @@ including same-account installs. Extend the same synthetic selection tests to co
 - Add Japanese (`ja`, 日本語) and Spanish (`es`, Español) to Korean, English and Indonesian. Translate the full
   web/mobile-web, server/error, recipient-specific push, relay, generated offline/recovery, Electron (including
   welcome and edition-domain text), and macOS menu bar string sets. The mobile native shell has no separate
-  ko/en/id catalog; it displays the translated web app. Invitations/password resets use links, not a separate
+  ko/en/id catalog; its native pre-connection/error chrome remains English, while its WebView displays the
+  translated app. Invitations/password resets use links, not a separate
   localized email template. Dates and numbers use `Intl` with the selected language.
 - Keep account choice → team default → English precedence. Browser detection applies only to first-run setup,
   when there is no team language yet; `ja-JP`, `es-ES`, `es-MX` and other supported regional tags normalize to

@@ -59,9 +59,21 @@ export function auditI18n() {
           visitExpression(expression)
           return { variables: [...variables].sort(), placeholders: [...new Set(strings.flatMap(placeholdersOf))].sort() }
         }
+        if (ts.isObjectLiteralExpression(reference)) {
+          const entries = (n: ts.Expression | undefined) => n && ts.isObjectLiteralExpression(n)
+            ? new Map(n.properties.filter(ts.isPropertyAssignment).map(p => [propertyName(p.name), p.initializer])) : new Map()
+          const referenceEntries = entries(reference)
+          for (const [key] of referenceEntries) {
+            const nested = new Map([...values].map(([l, v]) => [l, entries(v).get(key)]).filter((entry): entry is [string, ts.Expression] => !!entry[1]))
+            for (const l of locales) if (!nested.has(l)) problems.push(`${location}.${key}: missing ${l}`)
+            checkValues(nested, `${location}.${key}`)
+          }
+          return
+        }
         const expected = signature(reference)
         for (const locale of ['ja', 'es']) {
           const value = values.get(locale)
+          if (value && ts.isStringLiteralLike(value) && !value.text.trim() && !(ts.isStringLiteralLike(reference) && !reference.text.trim())) problems.push(`${location}: empty ${locale} translation`)
           if (value && !same(expected, signature(value))) problems.push(`${location}: ${locale} substitutions differ from en`)
         }
       }
