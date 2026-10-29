@@ -3,7 +3,9 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## Unreleased
+## 0.2.7 — 2026-10-29
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.7).
 
 - Files: a file that has no preview (HWP, HWPX, ZIP and others) opens a panel with a notice and a Download button. It
   does not download at once. Spreadsheet previews say when only the first 5,000 rows show, and mark hidden sheets.
