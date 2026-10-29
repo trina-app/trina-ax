@@ -33,7 +33,7 @@ account can read; the engine only ever gets a per-turn token. This path is teste
 role-account install test (2.0), which needs `sudo` and has not been run on this Mac yet. Codex runs through the same
 proxy (2.5).
 
-There is **no email** anywhere, by design. Invites and password resets are links an admin copies and sends.
+The app does not email invitations or password resets. An admin copies and sends those links.
 
 ## What you need
 
@@ -128,9 +128,7 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 - `TEAM_AX_DEV_DIR` moves the data folder. Keep it short: every socket under `<data>/data/run/` must fit in a Unix
   socket path (at most 103 bytes on macOS). `bun run dev` refuses a data folder whose socket paths are too long and
   names them (`cannot start: socket path too long: …`). The server says the same at start, in Admin → System →
-  Diagnostics ("AI engine socket paths") and in the log when a chat tries to start the engine. Avoid `/tmp` as well,
-  because macOS cleans it. `bun run dev` warns that chats can fail there; in review, two real Claude turns (one
-  writing a file) worked with the data in `/private/tmp`, so that warning overstates it (known gap 14).
+  Diagnostics ("AI engine socket paths") and in the log when a chat tries to start the engine. Avoid `/tmp` and `/private/var/folders` for data: macOS sandbox rules can deny these paths, and temporary files may be cleaned up. Use a short dedicated directory in your home.
 
 ### 1.4 Create the team
 
