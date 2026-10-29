@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { HWP_LIMITS as L } from '@mycel/shared/hwp'
 import type { TeamFiles } from '../team-files/service'
+import { converterCgroup } from '../system/cgroups'
 import { ToolError } from '../policy/errors'
 import { readRegular, sha256 } from './store'
 import { HwpError, nativeHwpEngine, type HwpEngine, type RenderedPage } from './hwp-engine'
@@ -28,6 +29,7 @@ export class HwpPreviews {
     if (signal?.aborted) throw new HwpError('cancelled')
     // Check permission even on invalid cache IDs and before busy errors.
     const f = this.source(user, source)
+    if (process.platform === 'linux' && this.files.ctx.config.mode === 'prod' && !converterCgroup()) throw new HwpError('isolation')
     if (!Number.isInteger(page) || page < 1 || page > L.pages) throw new HwpError('limit')
     const key = `${source}:${f.version}:${f.hash}:${this.engine.identity}:${page}`
     for (const [k, c] of this.cache) if (c.expires < Date.now()) this.cache.delete(k)
