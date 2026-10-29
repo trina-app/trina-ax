@@ -286,7 +286,7 @@ export class MakeFile {
     const used = new Set<string>()
     let formulas = 0
     for (const s of sheets) {
-      let name = s.name.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || 'Sheet'
+      let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31) || 'Sheet'
       for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
@@ -440,7 +440,7 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
  * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
 export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
-  if (s.startsWith('=') && s.length > 1) return formulaOf(s.slice(1))
+  if (s.startsWith('=') && startsLikeFormula(s.slice(1))) return formulaOf(s.slice(1))
   if (s.startsWith("'=")) return s.slice(1)
   if (/^0\d/.test(s) || /^\+/.test(s) || s.replace(/\D/g, '').length > 15) return v
   if (/^-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ''))
@@ -460,33 +460,73 @@ const XLFN = new Set([
   'CEILING.MATH', 'FLOOR.MATH', 'UNIQUE', 'SORT', 'SORTBY', 'FILTER', 'SEQUENCE',
 ])
 
-/** A formula (without the leading "=") as ExcelJS writes it, or why it is refused. Text in "double quotes" is kept as
- * it is; everything else may refer only to cells of this workbook ("B2", "Sheet2!B2", "'Sheet 2'!B2"). */
+/** True when the text after "=" starts with an operand: an optional unary +/- and then a function call "NAME(", a
+ * cell or range reference ("B2", "$B$2", "B:B", "Sheet!B2", "'Sheet 2'!B2"), a number, a "string", "(", "{" or
+ * TRUE/FALSE. An external reference ("[1]S!A1") and a DDE link ("app|topic!A1") are operands too, so that
+ * formulaOf refuses them and does not keep them as text. Other text ("=> done", "= see note", "== x ==", "=-") is not a formula and stays text. */
+export function startsLikeFormula(f: string): boolean {
+  return /^\s*(?:[-+]\s*)*(?:["({]|\.?\d|\$?[A-Za-z]{1,3}\$?\d|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}(?![\p{L}\p{N}_.])|[A-Za-z_][A-Za-z0-9_.]*\(|'(?:[^']|'')+'!|[\p{L}_][\p{L}\p{N}_.]*!|(?:TRUE|FALSE)(?![\p{L}\p{N}_.(])|\[|[A-Za-z_][A-Za-z0-9_.]*\|)/iu.test(f)
+}
+
+type Token = { kind: 'code' | 'string' | 'sheet'; text: string }
+
+/** Splits a formula in one left-to-right pass, as Excel reads it: "double-quoted strings" ("" is a quote) and
+ * 'quoted sheet names' ('' is an apostrophe, a "!" must follow). Everything else is code. */
+function tokenize(f: string): Token[] | { error: string } {
+  const out: Token[] = []
+  let code = ''
+  for (let i = 0; i < f.length; ) {
+    const q = f[i]
+    if (q !== '"' && q !== "'") { code += q; i++; continue }
+    let j = i + 1
+    for (;;) {
+      if (j >= f.length) return { error: q === '"' ? 'the formula has an unclosed "' : "the formula has an unclosed '" }
+      if (f[j] === q) { if (f[j + 1] === q) { j += 2; continue } break }
+      j++
+    }
+    if (code) out.push({ kind: 'code', text: code })
+    code = ''
+    out.push({ kind: q === '"' ? 'string' : 'sheet', text: f.slice(i, j + 1) })
+    i = j + 1
+    if (q === "'" && f[i] !== '!') return { error: "text in single quotes must be a sheet name followed by '!'" }
+  }
+  if (code) out.push({ kind: 'code', text: code })
+  return out
+}
+
+const BLOCKED_CALL = new RegExp(`(${[...BLOCKED_FUNCTIONS].map((n) => n.replace('.', '\\.')).join('|')})\\s*\\(`, 'i')
+
+/** A formula (without the leading "=") as ExcelJS writes it, or why it is refused. Only text in "double quotes" is
+ * not checked; code and 'quoted sheet names' may refer only to cells of this workbook ("B2", "Sheet2!B2",
+ * "'Sheet 2'!B2"). */
 export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string } {
   if (f.length > 8192) return { error: 'the formula is longer than 8192 characters' }
-  // split into "string literals" and the rest; "" inside a literal is a quote
-  const parts = f.split(/("(?:[^"]|"")*")/)
-  if (parts.some((p, i) => i % 2 === 0 && p.includes('"'))) return { error: 'the formula has an unclosed "' }
-  const code = parts.filter((_, i) => i % 2 === 0).join(' ')
-  // "== note ==" or "=SUM(B2" would make a file that Excel opens only after a repair
-  if (code.trimStart().startsWith('=')) return { error: 'the formula starts with "=="' }
+  if (!startsLikeFormula(f)) return { error: 'the formula does not start with a value, a reference or a function' }
+  const tokens = tokenize(f)
+  if (!Array.isArray(tokens)) return tokens
+  // the checks below read code and sheet names, never string literals
+  for (const t of tokens) {
+    if (t.kind === 'string') continue
+    const body = t.kind === 'sheet' ? t.text.slice(1, -1) : t.text
+    if (t.kind === 'code' && body.includes('|')) return { error: 'formulas may not use DDE links (|)' }
+    if (/[[\]]/.test(body)) return { error: 'formulas may not refer to other files ([...])' }
+    if (body.includes('\\')) return { error: 'formulas may not refer to file paths' }
+    if (t.kind === 'sheet' && body.includes('|')) return { error: 'formulas may not use DDE links (|)' }
+    if (t.kind === 'sheet' && body.includes('"')) return { error: 'sheet names in formulas may not contain "' }
+  }
+  // a space stands for each string or sheet name, so that two code parts never join into one name
+  const code = tokens.map((t) => (t.kind === 'code' ? t.text : ' ')).join('')
+  const call = BLOCKED_CALL.exec(code)
+  if (call) return { error: `the function ${call[1]!.toUpperCase()} is not allowed in formulas (it can reach outside the workbook)` }
   let depth = 0
-  for (const ch of code.replace(/'(?:[^']|'')*'/g, '')) if ((depth += ch === '(' ? 1 : ch === ')' ? -1 : 0) < 0) break
+  for (const ch of code) if ((depth += ch === '(' ? 1 : ch === ')' ? -1 : 0) < 0) break
   if (depth !== 0) return { error: 'the parentheses of the formula do not match' }
-  if (/[[\]]/.test(code)) return { error: 'formulas may not refer to other files ([...])' }
-  if (code.includes('|')) return { error: 'formulas may not use DDE links (|)' }
-  if (code.includes('\\')) return { error: 'formulas may not refer to file paths' }
-  let blocked: string | null = null
-  const out = parts.map((p, i) => {
-    if (i % 2 === 1) return p
-    // 'quoted sheet names' are not code: keep them as they are
-    return p.split(/('(?:[^']|'')*')/).map((q, j) => (j % 2 === 1 ? q : q.replace(/(?<![A-Za-z0-9_.])(?:_xlfn\.)?([A-Za-z][A-Za-z0-9_.]*)(?=\s*\()/g, (_m, name: string) => {
-      const n = name.toUpperCase()
-      if (BLOCKED_FUNCTIONS.has(n)) blocked ??= n
-      return XLFN.has(n) ? `_xlfn.${n}` : n
-    }))).join('')
-  }).join('')
-  if (blocked) return { error: `the function ${blocked} is not allowed in formulas (it can reach outside the workbook)` }
+  // "=A1+" would make a file that Excel opens only after a repair
+  if (tokens[tokens.length - 1]!.kind === 'code' && /[-+*/^&=<>,]\s*$/.test(code)) return { error: 'the formula ends with an operator' }
+  const out = tokens.map((t) => (t.kind !== 'code' ? t.text : t.text.replace(/(?<![A-Za-z0-9_.])((?:_xl[A-Za-z]*\.)*)([A-Za-z][A-Za-z0-9_.]*)(?=\s*\()/g, (_m, prefix: string, name: string) => {
+    const n = name.toUpperCase()
+    return prefix ? prefix + n : XLFN.has(n) ? `_xlfn.${n}` : n
+  }))).join('')
   return { formula: out }
 }
 

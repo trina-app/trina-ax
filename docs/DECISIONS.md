@@ -2532,18 +2532,31 @@ including same-account installs. Extend the same synthetic selection tests to co
   ExcelJS writes no results: Excel and LibreOffice calculate them on open. The tool result gives the number of
   formula cells, and the tool description tells the AI the cell addresses (row 1 is the header, sheet name from the
   heading).
+- **Which cells are formulas.** A cell is a formula only when an operand follows the `=`: an optional unary `+`/`-`
+  and then a function call `NAME(`, a cell or range reference (`B2`, `$B$2`, `B:B`, `Sheet!B2`, `'Sheet 2'!B2`), a
+  number, a `"string"`, `(`, `{` or `TRUE`/`FALSE`. An external reference (`[1]S!A1`) and a DDE link (`app|topic!A1`)
+  also count, so that they are refused (see below). Other text (`=> done`, `= see note`, `== note ==`, `=-`) stays text.
+  A formula that ends with an operator or has unmatched parentheses is refused, because Excel opens such a file only
+  after a repair.
 - **Safety.** The AI writes the cells, and a CSV `source` can be an upload, so a formula that can reach outside the
-  workbook is refused and nothing is saved: `[...]` (external workbooks), `|` (DDE), `\` (paths), and the functions
-  `HYPERLINK`, `WEBSERVICE`, `FILTERXML`, `INDIRECT`, `RTD`, `CALL`, `REGISTER`, `EXEC`, `IMAGE`, `CELL`, `INFO`,
-  `STOCKHISTORY` and the `IMPORT*` functions. Text in double quotes is not checked. The error names the sheet and
-  the cell and tells the AI to use `'=` for text. A formula that starts with `==` or has unmatched parentheses is
-  refused too, because Excel opens such a file only after a repair.
+  workbook is refused and nothing is saved. The formula is read in one left-to-right pass, as Excel reads it:
+  `"double-quoted strings"` (`""` is a quote) and `'quoted sheet names'` (`''` is an apostrophe, `!` must follow).
+  Only string literals are not checked. In code and in quoted sheet names these are refused: `[` or `]` (external
+  workbooks), `|` (DDE), `\` (paths), and `"` in a quoted sheet name. In code, the functions `HYPERLINK`,
+  `WEBSERVICE`, `FILTERXML`, `INDIRECT`, `RTD`, `CALL`, `REGISTER`, `EXEC`, `IMAGE`, `CELL`, `INFO`, `STOCKHISTORY`
+  and the `IMPORT*` functions are refused, also with a prefix such as `_xlws.` or `_xludf.`. Sheet names that the tool
+  makes from Markdown headings have no `'`, `"` or `|`. The error names the sheet and the cell and tells the AI to use
+  `'=` for text.
+- **Review fix.** Before, the check split the formula on `"` first. A `"` in a quoted sheet name (`'x"'!A1`) then
+  hid a blocked function between two such references, and `=> done` became a broken `<f>` node.
 - **Preview and read.** SheetJS does not calculate, and it drops a formula cell without a result. The file preview
   (`OfficeView.tsx`) and `read` / `grep` text (`office-parse.ts`) read stub cells and show such a cell as its
   formula (`=SUM(B2:E2)`), not as a blank. Other stub cells are dropped as before.
-- **Changed behavior.** A CSV or Markdown cell that starts with `=` was text before and is a formula now.
+- **Changed behavior.** A CSV or Markdown cell that starts with `=` and an operand was text before and is a formula
+  now. A cell such as `== note ==` was refused before this fix and is text now.
 - **Tests.** `tests/unit/c-tools.test.ts`: `<f>` nodes in the sheet XML, a cross-sheet reference, `_xlfn.XLOOKUP`,
-  `fullCalcOnLoad="1"`, the `'=` escape, and each refused form writes no file.
+  `fullCalcOnLoad="1"`, the `'=` escape, each refused form writes no file, the quoted-sheet-name bypass, sheet names
+  without quotes, and the operand rule (text cases stay text).
 
 ## Artifacts: "ask the AI to fix it" also for build errors (R2-GEN-09, feat/qa2-makefile, 2026-10-29)
 
