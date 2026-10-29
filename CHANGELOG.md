@@ -5,6 +5,11 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Linux installer: `--public-host HOST` (the team's public address, for example a Cloudflare Tunnel),
+  `--app-connectors` (people connect their own Claude to the server) and `--google-drive-client FILE` (the Google
+  Drive OAuth client, in the JSON format that Google Cloud downloads). `repair` and `update` keep the first two.
+- App connectors can now be turned on in `server.json` (`appConnectors: true` with `tunnel.host`). The environment
+  variable `MYCEL_REMOTE_MCP_ORIGIN` still works and wins.
 - Linux: after an update, AI turns had no team tools (files, memory, Drive) until the launcher restarted. The launcher
   now finds the current team-tools bridge for each turn.
 

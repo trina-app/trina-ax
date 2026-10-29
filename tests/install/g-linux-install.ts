@@ -336,6 +336,43 @@ socket.once('connect', () => {
   const rep = installer('repair', '--from', kit(4))
   check('repair (arguments from root/install.json)', rep.code === 0 && (await healthIs(V(4)))?.version === V(4), tail(rep))
 
+  // ---- public host, app connectors, Google Drive client (installer flags, kept by repair) ----
+  const HOST = 'team.example.com', CB = `https://${HOST}/api/integrations/google-drive/callback`
+  const cfgBefore = fs.readFileSync(`${BASE}/config/server.json`, 'utf8')
+  const badHost = installer('repair', '--from', kit(4), '--public-host', 'https://team.example.com')
+  const noHost = installer('repair', '--from', kit(4), '--app-connectors')
+  check('bad --public-host and --app-connectors without a host are refused; server.json is unchanged', badHost.code !== 0 && /bad --public-host/.test(badHost.err)
+    && noHost.code !== 0 && /need a public address/.test(noHost.err) && fs.readFileSync(`${BASE}/config/server.json`, 'utf8') === cfgBefore, `${badHost.err.trim()} | ${noHost.err.trim()}`)
+  const wrongCb = path.join(W, 'drive-wrong.json'); fs.writeFileSync(wrongCb, JSON.stringify({ clientId: 'c', clientSecret: 'canary-secret-1', redirectUri: 'https://other.example.com/api/integrations/google-drive/callback' }))
+  const badDrive = installer('repair', '--from', kit(4), '--public-host', HOST, '--google-drive-client', wrongCb)
+  const noHostDrive = path.join(W, 'drive-nohost.json'); fs.writeFileSync(noHostDrive, JSON.stringify({ clientId: 'c', clientSecret: 'canary-secret-1', redirectUri: CB }))
+  const badNoHost = installer('repair', '--from', kit(4), '--google-drive-client', noHostDrive)
+  check('a Drive client for another host, or with no public host at all, is refused; nothing changed, no secret printed', badDrive.code !== 0 && /redirectUri must be/.test(badDrive.err)
+    && badNoHost.code !== 0 && /needs a public address/.test(badNoHost.err) && fs.readFileSync(`${BASE}/config/server.json`, 'utf8') === cfgBefore
+    && !fs.existsSync(`${BASE}/secrets/integrations/google-drive/client.json`) && !/canary-secret-1/.test(badDrive.out + badDrive.err + badNoHost.out + badNoHost.err), `${badDrive.err.trim()} | ${badNoHost.err.trim()}`)
+  const google = path.join(W, 'client_secret.json')
+  fs.writeFileSync(google, JSON.stringify({ web: { client_id: 'id.apps.googleusercontent.com', client_secret: 'canary-secret-2', redirect_uris: ['http://localhost:3000/cb', CB], project_id: 'p' } }))
+  const pub = installer('repair', '--from', kit(4), '--public-host', HOST, '--app-connectors', '--google-drive-client', google)
+  const pc = readJson(`${BASE}/config/server.json`), pij = readJson(`${BASE}/root/install.json`), dc = readJson(`${BASE}/secrets/integrations/google-drive/client.json`)
+  check('--public-host, --app-connectors, --google-drive-client (Google download format): server.json, install.json, client.json 600 in 700 folders, no secret printed',
+    pub.code === 0 && pc?.tunnel?.host === HOST && pc?.appConnectors === true && pij?.publicHost === HOST && pij?.appConnectors === true
+      && JSON.stringify(dc) === JSON.stringify({ clientId: 'id.apps.googleusercontent.com', clientSecret: 'canary-secret-2', redirectUri: CB })
+      && statOf(`${BASE}/secrets/integrations`) === `${SRV}:${SRV} 700` && statOf(`${BASE}/secrets/integrations/google-drive`) === `${SRV}:${SRV} 700`
+      && statOf(`${BASE}/secrets/integrations/google-drive/client.json`) === `${SRV}:${SRV} 600` && !/canary-secret-2/.test(pub.out + pub.err)
+      && !/canary-secret-2|clientSecret/.test(fs.readFileSync(`${BASE}/root/install.json`, 'utf8')) && (await healthIs(V(4)))?.version === V(4), `${tail(pub)} ${JSON.stringify({ tunnel: pc?.tunnel, app: pc?.appConnectors, pij })}`)
+  // root/install.json is the source for repair: server.json without the two keys gets them back
+  const sjNo = readJson(`${BASE}/config/server.json`); delete sjNo.tunnel; delete sjNo.appConnectors
+  fs.writeFileSync(`${BASE}/config/server.json`, JSON.stringify(sjNo, null, 2) + '\n')
+  const keep = installer('repair', '--from', kit(4))
+  const kc = readJson(`${BASE}/config/server.json`), kij = readJson(`${BASE}/root/install.json`)
+  check('repair without the flags restores the public host and app connectors from install.json and keeps the Drive client', keep.code === 0 && kc?.tunnel?.host === HOST
+    && kc?.appConnectors === true && kij?.publicHost === HOST && kij?.appConnectors === true
+    && readJson(`${BASE}/secrets/integrations/google-drive/client.json`)?.clientSecret === 'canary-secret-2', tail(keep))
+  const off = installer('repair', '--from', kit(4), '--public-host', 'none', '--no-app-connectors')
+  const oc = readJson(`${BASE}/config/server.json`)
+  check('--public-host none --no-app-connectors: no public address, app connectors off', off.code === 0 && oc?.tunnel === null && oc?.appConnectors === false
+    && readJson(`${BASE}/root/install.json`)?.publicHost === null && (await healthIs(V(4)))?.version === V(4), tail(off))
+
   // ---- backup ----
   const bk = admin(['backup'])
   check('backup as the server account', bk.code === 0, tail(bk))

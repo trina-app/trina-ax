@@ -13,8 +13,10 @@ from the "connectors" of `server/src/connectors/remote-mcp` (claude.ai using thi
 ## App connectors (the other direction)
 
 A person can connect their own Claude (Claude Code, Claude Desktop, claude.ai) to this server as a remote MCP server
-with OAuth (`server/src/connectors/remote-mcp/`, routes in `server/src/routes/remote-mcp.ts`, public origin
-`MYCEL_REMOTE_MCP_ORIGIN`). Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
+with OAuth (`server/src/connectors/remote-mcp/`, routes in `server/src/routes/remote-mcp.ts`). It is off until the server
+has a public origin for it: `server.json` `appConnectors: true` with `tunnel.host` (the Linux installer:
+`--public-host HOST --app-connectors`), or the environment variable `MYCEL_REMOTE_MCP_ORIGIN`, which wins when it is
+set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
 `write`, `edit`, `upload_file` and `create_upload_link`. All of them use the person's current folder permissions.
 
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.

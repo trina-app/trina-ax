@@ -6,6 +6,8 @@ The core server implements one personal connection per team user and three read-
 
 Put a server-owned, regular, single-link, mode `0600` JSON file at `<secretsDir>/integrations/google-drive/client.json`, or point `MYCEL_GOOGLE_DRIVE_CLIENT_FILE` to an equivalent private file outside the team folder. The configured secrets root and its `integrations/google-drive` directories must be owned by the server account, mode `0700`, and must not be symlinks. Installed office mode uses its existing `config` secrets root; other modes use `secrets` (see `system/layout.ts`). Restart after changing the client configuration.
 
+On Linux, the installer does this: `sudo ./install-linux.sh repair --public-host HOST --google-drive-client FILE`. FILE is the JSON that Google Cloud downloads for a web client (`{"web": {...}}`, the installer picks the redirect URI of HOST) or the format below. The installer checks the file before it changes anything, writes `client.json` with the modes above, never prints the secret, and does not keep the file path: `repair` and `update` without the option leave the installed file as it is.
+
 ```json
 {
   "clientId": "YOUR_GOOGLE_WEB_CLIENT_ID",

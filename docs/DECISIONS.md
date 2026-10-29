@@ -2229,6 +2229,39 @@ R4 integration review also found the separate System diagnostics/menubar lookup 
 uses the same resolver in development and only the configured executable for every production install,
 including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.
 
+## Linux installer: public host, app connectors and the Google Drive client (feat/installer-public-host, 2026-10-29)
+
+- **Problem.** The first real self-hosted test server (Lightsail, Cloudflare Tunnel) needed three manual root steps
+  after the installer: `tunnel.host` in `server.json` (a helper script), `MYCEL_REMOTE_MCP_ORIGIN` in
+  `/etc/default/mycel` for app connectors, and a hand-made `secrets/integrations/google-drive/client.json`. Each step
+  is easy to get wrong (modes, owner, redirect URI) and a `repair` did not know about them.
+- **Decision.** Three installer options:
+  - `--public-host HOST` writes `server.json` `tunnel.host` and keeps the earlier `allowFrom` / `countries`. `none`
+    removes it. The value is kept in `root/install.json` (`publicHost`), so `repair` and `update` keep it.
+  - `--app-connectors` / `--no-app-connectors` writes `server.json` `appConnectors` (new key, default false), kept in
+    `install.json`. The server's connector origin is `connectorOrigin()` (`remote-mcp/oauth.ts`):
+    `MYCEL_REMOTE_MCP_ORIGIN` when it is set (an invalid value turns connectors off, it does not fall back), else
+    `https://<tunnel.host>` when `appConnectors` is true, else off. A tunnel alone does not turn connectors on: they
+    open `/oauth`, `/mcp` and `/connector-uploads` on the public address, so the owner must choose them.
+  - `--google-drive-client FILE` accepts the JSON that Google Cloud downloads (`{"web": {...}}`) or the server's own
+    format. The installer picks or checks the redirect URI `https://<public host>/api/integrations/google-drive/callback`
+    and writes `client.json` (server account, `0600`, folders `0700`) through the root-only staging folder. The secret
+    is never printed. The path is not kept: `repair` / `update` without the option leave the installed file as it is.
+- **Order.** The public host, the app-connectors rule and the Drive file are checked in step 2b, before packages,
+  accounts or files change. A wrong value stops the run with "nothing changed". Step 2b runs on every install,
+  repair and update. The server account still runs at that point, so 2b reads its files (`server.json`, an installed
+  `client.json`) with `O_NOFOLLOW | O_NONBLOCK`, as a regular single-link file of at most 1 MiB, and checks the old
+  host against the host rule. Old state never stops a run: `appConnectors: true` without a host only gives a warning
+  (the server keeps connectors off). Only the options themselves are refused.
+- **Review fixes.** A Drive client needs a public host (no host = any https redirect would pass). A new
+  `--public-host` warns when the installed Drive client still names another host. When `/etc/default/<id>` sets
+  `MYCEL_REMOTE_MCP_ORIGIN`, the installer warns that this line wins over the new options. `check` does not run the
+  2b checks yet (it exits before them).
+- **Not in scope.** The tunnel itself (cloudflared and its token) stays outside the installer. The hosted service
+  refuses these options (its control plane sets the address).
+- **Tests.** `tests/unit/remote-mcp-oauth.test.ts` (origin precedence), `tests/install/g-linux-install.ts` (refusals
+  change nothing, Google format converted, modes, no secret in the output, repair keeps the values, `none` and
+  `--no-app-connectors` clear them).
 ## Launcher: the team-tools bridge is resolved per turn (fix/launcher-bridge-per-turn, 2026-10-29)
 
 - **Problem.** On the Lightsail test server, after `mycel-ctl update` 0.2.4 -> 0.2.5, every Claude turn had no team
