@@ -3,6 +3,7 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
+import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
 
 test('admin screens: members, groups, folder rules with "who sees what", engines, usage, audit, system', async ({ page }) => {
   await reset(page)
@@ -236,6 +237,78 @@ test('settings: the team time zone', async ({ page }) => {
 })
 
 for (const locale of ['ko', 'en', 'id'] as const) {
+  for (const role of ['owner', 'admin'] as const) {
+    for (const rejectFirst of [false, true]) {
+      test(`invites: ${role} revocation ${rejectFirst ? 'retains a rejected row then retries' : 'refreshes after 204'} (${locale})`, async ({ page, browser }) => {
+        await reset(page, { teamLocale: locale, usersFollowTeam: true })
+        await signIn(page)
+        if (role === 'admin') {
+          // Promote the seeded member in this isolated mock fixture, then use their own session.
+          const promoted = await page.request.patch('/api/admin/users/bob', {
+            headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' },
+          })
+          expect(promoted.ok()).toBe(true)
+          await page.context().clearCookies()
+          await signIn(page, { username: 'bob', password: 'bob password 1' })
+        }
+        await page.goto('/admin/members')
+        const t = DICTS[locale]
+        await page.getByTestId('invite-new').click()
+        const roleSelect = page.getByRole('dialog').getByRole('combobox').first()
+        if (role === 'owner') await roleSelect.selectOption('admin')
+        else await expect(roleSelect).toBeDisabled()
+        const created = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/admin/invites')
+        await page.getByTestId('invite-create').click()
+        const { invite } = await (await created).json()
+        const link = await page.getByTestId('secret-value').innerText()
+        await page.getByRole('dialog').getByRole('button', { name: t['common.done'], exact: true }).click()
+        const row = page.getByTestId('invite-list').getByRole('listitem')
+        await expect(row).toHaveCount(1)
+        await expect(row).toContainText(t[role === 'owner' ? 'role.admin' : 'role.member'])
+        const revoke = row.getByRole('button', { name: t['members.revoke'], exact: true })
+        const path = `/api/admin/invites/${invite.id}`
+        let deletes = 0, listReads = 0, documents = 0
+        page.on('request', request => {
+          const pathname = new URL(request.url()).pathname
+          if (request.method() === 'DELETE' && pathname === path) deletes++
+          if (request.method() === 'GET' && pathname === '/api/admin/invites') listReads++
+          if (request.resourceType() === 'document') documents++
+        })
+        if (rejectFirst) {
+          await page.route(`**${path}`, route => route.fulfill({ status: 403,
+            json: { error: { code: 'forbidden', message: ERROR_MESSAGES.forbidden.en } } }))
+          await revoke.click()
+          await expect(page.getByRole('alert').filter({ hasText: ERROR_MESSAGES.forbidden[locale] })).toBeVisible()
+          await expect(row).toBeVisible()
+          await expect(revoke).toBeEnabled()
+          expect(deletes).toBe(1)
+          expect(listReads).toBe(0)
+          await page.unroute(`**${path}`)
+        }
+        const deleted = page.waitForResponse(r => r.request().method() === 'DELETE' && new URL(r.url()).pathname === path)
+        await revoke.click()
+        expect((await deleted).status()).toBe(204)
+        await expect(row).toHaveCount(0)
+        await expect(page.getByText(t['members.noInvites'], { exact: true })).toBeVisible()
+        // No stale cancel button remains to send another DELETE; the document was never reloaded.
+        await expect(revoke).toHaveCount(0)
+        expect(deletes).toBe(rejectFirst ? 2 : 1)
+        expect(listReads).toBe(1)
+        expect(documents).toBe(0)
+
+        const anonymous = await browser.newContext()
+        try {
+          const visitor = await anonymous.newPage()
+          await visitor.goto(link)
+          await expect(visitor.getByText(t['invite.invalid'], { exact: true })).toBeVisible()
+          await expect(visitor.getByTestId('invite-submit')).toHaveCount(0)
+        } finally {
+          await anonymous.close()
+        }
+      })
+    }
+  }
+
   test(`members: deletion explains private archive transfer, including after cancel (${locale})`, async ({ page }) => {
     await reset(page, { teamLocale: locale, usersFollowTeam: true })
     await signIn(page)

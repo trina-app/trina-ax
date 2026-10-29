@@ -2163,3 +2163,12 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
 - **Verification:** browser regressions cover Escape and Cancel from multiple rows, repeat openings, no DELETE
   on cancellation, successful deletion when the row disappears, nested prompt trapping and return focus,
   selection-bar cancellation, and first-Tab skip-link entry.
+
+## Refresh invites after revocation (QA R4 B-W44-1, 2026-10-29)
+
+- A successful invite revocation returns 204/undefined. Await it, then reload invites inside `useAction`,
+  matching member deletion. The revoked row disappears without a document reload; a rejected request keeps
+  the row and the existing localized error toast, so the person can retry. Shared API/action semantics stay unchanged.
+- Browser coverage checks OWNER and ADMIN in ko/en/id, direct success and rejection/retry, one list refresh
+  after success, no stale revoke button, and invalid links in an anonymous context. Existing member-deletion
+  regressions remain. Needed in core too (`potenlab/team-ax`); no new strings or dependencies.
