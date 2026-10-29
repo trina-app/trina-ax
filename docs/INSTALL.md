@@ -758,7 +758,9 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | Diagnostics "Model proxy port in use" | Another program holds 127.0.0.1:47821 (`lsof -nP -iTCP:47821 -sTCP:LISTEN`); the server retries every 10 s |
 | `curl` against the API returns `{"error":{"code":"csrf"}}` | Send the header `x-mycel-csrf: 1` |
 
-## Known gaps
+## Historical install-review notes
+
+These notes preserve earlier review observations and follow-ups; they are not a current service-availability, test-completion or security assessment. Use the current release notes and diagnostics for your installed build.
 
 1. **Production chats are not verified on a real install yet.** Subscription mode works as the current user with the
    real `claude` binary (2.1.306, against a fake model service) and is covered by
@@ -784,8 +786,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
     bundle and DMG cover both CPU types but have only been run under Rosetta, not on an Intel Mac.
 12. **Multiple dev instances:** use separate `TEAM_AX_DEV_DIR` values and set `TEAM_AX_DEV_PORT` and
     `TEAM_AX_DEV_RELAY_PORT` (or `--no-relay`). The optional Vite port remains fixed at 19140.
-13. **Owner-blocked items.** Apple and Windows signing, the production relay and CI billing are waiting on the
-    owner. Run `bun run typecheck && bun run test` locally.
+13. **Distribution and operations.** Confirm signing, release availability and operational services separately; this historical review does not establish their current state.
 14. **Code follow-ups from the install-guide review (2026-10-21).** The docs work around each of these; the code
     still needs the change:
     - `set-claude-token` keeps only the first line of its input and needs only 20 characters after `sk-ant-oat01-`:

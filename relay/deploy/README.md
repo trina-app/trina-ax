@@ -54,7 +54,7 @@ Cloudflare Authenticated Origin Pulls (our own zone certificate), the firewall o
 ## Deploy, roll back
 
 ```sh
-sudo relay-deploy /path/to/teamax-relay-<version>.tar.zst   # starts the idle instance, checks it, stops the old one
+sudo relay-deploy "/path/to/teamax-relay-VERSION.tar.zst" # replace VERSION   # starts the idle instance, checks it, stops the old one
 sudo relay-deploy --rollback                          # the previous release, same a/b way
 ```
 

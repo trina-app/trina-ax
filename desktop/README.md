@@ -7,7 +7,7 @@ Electron shell around the team's web page, plus the in-app **browser pane** the 
 desktop/
   build.ts                 Bun bundler: dist/main.cjs, preload-app.cjs, preload-ui.cjs, ui/*, page-script.js
   src/common/              pure, unit-tested in tests/unit/e-*.test.ts
-    address.ts             team address input -> origin (bare name -> <name>.treesoop.com, http only for *.localhost)
+    address.ts             team address input -> origin (bare name -> <name>.trina.app, http only for *.localhost)
     netaddr.ts             public vs office-network (private) addresses, IPv4/IPv6 incl. mapped/NAT64/6to4/Teredo
     site-permissions.ts    "allowed sites": once (this turn) / always (saved per team) / deny; separate office scope;
                            site access "ask" (default) / "all" (every public website, office addresses still ask)
@@ -68,7 +68,7 @@ bun run build          # dist/ (fetches the Electron binary on first use; bun sk
 bun run app            # build and start; opens the welcome screen (MYCEL_DESKTOP_TEAM=<address> adds and opens a team)
 bun run typecheck
 bun run test:e2e       # build + Playwright-Electron suite against e2e/fake-team-server.ts (ports 19151–19157)
-bun run dist:mac       # unsigned arm64 .dmg in release/ (signing / notarization needs the owner's Apple certificate)
+bun run dist:mac       # unsigned universal .dmg in release/ (signing / notarization needs the owner's Apple certificate)
 bun run dist:win       # unsigned Windows NSIS installer (x64); builds on macOS without wine (no exe resource editing)
 ```
 
