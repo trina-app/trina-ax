@@ -935,7 +935,7 @@ export const id: Record<MessageKey, string> = {
   'teamSettings.trashDays': 'Simpan sampah file (hari)',
   'teamSettings.chatTrashDays': 'Simpan chat yang dihapus (hari)',
 
-  'usage.desc': 'Jawaban dan token per orang, grup, mesin, model, hari, koneksi AI, atau skill. Batang menunjukkan porsi token setiap baris dari jumlah token semua baris yang ditampilkan.',
+  'usage.desc': 'Jawaban dan token per orang, grup, mesin, model, hari, koneksi AI, atau skill. Batang dan persen menunjukkan porsi token setiap baris dari jumlah token semua baris yang ditampilkan.',
   'usage.groupBy': 'Kelompokkan per',
   "usage.exportCsv": "Unduh CSV",
   "usage.by.skill": "Skill",
@@ -950,10 +950,10 @@ export const id: Record<MessageKey, string> = {
   'usage.turns': 'Jawaban',
   'usage.tokens': 'Token',
   'usage.share': 'Porsi',
-  'usage.cost': 'Biaya',
+  'usage.cost': 'Perkiraan biaya',
   'usage.total': 'Total',
   'usage.none': 'Tidak ada pemakaian di periode ini.',
-  'usage.costNote': 'Jumlah untuk kunci API memakai biaya yang dilaporkan penyedia jika tersedia, atau perkiraan berdasarkan harga daftar. Koneksi langganan terkelola menampilkan 0 karena tidak ada harga per permintaan (token tetap dihitung). Login lokal untuk pengembangan (local-login) dapat menampilkan perkiraan dari mesin, meskipun memakai langganan. Jumlah ini bukan tagihan atau biaya langganan.',
+  'usage.costNote': 'Jumlah adalah perkiraan biaya API yang setara. Jumlah ini bukan tagihan atau biaya langganan. Koneksi kunci API memakai biaya yang dilaporkan penyedia, atau harga daftar jika tidak ada. Koneksi langganan terkelola tidak punya harga per permintaan, jadi menambah 0 (token tetap dihitung). Login lokal untuk pengembangan (local-login) menampilkan perkiraan biaya API setara dari mesin, juga dengan langganan.',
   'usage.unpriced': 'Harga tidak diketahui untuk {n} jawaban: penyedia tidak mengirim biaya dan model tidak ada di daftar harga. Jumlah hanya menunjukkan bagian yang diketahui.',
   'usage.unpricedMark': 'Harga sebagian tidak diketahui',
 

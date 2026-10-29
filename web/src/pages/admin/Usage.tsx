@@ -8,6 +8,7 @@ import { useLocale, useT } from '../../i18n'
 import { Button, Field, inputCls } from '../../components/ui'
 import { Card, Loadable } from './common'
 import { usageCsv } from '../../lib/usage-csv'
+import { usageShares } from '../../lib/usage-share'
 
 type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group' | 'credential' | 'skill'
 
@@ -35,7 +36,7 @@ export default function Usage() {
   }, [queryKey, retry, locale])
   const state = { ...(report.key === queryKey ? report : { data: null, error: null }), reload: async () => { setRetry((n) => n + 1) } }
   // Skill (and group) rows can overlap; shares describe displayed rows, not unique team usage.
-  const rowTokens = state.data?.rows.reduce((sum, r) => sum + r.inputTokens + r.outputTokens, 0) ?? 0
+  const shares = useMemo(() => usageShares(state.data?.rows ?? []), [state.data])
   return (
     <Card title={t('admin.usage')} desc={t('usage.desc')} actions={
       <Button size="sm" disabled={!state.data} data-testid="usage-csv" onClick={() => {
@@ -72,23 +73,25 @@ export default function Usage() {
                     <th className="py-2 pr-3 font-medium">{t(`usage.by.${groupBy}`)}</th>
                     <th className="py-2 pr-3 text-right font-medium">{t('usage.turns')}</th>
                     <th className="py-2 pr-3 text-right font-medium">{t('usage.tokens')}</th>
-                    <th className="py-2 pr-3 font-medium">
-                      <span className="sr-only">{t('usage.share')}</span>
-                    </th>
+                    <th className="py-2 pr-3 font-medium">{t('usage.share')}</th>
                     <th className="py-2 text-right font-medium">{t('usage.cost')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {d.rows.map((r) => {
+                  {d.rows.map((r, i) => {
                     const tok = r.inputTokens + r.outputTokens
+                    const share = shares[i] ?? 0
                     return (
                       <tr key={r.key}>
                         <td className="py-2 pr-3">{groupBy === 'credential' && !r.label ? <span className="text-faint">{t('usage.deletedCredential')}</span> : r.label}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(r.turns, locale)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(tok, locale)}</td>
-                        <td className="w-32 py-2 pr-3" aria-hidden>
-                          <div className="h-1.5 rounded bg-subtle">
-                            <div className="h-full rounded bg-accent" style={{ width: `${rowTokens > 0 ? (tok / rowTokens) * 100 : 0}%` }} />
+                        <td className="w-40 py-2 pr-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 flex-1 rounded bg-subtle" aria-hidden>
+                              <div className="h-full rounded bg-accent" style={{ width: `${share}%` }} />
+                            </div>
+                            <span className="w-12 text-right text-xs text-muted tabular-nums" data-testid="usage-share">{formatNumber(share / 100, locale, { style: 'percent', maximumFractionDigits: 1 })}</span>
                           </div>
                         </td>
                         <td className="py-2 text-right text-muted tabular-nums">
