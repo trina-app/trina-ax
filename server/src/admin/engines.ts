@@ -15,7 +15,7 @@ import { which } from '../config'
 import { allowedCredentialKinds } from '../app-config'
 import { teamCredentialSummary } from '../credentials/resolve'
 import { resolveLayout } from '../system/layout'
-import { codexCatalogFor } from '../engine/codex'
+import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
 import { CODEX_PROD_BETA } from '../chat/engines'
 import { readApiEngine } from '../engine/api-agent'
@@ -208,7 +208,8 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
 
   // pinned version + lockdown regression result
   const pin = pinned(env, id)
-  if (pin && pin !== version) return out('version_unsupported', t('version', locale, { pinned: pin }))
+  const compatible = id === 'codex' && CODEX_COMPATIBLE_VERSIONS.some(v => v === version)
+  if (pin && pin !== version && !compatible) return out('version_unsupported', t('version', locale, { pinned: pin }))
   const lock = lockdownResult(env, id)
   if (lock && !lock.ok && (lock.version === null || lock.version === version)) return out('lockdown_failed', t('lockdown', locale))
   return out('ok', null)

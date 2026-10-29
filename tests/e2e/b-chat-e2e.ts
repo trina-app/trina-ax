@@ -1,6 +1,6 @@
 // Component B end-to-end check with the REAL engines (owner's local logins): the whole app on a Bun server, a
 // WebSocket per person, Claude Code (8 turns) and the Codex CLI (2 turns) through the launcher, gate and bridge.
-//   bun run tests/e2e/b-chat-e2e.ts [--no-codex]
+//   bun run tests/e2e/b-chat-e2e.ts [--no-codex | --codex-only]
 // Every call is bounded (max engine turns, per-turn time limit). Prints a JSON report; exit 1 on a failed check.
 import fs from 'node:fs'
 import os from 'node:os'
@@ -10,9 +10,10 @@ import { CLAUDE_BIN, CODEX_BIN, leakScan } from '../lib/engines'
 import { CANARY_RE } from '../lib/fixtures'
 import { ask, startHarness } from '../lib/b-harness'
 
+const codexOnly = process.argv.includes('--codex-only')
 const withCodex = !process.argv.includes('--no-codex') && !!CODEX_BIN
 const h = await startHarness({
-  name: 'b-e2e', realEngines: true, maxEngineTurns: 12, turnTimeoutMs: 5 * 60_000, askUserTimeoutMs: 3 * 60_000,
+  name: 'b-e2e', realEngines: true, realCore: { engine: { authMode: 'local-login', ...(CODEX_BIN ? { codexBin: CODEX_BIN } : {}) } }, maxEngineTurns: 12, turnTimeoutMs: 5 * 60_000, askUserTimeoutMs: 3 * 60_000,
   allowCmds: [CLAUDE_BIN, ...(CODEX_BIN ? [CODEX_BIN] : [])], sessionRoots: [path.join(os.homedir(), '.claude', 'projects')],
 })
 const checks: { name: string; ok: boolean; detail?: string }[] = []
@@ -36,7 +37,7 @@ const run = async (chatId: string, text: string, engine: 'claude' | 'codex' = 'c
   return r
 }
 
-try {
+async function checkClaude() {
   // 1) find & summarize (file tools, streaming, steps)
   const main = await h.api('alice').call(API.createChat, { body: {} })
   const t1 = await run(main.id, 'Find the meeting notes in the team drive that record pricing decisions and summarize those decisions in 2-3 bullet points. Mention the file names.')
@@ -96,6 +97,10 @@ try {
   const t8 = await run(main.id, 'Without using any tools: in one sentence, how do I prefer my answers to be formatted?')
   check('T8 resumed session got this turn\'s instructions (memory)', /bullet|글머리|불릿|요점/i.test(t8.done.content), t8.done.content)
 
+}
+
+try {
+  if (!codexOnly) await checkClaude()
   // codex: tools, then the history in the instructions
   if (withCodex) {
     const cx = await h.api('alice').call(API.createChat, { body: { engine: 'codex' } })
@@ -106,6 +111,7 @@ try {
     check('C2 codex continues the conversation (history)', /meeting-03/.test(x2.done.content), x2.done.content)
   }
 
+  if (codexOnly) check('Codex CLI is installed', withCodex)
   const leaks = leakScan(h.team, answers, CANARY_RE)
   check('no canary string reached alice', leaks.length === 0, leaks)
   check(`call budget (claude ${claudeCalls} <= 8, codex ${codexCalls} <= 2)`, claudeCalls <= 8 && codexCalls <= 2)

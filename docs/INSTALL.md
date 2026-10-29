@@ -72,7 +72,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 | ripgrep, pandoc, poppler, typst | | file search, Office/PDF text, PDF output |
 | ffmpeg, whisper-cpp | | voice input (downloads a ~490 MB model on first use) |
 | Claude Code | **2.1.305** (pinned; the lockdown tests run against it) | the Claude engine |
-| Codex CLI (optional) | 0.163.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
+| Codex CLI (optional) | 0.165.0 | the Codex engine. Use Homebrew (`brew install --cask codex`) or OpenAI's standalone installer; the npm package's `codex.js` wrapper is refused by the production installer |
 | gh | | sign in to GitHub and clone (1.2) |
 
 Check: `bun --version` prints `1.3.12`, `node --version` prints v25 or later, `claude --version` prints
@@ -454,7 +454,7 @@ account."
   HTTP to the model proxy (`/codex/...`), and the proxy adds the AI connection's real credential and refreshes
   ChatGPT sign-ins itself. Several Codex turns run at once. Codex is no longer beta: everyone may use it and it can be
   the team default.
-  - Verified with the real `codex-cli 0.163.0` against a fake model service (`bun tests/engine/managed-real.ts`).
+  - Verified with the real `codex-cli 0.163.0–0.165.0` against a fake model service (`bun tests/engine/managed-real.ts`).
   - Not yet verified with a real ChatGPT / OpenAI account: spike S1 (an open owner task).
 - The older engine-account login (2.5, `agent/codex-auth`, one Codex turn at a time) was checked with a real ChatGPT
   login on a staging install (2026-10-22, sandbox and pf on): sign-in, answers with the team tools, a token refresh
@@ -793,7 +793,7 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
    owner's `claude setup-token` token; no answer from Anthropic through the proxy has been seen yet.
 2. **Codex with a real ChatGPT / OpenAI account through AI connections is not verified yet.** Managed Codex
    (placeholder login, the proxy adds the AI connection's credential, server-side ChatGPT refresh) runs with the real
-   `codex` 0.163.0 against a fake model service (`bun tests/engine/managed-real.ts`). Whether the real backends accept
+   `codex` 0.163.0–0.165.0 against a fake model service (`bun tests/engine/managed-real.ts`). Whether the real backends accept
    it is spike S1 (an open owner task); if not, the F1 fallback in docs/DECISIONS.md "AI 연결" applies. The older
    engine-account login (2.5) was checked with a real ChatGPT login and pf on (answers, token refresh, web search).
    Only the single `codex` executable is installed, not its helper files.
