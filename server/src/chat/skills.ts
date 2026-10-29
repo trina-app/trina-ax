@@ -53,27 +53,44 @@ function standardFields(header: string): Map<string, string> | null {
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
 export type SkillCheck = { ok: true; name: string; description: string; body: string } | { ok: false; problem: SkillProblem }
 
-/** Legacy header lines are `key: value` (any key text, a space after the colon is optional). Values have no YAML
- * quoting rules (skillFileText writes them as typed), but a value that opens a quote or a bracket must close it
- * again, and a key comes once. Valid YAML (for example a block scalar) is also accepted. */
-const CLOSE: Record<string, string> = { '"': '"', "'": "'", '[': ']', '{': '}' }
+/** Legacy header lines are `key: value` (any key text, a space after the colon is optional) and a key comes once.
+ * Values have no YAML quoting rules: a value that opens a quote or a bracket and does not close it is plain text
+ * (older files have values such as `[긴급 처리용`). Only a line without a colon or a duplicate key breaks the header.
+ * Valid YAML (for example a block scalar) is also accepted. */
 function legacyHeaderOk(header: string): boolean {
   const lines = header.split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l))
   const keys = new Set<string>()
+  let duplicate = false
   const lineForm = lines.every((line) => {
     const kv = /^([^\s:#"'][^:]*?)\s*:(.*)$/.exec(line)
     if (!kv) return false
-    const key = kv[1]!.toLowerCase(), v = kv[2]!.trim()
-    if (keys.has(key)) return false
+    const key = kv[1]!.toLowerCase()
+    if (keys.has(key)) return !(duplicate = true)
     keys.add(key)
-    const close = CLOSE[v.charAt(0)]
-    return !close || v.indexOf(close, 1) > 0
+    return true
   })
   if (lineForm) return true
+  // the reader ignores the case of keys, so `name` and `NAME` are a duplicate even where YAML accepts them
+  if (duplicate) return false
   try {
     const doc = parseDocument(header, { strict: true, uniqueKeys: true, prettyErrors: false, logLevel: 'silent' })
     return !doc.errors.length && isMap(doc.contents)
   } catch { return false }
+}
+
+/** A legacy value. A value in matching double quotes is decoded as a YAML / JSON double-quoted string when it is
+ * one (skillFileText writes values in this form), and a value in matching single quotes uses the YAML rule `''` = `'`.
+ * Other values are kept as typed. */
+function legacyValue(v: string): string {
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    try {
+      const s: unknown = JSON.parse(v)
+      if (typeof s === 'string') return s
+    } catch { /* not a JSON string: keep the old rule */ }
+    return v.slice(1, -1)
+  }
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
+  return v
 }
 
 /** Legacy files keep their Korean/display-name format. A SKILL.md needs its actual path: the standard name must
@@ -102,7 +119,7 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   const fields: Record<string, string> = Object.create(null)
   for (const line of m[1]!.split(/\r?\n/)) {
     const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
-    if (kv) fields[kv[1]!.toLowerCase()] = kv[2]!.trim().replace(/^(["'])(.*)\1$/, '$2')
+    if (kv) fields[kv[1]!.toLowerCase()] = legacyValue(kv[2]!.trim())
   }
   const name = (fields.name ?? '').replace(/\s+/g, ' ').trim()
   if (!name || name.length > LEGACY_NAME_MAX || name.includes('/')) return no('name')

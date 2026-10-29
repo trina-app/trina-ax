@@ -18,6 +18,7 @@ import { badSegment } from '../policy/names'
 import { notifySkillSuggestion } from '../notifications/service'
 import { isSkillFolder, managedSkillFolders, managesSkillFolder, skillFolders } from './managers'
 import { st } from './text'
+import { checkSkill, type SkillProblem } from '../chat/skills'
 
 interface Row {
   id: string; suggester_id: string; target_folder: string; name: string; description: string; content: string
@@ -176,10 +177,25 @@ export function skillFileName(name: string): string {
   return s || 'skill'
 }
 
-/** The skill file: the header the server reads (skills.ts parseSkill), then the steps. */
+/** The skill file: the header the server reads (skills.ts checkSkill), then the steps. Each header value is written
+ * as a YAML double-quoted string (JSON string syntax), so a quote, bracket, colon or "#" in a value never breaks the
+ * header. Both the legacy reader and the YAML reader decode it to the typed text. */
 export function skillFileText(name: string, description: string, content: string): string {
-  const one = (s: string) => s.replace(/[\r\n]+/g, ' ').trim()
+  const one = (s: string) => JSON.stringify(s.replace(/[\r\n]+/g, ' ').trim())
   return `---\nname: ${one(name)}\ndescription: ${one(description)}\n---\n${content.replace(/^\s*\n/, '')}${content.endsWith('\n') ? '' : '\n'}`
+}
+
+/** The text to save at `rel` for a registered suggestion, or the reason it would not load there. The server never
+ * saves a skill file that its own reader rejects (for example a SKILL.md whose name is not its folder name). */
+export function registeredSkillText(rel: string, name: string, description: string, content: string):
+  { ok: true; text: string } | { ok: false; problem: SkillProblem; field: string } {
+  const text = skillFileText(name, description, content)
+  const r = checkSkill(text, rel)
+  if (r.ok) return { ok: true, text }
+  const field = r.problem === 'name' || r.problem === 'name_folder' ? 'body.name'
+    : r.problem === 'description' ? 'body.description'
+    : r.problem === 'location' ? 'body.fileName' : 'body.content'
+  return { ok: false, problem: r.problem, field }
 }
 
 export function approveSuggestion(ctx: AppContext, userId: string, id: string, b: { targetFolder: string; name: string; description: string; content: string; fileName?: string }, locale: Locale): SkillSuggestion {
@@ -196,10 +212,12 @@ export function approveSuggestion(ctx: AppContext, userId: string, id: string, b
     throw e
   }
   if (exists) fail('conflict', st('fileExists', locale, { path: rel }))
+  const written = registeredSkillText(rel, b.name, b.description, b.content)
+  if (!written.ok) return fail('validation', st('notLoadable', locale, { problem: written.problem }), { fields: { [written.field]: written.problem } })
   // the manager's own save (folder rules decide; version history, audit and the owner / admin notice follow from it)
   let saved: string
   try {
-    ctx.files.humanSave(userId, rel, Buffer.from(skillFileText(b.name, b.description, b.content), 'utf8'), null)
+    ctx.files.humanSave(userId, rel, Buffer.from(written.text, 'utf8'), null)
     saved = authorize(ctx.files.fx, ctx.files.rules(), p, rel, 'read').rel
   } catch (e) {
     if (e instanceof Denied) fail('forbidden', st('notManager', locale))
