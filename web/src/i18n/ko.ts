@@ -969,6 +969,8 @@ export const ko = {
   'audit.viaInternet': '인터넷',
   'audit.everyone': '모두',
   'audit.path': '경로',
+  'audit.from': '시작일',
+  'audit.to': '종료일',
   'audit.none': '조건에 맞는 기록이 없어요.',
   'audit.source.admin': '관리자',
   'audit.source.file': '파일',
