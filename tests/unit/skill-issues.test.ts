@@ -108,3 +108,23 @@ test('a registered suggestion that would not load is refused before the save', (
   expect(registeredSkillText('skills/report/SKILL.md', 'report', '', 'Steps')).toEqual({ ok: false, problem: 'description', field: 'body.description' })
   expect(registeredSkillText('skills/report/SKILL.md', 'report', 'Makes "reports": [weekly', 'Steps').ok).toBe(true)
 })
+
+test('a line break character in a typed value becomes a space, so the value reads back as one header line', () => {
+  for (const sep of [' ', ' ', '\u0085', '\v', '\f', '\r\n']) {
+    const text = skillFileText(`이름${sep}둘`, `line one${sep}line two`, 'Body')
+    expect(checkSkill(text, 'skills/x.md')).toEqual({ ok: true, name: '이름 둘', description: 'line one line two', body: 'Body\n' })
+    const r = registeredSkillText('skills/x.md', `a${sep}b`, `c${sep}d`, 'Body')
+    expect(r.ok).toBe(true)
+  }
+})
+
+test('a duplicate key in any case breaks a legacy header, also after a line that is not key: value', () => {
+  for (const header of [
+    'description: |\n  multi\nname: a\nNAME: b',
+    'name: a\ndescription: >\n  folded\nName: b',
+    'name: a\nNAME: b',
+  ]) expect(checkSkill(`---\n${header}\n---\nBody`, 'skills/x.md')).toEqual({ ok: false, problem: 'header' })
+  // an indented key inside a block scalar is text, not a duplicate (the legacy reader keeps the block marker)
+  expect(checkSkill('---\nname: a\ndescription: |\n  name: b\n---\nBody', 'skills/x.md'))
+    .toEqual({ ok: true, name: 'a', description: '|', body: 'Body' })
+})

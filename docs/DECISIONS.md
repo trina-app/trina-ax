@@ -2487,12 +2487,15 @@ including same-account installs. Extend the same synthetic selection tests to co
   `location`, `name`, `name_folder`, `description`, `compatibility`, `too_large`). `parseSkill()` keeps its old
   result. A legacy header is valid when each line is `key: value` (the space after the colon is optional) and each
   key comes once (the case of a key is ignored), or when it is valid YAML (for example a block scalar). Only a line
-  without a colon or a duplicate key breaks a legacy header. A value that opens a quote or bracket and does not close
+  without a colon or a duplicate key breaks a legacy header. The duplicate check runs over all header lines with the
+  reader's key regex, so a duplicate after a block scalar line (`description: |` / `  text` / `name: a` / `NAME: b`)
+  is also refused. A value that opens a quote or bracket and does not close
   it is plain text (older files have values such as `[긴급 처리용`), so it still loads. A value in matching double
   quotes is decoded as a JSON / YAML string when it is one, and `''` in single quotes is `'`. A legacy file with a
   broken header is not a skill and not a team rule (`skillFileKind` gives `other`).
 - **Registered suggestions.** `skillFileText()` writes `name` and `description` as YAML double-quoted strings, so a
-  quote, bracket, colon or `#` in a value never breaks the header. Before the save, `approveSuggestion()` checks the
+  quote, bracket, colon or `#` in a value never breaks the header. Each line break character in a value (CR, LF, VT,
+  FF, U+0085, U+2028, U+2029) becomes a space, so the value stays on its header line and reads back. Before the save, `approveSuggestion()` checks the
   written text with `checkSkill()` at its path (`registeredSkillText()`). If the file would not load (for example
   file name `SKILL` makes a manifest outside its own folder), the server refuses with `validation`, the reason code
   in `fields`, and saves nothing.
