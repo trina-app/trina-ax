@@ -1,4 +1,5 @@
 // Which in-app viewer can show a file (side panel). Everything else can only be downloaded.
+import { cp949Text } from '@mycel/shared/text-encoding'
 import { extOf } from './paths'
 
 export type PreviewKind = 'pdf' | 'docx' | 'pptx' | 'sheet' | 'csv' | 'markdown' | 'text' | 'html' | 'svg' | 'xml' | 'image' | 'audio' | 'video'
@@ -35,6 +36,26 @@ export function previewLimit(kind: PreviewKind): { max: number; truncate: boolea
 }
 
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
+
+/**
+ * Text of a text preview (QA R2-FMT-08): UTF-8 when the bytes are valid UTF-8 (a BOM is dropped), else legacy Korean
+ * (CP949 / EUC-KR, the Korean Excel CSV default) when the bytes are clearly Korean (shared `cp949Text`: no decode
+ * error, no Windows-1252 punctuation pair, at least 2 Hangul syllables, at least 80% of the non-ASCII characters are
+ * Hangul syllables, at least 90% of the syllables are KS X 1001 pairs, no Hanja), else
+ * UTF-8 with replacement characters. The server reads files for the AI with the same rule
+ * (server/src/files/extract.ts decodeText).
+ * `cut`: the bytes are only the beginning of the file, so a character cut at the end is dropped before the check.
+ */
+export function decodePreviewText(bytes: Uint8Array, cut = false): string {
+  for (let drop = 0; drop <= (cut ? 3 : 0) && drop < bytes.length; drop++) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytes.length - drop)) } catch {}
+  }
+  for (let drop = 0; drop <= (cut ? 1 : 0) && drop < bytes.length; drop++) {
+    const text = cp949Text(bytes.subarray(0, bytes.length - drop))
+    if (text !== null) return text
+  }
+  return new TextDecoder('utf-8').decode(bytes)
+}
 
 /** Highlight.js language for a file name (code preview). */
 export function languageOf(name: string): string | undefined {

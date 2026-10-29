@@ -7,7 +7,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, type Step } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
-import { AI_TITLE_MAX, PLACEHOLDER_MAX, TITLE_SCAN_KEY, cleanAiTitle, graphemes, maskStoredTitles, placeholderTitle } from '../../server/src/chat/title'
+import { AI_TITLE_MAX, PLACEHOLDER_MAX, TITLE_SCAN_KEY, cleanAiTitle, graphemes, hideTitle, maskStoredTitles, placeholderTitle } from '../../server/src/chat/title'
+import { HIDDEN } from '../../server/src/integrations/connections/hide'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { WORK } from '../lib/env'
 import { waitFor } from '../lib/wait'
@@ -16,6 +17,8 @@ setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 // made up, in the shape of the founder's token (joined at run time so secret scanners do not take it for a leak)
 const TOKEN = ['aipm', '5c6de5a19f3b4e7d8a2c0b6f1e9d3a7c'].join('_')
+// the QA SEC-16 test key: no connection stores it (QA B-W47-3, B-W5-1)
+const QA_KEY = ['QA-FAKE', 'KEY-0000-NOT-REAL'].join('-')
 
 describe('placeholder from the first message', () => {
   test("the founder's case: a pasted token line, then normal lines", () => {
@@ -30,6 +33,16 @@ describe('placeholder from the first message', () => {
     expect(placeholderTitle('Authorization: Bearer abc123def456ghi789\ncall the API')).toBe('call the API')
     expect(placeholderTitle('비밀번호: abcd1234\n서버 접속해줘')).toBe('서버 접속해줘')
     expect(placeholderTitle('-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\nAbC12==\n-----END OPENSSH PRIVATE KEY-----\n서버 접속 설정해줘')).toBe('서버 접속 설정해줘')
+  })
+
+  test('a named test key is cut out, also when no connection stores it (QA SEC-16, B-W47-3, B-W5-1)', () => {
+    expect(placeholderTitle(`${QA_KEY} 이게 무슨 뜻이야?`)).toBe('이게 무슨 뜻이야?')
+    expect(placeholderTitle(`What does ${QA_KEY} mean?`)).toBe('What does mean?')
+    expect(placeholderTitle(QA_KEY)).toBe('')
+    // normal words stay
+    expect(placeholderTitle('API key setup guide')).toBe('API key setup guide')
+    expect(placeholderTitle('secret santa list')).toBe('secret santa list')
+    expect(placeholderTitle('Set OPENAI_API_KEY in the server')).toBe('Set OPENAI_API_KEY in the server')
   })
 
   test('addresses, code fences and markdown', () => {
@@ -80,8 +93,19 @@ describe("the AI's title", () => {
   test('refused: a secret, or nothing left', () => {
     expect(cleanAiTitle(`Key ${TOKEN} setup`)).toEqual({ ok: false, reason: 'secret' })
     expect(cleanAiTitle('Deploy to https://admin:pw12345@db.example.com now')).toEqual({ ok: false, reason: 'secret' })
+    expect(cleanAiTitle(`About ${QA_KEY}`)).toEqual({ ok: false, reason: 'secret' })
+    expect(cleanAiTitle('Token economy basics')).toEqual({ ok: true, title: 'Token economy basics' })
     expect(cleanAiTitle('...')).toEqual({ ok: false, reason: 'empty' })
     expect(cleanAiTitle('a')).toEqual({ ok: false, reason: 'empty' })
+  })
+})
+
+describe('a title the person gives', () => {
+  test('secret-looking parts become [hidden key]; normal words stay (QA SEC-16, B-W47-3)', () => {
+    expect(hideTitle(`${QA_KEY} plan`)).toBe(`${HIDDEN} plan`)
+    expect(hideTitle(`Key ${TOKEN}`)).toBe(`Key ${HIDDEN}`)
+    expect(hideTitle('Token economy notes')).toBe('Token economy notes')
+    expect(hideTitle('stored abc12345xyz', (t) => t.replace('abc12345xyz', HIDDEN))).toBe(`stored ${HIDDEN}`)
   })
 })
 
@@ -109,10 +133,13 @@ describe('existing chats', () => {
       chat('inline', `키 ${TOKEN} 연결해줘`)
       chat('alone', `Bearer abc123def456ghi789`)
       chat('normal', 'Q3 report: shared/finance/2026-q3.xlsx')
+      chat('qa', `${QA_KEY} 이게 무슨 뜻이야?`)
+      chat('words', 'API key setup guide')
       db.query('DELETE FROM settings WHERE key = ?').run(TITLE_SCAN_KEY)
-      expect(maskStoredTitles(db)).toBe(3)
+      expect(maskStoredTitles(db)).toBe(4)
       const titles = Object.fromEntries((db.query('SELECT id, title FROM chats').all() as { id: string; title: string }[]).map((r) => [r.id, r.title]))
-      expect(titles).toEqual({ founder: '이 토큰으로 프로젝트 목록 가져와줘', inline: '키 연결해줘', alone: '', normal: 'Q3 report: shared/finance/2026-q3.xlsx' })
+      expect(titles).toEqual({ founder: '이 토큰으로 프로젝트 목록 가져와줘', inline: '키 연결해줘', alone: '', normal: 'Q3 report: shared/finance/2026-q3.xlsx',
+        qa: '이게 무슨 뜻이야?', words: 'API key setup guide' })
       // once per detector version
       chat('later', TOKEN)
       expect(maskStoredTitles(db)).toBe(0)
@@ -216,5 +243,31 @@ describe('set_title in real turns', () => {
     expect(answer.content.split(',')).not.toContain('set_title')
     expect(source(chatId)).toBe('schedule')
     expect((await h.api('alice').call(API.getChat, { params: { id: chatId } })).title.startsWith('⏰ Digest · ')).toBe(true)
+  })
+})
+
+// without a WebSocket: the titles as the HTTP API shows them
+describe('QA SEC-16 through the API', () => {
+  let h: Harness
+  beforeAll(async () => { h = await startHarness({ name: 'b-chat-titles-sec16', turnTimeoutMs: 60_000 }) })
+  afterAll(async () => { await h.close() })
+
+  test('QA SEC-16: the test key is not in the title of the list, search, one chat or a rename (B-W47-3, B-W5-1)', async () => {
+    const api = h.api('alice')
+    const chat = await api.call(API.createChat, { body: {} })
+    const content = `${QA_KEY} 이게 무슨 뜻이야?\n` + fake({ say: 'A made-up test key.' })
+    const sent = await api.call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(sent.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+    expect((await api.call(API.getChat, { params: { id: chat.id } })).title).toBe('이게 무슨 뜻이야?')
+    const list = await api.call(API.listChats, { query: { limit: 50 } })
+    expect(list.items.find((c) => c.id === chat.id)?.title).toBe('이게 무슨 뜻이야?')
+    // search still finds the chat by its content; only the title is checked
+    const found = await api.call(API.listChats, { query: { q: 'QA-FAKE' } })
+    expect(found.items.map((c) => c.id)).toContain(chat.id)
+    for (const c of [...list.items, ...found.items]) expect(c.title).not.toContain('FAKE-KEY')
+    // the person's own message is kept as typed
+    expect((h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user'").get(chat.id) as { content: string }).content).toBe(content)
+    const renamed = await api.call(API.updateChat, { params: { id: chat.id }, body: { title: `${QA_KEY} notes` } })
+    expect(renamed.title).toBe(`${HIDDEN} notes`)
   })
 })

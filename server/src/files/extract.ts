@@ -1,5 +1,7 @@
-// Text for read/grep. Office formats: pandoc (docx/pptx/odt), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
+// Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
+// comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
 // worker (office-worker.ts, a bun child process), pdftotext (pdf).
+// Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
 // Scanned PDFs and images: mycel-ocr (native/ocr, Apple Vision, macOS) when it is built.
 // Input bytes always come from an fd opened with O_NOFOLLOW and checked (nlink==1), and are fed to the
 // converters on stdin, so a converter never opens a path itself. Converters run isolated (tools/isolate.ts:
@@ -7,11 +9,13 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { cp949Text } from '@mycel/shared/text-encoding'
 import { ToolError } from '../policy/errors'
 import { runIsolated } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
+import { quoteLines, SECTION_MARK } from './ooxml'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
@@ -87,7 +91,8 @@ async function slot<T>(f: () => Promise<T>): Promise<T> {
   }
 }
 
-/** A spreadsheet or Hangul file's text from the office worker, isolated like the other converters. */
+/** A spreadsheet or Hangul file's text (or the extra parts of a .docx / .pptx: mode `docx-extra` / `pptx-extra`) from
+ * the office worker, isolated like the other converters. */
 export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
   const script = await officeWorkerScript()
   return slot(async () => {
@@ -116,9 +121,15 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
   // system/limits.ts) before a worker starts; smaller ones still meet the worker's own limits
   if (IN_PROCESS_EXT.has(e) && bytes.byteLength > inProcessParseMax()) throw new ToolError(TOO_BIG_IN_PROCESS)
   switch (e) {
-    case 'docx': case 'pptx': case 'odt':
+    case 'docx': case 'pptx': case 'odt': {
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
-      return pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal)
+      // a body line that starts like a section label (`=== `) gets a space in front, so only the real labels of the
+      // extra text below are at the start of a line
+      const body = pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal).then(quoteLines)
+      if (e === 'odt') return body
+      const [text, extra] = await Promise.all([body, extraText(e, bytes, signal)])
+      return extra ? `${text.trimEnd()}\n\n${extra}\n` : text
+    }
     case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
       return officeWorkerText(e, bytes, signal)
     case 'pdf': {
@@ -134,7 +145,35 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       if (tools.ocr && (IMAGE_EXT as readonly string[]).includes(e)) return ocr(tools.ocr, bytes, false, signal)
       const head = bytes.subarray(0, 8000)
       if (head.includes(0)) throw new ToolError('this is a binary file; it cannot be shown as text')
-      return new TextDecoder('utf-8').decode(bytes)
+      return decodeText(bytes)
     }
   }
+}
+
+const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes and chart data' } as const
+
+/**
+ * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
+ * says so (the AI must not guess them); pandoc's body text is still given. Under the same size limit as the other
+ * worker formats.
+ */
+async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+  const notRead = (why: string) => `${SECTION_MARK}The ${EXTRA_WHAT[e]} of this file were not read (${why}) ===`
+  if (bytes.byteLength > inProcessParseMax()) return notRead('the file is over 32 MB')
+  try { return (await officeWorkerText(`${e}-extra`, bytes, signal)).trim() } catch (err) {
+    signal?.throwIfAborted()
+    return notRead(err instanceof ToolError ? err.message.slice(0, 300) : 'the reader failed')
+  }
+}
+
+/**
+ * Text of a plain text file: UTF-8 (a BOM is dropped) when the bytes are valid UTF-8. Otherwise legacy Korean
+ * (CP949, a superset of EUC-KR) when the bytes are clearly Korean (shared `cp949Text`: no decode error, no Windows-1252
+ * punctuation pair, at least 2 Hangul syllables, at least 80% of the non-ASCII characters are Hangul syllables, at
+ * least 90% of the syllables are KS X 1001 pairs, no Hanja). Otherwise UTF-8 with
+ * replacement characters, as before, so a Windows-1252 file does not become false Korean text.
+ */
+export function decodeText(bytes: Uint8Array): string {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch {}
+  return cp949Text(bytes) ?? new TextDecoder('utf-8').decode(bytes)
 }

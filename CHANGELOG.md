@@ -3,6 +3,21 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Files: a file that has no preview (HWP, HWPX, ZIP and others) opens a panel with a notice and a Download button. It
+  does not download at once. Spreadsheet previews say when only the first 5,000 rows show, and mark hidden sheets.
+- The AI reads Word headers, footers and comments, PowerPoint speaker notes and chart values, and Korean CP949/EUC-KR
+  text files. The AI does not edit a file in a legacy encoding; it can write a UTF-8 copy.
+- New chat home shows the team's popular skills.
+- Chat titles hide key-like strings such as test API keys.
+- The AI tries the write when a folder is read-only, so the server can offer "save in my folder".
+- Admin: Korean texts use one name for the owner role; Activity log date filter; owner transfer.
+- Team skills: warnings for a broken SKILL.md or a name that does not match its folder; skill suggestions stay in
+  the notification inbox.
+- make_file xlsx: a cell that starts with "=" and parses as a formula becomes a formula (unsafe functions and external
+  links are refused). Artifacts offer "ask the AI to fix it" for build errors too.
+
 ## 0.2.6 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.6).

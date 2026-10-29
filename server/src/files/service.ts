@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, ReadInput, WriteInput } from '@mycel/shared'
+import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
@@ -22,6 +23,17 @@ import { assertStorageRoomForAI } from '../system/storage'
 void ENGINE_BUILTIN_ALLOWED
 
 /** Per-turn memory the server keeps about files (design: "서버가 턴마다 파일별로 마지막 read 때의 해시를 기억"). */
+/**
+ * The AI edit / write tools work on UTF-8 text. A text file in a legacy encoding (for example CP949 / EUC-KR or
+ * Windows-1252) would lose all its non-ASCII characters, so these tools refuse it and do not convert it silently.
+ * The AI can write a new UTF-8 copy under another name. Office and binary files have their own checks.
+ */
+function refuseLegacyText(rel: string, cur: Uint8Array) {
+  if (cur.subarray(0, 8000).includes(0) || isUtf8(cur)) return
+  throw new ToolError(`'${rel}' is in a legacy encoding (${isLegacyKorean(cur) ? 'Korean CP949 / EUC-KR' : 'not UTF-8'}). ` +
+    'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
+}
+
 export class TurnFiles {
   readHashes = new Map<string, string>()
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
@@ -166,6 +178,7 @@ export class FileService {
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
       const cur = readRegular(r.abs).bytes
+      if (tool === 'write') refuseLegacyText(r.rel, cur)
       const before = seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
@@ -195,6 +208,7 @@ export class FileService {
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
     const cur = readRegular(r.abs).bytes
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
+    refuseLegacyText(r.rel, cur)
     const before = ctx.files.readHashes.get(r.rel)
     if (!before) throw new ToolError(`read '${r.rel}' first (with read) before editing it`, 'not_read')
     const text = cur.toString('utf8')

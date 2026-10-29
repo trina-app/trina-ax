@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
-import type { PushSubscriptionInput, NotificationEventType } from '@mycel/shared/api'
+import type { PushSubscriptionInput, PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -95,7 +95,7 @@ export class PushService {
     if(!this.ctx.db.query("SELECT 1 FROM push_deliveries WHERE subscription_id=? AND notification_id=? AND state IN ('pending','sending')").get(id,notificationId))return null
     const sub=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE id=? AND config_key=?').get(id,configKey) as Subscription|null
     if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))return null
-    const row=this.ctx.db.query('SELECT event_type,created_at FROM notification_inbox WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL').get(notificationId,sub.user_id) as {event_type:NotificationEventType;created_at:string}|null
+    const row=this.ctx.db.query('SELECT event_type,created_at FROM notification_inbox WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL').get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
     if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
     return{sub,event:row.event_type}

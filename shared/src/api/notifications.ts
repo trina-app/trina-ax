@@ -1,13 +1,18 @@
 import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { ScheduleRunOutcome } from './schedules'
-export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean() })
+/** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
+export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean(), skillSuggestions: z.boolean() })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
-export const NotificationEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
+/** Events that can also go to OS push (push_deliveries refers to notification_inbox only). */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
+export type PushEventType = z.infer<typeof PushEventType>
+/** Skill suggestion notices are inbox only (table skill_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
 })

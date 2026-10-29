@@ -202,8 +202,16 @@ export function artifactFileName(a: { key: string; title: string | null; type: A
   return `${base}.${EXT[a.type]}`
 }
 
+/** Why an artifact cannot be shown, for the error bar with "ask the AI to fix it" (R2-GEN-09): 'build' when it could
+ * not be made into a page (unsupported import, compile error, no default export), 'run' when it failed in the frame. */
+export type ArtifactFailure = { kind: 'build' | 'run'; error: string }
+export function artifactFailure(frameDoc: FrameDoc | null, runtimeError: string | null): ArtifactFailure | null {
+  if (frameDoc && !frameDoc.ok) return { kind: 'build', error: frameDoc.error }
+  return runtimeError ? { kind: 'run', error: runtimeError } : null
+}
+
 /**
- * The runtime error text that goes into "ask the AI to fix it". The artifact chose this text (an error message can
+ * The error text (runtime or build) that goes into "ask the AI to fix it". The artifact chose this text (an error message can
  * say anything), and the message is sent as the person's own words, where the server lets web_fetch open URLs without
  * asking (design tab 7 "프롬프트 주입" ①). So URLs in it are defanged ("https[:]//…") and it is cut to 1,000 characters.
  */

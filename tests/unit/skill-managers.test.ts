@@ -281,7 +281,7 @@ describe('"스킬로 제안" → [등록] / [거절]', () => {
     expect(await status(h.api('bob').call(API.approveSkillSuggestion, { params: { id: finSug.id }, body: { targetFolder: 'skills', name: '결산 체크', description: '', content: 'x' } }))).toBe(403)
     const done = await h.api('bob').call(API.approveSkillSuggestion, { params: { id: finSug.id }, body: { targetFolder: 'skills/재무', name: '월말 결산 체크', description: '월말에 쓴다', content: '1. 잔액 확인\n' } })
     expect(done).toMatchObject({ status: 'approved', resultPath: 'skills/재무/월말-결산-체크.md', reviewer: { id: 'bob' } })
-    expect(fs.readFileSync(path.join(h.team, 'skills/재무/월말-결산-체크.md'), 'utf8')).toBe('---\nname: 월말 결산 체크\ndescription: 월말에 쓴다\n---\n1. 잔액 확인\n')
+    expect(fs.readFileSync(path.join(h.team, 'skills/재무/월말-결산-체크.md'), 'utf8')).toBe('---\nname: "월말 결산 체크"\ndescription: "월말에 쓴다"\n---\n1. 잔액 확인\n')
     expect((await h.api('alice').call(API.listSkills)).items.map((s) => s.name)).toContain('월말 결산 체크')
     expect(h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'skills.change' AND target = 'skills/재무/월말-결산-체크.md'").get()).toEqual({ actor_id: 'bob' })
     expect(h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'skills.suggestion_approved' AND target = 'skills/재무/월말-결산-체크.md'").get()).toEqual({ actor_id: 'bob' })

@@ -2,7 +2,8 @@
 // "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), whether
 // members may add their own external-service connections (Settings > External services), voice input (off, OpenRouter
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"), and the team
-// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts). The OpenRouter key is sealed in the
+// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), and for the owner the ownership transfer
+// (TransferOwner.tsx). The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
@@ -17,6 +18,7 @@ import { Button, confirmDialog, Field, inputCls, Switch } from '../../components
 import { Card, Loadable, useAction, useLoad } from './common'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
+import TransferOwnerCard from './TransferOwner'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -106,6 +108,7 @@ export default function TeamSettingsPage() {
         }
       </Loadable>
       <TeamIconCard />
+      {isOwner(me) && <TransferOwnerCard ownerId={me.user.id} />}
     </>
   )
 }

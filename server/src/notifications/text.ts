@@ -1,5 +1,5 @@
 import { PRODUCT } from '@mycel/shared'
-import type { Locale, NotificationEventType } from '@mycel/shared/api'
+import type { Locale, PushEventType } from '@mycel/shared/api'
 
 /** Lock-screen text is generic: never interpolate task names, results or connection details.
  *  'schedule.failure' also covers a run that finished with problems, so its text says "needs attention", not "failed". */
@@ -20,7 +20,7 @@ export const TEXT = {
     en: 'A connection needs you to sign in again.',
     id: 'Koneksi perlu login ulang.',
   },
-} satisfies Record<'title' | NotificationEventType, Record<Locale, string>>
+} satisfies Record<'title' | PushEventType, Record<Locale, string>>
 
 export function pushMessages(locale: Locale) {
   return { title: TEXT.title[locale], bodies: {

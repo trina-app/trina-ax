@@ -73,8 +73,8 @@ describe('the stream redactor (redact.ts)', () => {
     expect(placeholderTitle(`${KEY} 이게 무슨 뜻이야?`, [], known)).toBe('이게 무슨 뜻이야?')
     expect(placeholderTitle(`${KEY}\nWhat does this mean?`, [], known)).toBe('What does this mean?')
     expect(placeholderTitle(`key ${KEY}`, [], known)).toBe('')
-    // without the stored key the QA string is words only (a test-string limit, docs/DECISIONS.md)
-    expect(placeholderTitle(`${KEY} 이게 무슨 뜻이야?`)).toContain(KEY)
+    // without the stored key the QA string is a named test key (shared/src/secrets.ts, QA B-W47-3): also cut out
+    expect(placeholderTitle(`${KEY} 이게 무슨 뜻이야?`)).toBe('이게 무슨 뜻이야?')
     expect(placeholderTitle('Plan the trip to Bali', [], known)).toBe('Plan the trip to Bali')
   })
 })

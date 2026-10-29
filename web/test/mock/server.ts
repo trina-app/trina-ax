@@ -465,7 +465,9 @@ export class MockServer {
     if (/artifact|react/i.test(prompt)) {
       const react = /react/i.test(prompt)
       const key = react ? 'counter' : 'hello-page'
-      const content = react
+      const content = react && /d3/i.test(prompt)
+        ? 'import * as d3 from "d3"\nexport default function App() {\n  return <p>{d3.sum([1, 2])}</p>\n}\n'
+        : react
         ? 'import { useState } from "react"\nimport { Plus } from "lucide-react"\nexport default function App() {\n  const [n, setN] = useState(0)\n  return <button className="rounded bg-emerald-600 px-3 py-2 text-white" onClick={() => setN(n + 1)}><Plus size={14} /> count {n}</button>\n}\n'
         : /broken/i.test(prompt)
           ? '<h1>Broken</h1><script>throw new Error("boom")</script>'
@@ -544,6 +546,7 @@ export class MockServer {
   handlers: Partial<Record<ApiName, Handler>> = {
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
     popularSkills: () => ({ items: [], days: 30 }),
+    listSkillIssues: () => ({ items: [] }),
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {
@@ -967,6 +970,15 @@ export class MockServer {
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
       return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://team.example.com' }
     },
+    // like server/src/admin/users.ts transferOwnership: the password again, then the old owner becomes an admin
+    transferOwnership: (c) => {
+      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, '비밀번호가 맞지 않습니다. 다시 입력해 주세요.')
+      const u = this.users.find((x) => x.id === c.body.userId && x.status === 'active') ?? fail('not_found', 404)
+      if (u.id === c.user.id) fail('forbidden', 403)
+      for (const x of this.users) if (x.role === 'owner') x.role = 'admin'
+      u.role = 'owner'
+      return { ok: true as const }
+    },
     createResetLink: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (u.role === 'owner') fail('forbidden', 403)
@@ -1056,7 +1068,7 @@ export class MockServer {
       if (!this.manages(c.user, s!.targetFolder) || !this.manages(c.user, c.body.targetFolder)) fail('forbidden', 403, '이 폴더의 팀 스킬을 관리할 권한이 없습니다.')
       if (s!.status !== 'pending') fail('conflict', 409, '이미 처리된 제안입니다.')
       const file = `${c.body.targetFolder}/${(c.body.fileName ?? c.body.name).trim().replace(/\s+/g, '-')}.md`
-      this.putFile(file, `---\nname: ${c.body.name}\ndescription: ${c.body.description}\n---\n${c.body.content}`)
+      this.putFile(file, `---\nname: ${JSON.stringify(c.body.name)}\ndescription: ${JSON.stringify(c.body.description ?? '')}\n---\n${c.body.content}`)
       Object.assign(s!, { status: 'approved', reviewer: { id: c.user.id, name: c.user.name }, reviewedAt: now(), resultPath: file, targetFolder: c.body.targetFolder, name: c.body.name, description: c.body.description, content: c.body.content })
       this.skillChange({ id: uuidv7(), at: now(), actor: { id: c.user.id, name: c.user.name }, path: file, change: 'create', from: null, byAi: false, kind: 'skill' })
       this.publish({ type: 'notice', data: { level: 'info', code: 'skill_suggestion_reviewed', message: `제안한 스킬이 등록됐어요: ${s!.name} (${file})`, link: `/skills?mine=${s!.id}` } })
@@ -1322,7 +1334,7 @@ export class MockServer {
     listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
-    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true }),
+    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }),
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
     listRemoteConnectors: () => ({ configured: false, resource: null, items: [] }),
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),

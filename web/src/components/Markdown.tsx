@@ -5,7 +5,7 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, Copy, Download, Eye, ImageOff, ExternalLink } from 'lucide-react'
+import { Check, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
@@ -183,21 +183,20 @@ function CopyableTable({ children }: { children: ReactNode }) {
 }
 
 // ---------------- links and images ----------------
-/** A file the AI made or mentioned: a chip that opens the preview (or downloads what can't be previewed). */
+/** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
+ *  too, which shows the "can't be previewed" notice and a download button. */
 function TeamFileLink({ path, children }: { path: string; children: ReactNode }) {
   const t = useT()
   const canPreview = previewKind(path) !== null
   return (
     <span className="not-prose my-1 inline-flex max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-surface align-middle text-sm font-medium text-ink shadow-sm">
-      <button type="button" onClick={() => (canPreview ? openTeamFile(path) : startDownload(fileUrl(path), baseName(path)))} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('common.download')}>
-        {canPreview ? <Eye size={15} className="shrink-0 text-accent-text" aria-hidden /> : <Download size={15} className="shrink-0 text-accent-text" aria-hidden />}
+      <button type="button" onClick={() => openTeamFile(path)} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
+        {canPreview ? <Eye size={15} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={15} className="shrink-0 text-accent-text" aria-hidden />}
         <span className="break-all">{children}</span>
       </button>
-      {canPreview && (
-        <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-2.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
-          <Download size={14} aria-hidden />
-        </button>
-      )}
+      <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-2.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
+        <Download size={14} aria-hidden />
+      </button>
     </span>
   )
 }

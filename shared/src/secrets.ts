@@ -5,6 +5,10 @@
 //  - a value after a key-like word ("password: hunter22", "API_KEY=…", "비밀번호: …"), only the value,
 //  - long random-looking tokens: 24+ characters without spaces that mix letters and digits in short pieces (hex,
 //    base62, base64). Words, camelCase names, file paths, dates, UUIDs and e-mail addresses are not random-looking.
+//  - named test keys (QA SEC-16, B-W47-3, B-W5-1): one token of parts joined by "-" or "_" with a key word (KEY,
+//    TOKEN, SECRET, PASSWORD, API) and a value part: a long segment, or a test marker (FAKE, DUMMY, TEST …) in a token
+//    written in capitals or with a digit part ("QA-FAKE-KEY-0000-NOT-REAL"). Also a provider prefix with one generated
+//    segment ("sk-FAKEKEY0000NOTREAL"). Env names (OPENAI_API_KEY), slugs and words with spaces are not test keys.
 // It errs towards finding: a find only hides text, it never blocks anything the person does.
 
 export interface SecretSpan { start: number; end: number; kind: string }
@@ -44,6 +48,32 @@ const PATTERNS: Pattern[] = [
   },
 ]
 
+const KEY_WORDS = new Set(['key', 'apikey', 'token', 'secret', 'password', 'passwd', 'api'])
+const TEST_MARKERS = new Set(['fake', 'dummy', 'test', 'mock', 'sample', 'example', 'placeholder', 'notreal'])
+const NAMED = /(?<![A-Za-z0-9_-])[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+(?![A-Za-z0-9_-])/g
+// a provider prefix and one segment without separators (findSecrets checks that it mixes letters and digits)
+const PREFIXED = /(?<![A-Za-z0-9_-])(?:sk|gh[pousr]|glpat|xox[abposr])[-_][A-Za-z0-9]{12,}(?![A-Za-z0-9_-])/g
+
+/** A generated value segment: 8+ characters, letters and digits in 4+ pieces ("a8f3k29dk3x"; not "gpt4turbo"). */
+const longPart = (p: string) => p.length >= 8 && (p.match(/[A-Za-z]+|[0-9]+/g) ?? []).length >= 4
+
+/**
+ * Whether a token of parts joined by "-" or "_" is a named key (a test key written for a person to read): a key word
+ * part and a value part. "QA-FAKE-KEY-0000-NOT-REAL", "MY_API_TOKEN_a8f3k29dk3x" are; "OPENAI_API_KEY",
+ * "secret-santa-2026", "test_api_key", "API-TEST-PLAN" and "token-economy-whitepaper" are not.
+ */
+export function namedKey(token: string): boolean {
+  const parts = token.split(/[-_]/)
+  const low = parts.map((p) => p.toLowerCase())
+  if (!low.some((p) => KEY_WORDS.has(p))) return false
+  const values = parts.filter((_, i) => !KEY_WORDS.has(low[i]!))
+  if (values.some(longPart)) return true
+  // a test marker ("NOT-REAL" counts as one) in a token of 3+ parts written in capitals or with a digit part; here
+  // "API" alone is not a key word ("API-TEST-PLAN")
+  const marked = low.some((p) => TEST_MARKERS.has(p)) || low.join('-').includes('not-real')
+  return marked && low.some((p) => p !== 'api' && KEY_WORDS.has(p)) && parts.length >= 3 && (!/[a-z]/.test(token) || parts.some((p) => /^[0-9]+$/.test(p)))
+}
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 const RUN = /[A-Za-z0-9+/=_-]{24,}/g
 
@@ -78,6 +108,16 @@ export function findSecrets(text: string): SecretSpan[] {
         spans.push({ start, end: start + g.length, kind: p.kind })
       } else spans.push({ start: m.index, end: m.index + m[0].length, kind: p.kind })
     }
+  }
+  NAMED.lastIndex = 0
+  for (let m = NAMED.exec(text); m; m = NAMED.exec(text)) {
+    if (namedKey(m[0])) spans.push({ start: m.index, end: m.index + m[0].length, kind: 'named-key' })
+  }
+  PREFIXED.lastIndex = 0
+  for (let m = PREFIXED.exec(text); m; m = PREFIXED.exec(text)) {
+    // letters and digits in 3+ pieces ("FAKEKEY0000NOTREAL"); "sk-learning2026" is a word and a year
+    const body = m[0].slice(m[0].search(/[-_]/) + 1)
+    if ((body.match(/[A-Za-z]+|[0-9]+/g) ?? []).length >= 3) spans.push({ start: m.index, end: m.index + m[0].length, kind: 'prefixed' })
   }
   RUN.lastIndex = 0
   for (let m = RUN.exec(text); m; m = RUN.exec(text)) {

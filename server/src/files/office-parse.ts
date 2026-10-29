@@ -7,8 +7,11 @@ import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, tooComplex } from './zip-guard'
+import { docxExtraText, pptxExtraText } from './ooxml'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
+/** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
+export const EXTRA_MODES = new Set(['docx-extra', 'pptx-extra'])
 /** the worker's exit code when stderr holds a ToolError message (office-worker.ts) */
 export const TOOL_ERROR_EXIT = 3
 /** UTF-8 bytes of text out of one file (the worker's stdout cap in extract.ts is a little larger; hwp.ts keeps its
@@ -46,11 +49,28 @@ function boundRange(ws: XLSX.WorkSheet): void {
   ws['!ref'] = XLSX.utils.encode_range(range)
 }
 
+/**
+ * A formula cell without a stored result (make_file writes these: the spreadsheet app calculates on open) is a
+ * stub cell. It shows as its formula ("=SUM(B2:E2)"), not as a blank. Other stubs (empty styled cells) are dropped,
+ * as they were before stubs were read.
+ */
+export function formulaStubsAsText(ws: XLSX.WorkSheet): void {
+  const rows = (ws as { '!data'?: (XLSX.CellObject | undefined)[][] })['!data'] ?? []
+  for (const row of rows) {
+    if (!row) continue
+    for (let j = 0; j < row.length; j++) {
+      const c = row[j]
+      if (c?.t !== 'z') continue
+      row[j] = c.f ? { t: 's', v: `=${c.f}`, w: `=${c.f}` } : undefined
+    }
+  }
+}
+
 export function sheetText(bytes: Uint8Array): string {
   if (isZip(bytes)) checkZip(bytes)
   let wb: XLSX.WorkBook
   try {
-    wb = XLSX.read(bytes, { type: 'array', dense: true, sheetRows: SHEET_ROWS_MAX, cellFormula: false, cellHTML: false, cellStyles: false, bookVBA: false, bookFiles: false })
+    wb = XLSX.read(bytes, { type: 'array', dense: true, sheetRows: SHEET_ROWS_MAX, sheetStubs: true, cellFormula: true, cellHTML: false, cellStyles: false, bookVBA: false, bookFiles: false })
   } catch (e) {
     if (e instanceof ToolError) throw e
     throw new ToolError(`could not read this spreadsheet (${String((e as Error)?.message ?? e).slice(0, 200)})`)
@@ -59,6 +79,7 @@ export function sheetText(bytes: Uint8Array): string {
   let size = 0
   for (const s of wb.SheetNames) {
     const ws = wb.Sheets[s]!
+    formulaStubsAsText(ws)
     boundRange(ws)
     const part = `# sheet: ${s} (tab-separated)\n` + XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false })
     size += Buffer.byteLength(part, 'utf8') + 2
@@ -68,9 +89,11 @@ export function sheetText(bytes: Uint8Array): string {
   return out.join('\n\n')
 }
 
-/** Text of one file of a WORKER_EXT format; ToolError for a file it cannot or will not read. */
+/** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read. */
 export function officeText(ext: string, bytes: Uint8Array): string {
   switch (ext) {
+    case 'docx-extra': return docxExtraText(bytes)
+    case 'pptx-extra': return pptxExtraText(bytes)
     case 'xlsx': case 'xls': case 'ods': return sheetText(bytes)
     case 'hwp': return hwpText(bytes)
     case 'hwpx': return hwpxText(bytes)

@@ -76,3 +76,8 @@ export function localDayRange(from: string, to: string): { from: string; to: str
   end.setDate(end.getDate() + 1)
   return { from: new Date(`${from}T00:00:00`).toISOString(), to: end.toISOString() }
 }
+
+/** Optional inclusive date inputs -> [from, to) API bounds. An empty input gives no bound on that side. */
+export function localDayBounds(from: string, to: string): { from?: string; to?: string } {
+  return { from: from ? localDayRange(from, from).from : undefined, to: to ? localDayRange(to, to).to : undefined }
+}

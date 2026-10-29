@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { ErrorNote, Skeleton } from '../../components/ui'
+import { Button, ErrorNote, Field, Modal, Skeleton, inputCls } from '../../components/ui'
 
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
@@ -75,5 +75,43 @@ export function SecretBox({ label, value, note, testId = 'secret-value', large }
       </div>
       {note && <p className="text-xs text-warn">{note}</p>}
     </div>
+  )
+}
+
+/** Ask for the owner's password again (update / restore / connection / owner transfer). */
+export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; onClose: () => void; onConfirm: (password: string) => Promise<void> }) {
+  const t = useT()
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant={danger ? 'danger' : 'primary'}
+            busy={busy}
+            disabled={!pw}
+            onClick={async () => {
+              setBusy(true)
+              await onConfirm(pw)
+              setBusy(false)
+            }}
+          >
+            {confirm}
+          </Button>
+        </>
+      }
+    >
+      <div className="mb-3 text-sm text-muted">{body}</div>
+      <Field label={t('system.passwordAgain')}>
+        <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+      </Field>
+    </Modal>
   )
 }

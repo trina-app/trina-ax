@@ -2,7 +2,7 @@
 // and long random-looking tokens are found and masked; normal Korean / English sentences, file paths, e-mail addresses,
 // dates, UUIDs, names and short ids are not. (A pasted admin token became a chat title on screen, 2026-10-28.)
 import { describe, expect, test } from 'bun:test'
-import { findSecrets, hasSecret, looksRandom, maskSecrets } from '@mycel/shared'
+import { findSecrets, hasSecret, looksRandom, maskSecrets, namedKey } from '@mycel/shared'
 
 // made-up values in the shapes of real ones (none of them is a working key). Provider prefixes are joined at run time
 // so that secret scanners (GitHub push protection) do not take this file for a leak.
@@ -113,5 +113,50 @@ describe('not found', () => {
     expect(looksRandom('shared/meetings/2026-10-28-weekly')).toBe(false)
     expect(looksRandom('getUserProfileByIdAndOrganization')).toBe(false)
     expect(looksRandom('a1a1a1a1a1a1a1a1a1a1a1a1')).toBe(false) // too few distinct characters
+  })
+})
+
+// QA SEC-16, B-W47-3, B-W5-1: a test key written for a person to read is hidden in titles too, also when no connection
+// stores it. Joined at run time like the values above.
+describe('named test keys and prefixed keys', () => {
+  const QA = k('QA-FAKE-', 'KEY-0000-NOT-REAL')
+  const KEYS = [
+    QA,
+    k('XX-FAKE-', 'KEY-1234'),
+    k('QA-FAKE-', 'KEY-NOT-REAL'), // words only, in capitals
+    k('DUMMY_SECRET_', 'TOKEN_VALUE'),
+    k('TEST-', 'PASSWORD-2026'),
+    k('my_api_', 'token_a8f3k29dk3x'),
+    k('KEY-', 'x9Ab3kQ72mZ'),
+    k('sk-', 'FAKEKEY0000NOTREAL'),
+    k('gh', 'p_', 'fake0000notreal'),
+    k('xo', 'xb-', 'fake0000slack'),
+  ]
+  for (const key of KEYS) {
+    test(key.slice(0, 12) + '…', () => {
+      expect(hasSecret(key)).toBe(true)
+      expect(maskSecrets(`${key} 이게 무슨 뜻이야?`, '•')).toBe('• 이게 무슨 뜻이야?')
+    })
+  }
+
+  const WORDS = [
+    'API key setup guide',
+    'secret santa list',
+    'token economy',
+    'How to reset the API key',
+    'OPENAI_API_KEY', 'AWS_SECRET_ACCESS_KEY', 'GITHUB_TOKEN', 'DB_PASSWORD',
+    'test_api_key', 'API-TEST-PLAN', 'API_TEST_2026',
+    'secret-santa-2026', 'token-economy-whitepaper', 'api-key-setup-guide',
+    'key_takeaways_from_internationalization', 'KEY_PERFORMANCE_INDICATORS_2026Q3',
+    'api-gpt4turbo', 'token_economy_whitepaper_20261028', 'password-reset-flow-v2',
+    'sk-learn-tutorial', 'sk-learning2026', 'ghp_documentation',
+  ]
+  for (const text of WORDS) test(`not: ${text}`, () => expect(findSecrets(text)).toEqual([]))
+
+  test('a named key needs a key word and a value part', () => {
+    expect(namedKey(QA)).toBe(true)
+    expect(namedKey(k('QA-FAKE-', 'VALUE-0000'))).toBe(false) // no key word
+    expect(namedKey(k('FAKE-', 'KEY'))).toBe(false) // two parts only
+    expect(namedKey(k('fake-', 'key-value'))).toBe(false) // lower case without a digit part: a slug
   })
 })

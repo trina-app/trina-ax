@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { PRODUCT } from '@mycel/shared'
-import { Locale, NotificationEventType, PushSettings } from '@mycel/shared/api'
+import { Locale, PushEventType, PushSettings } from '@mycel/shared/api'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { setUserLocale } from '../../server/src/auth/users'
 import { updateTeamSettings } from '../../server/src/admin/settings'
@@ -15,7 +15,7 @@ const expected = {
 function check(settings: unknown, locale: Locale) {
   const messages = PushSettings.parse(settings).messages!
   expect(messages.title).toBe(PRODUCT.displayName)
-  expect(NotificationEventType.options.map(event => messages.bodies[event])).toEqual(expected[locale])
+  expect(PushEventType.options.map(event => messages.bodies[event])).toEqual(expected[locale])
 }
 
 test.each(Locale.options)('%s account gets localized text for every push event, overriding team and browser language', async locale => {
