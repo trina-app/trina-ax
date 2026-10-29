@@ -1,3 +1,4 @@
+import { SAFE_OPS_TEXT } from '../../server/src/safe-ops/strings'
 // English is the default language, so every user-facing text table has English (and Indonesian) next to Korean, with
 // no Korean left in them, and no Korean screen text hides outside those tables (docs/DECISIONS.md "언어").
 // The web app's dictionaries are checked in web/test/unit/i18n.test.ts, the desktop app's in e-desktop-common.test.ts.
@@ -67,6 +68,7 @@ describe('server and relay texts', () => {
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
     checkTable('budget periods', PERIOD, 2)
+    checkTable('safe operations', SAFE_OPS_TEXT, 9)
     checkTable('transcription', TRANSCRIBE_TEXT, 3)
     checkTable('one-liners', { INTERRUPTED, ARCHIVE_DIR, CONFLICT_COPY, RESTORED }, 4)
     // export headings: a table per language
@@ -88,6 +90,7 @@ describe('server and relay texts', () => {
  * `t('…', 'English', 'Indonesian')` / `fail('…', …)` call) may hold Korean, plus the lines a file's own pattern names.
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
+  'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en and id)' },
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en and id)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en and id)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
