@@ -200,7 +200,7 @@ if [ -n "$PUBLIC" ]; then
   cat <<EOF
 
 인터넷 주소 / internet address:  https://$PUBLIC
-  데스크는 Edge로 이 주소를 열면 됩니다 (인증서 설치 필요 없음). 첫 설정(소유자 계정)은 이 맥에서만 합니다.
+  데스크는 Edge로 이 주소를 열면 됩니다 (인증서 설치 필요 없음). 첫 설정(팀장 계정)은 이 맥에서만 합니다.
   desks open this address in Edge (no certificate to install). The first-run setup is done on this Mac only.
 EOF
 fi

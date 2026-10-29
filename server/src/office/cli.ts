@@ -818,7 +818,7 @@ export async function main(argv: string[]): Promise<number> {
       lines('')
       const link = setupLinks(s, st.origins)
       if (link) {
-        lines('첫 설정 링크 (한 번만, 소유자 계정 만들기) / first-run setup link (owner account, once):')
+        lines('첫 설정 링크 (한 번만, 팀장 계정 만들기) / first-run setup link (owner account, once):')
         lines(`  이 맥에서 / on this Mac:  ${link.local}`)
         if (link.desk) lines(`  인증서를 설치한 데스크에서 / from a desk with the certificate:  ${link.desk}`)
         if (!args.includes('--no-open')) Bun.spawnSync(['/usr/bin/open', link.local])
