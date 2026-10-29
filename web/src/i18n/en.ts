@@ -935,7 +935,7 @@ export const en: Record<MessageKey, string> = {
   'teamSettings.trashDays': 'Keep file trash (days)',
   'teamSettings.chatTrashDays': 'Keep deleted chats (days)',
 
-  'usage.desc': 'Answers and tokens per person, group, engine, model, day or AI connection. Amounts are list-price estimates for API key connections only.',
+  'usage.desc': 'Answers and tokens per person, group, engine, model, day, AI connection or skill. Bars show each row’s share of the sum of tokens in the displayed rows.',
   'usage.groupBy': 'Group by',
   "usage.exportCsv": "Download CSV",
   "usage.by.skill": "Skill",
@@ -953,7 +953,7 @@ export const en: Record<MessageKey, string> = {
   'usage.cost': 'Cost',
   'usage.total': 'Total',
   'usage.none': 'No usage in this period.',
-  'usage.costNote': 'Subscription connections have no price per request, so their amount is 0 (tokens still count). API engine amounts come from the provider, or from the price list.',
+  'usage.costNote': 'API key amounts use provider-reported costs when available, otherwise list-price estimates. Managed subscription connections show 0 because there is no per-request price (tokens still count). Development local-login may show an engine-reported estimate, even with a subscription. These amounts are not bills or subscription fees.',
   'usage.unpriced': 'Price unknown for {n, plural, one {# answer} other {# answers}}: the provider sent no cost and the model is not in the price list. The amount shows only the known part.',
   'usage.unpricedMark': 'Price partly unknown',
 

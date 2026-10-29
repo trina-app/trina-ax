@@ -1,5 +1,4 @@
-// Usage per person / engine / model / day / group / AI connection: turns and tokens (amounts are list-price estimates
-// for API key connections only).
+// Usage per person / engine / model / day / group / AI connection / skill; amounts are estimates, not bills.
 import { useEffect, useMemo, useState } from 'react'
 import type { z } from 'zod'
 import type { UsageResponse } from '@mycel/shared/api'
@@ -35,7 +34,8 @@ export default function Usage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, retry, locale])
   const state = { ...(report.key === queryKey ? report : { data: null, error: null }), reload: async () => { setRetry((n) => n + 1) } }
-  const max = Math.max(1, ...(state.data?.rows.map((r) => r.inputTokens + r.outputTokens) ?? [1]))
+  // Skill (and group) rows can overlap; shares describe displayed rows, not unique team usage.
+  const rowTokens = state.data?.rows.reduce((sum, r) => sum + r.inputTokens + r.outputTokens, 0) ?? 0
   return (
     <Card title={t('admin.usage')} desc={t('usage.desc')} actions={
       <Button size="sm" disabled={!state.data} data-testid="usage-csv" onClick={() => {
@@ -88,7 +88,7 @@ export default function Usage() {
                         <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(tok, locale)}</td>
                         <td className="w-32 py-2 pr-3" aria-hidden>
                           <div className="h-1.5 rounded bg-subtle">
-                            <div className="h-full rounded bg-accent" style={{ width: `${(tok / max) * 100}%` }} />
+                            <div className="h-full rounded bg-accent" style={{ width: `${rowTokens > 0 ? (tok / rowTokens) * 100 : 0}%` }} />
                           </div>
                         </td>
                         <td className="py-2 text-right text-muted tabular-nums">
