@@ -1,5 +1,15 @@
 import type { Database } from 'bun:sqlite'
 export const SAFE_OPS_TEXT = {
+  searchLimit: {
+    ko: '검색 입력 한도에 도달했습니다. 폴더나 파일 형식을 좁혀 다시 검색해 주세요.',
+    en: 'The search input limit was reached. Narrow the folder or file type and search again.',
+    id: 'Batas masukan pencarian tercapai. Persempit folder atau jenis berkas lalu cari lagi.',
+  },
+  searchBusy: {
+    ko: '검색이 이 파일의 내용을 사용 중입니다. 검색이 끝난 후 다시 시도해 주세요.',
+    en: 'A search is using these file contents. Try again after it finishes.',
+    id: 'Pencarian sedang menggunakan isi berkas ini. Coba lagi setelah selesai.',
+  },
   destination: {
     ko: '생성 파일은 skills 밖의 기존 폴더에 저장해 주세요.',
     en: 'Save generated files in an existing folder outside skills.',
@@ -98,6 +108,7 @@ export function safeErrorText(db: Database, userId: string, code: string, messag
       safe_ops_limit: 'limit',
       safe_ops_failed: 'failed',
       safe_ops_busy: 'busy',
+      safe_ops_search_busy: 'searchBusy',
       safe_ops_image_limit: 'imageLimit',
       safe_ops_quarantined: 'quarantined',
       safe_ops_conflict: 'conflict',

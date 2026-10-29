@@ -10,7 +10,12 @@ export class Quarantine {
   constructor(readonly db: Database, readonly root: string) {}
   add(bytes: Uint8Array, kind: 'pptx' | 'image') {
     const hash = sha256(bytes)
-    this.db.query('INSERT OR IGNORE INTO safe_ops_artifacts(hash,size,kind) VALUES(?,?,?)').run(hash, bytes.byteLength, kind)
+    try {
+      this.db.query('INSERT OR IGNORE INTO safe_ops_artifacts(hash,size,kind) VALUES(?,?,?)').run(hash, bytes.byteLength, kind)
+    } catch (e) {
+      if (String(e).includes('safe_ops_search_busy')) throw new ToolError('An active search holds these bytes. Retry after it finishes.', 'safe_ops_search_busy')
+      throw e
+    }
     return hash
   }
   hasHash(hash: string) { return !!this.db.query('SELECT 1 FROM safe_ops_artifacts WHERE hash=?').get(hash) }

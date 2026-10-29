@@ -5,6 +5,9 @@
 // No document text leaves the server. Off on machines where the model runtime can't load (Intel Macs: onnxruntime
 // ships darwin-arm64 only) or with MYCEL_SEMANTIC=off; the AI then has grep only, as before.
 import { Database } from 'bun:sqlite'
+import { SearchAdmission } from '../files/search-admission'
+import type { Quarantine } from '../safe-ops/quarantine'
+import { sha256 } from '../files/store'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isOffice } from '../files/extract'
@@ -188,12 +191,16 @@ export class SemanticIndex {
   private cache: { paths: string[]; texts: string[]; vecs: Float32Array } | null = null
   private running: Promise<{ pending: number }> | null = null
 
-  constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null>; quarantine?: { hasFile(abs: string): boolean } }) {
+  constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null>; quarantine?: Quarantine }) {
     this.db = new Database(path.join(o.dataDir, 'semantic.db'), { create: true })
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime INTEGER NOT NULL, size INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS chunks (path TEXT NOT NULL, n INTEGER NOT NULL, text TEXT NOT NULL, vec BLOB NOT NULL, PRIMARY KEY (path, n));`)
+    if (!(this.db.query('PRAGMA table_info(files)').all() as {name:string}[]).some(c => c.name === 'source_hash')) {
+      // Rebuild old cached text: it has no source hash to check after replacement.
+      this.db.exec('ALTER TABLE files ADD COLUMN source_hash TEXT; DELETE FROM chunks; DELETE FROM files;')
+    }
     const model = (this.db.query("SELECT v FROM meta WHERE k = 'model'").get() as { v: string } | null)?.v
     if (model !== SEMANTIC_MODEL) {
       this.db.exec('DELETE FROM chunks; DELETE FROM files;')
@@ -227,18 +234,23 @@ export class SemanticIndex {
     return found
   }
 
-  private async textOf(rel: string, st: fs.Stats): Promise<string> {
-    if (this.o.quarantine?.hasFile(path.join(this.o.root, ...rel.split('/')))) return ''
+  private async textOf(rel: string, admission: SearchAdmission): Promise<{text: string; hash: string}> {
+    const abs = path.join(this.o.root, rel)
+    const input = admission.read(abs, () => {
+      if (this.o.quarantine?.hasFile(abs)) return false
+      return fs.lstatSync(abs)
+    })
+    if (!input) return {text:'', hash:''}
+    const hash = sha256(input.bytes)
     if (isOffice(rel)) {
-      if (!this.o.office.fresh(rel, st)) await this.o.office.update(rel)
-      try { return fs.readFileSync(this.o.office.cachePath(rel), 'utf8').slice(0, FILE_TEXT_MAX) } catch { return '' }
+      if (!this.o.office.fresh(rel, input.st)) await this.o.office.update(rel)
+      if (!this.o.office.fresh(rel, input.st)) return {text:'',hash}
+      const cache = this.o.office.cachePath(rel)
+      const text = admission.read(cache, () => fs.lstatSync(cache))
+      return {text: text ? text.bytes.toString('utf8').slice(0, FILE_TEXT_MAX) : '', hash}
     }
-    const fd = fs.openSync(path.join(this.o.root, ...rel.split('/')), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
-    try {
-      const buf = Buffer.alloc(Math.min(st.size, FILE_TEXT_MAX))
-      fs.readSync(fd, buf, 0, buf.length, 0)
-      return buf.subarray(0, 8000).includes(0) ? '' : buf.toString('utf8')
-    } finally { fs.closeSync(fd) }
+    const buf = input.bytes.subarray(0, FILE_TEXT_MAX)
+    return {text: buf.subarray(0, 8000).includes(0) ? '' : buf.toString('utf8'), hash}
   }
 
   /** Bring the index up to date: new / changed files are embedded (at most `budgetMs` now, the rest stays pending). */
@@ -262,17 +274,21 @@ export class SemanticIndex {
     let done = 0
     for (const [p, st] of stale) {
       if (Date.now() > until) break
-      const chunks = chunkText(await this.textOf(p, st).catch(() => '')).slice(0, CHUNKS_PER_FILE_MAX)
+      const admission = new SearchAdmission(this.o.quarantine)
+      try {
+      const input = await this.textOf(p, admission).catch(() => ({text:'',hash:''}))
+      const chunks = chunkText(input.text).slice(0, CHUNKS_PER_FILE_MAX)
       const vecs: Float32Array[] = []
       for (let i = 0; i < chunks.length; i += BATCH) vecs.push(...await embed(chunks.slice(i, i + BATCH), 'passage'))
       this.db.transaction(() => {
         this.db.query('DELETE FROM chunks WHERE path = ?').run(p)
         const ins = this.db.query('INSERT INTO chunks (path, n, text, vec) VALUES (?, ?, ?, ?)')
         chunks.forEach((c, i) => ins.run(p, i, c, new Uint8Array(vecs[i]!.buffer, vecs[i]!.byteOffset, vecs[i]!.byteLength)))
-        this.db.query('INSERT OR REPLACE INTO files (path, mtime, size) VALUES (?, ?, ?)').run(p, Math.floor(st.mtimeMs), st.size)
+        this.db.query('INSERT OR REPLACE INTO files (path, mtime, size, source_hash) VALUES (?, ?, ?, ?)').run(p, Math.floor(st.mtimeMs), st.size, input.hash)
       })()
       changed = true
       done++
+      } finally { admission.close() }
     }
     if (changed) this.cache = null
     return { pending: stale.length - done }
@@ -296,13 +312,19 @@ export class SemanticIndex {
     const embed = await this.o.embedder()
     if (!embed) return null
     const [qv] = await embed([q], 'query')
+    const admission = new SearchAdmission(this.o.quarantine)
+    return admission.transaction(() => {
+    const hashes = new Map((this.db.query('SELECT path,source_hash FROM files').all() as {path:string;source_hash:string}[]).map(r => [r.path,r.source_hash]))
     const { paths, texts, vecs } = this.load()
     const allowed = new Map<string, boolean>()
     const scored: SemanticHit[] = []
     for (let i = 0; i < paths.length; i++) {
       const p = paths[i]!
       let ok = allowed.get(p)
-      if (ok === undefined) allowed.set(p, (ok = visible(p)))
+      if (ok === undefined) {
+        try { ok = visible(p) && !this.o.quarantine?.hasHash(hashes.get(p) ?? '') && !this.o.quarantine?.hasFile(path.join(this.o.root,p)) } catch { ok = false }
+        allowed.set(p, ok)
+      }
       if (!ok) continue
       let s = 0
       for (let k = 0, o = i * DIM; k < DIM; k++) s += vecs[o + k]! * qv![k]!
@@ -315,5 +337,6 @@ export class SemanticIndex {
     for (const h of scored) { if (top.length >= limit) break; if (!firsts.has(h.path)) { firsts.add(h.path); top.push(h) } }
     for (const h of scored) { if (top.length >= limit) break; if (!top.includes(h)) top.push(h) }
     return top
+    })
   }
 }

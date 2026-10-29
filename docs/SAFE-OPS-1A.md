@@ -163,8 +163,7 @@ model provider via the guarded MCP route; they never go through legacy OCR. Down
 for an external Office/image application remains the user's action; validation does not certify
 that application's parser. There is no qualified in-app consumer or preview origin yet.
 
-Quarantine survives feature disable and restart. Schema reader level 2 prevents rollback to an
-older server that would ignore it. If an older binary is required, restore a matching **database
+Quarantine survives feature disable and restart. Schema reader level 3 prevents rollback to a server that omits search admission. If an older binary is required, restore a matching **database
 and team-file snapshot from before enablement**, not just the DB; otherwise generated files
 would lose their quarantine records. Protect journal/source metadata with the same tenant DB
 access/backup policy. A dedicated metadata retention/purge UI is deferred; do not erase quarantine
@@ -192,24 +191,75 @@ budgets and the same publication/provenance contract.
 and patch ownership/version qualification, operational hosted/medical review where applicable.
 The feature flag is the immediate disable switch. This slice does not approve general execution.
 
-### Independent second-review limitations
+## Search input admission (second-review remediation)
 
-Do not enable or describe this revision as release-approved. Raw grep still traverses permitted
-directories and filters quarantined matches only after ripgrep has consumed the file; it does
-not yet implement the required quarantine boundary before search consumption. This remains an
-unresolved 1A acceptance requirement, not a feature deferred to general execution. Grep-only
-reads retain paths/scopes but no immutable content version: final publication now refuses them
-until the model explicitly reads each source. It never binds an earlier grep result to a newly
-taken snapshot without that read. Semantic indexing now excludes quarantined files before
-reading and drops their retained index rows; historical downloads enforce the same browser
-Fetch Metadata restrictions as current-file downloads.
+Content ripgrep never receives a live team or text-cache directory. Its only live-tree
+operation is `--files` (names, no content). The broker authorizes each candidate, opens a
+regular singly-linked file without following a final symlink, compares the authorized
+identity to the descriptor, reads bounded bytes, and verifies descriptor nanosecond
+mtime/ctime/size and the authorized path again. It hashes the actual copied buffer against
+quarantine before any regex or character decoder sees it. Raw and CP949 passes share the
+same private mode-0700 snapshot directory with mode-0400 files; type, glob, original
+relative paths and line numbers are preserved. Copy, rename, replacement and newly published
+paths cannot change that snapshot. Team-root topology and the server OS account remain trusted.
 
-Journal lookup indexes avoid full-table scans on ordinary file access and admission. They do
-not bound lifetime metadata growth; a retention/quota design must preserve quarantine identities
-and unresolved cleanup debt. Deployment capacity and backup sizing must account for these records.
+Admission and hash quarantine registration are serialized by SQLite IMMEDIATE transactions.
+`safe_ops_search_inputs` holds a durable hash lease until all consumers exit and snapshot
+cleanup succeeds. Database triggers reject quarantine insertion/update for a leased hash
+and reject admission of a quarantined hash, including writes from other connections.
+A rare attempt to publish/normalize bytes that a current search already holds fails with a
+localized retry message **before** publication/delivery; it is not silently admitted.
+Unrelated publication continues. Office source bytes and their sidecars are also admitted;
+semantic embedding holds its source lease across asynchronous embedding and index writes.
+Semantic rows retain the original source hash, so query also rejects them before refresh
+even after path replacement; refresh removes quarantined rows. Historical
+downloads retain the same browser Fetch Metadata checks as current downloads.
 
-The current policy-generation triggers also invalidate workflows for non-policy updates, including
-an unrelated user's login/session heartbeat (`users.last_seen_at`) and connector bookkeeping.
-This fails closed but can repeatedly prevent image delivery or publication on an active team.
-Audit policy-bearing columns and add real-session/connector concurrency tests before enablement;
-preserve revoke-and-restore detection when narrowing those triggers.
+Each raw/Office snapshot is bounded to 20,000 candidates and 256 MiB; existing 50 MiB/file,
+query deadlines, cancellation and output limits remain. Input limits return an explicit
+incomplete-result notice; narrow the search. Temporary input copies add local I/O and may
+cost more than direct ripgrep, especially with many small files. Snapshot copying is
+synchronous and bounded by the search deadline. Hash leases do not keep a DB write lock
+while ripgrep or embedding runs. Grep results still carry no versioned model-context
+provenance: publication requires an explicit read of every grep-only source.
+
+After normal exit/cancellation, search snapshots and leases are deleted. A server crash or
+failed cleanup conservatively leaves leases and possibly snapshots, since a child might
+still be reading; **no timeout or PID-reuse guess expires a lease**. This can refuse later
+registration of those exact hashes. Recovery requires stopping the whole tenant service
+and its children, verifying no search/embedding consumers remain, removing only its owned
+`<dataDir>/search-inputs/` snapshots (prefixes identify the lease), then clearing that tenant's `safe_ops_search_inputs`
+rows while offline. Never clear `safe_ops_artifacts`, publication, inode or source records.
+An ordinary restart is not proof that orphan children have exited. Back up the DB and files
+together; do not downgrade the schema reader to work around a refusal.
+
+## Policy epoch audit (migration 319)
+
+Migration 316's INSERT/DELETE triggers remain for all eight tables below. Every committed
+revoke and restore advances the epoch even when the final policy is identical. Migration
+319 replaces only the UPDATE triggers using null-safe `OLD.x IS NOT NEW.x` comparisons;
+no-op assignments do not advance it. Applied migrations are unchanged. Transactions that
+roll back do not advance the committed epoch; independent writers cannot lose increments.
+
+| Table | Fields that advance the epoch on changed values | Fields excluded from UPDATE invalidation |
+|---|---|---|
+| users | id, username, password_hash, role, status, must_change_password, deleted_at, temp_password_expires_at | name, email, locale, created_at, prefs, last_seen_at, locale_follows_team, password_reset_by, password_reset_at, temp_password_failures |
+| groups | id, folder_id | name, description (display labels; access uses group IDs and folder paths) |
+| group_members | group_id, user_id | none |
+| folders | id, path | created_at |
+| folder_rules | id, folder_id, subject_type, subject_id, access | updated_by, updated_at |
+| integrations | id, scope, owner_user_id, kind, slug, url, auth, auth_header, secret_enc, key_version, account, write_policy, status, tools_json, version | created_by, name, notes, last_error, tools_updated_at, last_used_at, created_at, updated_at |
+| integration_access | integration_id, subject_type, subject_id | none |
+| connected_folders | id, name, source | created_by, created_at, last_sync_at, last_status, last_error, files, bytes |
+
+All migrations were searched for epoch writers: only 316 originally defines them; 318 adds
+search admission guards and 319 narrows the eight UPDATE triggers. Session records and
+connected-files sync metadata have no policy-epoch trigger. Real `createSession`, heartbeat,
+connector calls and sync accounting no longer invalidate an unrelated workflow. Authority,
+credentials, connector version/status or access changes still do. Synced source content
+changes remain independently protected by source identity/hash checks. Tests enumerate
+every schema column so future additions require an explicit classification.
+
+These fixes request a third independent review; they do not declare READY or authorize
+production enablement. Real pinned CLI/host qualification and customer notice gates remain.
+Journal/quarantine lifetime retention still needs a capacity and safe retention policy.

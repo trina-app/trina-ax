@@ -2764,9 +2764,16 @@ including same-account installs. Extend the same synthetic selection tests to co
   and independent review.
 - See [the exact guarantees, recovery procedure and deferred controls](SAFE-OPS-1A.md).
 
-Second independent review: keep the feature off and release approval withheld until raw grep
-excludes quarantined input before consumption. Grep-only source context now requires an
-explicit versioned read before final publication. Semantic indexing and historical browser downloads now enforce quarantine; retained
-journal lookups are indexed, while lifetime metadata retention/quota remains an operational gap.
-Policy epoch triggers still include routine session/connector bookkeeping; this can abort unrelated
-workflows and remains a second-review availability finding requiring a policy-column audit.
+Second-review remediation (2026-10-30): content search uses broker-admitted immutable
+snapshots, including raw/CP949, Office sidecars and semantic embedding. Durable hash leases
+serialize admission with quarantine registration across DB connections; conflicting registration
+fails before publication, and normal completion reaps consumers before release. Crashed leases
+have no time-based expiry; offline tenant/child shutdown and owned-snapshot cleanup precede
+lease-only recovery. Search remains active with the feature off. Reader level 3 prevents
+rollback to search without this boundary. Bounds, costs and recovery are specified in the admin doc.
+
+A new migration narrows all eight policy UPDATE triggers to actual changes in audited authority
+fields; auth heartbeat, connector usage and sync bookkeeping do not bump the epoch. INSERT/DELETE
+and null-safe comparisons retain revoke-and-restore detection. Do not edit applied migrations.
+Grep-only context still requires an explicit versioned read before publication. Feature default
+off, third independent READY decision, real CLI/host qualification and lifetime retention work remain.

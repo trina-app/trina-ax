@@ -1,4 +1,5 @@
 // THE permission function. Every tool and every human file API goes through authorize().
+import type { Quarantine } from '../safe-ops/quarantine'
 import fs from 'node:fs'
 import path from 'node:path'
 import { atLeast, type Principal, type RuleSet } from './access'
@@ -8,7 +9,7 @@ import { parseInput, realpathCheck, walk } from './resolve'
 
 export type Op = 'read' | 'write' | 'list'
 
-export interface FsCtx { root: string; caseInsensitive: boolean; quarantine?: { hasFile(abs: string): boolean } }
+export interface FsCtx { root: string; caseInsensitive: boolean; quarantine?: Quarantine }
 
 export interface Authorized {
   /** actual on-disk names (existing part + new names to create) */

@@ -124,3 +124,9 @@ See [design and validation records](docs/DECISIONS.md) for implementation detail
 
 The Mac desktop DMG is not included: Apple signing and notarization are pending. Release checksum signatures are
 separate from operating-system application signing.
+
+### Safe operations 1A — second review fixes
+
+- Admit immutable, hash-leased search inputs before raw/CP949 ripgrep, Office sidecar search and semantic embedding; keep quarantine active with the feature off.
+- Narrow policy epoch UPDATE triggers to changed authority fields; keep revocation/restore detection while excluding session and sync accounting. New migrations 318–319 require reader 3.
+- Document bounded search snapshots, conflicting-registration retry and offline crash-lease recovery. Independent release approval remains pending.

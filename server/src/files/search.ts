@@ -1,9 +1,9 @@
-// grep / glob on ripgrep (design tab 2 "grep 구현"). The permission function decides the allowed roots first;
-// ripgrep only receives those roots as positional paths, and every hidden sub-folder inside them as
-// `--glob '!<path>'`, so folders the user cannot see are never opened. Every result path is checked again
-// (access, name rules, regular file, nlink == 1) before it is shown.
+// ripgrep lists names only in the live tree. Content passes see broker-owned
+// immutable snapshots admitted by identity/hash before ANY search decoding.
 import fs from 'node:fs'
 import path from 'node:path'
+import { SearchAdmission } from './search-admission'
+import { safeText, SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
@@ -251,9 +251,18 @@ export class OfficeCache {
         try { if (lst.isFile()) this.write(rel, '', lst); else fs.rmSync(this.cachePath(rel), { force: true }) } catch { fs.rmSync(this.cachePath(rel), { force: true }) }
         throw e
       }
-      let text: string
-      try { text = await this.extract(rel, got.bytes) } catch { text = '' }
-      this.write(rel, text, got.st)
+      const admission = new SearchAdmission(this.fx.quarantine)
+      try {
+        // Re-read by identity and lease the exact bytes across async extraction.
+        const input = admission.read(abs, () => {
+          if (this.fx.quarantine?.hasFile(abs)) return false
+          return fs.lstatSync(abs)
+        }, Math.min(50 * 1024 * 1024, readMaxBytes()))
+        if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
+        let text: string
+        try { text = await this.extract(rel, input.bytes) } catch { text = '' }
+        this.write(rel, text, input.st)
+      } finally { admission.close() }
     }, ticket).finally(() => this.inflight.delete(rel))
     this.inflight.set(rel, { job, ticket })
     return job
@@ -455,8 +464,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   /** files that are legacy Korean text (decided once per file, only for files with results) */
   const legacy = new Map<string, boolean>()
   const isLegacy = (real: string) => {
-    if (!legacy.has(real)) legacy.set(real, legacyKoreanFile(path.join(d.fx.root, real)))
-    return legacy.get(real)!
+    return legacy.get(real) ?? false
   }
   // `keep` runs after the access check, so grep reads only files that this user can see
   const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true) => (rec: string) => {
@@ -486,8 +494,59 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const patArgs = patterns.flatMap((p) => ['-e', p])
   const rgOpts: RgRunOpts = { signal: o.signal, ...(o.mode === 'content' ? { maxRecordChars: RG_MAX_RECORD_CHARS } : {}) }
   /** countSkips: false for pass 2, which reads the same files as pass 1 again (a long line would count twice) */
+  const admission = new SearchAdmission(d.fx.quarantine)
+  const snapshots = new Map<string, string>()
+  let admissionLimited = false
   const run = async (args: string[], cwd: string, h: (rec: string) => boolean | void, timeoutMs: number, countSkips = true) => {
-    const r = await runRg(d.rg, args, cwd, recSep, h, timeoutMs, rgOpts)
+    let frozen = snapshots.get(cwd)
+    const until = Date.now() + timeoutMs
+    if (!frozen) {
+      const staging = path.join(path.dirname(d.office.dir), 'search-inputs')
+      fs.mkdirSync(staging, { recursive: true, mode: 0o700 })
+      frozen = fs.mkdtempSync(path.join(staging, admission.id + '-'))
+      snapshots.set(cwd, frozen)
+      // Listing cannot consume content. Preserve rg's type/glob semantics and
+      // original directory exclusions; never give content rg a live team path.
+      const listArgs = ['--files', '--null', ...RG_BASE]
+      const end = args.indexOf('--')
+      for (let i = 0; i < end; i++) {
+        if (args[i] === '--glob' || args[i] === '--type') listArgs.push(args[i]!, args[++i]!)
+        else if (args[i] === '--glob-case-insensitive') listArgs.push(args[i]!)
+      }
+      const candidates: string[] = []
+      const listed = args.length === end + 1 ? { killed: null, code: 0, err: '' } : await runRg(d.rg, [...listArgs, '--', ...args.slice(end + 1)], cwd, '\0', (r) => {
+        candidates.push(strip(r)); return candidates.length < 20_000
+      }, timeoutMs, { signal: o.signal })
+      if (listed.code === 2 && /type.*(unrecognized|unknown)/i.test(listed.err)) throw new ToolError(listed.err)
+      admissionLimited ||= listed.killed !== null
+      let bytes = 0
+      admission.transaction(() => {
+        for (const rel of candidates) {
+          if (o.signal?.aborted || Date.now() >= until) { admissionLimited = true; break }
+          const office = cwd === d.office.dir
+          const real = office ? rel.replace(/\.txt$/, '') : rel
+          const validate = () => visiblePath(d.fx, d.rules, d.user, real)
+          let input: { bytes: Buffer; st: fs.Stats } | null
+          if (office) {
+            // A sidecar is derived from this source: lease it before admitting
+            // the cache too. Stale/redacted or quarantined originals never enter rg.
+            const source = admission.read(path.join(d.fx.root, real), validate)
+            if (!source || !d.office.fresh(real, source.st)) continue
+            input = admission.read(path.join(cwd, rel), () => fs.lstatSync(path.join(cwd, rel)))
+          } else input = admission.read(path.join(cwd, rel), validate)
+          if (!input) { stats.filtered++; continue }
+          if (bytes + input.bytes.length > 256 * 1024 ** 2) { admissionLimited = true; break }
+          bytes += input.bytes.length
+          const dst = path.join(frozen!, rel)
+          fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
+          fs.writeFileSync(dst, input.bytes, { mode: 0o400, flag: 'wx' })
+          if (!office) legacy.set(real, legacyKoreanFile(dst))
+        }
+      })
+    }
+    const left = until - Date.now()
+    if (left <= 0) return { code: null, killed: 'timeout' as const, err: '', skipped: 0 }
+    const r = await runRg(d.rg, [...args.slice(0, args.indexOf('--')), '--', '.'], frozen, recSep, h, left, rgOpts)
     if (countSkips) stats.longSkipped += r.skipped
     return r
   }
@@ -499,6 +558,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   // strictTime: one deadline for the whole search; a pass that has no time left is not run (timedOut)
   const deadline = started + d.timeoutMs
   const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits })
+  try {
   const r1 = await run(mainArgs, d.fx.root, handler(id, (r) => !isLegacy(r)), d.timeoutMs)
   if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
   if (r1.killed === 'timeout') return stopped()
@@ -544,10 +604,18 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       if (r3.killed === 'timeout') timedOut = true
     }
   }
+  truncated ||= admissionLimited
   let text = out.join('\n') || 'No matches'
-  if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
+  if (admissionLimited) text += '\n' + (d.fx.quarantine ? safeText(d.fx.quarantine.db, d.user.id, 'searchLimit') : SAFE_OPS_TEXT.searchLimit.en)
+  else if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
   if (stats.officeNotQueued) text += `\n(${stats.officeNotQueued} office documents were not searched; they are not in the index queue yet; search again later)`
   if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
   return { text, truncated, timedOut, stats, files, hits }
+  } finally {
+    // runRg has reaped the consumer before release, including timeout/abort.
+    // Failed cleanup retains the durable lease (fail closed).
+    for (const dir of snapshots.values()) fs.rmSync(dir, { recursive: true, force: true })
+    admission.close()
+  }
 }

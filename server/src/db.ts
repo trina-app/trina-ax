@@ -22,7 +22,7 @@ import { uuidv7 } from '@mycel/shared'
 
 export const MIGRATIONS_DIR = path.join(import.meta.dir, '..', 'migrations')
 /** Raise when this build stops understanding DBs written by older releases' assumptions (see header). */
-export const SCHEMA_READER_LEVEL = 2
+export const SCHEMA_READER_LEVEL = 3
 
 export class SchemaTooNewError extends Error {
   constructor(public needed: number, public have: number, public migration: string) {
