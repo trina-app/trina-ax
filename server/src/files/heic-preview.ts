@@ -10,11 +10,14 @@
 // No converter: the caller gets null and the web shows the "cannot preview" panel.
 //
 // Limits: input at most PREVIEW_INPUT_MAX bytes, output at most PREVIEW_OUTPUT_MAX bytes, a time, memory and
-// work-folder limit per run, at most PREVIEW_RUNS_MAX runs at the same time, at most PREVIEW_QUEUE_MAX conversions
-// waiting and at most PREVIEW_PER_USER_MAX open requests of one person (over a limit: 'busy'). A request waits
-// with no file bytes in memory: only a running conversion reads its file. A request that goes away leaves the queue,
-// and a conversion that nobody waits for any more stops. A failed conversion is remembered for PREVIEW_FAIL_TTL_MS,
-// so a bad photo does not keep the converters busy.
+// work-folder limit per run, at most PREVIEW_RUNS_MAX runs at the same time and at most PREVIEW_QUEUE_MAX conversions
+// waiting. Fairness: one person runs at most PREVIEW_PER_USER_MAX conversion (less than PREVIEW_RUNS_MAX, so another
+// person always has a run) and has at most PREVIEW_PER_USER_WAIT_MAX more waiting. A free run goes first to a person
+// other than the one who just used it. A conversion that waits longer than PREVIEW_WAIT_MS stops waiting. Over a limit
+// and after the wait limit: 'busy' (the web says "busy, try again"). A request waits with no file bytes in memory:
+// only a running conversion reads its file. A request that goes away leaves the queue, and a conversion that nobody
+// waits for any more stops. A failed conversion is remembered for PREVIEW_FAIL_TTL_MS, so a bad photo does not keep
+// the converters busy ('busy' is not a failure and is not remembered).
 // Results are cached under <dataDir>/previewcache by the sha256 of the file content (so the cache cannot show a file
 // to somebody who cannot read it: the caller must have the same bytes first), at most PREVIEW_CACHE_MAX bytes (the
 // oldest go first). The sha256 of a file is kept by its inode, size, mtime and ctime, so a cache hit does not read
@@ -42,8 +45,14 @@ const PREVIEW_RSS_MIB = 1536
 export const PREVIEW_RUNS_MAX = 2
 /** conversions that wait for a free run; more: 'busy' */
 export const PREVIEW_QUEUE_MAX = 8
-/** preview requests of one person that are not done (a cache hit is done at once); more: 'busy' */
-export const PREVIEW_PER_USER_MAX = 4
+/** conversions of one person that run at the same time (less than PREVIEW_RUNS_MAX: the other runs are for others) */
+export const PREVIEW_PER_USER_MAX = 1
+/** conversions of one person that wait for a run; more: 'busy' */
+export const PREVIEW_PER_USER_WAIT_MAX = 1
+/** longest wait for a run; then 'busy' (try again), not an endless wait */
+export const PREVIEW_WAIT_MS = 15_000
+/** preview requests of one person that are not done (hashing, waiting, running); more: 'busy' */
+const PREVIEW_PER_USER_OPEN_MAX = 4
 /** how long a failed conversion is remembered (by content) */
 export const PREVIEW_FAIL_TTL_MS = 10 * 60_000
 export const PREVIEW_CACHE_MAX = 200 * 1024 * 1024
@@ -145,10 +154,15 @@ async function viaImageIo(bin: string, bytes: Uint8Array, signal?: AbortSignal):
   return isJpeg(r.stdout) ? r.stdout : failed('mycel-ocr has no JPEG mode (build it again with native/build.sh)')
 }
 
+/** A conversion that waits for a run */
+interface Waiter { owner: string; go: () => void }
+
 type Convert = (bytes: Uint8Array, tools: HeicTools, signal?: AbortSignal) => Promise<Buffer | null>
 
 /** One conversion, shared by every request for the same content. */
 interface Job {
+  /** the person who started it (the fairness limits count it for this person) */
+  owner: string
   promise: Promise<Buffer | null>
   ctrl: AbortController
   /** requests that wait for it now */
@@ -162,7 +176,9 @@ interface Job {
  */
 export class HeicPreviews {
   private running = 0
-  private waiting: { go: () => void }[] = []
+  /** running conversions by owner */
+  private runs = new Map<string, number>()
+  private waiting: Waiter[] = []
   private jobs = new Map<string, Job>()
   private failures = new Map<string, { err: ToolError; until: number }>()
   private perUser = new Map<string, number>()
@@ -170,7 +186,7 @@ export class HeicPreviews {
   private hashing = new Map<string, Promise<string>>()
   private toolsCache: HeicTools | null
 
-  constructor(private dir: string, tools?: HeicTools, private cacheMax = PREVIEW_CACHE_MAX, private convert: Convert = heicToJpeg) {
+  constructor(private dir: string, tools?: HeicTools, private cacheMax = PREVIEW_CACHE_MAX, private convert: Convert = heicToJpeg, private waitMs = PREVIEW_WAIT_MS) {
     this.toolsCache = tools ?? null
   }
 
@@ -190,16 +206,16 @@ export class HeicPreviews {
     // counted before the first await, so parallel requests of one person cannot all pass the check
     const user = o.user ?? ''
     const open = this.perUser.get(user) ?? 0
-    if (open >= PREVIEW_PER_USER_MAX) throw busy()
+    if (open >= PREVIEW_PER_USER_OPEN_MAX) throw busy()
     this.perUser.set(user, open + 1)
-    try { return await this.preview(abs, o.signal) } finally {
+    try { return await this.preview(abs, user, o.signal) } finally {
       const n = (this.perUser.get(user) ?? 1) - 1
       if (n > 0) this.perUser.set(user, n)
       else this.perUser.delete(user)
     }
   }
 
-  private async preview(abs: string, signal?: AbortSignal): Promise<{ bytes: Buffer; etag: string } | null> {
+  private async preview(abs: string, user: string, signal?: AbortSignal): Promise<{ bytes: Buffer; etag: string } | null> {
     const { fd, st } = openChecked(abs)
     fs.closeSync(fd)
     if (st.size > PREVIEW_INPUT_MAX) throw new ToolError(`too large to preview (over ${PREVIEW_INPUT_MAX / 1024 / 1024} MB)`, 'too_large')
@@ -214,8 +230,11 @@ export class HeicPreviews {
     if (signal?.aborted) throw aborted()
     let job = this.jobs.get(key)
     if (!job) {
-      if (this.running >= PREVIEW_RUNS_MAX && this.waiting.length >= PREVIEW_QUEUE_MAX) throw busy()
-      job = this.start(key, abs, fileSha, file)
+      if (!this.canRun(user)) {
+        if (this.waiting.length >= PREVIEW_QUEUE_MAX) throw busy()
+        if (this.waiting.filter((w) => w.owner === user).length >= PREVIEW_PER_USER_WAIT_MAX) throw busy()
+      }
+      job = this.start(key, abs, fileSha, file, user)
     }
     const out = await this.wait(job, key, signal)
     return out ? { bytes: out, etag: key } : null
@@ -241,11 +260,11 @@ export class HeicPreviews {
     }
   }
 
-  private start(key: string, abs: string, fileSha: string, file: string): Job {
+  private start(key: string, abs: string, fileSha: string, file: string, owner: string): Job {
     const ctrl = new AbortController()
-    const job: Job = { ctrl, refs: 0, done: false, promise: null as unknown as Promise<Buffer | null> }
+    const job: Job = { owner, ctrl, refs: 0, done: false, promise: null as unknown as Promise<Buffer | null> }
     job.promise = (async () => {
-      await this.slot(ctrl.signal)
+      await this.slot(owner, ctrl.signal)
       try {
         // the bytes are read only now (a waiting request holds none), and must be the content that was hashed
         const bytes = await readHashed(abs, fileSha)
@@ -253,7 +272,12 @@ export class HeicPreviews {
         const out = await this.convert(bytes, this.tools(), ctrl.signal)
         if (out) await this.write(file, out)
         return out
-      } finally { this.release() }
+      } catch (e) {
+        if (ctrl.signal.aborted) throw aborted()
+        if (e instanceof ToolError) throw e
+        // a spawn or read error (for example a converter that was removed): "cannot preview", and remembered
+        throw new ToolError(`could not make a preview of the photo (${e instanceof Error ? e.message : String(e)})`.slice(0, 300), 'preview_failed')
+      } finally { this.release(owner) }
     })()
     job.promise.then(() => {}, (e) => {
       if (ctrl.signal.aborted || !(e instanceof ToolError) || e.code !== 'preview_failed') return
@@ -321,27 +345,56 @@ export class HeicPreviews {
     }
   }
 
-  /** Wait for a free run. A stop signal removes the request from the queue. */
-  private slot(signal: AbortSignal): Promise<void> {
+  /** true: a conversion of `owner` can run now (a free run, and the person runs fewer than PREVIEW_PER_USER_MAX) */
+  private canRun(owner: string): boolean {
+    return this.running < PREVIEW_RUNS_MAX && (this.runs.get(owner) ?? 0) < PREVIEW_PER_USER_MAX
+  }
+
+  private take(owner: string) {
+    this.running++
+    this.runs.set(owner, (this.runs.get(owner) ?? 0) + 1)
+  }
+
+  /**
+   * Wait for a run. A stop signal removes the request from the queue; after waitMs it leaves the queue with 'busy'.
+   */
+  private slot(owner: string, signal: AbortSignal): Promise<void> {
     if (signal.aborted) return Promise.reject(aborted())
-    if (this.running < PREVIEW_RUNS_MAX) { this.running++; return Promise.resolve() }
+    if (this.canRun(owner)) { this.take(owner); return Promise.resolve() }
     return new Promise<void>((resolve, reject) => {
-      const w = { go: () => { signal.removeEventListener('abort', onAbort); resolve() } }
-      const onAbort = () => {
+      const leave = (e: ToolError) => {
         const i = this.waiting.indexOf(w)
         if (i >= 0) this.waiting.splice(i, 1)
-        reject(aborted())
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        reject(e)
       }
+      const onAbort = () => leave(aborted())
+      const timer = setTimeout(() => leave(busy()), this.waitMs)
+      const w: Waiter = { owner, go: () => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); resolve() } }
       signal.addEventListener('abort', onAbort, { once: true })
       this.waiting.push(w)
     })
   }
 
-  /** A run is done: the next waiting conversion gets its place. */
-  private release() {
-    const next = this.waiting.shift()
-    if (next) next.go()
-    else this.running--
+  /**
+   * A run of `owner` is done. Free runs go to waiting conversions in order, but a person who runs PREVIEW_PER_USER_MAX
+   * conversions is skipped, and a person other than `owner` goes first (so one person with many files cannot keep
+   * the others waiting longer than one conversion).
+   */
+  private release(owner: string) {
+    this.running--
+    const n = (this.runs.get(owner) ?? 1) - 1
+    if (n > 0) this.runs.set(owner, n)
+    else this.runs.delete(owner)
+    while (this.running < PREVIEW_RUNS_MAX) {
+      const ok = (w: Waiter) => (this.runs.get(w.owner) ?? 0) < PREVIEW_PER_USER_MAX
+      const i = [this.waiting.findIndex((w) => ok(w) && w.owner !== owner), this.waiting.findIndex(ok)].find((x) => x >= 0) ?? -1
+      if (i < 0) break
+      const [next] = this.waiting.splice(i, 1)
+      this.take(next!.owner)
+      next!.go()
+    }
   }
 }
 

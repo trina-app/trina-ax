@@ -2691,10 +2691,20 @@ including same-account installs. Extend the same synthetic selection tests to co
   tiled phone HEIC (measured with ffmpeg 8.0, the same as the OCR decision for 7.1). An old `mycel-ocr` without
   `--jpeg` writes text; the server accepts only output that starts with the JPEG marker.
 - **Limits.** Input at most 50 MB, output at most 20 MB (the web image limit), 30 s and 1.5 GB of memory per run,
-  at most 2 runs at the same time. One conversion is shared by callers that ask for the same content.
+  at most 2 runs at the same time and at most 8 conversions waiting. One conversion is shared by callers that ask for
+  the same content.
+- **Fairness.** One person runs at most 1 conversion (`PREVIEW_PER_USER_MAX`, less than the 2 runs, so another
+  person always has a run) and has at most 1 more conversion waiting (`PREVIEW_PER_USER_WAIT_MAX`). A free run goes
+  first to a waiting conversion of a person other than the one who just used it. So one person with many different
+  files (for example crafted variants that each use the 30 s limit) cannot keep another person waiting longer than one
+  conversion. A conversion that waits longer than 15 s (`PREVIEW_WAIT_MS`) leaves the queue. Over a limit and after
+  the wait limit the answer is 503 `unavailable` with `params.reason = busy`; the panel shows "busy, try again"
+  (`preview.photoBusy`) and a retry button. A failed conversion is remembered for 10 minutes (by content); `busy` is
+  not remembered. An error that is not a ToolError (for example a converter that was removed after the server found
+  it) is a failed conversion too: 503 `no_preview`, not 500, and remembered.
 - **Cache.** `<dataDir>/previewcache/<sha256 of the content>.jpg`, files 0600, at most 200 MB (the least recently
   used go first). The key is the content hash, so a caller must read the bytes first to get a cached preview.
-- **Fallback.** No converter, a damaged photo or a run over a limit: 503 `unavailable` with
+- **Fallback.** No converter, a damaged photo or a run over a run limit: 503 `unavailable` with
   `params.reason = no_preview`. The panel then shows the "cannot preview" notice (`preview.photoUnavailable`) and the
   download button. Other formats on this endpoint get the same answer.
 - **AI path.** No change. `IMAGE_EXT` already has `heic` / `heif`; `mycel-ocr` reads HEIC on macOS (ImageIO) and on
@@ -2703,5 +2713,11 @@ including same-account installs. Extend the same synthetic selection tests to co
   JPEG (2126x426, not one tile) with `heif-dec` or with `mycel-ocr` built by `swiftc` (skipped, with a reason, when
   neither exists), the cache, a damaged file, no converter, a converter without JPEG output, the input limit, cache
   pruning and the endpoint (200 or 503 `no_preview`, 404 for hidden files, 401 without a session). OCR of the HEIC is
-  tested when Apple Vision works in the sandbox on the machine. `web/test/unit/preview-heic.test.ts`: which names
-  use the server preview.
+  tested when Apple Vision works in the sandbox on the machine. The queue tests use a fake converter: the queue limit,
+  1 run and 1 waiting conversion per person, fairness (after one conversion the free run goes to the other person),
+  the wait limit (`busy`, not remembered), aborts, shared conversions and the failure memory.
+  `web/test/unit/preview-heic.test.ts`: which names use the server preview.
+- **Open items.** The work-folder limit is checked every 200 ms, so a fast writer can go past it by what it writes in
+  200 ms (a file-size rlimit in the sandbox would be a hard limit). For a HEIF file with many top-level images,
+  `out-1.jpg` is used, which is not always the primary image. On Linux `heif-dec` keeps the full size, so a JPEG over
+  20 MB gives no preview.

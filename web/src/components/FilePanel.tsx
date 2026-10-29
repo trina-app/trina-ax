@@ -40,7 +40,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const chatAttach = useTeamAttach()
   const [blob, setBlob] = useState<Blob | null>(file.source === 'local' ? file.blob : null)
   // 'unsupported': the server could not convert the file (no converter, a damaged photo): the "cannot preview" panel
-  const [error, setError] = useState<{ kind: 'missing' | 'large' | 'unsupported' | 'other'; text: string } | null>(null)
+  const [error, setError] = useState<{ kind: 'missing' | 'large' | 'unsupported' | 'busy' | 'other'; text: string } | null>(null)
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
   // a HEIC photo needs the server's JPEG, so a local one (not uploaded yet) has no preview
@@ -105,7 +105,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       (b) => live && setBlob(b),
       (e: unknown) => {
         if (!live) return
-        if (viaServer && isApiError(e, 'unavailable')) setError({ kind: 'unsupported', text: t('preview.photoUnavailable') })
+        // too many conversions now, or a wait over the server's limit: "busy, try again", not "cannot preview"
+        if (viaServer && isApiError(e, 'unavailable') && e.body.params?.reason === 'busy') setError({ kind: 'busy', text: t('preview.photoBusy') })
+        else if (viaServer && isApiError(e, 'unavailable')) setError({ kind: 'unsupported', text: t('preview.photoUnavailable') })
         else if (e instanceof PreviewTooLargeError) setError({ kind: 'large', text: t('preview.tooLarge', { size: formatSize(e.size, locale) }) })
         else if (isApiError(e, 'not_found')) setError({ kind: 'missing', text: t('preview.notFound') })
         else setError({ kind: 'other', text: errorText(e, locale, t('error.network')) })
@@ -206,6 +208,13 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <p className="text-sm text-muted">{error?.kind === 'unsupported' ? error.text : t('preview.unsupported')}</p>
             <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">
               <Download size={16} aria-hidden /> {t('common.download')}
+            </Button>
+          </div>
+        ) : error?.kind === 'busy' ? (
+          <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-busy">
+            <p className="text-sm text-muted" role="status">{error.text}</p>
+            <Button variant="secondary" onClick={() => setRev((v) => v + 1)} data-testid="preview-busy-retry">
+              {t('common.retry')}
             </Button>
           </div>
         ) : error ? (
