@@ -1,6 +1,7 @@
-import { CHAT_ERROR_MESSAGES, ERROR_MESSAGES } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES, CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { DICTS } from '../../src/i18n'
 
 async function ask(page: Page, text: string) {
   await page.getByTestId('composer-input').fill(text)
@@ -214,4 +215,42 @@ for (const [fixture, fallback] of [['unknown', 'Unknown upstream failure'], ['fu
       await expect(page.getByTestId('user-text')).toContainText(CHAT_ERROR_MESSAGES.auth.ko)
     }
   })
+}
+
+// B-W41-2 / UI-02, shared dialog helper: a menu item unmounts when its menu closes, so the dialog it opens
+// must return focus to the menu's trigger, not to BODY. The sidebar chat menu has no page-level anchor.
+for (const openWith of ['keyboard', 'mouse'] as const) {
+  for (const [item, dismissWith] of [['common.delete', 'Escape'], ['chat.rename', 'Escape'], ['common.delete', 'Cancel']] as const) {
+    test(`sidebar chat menu dialog returns focus to the menu button (${openWith}, ${item}, ${dismissWith})`, async ({ page }) => {
+      const t = DICTS.ko
+      await reset(page)
+      await signIn(page)
+      for (const title of ['Focus chat A', 'Focus chat B']) {
+        expect((await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title } })).ok()).toBeTruthy()
+      }
+      await page.reload()
+      for (const title of ['Focus chat B', 'Focus chat A']) {
+        const li = page.getByRole('listitem').filter({ hasText: title })
+        const trigger = li.getByRole('button', { name: t['chat.menu'], exact: true })
+        const choice = li.getByRole('menuitem', { name: t[item] })
+        if (openWith === 'keyboard') {
+          await trigger.focus()
+          await page.keyboard.press('Enter')
+          await choice.focus()
+          await page.keyboard.press('Enter')
+        } else {
+          await li.hover()
+          await trigger.click()
+          await choice.click()
+        }
+        const dialog = page.getByRole('dialog')
+        await expect(dialog).toBeVisible()
+        if (dismissWith === 'Escape') await page.keyboard.press('Escape')
+        else await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+        await expect(dialog).toHaveCount(0)
+        await expect(trigger).toBeFocused()
+        await expect(li).toBeVisible()
+      }
+    })
+  }
 }
