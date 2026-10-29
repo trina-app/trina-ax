@@ -122,6 +122,10 @@ test('R2-3: semantic embedding holds its admitted bytes until the async consumer
     fs.copyFileSync(abs, path.join(a.team, 'shared/copy.txt'))
     expect((await index.query('query', () => true))!.some(h => h.text.includes(text))).toBe(false)
     fs.writeFileSync(abs, 'replacement ordinary text')
+    // Another index writer changes metadata while this instance caches old text.
+    const otherIndex = new Database(path.join(a.data, 'semantic.db'))
+    otherIndex.query('UPDATE files SET source_hash=? WHERE path=?').run(sha256(Buffer.from('replacement ordinary text')), 'shared/semantic.txt')
+    otherIndex.close()
     // The retained source hash blocks the old chunks even after path replacement.
     expect((await index.query('query', () => true))!.some(h => h.text.includes(text))).toBe(false)
     fs.writeFileSync(abs, text)

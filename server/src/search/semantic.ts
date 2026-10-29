@@ -188,7 +188,7 @@ export interface SemanticHit { path: string; score: number; text: string }
 
 export class SemanticIndex {
   readonly db: Database
-  private cache: { paths: string[]; texts: string[]; vecs: Float32Array } | null = null
+  private cache: { paths: string[]; texts: string[]; hashes: string[]; vecs: Float32Array } | null = null
   private running: Promise<{ pending: number }> | null = null
 
   constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null>; quarantine?: Quarantine }) {
@@ -301,10 +301,10 @@ export class SemanticIndex {
 
   private load() {
     if (this.cache) return this.cache
-    const rows = this.db.query('SELECT path, text, vec FROM chunks').all() as { path: string; text: string; vec: Uint8Array }[]
+    const rows = this.db.query('SELECT c.path, c.text, c.vec, f.source_hash FROM chunks c JOIN files f ON f.path=c.path').all() as { path: string; text: string; source_hash: string; vec: Uint8Array }[]
     const vecs = new Float32Array(rows.length * DIM)
     rows.forEach((r, i) => vecs.set(new Float32Array(r.vec.buffer, r.vec.byteOffset, DIM), i * DIM))
-    return (this.cache = { paths: rows.map((r) => r.path), texts: rows.map((r) => r.text), vecs })
+    return (this.cache = { paths: rows.map((r) => r.path), texts: rows.map((r) => r.text), hashes: rows.map((r) => r.source_hash), vecs })
   }
 
   /** Closest chunks among the files `visible` allows (best chunk per file first, then more chunks), at most `limit`. */
@@ -314,15 +314,16 @@ export class SemanticIndex {
     const [qv] = await embed([q], 'query')
     const admission = new SearchAdmission(this.o.quarantine)
     return admission.transaction(() => {
-    const hashes = new Map((this.db.query('SELECT path,source_hash FROM files').all() as {path:string;source_hash:string}[]).map(r => [r.path,r.source_hash]))
-    const { paths, texts, vecs } = this.load()
+    // Keep provenance with the cached text: another index connection may refresh
+    // its files table while this process still holds an older in-memory vector.
+    const { paths, texts, hashes, vecs } = this.load()
     const allowed = new Map<string, boolean>()
     const scored: SemanticHit[] = []
     for (let i = 0; i < paths.length; i++) {
       const p = paths[i]!
       let ok = allowed.get(p)
       if (ok === undefined) {
-        try { ok = visible(p) && !this.o.quarantine?.hasHash(hashes.get(p) ?? '') && !this.o.quarantine?.hasFile(path.join(this.o.root,p)) } catch { ok = false }
+        try { ok = visible(p) && !this.o.quarantine?.hasHash(hashes[i] ?? '') && !this.o.quarantine?.hasFile(path.join(this.o.root,p)) } catch { ok = false }
         allowed.set(p, ok)
       }
       if (!ok) continue
