@@ -1936,3 +1936,207 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   (default off, Me flag, admin/member rights, wrong password, wrong seal purpose, plaintext body refused, stored
   encrypted, rekey, remove, no key in responses/audit/logs), `tests/unit/c-jobs.test.ts` (whisper tests now set
   `local`), `web/test/unit/voice.test.ts` (mic visibility).
+
+## Spreadsheet and Hangul parsing in a bounded child process (2026-10-29)
+
+- SheetJS (xlsx / xls / ods) and hwp.ts (hwp / hwpx) do not run in the server process any more. extract.ts starts
+  the office worker (server/src/files/office-worker.ts) for each file through the converter isolation
+  (tools/isolate.ts runIsolated): sandbox-exec on macOS, bwrap plus the converter cgroup ("conv") on Linux, no
+  network, an empty work folder, the file on stdin. The worker is bun itself (process.execPath, `--smol`) with one
+  self-contained script: the bundles build office-worker.js next to main.js; a checkout builds it once per process
+  into a private temp folder. The isolation can read only that folder.
+- Limits: 60 s wall clock, 32 MiB of UTF-8 text (stdout cap 33 MiB; .hwp keeps its 8M-character cut), 2048 MiB resident memory (a watchdog in runIsolated:
+  /proc on Linux, ps on macOS), two workers at a time. On production Linux the converter cgroup's memory.max
+  (512-1536 MiB, shared by all converters) is the tighter cap. SheetJS needs about 2 GB for an .ods of 150 000 rows
+  (about 9 MB of text), so a lower watchdog would refuse normal large files.
+  The 32 MB input cap where limits apply (inProcessParseMax) stays and is checked before a worker starts.
+- Inside the worker: a zip (xlsx, ods, hwpx) is refused above 200 MiB uncompressed in total, above 10 000 parts, for
+  a part over 10 MiB that expands more than 100 times, for zip64 or encryption, and when a part's real size differs
+  from its header (each part is inflated once with the declared size as a hard cap). A .hwp body stream inflates to
+  at most 64 MiB, all streams together to at most 200 MiB. SheetJS reads with `dense`, `sheetRows` 1 048 576 and no
+  formulas, styles, HTML or VBA. A declared sheet range is cut to the last real row, and to the last real column
+  when it would still be over 2 million cells: real files often declare too large a range, so it is cut, not refused.
+- Why: a crafted file (zip bomb, an .ods cell repeated a million times, huge zlib streams) could exhaust the server's
+  memory or block its event loop for every user, also from background indexing (OfficeCache) and semantic search.
+  Now it can only end the worker; the user sees "too large or too complex to read safely as text (...)". Text of
+  normal files is unchanged (checked against the old code for xlsx, xls, ods and xlsb).
+
+## No stored key in the answer (INT-13, B-W5-4, B-W5-1; 2026-10-29)
+
+- What: the literal value of any stored connection secret of the person (their own personal keys and tokens, also while personal connections are off, and team connections they may use; earlier OAuth tokens seen since start) is replaced by `[hidden key]` in everything the turn itself sends or saves: the streamed answer, the saved answer, step labels and details, audit lines (tool_events), the placeholder chat title and the AI-named title (set_title refuses it), and every chat title the API or `chat.updated` shows (list, search, one chat; also titles made before the key was saved), and the chat file names and headings of the settings export (QA SEC-16). A title given at create or rename is saved hidden, so the database does not get the key from it; older titles stay as stored and are hidden on the way out. One redactor (`server/src/integrations/connections/redact.ts`) serves the stream and the saved text: `TurnExec.appendText` holds back only the end that could start a stored value (carry-over across text pieces), flushes before steps, retries and the end, and checks the whole answer once more at the end (escaped or base64 forms cut across pieces; `message.done` carries that text).
+- Why: hide.ts already hid the key in what a service sends back, but the AI quoted the key from the person's message in its own words ("the string you sent (…) matched the stored key"), and the QA key became the placeholder title. Team decision: strict.
+- Not changed: the person's own message is kept as typed (the AI's history needs it), so search can still find a chat by its content; titles and list/search results never show the key. Without a stored connection holding it, a words-only test string such as the QA key is not secret-looking (shared/src/secrets.ts) and can still become a placeholder title; no shape rule was added for it (it would also hide ordinary text). Values shorter than 8 characters and changed forms (case, hashes) are not caught, as in hide.ts.
+
+## make_file PowerPoint: requested slide count and speaker notes are checked (R2-GEN-03, B-W24-1, B-API-1, 2026-10-29)
+
+- What: for pptx from Markdown, make_file sets `--slide-level` explicitly (2 when the document has a `## ` heading, else the smallest heading level below `# ` that is used, and 1 only when the document has only `# ` headings) instead of pandoc's guess from the document shape. After the conversion it reads the .pptx (`ppt/slides/slideN.xml` in number order, notes through each slide's rels, a note counts only when the notes body placeholder has text). New optional inputs `expected_slides` and `expected_notes` (pptx only). A deck that does not match is a tool error that names the real counts, the slide titles, the detected cause (YAML title slide, `# ` section slides, untitled slide from text under `# `, `---` splits, no `## ` headings) and the format rule. Nothing is saved, and the widening card is not shown. Every pptx result states the real slide and notes counts and titles. The tool description gives the format: one `## ` heading per slide, a YAML `title:` is the only title slide and counts, `::: notes` under the slide heading.
+- Why: "5 slides including the title, notes on each" became one slide with all notes merged (pandoc's default level was 1 for that shape), and "5 slides" became a title slide plus five. The AI then reported the requested structure. The expectation comes from what the AI says the user asked for, not from the Markdown structure, because the wrong structure was the bug: an expectation derived from it would agree with it. When the AI does not give the expectation, the real counts in the result are the guard.
+- Review fix: the first version used level 1 for every document without a `## ` heading. A deck with `### ` slides (or `# Deck` + `### ` slides) then became one slide with no error when `expected_slides` was absent, the same N -> 1 merge as B-W24-1. The level now follows the headings that are used, so these decks keep one slide per `### `, as pandoc made them before.
+
+## File history: the real author of each version, and moves in the history (2026-10-29)
+
+- QA TEAM-03 / B-W7-6, R2-ETC-06 / B-W24-2, AITOOL-13 / B-W3-1. A stored version showed the person whose save REPLACED it. The current version was not in the list, and the person who created the file was lost. AI moves, copies and renames left no history line.
+- New columns `file_versions.saved_by` / `saved_turn_id` (migration 314) hold the person and AI turn whose save PRODUCED the stored content. `author_id` / `turn_id` keep their old meaning (who replaced it). All three insert sites set them: `saveVersion` / `snapshotVersion` through `insertVersion`, and `recordConflictCopy`. The backfill matches the newest earlier content event with the same hash at `path_at_save`. When no event matches, the value stays NULL, and the screen says "author unknown · replaced by X". It does not guess.
+- The changes come from `file_events` (`server/src/files/timeline.ts`). We do not add new event actions, because the CHECK constraint stays as it is. The walk goes backward from the current path. It follows `create {movedFrom}` of the file or of a folder above it, and trash restores. It stops where the file was made: a create, a non-replacing upload or copy, or the delete of an earlier file with the same name. Rename = `rename_file` or the same parent folder. The AI marker = `turn_id`.
+- `GET /api/files/history` changes are additive: `current` (version number max+1, author when the newest content event made exactly this content), item `savedBy` / `savedTurnId`, and `events`. Each event shows only if the caller can read the path where it happened. A source path the caller cannot read is null. This means that a file moved out of a personal folder does not show what happened in that folder. The 404 rule is unchanged. Restore is unchanged. The restorer becomes the author of the restored content.
+- Review round 1 (security): "the caller can read the path" was not enough. The live rules are keyed by the live folder paths. When a rule folder above an old path is renamed or trashed, it takes its rules along, and the old path string falls back to the folder above (for example `shared/`, everyone). So a non-member saw the edits made inside `shared/<restricted>` and its old name after the file was moved out and the folder was renamed or trashed. Now `placeNow` (timeline.ts) follows each later move of a folder above the old path to where it went, and a trashed folder to where it was restored. An event (and its `from` path) shows only when the caller can read the old path AND the place where it is now. While a folder above is in the trash (or was purged), only owner and admin see it. This is the same safety rule that `versionVisible` uses with `folder_id`. Legacy events need no migration, because the walk reads the existing folder move / trash / restore rows. Test: `c-version-authors.test.ts` "a file moved out of a restricted team folder".
+
+## Scheduled run outcome (2026-10-29)
+
+- QA SCHED-03, R2-SKILL-10, B-W12-2, B-W26-3, CHAT-12. A one-time schedule showed "completed" and sent a
+  "completed" notification when the run ended, also when the task did not work (example: the AI's skill save was
+  auto-refused because an unattended run has nobody to confirm it). "The run ended" (`turns.status`) and "the task
+  worked" are now separate.
+- Each scheduled turn stores `turns.run_outcome` (migration 210, additive): `failed` = the turn did not end `done` or
+  gave no answer text; `problems` = the answer finished but a tool call was refused or failed (`tool_events.ok = 0` or
+  a step with status `error`); `succeeded` otherwise. The turn writes it before its terminal status, because the
+  notification reconciler records any terminal scheduled turn and an inbox event cannot change after it is recorded.
+  Rows without a value (older builds, interrupted recovery) fall back to the status. Rule: `server/src/chat/schedule-outcome.ts`.
+- Notifications keep the two event types and their preferences (the inbox and push tables have CHECK lists and must not
+  be rebuilt). `problems` and `failed` go to `schedule.failure`; the inbox item carries an optional `outcome`, and the
+  inbox text follows it ("finished, but some steps did not work"). The lock-screen text stays generic; its Korean
+  failure text now says "needs attention" instead of "could not finish", because it also covers `problems`.
+- The schedule list shows `lastOutcome = 'problems'` ("Last run finished with problems"), coloured as a warning next
+  to the result link; a clean success reads "Last run succeeded".
+- A finished or expired one-time schedule keeps its "Resume" switch visible but disabled, described by the reason
+  (`aria-describedby`), instead of a switch that does nothing. The API still refuses with 409 and a localized message
+  (1a9d1c5). The reason text says "create a new schedule": no UI or AI tool can change a schedule's time today.
+- A guard refusal counts as a refused tool call, also when the template scope expects it. The scheduled template test
+  (`tests/unit/schedule-template-native.test.ts`) writes outside the approved folder, overwrites, and calls `remember`;
+  all three are refused, so that run is `problems` and goes to `schedule.failure`. The person must know that the AI
+  tried something the schedule did not allow (SCHED-03, R2-SKILL-10).
+
+## API engine: cost, errors, status check and label (fix/api-engine-plumbing, 2026-10-29)
+
+- Cost (B-API-3): each completion emits one usage. The provider's own cost (OpenRouter `usage.cost`, asked with
+  `usage: {include: true}` only on openrouter.ai) comes first. Next is the list price of a model that
+  credentials/prices.ts knows by name (also as `vendor/model`); the most-expensive fallback is not used here. Else
+  the turn keeps its tokens and gets `usage_source = 'engine_unpriced'`: the usage page marks the amount "+?" and
+  says how many answers have an unknown price. No migration (`cost_usd` stays NOT NULL; the known part only).
+  Provider request ids (OpenRouter generation ids) go to the server log. Turns of the API engine record its model.
+- Errors (B-API-5): new reasons `model_not_found`, `endpoint_unreachable` (refused, unknown host, no response
+  headers in 90 s, 404 without a model word) and `provider_error` (other statuses, also 402). The HTTP status goes
+  in `params.status` and as "(HTTP n)" after the text. The person sees only our ko/en/id text; the provider's
+  text goes to the log with the key and bearer tokens removed.
+- Status check (B-API-6): no model call. 401/403 = key refused (on OpenRouter, whose model list is public, also
+  GET /key, then /auth/key; neither = "key not checked"). Other non-2xx = error with the status. A listed model must be in the list (Gemini `models/`, Ollama
+  `:latest` accepted); a provider without a list is "ok" with "model not checked". Unreachable = error.
+- Label (B-API-4): auth mode `api-key` with the provider host; the card keeps an "Experimental" badge (UI only,
+  not `beta`, which limits who may use an engine). API-24: a test switches one chat API -> Codex -> API.
+
+## API engine: grounded links and tool-error recovery (fix/api-engine-grounding, 2026-10-29)
+
+- QA B-API-2: with the OpenAI-compatible "api" engine the model made up preview and Drive links and statistics,
+  although the tools gave the correct local link. The api engine now adds a short "Grounded answers" block to the
+  team instructions (this engine only; Claude Code and Codex prompts do not change): copy team links exactly from
+  make_file / share_file results, call share_file for files saved another way, never invent hosts or links, state
+  only facts that a tool, a file or the user gave, and say when it does not know.
+- Server side (engine/api-links.ts): a link in the streamed answer that points at this server's file routes
+  (`/files/view`, `/api/files/...`, relative or on one of `publicOrigins`) must match, by route and `path`, a link in a
+  tool result of this turn, the instructions or the user message (history keeps earlier links valid). Other such
+  links become plain text (a Markdown link keeps its label; no new user-facing text). Links to other hosts are not
+  changed. The guard holds back only an open `[...](...)` or the last word while text streams, at most 2000
+  characters, and flushes at the end of every completion.
+- Tool results that hold team links name them once more at the end of the tool message ("copy them exactly").
+  The UI text of the step does not change.
+- QA B-API-1 (5 slides asked, 6 made): the slide-count check itself is PR #18. The loop already returned error results
+  to the model; now a handler that throws is a tool answer too ("Error: the tool failed: ..."), an empty result is
+  "(no output)", and the loop goes on so the model can correct the call. Statistics are not fact-checked.
+- Parentheses in file names (review, 2026-10-29): conflict copies ('name (conflict copy - person date).ext') and
+  names such as 'Report (final).pptx' cut the link at '('. `fileShareUrl` now also encodes '(' and ')' as %28 and
+  %29, so a canonical link has no bare parenthesis. The guard reads URLs with balanced parentheses (CommonMark), so a
+  link that a model retypes with bare parentheses still matches by its decoded `path`; an unbalanced ')' ends the URL.
+
+## Round-2 desktop and admin QA: chat retention text, browser e2e sign-in, age export check (2026-10-29)
+
+- The chat trash page, the deleted-chat banner and the account deletion dialog said "7 days", but the server purges
+  with the current Admin > Team settings value `chatTrashRetentionDays`. `/api/me` now sends it as optional
+  `team.chatTrashRetentionDays`. The web shows that value and computes the banner date as deleted at + the current
+  value. An older server without the field gives the default, 7. File trash text (B-W25-2) stays as on main.
+- Since the browser identity recheck, every AI browser call needs a signed-in team page. The desktop e2e suites that
+  never signed in failed with "browser identity could not be verified". They now sign in with `signIn()`. The fake
+  server's sign-in cookie lasts 30 days like the real one, so a sign-in survives an app restart in the tests.
+- A password export is checked with a small age v1 (scrypt) decoder written from the specification, not only with the
+  server's own age library. The decoder opens the export and gets the same scope as the plain export. A wrong password
+  fails, and the API refuses a password shorter than 8 characters. A check with the real `age` CLI is still open.
+- Review follow-up: the delete-chat dialog (`chat.deleteBody`) also names the saved chat retention, not "7 days".
+  Team settings refreshes `/api/me` after a save that changes `chatTrashRetentionDays`, so the chat delete, chat trash
+  and member delete screens show the new value at once, with no page reload.
+
+## App connectors: upload_file for binary files (feat/mcp-upload-file, 2026-10-28)
+
+- **Problem.** The remote MCP connector (`server/src/connectors/remote-mcp/`) gives a person's Claude the tools `list`,
+  `glob`, `grep`, `read`, `skills_list` and, with the `mcp:write` scope, `write` and `edit`. `write` takes text only.
+  Claude Code on a Mac cannot put a PDF, Word file, image or zip into the team drive.
+- **Decision.** A new connector-only tool `upload_file` (`remote-mcp/upload.ts`). It is not in `FILE_TOOLS`, so the
+  in-app engine does not get it. Input: `path`, `content_base64`, optional `overwrite` (default false). The tool is
+  listed and runs only with `mcp:write` (same `WRITE` set and per-call scope check as `write`).
+- **Limits.** The decoded size is at most 20 MiB (`UPLOAD_MAX_BYTES`). The base64 string is bounded before decoding,
+  whitespace is removed, and a string that is not strict base64 is refused. The storage check
+  (`assertStorageRoomForAI`) and the connector rate limit apply. The per-turn write budget does not apply: the
+  connector keeps one `TurnFiles` per connection in use, so that budget would never reset.
+- **Practical size.** Claude must write the base64 as output tokens; a file cannot go by reference. So real uploads
+  are much smaller than 20 MiB (likely about 100 KB or less per call), depending on the client's output limit.
+- **Checks.** Same as `write`: `authorize(..., 'write', { createDirs: true })` with the current rules, no `skills/`
+  target, and the grant's read-scope `widening` check (a model can read a private file and send it back as base64).
+  No await sits between the checks and the save.
+- **Saving.** The bytes go through `TeamFiles.placeUpload`, the same function as the web upload. Missing folders are
+  made with `TeamFiles.mkdir`. Without `overwrite`, a name clash gives the web upload's free name ("report (2).pdf");
+  nothing is replaced. With `overwrite: true`, `placeUpload` needs write access to the existing file and keeps it as a
+  version. File events, text extraction and `files.changed` work as for a web upload. The result holds the saved
+  path, the size and `conflictCopy` / `replaced`.
+- **Audit.** `remote_mcp.tool` with `{tool: 'upload_file', ok, via: 'connector', path, size, conflictCopy, replaced}`.
+  The content is never stored in the audit or in an error text.
+- **Body limit.** `/mcp` reads up to `MCP_UPLOAD_BODY_MAX` (about 29 MB). A message over 1 MiB that is not a
+  `tools/call` of `upload_file` still gets 413. Other routes keep their limits; the server-wide
+  `maxRequestBodySize` (51 MB) did not change.
+- **Consent text.** `connectors.write` now says that files can also be uploaded (en/ko/id).
+- **Tests.** `tests/unit/remote-mcp-tools.test.ts` (bytes intact and listed, scope hidden and refused, no write
+  permission, too large, invalid base64, name clash copy, overwrite keeps a version, audit without content, widening
+  and `skills/` refused), `tests/unit/remote-mcp-http.test.ts` (large upload body accepted, large other call 413).
+- **Docs.** `docs/INTEGRATIONS.md` ("App connectors") and this entry.
+
+## App connectors: one-time upload links for big files (feat/mcp-upload-large, 2026-10-29)
+
+- **Problem.** `upload_file` needs the model to type the base64 bytes. In practice that works only up to about
+  50 KB. Claude Code on a Mac has a shell, so it can send a local file with `curl` if it has a URL.
+- **Decision.** A second connector-only tool `create_upload_link` (`remote-mcp/upload-link.ts`), `mcp:write` only
+  (same `WRITE` set as `write`). Input: `path`, optional `overwrite`, optional `size` (expected bytes). It runs the same
+  checks as `upload_file` now (`checkUploadTarget`: current rules, no `skills/`, read-scope widening, not a folder,
+  storage when the size is known) and returns `{url, method: 'PUT', path, overwrite, maxBytes, expiresAt, command}`.
+  The command is `curl --fail-with-body -T "<local file>" "<url>"`. The tool descriptions tell Claude to use this
+  tool for files over about 50 KB and say that it does not help without a shell (claude.ai, Claude Desktop).
+- **URL.** `PUT <connector origin>/connector-uploads/<token>`. The origin is the connector issuer
+  (`MYCEL_REMOTE_MCP_ORIGIN`, `RemoteOAuth.enabled()`), the same HTTPS origin Claude uses for `/mcp`. It is never
+  taken from the request Host. The path is outside `/api/`: the session middleware does not read cookies there and
+  the CSRF middleware (custom header) does not apply, so `curl` needs no extra header. The token is the only auth.
+- **Token.** `tax_up_` + 32 random bytes (base64url). Only its sha256 is stored (migration
+  `108_a_remote_mcp_upload_links.sql`). A link is bound to the person, the grant, the exact target path (as
+  `authorize` resolved it) and the overwrite flag. It is valid 10 minutes. Expired rows are purged in
+  `RemoteOAuth.ingress`; a grant delete cascades. `loggablePath` hides the token in the access and error logs. The
+  audit rows never hold the token or its hash.
+- **Limits.** Max size per link: 200 MiB or `SMALL_UPLOAD_MAX`, whichever is lower, so 50 MiB. Bun's
+  `maxRequestBodySize` (51 MiB, `main.ts`) refuses a larger body before any handler, and it stays as it is (Cloudflare
+  allows 100 MB per request). Link creation: 10 per minute per grant (`remote_mcp_limits`), at most 20 unused links per
+  grant. The PUT goes through `ingress('upload', ip)` like the other public routes.
+- **PUT order.** (1) ingress rate limit; (2) a foreign `Origin` is refused (curl sends none), before the token is
+  used, so a web page cannot use up a link; (3) the token is consumed in one statement
+  (`UPDATE ... SET used_at WHERE used_at IS NULL AND expires_at > now RETURNING *`), so a second PUT gets 404;
+  (4) the grant must still be valid (not revoked or expired, session alive, same person, `mcp:write`); (5) a
+  `Content-Length` over the cap gets 413 at once; (6) the body streams to a 0600 temp file with `boundedBody` (413 as
+  soon as the cap is passed, never buffered); (7) after the body, the grant and the person's current permissions
+  are checked again and the file goes through `placeConnectorUpload` (the shared `TeamFiles.placeUpload` path of
+  `upload_file`: versions, "name (2).ext", NFC names); (8) the temp file is always removed.
+- **Answer.** 200 `{path, size, conflictCopy, replaced}`. Refusals are JSON `{error, message}`: 404 `invalid_link`
+  (unknown, used or expired), 403 `access_denied` (connection ended), 403 `refused` (rules), 413 `too_large`.
+- **Audit.** Link creation: `remote_mcp.tool` `{tool: 'create_upload_link', ok, via: 'connector', path, overwrite,
+  maxBytes, expiresAt}`. Upload: `remote_mcp.upload` (actor = the person, target = the grant)
+  `{via: 'connector_link', ok, path, size, conflictCopy, replaced}` or `{ok: false, reason}`.
+- **Refactor.** `upload.ts` now has `checkUploadTarget` and `placeConnectorUpload`; `upload_file` and the link use
+  them both, so the checks cannot drift apart.
+- **Tests.** `tests/unit/remote-mcp-upload-link.test.ts` (scope, URL on the connector origin, hash only, declared
+  size too large, read-only folder refused, PUT bytes intact and listed, second PUT refused, malformed token, audit
+  without token or hash, log path hidden, clash copy and overwrite version, foreign Origin, expired and purged,
+  oversize by header and while streaming with few reads and no temp file left, revoked grant, narrowed scope,
+  revoke during the stream, permission removed after creation, rate and open-link limits),
+  `tests/unit/remote-mcp-http.test.ts` (through the app: no cookie, no CSRF header, once).

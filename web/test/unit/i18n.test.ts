@@ -13,12 +13,29 @@ const placeholders = (s: string) => placeholdersOf(s)
 describe('translations', () => {
   test('account deletion describes private archive transfer without a fixed path', () => {
     for (const loc of ['ko', 'en', 'id'] as const) {
-      const body = translate(loc, 'members.removeBody')
-      expect(placeholders(body)).toEqual([])
+      const body = translate(loc, 'members.removeBody', { days: 7 })
+      expect(placeholders(DICTS[loc]['members.removeBody'])).toEqual(['days'])
       expect(body).not.toContain('users/')
     }
     expect(translate('en', 'members.removeBody')).toContain('moved to an archive in the owner’s personal folder')
     expect(translate('en', 'members.removeBody')).toContain('Only the owner can read')
+  })
+  test('chat trash and account deletion guidance show the team chat retention, not a fixed 7 days', () => {
+    for (const loc of ['ko', 'en', 'id'] as const) {
+      for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody'] as const) {
+        expect(placeholders(DICTS[loc][key])).toEqual(['days'])
+        expect(DICTS[loc][key]).not.toMatch(/\d/)
+        expect(translate(loc, key, { days: 3 })).toContain('3')
+        expect(translate(loc, key, { days: 3 })).not.toContain('7')
+      }
+    }
+    expect(translate('en', 'trash.desc', { days: 1 })).toContain('for 1 day ')
+    expect(translate('en', 'trash.desc', { days: 30 })).toContain('for 30 days ')
+    expect(translate('ko', 'members.removeBody', { days: 14 })).toContain('14일 뒤')
+    expect(translate('id', 'trash.desc', { days: 14 })).toContain('14 hari')
+    expect(translate('en', 'chat.deleteBody', { days: 1 })).toContain('for 1 day ')
+    expect(translate('ko', 'chat.deleteBody', { days: 14 })).toContain('14일 동안')
+    expect(translate('id', 'chat.deleteBody', { days: 14 })).toContain('selama 14 hari')
   })
   test('file deletion guidance uses the team retention policy and each item’s saved date', () => {
     for (const loc of ['ko', 'en', 'id'] as const) {

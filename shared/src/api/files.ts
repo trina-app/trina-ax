@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
-import { Attachment, FileEntry, FileVersion, TrashItem, UploadSession, UploadTarget } from './entities'
+import { Attachment, FileEntry, FileHistoryEvent, FileVersion, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
 
@@ -92,7 +92,20 @@ export const HistoryResponse = z.object({
   currentSha256: z.string().nullable().optional(),
   /** the caller may restore versions (write access to the path; the same check POST /api/files/restore makes) */
   canRestore: z.boolean().optional(),
+  /** the content as it is now and who saved it (author null: not known, e.g. changed outside the app); null: the file
+   * does not exist. `version`: the number it has in the list (one above the newest stored version). */
+  current: z.object({
+    version: z.number().int().positive(),
+    sha256: z.string(),
+    size: z.number().int().nonnegative(),
+    author: UserRef.nullable(),
+    turnId: Uuid7.nullable(),
+    at: IsoTime.nullable(),
+  }).nullable().optional(),
+  /** created / edited / moved / renamed / copied / restored, by whom and in which AI turn (newest first) */
+  events: z.array(FileHistoryEvent).optional(),
 })
+export type HistoryResponse = z.infer<typeof HistoryResponse>
 /** Restore an old version of a file (the current content becomes a new version first). */
 export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7 })
 /** mine: only items the caller deleted */
@@ -109,7 +122,9 @@ export const CONTENT_SHA_HEADER = 'x-content-sha256'
  */
 export const FILE_VIEW_PATH = '/files/view'
 export function fileShareUrl(path: string, mode: 'preview' | 'download'): string {
-  const q = 'path=' + encodeURIComponent(path)
+  // '(' and ')' are encoded too (encodeURIComponent keeps them): a Markdown link to 'Report (final).pptx' or a
+  // conflict copy then has no bare parenthesis that a renderer or a model can cut the URL at.
+  const q = 'path=' + encodeURIComponent(path).replace(/\(/g, '%28').replace(/\)/g, '%29')
   return mode === 'preview' ? `${FILE_VIEW_PATH}?${q}` : `/api/files/download?${q}&disposition=attachment`
 }
 

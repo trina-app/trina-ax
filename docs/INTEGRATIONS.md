@@ -10,6 +10,20 @@ The AI can use services outside the team server with a person's or the team's ow
 Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). These connections are the other direction
 from the "connectors" of `server/src/connectors/remote-mcp` (claude.ai using this server's files).
 
+## App connectors (the other direction)
+
+A person can connect their own Claude (Claude Code, Claude Desktop, claude.ai) to this server as a remote MCP server
+with OAuth (`server/src/connectors/remote-mcp/`, routes in `server/src/routes/remote-mcp.ts`, public origin
+`MYCEL_REMOTE_MCP_ORIGIN`). Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
+`write`, `edit`, `upload_file` and `create_upload_link`. All of them use the person's current folder permissions.
+
+- `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
+- `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
+  10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
+  is made and again when the file arrives.
+
+Details: docs/DECISIONS.md "App connectors: upload_file for binary files" and "App connectors: one-time upload links".
+
 Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.ts` requests, `mcp.ts` the MCP client,
 `oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools, `hide.ts` hiding secrets a service sends
 back), `server/src/routes/integrations.ts`, migration

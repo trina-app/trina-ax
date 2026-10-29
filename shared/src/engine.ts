@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-export const EngineErrorCode = z.enum(['auth', 'rate_limit', 'context', 'timeout', 'refused', 'crash'])
+/** model_not_found, endpoint_unreachable, provider_error: the API engine (server/src/engine/api-agent.ts) only */
+export const EngineErrorCode = z.enum(['auth', 'rate_limit', 'context', 'timeout', 'refused', 'crash', 'model_not_found', 'endpoint_unreachable', 'provider_error'])
 export const EngineEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), delta: z.string() }),
   z.object({ type: z.literal('thinking'), delta: z.string() }),
@@ -9,8 +10,11 @@ export const EngineEvent = z.discriminatedUnion('type', [
   /** output: the tool result text (capped), e.g. WebSearch links for the search card */
   z.object({ type: z.literal('tool_end'), id: z.string(), ok: z.boolean(), summary: z.string().optional(), output: z.string().optional() }),
   z.object({ type: z.literal('session'), sessionId: z.string() }),
-  z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional() }),
-  z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string() }),
+  /** costUnknown: the provider gave no cost and the model has no list price (never recorded as free); requestId: the
+   * provider's id of the request (OpenRouter's generation id), for the log */
+  z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional() }),
+  /** status: the provider's HTTP status, when there was one */
+  z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string(), status: z.number().int().optional() }),
   z.object({ type: z.literal('done') }),
 ])
 export type EngineEvent = z.infer<typeof EngineEvent>

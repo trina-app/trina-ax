@@ -5,7 +5,7 @@
 //
 // Output (<out>):
 //   app/<version>/          the version folder the installer / an update puts in app/versions/<version>:
-//                           bin/bun, server/src/{main.js,admin.js,account.js}, server/migrations/,
+//                           bin/bun, server/src/{main.js,admin.js,account.js,office-worker.js}, server/migrations/,
 //                           native/{mycel-gate,mycel-bridge}, web/ (when web/dist exists), RELEASE_NOTES.md,
 //                           manifest.json (+ manifest.sig when signed)
 //   <version>.tar.zst       the same folder packed, for POST /api/admin/update / `admin.js stage-update`
@@ -56,7 +56,8 @@ export const hostArch = (): 'arm64' | 'amd64' => (process.arch === 'arm64' ? 'ar
 /** the files the installer copies into root/ (owned by root, never replaced by an update) */
 export const ROOT_FILES = ['mycel-bootstrap', 'mycel-launcher', 'mycel-account', 'engine.sb', 'pf-load'] as const
 /** server entry points: source -> bundled file in server/src/ */
-const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js']]
+// office-worker.js: the bounded child process that reads spreadsheets and Hangul files (files/office-worker.ts)
+const ENTRIES: [string, string][] = [['main.ts', 'main.js'], ['system/cli.ts', 'admin.js'], ['auth/cli.ts', 'account.js'], ['files/office-worker.ts', 'office-worker.js']]
 
 export async function buildBundle(o: { version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string; bunFor?: (arch: 'arm64' | 'amd64') => Promise<string> }) {
   if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version)) throw new Error(`bad version ${o.version}`)
@@ -260,7 +261,7 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
-    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js',
+    'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js',
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
     ...o.systemd.map((u) => `root/systemd/${u}`),

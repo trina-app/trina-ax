@@ -9,5 +9,5 @@ export const REMOTE_MCP_SPECS: Record<string, Spec> = {
 export const REMOTE_MCP_RAW_COVERED = [
   "RAW GET '/.well-known/oauth-protected-resource'", "RAW GET '/.well-known/oauth-protected-resource/mcp'", "RAW GET '/.well-known/oauth-authorization-server'",
   "RAW POST '/oauth/register'", "RAW GET '/oauth/authorize'", "RAW POST '/oauth/token'", "RAW POST '/oauth/revoke'",
-  "RAW POST '/mcp'", "RAW GET '/mcp'", "RAW DELETE '/mcp'",
+  "RAW POST '/mcp'", "RAW GET '/mcp'", "RAW DELETE '/mcp'", "RAW PUT '/connector-uploads/:token'",
 ]

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
-import { extractText } from '../../server/src/files/extract'
+import { extractText, officeWorkerScript } from '../../server/src/files/extract'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { isolation, runIsolated, sandboxProfile } from '../../server/src/tools/isolate'
 import { cellValue, markdownTables, parseCsv } from '../../server/src/tools/make-file'
@@ -211,5 +211,22 @@ describe('isolation', () => {
   test('time limit kills a stuck converter', async () => {
     const r = await runIsolated({ cmd: '/bin/sleep', args: ['10'], timeoutMs: 300 })
     expect(r.killed).toBe('timeout')
+  })
+  test('memory limit kills a converter that grows past it', async () => {
+    const t0 = Date.now()
+    const r = await runIsolated({ cmd: process.execPath, args: ['-e', 'const a = []; for (;;) a.push(new Uint8Array(16 << 20).fill(1))'], maxRssMiB: 200, timeoutMs: 20_000 })
+    expect(r.killed).toBe('memory')
+    expect(Date.now() - t0).toBeLessThan(10_000)
+  })
+  test('the office worker (bun) runs confined like the other converters: its own folder only, not the team folder', async () => {
+    if (isolation() === 'none') { console.log('no sandbox on this machine: office worker isolation test skipped'); return }
+    const script = await officeWorkerScript()
+    const secret = path.join(A.team, 'groups/finance/budget.md')
+    const read = `try { process.stdout.write(require('fs').readFileSync(${JSON.stringify(secret)}, 'utf8')) } catch (e) { process.stdout.write('refused ' + e.code) }`
+    const r = await runIsolated({ cmd: process.execPath, args: ['-e', read], readPaths: [path.dirname(script)], timeoutMs: 10_000 })
+    expect(r.stdout.toString()).not.toContain('CANARY')
+    expect(r.stdout.toString()).toMatch(/^refused E(PERM|ACCES|NOENT)$/)
+    const ok = await runIsolated({ cmd: process.execPath, args: ['-e', `process.stdout.write(String(require('fs').statSync(${JSON.stringify(script)}).size > 0))`], readPaths: [path.dirname(script)], timeoutMs: 10_000 })
+    expect(ok.stdout.toString()).toBe('true')
   })
 })

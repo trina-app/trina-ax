@@ -326,7 +326,9 @@ export default function Composer({
     }
   }
 
-  const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (engine.model ? ` · ${models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model}` : '') : t('composer.defaultEngine')
+  // the API engine has one model (the owner's): its name shows even when none was picked
+  const shownModel = engine.engine && (engine.model ? models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model : engine.engine === 'api' ? models?.api?.[0]?.label : undefined)
+  const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
 
   return (
     <div>

@@ -18,7 +18,7 @@ import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
 import { CODEX_PROD_BETA } from '../chat/engines'
-import { readApiEngine } from '../engine/api-agent'
+import { readApiEngine, redact } from '../engine/api-agent'
 import { apiEngineFetch } from '../system/egress'
 import { hostKind, type HostKind } from '../system/deployment'
 import { engineStatusMessages } from '../system/messages-linux'
@@ -58,6 +58,11 @@ export const T: Record<string, Record<Locale, string>> = {
   notInstalled: { ko: '서버 맥에 설치되어 있지 않습니다.', en: 'Not installed on the server Mac.', id: 'Belum terpasang di Mac server.' },
   apiNotSet: { ko: '아직 설정하지 않았습니다. 아래에서 API 주소·모델·키를 넣어 주세요.', en: 'Not set up yet. Enter the API address, model and key below.', id: 'Belum diatur. Masukkan alamat API, model, dan kunci di bawah.' },
   apiKey: { ko: 'API 키가 맞지 않습니다(401/403).', en: 'The API key was refused (401/403).', id: 'Kunci API ditolak (401/403).' },
+  apiModel: { ko: '이 제공자에 모델 "{model}"이 없어요. 모델 이름을 확인해 주세요.', en: 'The provider has no model "{model}". Check the model name.', id: 'Penyedia tidak punya model "{model}". Periksa nama model.' },
+  apiModelUnchecked: { ko: '주소와 키는 맞아요. 제공자가 모델 목록을 주지 않아서 모델 이름은 확인하지 못했어요.', en: 'The address and key work. The provider gives no model list, so the model name was not checked.', id: 'Alamat dan kunci berfungsi. Penyedia tidak memberi daftar model, jadi nama model belum diperiksa.' },
+  apiKeyUnchecked: { ko: '주소와 모델은 맞아요. 제공자가 키 확인 주소를 주지 않아서 키는 확인하지 못했어요.', en: 'The address and model work. The provider has no key check address, so the key was not checked.', id: 'Alamat dan model berfungsi. Penyedia tidak punya alamat pemeriksaan kunci, jadi kunci belum diperiksa.' },
+  apiUnreachable: { ko: 'API 주소에 연결하지 못했어요: {e}', en: 'The API address could not be reached: {e}', id: 'Alamat API tidak bisa dihubungi: {e}' },
+  apiHttp: { ko: 'API 주소가 오류를 보냈어요(HTTP {status}). 주소를 확인해 주세요.', en: 'The API address sent back an error (HTTP {status}). Check the address.', id: 'Alamat API mengirim galat (HTTP {status}). Periksa alamatnya.' },
   claudeLogin: { ko: '서버 맥에서 owner가 `claude`를 실행해 로그인해야 합니다.', en: 'The owner must sign in by running `claude` on the server Mac.', id: 'Owner harus masuk dengan menjalankan `claude` di Mac server.' },
   codexLogin: { ko: '서버 맥에서 owner가 `codex login`으로 로그인해야 합니다.', en: 'The owner must sign in with `codex login` on the server Mac.', id: 'Owner harus masuk dengan `codex login` di Mac server.' },
   setupToken: { ko: '전용 엔진 계정 모드에는 owner의 구독 장기 토큰이 필요합니다: 서버 맥에서 `claude setup-token`으로 토큰을 만들고 `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"`으로 저장하세요(secrets/claude-oauth-token, docs/INSTALL.md 2.4).', en: 'The dedicated engine account needs the owner\'s long-lived subscription token: make one with `claude setup-token` on the server Mac and store it with `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` (secrets/claude-oauth-token, docs/INSTALL.md 2.4).', id: 'Akun mesin khusus memerlukan token langganan owner: buat dengan `claude setup-token` di Mac server lalu simpan dengan `pbpaste | sudo "/Library/Application Support/mycel/root/set-claude-token"` (secrets/claude-oauth-token, docs/INSTALL.md 2.4).' },
@@ -218,22 +223,62 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
   return out('ok', null)
 }
 
-/** The API engine (engine/api-agent.ts): configured? does the provider accept the key (GET /models, no model call)? */
+/** The model ids of a provider's list that name `model`: as is, Gemini's "models/<id>", Ollama's "<id>:latest". */
+export function modelListed(ids: string[], model: string): boolean {
+  const norm = (m: string) => m.replace(/^models\//, '').replace(/:latest$/, '')
+  const want = norm(model)
+  return ids.some((id) => id === model || norm(id) === want)
+}
+
+/**
+ * The API engine (engine/api-agent.ts), without a model call: configured? does the address answer? does the provider
+ * accept the key (GET /models; OpenRouter lists models without a key, so its GET /key)? is the model in the provider's
+ * list? A provider without a list is "ok" with a note that the model was not checked.
+ */
 async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale): Promise<EngineStatus> {
   const conf = readApiEngine(env.dataDir)
-  const base = { id: 'api' as const, label: conf ? `${conf.label} (API)` : ENGINE_LABELS.api, enabled, authMode: 'local-login' as const, checkedAt: new Date().toISOString(), version: null,
+  let provider: string | undefined
+  try { provider = conf ? new URL(conf.baseUrl).host : undefined } catch {}
+  const base = { id: 'api' as const, label: conf ? `${conf.label} (API)` : ENGINE_LABELS.api, enabled, authMode: 'api-key' as const, ...(provider ? { provider } : {}), checkedAt: new Date().toISOString(), version: null,
     models: conf ? [{ id: conf.model, label: conf.label }] : [] }
   if (!conf) return { ...base, installed: false, status: 'not_installed', detail: t('apiNotSet', locale) }
+  const out = (status: EngineStatus['status'], detail: string | null): EngineStatus => ({ ...base, installed: true, status, detail })
   try {
     // Anthropic's model list wants x-api-key (its OpenAI-compatible chat endpoint takes the Bearer header): a refused
     // list would leave a working Claude API engine out of the composer (admin/engine-choice.ts readyEngines)
     const anthropic = /^https:\/\/api\.anthropic\.com\//.test(conf.baseUrl + '/')
+    const openrouter = /^https:\/\/openrouter\.ai\//.test(conf.baseUrl + '/')
     const headers: Record<string, string> = conf.key ? { Authorization: `Bearer ${conf.key}`, ...(anthropic ? { 'x-api-key': conf.key, 'anthropic-version': '2023-06-01' } : {}) } : {}
-    const r = await apiEngineFetch()(`${conf.baseUrl}/models`, { headers, signal: AbortSignal.timeout(10_000) })
-    if (r.status === 401 || r.status === 403) return { ...base, installed: true, status: 'not_logged_in', detail: t('apiKey', locale) }
-    return { ...base, installed: true, status: 'ok', detail: null }
+    const get = (p: string) => apiEngineFetch()(`${conf.baseUrl}${p}`, { headers, signal: AbortSignal.timeout(10_000) })
+    // OpenRouter: GET /key (older servers: /auth/key); neither there = the key is not checked, and the card says so
+    let keyUnchecked = false
+    if (openrouter) {
+      let k = await get('/key')
+      if (k.status === 404) k = await get('/auth/key')
+      if (k.status === 401 || k.status === 403) return out('not_logged_in', t('apiKey', locale))
+      keyUnchecked = !k.ok
+    }
+    // Anthropic's list comes in pages (20 by default)
+    const r = await get(anthropic ? '/models?limit=1000' : '/models')
+    if (r.status === 401 || r.status === 403) return out('not_logged_in', t('apiKey', locale))
+    // no list here (404, 405): the address and key are not proven wrong, the model is not checked
+    if (r.status === 404 || r.status === 405) return out('ok', t('apiModelUnchecked', locale))
+    if (!r.ok) return out('error', t('apiHttp', locale, { status: String(r.status) }))
+    let ids: string[] = []
+    let more = false
+    try {
+      const j = await r.json() as { data?: { id?: unknown }[]; models?: { name?: unknown; id?: unknown }[]; has_more?: unknown }
+      const list = Array.isArray(j.data) ? j.data : Array.isArray(j.models) ? j.models : []
+      ids = list.map((m: any) => (typeof m?.id === 'string' ? m.id : typeof m?.name === 'string' ? m.name : '')).filter(Boolean)
+      more = j.has_more === true
+    } catch {}
+    if (!ids.length || (more && !modelListed(ids, conf.model))) return out('ok', t('apiModelUnchecked', locale))
+    if (!modelListed(ids, conf.model)) return out('error', t('apiModel', locale, { model: conf.model.slice(0, 100) }))
+    return out('ok', keyUnchecked ? t('apiKeyUnchecked', locale) : null)
   } catch (e) {
-    return { ...base, installed: true, status: 'error', detail: t('error', locale, { e: String((e as Error)?.message ?? e).slice(0, 200) }) }
+    const err = e as Error
+    const why = err?.cause instanceof Error ? `${err.message}: ${err.cause.message}` : String(err?.message ?? e)
+    return out('error', t('apiUnreachable', locale, { e: redact(why, conf.key).slice(0, 200) }))
   }
 }
 

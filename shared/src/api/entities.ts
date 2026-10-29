@@ -325,13 +325,38 @@ export const FileVersion = z.object({
   version: z.number().int().positive(),
   sha256: z.string(),
   size: z.number().int().nonnegative(),
+  /** the person whose save REPLACED this content (and stored it as a version); kept for older clients */
   author: UserRef.nullable(),
+  /** the AI turn of that replacing save */
   turnId: Uuid7.nullable(),
   kind: z.enum(['edit', 'conflict_copy', 'restore']),
   conflictPath: RelPath.nullable(),
   createdAt: IsoTime,
+  /** the person whose save PRODUCED this content (null: not known, e.g. versions stored before this was recorded;
+   * then only `author`, "replaced by", is known) */
+  savedBy: UserRef.nullable().optional(),
+  /** the AI turn of the save that produced this content (null: not during an AI answer, or not known) */
+  savedTurnId: Uuid7.nullable().optional(),
 })
 export type FileVersion = z.infer<typeof FileVersion>
+
+/** One change in a file's history (GET /api/files/history `events`), newest first. Read from file_events, following
+ * moves and renames back to earlier paths. */
+export const FileHistoryEvent = z.object({
+  id: z.number().int(),
+  at: IsoTime,
+  kind: z.enum(['created', 'edited', 'uploaded', 'restored', 'moved', 'renamed', 'copied', 'conflict']),
+  by: UserRef.nullable(),
+  /** the AI turn it happened in (null: a person on the file screen) */
+  turnId: Uuid7.nullable(),
+  /** the file's path just after the change */
+  path: RelPath,
+  /** moved / renamed: the path before; copied: the source; restored from the trash: the original path.
+   * null also when the caller may not read that path. */
+  from: RelPath.nullable(),
+  size: z.number().int().nonnegative().nullable(),
+})
+export type FileHistoryEvent = z.infer<typeof FileHistoryEvent>
 
 /** trash_items (30 days; restore needs write access to the original path) */
 export const TrashItem = z.object({

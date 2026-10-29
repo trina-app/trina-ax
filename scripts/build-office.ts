@@ -71,6 +71,8 @@ const ENTRIES: [string, string][] = [
   ['server/src/office/cli.ts', 'office.js'],
   ['server/src/system/cli.ts', 'admin.js'],
   ['server/src/auth/cli.ts', 'accounts.js'],
+  // the bounded child process that reads spreadsheets and Hangul files
+  ['server/src/files/office-worker.ts', 'office-worker.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
 const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
@@ -176,7 +178,7 @@ export async function buildOffice(o: {
   fs.rmSync(stage, { recursive: true, force: true })
   fs.mkdirSync(path.join(app, 'server', 'src'), { recursive: true })
 
-  // server, supervisor and the two admin tools: one self-contained file each, next to each other
+  // server, supervisor, the two admin tools and the office worker: one self-contained file each, next to each other
   for (const [entry, out] of ENTRIES) {
     const res = await Bun.build({
       entrypoints: [path.join(REPO, entry)], target: 'bun', outdir: path.join(stage, '.build'), naming: '[name].js', minify: false,

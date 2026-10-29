@@ -82,6 +82,13 @@ export async function addTeam(app: ElectronApplication, address: string, origin:
   return bindWindow(await teamPage(app, origin), origin)
 }
 
+/** Sign the team page in (the fake server's session cookie). Every AI browser call checks who is signed in first
+ * (app-window.ts ensureBrowserOwner): a team page without a session gets "browser identity could not be verified". */
+export async function signIn(page: Page, user?: string): Promise<Page> {
+  await page.evaluate((u) => fetch(u ? `/test/login?user=${encodeURIComponent(u)}` : '/test/login'), user ?? null)
+  return page
+}
+
 // ---------------------------------------------------------------- fake team server control
 
 /** A UUIDv7 (the contract's turn id format). */

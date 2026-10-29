@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { endpoint } from './endpoint'
+import { ScheduleRunOutcome } from './schedules'
 export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean() })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 export const NotificationEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
@@ -7,6 +8,8 @@ export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections']).nullable(),
+  /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
+  outcome: ScheduleRunOutcome.nullable().optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
 export const NOTIFICATIONS = {

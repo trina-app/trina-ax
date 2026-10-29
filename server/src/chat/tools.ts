@@ -94,7 +94,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       const out = await t.call(args)
       exec.afterTool()
-      return { content: out.content, isError: out.isError, summary: out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}` }
+      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
+      return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
     },
     afterFileTool: (name, isError, args) => {
       exec.noteTaint(name, args); exec.noteReads(); exec.afterTool()
@@ -227,7 +228,8 @@ function bTools(exec: TurnExec): Tool[] {
     async call(args) {
       const a = SetTitleInput.safeParse(args)
       if (!a.success) return text(zodText(a.error), true)
-      const t = cleanAiTitle(a.data.title)
+      // a title that holds a stored connection secret is refused like one that looks like a secret
+      const t = exec.redact(a.data.title) !== a.data.title ? { ok: false as const, reason: 'secret' as const } : cleanAiTitle(a.data.title)
       if (!t.ok) {
         return {
           ...text(t.reason === 'secret'

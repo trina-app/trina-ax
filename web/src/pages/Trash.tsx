@@ -1,4 +1,4 @@
-// Chat trash: chats deleted in the last 7 days, restorable until they are purged.
+// Chat trash: chats deleted within the team's chat retention (Admin > Team settings), restorable until they are purged.
 import { RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Chat } from '@mycel/shared/api'
@@ -6,12 +6,15 @@ import { api, API, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
+import { useMe } from '../store/session'
+import { chatTrashDays } from '../lib/chat-trash'
 import { toast } from '../store/ui'
 import { Button, EmptyState, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 
 export default function Trash() {
   const t = useT()
   const locale = useLocale()
+  const days = chatTrashDays(useMe())
   const upsert = useChats((s) => s.upsertChat)
   const [items, setItems] = useState<Chat[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -30,7 +33,7 @@ export default function Trash() {
   }, [])
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PageHeader title={t('trash.title')} desc={t('trash.desc')} />
+      <PageHeader title={t('trash.title')} desc={t('trash.desc', { days })} />
       <div className="p-4 sm:p-6">
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}

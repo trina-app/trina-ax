@@ -12,7 +12,7 @@ const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 /** Request path for logs: one-time secrets in the path (invite and password reset links: the API and the web pages
  * /invite/<token>, /reset-password/<token> that the links open) are replaced by "***". */
 export function loggablePath(p: string): string {
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads)\/)[^/]+/, '$1***')
 }
 
 /**

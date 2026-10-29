@@ -43,6 +43,7 @@ export class RemoteOAuth {
     // Fixed-size lifetime for attacker-controlled keys: this table never contains raw IPs or tokens.
     this.db.query('DELETE FROM remote_mcp_limits WHERE bucket < ?').run(Math.floor(this.now() / 60_000) - 2)
     this.db.query('DELETE FROM remote_mcp_requests WHERE expires_at <= ?').run(this.now())
+    this.db.query('DELETE FROM remote_mcp_upload_links WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_grants WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)').run(this.now() - GRANT_MS)
   }

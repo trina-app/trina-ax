@@ -103,9 +103,11 @@ export const EngineStatus = z.object({
   id: EngineId,
   label: z.string(),
   enabled: z.boolean(),
-  /** local-login: owner's own CLI login (dev / office); managed: the team's AI connections behind the model proxy
+  /** api-key: the API engine's own key (Admin > AI engines > API engine); local-login: owner's own CLI login (dev / office); managed: the team's AI connections behind the model proxy
    * (Admin > AI connections); proxy / agent-own: older servers (read only) */
-  authMode: z.enum(['local-login', 'proxy', 'agent-own', 'managed']),
+  authMode: z.enum(['local-login', 'proxy', 'agent-own', 'managed', 'api-key']),
+  /** api-key (the API engine): the provider's host, e.g. openrouter.ai */
+  provider: z.string().optional(),
   installed: z.boolean(),
   version: z.string().nullable(),
   status: z.enum(['ok', 'not_installed', 'not_logged_in', 'version_unsupported', 'lockdown_failed', 'error', 'unknown']),
@@ -188,7 +190,9 @@ export const UsageQuery = z.object({
   /** credential: per AI connection (turns.credential_id; a removed connection shows as one row) */
   groupBy: z.enum(['user', 'engine', 'model', 'day', 'group', 'credential', 'skill']).default('user'),
 })
-export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number() })
+/** unpricedTurns: how many of the turns have an amount with an unknown part (the API engine's provider gave no cost and
+ * the model has no list price); absent = none */
+export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
 export const UsageResponse = z.object({ from: IsoTime, to: IsoTime, rows: z.array(UsageRow), totals: UsageRow.omit({ key: true, label: true }) })
 export const AuditQuery = PageQuery.extend({
   source: z.enum(['admin', 'file', 'tool', 'auth']).optional(),

@@ -308,7 +308,7 @@ export class Integrations {
   /** Every value of a connection's secret this server knows: as `row` holds it, as stored now (a refresh during a call
    * rotates OAuth tokens) and the earlier ones seen since the server started. The key; OAuth access and refresh tokens
    * and the client secret. null when a stored secret cannot be read now. Only for hiding them (hider). */
-  private secretValues(row: Row): string[] | null {
+  private secretValues(row: Row, partial = false): string[] | null {
     const seen = new Set(this.recent.get(row.id))
     let unreadable = false
     for (const r of [row, getRow(this.db, row.id)]) {
@@ -319,7 +319,19 @@ export class Integrations {
     }
     const all = [...seen].slice(-RECENT_SECRETS)
     if (all.length) this.recent.set(row.id, all)
-    return unreadable ? null : all
+    return unreadable && !partial ? null : all
+  }
+
+  /** Every secret value this server holds for connections of this person: their own personal ones (also while
+   * personal connections are switched off) and the team ones they may use, with the earlier values seen since the
+   * server started. A secret that cannot be read now is left out. For the turn's own outgoing text: the answer, the
+   * steps, the audit lines and the chat title (redact.ts) never repeat one. */
+  secretsFor(userId: string): string[] {
+    const personal = this.db.query("SELECT * FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND secret_enc IS NOT NULL").all(userId) as Row[]
+    const team = (this.db.query("SELECT * FROM integrations WHERE scope = 'team' AND secret_enc IS NOT NULL").all() as Row[]).filter((r) => mayUse(this.db, r, userId))
+    const out: string[] = []
+    for (const r of [...personal, ...team]) out.push(...(this.secretValues(r, true) ?? []))
+    return out
   }
 
   /** A function that hides these connections' secrets in what their services sent back (hide.ts). Made after the call,

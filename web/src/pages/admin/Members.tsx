@@ -9,6 +9,7 @@ import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role,
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
+import { chatTrashDays } from '../../lib/chat-trash'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
@@ -54,7 +55,7 @@ export default function Members() {
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   const remove = async (u: User) => {
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody'), confirm: t('common.delete'), danger: true }))) return
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
     await act(async () => {
       await api.call(API.deleteUser, { params: { id: u.id } })
       await users.reload()
