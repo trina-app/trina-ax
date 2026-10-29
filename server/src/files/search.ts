@@ -83,9 +83,23 @@ const strip = (p: string) => p.replace(/^\.\//, '')
 
 // ---------------- office text sidecar cache ----------------
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
+/** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
+ * footers and comments, pptx notes and charts), so the old text is made again. */
+export const TEXT_CACHE_VERSION = '2'
+const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
+
 export class OfficeCache {
   private inflight = new Map<string, Promise<void>>()
-  constructor(readonly dir: string, private fx: FsCtx, private tools: Tools) { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }) }
+  private marked = false
+  constructor(readonly dir: string, private fx: FsCtx, private tools: Tools) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+    // text of an older format is removed; an empty cache gets the version file only with its first text (a fresh
+    // server leaves the folder empty)
+    let version: string | null = null
+    try { version = fs.readFileSync(path.join(dir, VERSION_FILE), 'utf8').trim() } catch {}
+    if (version === TEXT_CACHE_VERSION) { this.marked = true; return }
+    for (const e of fs.readdirSync(dir)) fs.rmSync(path.join(dir, e), { recursive: true, force: true })
+  }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   fresh(rel: string, st: fs.Stats) {
     try { return Math.floor(fs.statSync(this.cachePath(rel)).mtimeMs) === Math.floor(st.mtimeMs) } catch { return false }
@@ -99,6 +113,7 @@ export class OfficeCache {
       let text: string
       try { text = await extractText(rel, bytes, this.tools) } catch { text = '' }
       const dst = this.cachePath(rel)
+      if (!this.marked) { fs.writeFileSync(path.join(this.dir, VERSION_FILE), TEXT_CACHE_VERSION + '\n', { mode: 0o600 }); this.marked = true }
       fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
       fs.writeFileSync(dst, text, { mode: 0o600 })
       fs.utimesSync(dst, st.atime, st.mtime)

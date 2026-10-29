@@ -1,5 +1,7 @@
-// Text for read/grep. Office formats: pandoc (docx/pptx/odt), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
+// Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
+// comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
 // worker (office-worker.ts, a bun child process), pdftotext (pdf).
+// Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
 // Scanned PDFs and images: mycel-ocr (native/ocr, Apple Vision, macOS) when it is built.
 // Input bytes always come from an fd opened with O_NOFOLLOW and checked (nlink==1), and are fed to the
 // converters on stdin, so a converter never opens a path itself. Converters run isolated (tools/isolate.ts:
@@ -12,6 +14,7 @@ import { runIsolated } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
+import { SECTION_MARK } from './ooxml'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
@@ -87,7 +90,8 @@ async function slot<T>(f: () => Promise<T>): Promise<T> {
   }
 }
 
-/** A spreadsheet or Hangul file's text from the office worker, isolated like the other converters. */
+/** A spreadsheet or Hangul file's text (or the extra parts of a .docx / .pptx: mode `docx-extra` / `pptx-extra`) from
+ * the office worker, isolated like the other converters. */
 export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
   const script = await officeWorkerScript()
   return slot(async () => {
@@ -116,9 +120,13 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
   // system/limits.ts) before a worker starts; smaller ones still meet the worker's own limits
   if (IN_PROCESS_EXT.has(e) && bytes.byteLength > inProcessParseMax()) throw new ToolError(TOO_BIG_IN_PROCESS)
   switch (e) {
-    case 'docx': case 'pptx': case 'odt':
+    case 'docx': case 'pptx': case 'odt': {
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
-      return pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal)
+      const body = pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal)
+      if (e === 'odt') return body
+      const [text, extra] = await Promise.all([body, extraText(e, bytes, signal)])
+      return extra ? `${text.replace(/\s+$/, '')}\n\n${extra}\n` : text
+    }
     case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
       return officeWorkerText(e, bytes, signal)
     case 'pdf': {
@@ -134,7 +142,37 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       if (tools.ocr && (IMAGE_EXT as readonly string[]).includes(e)) return ocr(tools.ocr, bytes, false, signal)
       const head = bytes.subarray(0, 8000)
       if (head.includes(0)) throw new ToolError('this is a binary file; it cannot be shown as text')
-      return new TextDecoder('utf-8').decode(bytes)
+      return decodeText(bytes)
     }
   }
+}
+
+const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes and chart data' } as const
+
+/**
+ * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
+ * says so (the AI must not guess them); pandoc's body text is still given. Under the same size limit as the other
+ * worker formats.
+ */
+async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+  const notRead = (why: string) => `${SECTION_MARK}The ${EXTRA_WHAT[e]} of this file were not read (${why}) ===`
+  if (bytes.byteLength > inProcessParseMax()) return notRead('the file is over 32 MB')
+  try { return (await officeWorkerText(`${e}-extra`, bytes, signal)).trim() } catch (err) {
+    signal?.throwIfAborted()
+    return notRead(err instanceof ToolError ? err.message.slice(0, 300) : 'the reader failed')
+  }
+}
+
+/**
+ * Text of a plain text file: UTF-8 (a BOM is dropped) when the bytes are valid UTF-8. Otherwise legacy Korean
+ * (CP949, a superset of EUC-KR) when the bytes decode cleanly as that and contain Hangul. Otherwise UTF-8 with
+ * replacement characters, as before.
+ */
+export function decodeText(bytes: Uint8Array): string {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch {}
+  try {
+    const text = new TextDecoder('euc-kr', { fatal: true }).decode(bytes)
+    if (/[\uac00-\ud7a3]/.test(text)) return text
+  } catch {}
+  return new TextDecoder('utf-8').decode(bytes)
 }
