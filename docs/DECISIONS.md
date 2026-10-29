@@ -2446,10 +2446,16 @@ including same-account installs. Extend the same synthetic selection tests to co
   `server/src/system/messages-linux.ts`) and member-role errors (`server/src/auth/messages.ts`).
 - **Decision.** Korean server texts use 팀장 with the correct particle (팀장이, 팀장만, 팀장의). The transfer action is
   "팀장 넘김", as in the audit label `audit.act.owner.transfer`.
+- **소유자.** Some Korean texts named the role with a third term, 소유자. Now they also say 팀장: the first-run setup
+  error `setupNotRemote`, the `teamax setup-link` line in `server/src/office/cli.ts`, the install script
+  (`scripts/office/office-install.sh`) and the Korean guides (`docs/OFFICE.md`, `docs/office/guide.html`,
+  `docs/install/guide.html`, `README.ko.md`). 소유자 stays only where it means the file owner of a Unix account
+  (`docs/OFFICE.md`, `_axserver`) and in this file, where "소유자 결정" means the product owner.
 - **Indonesian.** No change. The Indonesian dictionary names the role "Owner" (`role.owner`), so "owner" in the
   Indonesian server texts is already the localized name.
 - **Tests.** `tests/unit/ko-owner-role.test.ts` reads every Korean text of these tables (also the Linux and hosted
-  variants) and fails on the word "owner".
+  variants) and fails on the word "owner" or on 소유자. It also reads the source of the office CLI and the install
+  script and fails on 소유자.
 
 ## Activity log date filters (R2-PERM-14, 2026-10-29)
 
