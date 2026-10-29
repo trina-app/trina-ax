@@ -247,3 +247,8 @@ G4/G5는 기존 코어 manifest 대비 변경/추가 22개(신규 7개, 삭제 0
 Core main after the merges: `3b888eb`. That merge also brought core's `feat/browser-settings` into core main; this
 repository already had it (PR #13 above). Conflicts: only the new sections at the end of `docs/DECISIONS.md` and
 `docs/EDITION-BRANDING.md`.
+
+
+## 2026-10-29 core review security fixes
+
+Selected source patches from potenlab/team-ax `efb92c1d`, `8e637244`, `1628aa4d` and `68cf0ac6` were reviewed and ported without importing private core history or excluded paths. These are direct source SHA references, not filtered-history mappings. Fork branding, service addresses, release configuration and the personal-integration default remain unchanged. Documentation was adapted to the fork; the core opt-in change and its fixture changes were excluded. Migration files 209 and 313 already match core and were not reapplied. Core-only release-configuration commits `9c336176` and `97f4424a` were not ported. Each port commit records its full source SHA.

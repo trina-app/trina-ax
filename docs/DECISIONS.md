@@ -1887,3 +1887,8 @@ The package notice collector now includes subject-prefixed copyright/notice file
 
 - Desktop browser calls require a fresh successful identity check. A five-second cached check let a newly signed-in person use the previous person's cookies and allowed sites; the regression now switches immediately, without its former six-second wait. Offline/invalid identity checks or failed storage clearing refuse the AI browser call, and the owner marker advances only after clearing succeeds. Normal desktop data remains per team; changing people clears that team's embedded browser sessions.
 - AI file moves/copies retain a fingerprint of each item's source and destination reader sets and recheck before each mutation. A change during a confirmation (including account activation with permissions unchanged) refuses that item and requires a new call. Actual source/destination permissions and filesystem chains are still checked per item. New regressions verify both operations and refuse symlink sources/destinations for move/copy/rename.
+
+
+## File-tool skills aliases (2026-10-29)
+
+Normalize empty and `.` path segments before the AI file tools check the protected `skills/` boundary, matching the policy resolver. Otherwise `./skills/file` and `.//skills/.` reached team-rule files through move/copy/rename without the required rule-edit approval. A regression reproduces the bypass and checks all three source operations plus both destination operations; no confirmation can override this boundary.

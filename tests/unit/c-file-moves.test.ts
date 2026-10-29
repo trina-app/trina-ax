@@ -219,3 +219,23 @@ test('move, copy and rename refuse symlink sources and destination directories',
     fs.rmSync(outside, { recursive: true, force: true })
   }
 })
+
+test('dot-segment aliases cannot bypass the skills boundary', async () => {
+  for (const tool of ['move_files', 'copy_files', 'rename_file']) {
+    const source = `skills/review-alias-${tool}.txt`
+    put(source, 'team rule fixture')
+    const person = ask(true)
+    const args = tool === 'rename_file' ? { path: './' + source, new_name: 'changed-rule.txt' } : { paths: ['./' + source], to_folder: 'shared' }
+    const result = await call('carol', tool, args, { person, turn: true })
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('skills/')
+    expect(person.questions).toHaveLength(0)
+    expect(has(source)).toBe(true)
+  }
+  for (const tool of ['move_files', 'copy_files']) {
+    const source = `shared/review-alias-into-${tool}.txt`
+    put(source, 'unapproved rule fixture')
+    expect((await call('carol', tool, { paths: [source], to_folder: './/skills/.' }, { person: ask(true), turn: true })).isError).toBe(true)
+    expect(has(source)).toBe(true)
+  }
+})
