@@ -11,7 +11,7 @@ export function broker(root: string, args: string[], input?: Uint8Array, cap = 3
   try {
     const r = spawnSync(path.join(nativeBinDir(), 'mycel-safeops'), args, {
       input, stdio: ['pipe', 'pipe', 'pipe', fd], timeout: 10_000, maxBuffer: cap,
-      env: { PATH: '/nonexistent', GOMAXPROCS: '2' },
+      env: { PATH: '/nonexistent', GOMAXPROCS: '2', MYCEL_BROKER_PARENT: String(process.pid) },
     })
     if (r.status === 4) return null
     if (r.error || r.status !== 0) throw new ToolError('Safe filesystem operation unavailable or changed.', 'safe_ops_changed')

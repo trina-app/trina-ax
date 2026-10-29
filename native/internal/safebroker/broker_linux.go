@@ -12,8 +12,25 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 )
+
+// ParentGuard binds broker-only helpers to the spawning server. Locking the OS
+// thread preserves Linux's per-thread parent-death signal until the helper exits.
+func ParentGuard(expected int) error {
+	runtime.LockOSThread()
+	if expected <= 1 {
+		return errors.New("invalid broker parent")
+	}
+	if e := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); e != nil {
+		return e
+	}
+	if os.Getppid() != expected {
+		return errors.New("broker parent exited")
+	}
+	return nil
+}
 
 const resolve = unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_XDEV
 

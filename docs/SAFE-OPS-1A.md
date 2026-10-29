@@ -151,6 +151,8 @@ removes only its deterministic hidden spool, marks the result interrupted and ne
 again, overwrites a competing file, or infers ownership from equal content. A visible file may
 remain after a crash before the success event; it stays quarantined. Failed recovery is debt.
 The hash quarantine is durable before linkat, so a rollback of the final transaction is safe.
+Broker-only native helpers require the expected server parent PID and arm Linux parent-death
+SIGKILL on a locked OS thread; an orphan cannot continue a held operation after server exit.
 
 Generated PPTX and normalized JPEG bytes are quarantined by hash. Published paths and observed
 inodes are also protected; byte-identical copies/uploads and renamed extensions remain blocked.

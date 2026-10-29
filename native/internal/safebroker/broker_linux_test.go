@@ -1,6 +1,7 @@
 package safebroker
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"errors"
@@ -11,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -176,4 +179,60 @@ func TestPublishIndependentWriterRace(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatal("temporary file leaked")
 	}
+}
+
+// Only this test's synthetic owner is killed. Its guarded child must not survive
+// to finish the held operation after server death, even with inherited stdin.
+func TestBrokerParentDeath(t *testing.T) {
+	switch os.Getenv("SAFE_PARENT_TEST") {
+	case "child":
+		expected, _ := strconv.Atoi(os.Getenv("SAFE_PARENT_PID"))
+		if ParentGuard(expected) != nil {
+			os.Exit(91)
+		}
+		fmt.Println(os.Getpid())
+		time.Sleep(30 * time.Second)
+		os.Exit(92)
+	case "owner":
+		cmd := exec.Command(os.Args[0], "-test.run=^TestBrokerParentDeath$")
+		cmd.Env = append(os.Environ(), "SAFE_PARENT_TEST=child", fmt.Sprintf("SAFE_PARENT_PID=%d", os.Getpid()))
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if cmd.Start() != nil {
+			os.Exit(93)
+		}
+		time.Sleep(30 * time.Second)
+		os.Exit(94)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBrokerParentDeath$")
+	cmd.Env = append(os.Environ(), "SAFE_PARENT_TEST=owner")
+	out, e := cmd.StdoutPipe()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = cmd.Start(); e != nil {
+		t.Fatal(e)
+	}
+	defer cmd.Process.Kill()
+	line, e := bufio.NewReader(out).ReadString('\n')
+	if e != nil {
+		t.Fatal(e)
+	}
+	child, e := strconv.Atoi(strings.TrimSpace(line))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer unix.Kill(child, unix.SIGKILL)
+	if e = cmd.Process.Kill(); e != nil {
+		t.Fatal(e)
+	}
+	_ = cmd.Wait()
+	for i := 0; i < 100; i++ {
+		status, e := os.ReadFile(fmt.Sprintf("/proc/%d/status", child))
+		if os.IsNotExist(e) || strings.Contains(string(status), "State:\tZ") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("guarded broker helper survived parent death")
 }

@@ -15,6 +15,10 @@ import (
 
 func main() {
 	if len(os.Args) > 2 {
+		parent, e := strconv.Atoi(os.Getenv("MYCEL_BROKER_PARENT"))
+		if e != nil || safebroker.ParentGuard(parent) != nil {
+			os.Exit(3)
+		}
 		var err error
 		switch os.Args[1] {
 		case "snapshot":
