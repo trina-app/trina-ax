@@ -17,7 +17,10 @@ import {
   resolveFolderPath, rulesOf, toFolder, validateRules,
 } from '../admin/folders'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
-import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, updateTeamSettings } from '../admin/settings'
+import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
+import { credentialsOf } from '../credentials/store'
+import { unsealOrFail } from '../credentials/service'
+import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
@@ -269,6 +272,8 @@ export const adminRoutes: RouteModule = {
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
+      // composers show or hide the mic (Me.team.voiceInput)
+      if ('speechProvider' in changed) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
       return next
     })
 
@@ -286,6 +291,27 @@ export const adminRoutes: RouteModule = {
       if (!removeTeamIcon(ctx.config.dataDir)) return
       audit(ctx.db, { actor: auth.user.id, action: 'team_icon.remove', target: null, detail: { before } })
       ctx.services.realtime.publishEach(() => TEAM_ICON_CHANGED)
+    })
+
+    // ---------------- voice input: the OpenRouter key (credentials/speech-key.ts) ----------------
+    kit.handle(API.speechKey, () => speechKeyStatus(ctx.db))
+    kit.handle(API.setSpeechKey, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
+      // the password again, like adding an AI connection (route.ts owner-reauth), but admins may do it too
+      if (!(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
+        fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
+      }
+      const cc = credentialsOf(ctx)
+      let key: string | null = null
+      if (body.sealed) {
+        key = (await unsealOrFail(cc, body.sealed, 'speech.key', locale)).trim()
+        if (!/^[\x21-\x7e]{16,300}$/.test(key)) fail('validation', undefined, { fields: { 'body.sealed': 'not an API key' } })
+      }
+      const before = speechKeyStatus(ctx.db).set
+      const out = writeSpeechKey(cc, key)
+      audit(ctx.db, { actor: auth.user.id, action: 'speech.key', target: null, detail: key ? { key: 'set', hint: out.hint } : { key: 'removed' } })
+      if (before !== out.set) ctx.services.realtime.publishEach(() => SPEECH_CHANGED)
+      return out
     })
 
     kit.handle(API.usage, ({ query }) => usage(ctx.db, query))

@@ -1,12 +1,15 @@
 // Team settings: name, default language, update channel and window, retention periods, whether people may turn on
 // "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), whether
-// members may add their own external-service connections (Settings > External services), and the team logo (the tab
-// icon and the home-screen app icon; shared/src/team-icon.ts).
+// members may add their own external-service connections (Settings > External services), voice input (off, OpenRouter
+// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"), and the team
+// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts). The OpenRouter key is sealed in the
+// browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import { useEffect, useRef, useState } from 'react'
-import { RotateCcw, Upload } from 'lucide-react'
+import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
-import { TeamSettings, type Locale } from '@mycel/shared/api'
+import { DEFAULT_SPEECH_MODEL, TeamSettings, type Locale, type SpeechProvider } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -23,20 +26,22 @@ export default function TeamSettingsPage() {
   const state = useLoad(() => api.call(API.settings))
   const [f, setF] = useState<TeamSettings | null>(null)
   const [busy, setBusy] = useState(false)
+  // the form starts from the loaded settings once; saves keep it (a key save must not throw away other drafts)
   useEffect(() => {
-    if (state.data) setF(state.data)
+    if (state.data) setF((x) => x ?? state.data)
   }, [state.data])
   const num = (k: keyof TeamSettings, min: number, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => (x ? { ...x, [k]: Math.max(min, Math.min(max, Math.floor(Number(e.target.value) || min))) } : x))
   const windowOk = TeamSettings.shape.updateWindow.safeParse(f?.updateWindow).success
   const save = async () => {
     if (!f || !state.data || !windowOk) return
     setBusy(true)
-    const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => state.data![k as keyof TeamSettings] !== v))
+    const g = { ...f, speechModel: f.speechModel || DEFAULT_SPEECH_MODEL }
+    const changed = Object.fromEntries(Object.entries(g).filter(([k, v]) => state.data![k as keyof TeamSettings] !== v))
     const r = await act(() => api.call(API.updateSettings, { body: changed }), t('common.saved'))
     setBusy(false)
-    if (r) state.setData(r)
+    if (r) { state.setData(r); setF(r) }
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once
-    if (r && changed.defaultLocale) await api.call(API.me).then(signedIn, () => {})
+    if (r && (changed.defaultLocale || changed.speechProvider)) await api.call(API.me).then(signedIn, () => {})
   }
   return (
     <>
@@ -89,6 +94,8 @@ export default function TeamSettingsPage() {
                 </Field>
                 <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                 <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                <SpeechSection provider={f.speechProvider} model={f.speechModel} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
+                  onSaved={(r) => state.setData(r)} />
               </div>
               <Button variant="primary" className="mt-4" busy={busy} disabled={!windowOk || !f.teamName.trim()} onClick={save}>
                 {t('common.save')}
@@ -242,5 +249,92 @@ export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean
       <Switch checked={value} onChange={onChange} label={t('teamSettings.personalIntegrations')} />
       <p className="mt-1 text-xs text-faint">{t('teamSettings.personalIntegrationsHint')}</p>
     </div>
+  )
+}
+
+const PROVIDERS: SpeechProvider[] = ['off', 'openrouter', 'local']
+
+/** Voice input: the provider (saved with the form), the OpenRouter model and the OpenRouter key (saved on its own). */
+export function SpeechSection({ provider, model, saved, onChange, onSaved }: {
+  provider: SpeechProvider; model: string; saved: TeamSettings
+  onChange: (p: { speechProvider?: SpeechProvider; speechModel?: string }) => void
+  /** the provider / model were saved together with the key */
+  onSaved: (s: TeamSettings) => void
+}) {
+  const t = useT()
+  const act = useAction()
+  const signedIn = useSession((s) => s.signedIn)
+  const key = useLoad(() => api.call(API.speechKey))
+  const [secret, setSecret] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const secure = canSeal()
+  const send = async (value: string | null) => {
+    setBusy(true)
+    const r = await act(async () => {
+      const sealed = value === null ? null : await sealSecret(await api.call(API.sealingKey), value, 'speech.key')
+      const out = await api.call(API.setSpeechKey, { body: { sealed, password } })
+      // "OpenRouter" picked but not saved yet: saving the key turns it on too (else the mic stays off)
+      const m = model || DEFAULT_SPEECH_MODEL
+      if (value !== null && (saved.speechProvider !== 'openrouter' || saved.speechModel !== m)) {
+        onSaved(await api.call(API.updateSettings, { body: { speechProvider: 'openrouter', speechModel: m } }))
+      }
+      return out
+    }, value === null ? t('speech.keyRemoved') : t('speech.keySaved'))
+    setBusy(false)
+    if (!r) return
+    key.setData(r)
+    setSecret('')
+    setPassword('')
+    await api.call(API.me).then(signedIn, () => {})
+  }
+  const remove = async () => {
+    if (await confirmDialog({ title: t('speech.removeConfirm'), confirm: t('speech.removeKey'), danger: true })) await send(null)
+  }
+  return (
+    <section id="speech" className="space-y-3 border-t border-line pt-4 sm:col-span-2" data-testid="team-speech" aria-labelledby="speech-title">
+      <div>
+        <h3 id="speech-title" className="text-sm font-semibold">{t('speech.title')}</h3>
+        <p className="mt-0.5 text-xs text-muted">{t('speech.desc')}</p>
+      </div>
+      <Field label={t('speech.provider')}>
+        <select className={inputCls} value={provider} onChange={(e) => onChange({ speechProvider: e.target.value as SpeechProvider })} data-testid="team-speech-provider">
+          {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
+        </select>
+      </Field>
+      {provider === 'local' && <p className="text-xs text-muted">{t('speech.localHint')}</p>}
+      {provider === 'openrouter' && (
+        <div className="space-y-3">
+          <p className="text-xs text-warn" data-testid="team-speech-privacy">{t('speech.privacy')}</p>
+          <Field label={t('speech.model')}>
+            <input className={inputCls} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />
+          </Field>
+          <Loadable state={key} lines={1}>
+            {(k) => (
+              <div className="space-y-2">
+                <p className="text-sm" data-testid="team-speech-key-state">{k.set ? t('speech.keySet', { hint: k.hint ?? '' }) : t('speech.keyNone')}</p>
+                <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+                  {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
+                </a>
+                {!secure ? <p className="text-sm text-warn">{t('credentials.httpsOnly')}</p> : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label={t('speech.key')}>
+                      <input className={inputCls} type="password" autoComplete="off" spellCheck={false} placeholder="sk-or-…" value={secret} onChange={(e) => setSecret(e.target.value)} data-testid="team-speech-key" />
+                    </Field>
+                    <Field label={t('credentials.reauth')}>
+                      <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="team-speech-password" />
+                    </Field>
+                    <div className="flex flex-wrap gap-2 sm:col-span-2">
+                      <Button size="sm" variant="primary" busy={busy} disabled={secret.trim().length < 16 || !password} onClick={() => send(secret.trim())} data-testid="team-speech-save-key">{t('speech.saveKey')}</Button>
+                      {k.set && <Button size="sm" busy={busy} disabled={!password} onClick={remove} data-testid="team-speech-remove-key">{t('speech.removeKey')}</Button>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Loadable>
+        </div>
+      )}
+    </section>
   )
 }
