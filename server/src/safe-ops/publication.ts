@@ -14,7 +14,7 @@ import { publishChanges } from '../team-files/changes'
 import { addSources, readScope, sourceOf } from '../chat/read-scope'
 import { assertStorageRoomForAI } from '../system/storage'
 import { broker } from './broker'
-import { recheck, type SourceSnapshot } from './source'
+import { snapshot, recheck, type SourceSnapshot } from './source'
 
 export const policyGeneration = (db: Database) => (db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation
 const changed = () => new ToolError('Publication approval or source changed.', 'safe_ops_changed')
@@ -42,6 +42,18 @@ export async function publishArtifact(
  approve:(target:string, sources:string[], binding:string)=>Promise<void>,
 ) {
  const db=ctx.db, bytes=Buffer.from(data), hash=sha256(bytes), id=crypto.randomUUID()
+ // Model-authored text may derive from earlier reads in this turn, even without
+ // explicit Markdown image/source references. Bind and recheck those versions too.
+ sources=[...sources]
+ let sourceBytes=sources.reduce((n,s)=>n+s.bytes.length,0)
+ for(const [rel,expectedHash] of c.files.readHashes) {
+   if(sources.some(s=>s.path===rel)) continue
+   if(sources.length>=32) throw new ToolError('Safe source limit.', 'safe_ops_workflow')
+   const source=snapshot(ctx.files,c,rel,Math.max(0,32*1024**2-sourceBytes))
+   const image=c.files.imageSources.get(rel)
+   if(source.hash!==expectedHash || (image && source.identity!==image.identity)) throw changed()
+   sourceBytes+=source.bytes.length; sources.push(source)
+ }
  if(bytes.length>32*1024**2 || c.files.bytesWritten+bytes.length>ctx.engineConfig.maxWriteBytesPerTurn || c.files.filesWritten.size>=ctx.engineConfig.maxFilesWrittenPerTurn)
    throw new ToolError('Safe workflow write limit.', 'safe_ops_workflow')
  assertStorageRoomForAI(bytes.length)
