@@ -2536,6 +2536,14 @@ including same-account installs. Extend the same synthetic selection tests to co
   and then a function call `NAME(`, a cell or range reference (`B2`, `$B$2`, `B:B`, `Sheet!B2`, `'Sheet 2'!B2`), a
   number, a `"string"`, `(`, `{` or `TRUE`/`FALSE`. An external reference (`[1]S!A1`) and a DDE link (`app|topic!A1`)
   also count, so that they are refused (see below). Other text (`=> done`, `= see note`, `== note ==`, `=-`) stays text.
+  Then the whole formula must parse (re-review fix): each operand is a number, a string, `NAME(` (no space before
+  `(`), a cell, column or row reference, a sheet-qualified reference, `TRUE`/`FALSE`, an error value (`#N/A`) or an
+  array `{...}`, and an operator comes between two operands. When this fails, the cell stays text: `=3 days`,
+  `= 5 stars`, `=1 apple` (two operands next to each other), `=2x` (a number followed by letters) and `=Total+1` (a
+  word that is not a function or a reference). Excel cannot parse these, and opened the file only after a repair
+  that deleted the cell. The blocked-function and external-reference checks run before this check, so a cell that
+  has a blocked call or a `[1]` reference is refused also when the rest does not parse. Known limit: the
+  intersection operator (a space between two ranges, `=A1:B5 B2:C3`) and defined names (`=Total`) are not formulas.
   A formula that ends with an operator or has unmatched parentheses is refused, because Excel opens such a file only
   after a repair.
 - **Safety.** The AI writes the cells, and a CSV `source` can be an upload, so a formula that can reach outside the
@@ -2556,7 +2564,8 @@ including same-account installs. Extend the same synthetic selection tests to co
   now. A cell such as `== note ==` was refused before this fix and is text now.
 - **Tests.** `tests/unit/c-tools.test.ts`: `<f>` nodes in the sheet XML, a cross-sheet reference, `_xlfn.XLOOKUP`,
   `fullCalcOnLoad="1"`, the `'=` escape, each refused form writes no file, the quoted-sheet-name bypass, sheet names
-  without quotes, and the operand rule (text cases stay text).
+  without quotes, the operand rule (text cases stay text), and the whole-formula rule (`=3 days`, `=2x` and the
+  other text cases stay text in the saved xlsx; `=SUM(A1:A3)`, `='Q1 data'!B2+1` and blocked calls do not change).
 
 ## Artifacts: "ask the AI to fix it" also for build errors (R2-GEN-09, feat/qa2-makefile, 2026-10-29)
 
