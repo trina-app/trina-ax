@@ -15,6 +15,7 @@ import { loadPrincipal, RuleSet, atLeast, type Principal } from '../policy/acces
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
+import { notifySkillSuggestion } from '../notifications/service'
 import { isSkillFolder, managedSkillFolders, managesSkillFolder, skillFolders } from './managers'
 import { st } from './text'
 
@@ -67,8 +68,10 @@ function localeOf(ctx: AppContext, id: string): Locale {
   const v = Locale.safeParse((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(id) as { locale: string } | null)?.locale)
   return v.success ? v.data : teamDefaultLocale(ctx.db)
 }
-function notify(ctx: AppContext, userId: string, code: string, message: string, link: string) {
+/** The live banner, and an inbox entry for later (R2-SKILL-12): a person who is offline now sees it on return. */
+function notify(ctx: AppContext, userId: string, code: 'skill_suggested' | 'skill_suggestion_reviewed', message: string, link: string, suggestionId: string) {
   try { ctx.services.realtime.publish(userId, { type: 'notice', data: { level: 'info', code, message, link } }) } catch (err) { ctx.log.warn('skill notice failed', { err }) }
+  notifySkillSuggestion(ctx, userId, code === 'skill_suggested' ? 'skill.suggested' : 'skill.reviewed', suggestionId)
 }
 
 /** The actual on-disk spelling of a skills folder the person can see, or a validation error (same for hidden and missing). */
@@ -123,7 +126,7 @@ export function createSuggestion(ctx: AppContext, userId: string, b: { source: {
   audit(ctx.db, { actor: userId, action: 'skills.suggest', target: target, detail: { suggestionId: row.id, name: row.name, source: row.source_kind } })
   for (const m of managersOf(ctx, target)) {
     if (m.id === userId) continue
-    notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: target + '/' }), `/skills?review=${row.id}`)
+    notify(ctx, m.id, 'skill_suggested', st('suggested', m.locale, { who: p.name, name: row.name, folder: target + '/' }), `/skills?review=${row.id}`, row.id)
   }
   return toSuggestion(ctx, row, p, RuleSet.load(ctx.db))
 }
@@ -208,7 +211,7 @@ export function approveSuggestion(ctx: AppContext, userId: string, id: string, b
     WHERE id = ? AND status = 'pending'`).run(userId, now, saved!, target, b.name.trim(), b.description.replace(/\s+/g, ' ').trim(), b.content, r.id)
   if (!done.changes) fail('conflict', st('alreadyReviewed', locale))
   audit(ctx.db, { actor: userId, action: 'skills.suggestion_approved', target: saved!, detail: { suggestionId: r.id, suggester: r.suggester_id } })
-  if (r.suggester_id !== userId) notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: b.name.trim(), path: saved! }), `/skills?mine=${r.id}`)
+  if (r.suggester_id !== userId) notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: b.name.trim(), path: saved! }), `/skills?mine=${r.id}`, r.id)
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }
 
@@ -221,7 +224,7 @@ export function rejectSuggestion(ctx: AppContext, userId: string, id: string, no
   audit(ctx.db, { actor: userId, action: 'skills.suggestion_rejected', target: r.target_folder, detail: { suggestionId: r.id, suggester: r.suggester_id } })
   if (r.suggester_id !== userId) {
     const L = localeOf(ctx, r.suggester_id)
-    notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('rejected', L, { name: r.name, note: note?.trim() ? ` (${note.trim()})` : '' }), `/skills?mine=${r.id}`)
+    notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('rejected', L, { name: r.name, note: note?.trim() ? ` (${note.trim()})` : '' }), `/skills?mine=${r.id}`, r.id)
   }
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
 }

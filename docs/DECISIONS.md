@@ -2494,3 +2494,21 @@ including same-account installs. Extend the same synthetic selection tests to co
   shows all issues. The Files screen shows the issues in and below the open `skills/` folder. Each line links to
   the file.
 - **Tests.** `tests/unit/skill-issues.test.ts`, `web/test/unit/skill-issues.test.ts`.
+
+## Team skills: suggestion notices stay in the notification inbox (R2-SKILL-12, 2026-10-29)
+
+- **Problem.** A skill suggestion told the managers of the target folder only with a live banner
+  (`realtime.publish`). An admin who was offline saw the pending count and the badge later, but the Notifications
+  screen stayed empty.
+- **Decision.** Two new inbox events: `skill.suggested` (to each manager of the target folder, not the suggester)
+  and `skill.reviewed` (to the suggester after a register or a turn-down by another person). The live banner stays.
+  The entry holds the suggestion id only, never the name, folder, note or content. Its link is `skills`: the web
+  opens `/skills?review=<id>` or `/skills?mine=<id>`, and the Skills screen checks access again. One new preference,
+  `skillSuggestions` (default on), covers both events.
+- **Storage.** `notification_inbox` has a fixed `event_type` CHECK list, and `server/src/db.ts` does not allow a
+  table rebuild. Migration `211_b_skill_notices.sql` adds the table `skill_notices` with the same columns and the
+  column `notification_preferences.skill_suggestions`. The service reads both tables as one inbox (list, unread
+  count, get, read, retention). An older build ignores the new table, so the reader level stays 1.
+- **No OS push for these events.** `push_deliveries` refers to `notification_inbox` only. `PushEventType` names the
+  events that can go to push, and the service worker ignores the other codes.
+- **Tests.** `tests/unit/skill-notices.test.ts`, `web/test/unit/push-worker.test.ts`.

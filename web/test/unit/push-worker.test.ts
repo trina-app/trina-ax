@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { IDBFactory } from 'fake-indexeddb'
-import { Locale, NotificationEventType } from '@mycel/shared/api'
+import { Locale, NotificationEventType, PushEventType } from '@mycel/shared/api'
 import { pushMessages } from '../../../server/src/notifications/text'
 
 const source = readFileSync(new URL('../../pwa/sw.js', import.meta.url), 'utf8')
@@ -12,7 +12,7 @@ function worker(database = new IDBFactory()) {
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = []
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
-  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true }
+  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null }
   let status = 200, gate: Promise<void> | null = null
   const self = {
@@ -82,7 +82,7 @@ test('worker rejects revoked subscriptions, disabled preferences, read events an
 })
 
 test.each(Locale.options)('worker displays server-selected %s title and body for every push event', async locale => {
-  for (const code of NotificationEventType.options) {
+  for (const code of PushEventType.options) {
     const w = worker(), messages = pushMessages(locale)
     w.configure({ messages })
     w.item({ id: 'event-1', code, readAt: null })
@@ -91,6 +91,16 @@ test.each(Locale.options)('worker displays server-selected %s title and body for
     expect(w.shown[0]!.title).toBe(messages.title)
     expect(w.shown[0]!.options.body).toBe(messages.bodies[code])
     expect(JSON.stringify(w.shown)).not.toMatch(/PRIVATE/)
+  }
+})
+
+test('inbox-only events (skill suggestion notices) never show as OS push', async () => {
+  for (const code of NotificationEventType.options.filter(c => !(PushEventType.options as readonly string[]).includes(c))) {
+    const w = worker()
+    w.configure({ messages: pushMessages('en') })
+    w.item({ id: 'event-1', code, readAt: null })
+    await w.push({ ...payload, code })
+    expect(w.shown).toHaveLength(0)
   }
 })
 

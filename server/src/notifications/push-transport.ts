@@ -2,12 +2,12 @@ import crypto from 'node:crypto'
 import dns from 'node:dns/promises'
 import https from 'node:https'
 import webpush from 'web-push'
-import type { NotificationEventType } from '@mycel/shared/api'
+import type { PushEventType } from '@mycel/shared/api'
 import { HttpError } from '../http/errors'
 import { isPublicAddress, isLocalAddress } from '../tools/web-fetch'
 import type { PushConfig } from './push-config'
 export interface PushSubscription { endpoint:string;keys:{p256dh:string;auth:string} }
-export interface PushPayload { notificationId:string;subscriptionId:string;code:NotificationEventType }
+export interface PushPayload { notificationId:string;subscriptionId:string;code:PushEventType }
 export interface PushSend {subscription:PushSubscription;payload:PushPayload;config:PushConfig;signal:AbortSignal;beforeSend:()=>boolean;ttlSeconds:number}
 export type PushTransport=(input:PushSend)=>Promise<{statusCode:number}>
 const HOSTS=new Set(['fcm.googleapis.com','updates.push.services.mozilla.com','web.push.apple.com'])

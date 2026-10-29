@@ -15,6 +15,11 @@ export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
+export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' | 'skill.reviewed'>
+const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
+/** One inbox over both tables: skill notices have their own table (migration 211, R2-SKILL-12). */
+const INBOX = `(SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM notification_inbox
+  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM skill_notices)`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -27,9 +32,14 @@ export class Notifications {
   private record(userId: string, event: NotificationEventType, sourceId: string, at: string) {
     if (!this.active(userId) || at < this.cutoff()) return
     const enabled = eventEnabled(this.preferences(userId), event)
-    const r = this.ctx.db.query('INSERT INTO notification_inbox(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
+    const table = isSkillEvent(event) ? 'skill_notices' : 'notification_inbox'
+    const r = this.ctx.db.query(`INSERT INTO ${table}(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING`)
       .run(newId(), userId, event, sourceId, at, enabled ? 0 : 1)
     if (r.changes && enabled) this.signal(userId)
+  }
+  /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */
+  skillNotice(userId: string, event: SkillNoticeEvent, suggestionId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, event, suggestionId, createdAt)
   }
   afterTurn(turnId: string) {
     try {
@@ -47,6 +57,7 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     db.query('DELETE FROM notification_inbox WHERE created_at < ?').run(this.cutoff())
+    db.query('DELETE FROM skill_notices WHERE created_at < ?').run(this.cutoff())
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
     const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
@@ -77,6 +88,10 @@ export class Notifications {
   }
   private out(row: Row): InboxNotification {
     let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null
+    if (isSkillEvent(row.event_type)) {
+      // The Skills screen checks access again when it opens the suggestion (?review= only when the viewer may review).
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
+    }
     if (row.event_type !== 'connection.reconnect') {
       // Metadata only: the stored result code, never the turn's error text. No turn = an admission skip (failed).
       const run = this.ctx.db.query('SELECT status,run_outcome FROM turns WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { status: string; run_outcome: string | null } | null
@@ -115,23 +130,25 @@ export class Notifications {
     if (o.cursor && (!cur || !Number.isFinite(Date.parse(cur.t!)))) throw new HttpError('validation')
     if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
-    const rows = db.query(`SELECT * FROM notification_inbox WHERE user_id=? AND suppressed=0 AND created_at>=?
+    const rows = db.query(`SELECT * FROM ${INBOX} WHERE user_id=? AND suppressed=0 AND created_at>=?
       ${cur ? 'AND (created_at<? OR (created_at=? AND id<?))' : ''} ORDER BY created_at DESC,id DESC LIMIT ?`)
       .all(...(cur ? [userId, cutoff, cur.t!, cur.t!, cur.id!, limit + 1] : [userId, cutoff, limit + 1])) as Row[]
     const selected = rows.slice(0, limit), last = selected.at(-1)
-    const { n } = db.query('SELECT COUNT(*) n FROM notification_inbox WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?').get(userId, cutoff) as { n: number }
+    const { n } = db.query(`SELECT COUNT(*) n FROM ${INBOX} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
     return { items: selected.map(r => this.out(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null, unreadCount: n }
   }
   get(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')
-    const row = this.ctx.db.query('SELECT * FROM notification_inbox WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=?').get(id,userId,this.cutoff()) as Row | null
+    const row = this.ctx.db.query(`SELECT * FROM ${INBOX} WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=?`).get(id,userId,this.cutoff()) as Row | null
     if (!row) throw new HttpError('not_found')
     return this.out(row)
   }
   read(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')
     const db = this.ctx.db
-    const r = db.query('UPDATE notification_inbox SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *').get(new Date().toISOString(), id, userId, this.cutoff()) as Row | null
+    const args = [new Date().toISOString(), id, userId, this.cutoff()]
+    const update = (table: string) => db.query(`UPDATE ${table} SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *`).get(...args) as Row | null
+    const r = update('notification_inbox') ?? update('skill_notices')
     if (!r) throw new HttpError('not_found')
     this.signal(userId)
     return this.out(r)
@@ -148,6 +165,10 @@ export function installNotifications(ctx: AppContext) {
   tick()
   const interval = setInterval(tick, 30_000); interval.unref?.()
   ctx.onClose(() => clearInterval(interval))
+}
+export function notifySkillSuggestion(ctx: AppContext, userId: string, event: SkillNoticeEvent, suggestionId: string) {
+  try { notificationsOf(ctx).skillNotice(userId, event, suggestionId) }
+  catch { ctx.log.warn('skill notification recording failed') }
 }
 export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourceId: string, createdAt?: string) {
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }
