@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Refresh the desktop team name and identity after sign-in even when an earlier anonymous lookup is still pending.
+
 - Keep experimental HWP previews disabled and exclude their native runtime from default release bundles pending licence/platform review; document Debian 12 availability in System and installation guidance. Restrict HWP macOS file reads to runtime and authorized job inputs.
 
 - Add guarded HWP/HWPX server PNG previews and the AI `hwp_render` page tool, with pinned engine/fonts and original downloads.

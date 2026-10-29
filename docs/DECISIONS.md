@@ -2835,3 +2835,13 @@ including same-account installs. Extend the same synthetic selection tests to co
 - Integrate the desktop worker-startup correction and default-off HWP preview before Japanese/Spanish.
 - Supply all 20 HWP web keys in both new locales, including the disabled-preview and Debian 12/glibc notices.
   Preserve the five-language requirement and placeholder checks; no English placeholder translations.
+
+### Refresh native identity after sign-in navigation (2026-10-30)
+
+- A pending anonymous `/api/me` read could be reused after sign-in/reload, leaving the native team label at
+  its hostname. This pre-existing race reproduced in the train's full Electron suite and with a response
+  held across login. Navigation now uses the same fresh-after-pending identity read already required for AI
+  browser calls. Requests remain serialized; browser-owner clearing and team policy checks are unchanged.
+- The regression fixture holds the anonymous response until after login/reload, then releases it. The old
+  implementation fails the unchanged team-name assertion; the corrected path reads the current session.
+  No longer timeout, retry, altered assertion, or language-dependent workaround. Port to `potenlab/team-ax`.

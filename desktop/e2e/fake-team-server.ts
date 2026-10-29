@@ -67,6 +67,7 @@ interface Team {
   /** GET /api/me requests that carried the team session (the app reads the policy there) */
   meHits: number
   meUnavailable?: boolean
+  anonymousMeGate?: { wait: Promise<void>; release: () => void; hits: number }
 }
 const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [], meHits: 0 })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
@@ -139,7 +140,24 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     return json({ ok: true })
   }
   if (p === '/test/me-unavailable') { t.meUnavailable = url.searchParams.get('on') === '1'; return json({ ok: true }) }
+  if (p === '/test/anonymous-me') {
+    if (url.searchParams.get('mode') === 'hold') {
+      t.anonymousMeGate?.release()
+      let release!: () => void
+      const wait = new Promise<void>(resolve => { release = resolve })
+      t.anonymousMeGate = { wait, release, hits: 0 }
+    } else if (url.searchParams.get('mode') === 'release') {
+      t.anonymousMeGate?.release()
+      t.anonymousMeGate = undefined
+    }
+    return json({ hits: t.anonymousMeGate?.hits ?? 0 })
+  }
   if (p === '/api/me') {
+    if (!sessionCookie(req) && t.anonymousMeGate) {
+      const gate = t.anonymousMeGate
+      gate.hits++
+      await gate.wait
+    }
     if (t.meUnavailable) return json({ error: { code: 'unavailable', message: 'fixture unavailable' } }, 503)
     if (!sessionCookie(req)) return json({ error: { code: 'unauthorized', message: 'sign in' } }, 401)
     t.meHits++
