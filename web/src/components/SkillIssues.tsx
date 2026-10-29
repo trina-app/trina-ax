@@ -25,7 +25,8 @@ export function SkillIssues({ folder, className }: { folder?: string; className?
       filesChanged.on((changes) => { if (changes.some((c) => isSkillsPath(c.path) || (c.from && isSkillsPath(c.from)))) load() }),
     ]
     return () => { active = false; for (const off of offs) off() }
-  }, [])
+    // a new folder on the Files screen also loads again (the list may be older than the realtime connection)
+  }, [folder])
   const shown = issuesIn(items, folder)
   if (!shown.length) return null
   return (

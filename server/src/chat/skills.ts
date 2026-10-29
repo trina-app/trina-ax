@@ -53,19 +53,21 @@ function standardFields(header: string): Map<string, string> | null {
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
 export type SkillCheck = { ok: true; name: string; description: string; body: string } | { ok: false; problem: SkillProblem }
 
-/** Legacy header lines are `key: value`. Values have no YAML quoting rules (skillFileText writes them as typed), but
- * a value that opens a quote must close it again. Valid YAML (for example a block scalar) is also accepted. */
+/** Legacy header lines are `key: value` (any key text, a space after the colon is optional). Values have no YAML
+ * quoting rules (skillFileText writes them as typed), but a value that opens a quote or a bracket must close it
+ * again, and a key comes once. Valid YAML (for example a block scalar) is also accepted. */
+const CLOSE: Record<string, string> = { '"': '"', "'": "'", '[': ']', '{': '}' }
 function legacyHeaderOk(header: string): boolean {
   const lines = header.split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l))
   const keys = new Set<string>()
   const lineForm = lines.every((line) => {
-    const kv = /^([A-Za-z_][\w-]*)\s*:(?:\s+(.*))?$/.exec(line)
+    const kv = /^([^\s:#"'][^:]*?)\s*:(.*)$/.exec(line)
     if (!kv) return false
-    const key = kv[1]!.toLowerCase(), v = (kv[2] ?? '').trim()
+    const key = kv[1]!.toLowerCase(), v = kv[2]!.trim()
     if (keys.has(key)) return false
     keys.add(key)
-    const q = v.charAt(0)
-    return !(q === '"' || q === "'") || v.indexOf(q, 1) > 0
+    const close = CLOSE[v.charAt(0)]
+    return !close || v.indexOf(close, 1) > 0
   })
   if (lineForm) return true
   try {
