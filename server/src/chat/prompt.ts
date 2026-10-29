@@ -164,6 +164,13 @@ export function localTimeText(now: Date, timeZone: string): string {
   return `${WEEKDAYS[p.wd]}, ${MONTHS[p.m - 1]} ${p.d}, ${p.y} at ${h12}:${String(p.min).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}`
 }
 
+/**
+ * The folder lists are hints, not the access check. The AI read "Read-only folders" (or a folder named 읽기전용) and
+ * refused in text without calling write, so the server never refused and the "save in my folder" button under the
+ * answer did not show (QA B-W4-2 / PERM-07, 2026-10-29). In personLines, so a resumed session gets it too.
+ */
+export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hints, not the access check. When the user asks to change or save a file, call write or edit and let the server decide; do not refuse on your own guess that a folder is read-only. If the server denies the call, tell the user plainly and do not save a copy somewhere else unless they ask: the user then sees the reason and a button to save in their own folder.'
+
 /** Items 2-3 of the instructions: the person, their folders, the time and the answer language. */
 function personLines(files: FileService, i: PromptInput): string[] {
   const now = i.now ?? new Date()
@@ -173,6 +180,7 @@ function personLines(files: FileService, i: PromptInput): string[] {
     `Personal folder: users/${i.user.id}`,
     `Writable folders: ${writable.join(', ') || '(none)'}`,
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
+    WRITE_ACCESS_RULE,
     timeLine(now, i.timeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
   ].filter((l) => l !== '')
