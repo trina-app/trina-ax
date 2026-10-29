@@ -62,7 +62,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       await expect.poll(() => nativeRecoveryState(app)).toEqual({ visible: true, fillsWindow: true })
       await shell.getByRole('button', { name: strings['offline.teams'], exact: true }).click()
       await expect(shell.getByTestId('team-list')).toBeVisible()
-      await expect.poll(() => nativeRecoveryVisible(app)).toBe(true)
+      await expect.poll(() => nativeRecoveryState(app)).toEqual({ visible: true, fillsWindow: true })
 
       // A subsequent navigation in the SAME WebContents must clear the failed-navigation state.
       // An ordinary 503 without a worker still belongs to the team page, not native recovery.
