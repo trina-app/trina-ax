@@ -2757,3 +2757,19 @@ including same-account installs. Extend the same synthetic selection tests to co
   The new assertion fails on the previous product code even when the timing race otherwise passes.
   No registration bypass, retry, timeout increase, UI string or cache policy change. Port this common
   desktop fix and regression coverage to `potenlab/team-ax`.
+
+## Dedicated-worker startup under the frame debugger (2026-10-30)
+
+- Independent native validation found that the iframe-only filter still leaves dedicated workers paused
+  in Electron 44.7.2. Unlike service/shared workers, their renderer-side startup pause survives exclusion
+  from target attachment. A second debugger can mask this, so Playwright-only worker checks are insufficient.
+- Keep service/shared workers excluded. Attach dedicated `worker` targets only to send
+  `Runtime.runIfWaitingForDebugger`, then detach immediately; never send them Page commands or recursively
+  install document guards. Frame targets still receive the document-start guard before resuming.
+- A native Electron fixture without another debugger checks static, late and nested OOPIFs (different process
+  IDs), synchronous about:blank, srcdoc, blob/data documents, denied popups, and startup of all three worker
+  kinds. It fails with the iframe-only filter. The SW regression still rejects service/shared attachment.
+- RTCPeerConnection and mediaDevices are Window-only in Blink. Dedicated workers expose transferable
+  RTCDataChannel, but cannot construct a connection/channel themselves; receiving an existing channel
+  requires cooperation by a Window already permitted to create it. Worker exclusion is not a blanket claim
+  that workers expose no RTC-related interfaces. Port this correction and native test to `potenlab/team-ax`.
