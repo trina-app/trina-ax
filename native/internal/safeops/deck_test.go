@@ -23,6 +23,10 @@ func TestDeckRejectsBombsAndActiveParts(t *testing.T) {
 		"xml-depth":           {"ppt/presentation.xml": []byte(strings.Repeat("<x>", 65) + strings.Repeat("</x>", 65))},
 		"DTD":                 {"ppt/presentation.xml": []byte("<!DOCTYPE x><x/>")},
 		"traversal":           {"../outside": []byte("x")},
+		"media-backslash":     {`ppt/media/..\..\escape.png`: testPNG(1, 1)},
+		"media-encoded-path":  {"ppt/media/%2e%2e%2fescape.png": testPNG(1, 1)},
+		"media-stream":        {"ppt/media/image:stream.png": testPNG(1, 1)},
+		"media-control":       {"ppt/media/image\x01.png": testPNG(1, 1)},
 		"active":              {"ppt/vbaProject.bin": []byte("x")},
 		"embedded-image-bomb": {"ppt/media/image1.png": testPNG(8000, 4001)},
 	} {

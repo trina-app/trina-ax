@@ -53,7 +53,9 @@ func Deck(b []byte) ([]byte, error) {
 	images := 0
 	for _, f := range z.File {
 		key := strings.ToLower(f.Name)
-		if seen[key] || !partName.MatchString(f.Name) || f.Flags&1 != 0 || (f.Method != zip.Store && f.Method != zip.Deflate) || !f.Mode().IsRegular() || f.UncompressedSize64 > 8<<20 {
+		// ZIP names are interpreted differently by downstream Office readers. Admit only
+		// canonical portable names, even for media that this validator never extracts.
+		if seen[key] || strings.ContainsAny(f.Name, "\\:%?#") || strings.IndexFunc(f.Name, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || path.Clean(f.Name) != f.Name || !partName.MatchString(f.Name) || f.Flags&1 != 0 || (f.Method != zip.Store && f.Method != zip.Deflate) || !f.Mode().IsRegular() || f.UncompressedSize64 > 8<<20 {
 			return bad()
 		}
 		seen[key] = true

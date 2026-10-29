@@ -109,6 +109,20 @@ test('unqualified converter fails closed; no direct-execution fallback', async (
   if (process.platform === 'linux') return
   await expect(normalizeImage('png', Buffer.from('synthetic'))).rejects.toThrow('unavailable')
 })
+test('flag off preserves the legacy image read limit and offset handling', async () => {
+  delete process.env.MYCEL_SAFE_OPS_1A
+  const file = path.join(A.team, 'users/alice/legacy.png')
+  // OCR is disabled in this fixture: legacy read treats this synthetic input as text.
+  fs.writeFileSync(file, 'first\nsecond\n' + 'x'.repeat(8 * 1024 ** 2))
+  try {
+    const r = await call(A.toolCtx('alice'), 'read', {file_path:'users/alice/legacy.png',offset:2,limit:1})
+    expect(r.result.isError).toBeUndefined()
+    expect(r.result.content[0].text).toContain('second')
+  } finally {
+    fs.rmSync(file)
+    process.env.MYCEL_SAFE_OPS_1A = '1'
+  }
+})
 test('safe presentation refuses uploaded templates before conversion or placement', async () => {
   const r = await call(A.toolCtx('alice'), 'make_file', {
     format: 'pptx',

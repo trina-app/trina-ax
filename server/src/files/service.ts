@@ -183,7 +183,7 @@ export class FileService {
   }
 
   async read(ctx: ToolCtx, a: { file_path: string; offset?: number; limit?: number }): Promise<ToolOutput> {
-    if(['png','jpg','jpeg','webp','heic','heif'].includes(ext(a.file_path))) return this.readImage(ctx,a)
+    if(safeOpsEnabled() && ['png','jpg','jpeg','webp','heic','heif'].includes(ext(a.file_path))) return this.readImage(ctx,a)
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
