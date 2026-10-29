@@ -11,9 +11,10 @@ export function summaryCounts(f: FileChangeSummary) {
   return { saved: f.saved.length, conflicts: f.conflicts.length, rejected: f.rejected.length }
 }
 
-export default function FileSummary({ files, onAskOwnFolder, disabled }: { files: FileChangeSummary; onAskOwnFolder: (path: string) => void; disabled?: boolean }) {
+// defaultOpen: tests render the open list without a click
+export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOpen = false }: { files: FileChangeSummary; onAskOwnFolder: (path: string) => void; disabled?: boolean; defaultOpen?: boolean }) {
   const t = useT()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const c = summaryCounts(files)
   if (!c.saved && !c.conflicts && !c.rejected) return null
   const parts = [c.saved && t('files.summary.saved', { n: c.saved }), c.conflicts && t('files.summary.conflicts', { n: c.conflicts }), c.rejected && t('files.summary.rejected', { n: c.rejected })].filter(Boolean)
