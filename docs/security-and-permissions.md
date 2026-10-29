@@ -6,7 +6,7 @@ The same question, “Summarize our onboarding policy,” can use an HR file onl
 
 Owners configure the team and its AI connections. App admins have administrative actions and activity records, not a screen for reading everyone's private chats. Server/OS/storage operators can read stored files and chats. This includes Trina operators in hosted deployments.
 
-Selected answer context goes to the chosen model provider, such as Anthropic or OpenAI. External integrations receive their requests too. Self-hosting is not fully offline model processing.
+Prompts, relevant conversation history and selected file/tool content go to the chosen model provider. Standard connections route Claude to Anthropic and Codex to OpenAI. The experimental API engine can use another configured provider. External integrations receive their requests too. Self-hosting is not offline model processing, and AWS Seoul hosting describes the team server location, not a guarantee that provider processing stays in Korea. This project does not promise a particular provider retention or training policy; confirm the terms of the authorized account and service.
 
 The server asks for confirmation when tracked restricted context is written to a broader audience. This is not universal data-loss prevention: it does not control all external transfers or human copying. Revoking folder access does not retract quotations in previous answers. No certification or zero-leak guarantee is claimed.
 

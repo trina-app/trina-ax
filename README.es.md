@@ -34,7 +34,7 @@ Las capturas muestran las carpetas disponibles para las cuentas de marketing y f
 
 | Opción | Requisitos | Operación y primer resultado |
 |---|---|---|
-| Alojamiento de Trina | Navegador, internet y conexión de IA autorizada | Trina opera en AWS Seúl; [consulta la instalación](https://ax.trina.app/#contact) |
+| Alojamiento de Trina | Navegador, internet y conexión de IA autorizada | Trina opera en AWS Seúl; [consulta la puesta en marcha](https://ax.trina.app/#contact) |
 | Servidor Linux propio | Debian 12/13 o Ubuntu 24.04; systemd y cgroup v2; amd64/arm64; 4 GB de RAM recomendados, 20 GB de disco como mínimo | TI instala, actualiza y recupera las copias; [guía Linux en inglés](docs/INSTALL-LINUX.en.md) |
 | Mac de oficina | Mac dedicado con macOS 13 o posterior, sesión del sistema abierta, internet y conexión de Claude permitida | Responsable de la oficina; [guía Mac en inglés](docs/OFFICE.en.md). Sin garantía de capacidad medida |
 | Evaluación local | Git, Bun 1.3.12 (versión de CI), Go 1.27 o posterior y herramientas de compilación; Mac o Linux preparado | Archivos ficticios y comparación de permisos sin cuenta de IA; [inicio rápido en inglés](docs/QUICKSTART.md) |
@@ -45,7 +45,7 @@ Después de clonar el repositorio e instalar las dependencias, ejecuta `bun run 
 
 ## La primera semana
 
-Crea la cuenta propietaria y sigue este orden: **permisos → conexión de IA → invitar al equipo → primera habilidad → primera copia de seguridad**. Empieza con pocos archivos autorizados y una tarea repetible. [Lista para responsables (inglés)](docs/for-teams.md) · [Copiar los ejemplos (inglés)](examples/README.md).
+Crea la cuenta del propietario del equipo y sigue este orden: **permisos → conexión de IA → invitar al equipo → primera habilidad → primera copia de seguridad**. Empieza con pocos archivos autorizados y una tarea repetible. [Lista para responsables (inglés)](docs/for-teams.md) · [Copiar los ejemplos (inglés)](examples/README.md).
 
 En instalaciones con conexiones administradas se prioriza la conexión personal disponible, seguida de la asignada a la persona, al grupo y a todo el equipo. Los equipos nuevos permiten compartir suscripciones de forma predeterminada; las elecciones guardadas se conservan. También se requiere el consentimiento de cada conexión. **Esta opción del software no concede autorización según los términos de Anthropic u OpenAI.** Usa únicamente cuentas y planes autorizados para el uso previsto. La demo desactiva la IA; los modos de desarrollo y oficina con inicio de sesión local se comportan de otra manera. [Preguntas sobre conexiones (inglés)](docs/FAQ.md).
 

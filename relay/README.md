@@ -16,7 +16,7 @@ bun run dev:relay              # http://<team>.localhost:19161, registry in .dev
 bun run dev:server:relay       # dev server that registers "myteam" and connects: http://myteam.localhost:19161
 # or: MYCEL_RELAY_URL=ws://127.0.0.1:19161/connect MYCEL_RELAY_TEAM=acme bun run dev:server
 
-node relay/src/main.ts --domain relay.example.com --port 8080 --data /var/lib/mycel-relay   # behind Cloudflare / a tunnel
+node relay/src/main.ts --domain example.com --port 8080 --data /var/lib/mycel-relay   # behind Cloudflare / a tunnel
 bun scripts/build-relay.ts     # production bundle dist/relay/teamax-relay-<v>.tar.zst (relay/deploy/relay-deploy.sh)
 ```
 
