@@ -4,11 +4,16 @@ import path from 'node:path'
 import { runIsolated, isolation } from '../tools/isolate'
 import { ToolError } from '../policy/errors'
 import type { Deck } from '../tools/pptx-check'
+import { officeWorkerScript } from '../files/extract'
 let script: Promise<string> | undefined
 function workerScript() {
   return (script ??= (async () => {
     const built = path.join(import.meta.dir, 'deck-worker.js')
     if (fs.existsSync(built)) return built
+    // In a checkout, background Office indexing may be building its worker at the
+    // same time. Bun 1.3.12 can fail concurrent in-process builds. Join that shared
+    // build before starting ours; installed bundles already contain both workers.
+    await officeWorkerScript()
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-deck-'))
     process.once('exit', () => fs.rmSync(dir, { recursive: true, force: true }))
     const b = await Bun.build({
@@ -19,7 +24,7 @@ function workerScript() {
     })
     if (!b.success) throw new Error('deck worker build failed')
     return path.join(dir, 'deck-worker.js')
-  })())
+  })().catch((e) => { script = undefined; throw e }))
 }
 export async function readDeckIsolated(bytes: Uint8Array, signal?: AbortSignal): Promise<Deck> {
   if (bytes.length > 32 * 1024 ** 2 || isolation() === 'none')
