@@ -967,6 +967,15 @@ export class MockServer {
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
       return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://team.example.com' }
     },
+    // like server/src/admin/users.ts transferOwnership: the password again, then the old owner becomes an admin
+    transferOwnership: (c) => {
+      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, '비밀번호가 맞지 않습니다. 다시 입력해 주세요.')
+      const u = this.users.find((x) => x.id === c.body.userId && x.status === 'active') ?? fail('not_found', 404)
+      if (u.id === c.user.id) fail('forbidden', 403)
+      for (const x of this.users) if (x.role === 'owner') x.role = 'admin'
+      u.role = 'owner'
+      return { ok: true as const }
+    },
     createResetLink: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (u.role === 'owner') fail('forbidden', 403)

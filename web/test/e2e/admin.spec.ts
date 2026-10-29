@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
@@ -233,6 +233,33 @@ test('settings: the team time zone', async ({ page }) => {
   await expect(page.getByText('저장했어요.')).toBeVisible()
   await page.reload()
   await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
+})
+
+// QA R2-PERM-10: the owner gives the role to another person in Team settings, with the password again; the old owner
+// is an admin at once, so the transfer card and the team name input go away
+test('settings: the owner transfers ownership with the password again and becomes an admin', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  await expect(page.getByRole('heading', { name: '팀장 넘김' })).toBeVisible()
+  const start = page.getByTestId('transfer-start')
+  await expect(start).toBeDisabled()
+  await page.getByTestId('transfer-target').selectOption('bob')
+  await start.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Bob님을 팀장으로 정할까요?')
+  await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill('wrong password')
+  await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
+  await expect(page.getByText('비밀번호가 맞지 않습니다. 다시 입력해 주세요.')).toBeVisible()
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill(OWNER.password)
+  await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
+  await expect(page.getByText('이제 Bob님이 팀장이에요.')).toBeVisible()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('heading', { name: '팀장 넘김' })).toBeHidden()
+  await expect(page.getByLabel('팀 이름')).toBeDisabled()
+  expect(realErrors(errors).filter((e) => !/status of 403/.test(e))).toEqual([])
 })
 
 for (const locale of ['ko', 'en', 'id'] as const) {
