@@ -1,7 +1,7 @@
 // Internal fixed-operation runner. No model-controlled executable, argv, environment or bind mounts.
 // Unsupported hosts fail closed. The old converter runner is deliberately NOT a fallback.
 import fs from 'node:fs'
-import { reserveJob } from './workflow'
+import { checkWorkflowEnvelope, reserveJob } from './workflow'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -160,6 +160,7 @@ async function run(
   try {
     // The parent provides a hard aggregate cap; the new leaf provides independent OOM/cleanup scope.
     const parent = jobCgroup()
+    checkWorkflowEnvelope(parent.dir)
     const id=crypto.randomUUID()
     const jobDir=path.join(parent.dir,id)
     reservation=reserveJob(id,jobDir,path.join(os.tmpdir(),'ax-safe-'+id),input.byteLength+Object.values(files).reduce((n,b)=>n+b.byteLength,0)+maxOutput)

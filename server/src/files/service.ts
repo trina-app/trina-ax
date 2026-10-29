@@ -42,6 +42,8 @@ function refuseLegacyText(rel: string, cur: Uint8Array) {
 }
 
 export class TurnFiles {
+  /** Set only by TurnRegistry.bind after the trusted launcher starts the engine. */
+  enginePid: number | null = null
   readHashes = new Map<string, string>()
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()

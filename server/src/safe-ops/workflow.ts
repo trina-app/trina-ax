@@ -5,8 +5,9 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { ToolError } from '../policy/errors'
+import { qualifiedEnvelope } from './envelope'
 
-const scope = new AsyncLocalStorage<{db: Database; id: string; dataDir: string}>()
+const scope = new AsyncLocalStorage<{db: Database; id: string; dataDir: string; enginePid: number|null}>()
 const refusal = () => new ToolError('Safe workflow limit or incomplete cleanup.', 'safe_ops_workflow')
 export const WORKFLOW_LIMITS = { jobs:24, ioBytes:512*1024**2, cpuSeconds:600, wallMs:120_000, perTurn:4, perUserHour:8 }
 const alive = (pid: number) => { try { process.kill(pid,0); return true } catch(e:any) { return e.code !== 'ESRCH' } }
@@ -52,11 +53,17 @@ export async function withWorkflow<T>(files: FileService, c: ToolCtx, run: () =>
   const timer=setTimeout(()=>timeout.abort(),WORKFLOW_LIMITS.wallMs)
   c.signal=original?AbortSignal.any([original,timeout.signal]):timeout.signal
   try {
-    return await scope.run({db,id,dataDir:files.cfg.dataDir},run)
+    return await scope.run({db,id,dataDir:files.cfg.dataDir,enginePid:c.files.enginePid},run)
   } finally {
     clearTimeout(timer); c.signal=original
     db.query("UPDATE safe_ops_workflows SET state=CASE WHEN debt_bytes=0 THEN 'done' ELSE 'debt' END WHERE id=?").run(id)
   }
+}
+
+export function checkWorkflowEnvelope(converter: string) {
+  const s=scope.getStore()
+  if(s && s.enginePid===null) throw new ToolError('No authenticated engine process for this workflow.', 'safe_ops_unavailable')
+  return qualifiedEnvelope(converter,s?.enginePid??process.pid)
 }
 
 export function reserveJob(id: string, cgroup: string, fallbackStage: string, ioBytes: number) {

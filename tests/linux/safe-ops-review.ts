@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { spyOn } from 'bun:test'
 import { setupServerCgroups } from '../../server/src/system/cgroups'
 import { normalizeImage } from '../../server/src/safe-ops/runner'
+import { qualifiedEnvelope } from '../../server/src/safe-ops/envelope'
 import { withWorkflow } from '../../server/src/safe-ops/workflow'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -64,9 +65,27 @@ try {
    assert(fs.readdirSync(path.dirname(path.join(meta.team,meta.target))).every(n=>!n.startsWith('.mycel-tmp-safe-')))
   }finally{db.close();fs.rmSync(path.dirname(meta.data),{recursive:true,force:true})}
  })
+ await check('live engine and converter share a verified hard envelope; missing engine refused',async()=>{
+  const state=setupServerCgroups({mode:'prod'});assert(state.state==='delegated')
+  if(state.state!=='delegated')return
+  const engine=Bun.spawn(['/usr/bin/sleep','60'],{stdin:'ignore',stdout:'ignore',stderr:'ignore'})
+  try {
+   const cap=qualifiedEnvelope(state.conv.dir,engine.pid)
+   assert(cap.memory<=4*1024**3&&cap.pids<=512&&cap.cpu<=4)
+   const c=app.toolCtx('alice',app.turn('alice',app.chat('alice')));c.files.enginePid=engine.pid
+   const image=await withWorkflow(app.ctx.files,c,()=>normalizeImage('png',fs.readFileSync('/fixtures/synthetic.png')))
+   assert(image[0]===255)
+   let rejected=false;try{qualifiedEnvelope(state.conv.dir,2147483647)}catch{rejected=true};assert(rejected)
+   // Read-back failure, injected only into this local test process.
+   const read=fs.readFileSync
+   const mock=spyOn(fs,'readFileSync').mockImplementation((p:any,...args:any[])=>String(p).endsWith('/memory.max')?'max\n':(read as any)(p,...args))
+   rejected=false;try{qualifiedEnvelope(state.conv.dir,engine.pid)}catch{rejected=true}finally{mock.mockRestore()};assert(rejected)
+  }finally{engine.kill('SIGKILL');await engine.exited}
+ })
  await check('actual converter cleanup failure retains debt and makes runner unhealthy',async()=>{
   assert(setupServerCgroups({mode:'prod'}).state==='delegated')
   const c=app.toolCtx('alice',app.turn('alice',app.chat('alice')))
+  c.files.enginePid=process.pid
   const original=fs.rmdirSync, failedDirs:string[]=[]
   const mock=spyOn(fs,'rmdirSync').mockImplementation((p:any,...args:any[])=>{
    if(String(p).includes('/safe-ops-1a/')) {failedDirs.push(String(p));throw new Error('synthetic cleanup I/O failure')}

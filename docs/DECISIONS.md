@@ -2757,7 +2757,9 @@ including same-account installs. Extend the same synthetic selection tests to co
 - Use native `openat2` beneath/no-symlink/no-magiclink/no-xdev source resolution. Direct connected
   mounts, including same-device binds, are refused; imported regular copies follow normal policy.
 - Admit whole workflows, cap per-user/turn/hour work and reserve cumulative converter CPU/transfers.
-  Retain cleanup debt and fail closed until cgroup/staging cleanup is proven. No fair-queue or
-  combined engine+converter hard-budget claim: target host envelope qualification remains a
-  production gate, along with real pinned CLIs, codec/patch ownership and independent review.
+  Retain cleanup debt and fail closed until cgroup/staging cleanup is proven. Require a bounded
+  common engine/server/converter ancestor (4 GiB, 512 pids, four CPUs, zero swap) and 640 MiB
+  admission headroom. No fair queue or per-turn engine scheduler is claimed. Target host
+  qualification remains a production gate, along with real pinned CLIs, codec/patch ownership
+  and independent review.
 - See [the exact guarantees, recovery procedure and deferred controls](SAFE-OPS-1A.md).

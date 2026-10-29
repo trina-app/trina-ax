@@ -154,6 +154,7 @@ await check('broker publishes a validated Korean PPTX and retains image provenan
     fs.copyFileSync('/fixtures/synthetic.png', path.join(app.team, 'users/alice/image.png'))
     const turn = app.turn('alice', app.chat('alice')),
       ctx = app.toolCtx('alice', turn)
+    ctx.files.enginePid=process.pid // local synthetic engine for the direct broker test
     const handler = makeHandler(app.ctx.files, app.ctx.db, ctx)
     const result = await handler({
       jsonrpc: '2.0',

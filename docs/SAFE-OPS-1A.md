@@ -92,10 +92,15 @@ recovery. An administrator must investigate a live-owner or persistent debt cond
 feature disabled; never delete the journal merely to regain admission. Reconciliation runs at server initialization and on
 workflow admission. Startup waits up to 500 ms for each killed leaf to empty; unresolved debt stays unhealthy. A restart does not automatically rerun a workflow or publication.
 
-The engine and converter still have separate existing cgroup parents. This patch does **not**
-claim a common engine+converter hard budget, measured host I/O rate, tenant fairness, or a new
-engine resource controller. Qualifying their combined envelope and host reserve is a production
-enablement gate. General workspace execution must build those additional controls first.
+Every job also requires a finite common cgroup ancestor of the authenticated live engine PID,
+server and converter tree: at most 4 GiB memory, zero swap, 512 pids and four CPUs, with at
+least 640 MiB current memory headroom before admission. Missing engine membership or an
+unbounded common ancestor fails closed. The trusted turn registry supplies the engine PID;
+tool arguments cannot supply it. Administrators must place the launcher/engines and server
+under this bounded tenant ancestor and qualify it on the target host. This bounds their combined
+resource use; it is not a per-turn engine scheduler, measured host I/O rate or tenant fairness.
+The headroom check is an admission snapshot, not an exclusive reservation against other tenants;
+the common ancestor hard limit remains enforced by the kernel.
 
 ## Sources and approved connected-root contract
 
@@ -171,7 +176,7 @@ No HWP implementation is changed.
 
 **1B (ZIP):** no archive listing/extraction tool is added. Require selected-entry IDs, immutable
 archive provenance, streaming metadata/entry/ratio budgets, inode/total workspace quotas, no
-recursive extraction, independent file validation and isolated downstream consumers. General mutable-destination CAS, fair queuing, a joint engine/workspace parent, measured
+recursive extraction, independent file validation and isolated downstream consumers. General mutable-destination CAS, fair queuing, a per-turn engine/workspace controller, measured
 cumulative CPU/I/O controls, and connected-root qualification remain future work. The new-file
 journal/approval/quarantine contract above must be retained. Qualify Mac separately; do not infer parity from a configured profile.
 

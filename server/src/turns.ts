@@ -69,7 +69,7 @@ export class TurnRegistry {
   }
   bind(turnId: string, pgid: number) {
     const t = this.byId.get(turnId); if (!t || t.revoked) return false
-    t.pgid = pgid; t.waiters.splice(0).forEach((f) => f()); return true
+    t.pgid = pgid; t.files.enginePid = pgid; t.waiters.splice(0).forEach((f) => f()); return true
   }
   /** end of turn: token is useless from now on */
   revoke(turnId: string, status: 'done' | 'error' | 'stopped' | 'interrupted' = 'done', err?: string) {
