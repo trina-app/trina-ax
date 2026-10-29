@@ -3,7 +3,9 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## Unreleased
+## 0.2.6 — 2026-10-29
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.6).
 
 - Linux installer: `--public-host HOST` (the team's public address, for example a Cloudflare Tunnel),
   `--app-connectors` (people connect their own Claude to the server) and `--google-drive-client FILE` (the Google
@@ -12,6 +14,15 @@ This file summarizes user-visible changes; it is not a list of every commit.
   variable `MYCEL_REMOTE_MCP_ORIGIN` still works and wins.
 - Linux: after an update, AI turns had no team tools (files, memory, Drive) until the launcher restarted. The launcher
   now finds the current team-tools bridge for each turn.
+- Usage: amounts are labelled as an estimate of the equivalent API cost, not a bill. Each row shows its share in
+  percent, and the shares add up to 100%.
+- Chat: when the AI model refuses and the turn retries with another model, only the retry's answer stays.
+- Chat: the "save in my folder" button after a read-only refusal puts a draft in the composer and does not send it.
+- Chat: the notice about a refused write shows only text in the person's language.
+- Dialogs opened from a menu (files, chats, credentials) give the focus back to the menu button when they close.
+- Members: a cancelled invite leaves the list at once.
+- Desktop and web: the offline page uses the person's language.
+- Admin › AI engines: Codex shows the version of the CLI that the turns really run.
 
 ## 0.2.5 — 2026-10-29
 
