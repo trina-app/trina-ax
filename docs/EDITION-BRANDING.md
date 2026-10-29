@@ -30,7 +30,6 @@ bun scripts/edition-source.ts editions/trina/branding/source.json --apply
 ```
 
 `--apply`는 `shared/src/source.ts`의 `SOURCE_CODE` 세 필드만 바꾼다. `tests/unit/edition-source.test.ts`가 판매판 설정과 적용 값이 같은지, 다른 소스에 레포 주소가 직접 적혀 있지 않은지 확인한다.
-||||||| parent of 3a9ca23c (Edition extension point for the hosted service's addresses)
 
 ## Hosted service addresses (2026-10-28)
 
