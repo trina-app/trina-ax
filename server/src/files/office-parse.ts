@@ -49,11 +49,28 @@ function boundRange(ws: XLSX.WorkSheet): void {
   ws['!ref'] = XLSX.utils.encode_range(range)
 }
 
+/**
+ * A formula cell without a stored result (make_file writes these: the spreadsheet app calculates on open) is a
+ * stub cell. It shows as its formula ("=SUM(B2:E2)"), not as a blank. Other stubs (empty styled cells) are dropped,
+ * as they were before stubs were read.
+ */
+export function formulaStubsAsText(ws: XLSX.WorkSheet): void {
+  const rows = (ws as { '!data'?: (XLSX.CellObject | undefined)[][] })['!data'] ?? []
+  for (const row of rows) {
+    if (!row) continue
+    for (let j = 0; j < row.length; j++) {
+      const c = row[j]
+      if (c?.t !== 'z') continue
+      row[j] = c.f ? { t: 's', v: `=${c.f}`, w: `=${c.f}` } : undefined
+    }
+  }
+}
+
 export function sheetText(bytes: Uint8Array): string {
   if (isZip(bytes)) checkZip(bytes)
   let wb: XLSX.WorkBook
   try {
-    wb = XLSX.read(bytes, { type: 'array', dense: true, sheetRows: SHEET_ROWS_MAX, cellFormula: false, cellHTML: false, cellStyles: false, bookVBA: false, bookFiles: false })
+    wb = XLSX.read(bytes, { type: 'array', dense: true, sheetRows: SHEET_ROWS_MAX, sheetStubs: true, cellFormula: true, cellHTML: false, cellStyles: false, bookVBA: false, bookFiles: false })
   } catch (e) {
     if (e instanceof ToolError) throw e
     throw new ToolError(`could not read this spreadsheet (${String((e as Error)?.message ?? e).slice(0, 200)})`)
@@ -62,6 +79,7 @@ export function sheetText(bytes: Uint8Array): string {
   let size = 0
   for (const s of wb.SheetNames) {
     const ws = wb.Sheets[s]!
+    formulaStubsAsText(ws)
     boundRange(ws)
     const part = `# sheet: ${s} (tab-separated)\n` + XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false })
     size += Buffer.byteLength(part, 'utf8') + 2

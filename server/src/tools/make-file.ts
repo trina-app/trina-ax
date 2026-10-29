@@ -468,6 +468,11 @@ export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string
   const parts = f.split(/("(?:[^"]|"")*")/)
   if (parts.some((p, i) => i % 2 === 0 && p.includes('"'))) return { error: 'the formula has an unclosed "' }
   const code = parts.filter((_, i) => i % 2 === 0).join(' ')
+  // "== note ==" or "=SUM(B2" would make a file that Excel opens only after a repair
+  if (code.trimStart().startsWith('=')) return { error: 'the formula starts with "=="' }
+  let depth = 0
+  for (const ch of code.replace(/'(?:[^']|'')*'/g, '')) if ((depth += ch === '(' ? 1 : ch === ')' ? -1 : 0) < 0) break
+  if (depth !== 0) return { error: 'the parentheses of the formula do not match' }
   if (/[[\]]/.test(code)) return { error: 'formulas may not refer to other files ([...])' }
   if (code.includes('|')) return { error: 'formulas may not use DDE links (|)' }
   if (code.includes('\\')) return { error: 'formulas may not refer to file paths' }
