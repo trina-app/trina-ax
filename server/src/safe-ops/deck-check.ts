@@ -4,25 +4,25 @@ import path from 'node:path'
 import { runIsolated, isolation } from '../tools/isolate'
 import { ToolError } from '../policy/errors'
 import type { Deck } from '../tools/pptx-check'
-import { officeWorkerScript } from '../files/extract'
+import { execFileSync } from 'node:child_process'
 let script: Promise<string> | undefined
 function workerScript() {
   return (script ??= (async () => {
     const built = path.join(import.meta.dir, 'deck-worker.js')
     if (fs.existsSync(built)) return built
-    // In a checkout, background Office indexing may be building its worker at the
-    // same time. Bun 1.3.12 can fail concurrent in-process builds. Join that shared
-    // build before starting ours; installed bundles already contain both workers.
-    await officeWorkerScript()
+    // Checkout-only compilation of trusted, bundled source. A second in-process
+    // Bun 1.3.12 build can fail after Office indexing built its worker, even when
+    // serialized. Keep the compiler in a separate short-lived process. Installed
+    // bundles already contain this script. No document bytes enter the compiler.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-deck-'))
     process.once('exit', () => fs.rmSync(dir, { recursive: true, force: true }))
-    const b = await Bun.build({
-      entrypoints: [path.join(import.meta.dir, 'deck-worker.ts')],
-      target: 'bun',
-      outdir: dir,
-      naming: 'deck-worker.js',
+    execFileSync(process.execPath, [
+      'build', path.join(import.meta.dir, 'deck-worker.ts'), '--target=bun', '--outfile', path.join(dir, 'deck-worker.js'),
+    ], {
+      timeout: 30_000, maxBuffer: 64 * 1024,
+      env: { PATH: '/usr/bin:/bin', BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
-    if (!b.success) throw new Error('deck worker build failed')
     return path.join(dir, 'deck-worker.js')
   })().catch((e) => { script = undefined; throw e }))
 }
