@@ -12,6 +12,8 @@ import { checkZip, isZip } from './zip-guard'
 const EXTRA_TEXT_MAX = 4 * 1024 * 1024
 /** characters of the body text that a comment refers to */
 const ANCHOR_MAX = 200
+/** Chart points with an index at or above this are skipped (the index is untrusted and sizes an array). */
+const POINT_IDX_MAX = 10_000
 
 /** The start of each section label; a line of the file's own text that starts like this is marked (see `quoteLine`). */
 export const SECTION_MARK = '=== '
@@ -71,6 +73,8 @@ const tidy = (lines: string[]) => lines.map((l) => l.replace(/[ \t]+$/g, '')).jo
 
 /** A line of the file's own text that starts like a section label gets a space in front, so it cannot end a section. */
 const quoteLine = (text: string) => text.split('\n').map((l) => (l.startsWith(SECTION_MARK) ? ' ' + l : l)).join('\n')
+/** Attribute text (author, date, chart title, series name, category) on one line: line breaks become spaces. */
+const oneLine = (text: string) => text.replace(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/g, ' ')
 const indent = (text: string, pad = '  ') => quoteLine(text).split('\n').map((l) => (l ? pad + l : l)).join('\n')
 
 const num = (p: string) => Number(/(\d+)\.xml$/.exec(p)?.[1] ?? 0)
@@ -150,9 +154,9 @@ export function docxExtraText(bytes: Uint8Array): string {
       const head = m[1]!, id = attr(head, 'w:id') ?? ''
       const text = tidy(paragraphs(m[2]!, 'w'))
       if (!text) continue
-      const who = [attr(head, 'w:author'), attr(head, 'w:date')?.slice(0, 10)].filter(Boolean).join(', ')
+      const who = [attr(head, 'w:author'), attr(head, 'w:date')?.slice(0, 10)].filter(Boolean).map((v) => oneLine(v!)).join(', ')
       const on = anchors.get(id)
-      lines.push(`- Comment${who ? ` by ${who}` : ''}${on ? ` on "${on.replace(/\n/g, ' ')}"` : ''}:\n${indent(text, '    ')}`)
+      lines.push(quoteLine(`- Comment${who ? ` by ${who}` : ''}${on ? ` on "${oneLine(on)}"` : ''}:`) + `\n${indent(text, '    ')}`)
     }
     if (lines.length) sections.push(`${SECTION_MARK}Word comments (review notes in the margin) ===\n${lines.join('\n')}`)
   }
@@ -169,11 +173,19 @@ function notesText(xml: string): string {
   return tidy(use.flatMap((s) => paragraphs(s, 'a')))
 }
 
-/** Cached values of a chart reference (<c:pt idx="n"><c:v>…</c:v></c:pt>), by index. */
+/**
+ * Cached values of a chart reference (<c:pt idx="n"><c:v>…</c:v></c:pt>), by index, on one line each. A point with an
+ * index at or past the declared <c:ptCount>, or at POINT_IDX_MAX and more, is skipped: the index sizes the array.
+ */
 function points(xml: string | undefined): string[] {
   const out: string[] = []
   if (!xml) return out
-  for (const m of xml.matchAll(/<c:pt\b[^>]*idx="(\d+)"[^>]*>[\s\S]*?<c:v>([^<]*)<\/c:v>[\s\S]*?<\/c:pt>/g)) out[Number(m[1])] = unescapeXml(m[2]!)
+  const count = /<c:ptCount\b[^>]*\sval="(\d+)"/.exec(xml)
+  const max = Math.min(POINT_IDX_MAX, count ? Number(count[1]) : POINT_IDX_MAX)
+  for (const m of xml.matchAll(/<c:pt\b[^>]*idx="(\d+)"[^>]*>[\s\S]*?<c:v>([^<]*)<\/c:v>[\s\S]*?<\/c:pt>/g)) {
+    const i = Number(m[1])
+    if (i < max) out[i] = oneLine(unescapeXml(m[2]!))
+  }
   return out
 }
 const inner = (xml: string, tag: string, ns = 'c') => new RegExp(`<${ns}:${tag}\\b[^>]*>([\\s\\S]*?)</${ns}:${tag}>`).exec(xml)?.[1]
@@ -182,20 +194,20 @@ const inner = (xml: string, tag: string, ns = 'c') => new RegExp(`<${ns}:${tag}\
 function chartText(xml: string): string {
   // the chart's own title comes before the plot area (an axis title is inside it)
   const titleXml = inner(xml.split('<c:plotArea')[0]!, 'title')
-  const title = titleXml ? tidy(paragraphs(titleXml, 'a')).replace(/\n/g, ' ') || points(titleXml)[0] || '' : ''
+  const title = titleXml ? oneLine(tidy(paragraphs(titleXml, 'a'))) || points(titleXml)[0] || '' : ''
   const plot = inner(xml, 'plotArea') ?? xml
   const kinds = [...new Set([...plot.matchAll(/<c:(\w+)Chart\b/g)].map((m) => m[1]!))]
   const lines: string[] = []
   for (const m of plot.matchAll(/<c:ser\b[^>]*>([\s\S]*?)<\/c:ser>/g)) {
     const ser = m[1]!
     const tx = inner(ser, 'tx')
-    const name = tx ? (points(tx)[0] ?? /<c:v>([^<]*)<\/c:v>/.exec(tx)?.[1] ?? '') : ''
+    const name = tx ? (points(tx)[0] ?? unescapeXml(/<c:v>([^<]*)<\/c:v>/.exec(tx)?.[1] ?? '')) : ''
     const cats = points(inner(ser, 'cat') ?? inner(ser, 'xVal'))
     const vals = points(inner(ser, 'val') ?? inner(ser, 'yVal'))
     const n = Math.max(cats.length, vals.length)
     const pairs: string[] = []
     for (let i = 0; i < n; i++) if (vals[i] !== undefined) pairs.push(cats[i] !== undefined ? `${cats[i]} = ${vals[i]}` : vals[i]!)
-    lines.push(`  - series "${unescapeXml(name).replace(/\n/g, ' ')}": ${pairs.length ? pairs.join('; ') : '(no stored values)'}`)
+    lines.push(`  - series "${oneLine(name)}": ${pairs.length ? pairs.join('; ') : '(no stored values)'}`)
   }
   const head = `- Chart${title ? ` "${title}"` : ''}${kinds.length ? ` (${kinds.join(', ')} chart)` : ''}:`
   return quoteLine([head, ...(lines.length ? lines : ['  (no series)'])].join('\n'))

@@ -11,6 +11,7 @@ import { walk } from '../policy/resolve'
 import { extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
 import { readRegular } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
+import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 
 export const RG_BASE = ['--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--max-filesize', '50M',
   '--regex-size-limit', '20M', '--dfa-size-limit', '50M', '--max-columns', '2000', '--max-columns-preview', '--no-messages']
@@ -80,6 +81,36 @@ export async function runRg(rg: string, args: string[], cwd: string, sep: '\n' |
 }
 
 const strip = (p: string) => p.replace(/^\.\//, '')
+
+/** bytes of a file that grep reads to see if it is valid UTF-8 */
+const UTF8_PROBE = 64 * 1024
+/** the largest file ripgrep searches (RG_BASE --max-filesize) */
+const RG_MAX_FILE = 50 * 1024 * 1024
+
+/**
+ * True when a file is legacy Korean text by the shared rule (CP949, as `read` decodes it). Only a file whose first
+ * 64 KB are not valid UTF-8 is read in full, so a grep with many hits does not read every file. A file that is valid
+ * UTF-8 in its first 64 KB but not after is thus taken as UTF-8.
+ */
+export function legacyKoreanFile(abs: string): boolean {
+  let fd: number
+  try { fd = fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return false }
+  try {
+    const st = fs.fstatSync(fd)
+    if (!st.isFile() || st.size > RG_MAX_FILE) return false
+    const read = (n: number) => {
+      const b = Buffer.alloc(n)
+      let off = 0
+      while (off < n) { const k = fs.readSync(fd, b, off, n - off, off); if (k <= 0) break; off += k }
+      return b.subarray(0, off)
+    }
+    const head = read(Math.min(st.size, UTF8_PROBE))
+    const whole = head.length >= st.size
+    // a character cut at the end of the probe is not an error
+    for (let drop = 0; drop <= (whole ? 0 : 3) && drop < head.length; drop++) if (isUtf8(head.subarray(0, head.length - drop))) return false
+    return isLegacyKorean(whole ? head : read(st.size))
+  } catch { return false } finally { fs.closeSync(fd) }
+}
 
 // ---------------- office text sidecar cache ----------------
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
@@ -202,12 +233,19 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let truncated = false
   const push = (s: string) => { if (out.length >= o.limit) { truncated = true; return false } out.push(s); return true }
   let last: { file: string; line: number } | null = null
-  const handler = (map: (p: string) => { shown: string; real: string } | null) => (rec: string) => {
+  /** files that are legacy Korean text (decided once per file, only for files with results) */
+  const legacy = new Map<string, boolean>()
+  const isLegacy = (real: string) => {
+    if (!legacy.has(real)) legacy.set(real, legacyKoreanFile(path.join(d.fx.root, real)))
+    return legacy.get(real)!
+  }
+  // `keep` runs after the access check, so grep reads only files that this user can see
+  const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true) => (rec: string) => {
     if (o.mode === 'content') {
       let j: any; try { j = JSON.parse(rec) } catch { return }
       if (j.type !== 'match' && j.type !== 'context') return
       const raw = j.data.path.text ?? Buffer.from(j.data.path.bytes, 'base64').toString('utf8')
-      const m = map(raw); if (!m || !ok(m.shown, m.real)) return
+      const m = map(raw); if (!m || !ok(m.shown, m.real) || !keep(m.real)) return
       const ln: number = j.data.line_number
       const text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
       if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (!push('--')) return false
@@ -218,7 +256,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       return pushed
     }
     const parts = rec.split('\0')
-    const m = map(parts[0].replace(/^\n/, '')); if (!m || !ok(m.shown, m.real)) return
+    const m = map(parts[0].replace(/^\n/, '')); if (!m || !ok(m.shown, m.real) || !keep(m.real)) return
     const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
     if (pushed) files.add(m.real)
     return pushed
@@ -226,10 +264,20 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const recSep: '\n' | '\0' = o.mode === 'files_with_matches' ? '\0' : '\n'
   // later globs win in ripgrep: user glob first, then the exclusions
   const mainArgs = [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), '--glob', '!' + OFFICE_GLOB, ...excludeArgs(excludes), '-e', o.pattern, '--', ...roots.filter((r) => !isOffice(r))]
+  // pass 1 searches the raw bytes; a legacy Korean (CP949) file is left to pass 2, which reads it as Korean text
   const id = (p: string) => { const r = strip(p); return { shown: r, real: r } }
-  const r1 = await runRg(d.rg, mainArgs, d.fx.root, recSep, handler(id), d.timeoutMs)
+  const started = Date.now()
+  const r1 = await runRg(d.rg, mainArgs, d.fx.root, recSep, handler(id, (r) => !isLegacy(r)), d.timeoutMs)
   if (r1.code === 2 && !r1.killed && !out.length && /regex|parse|error/i.test(r1.err)) throw new ToolError('invalid pattern: ' + r1.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r1.err) ? ' (look-around and backreferences are not supported)' : ''))
   if (r1.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats, files }
+
+  // pass 2: the same search with ripgrep's CP949 decoder (--encoding euc-kr); only legacy Korean files count, so a
+  // Korean pattern matches the text that `read` shows, and the lines come back as Korean (QA R2-FMT-08)
+  if (!truncated) {
+    const left = Math.max(1000, d.timeoutMs - (Date.now() - started))
+    const r2 = await runRg(d.rg, ['--encoding', 'euc-kr', ...mainArgs], d.fx.root, recSep, handler(id, isLegacy), left)
+    if (r2.killed === 'timeout') return { text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, stats, files }
+  }
 
   // office documents: the same ripgrep over the extracted-text cache, paths mapped back to the originals
   if (!truncated && !o.type) {
