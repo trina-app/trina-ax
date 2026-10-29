@@ -140,6 +140,10 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 리눅스에서는 요금제 파일이 없어도 서버의 보조 프로그램이 코어를 다 쓰지 않는다(ripgrep 2스레드, 받아쓰기 최대 4스레드,
 의미 검색 모델 2스레드, 32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
 
+Voice input is off by default. In Admin › Team settings › Voice input, pick OpenRouter (the team's API key; audio goes
+to OpenRouter) or this server (whisper.cpp; on 2 vCPU a 2 s clip takes 10–38 s). On small servers, use OpenRouter. The
+server account can reach public https hosts (openrouter.ai), so the firewall needs no change.
+
 ## 10. 저장 공간·백업과 복원
 
 - 관리자 › 시스템 › 저장 공간: 디스크 사용률과 항목별 크기(팀 파일, 파일 기록, 휴지통, 백업, 모델, 서버 데이터, 앱, 기타).
