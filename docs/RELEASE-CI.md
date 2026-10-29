@@ -1,7 +1,10 @@
 # 태그 하나로 배포하기 (자동 배포)
 
-버전 태그를 push하면 GitHub Actions가 시험, 빌드, 서명, 업데이트 주소 업로드, GitHub Release를 모두 한다. 사람은 태그만 단다.
-설치된 서버는 자동 업데이트로 받는다.
+**현재 Trina 상태:** v0.2.3은 GitHub Releases에 게시되어 있습니다. 업데이트 피드는 아직 운영하지 않습니다.
+아래 피드 업로드 설명은 별도 피드 게시 설정을 켠 경우에만 적용됩니다. 현재 워크플로의 조건을 먼저 확인하세요.
+
+버전 태그를 push하면 GitHub Actions가 시험, 빌드, 서명과 GitHub Release 게시를 한다.
+`CLOUDFLARE_API_TOKEN`이 있는 경우에만 업데이트 피드에도 게시한다. 없으면 GitHub Releases만 사용한다.
 
 - 워크플로: `.github/workflows/release.yml`
 - 시험: `.github/workflows/ci.yml`(push·PR 때와 같은 job 전부)
@@ -29,7 +32,7 @@ git push origin v0.3.0-beta.1
 
 | 순서 | job | 하는 일 | 비밀값 |
 |---|---|---|---|
-| 1 | prepare | 태그 = 버전 확인, 채널 결정, 비밀값 두 개가 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트 | 키 확인 단계만 |
+| 1 | prepare | 태그 = 버전 확인, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트 | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
@@ -172,6 +175,6 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 3. 그 제품의 업데이트 주소를 만든다: `bun scripts/release/hosting.ts setup`(그 레포 작업본에서, 그 계정 토큰으로).
 4. 위 4장의 결제 확인과 태그 보호를 그 레포에서도 한다.
 5. **의료판 버전 규칙**: 지금 의료판 버전은 `0.2.1-medical.N`이다. `-`가 있어 이 워크플로는 beta로 낸다. stable로 내려면 버전 규칙을 정해야 한다(예: `0.2.3`처럼 `-` 없이). 정하기 전에는 의료판 태그를 달지 않는다.
-6. 트리나 AX는 공개 레포가 될 예정이다.
+6. 트리나 AX는 공개 레포다.
    - 공개 레포에서도 fork PR은 비밀값을 받지 않고, release.yml은 PR로 돌지 않는다.
    - 공개 전에 `gh secret list`로 필요한 비밀값만 있는지 본다.

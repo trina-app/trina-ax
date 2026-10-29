@@ -3,12 +3,11 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## 0.2.3 — prepared for publication
+## 0.2.3 — 2026-10-29
 
-The source version is 0.2.3 at commit `586e39c` (2026-10-29). At the time this entry was prepared, the v0.2.3 release
-page and tag were not yet public. The summary below comes from the
-[changes since v0.2.2](https://github.com/trina-app/trina-ax/compare/v0.2.2...586e39c), not published v0.2.3 release notes.
-Check Releases for the publication status and final notes.
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.3).
+Available on GitHub Releases only; the Trina update feed is not live. Assets include Linux kits (amd64/arm64),
+a Mac office server ZIP, the Windows installer, SHA256SUMS and its signature. There is no Mac desktop DMG.
 
 - Personal and team external-service connections: MCP servers and HTTP APIs, with access rules and write approval.
 - File operations: select multiple files; AI tools to move, copy and rename files of any type.

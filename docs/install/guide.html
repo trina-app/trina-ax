@@ -239,8 +239,7 @@ figure.shot.w75{ width:75%; }
     <tr><th style="width:30%">무엇</th><th>설명</th></tr>
     <tr><td><b>늘 켜 둘 맥 한 대</b></td><td>애플 실리콘(M1 이후)을 권해요. 인텔 맥도 되지만 빌드할 때 한 단계가 더 있어요(1장). 전원에 꽂아 두고, 잠자기에 들지 않게 둬요. 정식 설치는 잠자기를 알아서 꺼요.</td></tr>
     <tr><td><b>macOS</b></td><td>이 가이드는 <b>macOS 26.3.1</b>에서 확인했어요. 메뉴바 앱은 macOS 13 이상이 필요해요.</td></tr>
-    <tr><td><b>Claude 구독</b></td><td><b>Claude Pro 또는 Max</b> 계정. 팀 전체의 AI 답변이 이 구독 하나에서 나가서, <b>팀원 모두가 이 구독의 사용 한도를 함께 써요.</b> 한도에 닿으면 풀릴 때까지 모두의 AI 답변이 멈춰요. 사람이 많으면 Max를 권해요. 정식 설치에서는 이 계정으로 1년짜리 토큰(<code>claude setup-token</code>)을 한 번 만들어요. API 키는 필요 없어요.</td></tr>
-    <tr><td>ChatGPT 구독 <span class="small">(선택)</span></td><td>두 번째 엔진 <b>Codex</b>를 쓰려면 필요해요. 없어도 Claude만으로 동작해요. 정식 설치에서는 아직 베타예요.</td></tr>
+    <tr><td><b>AI 연결</b></td><td>Claude Code는 Claude 구독 또는 Anthropic API 키, Codex CLI는 ChatGPT 로그인 또는 OpenAI API 키로 연결해요. 파일 체험은 AI 계정 없이도 가능해요. 관리형 설치에서는 개인 AI 연결이 기본으로 켜져 있고 소유자가 끌 수 있어요. 구독 하나를 여러 팀원이 공유하는 기능은 기본으로 꺼져 있으며 제공사 약관을 따라야 해요. 사용료는 제공사에 별도로 내요.</td></tr>
     <tr><td><b>맥 관리자 계정·암호</b></td><td>개발 모드도 1-1의 Homebrew 설치가 한 번 물어요. 정식 설치(2장)는 <code>sudo</code>가 들어간 명령마다 물어요.</td></tr>
     <tr><td><b>공개 소스 저장소</b></td><td><code>trina-app/trina-ax</code>는 공개 저장소예요. Git으로 내려받을 수 있고 GitHub 로그인이 필요하지 않아요.</td></tr>
     <tr><td>인터넷·저장 공간</td><td>도구와 앱을 내려받아요. 음성 입력을 쓰면 처음 한 번 약 490MB 모델을 더 받아요.</td></tr>
@@ -375,7 +374,7 @@ bun run build</pre>
       </ol>
       <div class="tip"><b>주소는 하나로</b><p>설정 링크로 팀을 만들었으면 앞으로도 <code>http://127.0.0.1:19100</code>으로 들어가요. <code>localhost:19100</code>도 같은 서버지만 브라우저가 다른 곳으로 여겨서 로그인을 한 번 더 해야 해요.</p></div>
     </div>
-    <figure class="shot" style="flex:.6"><div class="frame"><img src="img/setup.png" alt=""></div><figcaption>설정 화면. 팀 언어를 한국어로 고른 모습이에요.</figcaption></figure>
+    <figure class="shot" style="flex:.6"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>설정 화면. 팀 언어를 한국어로 고른 모습이에요.</figcaption></figure>
   </div>
 
   <h3>B. 데모 팀으로 둘러보기</h3>
@@ -387,7 +386,7 @@ bun run demo:seed</pre>
 [demo] sign in at http://localhost:19100 as dion / admin1 / alice / bob with the password <span style="white-space:nowrap">teamax-demo-1</span></pre>
   <p>브라우저에서 <code>http://localhost:19100</code>을 열고 <code>dion</code>(팀장)과 비밀번호 <code style="white-space:nowrap">teamax-demo-1</code>로 로그인해요. 다시 실행해도 안전해요(빠진 것만 채워요). 단, A로 이미 팀을 만들었으면 데모는 만들 수 없어요(팀은 하나뿐이에요).</p>
   <div class="check"><span class="k">확인</span><span>첫 화면 맨 위에 노란 띠 “개발 모드: OS 격리 없음…”이 보이고, 팀장에게는 <span class="ui">시작하기 전에</span> 상자(AI 연결 확인하기 · 팀원 초대하기 · 폴더 권한 정하기 · 첫 백업 만들기)가 보여요.</span></div>
-  <figure class="shot"><div class="frame" style="height:84mm"><img src="img/home.png" alt="" style="width:132%;max-width:none;margin-left:-26%"></div><figcaption>새 팀의 첫 화면(가운데 부분). 노란 띠는 개발 모드라서 늘 보여요. “시작하기 전에”의 네 항목이 2·3장에서 할 일과 같아요.</figcaption></figure>
+  <figure class="shot"><div class="frame" style="height:84mm"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>새 팀의 첫 화면(가운데 부분). 노란 띠는 개발 모드라서 늘 보여요. “시작하기 전에”의 네 항목이 2·3장에서 할 일과 같아요.</figcaption></figure>
 
   <h3>언어 바꾸기</h3>
   <ul>
@@ -401,7 +400,7 @@ bun run demo:seed</pre>
   <div class="keep">
   <div class="step"><span class="sn">1-6</span><span class="st">AI 연결 확인</span></div>
   <p><span class="ui">관리자</span> → <span class="ui">AI 엔진</span>을 열어요. 개발 모드에서는 Claude Code가 <b>연결됨 · 팀장 구독 로그인</b>으로 보여야 해요. Claude Code가 2.1.305보다 새 버전으로 업데이트됐으면 <b>지원하지 않는 버전</b>으로 보이는데, 채팅은 그대로 돼요.</p>
-  <figure class="shot"><div class="frame"><img src="img/engines.png" alt=""></div><figcaption>관리자 → AI 엔진. Claude Code와 Codex 둘 다 로그인한 맥의 모습이에요.</figcaption></figure>
+  <figure class="shot"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>관리자 → AI 엔진. Claude Code와 Codex 둘 다 로그인한 맥의 모습이에요.</figcaption></figure>
   </div>
   <p>“로그인 필요”로 나오면 같은 맥 사용자로 터미널에서 <code>claude</code>(또는 <code>codex login</code>)를 실행해 로그인하고, 카드 오른쪽 위 새로 고침 버튼을 눌러요. 그다음 새 채팅에서 “안녕”이라고 보내 답이 오는지 봐요.</p>
   <div class="check"><span class="k">확인</span><span>채팅에 답이 와요. “AI 엔진이 예기치 않게 멈췄습니다”가 나오면 5장 표를 보세요.</span></div>
@@ -683,8 +682,8 @@ open menubar/build</pre>
   <div class="check"><span class="k">확인</span><span>팀원이 참여하면 <span class="ui">관리자</span> → <span class="ui">멤버·초대</span>의 멤버 목록에 그 사람이 나와요.</span></div>
   <p class="small">링크는 한 번만 쓸 수 있어요. 다른 방법: <span class="ui">직접 추가</span>(임시 비밀번호를 정해 주고, 첫 로그인 때 바꾸게 해요). 비밀번호를 잊은 팀원에게는 <span class="ui">멤버·초대</span>에서 그 사람의 <span class="ui">재설정 링크</span>(24시간, 일회용)를 만들어 복사해 보내요. 팀장 본인은 2-10.</p>
   <div class="row" style="align-items:flex-start">
-    <figure class="shot" style="flex:1.6"><div class="frame"><img src="img/invite-link.png" alt=""></div><figcaption>링크를 만든 직후. 이 화면은 시험용 서버라 주소가 <code>localhost:19600</code>이에요. 실제로는 지금 보고 있는 주소(예: <code>https://<i>맥 이름</i>.local:8443</code>)가 들어가요.</figcaption></figure>
-    <figure class="shot" style="flex:.9"><div class="frame"><img src="img/invite-join.png" alt=""></div><figcaption>팀원이 링크를 열면 보는 화면.</figcaption></figure>
+    <figure class="shot" style="flex:1.6"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>링크를 만든 직후. 이 화면은 시험용 서버라 주소가 <code>localhost:19600</code>이에요. 실제로는 지금 보고 있는 주소(예: <code>https://<i>맥 이름</i>.local:8443</code>)가 들어가요.</figcaption></figure>
+    <figure class="shot" style="flex:.9"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>팀원이 링크를 열면 보는 화면.</figcaption></figure>
   </div>
 
   <h3>휴대폰</h3>
@@ -709,7 +708,7 @@ open menubar/build</pre>
 bun run dist:mac</pre>
       <div class="check"><span class="k">확인</span><span><code>desktop/release/Team-AX-0.1.0-mac-universal.dmg</code>(약 230MB)가 생겨요.</span></div>
     </div>
-    <figure class="shot" style="flex:.8"><div class="frame"><img src="img/desktop-address.png" alt=""></div><figcaption>앱 첫 화면. 그림의 예시 주소 대신, 지금은 서버 맥의 <code>http://127.0.0.1:47820</code>(정식) 또는 <code>http://127.0.0.1:19100</code>(개발)을 넣어요.</figcaption></figure>
+    <figure class="shot" style="flex:.8"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>앱 첫 화면. 그림의 예시 주소 대신, 지금은 서버 맥의 <code>http://127.0.0.1:47820</code>(정식) 또는 <code>http://127.0.0.1:19100</code>(개발)을 넣어요.</figcaption></figure>
   </div>
   </div>
   <ol class="steps">
@@ -806,7 +805,7 @@ sudo scripts/uninstall-macos.sh ; bun run dev:service install</pre>
 <section class="chap flow" id="c5">
   <div class="chap-head"><span class="no">05</span><h2>문제가 생기면</h2></div>
   <p class="lead">무엇이든 먼저 <span class="ui">관리자</span> → <span class="ui">시스템</span> → <span class="ui">진단</span>(팀장만 보여요)을 열어요. 서버, 원격 접속, 디스크, 엔진 로그인, 대기열, 방화벽·샌드박스, 백업, 업데이트를 한 화면에서 보여 주고, <span class="ui">새로 고침</span>으로 다시 검사해요.</p>
-  <figure class="shot center" style="width:72%"><div class="frame"><img src="img/diagnostics.png" alt=""></div><figcaption>개발 모드의 진단. ✓는 정상, !는 경고, ?는 개발 모드라서 검사하지 않는 항목이에요. 정식 설치에서는 방화벽·샌드박스·실행기가 실제로 검사돼요.</figcaption></figure>
+  <figure class="shot center" style="width:72%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>개발 모드의 진단. ✓는 정상, !는 경고, ?는 개발 모드라서 검사하지 않는 항목이에요. 정식 설치에서는 방화벽·샌드박스·실행기가 실제로 검사돼요.</figcaption></figure>
   <h3>로그 보는 곳</h3>
   <dl class="kv">
     <dt>개발 모드</dt><dd><code>bun run dev</code>를 띄운 터미널, 또는 <code>bun run dev:service logs</code>. 전체 기록은 <code>~/Library/Logs/team-ax-dev/dev.log</code></dd>

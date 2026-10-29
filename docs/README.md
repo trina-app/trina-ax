@@ -20,7 +20,8 @@ your operating system before introducing real company data.
 The long installation guides also contain dated validation notes from earlier development. Use the current
 [release page](https://github.com/trina-app/trina-ax/releases) to check which artifacts are published; historical
 notes do not imply that a current release is unavailable. Printable PDFs can be generated from the HTML sources;
-PDF outputs are not committed here.
+PDF outputs and the older guides' screenshot assets are not committed here. Those guides show omission notes
+in place of missing captures; the current synthetic demo screenshot is in the project README.
 
 ## Features and boundaries
 

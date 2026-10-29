@@ -6,9 +6,11 @@
 릴리스 키트와 설치기는 공개되어 있습니다. [GitHub Releases](https://github.com/trina-app/trina-ax/releases)에서
 게시된 버전과 파일을 확인하세요. 이 문서는 설치 절차를 설명하며 모든 배포판·장비에서의 동작 보장은 아닙니다.
 
+v0.2.3은 GitHub Releases에서만 배포하며 트리나 업데이트 피드는 아직 운영하지 않습니다. 아래 피드 기반 자동 업데이트 설명은 운영자가 유효한 피드를 제공한 경우에만 적용됩니다. 현재는 새 릴리스 키트와 설치기를 사용하세요.
+
 ## 1. 이런 경우에 씀
 
-- 회사 서버나 클라우드 VM(우리 호스팅이 아닌 곳)에 팀 서버를 직접 둘 때. 데이터를 회사 밖에 두면 안 될 때.
+- 회사 서버나 클라우드 VM(우리 호스팅이 아닌 곳)에 팀 서버를 직접 둘 때. 파일을 회사 서버에 보관하려는 경우. 단, AI가 읽는 문맥은 모델 제공사로 전송된다.
 - 맥 미니 없이 리눅스 한 대로 팀(약 20명까지)을 받을 때.
 - 한 서버 = 한 팀이다. 여러 팀이면 팀마다 VM(또는 LXC 컨테이너)을 하나씩 둔다.
 
@@ -34,7 +36,7 @@ sudo ./install-linux.sh check --from .
 릴리스 키트는 GitHub Releases에 있다(태그 `v<버전>`마다 amd64·arm64 키트, `SHA256SUMS`와 서명).
 
 ```sh
-V=0.2.2   # 받을 버전
+V=0.2.3   # 받을 버전
 curl -fLO https://github.com/trina-app/trina-ax/releases/download/v$V/TrinaAX-server-$V-linux-amd64.tar.gz   # arm64면 linux-arm64
 tar xzf TrinaAX-server-$V-linux-amd64.tar.gz && cd TrinaAX-server-$V-linux-amd64
 ./app/$V/root/mycel-ctl verify-bundle ./app/$V      # 릴리스 서명 확인(공개 키 내장)
@@ -102,7 +104,7 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
   `server.json`의 `engine.credentialKinds`로 좁힐 수 있다. 호스팅도 기본으로 네 종류를 지원하지만 실제 허용 범위는 운영 설정과 제공사 약관을 따릅니다.
 - CLI 대체(브라우저 연결이 안 될 때만): `sudo /var/lib/mycel/root/set-claude-token < 토큰파일`(표준 입력만),
   Codex는 `sudo mycel-ctl codex-login`. 다음 시작 때 AI 연결로 옮겨진다.
-- 팀 API 엔진(OpenAI 호환)은 관리자 › AI 엔진 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
+- 팀 API 엔진(OpenAI 호환, 실험 단계)은 관리자 › AI 엔진 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
 
 ## 7. 팀원 연결
 
@@ -112,6 +114,8 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 - 사무실 안 직접 연결: 설치 때 `--tls-port 8443`. 서버의 방화벽(ufw·firewalld)에서 그 포트를 연다.
 
 ## 8. 업데이트
+
+현재 공개 Trina 피드는 미운영입니다. 새 GitHub Release 키트의 체크섬·서명을 확인하고 기존 설치를 백업한 뒤 설치기를 다시 실행하세요. 아래 자동화는 운영자가 유효한 피드를 제공하는 경우의 동작입니다.
 
 - **앱만 바뀌는 릴리스**: 서버가 스스로 적용한다(`server.json`의 `update.auto: true`, 설치기가 자체 설치에 켬). 팀 시간대의
   업데이트 창(관리자 › 설정 › 업데이트 시간, 기본 03:00–05:00) 안에서, 답변이 하나도 돌지 않을 때만. 새 버전이 켜지지 않으면
