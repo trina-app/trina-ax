@@ -2224,3 +2224,7 @@ Explicit executable overrides and an empty string disabling Codex retain their m
 use only the installer-configured executable and its locked catalog, with no PATH fallback. The production pin
 remains 0.163.0; this change neither installs a CLI nor changes credentials. Regression coverage uses synthetic
 executables and a model catalog in `tests/unit/codex-local-launch.test.ts`.
+
+R4 integration review also found the separate System diagnostics/menubar lookup in `system/ops.ts`. It now
+uses the same resolver in development and only the configured executable for every production install,
+including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.

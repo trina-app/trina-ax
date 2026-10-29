@@ -12,7 +12,7 @@ import type { AppContext } from '../context'
 import { allowedCredentialKinds, DEFAULT_PROXY_PORT, isManaged } from '../app-config'
 import { teamCredentialSummary } from '../credentials/resolve'
 import { Vault } from '../credentials/vault'
-import { engineSandboxProfile } from '../config'
+import { engineSandboxProfile, findCodexBin } from '../config'
 import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
@@ -160,8 +160,8 @@ export class OpsService {
       authMode: cfg.authMode, roleAccount: this.roleAccount,
       ...(isManaged(this.ctx.config) ? { managed: { 'claude-code': teamCredentialSummary(this.ctx.db, 'anthropic', allowed), codex: teamCredentialSummary(this.ctx.db, 'openai', allowed) } } : {}),
       claudeBin: cfg.claudeBin ?? this.ctx.engineConfig.claudeBin ?? which('claude'),
-      // role-account install: only the installer's Codex (the launcher allows nothing else), login asked of the launcher
-      codexBin: this.roleAccount ? cfg.codexBin ?? null : cfg.codexBin ?? which('codex'),
+      // Every production install uses only its configured executable; dev shares the runtime/admin resolver.
+      codexBin: this.ctx.config.mode === 'prod' ? cfg.codexBin ?? null : findCodexBin(cfg.codexBin),
       secretsDir: this.layout.secretsDir,
       db: this.ctx.db,
       ...(this.roleAccount ? { codexLogin: () => codexLoginState(cfg.launcherSock ?? path.join(this.ctx.engineConfig.runDir, 'launcher.sock')) } : {}),

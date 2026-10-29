@@ -13,6 +13,8 @@ import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import * as coreServer from '../../server/src/server'
 import { testConfig } from './a-lib'
+import { OpsService } from '../../server/src/system/ops'
+import * as systemEngines from '../../server/src/system/engines'
 
 // Real launcher, synthetic login only. The server-prepared home must survive until exec,
 // while switching to another engine must still clear any leftover Codex login.
@@ -98,9 +100,19 @@ describe('Codex executable selection across diagnostics, runtime and launcher', 
     } finally { start.mockRestore() }
   }
 
+  async function diagnosticBin() {
+    // Inspect the real System diagnostics selection without touching any account login.
+    const check = spyOn(systemEngines, 'checkEngines').mockResolvedValue([])
+    try {
+      await new OpsService(ctx).engines()
+      return check.mock.calls[0]![0].codexBin
+    } finally { check.mockRestore() }
+  }
+
   async function selected(bin: string, version: string, status: 'ok' | 'version_unsupported') {
     const env = engineEnv(ctx)
     expect(env.codexBin).toBe(bin)
+    expect(await diagnosticBin()).toBe(bin)
     expect(new LocalEngines(ctx).get().codex?.bin).toBe(bin)
     expect(await launcherCommands()).toEqual([claude, bin])
     expect(await checkEngine('codex', env, true, 'en')).toMatchObject({ installed: true, version, status })
@@ -129,6 +141,7 @@ describe('Codex executable selection across diagnostics, runtime and launcher', 
   test('a missing explicit executable never falls back to a supported PATH executable', async () => {
     ctx.config.engine.codexBin = path.join(dir, 'missing/codex')
     expect(engineEnv(ctx).codexBin).toBe(ctx.config.engine.codexBin)
+    expect(await diagnosticBin()).toBe(ctx.config.engine.codexBin!)
     expect(new LocalEngines(ctx).get()).toMatchObject({ codex: null, problems: { codex: 'engine_missing' } })
     expect(await checkEngine('codex', engineEnv(ctx), true, 'en')).toMatchObject({ installed: false, status: 'not_installed' })
     expect(await launcherCommands()).not.toContain(brew)
@@ -138,6 +151,7 @@ describe('Codex executable selection across diagnostics, runtime and launcher', 
     if (disabled) ctx.config.engine.codexBin = ''
     else { fs.rmSync(local); fs.rmSync(brew) }
     expect(engineEnv(ctx).codexBin).toBe('')
+    expect(await diagnosticBin()).toBeNull()
     expect(new LocalEngines(ctx).get()).toMatchObject({ codex: null, problems: { codex: 'engine_missing' } })
     expect(await launcherCommands()).toEqual([claude])
     expect(await checkEngine('codex', engineEnv(ctx), true, 'en')).toMatchObject({ installed: false, status: 'not_installed' })
@@ -148,10 +162,12 @@ describe('Codex executable selection across diagnostics, runtime and launcher', 
     ctx.config.engine.codexBin = brew
     writeLockedCatalog(path.join(dir, 'home/.codex/models_cache.json'), codexCatalogFor(brew))
     expect(engineEnv(ctx)).toMatchObject({ codexBin: brew, codexCatalogs: [codexCatalogFor(brew)] })
+    expect(await diagnosticBin()).toBe(brew)
     expect(new LocalEngines(ctx).get().codex).toMatchObject({ bin: brew, auth: 'managed' })
     for (const explicit of [undefined, '', path.join(dir, 'missing/codex')]) {
       ctx.config.engine.codexBin = explicit
       expect(engineEnv(ctx).codexBin).toBe(explicit ?? '')
+      expect(await diagnosticBin()).toBe(explicit ?? null)
       expect(new LocalEngines(ctx).get()).toMatchObject({ codex: null, problems: { codex: 'engine_missing' } })
       expect(await checkEngine('codex', engineEnv(ctx), true, 'en')).toMatchObject({ installed: false, status: 'not_installed' })
     }

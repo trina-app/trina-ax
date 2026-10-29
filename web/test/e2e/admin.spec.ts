@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
-import { CSRF_HEADER } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
 
