@@ -845,7 +845,7 @@ export class TurnExec {
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
-  async confirmWidening(target: string, extraSources: string[] = []): Promise<string | null> {
+  async confirmWidening(target: string, extraSources: string[] = [], binding?: string): Promise<string | null> {
     this.noteReads()
     const fs_ = this.rt.files
     const rules = fs_.rules()
@@ -861,19 +861,21 @@ export class TurnExec {
     if (!w) return null
     const dir = segs.slice(0, -1).join('/')
     const allowed = this.widenAllowed.get(dir)
-    if (allowed && w.narrower.every((s) => allowed.has(sourceKey(s)))) return null
+    if (!binding && allowed && w.narrower.every((s) => allowed.has(sourceKey(s)))) return null
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L) }
     const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
     const answer = await this.waitForPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }) + (binding ? '\nSHA-256: ' + JSON.parse(binding).hash : ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
-      const set = this.widenAllowed.get(dir) ?? new Set<string>()
-      for (const s of w.narrower) set.add(sourceKey(s))
-      this.widenAllowed.set(dir, set)
+      if (!binding) {
+        const set = this.widenAllowed.get(dir) ?? new Set<string>()
+        for (const s of w.narrower) set.add(sourceKey(s))
+        this.widenAllowed.set(dir, set)
+      }
       return null
     }
     return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${from}). Do not save it anywhere else that more people can see; ask the user where to put it.`

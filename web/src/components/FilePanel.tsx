@@ -106,7 +106,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       (e: unknown) => {
         if (!live) return
         // too many conversions now, or a wait over the server's limit: "busy, try again", not "cannot preview"
-        if (viaServer && isApiError(e, 'unavailable') && e.body.params?.reason === 'busy') setError({ kind: 'busy', text: t('preview.photoBusy') })
+        if (isApiError(e, 'unavailable') && e.body.params?.reason === 'quarantined') setError({ kind: 'unsupported', text: e.message })
+        else if (viaServer && isApiError(e, 'unavailable') && e.body.params?.reason === 'busy') setError({ kind: 'busy', text: t('preview.photoBusy') })
         else if (viaServer && isApiError(e, 'unavailable')) setError({ kind: 'unsupported', text: t('preview.photoUnavailable') })
         else if (e instanceof PreviewTooLargeError) setError({ kind: 'large', text: t('preview.tooLarge', { size: formatSize(e.size, locale) }) })
         else if (isApiError(e, 'not_found')) setError({ kind: 'missing', text: t('preview.notFound') })

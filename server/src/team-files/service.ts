@@ -135,8 +135,8 @@ export class TeamFiles {
   }
 
   /** A readable regular file for the download endpoint. */
-  fileForDownload(userId: string, rel: string): { abs: string; name: string } {
-    const r = authorize(this.fx, this.rules(), this.principal(userId), rel, 'read')
+  fileForDownload(userId: string, rel: string, download = true): { abs: string; name: string } {
+    const r = authorize(this.fx, this.rules(), this.principal(userId), rel, 'read', {download})
     if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
     checkRegular(r.abs)
     return { abs: r.abs, name: r.segs[r.segs.length - 1]! }

@@ -48,6 +48,7 @@ export const DownloadQuery = z.object({
   path: RelPath,
   /** inline (preview, images in answers) or attachment (save as) */
   disposition: z.enum(['inline', 'attachment']).default('attachment'),
+  preview: QueryBool.optional(),
 })
 
 export const UploadFields = z.object({

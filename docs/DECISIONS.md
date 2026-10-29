@@ -2742,16 +2742,22 @@ including same-account installs. Extend the same synthetic selection tests to co
 - No locale policy, translations, credentials or cached account data change. Apply the same fix in the
   shared core (`potenlab/team-ax`).
 
-## Safe operations 1A: fixed images and bundled PowerPoint (2026-10-29)
+## Safe operations 1A: fixed images and bundled PowerPoint (2026-10-29; review fixes 2026-10-30)
 
-- Add opt-in qualified Linux image blocks for Claude Code/Codex, bounded PPTX with the bundled
-  reference and explicit layout expectations, fresh delivery authorization and retained provenance.
-  The existing slide/notes contract, HEIC codec and isolated Office extraction remain in use.
-- Require effective per-job cgroup limits, private scratch/namespaces, exact runtime binds,
-  Landlock/seccomp and isolated output validation; unsupported hosts fail closed for new operations.
-  Move the legacy PPTX count parser out of the privileged server too.
-- Mark affected conversations persistently confidential: no browser/connectors/provider web search.
-  The configured model provider is an explicit recipient of pixels. Default off; medical not qualified.
-- No general execution, ZIP, new Excel writer, uploaded PPTX templates or HWP changes. See
-  [the boundary, limitations and explicit 1B/1C backlog](SAFE-OPS-1A.md). Full destination CAS,
-  real pinned CLI qualification and independent review remain release gates.
+- Keep `MYCEL_SAFE_OPS_1A=1` opt-in, qualified Linux only. No general execution, ZIP, new Excel
+  writer, uploaded templates, skill publication or HWP changes. Model pixels require administrator
+  approval of the configured provider; medical remains separately gated.
+- Choose download-only quarantine for generated PPTX and normalized JPEG. Persist hashes and
+  publication provenance; deny indexing, AI reads, legacy extraction/OCR, thumbnails and in-app
+  preview. The ko/en/id file panel offers download. A qualified consumer/preview origin is deferred.
+- Choose immutable new-file publication: native `linkat` no-replace, explicit conflict copies,
+  final hash/destination/audience/policy-bound one-use approvals, durable journal and abort-only
+  crash recovery. A crash after disclosure may leave a quarantined file without a success event;
+  recovery never retries publication. Schema reader 2 protects quarantine on rollback.
+- Use native `openat2` beneath/no-symlink/no-magiclink/no-xdev source resolution. Direct connected
+  mounts, including same-device binds, are refused; imported regular copies follow normal policy.
+- Admit whole workflows, cap per-user/turn/hour work and reserve cumulative converter CPU/transfers.
+  Retain cleanup debt and fail closed until cgroup/staging cleanup is proven. No fair-queue or
+  combined engine+converter hard-budget claim: target host envelope qualification remains a
+  production gate, along with real pinned CLIs, codec/patch ownership and independent review.
+- See [the exact guarantees, recovery procedure and deferred controls](SAFE-OPS-1A.md).

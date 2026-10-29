@@ -1,3 +1,4 @@
+import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 // Policy / tool errors -> HTTP errors for the file screen. "No access" and "not found" stay the same not_found
 // (hidden folders must not leak); read-only is forbidden; name problems are validation with the reason in `fields`.
 import type { Locale } from '@mycel/shared/api'
@@ -66,6 +67,7 @@ export function toHttp(e: unknown, locale: Locale, field = 'path'): unknown {
     return httpError('validation', 'badName', locale, { [field]: m })
   }
   if (e instanceof ToolError) {
+    if (e.code === 'safe_ops_quarantined') return new HttpError('unavailable', SAFE_OPS_TEXT.quarantined[locale], {params:{reason:'quarantined'}})
     switch (e.code) {
       case 'not_found': return new HttpError('not_found')
       case 'is_folder': return httpError('validation', 'isFolder', locale, { [field]: e.message })

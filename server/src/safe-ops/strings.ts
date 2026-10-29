@@ -1,5 +1,15 @@
 import type { Database } from 'bun:sqlite'
 export const SAFE_OPS_TEXT = {
+  quarantined: {
+    ko: '이 생성 파일은 다운로드 전용입니다. 안전한 소비 경로가 검증될 때까지 색인, 텍스트 추출 및 앱 내 미리보기를 제공하지 않습니다.',
+    en: 'This generated file is download-only. Indexing, text extraction and in-app previews are disabled until a safe consumer is qualified.',
+    id: 'Berkas yang dihasilkan ini hanya dapat diunduh. Pengindeksan, ekstraksi teks, dan pratinjau dalam aplikasi dinonaktifkan sampai pemroses aman terverifikasi.',
+  },
+  workflow: {
+    ko: '안전 작업 한도에 도달했거나 정리가 완료되지 않았습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.',
+    en: 'The safe workflow limit was reached or cleanup is incomplete. Retry later or contact the administrator.',
+    id: 'Batas alur kerja aman tercapai atau pembersihan belum selesai. Coba lagi nanti atau hubungi administrator.',
+  },
   imageLimit: {
     ko: "이미지 형식 또는 크기를 지원하지 않습니다. PNG, JPEG, WebP, HEIC 형식의 8 MiB 이하 이미지를 사용하세요.",
     en: "Unsupported image format or size. Use PNG, JPEG, WebP or HEIC images up to 8 MiB.",
@@ -79,6 +89,9 @@ export function safeErrorText(db: Database, userId: string, code: string, messag
       safe_ops_failed: 'failed',
       safe_ops_busy: 'busy',
       safe_ops_image_limit: 'imageLimit',
+      safe_ops_quarantined: 'quarantined',
+      safe_ops_workflow: 'workflow',
+      safe_ops_changed: 'changed',
     } as const
   )[code as 'safe_ops_unavailable']
   return key ? safeText(db, userId, key) : message

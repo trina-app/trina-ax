@@ -142,7 +142,7 @@ function toolContext(exec: TurnExec): TurnToolContext {
       signal: exec.abort.signal,
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
-      confirmWidening: (target, sources) => exec.confirmWidening(target, sources),
+      confirmWidening: (target, sources, binding) => exec.confirmWidening(target, sources, binding),
     },
   }
 }

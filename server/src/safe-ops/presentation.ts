@@ -79,6 +79,7 @@ export async function preparePresentation(
       inputBytes += source.bytes.length
       if (inputBytes > 32 * 1024 ** 2) throw limit()
       const image = await normalizeImage(ext(source.path), source.bytes, c.signal)
+      files.quarantine.add(image,'image')
       recheck(files, c, source)
       sources.push(source)
       const name = 'image-' + images + '.jpg'
@@ -97,9 +98,5 @@ export async function preparePresentation(
 
 /** Relevant authorization generation, including membership and folder audience, not tool/audit writes. */
 export function policyStamp(files: FileService): string {
-  return JSON.stringify(
-    ['users', 'group_members', 'folders', 'folder_rules'].map((table) =>
-      files.db.query('SELECT * FROM ' + table + ' ORDER BY rowid').all(),
-    ),
-  )
+  return String((files.db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation)
 }

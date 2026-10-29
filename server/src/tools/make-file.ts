@@ -43,6 +43,8 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { deckMismatch, deckShape, type Deck, type DeckShape } from './pptx-check'
 import { readDeckIsolated } from '../safe-ops/deck-check'
 import { safeOpsEnabled } from '../safe-ops/runner'
+import { withWorkflow } from '../safe-ops/workflow'
+import { publishArtifact } from '../safe-ops/publication'
 import { preparePresentation, policyStamp } from '../safe-ops/presentation'
 import { snapshot, recheck, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
@@ -75,7 +77,7 @@ export class MakeFile {
   constructor(private ctx: AppContext, private files: TeamFiles, private conv: Converters) {}
 
   async run(c: ToolCtx, a: Input): Promise<MadeFile> {
-    if(a.format==='pptx' && safeOpsEnabled()) return this.safePresentation(c,a)
+    if(a.format==='pptx' && safeOpsEnabled()) return withWorkflow(this.ctx.files,c,() => this.safePresentation(c,a))
     if(a.expected_layouts) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
     const fx = this.files.fx
     const rules = this.files.rules()
@@ -186,24 +188,11 @@ export class MakeFile {
     }
     const output=ext(a.output)==='pptx'?a.output:a.output+'.pptx'
     c.user=this.ctx.files.principal(c.user.id)
-    const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,createDirs:true})
+    const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,createDirs:true,download:true})
     const {bytes,deck}=await preparePresentation(this.ctx.files,c,this.conv.pandoc,text,base,{slides:a.expected_slides,notes:a.expected_notes,layouts:a.expected_layouts},snapshots)
-    const stamp=policyStamp(this.ctx.files)
-    await this.checkWidening(c,out.rel,out.segs,snapshots.map(s=>s.path))
-    if(stamp!==policyStamp(this.ctx.files)) throw new Denied('permissions changed before publication; try again')
-    const guard=() => {
-      c.signal?.throwIfAborted()
-      if(stamp!==policyStamp(this.ctx.files)) throw new Denied('permissions changed before publication; try again')
-      for(const s of snapshots) recheck(this.ctx.files,c,s)
-    }
-    guard()
-    // Only broker-owned bytes leave the worker; no worker path enters placement/indexing.
-    const work=makeWorkDir(path.join(this.ctx.config.dataDir,'work'))
-    try {
-      const produced=path.join(work,'validated.pptx'); fs.writeFileSync(produced,bytes,{mode:0o600})
-      const made=await placeProduced(this.ctx,this.files,c,out.segs,produced,'make_file',guard)
-      return {...made,deck}
-    } finally { fs.rmSync(work,{recursive:true,force:true}) }
+    const made=await publishArtifact(this.ctx,this.files,c,out.rel,bytes,snapshots,
+      (target,sources,binding)=>this.checkWidening(c,target,target.split('/'),sources,binding))
+    return {...made,deck}
   }
 
   /**
@@ -265,10 +254,10 @@ export class MakeFile {
    * into account), and when more people can read the output than those files (or what the chat read), the chat turn
    * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
    */
-  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[]) {
+  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
     for (const p of sources) c.files.readPaths.add(p)
     if (c.confirmWidening) {
-      const refusal = await c.confirmWidening(target, sources)
+      const refusal = await c.confirmWidening(target, sources, binding)
       if (refusal) throw new Denied(refusal)
       return
     }

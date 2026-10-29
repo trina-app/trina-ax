@@ -63,42 +63,116 @@ provide signal/network separation on Landlock ABI 1–5; ABI 6 scopes are used w
 No broad executable/runtime/home/team-directory binds, warm workers or shared writable caches.
 The HEIC plugin allowance is the libde265 decoder and its exact dependencies only.
 
-Cancellation and timeouts kill the entire cgroup; the parent awaits exit and checks population
-before removal. Job output/stderr is bounded and not streamed. Failed cleanup leaves a unique,
-non-reusable leaf. Mac, missing controllers, ineffective limits, missing Landlock/bwrap or
-`MYCEL_ISOLATION=none` never fall back to an unqualified implementation of the new operations.
-Mac can still use legacy OCR and, with the flag off, the existing PowerPoint workflow.
+Cancellation and timeouts kill the entire cgroup. The broker awaits exit, checks that population
+is zero, and requires removal of both the leaf and staging directory. Any failure makes the
+runner unhealthy, retains a 128 MiB reservation as cleanup debt, and refuses all subsequent
+workflows. The reservation covers staged input (up to 32 MiB), scratch (64 MiB) and output
+(up to 32 MiB). It is conservative accounting, not a filesystem quota for the broker process.
+Mac, missing controls, ineffective limits, missing Landlock/bwrap or `MYCEL_ISOLATION=none`
+fail closed. Mac can still use original-source OCR and flag-off legacy PowerPoint creation.
+Normalized JPEG output is never passed to that OCR path.
 
-## Authorization, publication and downstream consumers
+## Workflow admission and recovery
 
-Source bytes come from bounded regular-file snapshots: no symlinks, special files or multiple
-links, held directory descriptors on Linux, no mount crossing within a source root. Identity,
-size, timestamps and hash are checked again with fresh account/group/folder authorization.
-Read-scope and source identity/hash stay attached to the turn; existing integration provenance
-is retained. Images receive a final guard at the socket delivery boundary; revocation aborts
-the turn and discards queued responses. Bytes already accepted by the socket are disclosed.
-Connected roots on a different device are currently refused for the new pixel/PPTX source path.
+Admission covers the complete image read or PPTX operation, including validation and approval,
+with one workflow globally and no retained queue. SQLite admission also prevents two server
+processes from admitting workflows simultaneously. Limits are four workflows per user/turn,
+eight per user in a rolling hour, and 24 converter jobs, 600 reserved CPU-seconds (25 per job),
+and 512 MiB reserved input/output transfers per user/turn in that hour. A workflow has a 120 s
+wall deadline, including approval; retries consume quota. A null turn shares one user/hour
+bucket. This is bounded rejection admission, **not a fair queue or an I/O bandwidth controller**.
+The one-CPU job quota plus wall timeout bounds the whole job tree; the CPU accounting is a
+worst-case reservation, not measured usage. Inputs retained for a presentation are capped at
+32 MiB. No downstream indexing/preview worker is admitted for a generated artifact.
 
-The broker publishes its own validated byte buffer, never a worker-selected output path.
-Policy stamps cover users, membership, folders and rules across asynchronous preparation and
-widening approval. Final fresh authorization, destination hash/conflict comparison and install
-have no intervening await. This serializes against this server's policy/save handlers, **not**
-an independent process editing a filesystem at the same instant. Full cross-process destination
-CAS, durable workspace state/recovery and artifact-bound one-use widening approvals remain open.
+Jobs and reservations are recorded before creating their cgroup/staging directory. Restart
+reconciliation kills dead-owner cgroups and removes staging; a populated leaf, inaccessible
+path or failed removal remains charged and blocks admission. PID reuse conservatively blocks
+recovery. An administrator must investigate a live-owner or persistent debt condition with the
+feature disabled; never delete the journal merely to regain admission. Reconciliation runs on
+workflow admission. A restart does not automatically rerun a workflow or publication.
 
-The old privileged PPTX count/notes parser now runs in a separate bounded worker before any save.
-The 0.2.5 isolated Office extraction/indexing worker remains in use; no new privileged Office
-parser is introduced. Legacy worker/Mac isolation still has its previously documented limitations.
-No HWP implementation changes are included.
+The engine and converter still have separate existing cgroup parents. This patch does **not**
+claim a common engine+converter hard budget, measured host I/O rate, tenant fairness, or a new
+engine resource controller. Qualifying their combined envelope and host reserve is a production
+enablement gate. General workspace execution must build those additional controls first.
+
+## Sources and approved connected-root contract
+
+The only approved root for 1A is the configured team directory opened as a directory FD. Linux
+source access uses the native broker's `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS |
+RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`. There is no fallback when that syscall or these flags
+are unavailable. Same-device bind mounts are also refused. Files must be regular, singly
+linked and bounded. Native device/inode/size/mtime/ctime identity, hash, user/turn, source scope
+and monotonic policy generation are persisted; reads re-open the path to reject moves or
+replacement. Authorization and source versions are rechecked before publication/delivery.
+
+No arbitrary connected mount root is approved in 1A. Existing connected-folder **copies**
+already imported into the team tree may be read under their normal folder rules if they pass
+the same no-mount walk. This is approval of the imported version, not authority to walk the
+connector's external root. Direct NAS/bind/other-device mounts must first be imported through
+the existing authorized copy workflow. A future connected-root implementation needs an explicit
+administrator registry of held root identities, policy generations, mount lifetimes and revocation;
+a path string or equal `st_dev` is insufficient. Team-root and directory topology remain under
+trusted server/administrator control; hostile host administrators are outside this boundary.
+
+Image delivery retains source scope and persisted versions, and rechecks at socket drain.
+Queued output is discarded after revocation; bytes already accepted by the socket cannot be recalled.
+The configured model provider remains an explicit authorized pixel recipient.
+
+## Immutable publication and download-only quarantine
+
+The chosen 1A option is **new immutable files**, never replacement of a mutable destination.
+The broker copies the final validated bytes, hashes them, determines the final destination and
+active audience, and binds widening approval to that hash, destination, audience, policy
+generation and a unique publication ID. Artifact approvals bypass the legacy directory-level
+approval cache. Normal policy approval suffices when there is no audience widening. Saving
+under `skills/` is refused in this path; the old wildcard skill approval is not used.
+
+If a requested name already exists, a new explicit `(conflict <UUID>)` file is approved. A writer
+that wins the name after approval receives no overwrite: native `linkat` fails with `EEXIST`;
+the operation fails and a new user/tool attempt needs a new final-target approval. The native
+helper writes a hidden exclusive spool, verifies its hash, fsyncs it, links it without replacement,
+removes the spool and fsyncs the held parent. Files are mode 0400 and application write/rename
+operations refuse quarantined files. This is application/broker immutability; a trusted OS owner
+or root can still chmod or replace files outside the application.
+
+The journal (SQLite FULL synchronous) records source versions, historical chat scope, policy,
+audience and cleanup state before disclosure. The final checks and native publication hold a
+SQLite write transaction, serializing concurrent database policy writers. Policy triggers detect
+revoke-and-restore changes too. A crash leaves a possibly-published journal entry: recovery
+removes only its deterministic hidden spool, marks the result interrupted and never publishes it
+again, overwrites a competing file, or infers ownership from equal content. A visible file may
+remain after a crash before the success event; it stays quarantined. Failed recovery is debt.
+The hash quarantine is durable before linkat, so a rollback of the final transaction is safe.
+
+Generated PPTX and normalized JPEG bytes are quarantined by hash. Published paths and observed
+inodes are also protected; byte-identical copies/uploads and renamed extensions remain blocked.
+There is **no automatic indexing, text extraction, AI read, thumbnail or in-app preview** of these
+files. The file panel explains download-only status in ko/en/id. Authorized downloads retain the
+existing attachment and CSP protections. Normalized image blocks may go directly to the configured
+model provider via the guarded MCP route; they never go through legacy OCR. Downloading a file
+for an external Office/image application remains the user's action; validation does not certify
+that application's parser. There is no qualified in-app consumer or preview origin yet.
+
+Quarantine survives feature disable and restart. Schema reader level 2 prevents rollback to an
+older server that would ignore it. If an older binary is required, restore a matching **database
+and team-file snapshot from before enablement**, not just the DB; otherwise generated files
+would lose their quarantine records. Protect journal/source metadata with the same tenant DB
+access/backup policy. A dedicated metadata retention/purge UI is deferred; do not erase quarantine
+hashes while corresponding files or copies may remain.
+
+The legacy flag-off PPTX count parser still runs in a separate bounded child. In a source checkout
+its first build can synchronously block for up to 30 s; installed bundles contain the worker.
+No HWP implementation is changed.
 
 ## Deferred work
 
 **1B (ZIP):** no archive listing/extraction tool is added. Require selected-entry IDs, immutable
 archive provenance, streaming metadata/entry/ratio budgets, inode/total workspace quotas, no
-recursive extraction, independent file validation and isolated downstream consumers. Complete
-cross-process destination CAS, durable job recovery/cleanup accounting, fair per-user admission,
-artifact/hash/destination/policy-bound approval, aggregate cumulative CPU/I/O accounting and
-connected-root qualification. Qualify Mac separately; do not infer parity from a configured profile.
+recursive extraction, independent file validation and isolated downstream consumers. General mutable-destination CAS, fair queuing, a joint engine/workspace parent, measured
+cumulative CPU/I/O controls, and connected-root qualification remain future work. The new-file
+journal/approval/quarantine contract above must be retained. Qualify Mac separately; do not infer parity from a configured profile.
 
 **1C (Excel):** do not redo the existing 0.2.7 formula support. Extend the writer with explicit typed
 cells and bounded rows/sheets/styles, a small reviewed internal formula grammar, and uncalculated

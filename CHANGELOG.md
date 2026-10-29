@@ -5,6 +5,10 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Safe operations 1A review fixes (default off): generated files are download-only; native no-replace publication,
+  durable approval/source/cleanup records, fail-closed workflow budgets and Linux openat2 mount-safe sources.
+  ko/en/id quarantine notices; older schema readers must restore matching pre-enable DB and files to roll back.
+
 - Safe operations 1A (opt-in, qualified Linux): image pixels with OCR fallback for Claude Code/Codex, bounded PowerPoint with bundled layouts, fresh delivery authorization, and isolated output validation. Uploaded templates, ZIP and the new Excel writer remain deferred.
 
 ## 0.2.9 — 2026-10-29

@@ -71,11 +71,12 @@ export class Attachments {
     try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
     const size = fs.statSync(src).size
     installFile(this.files.root, r.segs, src)
+    const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const kind = attachmentKind(final)
     const id = newId()
-    const dims = kind === 'image' ? imageSize(head.subarray(0, headLen)) : null
+    const dims = kind === 'image' && !quarantined ? imageSize(head.subarray(0, headLen)) : null
     let thumb: string | null = null
-    if (kind === 'image') {
+    if (kind === 'image' && !quarantined) {
       const dst = path.join(this.thumbsDir(), `${id}.jpg`)
       try { if (await makeThumbnail(r.abs, dst, 320, path.join(this.ctx.config.dataDir, 'work'))) thumb = `thumbs/${id}.jpg` } catch (e) { this.ctx.log.debug('thumbnail failed', { err: e }) }
     }

@@ -3,13 +3,52 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"mycel/native/internal/safebroker"
 	"mycel/native/internal/safeops"
 	"os"
 	"os/exec"
+	"strconv"
+	"syscall"
 )
 
 func main() {
+	if len(os.Args) > 2 {
+		var err error
+		switch os.Args[1] {
+		case "snapshot":
+			if len(os.Args) != 4 {
+				os.Exit(2)
+			}
+			cap, e := strconv.ParseInt(os.Args[3], 10, 64)
+			if e != nil || cap < 0 || cap > 32<<20 {
+				os.Exit(2)
+			}
+			err = safebroker.Snapshot(3, os.Args[2], cap, os.Stdout)
+		case "publish":
+			if len(os.Args) != 5 {
+				os.Exit(2)
+			}
+			err = safebroker.Publish(3, os.Args[2], os.Args[3], os.Args[4], os.Stdin)
+		case "clean":
+			if len(os.Args) != 4 {
+				os.Exit(2)
+			}
+			err = safebroker.Clean(3, os.Args[2], os.Args[3])
+		default:
+			os.Exit(2)
+		}
+		if errors.Is(err, syscall.EEXIST) {
+			os.Exit(4)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "safe filesystem operation refused")
+			os.Exit(3)
+		}
+		return
+	}
+
 	if len(os.Args) != 2 {
 		os.Exit(2)
 	}

@@ -143,7 +143,7 @@ export function legacyKoreanFile(abs: string): boolean {
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
  * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented), so the
  * old text is made again. */
-export const TEXT_CACHE_VERSION = '3'
+export const TEXT_CACHE_VERSION = '4'
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 
 /** office files extracted at the same time by one server (foreground and background together) */
@@ -197,6 +197,7 @@ export class OfficeCache {
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   fresh(rel: string, st: fs.Stats) {
+    if (this.fx.quarantine?.hasFile(path.join(this.fx.root, rel))) return false
     try { return Math.floor(fs.statSync(this.cachePath(rel)).mtimeMs) === Math.floor(st.mtimeMs) } catch { return false }
   }
   /** the text of one file (a test can replace it) */
@@ -243,6 +244,7 @@ export class OfficeCache {
       const abs = path.join(this.fx.root, ...rel.split('/'))
       let lst: fs.Stats
       try { lst = fs.lstatSync(abs) } catch { fs.rmSync(this.cachePath(rel), { force: true }); return }
+      if (this.fx.quarantine?.hasFile(abs)) { fs.rmSync(this.cachePath(rel), {force:true}); return }
       if (this.fresh(rel, lst)) return
       let got: { bytes: Buffer; st: fs.Stats }
       try { got = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes())) } catch (e) {

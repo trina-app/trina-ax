@@ -22,6 +22,9 @@ import { assertStorageRoomForAI } from '../system/storage'
 import type { McpContent } from '../turns'
 import { normalizeImage, safeOpsEnabled, SAFE_INPUT_MAX, SAFE_OUTPUT_MAX } from '../safe-ops/runner'
 import { snapshot, recheck } from '../safe-ops/source'
+import { Quarantine } from '../safe-ops/quarantine'
+import { withWorkflow } from '../safe-ops/workflow'
+import { recoverPublications } from '../safe-ops/publication'
 import { safeText, safeErrorText } from '../safe-ops/strings'
 
 void ENGINE_BUILTIN_ALLOWED
@@ -65,19 +68,23 @@ export interface ToolCtx {
    * Tools that copy file bytes into a new file (make_file) must call it; without it (no chat turn: nobody to ask)
    * they refuse whenever the target is wider than the sources.
    */
-  confirmWidening?: (target: string, sources: string[]) => Promise<string | null>
+  confirmWidening?: (target: string, sources: string[], binding?: string) => Promise<string | null>
 }
 export interface ToolOutput { text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
 const BINARY_WRITE = new Set(['docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
 export class FileService {
+  readonly quarantine: Quarantine
   readonly fx: FsCtx
   readonly office: OfficeCache
   readonly events = new EventEmitter()
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
-    this.fx = { root: cfg.teamRoot, caseInsensitive: detectCaseInsensitive(cfg.teamRoot) }
-    this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext, ocr: cfg.ocr })
+    db.exec('PRAGMA synchronous = FULL')
+    this.quarantine = new Quarantine(db, cfg.teamRoot)
+    recoverPublications(db, cfg.teamRoot)
+    this.fx = { quarantine: this.quarantine, root: cfg.teamRoot, caseInsensitive: detectCaseInsensitive(cfg.teamRoot) }
+    this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext, ocr: cfg.ocr, quarantine: this.quarantine })
   }
   rules() { return RuleSet.load(this.db) }
   principal(userId: string) { const p = loadPrincipal(this.db, userId); if (!p) throw new Denied('unknown or disabled user'); return p }
@@ -166,8 +173,8 @@ export class FileService {
       catch(err) { ctx.signal?.throwIfAborted(); if(!(err instanceof ToolError) || err.code!=='safe_ops_unavailable') throw err }
     }
     let ocr=''
-    if(this.cfg.ocr) {
-      try { ocr=await extractText(pixels?'preview.jpg':source.path,pixels??source.bytes,{pandoc:null,pdftotext:null,ocr:this.cfg.ocr},ctx.signal) }
+    if(this.cfg.ocr && !pixels) {
+      try { ocr=await extractText(source.path,source.bytes,{pandoc:null,pdftotext:null,ocr:this.cfg.ocr,quarantine:this.quarantine},ctx.signal) }
       catch { ctx.signal?.throwIfAborted() }
     }
     if(pixels && (pixels.length>SAFE_OUTPUT_MAX || pixels[0]!==0xff || pixels[1]!==0xd8)) throw new ToolError('Invalid image converter result')
@@ -176,19 +183,19 @@ export class FileService {
     ctx.files.readHashes.set(source.path,source.hash)
     ctx.files.readPaths.add(source.path)
     ctx.files.imageSources.set(source.path,{hash:source.hash,identity:source.identity})
-    if(pixels) ctx.files.imageBytes+=pixels.length
+    if(pixels) { this.quarantine.add(pixels, 'image'); ctx.files.imageBytes+=pixels.length }
     const text=[safeText(this.db,ctx.user.id,pixels?'image':'fallback'),'Source: '+source.path,'SHA-256: '+source.hash,ocr.slice(0,16000)].join('\n')
     const content: McpContent[]=[{type:'text',text},...(pixels?[{type:'image' as const,mimeType:'image/jpeg',data:pixels.toString('base64')}]:[])]
     return {text,content,beforeDelivery,summary:'read '+source.path+' -> '+(pixels?'image + OCR':'OCR fallback')}
   }
 
   async read(ctx: ToolCtx, a: { file_path: string; offset?: number; limit?: number }): Promise<ToolOutput> {
-    if(safeOpsEnabled() && ['png','jpg','jpeg','webp','heic','heif'].includes(ext(a.file_path))) return this.readImage(ctx,a)
+    if(safeOpsEnabled() && ['png','jpg','jpeg','webp','heic','heif'].includes(ext(a.file_path))) return withWorkflow(this,ctx,() => this.readImage(ctx,a))
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
     const { bytes } = readRegular(r.abs, readMaxBytes())
-    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr }, ctx.signal)
+    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
     ctx.files.readHashes.set(r.rel, sha256(bytes))
     ctx.files.readPaths.add(r.rel)
     const lines = text.split(/\r?\n/)

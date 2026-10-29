@@ -1,6 +1,7 @@
 // Internal fixed-operation runner. No model-controlled executable, argv, environment or bind mounts.
 // Unsupported hosts fail closed. The old converter runner is deliberately NOT a fallback.
 import fs from 'node:fs'
+import { reserveJob } from './workflow'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -115,6 +116,7 @@ function closure(bin: string): string[] {
 }
 
 let active = false
+let unhealthy = false
 /** One admitted job, no unbounded queue or retained input buffers. Callers retry busy normally. */
 async function run(
   bin: string,
@@ -126,6 +128,7 @@ async function run(
   codec?: string,
 ): Promise<Buffer> {
   signal?.throwIfAborted()
+  if (unhealthy) throw new ToolError('Safe converter cleanup is incomplete.', 'safe_ops_workflow')
   if (active) throw new ToolError('The safe converter is busy; try again.', 'safe_ops_busy')
   if (
     input.byteLength > 32 * 1024 ** 2 ||
@@ -138,6 +141,7 @@ async function run(
     stage = '',
     proc: ReturnType<typeof Bun.spawn> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
+  let reservation: ReturnType<typeof reserveJob> | undefined
   let reason = ''
   const kill = () => {
     if (dir) {
@@ -156,11 +160,15 @@ async function run(
   try {
     // The parent provides a hard aggregate cap; the new leaf provides independent OOM/cleanup scope.
     const parent = jobCgroup()
-    dir = path.join(parent.dir, crypto.randomUUID())
+    const id=crypto.randomUUID()
+    const jobDir=path.join(parent.dir,id)
+    reservation=reserveJob(id,jobDir,path.join(os.tmpdir(),'ax-safe-'+id),input.byteLength+Object.values(files).reduce((n,b)=>n+b.byteLength,0)+maxOutput)
+    dir=jobDir
+    stage=reservation.stage
     fs.mkdirSync(dir)
     for (const [f, v] of Object.entries(JOB_LIMITS)) verifiedLimit(dir, f, v)
     if (!fs.existsSync(path.join(dir, 'cgroup.kill'))) throw unavailable()
-    stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'))
+    fs.mkdirSync(stage, {recursive:true,mode:0o700})
     fs.chmodSync(stage, 0o700)
     for (const [name, b] of Object.entries(files)) {
       if (!/^[a-zA-Z0-9.-]+$/.test(name)) throw unavailable()
@@ -290,23 +298,21 @@ async function run(
     signal?.removeEventListener('abort', abort)
     kill()
     if (proc) await proc.exited
+    let clean = true
     try {
-      if (dir) {
-        // cgroup.kill kills descendants even if they made a new session. Do not reuse a nonempty leaf.
-        for (let i = 0; i < 50; i++) {
-          if (!fs.readFileSync(path.join(dir, 'cgroup.events'), 'utf8').includes('populated 1')) break
+      if (dir && fs.existsSync(dir)) {
+        for (let i=0;i<50;i++) {
+          if (!fs.readFileSync(path.join(dir,'cgroup.events'),'utf8').includes('populated 1')) break
           await Bun.sleep(10)
         }
-        try {
-          fs.rmdirSync(dir)
-        } catch {
-          /* inaccessible cleanup debt, never reused */
-        }
+        if (fs.readFileSync(path.join(dir,'cgroup.events'),'utf8').includes('populated 1')) throw unavailable()
+        fs.rmdirSync(dir)
       }
-      if (stage) fs.rmSync(stage, { recursive: true, force: true })
-    } finally {
-      active = false
-    }
+      if(stage) fs.rmSync(stage,{recursive:true,force:true})
+    } catch { clean=false; unhealthy=true }
+    reservation?.finish(clean)
+    active=false
+    if (!clean) throw new ToolError('Safe converter cleanup is incomplete.', 'safe_ops_workflow')
   }
 }
 
