@@ -2333,7 +2333,9 @@ including same-account installs. Extend the same synthetic selection tests to co
   the file's own text that starts with `=== ` gets a space in front, so a note cannot end its section or forge a
   slide label. Attribute text (comment author, date and commented text, chart title, series names, categories and
   values) has its line breaks (`\r`, `\n`, U+0085, U+2028, U+2029, `\v`, `\f`) changed to spaces and goes through the
-  same line quoting, so an author such as `Kim&#10;=== Slide 9 ===` cannot start a line. Server guards (skill save
+  same line quoting, so an author such as `Kim&#10;=== Slide 9 ===` cannot start a line. In header, footer, note and
+  comment text, these other line breaks become `\n` before the line quoting, so `ok&#13;=== Slide 9 ===` is also
+  indented. Server guards (skill save
   card, write policy) do not change.
 - **Chart point index.** The `idx` of a chart point is untrusted and sizes an array. A point with `idx` at or past the
   declared `<c:ptCount>`, or at 10000 and more, is skipped. Before this, `idx="4294967294"` kept an office worker slot
