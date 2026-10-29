@@ -15,7 +15,7 @@ bun install --frozen-lockfile
 bun run demo
 ```
 
-The single foreground command builds the app, starts it on **http://127.0.0.1:19760**, and seeds fictional data, six starter skills and a clearly labeled illustrative result file. It prints the dedicated data directory and process ID. It binds to loopback, starts no relay, and disables both AI engines, even if this computer has existing CLI logins. Do not expose it or add real data.
+The single foreground command builds the app, starts it on **[http://127.0.0.1:19760](http://127.0.0.1:19760)**, and seeds fictional data, six starter skills and a clearly labeled illustrative result file. It prints the dedicated data directory and process ID. It binds to loopback, starts no relay, and disables both AI engines, even if this computer has existing CLI logins. Do not expose it or add real data.
 
 Optional choices:
 
