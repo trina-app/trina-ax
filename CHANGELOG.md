@@ -3,10 +3,27 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## 0.2.5 — 2026-10-29
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.5).
+The first release that servers get through the Trina update feed (`updates.trina.app`).
+
+- Spreadsheets and Hangul files (xlsx, xls, ods, hwp, hwpx) are read in a separate, limited process. A crafted file
+  can no longer slow down or stop the server.
+- A stored key or token of the person is hidden as `[hidden key]` in AI answers, steps, chat titles and exports.
+- PowerPoint files from the AI: the slide count and speaker notes are checked against the request.
+- File history shows who made each version, the current version, and moves and renames.
+- Scheduled runs show their real outcome: succeeded, finished with problems, or failed. Problem runs send the
+  failure notification.
+- Admin › Team settings: the number of days that deleted chats stay in the chat trash.
+- API engine: correct cost, clearer errors, status check and label.
+- App connector (remote MCP): `upload_file` and `create_upload_link` for uploads from Claude Code and other clients.
+- Desktop and admin fixes from QA.
+
 ## 0.2.4 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.4).
-Available on GitHub Releases only; the Trina update feed is not live.
+Also on the Trina update feed since 2026-10-29.
 
 - Voice input is now optional and off by default. Admins choose it in Admin › Team settings › Voice input: OpenRouter
   speech-to-text (cloud, `openai/whisper-large-v3-turbo`, zero data retention requested) with the team's own OpenRouter
