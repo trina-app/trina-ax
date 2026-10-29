@@ -22,6 +22,11 @@ export function recoverWorkflows(db: Database) {
       try {
         if (fs.existsSync(j.cgroup)) {
           fs.writeFileSync(path.join(j.cgroup,'cgroup.kill'),'1')
+          for(let i=0;i<50;i++) {
+            if(!fs.readFileSync(path.join(j.cgroup,'cgroup.events'),'utf8').includes('populated 1')) break
+            // Startup reconciliation is synchronous and bounded to 500 ms per debt.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)
+          }
           if (fs.readFileSync(path.join(j.cgroup,'cgroup.events'),'utf8').includes('populated 1')) throw refusal()
           fs.rmdirSync(j.cgroup)
         }

@@ -23,7 +23,7 @@ import type { McpContent } from '../turns'
 import { normalizeImage, safeOpsEnabled, SAFE_INPUT_MAX, SAFE_OUTPUT_MAX } from '../safe-ops/runner'
 import { snapshot, recheck } from '../safe-ops/source'
 import { Quarantine } from '../safe-ops/quarantine'
-import { withWorkflow } from '../safe-ops/workflow'
+import { withWorkflow, recoverWorkflows } from '../safe-ops/workflow'
 import { recoverPublications } from '../safe-ops/publication'
 import { safeText, safeErrorText } from '../safe-ops/strings'
 
@@ -82,6 +82,7 @@ export class FileService {
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
+    recoverWorkflows(db)
     recoverPublications(db, cfg.teamRoot)
     this.fx = { quarantine: this.quarantine, root: cfg.teamRoot, caseInsensitive: detectCaseInsensitive(cfg.teamRoot) }
     this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext, ocr: cfg.ocr, quarantine: this.quarantine })

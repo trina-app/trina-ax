@@ -5,6 +5,7 @@ import { makeCApp, type CApp } from '../lib/c-app'
 import { componentC } from '../../server/src/team-files/component'
 import { extractText } from '../../server/src/files/extract'
 import { withWorkflow, reserveJob, recoverWorkflows, WORKFLOW_LIMITS } from '../../server/src/safe-ops/workflow'
+import { FileService } from '../../server/src/files/service'
 import { policyGeneration, publishArtifact } from '../../server/src/safe-ops/publication'
 import { Quarantine } from '../../server/src/safe-ops/quarantine'
 import { SAFE_OPS_TEXT } from '../../server/src/safe-ops/strings'
@@ -110,7 +111,7 @@ test('cleanup debt fails closed, remains charged, and dead-owner recovery clears
  expect((A.ctx.db.query("SELECT debt_bytes FROM safe_ops_workflows WHERE state='debt'").get() as any).debt_bytes).toBe(128*1024**2)
  await expect(withWorkflow(A.ctx.files,A.toolCtx('erin'),async()=>{})).rejects.toThrow()
  A.ctx.db.query("UPDATE safe_ops_workflows SET owner_pid=2147483647 WHERE state='debt'").run()
- recoverWorkflows(A.ctx.db)
+ new FileService(A.ctx.db,A.ctx.files.cfg) // startup recovery, before another admission
  await withWorkflow(A.ctx.files,A.toolCtx('erin'),async()=>{})
 })
 test('download-only and unhealthy notices cover ko/en/id',()=>{

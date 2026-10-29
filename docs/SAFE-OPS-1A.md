@@ -89,8 +89,8 @@ Jobs and reservations are recorded before creating their cgroup/staging director
 reconciliation kills dead-owner cgroups and removes staging; a populated leaf, inaccessible
 path or failed removal remains charged and blocks admission. PID reuse conservatively blocks
 recovery. An administrator must investigate a live-owner or persistent debt condition with the
-feature disabled; never delete the journal merely to regain admission. Reconciliation runs on
-workflow admission. A restart does not automatically rerun a workflow or publication.
+feature disabled; never delete the journal merely to regain admission. Reconciliation runs at server initialization and on
+workflow admission. Startup waits up to 500 ms for each killed leaf to empty; unresolved debt stays unhealthy. A restart does not automatically rerun a workflow or publication.
 
 The engine and converter still have separate existing cgroup parents. This patch does **not**
 claim a common engine+converter hard budget, measured host I/O rate, tenant fairness, or a new
