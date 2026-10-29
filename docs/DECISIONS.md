@@ -2741,3 +2741,19 @@ including same-account installs. Extend the same synthetic selection tests to co
   cases still assert actual activation/control and that the fallback response comes from the worker.
 - No locale policy, translations, credentials or cached account data change. Apply the same fix in the
   shared core (`potenlab/team-ax`).
+
+## Keep the Electron subframe guard off workers (2026-10-29)
+
+- The frame guard's unfiltered CDP auto-attach paused service workers before startup, then awaited
+  `Page.enable` before sending `Runtime.runIfWaitingForDebugger`. A paused worker cannot answer that
+  page command: registration stays pending and `/sw.js` is not requested. CPU contention exposes the
+  race frequently; it also reproduces without Playwright. Resuming the target alone releases the
+  request and activation immediately, so a longer test timeout does not address the cause.
+- Filter auto-attach to `iframe` targets at every recursion level. Keep document-start WebRTC removal
+  on the main page and nested frames, including the existing sandboxed-frame policy. Workers do not
+  need document guards and must not depend on another debugger resuming them.
+- The real Electron offline cases now assert that the product's frame debugger never attaches to a
+  worker, as well as actual activation/control, worker-sourced 503 recovery and session preservation.
+  The new assertion fails on the previous product code even when the timing race otherwise passes.
+  No registration bypass, retry, timeout increase, UI string or cache policy change. Port this common
+  desktop fix and regression coverage to `potenlab/team-ax`.

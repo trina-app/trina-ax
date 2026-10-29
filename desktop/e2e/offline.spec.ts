@@ -83,12 +83,28 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     })
     const strings = STRINGS[locale]
     try {
+      // Observe the product's debugger, not Playwright's separate CDP connection. The frame
+      // guard must never pause a worker: Page.enable cannot finish until that worker starts.
+      // This catches the regression even when another debugger happens to resume it first.
+      const guardedWorkers = await app.evaluateHandle(({ app }) => {
+        const workers: string[] = []
+        app.on('web-contents-created', (_event, contents) => {
+          contents.debugger.on('message', (_event, method, params) => {
+            if (method === 'Target.attachedToTarget' && ['service_worker', 'shared_worker', 'worker'].includes(params.targetInfo.type)) {
+              workers.push(params.targetInfo.type)
+            }
+          })
+        })
+        return workers
+      })
       const shell = await welcome(app)
       await shell.locator('#address').fill(server.url)
       await shell.getByRole('button', { name: 'Connect', exact: true }).click()
       let page = await teamPage(app, server.url)
       await test.step('sign in to production web', () => signInOfflineTeam(page, server.url, locale))
+      expect(await guardedWorkers.jsonValue(), 'the subframe guard must leave workers running').toEqual([])
       await test.step('wait for worker and warm hashed assets', () => warmWorker(page))
+      expect(await guardedWorkers.jsonValue(), 'worker startup must not depend on a debugger resume').toEqual([])
       const before = await account(page)
       await expect(shell.locator('html')).toHaveAttribute('lang', locale)
 

@@ -97,7 +97,12 @@ async function stripRtcInSubframes(wc: WebContents) {
   const prepare = async (sessionId?: string) => {
     await dbg.sendCommand('Page.enable', {}, sessionId).catch(() => {})
     await dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SUBFRAME_SCRIPT }, sessionId).catch(() => {})
-    await dbg.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId).catch(() => {})
+    // Only frames need document-start guards. A worker paused before startup cannot answer
+    // Page.enable, so preparing it as a page can wait forever before reaching the resume below.
+    await dbg.sendCommand('Target.setAutoAttach', {
+      autoAttach: true, waitForDebuggerOnStart: true, flatten: true,
+      filter: [{ type: 'iframe' }, { exclude: true }],
+    }, sessionId).catch(() => {})
   }
   dbg.on('message', (_e, method, params: any) => {
     if (method !== 'Target.attachedToTarget') return
