@@ -30,7 +30,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { fake?.stop(); await A?.close() })
 
-type Asked = { answer: boolean; questions: string[] }
+type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void> }
 const ask = (answer: boolean): Asked => ({ answer, questions: [] })
 
 function turn(user: Person, o: { person?: Asked; scheduled?: boolean; chat?: string } = {}) {
@@ -38,7 +38,7 @@ function turn(user: Person, o: { person?: Asked; scheduled?: boolean; chat?: str
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles() } as TurnToolContext['files']
-  if (o.person) { const p = o.person; files.person = { locale: 'en', async confirm(q) { p.questions.push(q); return p.answer }, *turnUrls() {} } }
+  if (o.person) { const p = o.person; files.person = { locale: 'en', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} } }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: 'en', signal: new AbortController().signal, files }
   const tools = new Map(built.tools.map((t) => [t.name, t]))
   const call = async (name: string, args: unknown) => {
@@ -179,6 +179,26 @@ describe('calls', () => {
     expect(s.isError).toBe(false)
     expect(fake.calls.filter((c) => c.name === 'create_task').length - fake.calls.slice(0, before).filter((c) => c.name === 'create_task').length).toBe(1)
     await patch('alice', tasks.id, { writePolicy: 'ask' })
+  })
+
+  test('a changed connection invalidates pending MCP and HTTP write approval', async () => {
+    for (const kind of ['mcp', 'http'] as const) {
+      const id = kind === 'mcp' ? tasks.id : aipm.id
+      const p = { ...ask(true), beforeAnswer: async () => {
+        expect((await patch('alice', id, { writePolicy: 'deny' })).status).toBe(200)
+      } }
+      const before = fake.calls.length, requests = fake.seen.length
+      try {
+        const t = turn('alice', { person: p })
+        const result = kind === 'mcp'
+          ? await t.call('my_tasks__create_task', { title: 'must not be sent' })
+          : await t.call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', body: { title: 'must not be sent' } })
+        expect(result.isError).toBe(true)
+        expect(result.summary).toContain('changed')
+        expect(fake.calls.length).toBe(before)
+        expect(fake.seen.length).toBe(requests)
+      } finally { await patch('alice', id, { writePolicy: 'ask' }) }
+    }
   })
 
   test('who may use it is checked on every call: a removed rule, a disabled account, the team switch', async () => {
