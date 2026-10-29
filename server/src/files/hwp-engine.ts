@@ -22,10 +22,15 @@ async function workerScript() {
     if (fs.existsSync(built)) return built
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hwp-check-')))
     process.once('exit', () => fs.rmSync(dir, { recursive: true, force: true }))
-    const r = await Bun.build({ entrypoints: [path.join(import.meta.dir, 'hwp-preflight.ts')], outdir: dir, target: 'bun', naming: 'hwp-preflight.js' })
-    if (!r.success) throw new HwpError('engine')
-    return path.join(dir, 'hwp-preflight.js')
-  })()
+    const output = path.join(dir, 'hwp-preflight.js')
+    // Development only: Bun's in-process bundler cannot reliably resolve workspace
+    // packages after test module mocks. Release bundles already contain this worker.
+    const build = Bun.spawn([process.execPath, 'build', path.join(import.meta.dir, 'hwp-preflight.ts'), '--target=bun', '--outfile', output], {
+      cwd: root, stdout: 'ignore', stderr: 'ignore', timeout: 15_000,
+    })
+    if (await build.exited !== 0 || !fs.existsSync(output)) throw new HwpError('engine')
+    return output
+  })().catch(() => { worker = undefined; throw new HwpError('engine') })
 }
 
 /** Read internal SFNT metadata, never infer family/weight from a filename. */

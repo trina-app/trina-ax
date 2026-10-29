@@ -27,7 +27,7 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool (set_title: a new chat\'s first message)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'copy_files', 'edit', 'forget', 'glob', 'grep', 'list', 'make_file', 'move_files', 'read', 'remember', 'rename_file', 'schedule_create', 'schedule_delete', 'schedule_list', 'search', 'set_title', 'share_file', 'web_fetch', 'write'])
+    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'copy_files', 'edit', 'forget', 'glob', 'grep', 'hwp_render', 'list', 'make_file', 'move_files', 'read', 'remember', 'rename_file', 'schedule_create', 'schedule_delete', 'schedule_list', 'search', 'set_title', 'share_file', 'web_fetch', 'write'])
   })
 
   test('artifact from a turn: saved for the answer, artifact.updated, listed over REST, audited with C\'s summary', async () => {
