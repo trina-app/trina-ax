@@ -97,16 +97,21 @@ async function stripRtcInSubframes(wc: WebContents) {
   const prepare = async (sessionId?: string) => {
     await dbg.sendCommand('Page.enable', {}, sessionId).catch(() => {})
     await dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SUBFRAME_SCRIPT }, sessionId).catch(() => {})
-    // Only frames need document-start guards. A worker paused before startup cannot answer
-    // Page.enable, so preparing it as a page can wait forever before reaching the resume below.
+    // Only frames need document-start guards. Chromium still pauses dedicated workers
+    // when the filter excludes them, so attach those only long enough to resume/detach.
+    // Service/shared workers remain excluded; never send Page commands to a worker.
     await dbg.sendCommand('Target.setAutoAttach', {
       autoAttach: true, waitForDebuggerOnStart: true, flatten: true,
-      filter: [{ type: 'iframe' }, { exclude: true }],
+      filter: [{ type: 'iframe' }, { type: 'worker' }, { exclude: true }],
     }, sessionId).catch(() => {})
   }
   dbg.on('message', (_e, method, params: any) => {
     if (method !== 'Target.attachedToTarget') return
     const sid: string = params.sessionId
+    if (params.targetInfo.type !== 'iframe') {
+      void dbg.sendCommand('Runtime.runIfWaitingForDebugger', {}, sid).then(() => dbg.sendCommand('Target.detachFromTarget', { sessionId: sid })).catch(() => {})
+      return
+    }
     void prepare(sid).finally(() => dbg.sendCommand('Runtime.runIfWaitingForDebugger', {}, sid).catch(() => {}))
   })
   await prepare()
