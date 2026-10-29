@@ -4,7 +4,7 @@ This guide covers the **server Mac**. It runs the team server and AI engines, Cl
 Team members use the web app, desktop clients or a phone browser. For a synthetic local preview, start with the
 [quickstart](QUICKSTART.md). For a Linux server, use [INSTALL-LINUX.md](INSTALL-LINUX.md).
 
-Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on macOS 26.3.1 (Apple Silicon). The [Korean installation entry](install/guide.html) now links to the current operator guides; it is not a translation of every advanced command below.
+Updated on 2026-10-21 for commit `19d3002` (the production-path integration) on macOS 26.3.1 (Apple Silicon). The [Korean printed installation guide](install/guide.html) contains the installation and troubleshooting steps; rebuild it with `bun docs/install/build-pdf.ts`.
 
 ## Historical validation notes (2026-10-21)
 
@@ -677,6 +677,32 @@ git pull && bun install && bun run build && bun run dev:service restart
 Before changing it: read release/admin notes, make a full backup and encrypted off-host archive, verify recovery, then stage a reviewed compatible bundle. Check release signatures when using signed artifacts, restart, verify status/login/files and keep the prior app bundle. App rollback does not undo database/file changes. See [backup and restore](BACKUP-RESTORE.md).
 
 **Advanced source builds only:** derive a unique development version from `server/package.json`; do not invent official release versions or overwrite a running version. An unsigned build needs explicit `--allow-unsigned` consent on a disposable/reviewed operator environment. This is not normal release-update advice.
+
+### Advanced source-bundle update and repair
+
+For this role-account Mac installation, choose a unique reviewed development version greater than the installed version (for example, `0.2.9-dev.1` only when that is greater). Replace `DEV_VERSION` below with that version. This is a local unsigned build, not an official release. Back up first.
+
+```sh
+bun install --frozen-lockfile
+bun run build
+bun scripts/build-bundle.ts --version DEV_VERSION
+sudo scripts/install-macos.sh --from dist/release --allow-unsigned
+```
+
+The installer retains the previous app for rollback. Rebuilding the same version replaces it in place, so use the same version only to repair that installation and keep a separate recovery copy.
+
+To stage and switch as the server account instead, copy the archive to a directory it can read, then use the installed administration CLI:
+
+```sh
+cp dist/release/DEV_VERSION.tar.zst /Users/Shared/
+B="/Library/Application Support/mycel"
+cd /
+sudo -u _axserver env MYCEL_CONFIG="$B/config/server.json" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" stage-update /Users/Shared/DEV_VERSION.tar.zst
+sudo -u _axserver env MYCEL_CONFIG="$B/config/server.json" "$B/app/current/bin/bun" "$B/app/current/server/src/admin.js" switch DEV_VERSION --restart
+# If needed, use the same CLI with: rollback --restart
+```
+
+The bootstrap can restore the prior app after startup failure (120 seconds without a response or three crashes). This does not restore database or team-file state; use a compatible release and the pre-update backup for data recovery. Full role-account replacement-host recovery has not been validated here.
 
 **Backups.**
 - Nightly after 03:00, kept 14 days: a full backup every 7 days, incremental in between.
