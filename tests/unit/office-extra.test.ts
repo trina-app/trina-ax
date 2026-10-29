@@ -412,6 +412,16 @@ describe.skipIf(!pandoc)('chart, notes and comment parts are read in linear time
     })
     expect(fast(() => docxExtraText(bytes))).toContain('QA-CMT-1')
   })
+  test('5000 comment ranges over one text run of 500 KB', () => {
+    const md = '본문 [메모 QA-CMT-2]{.comment-start id="0" author="A" date="2026-01-01T00:00:00Z"}대상[]{.comment-end id="0"}.\n'
+    const run = Array.from({ length: 50_000 }, (_, i) => `w${i} `).join('').slice(0, 500_000)
+    const ids = Array.from({ length: 5000 }, (_, i) => i + 100)
+    const bytes = withParts(convert(md, 'docx'), {
+      'word/document.xml': (old) => old.replace('<w:body>', '<w:body><w:p>' + ids.map((i) => `<w:commentRangeStart w:id="${i}"/>`).join('') +
+        `<w:r><w:t>${run}</w:t></w:r>` + ids.map((i) => `<w:commentRangeEnd w:id="${i}"/>`).join('') + '</w:p>'),
+    })
+    expect(fast(() => docxExtraText(bytes))).toContain('QA-CMT-2')
+  })
 })
 
 test('quoteLines indents a label-like line after every kind of line break and changes nothing else', () => {

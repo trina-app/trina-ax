@@ -15,6 +15,8 @@ import { checkZip, isZip } from './zip-guard'
 const EXTRA_TEXT_MAX = 4 * 1024 * 1024
 /** characters of the body text that a comment refers to */
 const ANCHOR_MAX = 200
+/** comment ranges that take body text at the same time */
+const ANCHORS_OPEN_MAX = 1000
 /** Chart points with an index at or above this are skipped (the index is untrusted and sizes an array). */
 const POINT_IDX_MAX = 10_000
 
@@ -201,8 +203,9 @@ function capped(sections: string[]): string {
 /**
  * Text of the comment ranges in the body: comment id -> the commented text (shortened). One pass over the tags: the
  * text of a <w:t> goes to each open range that is not yet full, and a full range only waits for its end tag. So each
- * range takes at most about ANCHOR_MAX non-empty text runs, and the time stays linear in the document size. A range
- * without an end tag gives no text.
+ * range takes at most about ANCHOR_MAX non-empty text runs of at most ANCHOR_MAX + 1 characters, and at most
+ * ANCHORS_OPEN_MAX ranges take text at the same time (a later range gets no text). So the time stays linear in the
+ * document size. A range without an end tag gives no text.
  */
 function commentAnchors(doc: string): Map<string, string> {
   const out = new Map<string, string>()
@@ -212,7 +215,8 @@ function commentAnchors(doc: string): Map<string, string> {
   let last = 0
   for (const t of tags(doc)) {
     if (inText && filling.size && t.start > last) {
-      const run = unescapeXml(doc.slice(last, t.start))
+      // only the first ANCHOR_MAX characters are kept, so a long run is cut once here
+      const run = unescapeXml(doc.slice(last, t.start)).slice(0, ANCHOR_MAX + 1)
       if (run) for (const [id, text] of filling) {
         const next = text + run
         if (next.length > ANCHOR_MAX) { filling.delete(id); full.set(id, next) } else filling.set(id, next)
@@ -224,7 +228,7 @@ function commentAnchors(doc: string): Map<string, string> {
     const id = attr(t.head, 'w:id')
     if (id === undefined || out.has(id)) continue
     if (t.name === 'w:commentRangeStart') {
-      if (!full.has(id)) filling.set(id, filling.get(id) ?? '')
+      if (!full.has(id) && (filling.has(id) || filling.size < ANCHORS_OPEN_MAX)) filling.set(id, filling.get(id) ?? '')
       continue
     }
     const got = filling.get(id) ?? full.get(id)
