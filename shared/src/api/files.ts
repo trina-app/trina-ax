@@ -160,7 +160,8 @@ export const FindFilesQuery = z.object({
 export const FILE_SEARCH_QUERY_MAX = 200
 export const FILE_SEARCH_LIMIT_MAX = 100
 export const SearchFileContentsQuery = z.object({
-  q: z.string().trim().min(1).max(FILE_SEARCH_QUERY_MAX),
+  /** literal text on one line (ripgrep searches line by line, so a line break is refused) */
+  q: z.string().trim().min(1).max(FILE_SEARCH_QUERY_MAX).refine((s) => !/[\r\n]/.test(s), 'one line only'),
   /** optional folder to search under (default: the whole team folder) */
   path: RelPath.default(''),
   limit: z.coerce.number().int().min(1).max(FILE_SEARCH_LIMIT_MAX).default(50),

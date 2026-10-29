@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FileContentHits } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { CONTENT_SEARCH_PER_FILE, CONTENT_SEARCH_RATE_MAX, resetContentSearchLimits, SNIPPET_CHARS, snippetOf } from '../../server/src/team-files/content-search'
+import { admitContentSearch, CONTENT_SEARCH_PARALLEL_MAX, CONTENT_SEARCH_PER_FILE, CONTENT_SEARCH_RATE_MAX, resetContentSearchLimits, SNIPPET_CHARS, snippetOf } from '../../server/src/team-files/content-search'
 
 setDefaultTimeout(60_000)
 
@@ -55,6 +55,17 @@ describe('permission isolation', () => {
     // the search can be narrowed to a folder the caller can read
     expect(paths(await search('bob', M, '&path=users%2Fbob'))).toEqual(['users/bob/fs-private.md'])
   })
+
+  test('a symbolic link to a hidden file, in a folder the caller can read, never shows', async () => {
+    const M = 'QA-SYMLINK-ONLY-55120'
+    write('groups/finance/fs-sym-target.md', `target ${M}\n`)
+    fs.mkdirSync(path.join(h.team, 'shared/fs-sym'), { recursive: true })
+    fs.symlinkSync(path.join(h.team, 'groups/finance/fs-sym-target.md'), path.join(h.team, 'shared/fs-sym/link.md'))
+    fs.symlinkSync(path.join(h.team, 'groups/finance'), path.join(h.team, 'shared/fs-sym/dir'))
+    expect((await search('alice', M)).items).toEqual([])
+    expect((await search('alice', M, '&path=shared%2Ffs-sym')).items).toEqual([])
+    expect(paths(await search('bob', M))).toEqual(['groups/finance/fs-sym-target.md'])
+  })
 })
 
 describe('query handling', () => {
@@ -84,6 +95,22 @@ describe('query handling', () => {
     expect(r.items).toEqual([{ path: 'shared/fs-legacy.txt', name: 'fs-legacy.txt', line: 2, snippet: '거래처 메모 가나상사' }])
   })
 
+  test('Korean: NFD text in a file is found with an NFC or NFD query, and the snippet is NFC', async () => {
+    write('shared/fs-nfd/note.md', ('첫 줄\n' + '분기 매출 보고 QA-NFD-8812\n').normalize('NFD'))
+    for (const q of ['매출 보고', '매출 보고'.normalize('NFD')]) {
+      const r = await search('alice', q, '&path=shared%2Ffs-nfd')
+      expect(r.items).toEqual([{ path: 'shared/fs-nfd/note.md', name: 'note.md', line: 2, snippet: '분기 매출 보고 QA-NFD-8812' }])
+    }
+  })
+
+  test('a query with a line break is refused as invalid input, not sent to ripgrep', async () => {
+    for (const q of ['zzz\nbeta', 'zzz\rbeta']) {
+      const r = await raw('alice', q)
+      expect(r.status).toBe(400)
+      expect(((await r.json()) as { error?: { code?: string } }).error?.code).toBe('validation')
+    }
+  })
+
   test('office documents are searched through the text cache', async () => {
     const dir = fs.mkdtempSync(path.join(h.dataDir, 'xlsx-'))
     const put = (rel: string, s: string) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), s) }
@@ -102,6 +129,37 @@ describe('query handling', () => {
     fs.copyFileSync(out, path.join(h.team, 'groups/finance/fs-sheet.xlsx'))
     expect(paths(await search('alice', 'QA-XLSX-MARK-3141'))).toEqual(['shared/fs-sheet.xlsx'])
     expect(paths(await search('bob', 'QA-XLSX-MARK-3141'))).toContain('groups/finance/fs-sheet.xlsx')
+  })
+
+  test('the text of an older version of an office document is not found while the new version waits for extraction', async () => {
+    const rel = 'shared/fs-sheet.xlsx'
+    expect(paths(await search('alice', 'QA-XLSX-MARK-3141', '&path=shared'))).toEqual([rel])
+    // the document changes (a redaction); its new text is not extracted yet (it waits in the background queue)
+    const abs = path.join(h.team, rel)
+    fs.utimesSync(abs, new Date(), new Date(Date.now() + 60_000))
+    const office = h.ctx.files.office
+    const real = office.refresh.bind(office)
+    office.refresh = (async () => ({ pending: 1, timedOut: false })) as typeof office.refresh
+    try {
+      const r = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared')
+      expect(r.items).toEqual([])
+      expect(r.officePending).toBe(1)
+    } finally { office.refresh = real }
+    // after the extraction the (same) text is found again
+    expect(paths(await search('alice', 'QA-XLSX-MARK-3141', '&path=shared'))).toEqual([rel])
+  })
+
+  test('office documents that are not extracted before the answer are counted as pending', async () => {
+    const src = path.join(h.team, 'shared/fs-sheet.xlsx')
+    fs.mkdirSync(path.join(h.team, 'shared/fs-many-xlsx'), { recursive: true })
+    for (let i = 0; i < 12; i++) fs.copyFileSync(src, path.join(h.team, `shared/fs-many-xlsx/s${i}.xlsx`))
+    const r = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared%2Ffs-many-xlsx')
+    expect(r.officePending).toBeGreaterThan(0)
+    expect(r.timedOut).toBe(false)
+    await h.ctx.files.office.idle()
+    const again = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared%2Ffs-many-xlsx')
+    expect(again.officePending).toBe(0)
+    expect(paths(again).length).toBe(12)
   })
 })
 
@@ -123,6 +181,14 @@ describe('limits', () => {
     expect(s.startsWith('…') && s.endsWith('…')).toBe(true)
   })
 
+  test('a very long line (a minified file) is skipped, not held in memory; other files still answer', async () => {
+    write('shared/fs-minified/big.json', '{"a":"' + 'x'.repeat(3 * 1024 * 1024) + ' QA-MINI-6610"}')
+    write('shared/fs-minified/small.md', 'small QA-MINI-6610\n')
+    const r = await search('alice', 'QA-MINI-6610', '&path=shared%2Ffs-minified')
+    expect(r.items.map((i) => i.path)).toEqual(['shared/fs-minified/small.md'])
+    expect(JSON.stringify(r).length).toBeLessThan(10_000)
+  })
+
   test('query length and limit are checked', async () => {
     expect((await raw('alice', 'a'.repeat(201))).status).toBe(400)
     expect((await raw('alice', '   ')).status).toBe(400)
@@ -135,6 +201,15 @@ describe('limits', () => {
     expect(r.status).toBe(429)
     expect(Number(r.headers.get('retry-after') ?? (await r.json() as { retryAfter?: number }).retryAfter)).toBeGreaterThan(0)
     expect((await raw('alice', 'QA-RATE-X', '&path=shared')).status).toBe(200)
+  })
+
+  test('a new search while the person already runs the most searches stops the oldest one, not the new one', () => {
+    const runs = Array.from({ length: CONTENT_SEARCH_PARALLEL_MAX }, () => admitContentSearch('erin'))
+    const next = admitContentSearch('erin')
+    expect(runs[0]!.signal.aborted).toBe(true)
+    expect(runs.slice(1).every((r) => !r.signal.aborted)).toBe(true)
+    expect(next.signal.aborted).toBe(false)
+    for (const r of [...runs, next]) r.done()
   })
 })
 

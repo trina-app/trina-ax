@@ -2,8 +2,8 @@
 // has the same permission checks: allowedRoots() picks the folders ripgrep may enter and visiblePath() checks every
 // hit again. A person never finds a line in a file that they cannot open. Office documents are searched through the
 // same text cache as the AI's grep. The query is literal text (ripgrep -F, any case), so a query cannot be a slow or
-// bad regular expression. Limits: results (FileContentHits.items), lines per file, time, file size (RG_BASE) and a
-// rate limit per person.
+// bad regular expression. Limits: results (FileContentHits.items), lines per file, time (office extraction included),
+// file size (RG_BASE), line length (RG_MAX_RECORD_CHARS) and a rate limit per person.
 import type { FileContentHits } from '@mycel/shared/api'
 import { grepFiles } from '../files/search'
 import { HttpError } from '../http/errors'
@@ -12,11 +12,11 @@ import { ToolError } from '../policy/errors'
 import type { TeamFiles } from './service'
 
 /** searches one person may start in RATE_WINDOW_MS */
-export const CONTENT_SEARCH_RATE_MAX = 30
+export const CONTENT_SEARCH_RATE_MAX = 60
 const RATE_WINDOW_MS = 60_000
-/** searches one person may have running at the same time (a new query can start before the old one stops) */
+/** searches one person may have running at the same time; a newer search stops the oldest one (typing) */
 export const CONTENT_SEARCH_PARALLEL_MAX = 2
-/** the longest time one search may take (the AI's grep may take cfg.grepTimeoutMs, which is longer) */
+/** the longest time one search may take, office extraction included (the AI's grep may take cfg.grepTimeoutMs) */
 export const CONTENT_SEARCH_TIMEOUT_MS = 10_000
 /** office files extracted before the answer; the rest are extracted in the background (officePending) */
 export const CONTENT_SEARCH_OFFICE_BUDGET = 8
@@ -27,24 +27,36 @@ export const SNIPPET_CHARS = 160
 const SNIPPET_BEFORE = 50
 
 const started = new Map<string, number[]>()
-const running = new Map<string, number>()
+/** the searches that run now, per person, oldest first */
+const running = new Map<string, AbortController[]>()
 
-/** Record one search for `userId`, or throw rate_limited. Returns the function that marks the search as done. */
-function admit(userId: string): () => void {
+/**
+ * Record one search for `userId`, or throw rate_limited when the person started too many in the last minute. When
+ * the person already runs CONTENT_SEARCH_PARALLEL_MAX searches, the oldest one is stopped (its answer is not needed:
+ * the screen shows only the newest), so typing never gets a 429. Returns the search's signal and the function that
+ * marks it as done.
+ */
+export function admitContentSearch(userId: string): { signal: AbortSignal; done: () => void } {
   const now = Date.now()
   const times = (started.get(userId) ?? []).filter((t) => t > now - RATE_WINDOW_MS)
   if (times.length >= CONTENT_SEARCH_RATE_MAX) {
     started.set(userId, times)
     throw new HttpError('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((times[0]! + RATE_WINDOW_MS - now) / 1000)) })
   }
-  const n = running.get(userId) ?? 0
-  if (n >= CONTENT_SEARCH_PARALLEL_MAX) throw new HttpError('rate_limited', undefined, { retryAfter: 1 })
   times.push(now)
   started.set(userId, times)
-  running.set(userId, n + 1)
-  return () => {
-    const left = (running.get(userId) ?? 1) - 1
-    if (left > 0) running.set(userId, left); else running.delete(userId)
+  const mine = running.get(userId) ?? []
+  while (mine.length >= CONTENT_SEARCH_PARALLEL_MAX) mine.shift()!.abort()
+  const ctrl = new AbortController()
+  mine.push(ctrl)
+  running.set(userId, mine)
+  return {
+    signal: ctrl.signal,
+    done: () => {
+      const i = mine.indexOf(ctrl)
+      if (i >= 0) mine.splice(i, 1)
+      if (!mine.length && running.get(userId) === mine) running.delete(userId)
+    },
   }
 }
 
@@ -68,21 +80,23 @@ export function snippetOf(line: string, q: string): string {
   return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
 }
 
-export async function searchFileContents(files: TeamFiles, userId: string, q: string, base: string, limit: number): Promise<FileContentHits> {
+export async function searchFileContents(files: TeamFiles, userId: string, q: string, base: string, limit: number, clientSignal?: AbortSignal): Promise<FileContentHits> {
   const user = files.principal(userId)
   const rules = files.rules()
   // the same base check as the name search: a folder the person cannot list is "not found"
   const b = authorize(files.fx, rules, user, base, 'list')
   if (!b.st!.isDirectory()) throw new ToolError(`'${b.rel}' is a file`, 'not_folder')
   const query = q.trim().normalize('NFC')
-  const done = admit(userId)
+  const { signal: mine, done } = admitContentSearch(userId)
+  // the search stops when a newer search of the same person starts, or when the client goes away
+  const signal = clientSignal ? AbortSignal.any([mine, clientSignal]) : mine
   try {
     const cfg = files.ctx.files.cfg
     const res = await grepFiles(
       { fx: files.fx, rules, user, rg: cfg.rg, timeoutMs: Math.min(cfg.grepTimeoutMs, CONTENT_SEARCH_TIMEOUT_MS), office: files.ctx.files.office },
       b.segs, false,
       { pattern: query, fixed: true, ignoreCase: true, mode: 'content', lineNumbers: true, before: 0, after: 0, limit, maxPerFile: CONTENT_SEARCH_PER_FILE,
-        strictTime: true, officeBudget: CONTENT_SEARCH_OFFICE_BUDGET },
+        strictTime: true, officeBudget: CONTENT_SEARCH_OFFICE_BUDGET, signal },
     )
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
