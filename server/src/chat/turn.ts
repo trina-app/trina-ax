@@ -332,6 +332,9 @@ export class TurnExec {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
+        // where this attempt's text starts: a refused attempt's text is discarded from here (below)
+        this.flushText()
+        const textStart = this.content.length
         // the engine's credential for the model proxy: this turn and person only, revoked when the turn ends; a retry
         // gets a new one and the previous attempt's (its engine has exited) stops working at once
         if (claude.modelProxy || tunnelPort !== null) revokeProxyTokens(rt.db, spec.turnId)
@@ -372,7 +375,8 @@ export class TurnExec {
           const next = rt.fallbackModel(model)
           this.addStep({ kind: 'tool', tool: 'refusal', label: tr('refusedRetry', spec.locale, { model: next }), status: 'ok' })
           rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_refused_retry', message: tr('refusedRetry', spec.locale, { model: next }) } })
-          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          // the retry answers again from the start: only its answer stays, not the declined partial one (B-W5-2)
+          this.discardTextFrom(textStart)
           model = next
           // the declined attempt may have left a half turn in the session: continue on a fresh session with history
           resume = false; sid = crypto.randomUUID()
@@ -677,6 +681,14 @@ export class TurnExec {
   flushText() { this.emitText(this.answerText.flush()) }
   /** The answer so far as the engine wrote it, the part still held back included (separator checks). */
   get writtenText(): string { return this.content + this.answerText.held }
+  /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
+  private discardTextFrom(at: number) {
+    this.answerText.clear()
+    if (at >= this.content.length) return
+    this.content = this.content.slice(0, at)
+    this.dirty = true
+    this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
+  }
 
   private emitText(t: string) {
     if (!t) return

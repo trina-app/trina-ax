@@ -934,7 +934,7 @@ export const ko = {
   'teamSettings.trashDays': '파일 휴지통 보관 (일)',
   'teamSettings.chatTrashDays': '삭제한 채팅 보관 (일)',
 
-  'usage.desc': '사람·그룹·엔진·모델·날짜·AI 연결·스킬별 답변 수와 토큰이에요. 막대는 표시된 행의 토큰 합계에서 각 행이 차지하는 비중이에요.',
+  'usage.desc': '사람·그룹·엔진·모델·날짜·AI 연결·스킬별 답변 수와 토큰이에요. 막대와 퍼센트는 표시된 행의 토큰 합계에서 각 행이 차지하는 비중이에요.',
   'usage.groupBy': '묶는 기준',
   "usage.exportCsv": "CSV 다운로드",
   "usage.by.skill": "스킬",
@@ -949,10 +949,10 @@ export const ko = {
   'usage.turns': '답변 수',
   'usage.tokens': '토큰',
   'usage.share': '비중',
-  'usage.cost': '금액',
+  'usage.cost': '추정 금액',
   'usage.total': '합계',
   'usage.none': '이 기간에 사용 기록이 없어요.',
-  'usage.costNote': 'API 키 연결 금액은 제공자가 보고한 비용을 우선 쓰고, 없으면 정가로 추정해요. 관리형 구독 연결은 요청 단가가 없어 금액이 0이에요(토큰은 세요). 개발용 로컬 로그인(local-login)은 구독이어도 엔진이 보고한 추정 비용이 표시될 수 있어요. 이 금액은 실제 청구액이나 구독료가 아니에요.',
+  'usage.costNote': '금액은 같은 사용량을 API로 썼을 때의 추정 비용이에요. 실제 청구액이나 구독료가 아니에요. API 키 연결은 제공자가 보고한 비용을 쓰고, 없으면 정가로 추정해요. 관리형 구독 연결은 요청 단가가 없어 0으로 더해요(토큰은 세요). 개발용 로컬 로그인(local-login)은 구독이어도 엔진이 추정한 API 환산 비용을 보여요.',
   'usage.unpriced': '답변 {n}개는 금액을 몰라요. 제공자가 비용을 보내지 않았고 가격표에도 없는 모델이에요. 금액은 아는 부분만 보여요.',
   'usage.unpricedMark': '금액 일부 모름',
 

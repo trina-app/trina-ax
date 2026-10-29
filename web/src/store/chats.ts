@@ -426,18 +426,19 @@ export const useChats = create<ChatsState>((set, get) => {
           return
         }
         case 'message.delta': {
-          const { chatId, messageId, offset, text } = ev.data
+          const { chatId, messageId, offset, text, reset } = ev.data
+          const d = { messageId, offset, text, ...(reset ? { reset } : {}) }
           clearQueue(messageId)
           remember(outputMessages, messageId)
           if (!get().threads[chatId]) return
-          const r = applyDelta(thread(chatId).messages, { messageId, offset, text })
+          const r = applyDelta(thread(chatId).messages, d)
           if (r.kind === 'applied') setThread(chatId, (t) => ({ ...t, messages: r.messages }))
           else if (r.kind === 'unknown') {
             const p = pendingOf(messageId)
             if (pendingFull(p)) {
               pending.delete(messageId)
               markStale(chatId)
-            } else p.deltas.push({ messageId, offset, text })
+            } else p.deltas.push(d)
           }
           else if (r.kind === 'gap') markStale(chatId)
           return

@@ -2225,6 +2225,10 @@ use only the installer-configured executable and its locked catalog, with no PAT
 remains 0.163.0; this change neither installs a CLI nor changes credentials. Regression coverage uses synthetic
 executables and a model catalog in `tests/unit/codex-local-launch.test.ts`.
 
+Follow-up for B-W47-1 (2026-10-29): the admin engine check keeps the prerelease suffix of `--version`. Before, the
+check read `codex-cli 0.162.0-alpha.3` as `0.162.0`, and a `0.164.0-alpha.1` build showed as the compatible
+`0.164.0` with status Connected. Now the admin screen shows the real version, and a prerelease is an untested version.
+
 R4 integration review also found the separate System diagnostics/menubar lookup in `system/ops.ts`. It now
 uses the same resolver in development and only the configured executable for every production install,
 including same-account installs. Extend the same synthetic selection tests to cover this fourth caller.
@@ -2274,3 +2278,15 @@ including same-account installs. Extend the same synthetic selection tests to co
   the Linux bwrap arguments bind that same file. The path from the start stays only as a startup check.
 - **Tests.** `tests/install/g-linux-install.ts`: a turn can `stat {BRIDGE}` after install and again after
   `mycel-ctl update --bundle` (no launcher restart).
+
+## Shared dialog return focus from menus (2026-10-29)
+
+- **`confirmDialog` and `promptDialog` find the menu trigger when they are called.** A menu item unmounts when its
+  menu closes. When the dialog opens, focus is already on BODY, so the focus trap cannot find the opener
+  (R4 B-W41-2 / UI-02, also in the sidebar chat menu and the credential row menu). If focus is in a
+  `[role="menu"]`, the helper keeps the `[aria-expanded="true"]` control beside that menu as `returnTo`.
+- **Fallback:** `useFocusTrap` returns focus to `returnTo` only while it is still in the page. Otherwise it uses the
+  element that had focus when the dialog opened, as before. Dialogs not opened from a menu do not change.
+  The Files row menu keeps its click capture anchor, because its Move and Share dialogs use `Modal` directly.
+- **Known limit:** Safari does not focus a button on a mouse click. A mouse-opened dialog from a menu without its
+  own anchor then keeps the old behavior there.

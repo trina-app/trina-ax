@@ -120,11 +120,16 @@ describe('Codex executable selection across diagnostics, runtime and launcher', 
 
   test('PATH Homebrew cannot diagnose a supported version while runtime selects .local/bin', async () => {
     expect((await runCli(brew, ['--version'])).stdout.trim()).toBe('codex-cli 0.164.0')
-    await selected(local, '0.162.0', 'version_unsupported')
+    await selected(local, '0.162.0-alpha.3', 'version_unsupported')
     // Claude keeps its existing .local/bin preference too.
     expect(engineEnv(ctx).claudeBin).toBe(claude)
     expect(new LocalEngines(ctx).get().claude?.bin).toBe(claude)
     expect(await checkEngine('claude-code', engineEnv(ctx), true, 'en')).toMatchObject({ status: 'ok' })
+  })
+
+  test('a prerelease of a compatible version shows its real version and is not tested', async () => {
+    executable(local, 'codex-cli 0.164.0-alpha.1')
+    await selected(local, '0.164.0-alpha.1', 'version_unsupported')
   })
 
   test('without .local/bin all three use the executable found on PATH', async () => {

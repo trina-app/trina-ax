@@ -30,6 +30,14 @@ describe('applyDelta (offset rules of ws.ts)', () => {
     const done = { ...m, status: 'done' as const }
     expect(applyDelta([done], { messageId: m.id, offset: 5, text: '!' }).kind).toBe('ignored')
   })
+  test('a reset delta cuts the text at its offset, then adds its text (a refused attempt before the retry)', () => {
+    const m = a()
+    const r = applyDelta([m], { messageId: m.id, offset: 2, text: 'y', reset: true })
+    expect(r.kind === 'applied' && r.messages[0]!.content).toBe('Hey')
+    const all = applyDelta([m], { messageId: m.id, offset: 0, text: '', reset: true })
+    expect(all.kind === 'applied' && all.messages[0]!.content).toBe('')
+    expect(applyDelta([m], { messageId: m.id, offset: 9, text: '', reset: true }).kind).toBe('gap')
+  })
   test('does not mutate its input', () => {
     const m = a()
     const list = [m]
