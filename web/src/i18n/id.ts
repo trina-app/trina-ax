@@ -118,6 +118,7 @@ export const id: Record<MessageKey, string> = {
   'home.frequentHint': 'Pertanyaan berulang dalam percakapan Anda selama 30 hari terakhir. Pilih untuk mengisi kotak pesan.',
   'home.frequentSample': 'Berdasarkan sebagian percakapan terbaru Anda.',
   'home.frequentCount': '{count} kali',
+  'home.popularSkillsHint': 'Skill yang paling banyak digunakan tim Anda selama 30 hari terakhir. Pilih untuk mengisi kotak pesan.',
   'mobile.saveFailed': 'File tidak dapat disimpan atau dibagikan. Coba lagi.',
   'mobile.fileTooLarge': 'Berbagi di ponsel mendukung file hingga 50 MB.',
   'mobile.externalFailed': 'Browser masuk tidak dapat dibuka.',
