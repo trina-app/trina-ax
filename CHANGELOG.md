@@ -3,6 +3,14 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Linux installer: `--public-host HOST` (the team's public address, for example a Cloudflare Tunnel),
+  `--app-connectors` (people connect their own Claude to the server) and `--google-drive-client FILE` (the Google
+  Drive OAuth client, in the JSON format that Google Cloud downloads). `repair` and `update` keep the first two.
+- App connectors can now be turned on in `server.json` (`appConnectors: true` with `tunnel.host`). The environment
+  variable `MYCEL_REMOTE_MCP_ORIGIN` still works and wins.
+
 ## 0.2.5 — 2026-10-29
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.5).

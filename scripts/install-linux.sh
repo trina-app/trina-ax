@@ -26,6 +26,17 @@
 #   --codex-models FILE   with --engine codex: models_cache.json of that Codex version, locked into model_catalog.json
 #   --allow-unsigned      accept kits without a release signature (development and test builds)
 #   --no-auto-update      self-install: do not enable the daily root-level update timer
+#   --public-host HOST    the team's public address https://HOST (server.json tunnel.host), for example a Cloudflare
+#                         Tunnel that delivers it to 127.0.0.1:<port> (the tunnel itself is set up apart from this
+#                         installer). "none" removes it. Kept for repair / update; earlier allowFrom / countries stay.
+#   --app-connectors      let people connect their own Claude to this server (remote MCP with OAuth) at
+#                         https://<public host> (server.json appConnectors). Needs a public host. --no-app-connectors
+#                         turns it off. Kept for repair / update.
+#   --google-drive-client FILE  install the Google OAuth web client for personal Google Drive (docs/GOOGLE-DRIVE.md)
+#                         as secrets/integrations/google-drive/client.json. FILE is the JSON that Google Cloud
+#                         downloads ({"web": {...}}) or {"clientId", "clientSecret", "redirectUri"}. The redirect URI
+#                         must be https://<public host>/api/integrations/google-drive/callback. Not kept: repair and
+#                         update leave the installed file as it is.
 #   --skip-apt            do not install distribution packages (they must already be there)
 #   --no-systemd          no systemd here (a test container): write everything but the units and print how to run
 #                         `mycel-ctl supervise` instead (not supported for real use)
@@ -56,6 +67,7 @@ esac
 
 ID=mycel SRV_USER="" AGT_USER="" PORT=47820 PROXY_PORT=47821 TLS_PORT=0
 FROM="" HOSTED=0 PLAN="" CODEX_MODELS="" ALLOW_UNSIGNED=0 AUTO_UPDATE=1 SKIP_APT=0 SYSTEMD=1 PURGE=0 KEEP_LOGINS=0
+PUBLIC_HOST="" APP_CONNECTORS="" DRIVE_CLIENT=""   # "" = not given: keep what server.json has
 ENGINES=()
 SET=()   # options given on the command line (repair/update keep the rest from install.json)
 WARNINGS=()
@@ -78,6 +90,10 @@ while [ $# -gt 0 ]; do
     --codex-models) val "$@"; CODEX_MODELS=$2; shift 2 ;;
     --allow-unsigned) ALLOW_UNSIGNED=1; SET+=(unsigned); shift ;;
     --no-auto-update) AUTO_UPDATE=0; SET+=(noauto); shift ;;
+    --public-host) val "$@"; PUBLIC_HOST=$2; SET+=(pubhost); shift 2 ;;
+    --app-connectors) APP_CONNECTORS=1; SET+=(appconn); shift ;;
+    --no-app-connectors) APP_CONNECTORS=0; SET+=(appconn); shift ;;
+    --google-drive-client) val "$@"; DRIVE_CLIENT=$2; shift 2 ;;
     --skip-apt) SKIP_APT=1; shift ;;
     --no-systemd) SYSTEMD=0; SET+=(nosystemd); shift ;;
     --purge) PURGE=1; shift ;;
@@ -107,6 +123,8 @@ if [ "$CMD" = repair ] || [ "$CMD" = update ] || [ "$CMD" = uninstall ]; then
     given unsigned || { [ "$(j allowUnsigned)" = true ] && ALLOW_UNSIGNED=1; }
     given noauto || { [ "$(j autoUpdate)" = false ] && AUTO_UPDATE=0; }
     given nosystemd || { [ "$(j systemd)" = false ] && SYSTEMD=0; }
+    given pubhost || { h=$(j publicHost); [ "$h" = null ] || PUBLIC_HOST=$h; }
+    given appconn || case "$(j appConnectors)" in true) APP_CONNECTORS=1 ;; false) APP_CONNECTORS=0 ;; esac
   elif [ "$CMD" != uninstall ]; then
     die "$CMD: no earlier install of $ID ($INSTALL_JSON missing); use install"
   fi
@@ -118,6 +136,18 @@ fi
 for u in "$SRV_USER" "$AGT_USER"; do [[ "$u" =~ ^[a-z][a-z0-9-]{1,30}$ ]] || die "account names use a-z, 0-9 and -, starting with a letter: $u"; done
 [ "$SRV_USER" != "$AGT_USER" ] || die "server and engine accounts must differ"
 for u in "$SRV_USER" "$AGT_USER"; do case "$u" in root|nobody|daemon|bin|sys|www-data) die "$u is a system account of the distribution; choose another name" ;; esac; done
+if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != none ]; then
+  # the same rule as server/src/app-config.ts PUBLIC_HOST_RE: a lower-case DNS name, no scheme, port or path
+  [[ "$PUBLIC_HOST" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z][a-z0-9-]{0,61}[a-z0-9]$ ]] && [ ${#PUBLIC_HOST} -le 253 ] \
+    || die "bad --public-host $PUBLIC_HOST (a lower-case DNS name such as team.example.com, without https:// or a path)"
+fi
+if [ "$HOSTED" = 1 ] && { [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != none ] || [ "$APP_CONNECTORS" = 1 ] || [ -n "$DRIVE_CLIENT" ]; }; then
+  die "--public-host, --app-connectors and --google-drive-client are for self-installs; the hosted service sets its address"
+fi
+if [ -n "$DRIVE_CLIENT" ]; then
+  [ -f "$DRIVE_CLIENT" ] && [ ! -L "$DRIVE_CLIENT" ] || die "--google-drive-client: $DRIVE_CLIENT is not a regular file"
+  [ "$(stat -c %s "$DRIVE_CLIENT")" -le 16384 ] || die "--google-drive-client: $DRIVE_CLIENT is larger than 16 KiB"
+fi
 for p in "$PORT" "$TLS_PORT" "$PROXY_PORT"; do [[ "$p" =~ ^[0-9]{1,5}$ ]] && [ "$p" -le 65535 ] || die "bad port $p"; done
 [ "$PORT" != 0 ] && [ "$PROXY_PORT" != 0 ] || die "only --tls-port may be 0 (off)"
 [ "$PORT" != "$PROXY_PORT" ] && [ "$PORT" != "$TLS_PORT" ] && [ "$PROXY_PORT" != "$TLS_PORT" ] || die "--port, --tls-port and --proxy-port must differ"
@@ -360,6 +390,59 @@ if [ "$CMD" = check ]; then
   exit 0
 fi
 trap 'rm -rf "$KIT_WORK" "$RKIT" "$ITMP"' EXIT
+
+# ---- 2b) public address, app connectors and the Google Drive client: checked before anything changes ----
+# (runs on every install / repair / update; the server account still runs here, so its files are read with O_NOFOLLOW,
+# non-blocking, as a regular single-link file of at most 1 MiB, and nothing from them is trusted without a check)
+if [ "$CMD" != check ]; then
+  [ -z "$DRIVE_CLIENT" ] || (umask 077 && cat "$DRIVE_CLIENT" > "$KIT_WORK/drive-in.json")
+  MYCEL_I_OLD="$BASE/config/server.json" MYCEL_I_OLDDRIVE="$BASE/secrets/integrations/google-drive/client.json" \
+  MYCEL_I_PUBHOST="$PUBLIC_HOST" MYCEL_I_APPCONN="$APP_CONNECTORS" \
+  MYCEL_I_IN="${DRIVE_CLIENT:+$KIT_WORK/drive-in.json}" MYCEL_I_OUT="$KIT_WORK/drive-client.json" kitbun -e '
+const fs = require("fs"), e = process.env
+const CALLBACK = "/api/integrations/google-drive/callback"
+const HOST_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/
+const fail = (m) => { console.error(m); process.exit(3) }
+const readSafe = (p) => {
+  let fd; try { fd = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK) } catch { return null }
+  try { const st = fs.fstatSync(fd); if (!st.isFile() || st.nlink !== 1 || st.size > 1048576) return null; return JSON.parse(fs.readFileSync(fd, "utf8")) }
+  catch { return null } finally { fs.closeSync(fd) }
+}
+const old = readSafe(e.MYCEL_I_OLD) ?? {}
+const oldHost = typeof old.tunnel?.host === "string" && HOST_RE.test(old.tunnel.host) ? old.tunnel.host : null
+const host = e.MYCEL_I_PUBHOST === "none" ? null : e.MYCEL_I_PUBHOST || oldHost
+const app = e.MYCEL_I_APPCONN === "" ? old.appConnectors === true : e.MYCEL_I_APPCONN === "1"
+if (e.MYCEL_I_APPCONN === "1" && !host) fail("app connectors need a public address: add --public-host HOST")
+if (app && !host) console.error("warning: server.json turns app connectors on but has no public address: they stay off")
+if (!e.MYCEL_I_IN) {
+  // a new public host: an installed Drive client still names the old callback, so Google sign-in would fail
+  const d = e.MYCEL_I_PUBHOST ? readSafe(e.MYCEL_I_OLDDRIVE) : null
+  let dh = null; try { dh = d ? new URL(d.redirectUri).host : null } catch {}
+  if (dh && dh !== host) console.error(`warning: the Google Drive client redirects to ${HOST_RE.test(dh) ? dh : "another host"}, not ${host ?? "a public host"}: give a new client with --google-drive-client`)
+  process.exit(0)
+}
+if (!host) fail("--google-drive-client needs a public address: add --public-host HOST")
+let j; try { j = JSON.parse(fs.readFileSync(e.MYCEL_I_IN, "utf8")) } catch { fail("--google-drive-client: the file is not JSON") }
+const ok = (u) => { try { const x = new URL(u); return x.protocol === "https:" && !x.username && !x.password && !x.search && !x.hash && x.pathname === CALLBACK && (!host || x.host === host) } catch { return false } }
+const want = `https://${host ?? "<public host>"}${CALLBACK}`
+let out
+if (j && typeof j.web === "object" && j.web) {
+  // the file Google Cloud downloads for a web client: pick the redirect URI of this server
+  const r = (Array.isArray(j.web.redirect_uris) ? j.web.redirect_uris : []).filter((u) => typeof u === "string" && ok(u))
+  if (r.length !== 1) fail(`--google-drive-client: the client needs exactly one redirect URI ${want} (found ${r.length})`)
+  out = { clientId: j.web.client_id, clientSecret: j.web.client_secret, redirectUri: r[0] }
+} else if (j && typeof j === "object" && !Array.isArray(j)) {
+  const extra = Object.keys(j).filter((k) => !["clientId", "clientSecret", "redirectUri"].includes(k))
+  if (extra.length) fail("--google-drive-client: unknown keys " + extra.join(", "))
+  if (!ok(j.redirectUri)) fail(`--google-drive-client: redirectUri must be ${want}`)
+  out = { clientId: j.clientId, clientSecret: j.clientSecret, redirectUri: j.redirectUri }
+} else fail("--google-drive-client: the file is not a Google OAuth client")
+if (typeof out.clientId !== "string" || !out.clientId || out.clientId.length > 512) fail("--google-drive-client: clientId is missing")
+if (typeof out.clientSecret !== "string" || !out.clientSecret || out.clientSecret.length > 4096) fail("--google-drive-client: clientSecret is missing")
+fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(out, null, 2) + "\n", { mode: 0o600 })
+' || { rm -f "$KIT_WORK/drive-in.json" "$KIT_WORK/drive-client.json"; die "nothing changed (see the message above)"; }
+  rm -f "$KIT_WORK/drive-in.json"
+fi
 
 # ---- 3) distribution packages ----
 PKGS=(bubblewrap nftables poppler-utils tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng ffmpeg libheif-examples ca-certificates curl gnupg file zstd util-linux)
@@ -704,13 +787,20 @@ OLD_CFG="$ITMP/server.old.json"
 if [ -f "$CFG" ] && [ ! -L "$CFG" ] && [ "$(stat -c %h "$CFG")" = 1 ]; then cp "$CFG" "$OLD_CFG"; else echo '{}' > "$OLD_CFG"; fi
 MYCEL_I_OLD="$OLD_CFG" MYCEL_I_OUT="$ITMP/server.json" MYCEL_I_BASE="$BASE" MYCEL_I_PORT="$PORT" MYCEL_I_TLS="$TLS_PORT" \
 MYCEL_I_AGT_UID="$AGT_UID" MYCEL_I_CLAUDE="$CLAUDE_CMD" MYCEL_I_CODEX="$CODEX_CMD" MYCEL_I_PROXY_PORT="$PROXY_PORT" \
-MYCEL_I_DEPLOY="$DEPLOYMENT" MYCEL_I_AUTO="$AUTO_UPDATE" MYCEL_I_FEED="$FEED_BASE" kitbun -e '
+MYCEL_I_DEPLOY="$DEPLOYMENT" MYCEL_I_AUTO="$AUTO_UPDATE" MYCEL_I_FEED="$FEED_BASE" \
+MYCEL_I_PUBHOST="$PUBLIC_HOST" MYCEL_I_APPCONN="$APP_CONNECTORS" kitbun -e '
 const fs = require("fs"), e = process.env, b = e.MYCEL_I_BASE
 let old = {}; try { old = JSON.parse(fs.readFileSync(e.MYCEL_I_OLD, "utf8")) } catch {}
 if (!old || typeof old !== "object" || Array.isArray(old)) old = {}
 const { claudeBin: _c, codexBin: _x, ...engineOld } = old.engine && typeof old.engine === "object" ? old.engine : {}
 const ou = old.update && typeof old.update === "object" ? old.update : {}
 const channel = ou.channel === "beta" ? "beta" : "stable"
+// --public-host: keep the narrowing (allowFrom, countries) the owner set for the earlier host; not given = as it was
+const ot = old.tunnel && typeof old.tunnel === "object" ? old.tunnel : null
+const tunnel = e.MYCEL_I_PUBHOST === "none" ? null : e.MYCEL_I_PUBHOST
+  ? { host: e.MYCEL_I_PUBHOST, allowFrom: Array.isArray(ot?.allowFrom) ? ot.allowFrom : [], countries: Array.isArray(ot?.countries) ? ot.countries : [] }
+  : ot
+const appConnectors = e.MYCEL_I_APPCONN === "" ? old.appConnectors === true : e.MYCEL_I_APPCONN === "1"
 const cfg = {
   ...old,
   mode: "prod",
@@ -724,12 +814,22 @@ const cfg = {
     proxyPort: Number(e.MYCEL_I_PROXY_PORT),
     runDir: b + "/run/tools", agentRoot: b + "/agent", launcherSock: b + "/run-launcher/launcher.sock", agentUid: Number(e.MYCEL_I_AGT_UID) },
   relay: old.relay ?? { url: null, teamName: null },
+  tunnel, appConnectors,
   update: { ...ou, channel, feedUrl: typeof ou.feedUrl === "string" && ou.feedUrl ? ou.feedUrl : e.MYCEL_I_FEED ? e.MYCEL_I_FEED + "/" + channel + ".json" : null,
     auto: e.MYCEL_I_DEPLOY === "hosted" ? false : e.MYCEL_I_AUTO === "1" },
 }
 fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 })
 ' || die "writing $CFG failed"
 put "$ITMP/server.json" "$SRV_USER" "$SRV_GRP" 600 "$CFG"
+
+# ---- 10b) Google Drive OAuth client (checked and converted in 2b; never printed, never kept in install.json) ----
+if [ -n "$DRIVE_CLIENT" ]; then
+  mk "$SRV_USER" "$SRV_GRP" 700 "$BASE/secrets/integrations"
+  mk "$SRV_USER" "$SRV_GRP" 700 "$BASE/secrets/integrations/google-drive"
+  put "$KIT_WORK/drive-client.json" "$SRV_USER" "$SRV_GRP" 600 "$BASE/secrets/integrations/google-drive/client.json"
+  rm -f "$KIT_WORK/drive-client.json"
+  say "Google Drive: OAuth client installed (secrets/integrations/google-drive/client.json)"
+fi
 
 # ---- 11) one-time setup code while the team has no account (setup/code for root, data/setup-token for the server) ----
 if [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/app.db" ] || [ -e "$BASE/data/setup-token" ]; }; then
@@ -761,10 +861,15 @@ cat > "$ITMP/install.json" <<EOF
   "allowUnsigned": $(jbool "$ALLOW_UNSIGNED"),
   "engines": [$ENG_JSON],
   "version": "$VERSION",
-  "systemd": $(jbool "$SYSTEMD")
+  "systemd": $(jbool "$SYSTEMD"),
+  "publicHost": $(if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != none ]; then echo "\"$PUBLIC_HOST\""; else echo null; fi),
+  "appConnectors": $(case "$APP_CONNECTORS" in 1) echo true ;; 0) echo false ;; *) echo null ;; esac)
 }
 EOF
 install -o root -g root -m 644 "$ITMP/install.json" "$INSTALL_JSON"
+if { [ -n "$PUBLIC_HOST" ] || [ -n "$APP_CONNECTORS" ]; } && [ -f "/etc/default/$ID" ] && grep -q '^[[:space:]]*MYCEL_REMOTE_MCP_ORIGIN=' "/etc/default/$ID"; then
+  warn "/etc/default/$ID sets MYCEL_REMOTE_MCP_ORIGIN, which wins over --public-host / --app-connectors: remove that line to let server.json decide"
+fi
 
 # ---- 12) the engine firewall: loaded before any engine can run, or no install ----
 FW_OUT=$("$BASE/root/mycel-ctl" firewall apply --base "$BASE" 2>&1) || die "loading the engine firewall failed: $(printf '%s' "$FW_OUT" | tail -n 3 | tr '\n' ' ')"
