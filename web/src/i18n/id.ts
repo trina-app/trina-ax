@@ -335,6 +335,7 @@ export const id: Record<MessageKey, string> = {
   'preview.tooLarge': 'File terlalu besar untuk dipratinjau ({size}). Unduh untuk membukanya.',
   'preview.unsupported': 'Format ini tidak bisa dipratinjau. Unduh untuk membukanya.',
   'preview.truncated': 'Hanya bagian awal file yang ditampilkan.',
+  'preview.photoUnavailable': 'Foto ini tidak bisa dipratinjau di sini (server tidak bisa mengubah foto HEIC). Unduh untuk membukanya.',
   'preview.unsupportedShort': 'Format ini tidak bisa dipratinjau',
   'preview.sheetRowsCut': 'Hanya {rows} baris pertama sheet ini yang ditampilkan. Unduh file untuk melihat semua baris.',
   'preview.sheetHidden': 'Tersembunyi',

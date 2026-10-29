@@ -2672,3 +2672,35 @@ including same-account installs. Extend the same synthetic selection tests to co
   per-owner limit gives true `pending` and `notQueued` counts and another owner can still add files; a foreground
   caller that joins a low job makes it start before foreground jobs that came later. `web/test/unit/highlight.test.ts`: the highlight parts.
   `tests/security/lib/cases.ts` has a matrix case for the new route.
+## File panel: HEIC / HEIF photos preview as a server JPEG (R2-FMT-10, feat/qa3-heic, 2026-10-29)
+
+- **Problem.** iPhone photos (`.heic`, `.heif`) had no preview. Browsers other than Safari cannot draw HEIC, so the
+  file panel showed only "cannot preview" and a download button.
+- **Decision.** `GET /api/files/preview?path=` (`server/src/files/heic-preview.ts`, route in `routes/files.ts`)
+  gives a JPEG of the primary image. The same read check as the download applies, and the bytes come through the
+  checked descriptor (`openChecked`). The web (`serverPreview()` in `web/src/lib/preview.ts`) uses this endpoint for
+  HEIC / HEIF in place of the file bytes. A local HEIC that is not uploaded yet has no preview.
+- **Converters.** Each one runs isolated (`runIsolated`), like the other converters:
+  1. libheif `heif-dec` (`heif-convert` in libheif < 1.17). The Linux server has it (`libheif-examples`). On a Mac it
+     comes from Homebrew libheif.
+  2. macOS: `mycel-ocr --jpeg <px>` (new mode in `native/ocr/main.swift`). Apple ImageIO decodes the photo inside the
+     sandbox, applies the orientation and limits the longest side to 4096 px.
+  We do not use `sips`, because it writes to the per-user temp folder and the sandbox refuses that (measured, the
+  same as the thumbnail decision). We do not use `ffmpeg`, because its CLI decodes only the first 512x512 tile of a
+  tiled phone HEIC (measured with ffmpeg 8.0, the same as the OCR decision for 7.1). An old `mycel-ocr` without
+  `--jpeg` writes text; the server accepts only output that starts with the JPEG marker.
+- **Limits.** Input at most 50 MB, output at most 20 MB (the web image limit), 30 s and 1.5 GB of memory per run,
+  at most 2 runs at the same time. One conversion is shared by callers that ask for the same content.
+- **Cache.** `<dataDir>/previewcache/<sha256 of the content>.jpg`, files 0600, at most 200 MB (the least recently
+  used go first). The key is the content hash, so a caller must read the bytes first to get a cached preview.
+- **Fallback.** No converter, a damaged photo or a run over a limit: 503 `unavailable` with
+  `params.reason = no_preview`. The panel then shows the "cannot preview" notice (`preview.photoUnavailable`) and the
+  download button. Other formats on this endpoint get the same answer.
+- **AI path.** No change. `IMAGE_EXT` already has `heic` / `heif`; `mycel-ocr` reads HEIC on macOS (ImageIO) and on
+  Linux (`heif-dec` to PNG, then tesseract).
+- **Tests.** `tests/unit/heic-preview.test.ts`: the tiled fixture `tests/fixtures/ocr/photo.heic` gives a full-size
+  JPEG (2126x426, not one tile) with `heif-dec` or with `mycel-ocr` built by `swiftc` (skipped, with a reason, when
+  neither exists), the cache, a damaged file, no converter, a converter without JPEG output, the input limit, cache
+  pruning and the endpoint (200 or 503 `no_preview`, 404 for hidden files, 401 without a session). OCR of the HEIC is
+  tested when Apple Vision works in the sandbox on the machine. `web/test/unit/preview-heic.test.ts`: which names
+  use the server preview.
