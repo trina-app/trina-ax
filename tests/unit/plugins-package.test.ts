@@ -218,6 +218,8 @@ describe('platform, product and driver', () => {
     expect(driverMismatch(m, sha('d'.repeat(64)))).toBe('driver')
     expect(driverMismatch({ ...m, id: 'app.trina.other-renderer' }, sha(hwpPins.targets[target].binary))).toBe('driver')
     expect(driverMismatch({ ...m, contributes: { ...m.contributes, tools: [{ id: 'render-page', name: 'read', driver: 'rhwp-v1' }] } }, sha(hwpPins.targets[target].binary))).toBe('driver')
+    // the HWP id belongs to the rhwp-v1 package only: a (correctly signed) skill pack under it would switch HWP on
+    expect(driverMismatch(skillPack({ id: 'app.trina.hwp-preview', keyPem: key.pem }).manifest, () => undefined)).toBe('driver')
   })
 })
 

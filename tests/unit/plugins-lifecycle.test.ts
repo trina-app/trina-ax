@@ -112,6 +112,24 @@ describe('company skill pack', () => {
     expect(audits('plugin.enable')).toHaveLength(1)
   })
 
+  test('turning it off keeps a placed file changed outside the app; a taken folder blocks turning it on and nothing is saved', async () => {
+    // an edit made outside the app (a shell, Finder on the office Mac): turning the pack off does not delete it
+    const edited = managed(`skills/${ID}/weekly-report/template.md`)
+    fs.chmodSync(edited, 0o600); fs.writeFileSync(edited, 'my own notes')
+    expect((await post(`/api/admin/plugins/${ID}/disable`)).body).toMatchObject({ enabled: false, skills: [] })
+    expect(fs.readFileSync(edited, 'utf8')).toBe('my own notes')
+    expect(fs.existsSync(managed(`skills/${ID}/weekly-report/SKILL.md`))).toBe(false)
+    // the folder is now someone else's: turning the pack on is refused before anything is saved
+    const r = await post(`/api/admin/plugins/${ID}/enable`)
+    expect(r.status).toBe(409)
+    expect(r.body.error.params.reason).toBe('skills_conflict')
+    expect(pluginsOf(app.ctx).view(ID, 'en')).toMatchObject({ enabled: false, status: 'disabled', skills: [] })
+    expect(audits('plugin.enable')).toHaveLength(1)
+    fs.rmSync(managed(`skills/${ID}`), { recursive: true })
+    expect((await post(`/api/admin/plugins/${ID}/enable`)).body).toMatchObject({ enabled: true, status: 'enabled' })
+    expect(skillPaths()).toHaveLength(2)
+  })
+
   test('update changes the skills, keeps the old version for rollback, and refuses the same or a lower version', async () => {
     const v11 = skillPack({ keyPem: key.pem, version: '1.1.0', skills: { 'meeting-minutes': 'Minutes with decisions, owners and due dates.', 'customer-email': 'Draft a polite customer email.' } }).bytes
     const plan = (await upload(v11)).body

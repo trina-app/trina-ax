@@ -3083,6 +3083,13 @@ Placement: Trina AX only (`trina-app/trina-ax`), following the 10/29 decision to
   HWP package on the marked test server (docs/PLUGINS.md). No legacy-renderer detection or reuse of old files.
 - **Recommendation.** HWP shows "Recommended" only when the workspace default language is Korean; it never installs
   or enables anything; the card says "not yet available" with the reason and has no install button.
-- **Next:** real plugin keys (main + spare) and the first official data pack, personal skills and `/plugin:skill`
-  naming, group/personal enablement on the same table, connector presets, the signed remote catalog/revocation list on
-  the update feed before the first public plugin, then third-party registry work.
+- **Integration review (2026-10-30).** A skill pack's folder must be free before anything is saved (install, an
+  update that turns it on, enable, rollback), so a refusal never leaves a plugin "on" without its skills. Removing or
+  turning off deletes only placed files that still hold the bytes the plugin wrote; a file changed outside the app
+  stays. The write guard is installed first in the manager. The HWP id is accepted only for the rhwp-v1 native
+  package. Folder rules cannot narrow a pack to a group in stage 1 (the folder is managed); that comes with group
+  enablement.
+- **Next:** real plugin keys (main + spare) and the first official data pack, `/plugin:skill` naming (personal
+  skills already landed, see "Skills: folder permissions and personal skills"), group/personal enablement on the
+  same table, connector presets, the signed remote catalog/revocation list on the update feed before the first public
+  plugin, then third-party registry work.

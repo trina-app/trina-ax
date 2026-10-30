@@ -69,6 +69,9 @@ export class PluginManager {
   readonly base: string
 
   constructor(private ctx: AppContext, o: PluginOptions = {}) {
+    // team-folder writes under a skill pack's folder are refused (policy/authorize.ts). Installed first, so nothing
+    // below that fails can leave placed skill files writable.
+    ctx.files.fx.managed = { managerOf: (segs) => this.managerOf(segs), heldBelow: (segs) => this.heldBelow(segs) }
     this.env = o.env ?? process.env
     this.trust = o.trust ?? trustRoot({ runKind: runKindOf(ctx.config), env: this.env })
     this.host = o.host ?? hostInfo()
@@ -83,8 +86,6 @@ export class PluginManager {
     this.storeRefused = (path.resolve(this.base) + path.sep).startsWith(team)
     if (this.storeRefused) ctx.log.error('the plugin store would be inside the team folder: plugin installs are off', { dataDir: ctx.config.dataDir })
     try { this.sweep() } catch (e) { ctx.log.warn('plugin incoming sweep failed', { err: e }) }
-    // team-folder writes under a skill pack's folder are refused (policy/authorize.ts)
-    ctx.files.fx.managed = { managerOf: (segs) => this.managerOf(segs), heldBelow: (segs) => this.heldBelow(segs) }
   }
 
   /** Test hook: new trust / catalog / host. */
@@ -173,13 +174,22 @@ export class PluginManager {
     return !!x && this.usable(id) && this.approved(x).has(permission)
   }
 
+  /** The HWP plugin while it is usable and is the rhwp-v1 native package (plugins/drivers.ts refuses anything else
+   * under this id; checked here again so a malformed record can never reach the renderer). */
+  private hwpPackage(): (Installed & { runtime: NonNullable<PluginManifest['runtime']> }) | null {
+    if (!this.usable(HWP_PLUGIN_ID)) return null
+    const x = this.installed(HWP_PLUGIN_ID)
+    const runtime = x?.manifest.runtime
+    return x && runtime?.driver === 'rhwp-v1' && runtime.fonts.length ? { ...x, runtime } : null
+  }
+
   /** The HWP renderer for previews: the HWP plugin's package while it is usable, otherwise refused ('disabled'). */
   hwpEngine(): HwpEngine {
-    if (!this.usable(HWP_PLUGIN_ID)) return disabledHwpEngine
-    const x = this.installed(HWP_PLUGIN_ID)!
+    const x = this.hwpPackage()
+    if (!x) return disabledHwpEngine
     let e = this.engines.get(x.pkg.manifest_sha256)
     if (!e) {
-      const dir = this.storePath(x.pkg), rt = x.manifest.runtime!
+      const dir = this.storePath(x.pkg), rt = x.runtime
       e = new NativeHwpEngine({ bin: path.join(dir, ...rt.executable.split('/')), fontsDir: path.dirname(path.join(dir, ...rt.fonts[0]!.split('/'))), digest: x.pkg.manifest_sha256 })
       this.engines.clear()
       this.engines.set(x.pkg.manifest_sha256, e)
@@ -187,7 +197,7 @@ export class PluginManager {
     return e
   }
   /** hwp_render: the preview is usable and the admin allowed page images to go to the AI provider. */
-  hwpToolUsable(): boolean { return this.granted(HWP_PLUGIN_ID, 'model.send.preview-pixels') }
+  hwpToolUsable(): boolean { return !!this.hwpPackage() && this.granted(HWP_PLUGIN_ID, 'model.send.preview-pixels') }
 
   /** After any change: no renderer instance, cached page or managed-path answer survives. */
   private changed() {
@@ -241,19 +251,30 @@ export class PluginManager {
     if (!ours && fs.existsSync(path.join(this.ctx.files.fx.root, ...rel.split('/')))) refuse('skills_conflict', 'conflict', `${rel} already exists`)
   }
 
-  private removeSkills(id: string, actor: string) {
+  /** Take the placed skill files out of the team folder. Only files that still hold exactly the bytes this plugin wrote
+   * are deleted; one changed outside the app (a shell, Finder on the office Mac, a database restore) stays where it is.
+   * `keepRoot`: the skills are placed again right away (update, rollback, re-enable), so the folder stays this plugin's
+   * and its own leftovers cannot block that. */
+  private removeSkills(id: string, actor: string, keepRoot = false) {
     const rows = this.ctx.db.query('SELECT rel, sha256 FROM plugin_managed_files WHERE plugin_id = ?').all(id) as { rel: string; sha256: string }[]
     const root = this.ctx.files.fx.root
     const changes: { path: string; action: 'delete'; by: { id: string; name: string }; turnId: null }[] = []
     const by = this.person(actor)
     for (const r of rows) {
       const abs = path.join(root, ...r.rel.split('/'))
-      try { const st = fs.lstatSync(abs); if (st.isFile() && !st.isSymbolicLink()) { fs.rmSync(abs); fileEvent(this.ctx.db, { turnId: null, userId: actor, path: r.rel, action: 'delete', detail: { plugin: id } }); changes.push({ path: r.rel, action: 'delete', by, turnId: null }) } } catch { /* already gone */ }
+      try {
+        const st = fs.lstatSync(abs)
+        if (!st.isFile() || st.isSymbolicLink()) continue
+        if (sha256(fs.readFileSync(abs)) !== r.sha256) { this.ctx.log.warn('a plugin skill file was changed outside the app; it stays in place', { plugin: id, path: r.rel }); continue }
+        fs.rmSync(abs)
+        fileEvent(this.ctx.db, { turnId: null, userId: actor, path: r.rel, action: 'delete', detail: { plugin: id } })
+        changes.push({ path: r.rel, action: 'delete', by, turnId: null })
+      } catch { /* already gone */ }
     }
     for (const r of this.ctx.db.query('SELECT rel FROM plugin_managed_roots WHERE plugin_id = ?').all(id) as { rel: string }[]) this.pruneEmpty(path.join(root, ...r.rel.split('/')))
     this.ctx.db.transaction(() => {
       this.ctx.db.query('DELETE FROM plugin_managed_files WHERE plugin_id = ?').run(id)
-      this.ctx.db.query('DELETE FROM plugin_managed_roots WHERE plugin_id = ?').run(id)
+      if (!keepRoot) this.ctx.db.query('DELETE FROM plugin_managed_roots WHERE plugin_id = ?').run(id)
     })()
     this.roots = null
     if (changes.length) publishChanges(this.ctx, changes)
@@ -527,7 +548,10 @@ export class PluginManager {
       const c = compareSemVer(m.version, cur.manifest.version)
       if (c === 0) return refuse('same_version', 'conflict')
       if (c < 0) return refuse('downgrade', 'conflict')
-    } else if (m.contributes.skills?.length) this.skillsFolderFree(m.id)
+    }
+    // before anything is saved: the pack's folder must be free (or already this plugin's), also for an update that
+    // turns it on, so a refusal never leaves a half-applied install behind
+    if (m.contributes.skills?.length && (!cur || input.enable)) this.skillsFolderFree(m.id)
     const storeDir = this.stage(v)
     const at = now()
     const wasOn = cur ? this.access(m.id).everyone : false
@@ -554,8 +578,9 @@ export class PluginManager {
     this.changed()
     const x = this.installed(m.id)!
     if (cur?.manifest.contributes.skills?.length || m.contributes.skills?.length) {
-      this.removeSkills(m.id, actor)
-      if (on) this.placeSkills(x, actor)
+      const place = on && !!m.contributes.skills?.length
+      this.removeSkills(m.id, actor, place)
+      if (place) this.placeSkills(x, actor)
     }
     audit(db, { actor, action: cur ? 'plugin.update' : 'plugin.install', target: m.id, detail: {
       version: m.version, ...(cur ? { from: cur.manifest.version } : {}), trust: v.trust, keyId: v.keyId, source: plan.source,
@@ -578,6 +603,8 @@ export class PluginManager {
       if (input.manifestSha256 !== x.pkg.manifest_sha256) return refuse('digest', 'conflict')
       permissions = this.checkPermissions(x.manifest, input.permissions)
     } else if (!x.manifest.permissions.required.every((p) => this.approved(x).has(p))) return refuse('permissions')
+    // before anything is saved: someone may have made skills/<id>/ while the pack was off
+    if (x.manifest.contributes.skills?.length) this.skillsFolderFree(id)
     const at = now()
     this.ctx.db.transaction(() => {
       if (permissions) this.ctx.db.query('UPDATE plugin_installs SET permissions = ?, approved_manifest_sha256 = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE plugin_id = ?').run(JSON.stringify(permissions), x.pkg.manifest_sha256, actor, at, at, id)
@@ -586,7 +613,7 @@ export class PluginManager {
     })()
     this.changed()
     const now2 = this.installed(id)!
-    if (x.manifest.contributes.skills?.length) { this.removeSkills(id, actor); this.placeSkills(now2, actor) }
+    if (x.manifest.contributes.skills?.length) { this.removeSkills(id, actor, true); this.placeSkills(now2, actor) }
     audit(this.ctx.db, { actor, action: 'plugin.enable', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, ...(permissions ? { permissions } : {}), scope: 'everyone' } })
     return this.installedView(now2, locale)
   }
@@ -619,12 +646,17 @@ export class PluginManager {
     const approved = this.approved(x)
     const permissions = [...new Set([...pm.permissions.required, ...pm.permissions.optional.filter((p) => approved.has(p))])].sort()
     const on = this.access(id).everyone
+    if (on && pm.contributes.skills?.length) this.skillsFolderFree(id)
     const at = now()
     this.ctx.db.query('UPDATE plugin_installs SET active_version = ?, previous_version = ?, permissions = ?, approved_manifest_sha256 = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE plugin_id = ?')
       .run(pm.version, x.manifest.version, JSON.stringify(permissions), prev.manifest_sha256, actor, at, at, id)
     this.changed()
     const now2 = this.installed(id)!
-    if (x.manifest.contributes.skills?.length || pm.contributes.skills?.length) { this.removeSkills(id, actor); if (on) this.placeSkills(now2, actor) }
+    if (x.manifest.contributes.skills?.length || pm.contributes.skills?.length) {
+      const place = on && !!pm.contributes.skills?.length
+      this.removeSkills(id, actor, place)
+      if (place) this.placeSkills(now2, actor)
+    }
     audit(this.ctx.db, { actor, action: 'plugin.rollback', target: id, detail: { from: x.manifest.version, to: pm.version, manifestSha256: prev.manifest_sha256, permissions } })
     return this.installedView(now2, locale)
   }

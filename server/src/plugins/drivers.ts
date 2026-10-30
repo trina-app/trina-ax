@@ -22,6 +22,8 @@ export const HWP_PLUGIN_ID = 'app.trina.hwp-preview'
 
 /** null when the package is a build this driver accepts; otherwise why not. `sha` maps payload paths to SHA-256. */
 export function driverMismatch(m: PluginManifest, sha: (path: string) => string | undefined): PluginUnsupported | null {
+  // the HWP id belongs to the rhwp-v1 native package only (a skill pack or other kind under it could switch HWP on)
+  if (m.id === HWP_PLUGIN_ID && m.runtime?.driver !== 'rhwp-v1') return 'driver'
   if (!m.runtime) return null
   const spec = DRIVERS[m.runtime.driver]
   if (!spec) return 'driver'
