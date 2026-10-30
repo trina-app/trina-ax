@@ -16,12 +16,18 @@ import { PLUGIN_CATALOG_DOMAIN, PluginCatalog, type CatalogEntry, type PluginPla
 import { canonicalJson, parseStrictJson } from './json'
 import { checkSignature, type TrustRoot } from './trust'
 
-/** resources/plugins in a source checkout (repo root) or a release bundle (app/<version>/resources). */
-export function defaultCatalogDir(): string {
-  const candidates = [path.resolve(import.meta.dir, '../../..'), path.resolve(import.meta.dir, '../..')]
-  const root = candidates.find((p) => fs.existsSync(path.join(p, 'resources/plugins/catalog.json'))) ?? candidates[0]!
-  return path.join(root, 'resources/plugins')
+/**
+ * resources/plugins next to the code that reads it: in a source checkout this module is server/src/plugins/catalog.ts
+ * (the repo root is three folders up); in a release bundle it is inlined into server/src/<entry>.js (the version
+ * folder is two up). Decided by the layout, never by which folder happens to hold a catalog.json: the folders above a
+ * version (app/, app/versions/) are the server account's and outside the file list the bootstrap verifies before every
+ * start, so a list placed there must never stand in for the one in the verified version folder.
+ */
+export function catalogDirFor(moduleDir: string): string {
+  const source = path.basename(moduleDir) === 'plugins' && path.basename(path.dirname(moduleDir)) === 'src'
+  return path.join(path.resolve(moduleDir, source ? '../../..' : '../..'), 'resources/plugins')
 }
+export const defaultCatalogDir = (): string => catalogDirFor(import.meta.dir)
 
 export interface LoadedCatalog { source: 'signed' | 'release' | 'none'; entries: CatalogEntry[]; dir: string; sequence: number; revoked: RevokedPackage[] }
 

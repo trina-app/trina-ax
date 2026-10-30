@@ -3255,7 +3255,10 @@ The founder asked why our own plugins need a separate signing key; they do not. 
 publishers (B5). Admin doc: [PLUGINS](PLUGINS.md) "공식 플러그인 확인".
 
 - **Trust.** `resources/plugins/catalog.json` ships inside every core release, which the update feed already signs; it
-  is trusted exactly as much as the server code next to it. An entry's `pins` lists `{version, platform?,
+  is trusted exactly as much as the server code next to it. The server reads it only from its own version folder
+  (`catalogDirFor`: by code layout, never by probing): `app/` and `app/versions/` above a version are the server
+  account's and outside the file list the bootstrap verifies before every start, so a list placed there is never read
+  (review 2026-10-30 found the first draft preferred one). An entry's `pins` lists `{version, platform?,
   manifestSha256}` for its official builds. A package whose canonical-manifest SHA-256, id, publisher, version and
   exact platform (OS, CPU, glibc floor; none for data-only packs) match a pin of an `available` entry is `official`
   without any key (`verifiedBy: release`, no key id), shown as "Official · matches the official list". Pins of another

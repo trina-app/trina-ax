@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { PLUGIN_SCHEMA_VERSION, PluginCatalog, type CatalogEntry, type PluginPlatform } from '@mycel/shared/plugins'
-import { defaultCatalogDir, loadCatalog, releasePins } from '../../server/src/plugins/catalog'
+import { catalogDirFor, defaultCatalogDir, loadCatalog, releasePins } from '../../server/src/plugins/catalog'
 import { HWP_PLUGIN_ID } from '../../server/src/plugins/drivers'
 import { parseStrictJson } from '../../server/src/plugins/json'
 import { PluginManager, pluginsOf } from '../../server/src/plugins/manager'
@@ -155,6 +155,27 @@ describe('release pins', () => {
     // a new setting here must be reviewed against hosted and office (docs/PLUGINS.md) before it joins this list
     expect([...names].sort()).toEqual(['MYCEL_PLUGINS_ALLOW_UNSIGNED', 'MYCEL_PLUGINS_TEST_KEYS', 'MYCEL_PLUGINS_TEST_SERVER'])
     expect(defaultCatalogDir()).toBe(path.join(REPO, 'resources/plugins'))
+  })
+
+  test('a release bundle reads only the list inside its verified version folder, never one placed above it', () => {
+    // the bundled server is <version>/server/src/main.js; app/ and app/versions/ above it are the server account's and
+    // outside the bootstrap's signed file list
+    const base = tmp()
+    const version = path.join(base, 'app/versions/9.9.9')
+    const bytes = build()
+    catalogDir(path.join(version, 'resources/plugins'), [pinnedEntry([{ version: '1.0.0', manifestSha256: manifestDigest(build('1.0.0', { other: 'Another build.' })) }])])
+    for (const above of [path.join(base, 'app/versions'), path.join(base, 'app'), base]) catalogDir(path.join(above, 'resources/plugins'), [pinnedEntry([{ version: '1.0.0', manifestSha256: manifestDigest(bytes) }])])
+    for (const moduleDir of [path.join(version, 'server/src'), path.join(base, 'app/current/server/src')]) {
+      const dir = catalogDirFor(moduleDir)
+      expect(dir).toBe(path.join(path.dirname(path.dirname(moduleDir)), 'resources/plugins'))
+      if (moduleDir.startsWith(version)) expect(reason(() => verifyPackage(bytes, noKeyTrust(), pinsOf(dir)))).toBe('signature')
+    }
+    // without a list in the version folder: nothing is trusted (no fallback to a folder above)
+    fs.rmSync(path.join(version, 'resources/plugins'), { recursive: true, force: true })
+    expect(loadCatalog(catalogDirFor(path.join(version, 'server/src')), noKeyTrust())).toMatchObject({ source: 'none', entries: [], revoked: [] })
+    // a source checkout: the repository's list
+    expect(catalogDirFor(path.join(REPO, 'server/src/plugins'))).toBe(path.join(REPO, 'resources/plugins'))
+    fs.rmSync(base, { recursive: true, force: true })
   })
 })
 
