@@ -8,6 +8,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Chat: when a long conversation reaches the AI only in part (a fresh session gets 40,000 characters of history), the newest answer says so in a small note. Migration 213 (reader 1).
 - Chat: an answer that reaches the per-answer limit (tool calls or time) pauses with "이어서 하기" instead of ending as an error; the AI is told where it stopped. Migration 212 (reader 1).
 - Chat: messages typed while an answer runs wait under the conversation (edit or remove them) and are sent together when the answer is done; Stop keeps them, paused, with "Send now".
+- Add plugins (Admin > Plugins, company scope, owners/admins): signed packages with a permission prompt, install from a file or the official list, turn on/off, update, roll back, remove, all audited. HWP preview becomes the first plugin and still needs its release gate; HWP text reading and the write guard stay built in. Default release bundles carry no renderer or plugin package. See docs/PLUGINS.md.
 - Third safe-ops review: retain direct search for empty quarantine ledgers with a durable first-publication guard; bind Office search caches to source/text hashes. Migration 320 requires reader 4. Existing quarantined tenants retain immutable input admission.
 
 ### Safe operations 1A — second review fixes

@@ -18,3 +18,5 @@
 업데이트 전에 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)와 기본값 변경을 읽고 백업하세요. Linux·사무실 Mac은 트리나 피드를 사용합니다. 앱 롤백이 DB·파일 롤백은 아닙니다. [설정](CONFIGURATION.md) · [문제 해결](TROUBLESHOOTING.md).
 
 현재 브라우저·모바일 웹과 Windows 설치 파일을 사용합니다. Mac 서버 ZIP과 데스크톱 DMG는 다릅니다. 현재 소스는 EN/KO/ID/JA/ES를 지원합니다. 실험용 HWP 시각 미리보기는 기본 꺼짐이며 Debian 12에서 지원하지 않고 기본 번들에는 실행 도구가 없습니다. 설치 파일을 받기 전에 릴리스 설명을 확인하세요. [지원](../SUPPORT.md).
+
+플러그인(한글 문서 미리보기 등) 설치·관리와 서명 키 절차: [플러그인 설치·관리](PLUGINS.md).

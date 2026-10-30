@@ -12,6 +12,10 @@
 
 공개 피드 `https://updates.trina.app`는 Linux 서버와 사무실 Mac 업데이트를 제공합니다. 현재 배포 버전과 파일은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인하세요. 피드가 없다는 이전 작업 기록은 현재 상태가 아닙니다. 개인 서명 키는 저장소·로그·채팅에 넣지 않습니다. 키 교체와 운영 인프라 변경은 담당자의 별도 배포 절차를 따릅니다. [채널과 서명](../../../docs/EDITION-RELEASE.md).
 
+## 플러그인 서명 키
+
+[plugin-trust.json](plugin-trust.json)은 플러그인과 공식 플러그인 목록을 서명할 수 있는 공개키를 정합니다. 제품 업데이트 키와 다른 키여야 합니다. `bun scripts/plugins/trust.ts editions/trina/branding/plugin-trust.json`으로 검토하고 `--apply`로 `shared/src/plugin-trust.ts`에 적용합니다. 지금은 비어 있어 실서버가 모든 플러그인 꾸러미를 거부합니다. 키 생성·보관 절차는 [플러그인 설치·관리](../../../docs/PLUGINS.md)에 있습니다.
+
 ## 서비스 주소
 
 [service.json](service.json)은 팀 도메인과 공식 중계·계정·상태 페이지의 기본 주소를 정합니다. `bun scripts/edition-service.ts editions/trina/branding/service.json`으로 검토하고, `--apply`로 `shared/src/service-hosts.ts`에 적용합니다. 주소 설정 자체는 서비스 가용성이나 무료 등록을 보장하지 않습니다. 공식 중계 등록에는 발급받은 연결 코드가 필요합니다. 기존 LaunchDaemon 이름과 데이터 경로는 호환성을 위해 유지합니다.

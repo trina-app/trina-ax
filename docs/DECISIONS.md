@@ -3024,3 +3024,65 @@ only themselves. The owner chose the safest defaults for the open questions:
   what the AI has now.
 - Not covered: Claude Code's own automatic compaction inside a resumed session (it keeps a summary and we do not see
   it), and the 4 KB memory block (memories, not the conversation). Summarizing the cut part is later work (row 34 ①).
+
+## Plugins, stage 1: company scope, HWP Preview as the first plugin (2026-10-30)
+
+Placement: Trina AX only (`trina-app/trina-ax`), following the 10/29 decision to maintain Trina AX alone; the plan's
+"Team AX core first" wording is superseded. Admin doc: [PLUGINS](PLUGINS.md).
+
+- **Package.** `.trinaplugin` = POSIX tar (optionally gzip) with `trina-plugin.json`, a detached `trina-plugin.sig` and
+  payload files. The manifest (`shared/src/plugins.ts`, `schemaVersion: 0` = experimental until a real key signs
+  anything; the Claude Code `.claude-plugin/plugin.json` + `skills/` layout is still an option) lists id, SemVer,
+  publisher, kinds, product range, five-locale strings, required/optional permissions from a fixed list, platforms
+  (OS/CPU/glibc), runtime driver, contributions, licences/components/notices and every file's path, size and SHA-256.
+  Strict objects, duplicate JSON keys refused. Intake reuses the zip-guard bounds (200 MiB expanded, 100× ratio) plus
+  the 50 MB upload limit; links, hard links, devices, PAX/GNU headers, parent/absolute/hidden/duplicate paths and
+  setuid bits are refused; unlisted or changed files are `tampered` whatever the trust.
+- **Kinds now:** `skill-pack` (data only) and `native-tool` + `preview` for drivers core implements (`rhwp-v1`).
+  `connector-preset`, `region-pack`, `locale-pack` parse but are refused (`kind`).
+- **Trust.** Separate plugin trust root (`shared/src/plugin-trust.ts`, applied from
+  `editions/trina/branding/plugin-trust.json` by `scripts/plugins/trust.ts`), keys limited to publishers and id
+  prefixes; a release key there is dropped and refused by the tool. Signatures cover
+  `"trina-plugin-manifest-v1\n" + canonical JSON` (catalog: `trina-plugin-catalog-v1`), so release and plugin
+  signatures never substitute for each other. The trust root is empty: production refuses every package until the
+  owner creates the key (documented, not done). No test private key is in the repository: tests make one per run;
+  developers keep one outside the repo. Test keys (`MYCEL_PLUGINS_TEST_KEYS`) and unsigned packages
+  (`MYCEL_PLUGINS_ALLOW_UNSIGNED`) count only in dev mode, or on a prod-mode test server whose root-managed environment
+  also sets `MYCEL_PLUGINS_TEST_SERVER=1`; hosted and office ignore them; an admin warning band shows while on.
+- **Official list.** `resources/plugins/catalog.json` ships in releases as metadata only. With a verified plugin-key
+  signature (`catalog.sig`) its pinned packages may install; unsigned it is information only (availability,
+  recommendation); a signature that does not verify hides it. Today it lists HWP Preview as `pending_clearance`.
+  An optional `default` field is reserved for data-only official packs (never native) pending the founder's decision.
+- **Store and activation.** One verified store per server in `<data>/plugins/store/<id>/<version>-<digest>`, outside
+  the team folder, staged in a temp folder, re-hashed and moved in one rename; the active version plus one rollback
+  target. `plugin_installs` holds the approval (permissions bound to the manifest digest);
+  `plugin_access(subject_type everyone|group|user)` is who it is on for, like `integration_access` — stage 1 writes
+  only `everyone`. Migration 321 is additive with no `min_compatible_reader`, so 0.2.9 still opens the database.
+  A missing or damaged store shows the plugin as `damaged` and never stops the server.
+- **Lifecycle.** Inspect → permission prompt → install with the token, the manifest digest the admin saw and the
+  approved permissions (same admin, 15 minutes). Enable re-hashes every stored byte. Update only to a higher version;
+  rollback only to the previous version this server verified, re-hashed. Every action writes `plugin.*` audit rows.
+  Owners/admins only (CSRF/session as for every admin route). Hosted takes catalog packages only
+  (`pluginFileInstall: false` in `deployment.ts`); self-host may also use `<data>/plugins/import/` after review.
+- **Skill packs** become company skills under `skills/<plugin id>/` while on (removed when off) and must load without
+  loader warnings. `authorize()` refuses writes there for everyone; folders that hold one cannot be moved or deleted.
+  People copy a skill elsewhere to edit it. Skill-change audit/notices fire as for any `skills/` change.
+- **HWP moved.** The plugin carries third-party bytes only (rhwp 0.8.7 executable, Noto Sans KR Regular, notices,
+  source offer; `MIT AND OFL-1.1`). Core keeps the adapter, preflight, limits, isolation and the pins: `rhwp-v1` accepts
+  only the pinned executable/font hashes, so a signed package cannot swap the renderer. Until the licence/platform gate
+  clears, preview and `hwp_render` need **both** the plugin on and `MYCEL_HWP_PREVIEW=1`. `hwp_render` is listed to
+  engines only while usable and the optional `model.send.preview-pixels` permission is approved; the preview route
+  answers `disabled` otherwise. Disable/uninstall/update/rollback cancel renders in flight, discard their results,
+  clear cached pages and replace the renderer (identity includes the package digest); the executable hash is checked
+  on enable and before every render. HWP text reading, search, original download and the plaintext-write guard are
+  core and independent of the plugin. Default server/office/desktop bundles never carry rhwp, the font, `resources/hwp`
+  or any `.trinaplugin` (`scripts/plugins/release-check.ts`, build scripts and release CI); HWP notices moved from core
+  release notices into the plugin package. `scripts/plugins/build-hwp.ts` builds test packages; release signing is
+  refused until `resources/hwp/clearance.json` lists the target.
+- **Upgrade of internal review servers.** The old switch alone no longer previews anything; reinstall a test-signed
+  HWP package on the marked test server (docs/PLUGINS.md). No legacy-renderer detection or reuse of old files.
+- **Recommendation.** HWP shows "Recommended" only when the workspace default language is Korean; it never installs
+  or enables anything; the card says "not yet available" with the reason and has no install button.
+- **Next:** real plugin keys (main + spare) and the first official data pack, personal skills and `/plugin:skill`
+  naming, group/personal enablement on the same table, connector presets, the signed remote catalog/revocation list on
+  the update feed before the first public plugin, then third-party registry work.
