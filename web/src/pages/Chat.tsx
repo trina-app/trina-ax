@@ -1,5 +1,7 @@
 // The chat screen: the visible branch with streaming answers and the composer. Regenerate and edit make a new
 // branch (the AI's team-folder changes are not undone — the confirm dialog says so); "‹ 2/3 ›" switches branches.
+// A message sent while an answer runs waits under the conversation and goes when the answer is done
+// (store/sendQueue.ts, components/chat/QueuedMessages.tsx).
 import { FolderKanban, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -14,9 +16,11 @@ import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, useMeStrict } from '../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
+import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
+import QueuedMessages from '../components/chat/QueuedMessages'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 
@@ -61,6 +65,8 @@ function ChatView({ chatId }: { chatId: string }) {
     try {
       const [c] = await Promise.all([chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } }), loadThread(chatId)])
       setChat(c)
+      // messages this browser kept waiting for an answer in this chat (a reload, the app reopened)
+      useSendQueue.getState().restore(me.user.id, chatId)
     } catch (e) {
       setLoadError(e)
     } finally {
@@ -161,7 +167,23 @@ function ChatView({ chatId }: { chatId: string }) {
 
   const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
-    await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name } })
+    const author = { id: me.user.id, name: me.user.name }
+    const queue = useSendQueue.getState()
+    const waiting = queue.queues[chatId]
+    // an answer is running (or messages already wait): this one waits too and goes when the answer is done
+    if (busy || waiting?.items.length) {
+      // nothing runs, but earlier messages were paused (stopped / failed answer): sending now takes them along, in order
+      if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author })
+      try {
+        queue.enqueue(me.user.id, chatId, { content: text, attachments, author })
+      } catch (e) {
+        if (e instanceof QueueFull) throw new Error(t('outbox.full'))
+        throw e
+      }
+      announce(t('outbox.waitingOne'))
+      return
+    }
+    await send({ chatId, content: text, attachments, author })
   }
 
   const onEngine = async (e: EngineChoice) => {
@@ -213,6 +235,7 @@ function ChatView({ chatId }: { chatId: string }) {
             const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
             return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} />
           })}
+          {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
       <div className="mx-auto w-full max-w-[780px] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">

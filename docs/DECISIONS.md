@@ -2951,3 +2951,30 @@ only themselves. The owner chose the safest defaults for the open questions:
 - Settings > Notifications says that iOS gives push only to the Home Screen app (iOS 16.4+) and links the guide.
   The guide does not read the iOS version from the user agent.
 - No mobile or first-run install banner exists, so this change adds no banner link.
+
+## Messages typed during an answer wait and go when it ends (feat/chat-continuity, 2026-10-30)
+
+- The composer stays usable while an answer runs (Claude Code parity, plans row 22 ①). Enter, or the clock button
+  next to Stop (phones make a new line with Enter), keeps the message "waiting to send" under the conversation, where
+  it can be edited or taken back. When the answer ends, everything waiting goes out together as ONE message (texts
+  joined by a blank line, attachments together, within 20 attachments and 200,000 characters; the rest waits for the
+  next answer), like Claude Code's queued input. At most 10 wait per chat.
+- **The queue lives in the browser, not on the server.** The server still refuses a second turn in the same chat (409
+  `conflict`) and sees nothing until the answer has ended; the waiting messages then go through the normal
+  `POST /api/chats/:id/messages`, so chat ownership, attachment, budget and engine checks are unchanged and no route
+  was added. A server-held queue would follow the person to other devices, but needs storage, cancel/edit routes,
+  events, restart recovery and its own permission matrix; it belongs with the later "inject into the running turn"
+  work (row 22 ②), which is not done here.
+- What to do is decided from the visible branch alone (`web/src/lib/sendQueue.ts` `nextStep`), so a reconnect, a
+  reload or a missed event cannot lose the moment: wait while an answer streams or one of our sends is on its way;
+  send when the last answer is done (also when it paused at the per-answer limit: the AI is told so with the next
+  message); pause on Stop or a failed answer/send. A paused queue shows "Send now", and sending a new message then
+  takes the waiting ones along, in order. Stop never drops them.
+- Kept in localStorage per person and chat (`mycel.queue:<user>:<chat>`, cleared at sign-out with the drafts): a reload
+  or a phone app back from the background keeps them. After a reload they still go by themselves only while their
+  answer runs, or when that answer is the newest message; otherwise they wait for "Send now" so a message typed long
+  ago never drops into a conversation that has moved on. Other windows of the same browser follow `storage` events.
+- A combined send uses the clientMessageId `<first id>.<count>`: two windows sending the same queue make one message
+  (the server answers a repeated id with the first result). A 409 (an answer started elsewhere meanwhile) puts them
+  back to waiting and reloads the chat; any other failure shows on the sent message as "not sent [send again]".
+- Limit: per device. A message queued on the phone is not shown on the desktop, and goes when the phone app runs again.

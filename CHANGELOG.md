@@ -5,6 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Chat: messages typed while an answer runs wait under the conversation (edit or remove them) and are sent together when the answer is done; Stop keeps them, paused, with "Send now".
 - Third safe-ops review: retain direct search for empty quarantine ledgers with a durable first-publication guard; bind Office search caches to source/text hashes. Migration 320 requires reader 4. Existing quarantined tenants retain immutable input admission.
 
 ### Safe operations 1A — second review fixes

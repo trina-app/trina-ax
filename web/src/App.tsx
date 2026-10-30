@@ -6,6 +6,7 @@ import { PRODUCT } from '@mycel/shared'
 import { errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
+import { useSendQueue } from './store/sendQueue'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
@@ -49,7 +50,10 @@ function Gate() {
     if (signedIn) startLive()
     else {
       stopLive()
-      if (status.kind !== 'loading') useChats.getState().reset()
+      if (status.kind !== 'loading') {
+        useChats.getState().reset()
+        useSendQueue.getState().reset()
+      }
     }
   }, [signedIn, status.kind])
 

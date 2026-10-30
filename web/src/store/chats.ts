@@ -68,10 +68,14 @@ export interface SendInput {
   projectId?: string | null
   engine?: EngineId
   model?: string | null
+  /** messages that waited for an answer (store/sendQueue.ts): the same messages always go with the same id */
+  clientMessageId?: string
+  /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
+  onConflict?: () => void
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
-const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; engine?: EngineId; model?: string | null; firstTry: number }>()
+const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: () => void }>()
 /**
  * Events for messages we don't know yet (they raced the POST answer). Bounded: a message that never shows up (another
  * branch, a lost response) must not keep its events forever; the oldest entries go first, and past the per-message
@@ -249,6 +253,14 @@ export const useChats = create<ChatsState>((set, get) => {
           await sleep(Math.min(8000, 1000 * 2 ** attempt))
           continue
         }
+        // waiting messages sent the moment an answer ended, while another one already runs (another window or device
+        // started it): they go back to waiting, nothing is lost and nothing shows as failed
+        if (job.onConflict && e instanceof ApiError && e.code === 'conflict') {
+          outbox.delete(localId)
+          setThread(job.chatId, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== localId) }))
+          job.onConflict()
+          return
+        }
         // team files the person attached but can no longer open: the message is marked "not sent" with the reason,
         // those files show as unavailable, and "send again" sends it without them
         const gone = e instanceof ApiError && e.body.params?.reason === 'team_files_unavailable' ? new Set(String(e.body.params.ids ?? '').split(',').filter(Boolean)) : null
@@ -348,10 +360,10 @@ export const useChats = create<ChatsState>((set, get) => {
       // server's active leaf — null would start a new conversation at the root
       const last = t.messages.filter((m) => !m.local).at(-1)
       const localId = uuidv7()
-      const clientMessageId = uuidv7()
+      const clientMessageId = o.clientMessageId ?? uuidv7()
       const msg = optimisticUserMessage({ id: localId, chatId, parentId: last?.id ?? null, content: o.content, author: o.author, attachments: o.attachments, clientMessageId, now: new Date().toISOString() })
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
-      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id, engine: o.engine, model: o.model, firstTry: Date.now() })
+      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id, engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
       void deliver(localId).catch(() => {})
       return { chatId }

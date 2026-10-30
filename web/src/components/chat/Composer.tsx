@@ -1,12 +1,14 @@
 // The message box: auto-growing text, Enter sends (Shift+Enter new line, IME-safe), attachments (button, drag and
 // drop, paste, camera on phones) uploaded right away (chunked when large), voice input → transcription job → text,
 // engine / model choice, stop while an answer runs. The draft text is kept per chat across reloads.
+// While an answer runs the box stays usable: Enter (or the clock button next to Stop) hands the message to the chat,
+// which keeps it waiting and sends it when the answer is done (store/sendQueue.ts).
 // The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, FileAudio, FileText, FolderOpen, Loader2, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -46,7 +48,7 @@ interface Pending {
 }
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
-export interface ComposerHandle { prepareDraft: (request: string) => void }
+export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
 
 
 export default function Composer({
@@ -130,6 +132,9 @@ export default function Composer({
       // Do not race a send or voice transcription that will replace the current text.
       if (running || sending || transcribing || recorder.state !== 'idle') return
       setText((current) => mergeDraft(current, request))
+      taRef.current?.focus()
+    },
+    focus() {
       taRef.current?.focus()
     },
   }), [running, sending, transcribing, recorder.state])
@@ -275,7 +280,8 @@ export default function Composer({
 
   const uploading = files.some((f) => f.status === 'uploading')
   const ready = files.filter((f) => f.status === 'done')
-  const canSend = !running && !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0)
+  // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done
+  const canSend = !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0)
 
   const submit = async () => {
     if (!canSend) return
@@ -469,7 +475,7 @@ export default function Composer({
                   void submit()
                 }
               }}
-              placeholder={transcribing ? t('voice.transcribing') : t('composer.placeholder')}
+              placeholder={transcribing ? t('voice.transcribing') : running ? t('outbox.placeholder') : t('composer.placeholder')}
               disabled={transcribing}
               className="block max-h-[240px] w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[15px] outline-none placeholder:text-faint"
               data-testid="composer-input"
@@ -615,6 +621,12 @@ export default function Composer({
                   <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="h-10 w-10 rounded-full text-faint sm:h-9 sm:w-9" data-testid="voice-off-hint">
                     <MicOff size={18} />
                   </IconButton>
+                )}
+                {running && canSend && (
+                  // phones make a new line with Enter: this button is how a message waits for the answer there
+                  <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-ink transition hover:bg-accent-hover sm:h-9 sm:w-9" data-testid="send-later">
+                    <Clock size={17} aria-hidden />
+                  </button>
                 )}
                 {running ? (
                   <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="flex h-10 w-10 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40 sm:h-9 sm:w-9" data-testid="stop">
