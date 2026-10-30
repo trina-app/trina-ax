@@ -31,6 +31,9 @@ export interface Turn {
    * (Codex does this for MCP servers) but cannot leave the session without setsid, which yields a new id. */
   pgid: number | null
   revoked: boolean
+  /** why the chat runtime stopped this turn (Turn.stop), before it ends: the model proxy logs a request the stop
+   * cut off as that stop */
+  stopReason?: 'stopped' | 'timeout' | 'shutdown'
   abort: AbortController
   waiters: (() => void)[]
   /** extra tools of this turn (chat runtime); absent = file tools only (stage 1) */
@@ -62,10 +65,11 @@ export class TurnRegistry {
   }
   get(id: string) { return this.byId.get(id) }
   /** Revoke access now; the runtime records the final status after actual termination. */
-  invalidate(turnId: string) {
+  invalidate(turnId: string, reason?: Turn['stopReason']) {
     const t = this.byId.get(turnId)
     if (!t) return
     t.revoked = true
+    if (reason) t.stopReason = reason
     t.abort.abort()
     this.byHash.delete(t.tokenHash)
     t.waiters.splice(0).forEach(f => f())

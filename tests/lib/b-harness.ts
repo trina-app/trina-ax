@@ -188,7 +188,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
       const srv = ext
         ? await startServer(c.engineConfig, { db: c.db, files: c.files, externalLauncher: ext.sock, toolsSockMode: ext.toolsSockMode })
         : await startServer(c.engineConfig, { db: c.db, files: c.files, launcher: { allowCmds: [bin, codexBin, ...(o.allowCmds ?? [])], sessionRoots: o.sessionRoots ?? [], proxyPort: port } })
-      await startEngineProxy(srv, { port, broker: brokerOf(c), codexModels: () => o.codexModels ?? ['fake-1', 'fake-2'], dial: o.proxyDial })
+      await startEngineProxy(srv, { port, broker: brokerOf(c), codexModels: () => o.codexModels ?? ['fake-1', 'fake-2'], dial: o.proxyDial, log: c.log.child({ c: 'model-proxy' }) })
       return srv
     },
     }),

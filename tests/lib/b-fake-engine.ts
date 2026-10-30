@@ -26,7 +26,10 @@
 //                                            provider addresses, proxy variables, certificates, the refresh override
 //   @fake {"codexModel": "prompt"}           (Codex, managed) call the model like Codex: POST <provider base_url>/responses
 //                                            with the auth.json token (+ ChatGPT-Account-ID), stream, say the text deltas;
-//                                            an HTTP error ends the turn like Codex ("unexpected status <n> ...")
+//                                            an HTTP error ends the turn like Codex ("unexpected status <n> ..."). Like
+//                                            Codex 0.163 it stops reading at response.completed and hangs up.
+//   @fake {"codexBackground": true}          (Codex, ChatGPT sign-in) the GETs Codex 0.163 sends to chatgpt_base_url on
+//                                            every turn (accounts/check twice, settings/user once); says their statuses
 //   @fake {"dumpHome": true}                 (Codex) say every file under CODEX_HOME, HOME and the chat folder (S-1)
 //   @fake {"modelAny": "prompt"}             call the model whichever engine this is (Claude: "model", Codex: "codexModel")
 //   @fake {"refreshAuth": "acc-1"}           (Codex) rewrite CODEX_HOME/auth.json like a token refresh, for that account
@@ -291,21 +294,42 @@ async function callCodexModel(prompt: string) {
   const version = (argv.find((a) => a.startsWith('model_providers.teamax.http_headers=')) ?? '').match(/version = "([^"]+)"/)?.[1]
   if (version) headers.version = version
   let r: Response
+  const hangUp = new AbortController()
   try {
-    r = await fetch(base.replace(/\/$/, '') + '/responses', { method: 'POST', headers, body: JSON.stringify({ model, instructions: 'x', input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] }], tools: [{ type: 'function', name: 'team__read', parameters: {} }, { type: 'web_search' }], stream: true, store: false }) })
+    r = await fetch(base.replace(/\/$/, '') + '/responses', { method: 'POST', headers, signal: hangUp.signal, body: JSON.stringify({ model, instructions: 'x', input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] }], tools: [{ type: 'function', name: 'team__read', parameters: {} }, { type: 'web_search' }], stream: true, store: false }) })
   } catch (e) { return finish({ error: `stream error: ${(e as Error).message}` }) }
   if (!r.ok) return finish({ error: `unexpected status ${r.status}: ${(await r.text()).slice(0, 300)}` })
   let buf = ''
   const dec = new TextDecoder()
-  for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
-    buf += dec.decode(chunk, { stream: true })
+  const reader = r.body!.getReader()
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) return
+    buf += dec.decode(value, { stream: true })
     let i
     while ((i = buf.indexOf('\n')) >= 0) {
       const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
       if (!l.startsWith('data:')) continue
-      try { const ev = JSON.parse(l.slice(5)); if (ev.type === 'response.output_text.delta') await say(ev.delta) } catch {}
+      let ev: any = null
+      try { ev = JSON.parse(l.slice(5)) } catch { continue }
+      if (ev.type === 'response.output_text.delta') await say(ev.delta)
+      // codex-api/src/sse/responses.rs: `if is_completed { return; }`: the rest is never read, the connection is
+      // dropped (an abort here; Bun's reader.cancel() would keep the connection)
+      if (ev.type === 'response.completed') { hangUp.abort(); return }
     }
   }
+}
+/** the background GETs of Codex 0.163 with a ChatGPT sign-in (backend-client: workspace routing, commit attribution) */
+async function codexBackground(): Promise<string> {
+  const base = (argv.find((a) => a.startsWith('chatgpt_base_url=')) ?? '').split('=').slice(1).join('=').replace(/^"|"$/g, '').replace(/\/$/, '')
+  let auth: any = {}
+  try { auth = JSON.parse(fs.readFileSync(path.join(process.env.CODEX_HOME ?? '', 'auth.json'), 'utf8')) } catch {}
+  const headers = { authorization: 'Bearer ' + (auth.tokens?.access_token ?? ''), 'chatgpt-account-id': auth.tokens?.account_id ?? '', 'user-agent': 'codex_exec/0.0.0-fake' }
+  const st: string[] = []
+  for (const p of ['/api/codex/accounts/check', '/api/codex/settings/user', '/api/codex/accounts/check']) {
+    try { st.push(String((await fetch(base + p, { headers })).status)) } catch (e) { st.push('error') }
+  }
+  return st.join(',')
 }
 function secretsVisible(): string {
   const looks = (v: string) => /mpx_|sk-ant-/.test(v)
@@ -424,6 +448,7 @@ for (const d of directives) {
       refreshOverride: process.env.CODEX_REFRESH_TOKEN_URL_OVERRIDE ?? null, apiKeyEnv: process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY ?? null,
       credStore: argv.includes('cli_auth_credentials_store="file"') }))
   } else if (d.codexModel !== undefined) await callCodexModel(String(d.codexModel))
+  else if (d.codexBackground) await say(`background=${await codexBackground()}`)
   else if (d.modelAny !== undefined) { if (codex) await callCodexModel(String(d.modelAny)); else await callModel(String(d.modelAny)) }
   else if (d.dumpHome) {
     const seen: string[] = []

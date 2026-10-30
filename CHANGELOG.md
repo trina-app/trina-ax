@@ -15,6 +15,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Codex web search uses its cached index (no live page loads), enforced by the model proxy.
 - "Ask the AI to fix it" no longer carries web addresses from the artifact's title or key.
 - Security: artifacts and HTML / SVG previews can no longer open WebRTC or WebTransport connections, including through nested frames, shadow roots or `document.write`; inside them, `document.write`/`open`, `setHTMLUnsafe`, `window.open` and nested iframes are turned off. In confidential chats (Safe operations 1A) they are shown without running scripts except in the desktop app, with a notice in ko/en/id/ja/es. Other chats work as before. See docs/DECISIONS.md "Artifact frames: no direct connections".
+- AI connections: a ChatGPT (Codex) connection now counts its use (tokens, requests, last used) in Admin > AI connections, so its monthly limit works; chatgpt.com sends its answer stream with no content type, and the model proxy read it as a plain reply. The server log no longer warns about Codex's background calls or about the Stop button (logged as the person's stop).
 
 ## 0.2.11 — 2026-10-30
 

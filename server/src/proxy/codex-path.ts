@@ -6,7 +6,8 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 //   POST /codex/chatgpt/responses   ChatGPT sign-in  -> <chatgpt>/responses (Authorization + ChatGPT-Account-ID)
 //   POST /codex/openai/responses    OpenAI API key   -> <openai>/responses (Authorization)
 //   GET  /codex/backend/wham/config/bundle -> {} (a remote config bundle could change the lockdown: never passed)
-//   other /codex/backend/*, /codex/*/models  -> 404 (never sent upstream)
+//   other /codex/backend/*, /codex/*/models  -> 404 (never sent upstream; the two that Codex 0.163 sends on every
+//                                    ChatGPT turn, BACKGROUND_404 below, are expected and not logged as failures)
 //   POST /codex/oauth/token         -> 400 invalid_grant, audited (the engine must never refresh by itself)
 // Requests are filtered like the Claude path: Responses only, function / web_search tools only (web_search held to
 // the cached index: external_web_access false, web_search_preview refused), inline images and
@@ -15,7 +16,7 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // engine then gets 403 (never 401, which would make Codex try to refresh). Long 429s mark this connection only.
 import type { Database } from 'bun:sqlite'
 import type { CredentialBroker } from '../credentials/broker'
-import { overBudget, retryAfterSeconds, apiError, type ProxyTurnEvent, type TokenRow } from './model-proxy'
+import { overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, type ProxyTurnEvent, type TokenRow } from './model-proxy'
 
 export interface CodexPathDeps {
   db: Database
@@ -24,6 +25,7 @@ export interface CodexPathDeps {
   onTurnEvent?: (turnId: string, ev: ProxyTurnEvent) => void
   refused: (row: TokenRow | null, reason: string, extra?: Record<string, unknown>) => void
   admit: (req: Request) => Promise<TokenRow | Response>
+  log?: { warn(msg: string, f?: Record<string, unknown>): void }
 }
 
 /** request headers that reach the upstream (Codex 0.163's own headers, C8); everything else is dropped, the engine's
@@ -38,6 +40,15 @@ const MAX_BODY = 32 * 1024 * 1024
 /** a 429 whose retry-after is this short is retried once by the proxy (Codex does not retry 429 itself, C14) */
 const RETRY_429_MAX_S = 10
 const CREDIT_CODES = new Set(['insufficient_quota', 'credit_balance_exhausted', 'organization_usage_limit_exceeded'])
+/** GETs Codex 0.163 sends to chatgpt_base_url on every turn with a ChatGPT sign-in (codex-rs backend-client; the path
+ * style follows the base URL, ours has no "/backend-api"). Both are answered 404 on purpose, as before, and Codex goes
+ * on without them; only the warning goes (QA 2026-10-30: three per answer buried the real ones):
+ *   accounts/check  workspace routing discovery (app-server workspace_routing.rs): an answer could send the model
+ *                   requests to the backend origin it names, around this proxy
+ *   settings/user   the commit-attribution setting (ext/git-attribution): without it Codex leaves attribution off */
+const BACKGROUND_404 = new Set(['/codex/backend/api/codex/accounts/check', '/codex/backend/api/codex/settings/user',
+  '/codex/backend/wham/accounts/check', '/codex/backend/wham/settings/user'])
+const TERMINAL = new Set(['response.completed', 'response.incomplete', 'response.failed'])
 
 /** `lists`: how many content lists deep (input -> a message's content -> a function output's content ...: at most 8);
  * `depth`: JSON levels overall (a guard against absurd nesting) */
@@ -99,7 +110,8 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   // background calls of the engine (chatgpt_base_url): answered here, never upstream
   if (p.startsWith('/codex/backend/')) {
     if (req.method === 'GET' && p === '/codex/backend/wham/config/bundle') return json(200, {})
-    return apiError(404, 'not_found_error', 'not found')
+    const r = apiError(404, 'not_found_error', 'not found')
+    return req.method === 'GET' && BACKGROUND_404.has(p) ? expectedAnswer(r) : r
   }
   if (p === '/codex/oauth/token') {
     d.refused(null, 'engine refresh attempt')
@@ -158,7 +170,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   }
 
   let up = await send(cred)
-  if (!up) return apiError(502, 'api_error', 'the model service could not be reached')
+  if (!up) return unreachable(req)
   if (up.status >= 300 && up.status < 400) {
     await up.body?.cancel().catch(() => {})
     return apiError(502, 'api_error', 'the model service answered with a redirect; it is not followed')
@@ -180,7 +192,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
       }
       cred = c2
       up = await send(c2)
-      if (!up) return apiError(502, 'api_error', 'the model service could not be reached')
+      if (!up) return unreachable(req)
     }
     if (up.status === 401) {
       await up.body?.cancel().catch(() => {})
@@ -210,7 +222,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     } else if (ra !== null && ra <= RETRY_429_MAX_S) {
       await Bun.sleep(ra * 1000)
       const r2 = await send(cred)
-      if (!r2) return apiError(502, 'api_error', 'the model service could not be reached')
+      if (!r2) return unreachable(req)
       up = r2
     } else {
       until = new Date(now + (ra ?? 3600) * 1000)
@@ -231,32 +243,44 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   }
   const credId = cred.credentialId
   const broker = d.broker
-  if (up.status < 300 && up.body && (up.headers.get('content-type') ?? '').includes('text/event-stream')) {
-    // pass the stream through as it arrives; usage from response.completed / response.incomplete, web searches from
-    // its output items
-    let usage: Record<string, unknown> | null = null
-    let buf = ''
-    let recorded = false
-    const done = () => { if (!recorded && usage) { recorded = true; broker.record(credId, row.turn_id, model, usage) } }
-    const dec = new TextDecoder()
-    const reader = up.body.getReader()
-    const scan = (chunk: Uint8Array) => {
-      buf += dec.decode(chunk, { stream: true })
-      let i
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
-        if (!l.startsWith('data:')) continue
-        try {
-          const ev = JSON.parse(l.slice(5))
-          if ((ev.type === 'response.completed' || ev.type === 'response.incomplete' || ev.type === 'response.failed') && ev.response) {
-            const r = ev.response as { usage?: Record<string, unknown>; model?: string; output?: { type?: string }[] }
-            if (typeof r.model === 'string') model = r.model
-            if (r.usage) usage = { ...r.usage, web_search_calls: (r.output ?? []).filter((o) => o?.type === 'web_search_call').length }
-          }
-        } catch {}
-      }
-      if (buf.length > 4 << 20) buf = ''
+  // usage from the answer's terminal event (response.completed / .incomplete / .failed), web searches from its output
+  // items; counted once, as soon as that event passed: Codex 0.163 stops reading there and hangs up
+  // (codex-api/src/sse/responses.rs), so the end of the stream is never read
+  let usage: Record<string, unknown> | null = null
+  let recorded = false
+  const done = () => {
+    if (recorded || !usage) return
+    recorded = true
+    // the answer goes on either way (an error in the stream would make the engine ask again, and pay twice)
+    try { broker.record(credId, row.turn_id, model, usage) } catch (e) { d.log?.warn('model proxy: usage not recorded', { err: String((e as Error)?.message ?? e).slice(0, 200) }) }
+  }
+  let buf = ''
+  const dec = new TextDecoder()
+  const scan = (chunk: Uint8Array | string) => {
+    buf += typeof chunk === 'string' ? chunk : dec.decode(chunk, { stream: true })
+    let i
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+      if (!l.startsWith('data:')) continue
+      try {
+        const ev = JSON.parse(l.slice(5))
+        if (TERMINAL.has(ev?.type) && ev.response) {
+          const r = ev.response as { usage?: Record<string, unknown>; model?: string; output?: { type?: string }[] }
+          if (typeof r.model === 'string') model = r.model
+          if (r.usage) { usage = { ...r.usage, web_search_calls: (r.output ?? []).filter((o) => o?.type === 'web_search_call').length }; done() }
+        }
+      } catch {}
     }
+    if (buf.length > 4 << 20) buf = ''
+  }
+  // chatgpt.com/backend-api/codex/responses streams its events with no content-type at all (QA 2026-10-30: every
+  // ChatGPT answer took the buffered branch below and none was counted). An untyped answer to a streamed request is
+  // the stream it was asked for.
+  const ct = (up.headers.get('content-type') ?? '').toLowerCase()
+  const sse = ct.includes('text/event-stream') || (!ct && (parsed as { stream?: unknown }).stream === true)
+  if (up.status < 300 && up.body && sse) {
+    // pass the stream through as it arrives
+    const reader = up.body.getReader()
     const stream = new ReadableStream<Uint8Array>({
       async pull(ctl) {
         try {
@@ -272,7 +296,8 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   }
   const text = await up.text()
   if (up.status < 300) try {
-    const j = JSON.parse(text)
+    let j: { usage?: Record<string, unknown>; model?: unknown; output?: unknown } | null = null
+    try { j = JSON.parse(text) } catch { scan(text + '\n') } // events under another content-type: still counted
     if (j?.usage) broker.record(credId, row.turn_id, typeof j.model === 'string' ? j.model : model, { ...j.usage, web_search_calls: Array.isArray(j.output) ? j.output.filter((o: { type?: string }) => o?.type === 'web_search_call').length : 0 })
   } catch {}
   return new Response(text, { status: up.status, headers: outHeaders })

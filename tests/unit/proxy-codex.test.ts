@@ -13,20 +13,37 @@ import { addCred, chatgptSecret, fakeJwt, testCredCtx } from '../lib/credentials
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
-import { createBroker } from '../../server/src/credentials/broker'
+import { createBroker, onUsage } from '../../server/src/credentials/broker'
+import { afterCredentialUsage } from '../../server/src/credentials/limits'
 import { getRow, secretOf } from '../../server/src/credentials/store'
 import { refreshIdle } from '../../server/src/credentials/chatgpt-tokens'
 import { CODEX_CLIENT_ID } from '../../server/src/credentials/openai-oauth'
+import { monthUsage } from '../../server/src/credentials/store'
+import { waitFor } from '../lib/wait'
 
 const env = makeEnv('proxy-codex')
 type Seen = { path: string; headers: Record<string, string>; body: any }
 const seen: Seen[] = []
 const refreshes: any[] = []
-let respMode: 'ok' | '401-old' | '429-usage' | '429-plan' | '429-short' | '429-credit' | 'redirect' | '500' = 'ok'
+let respMode: 'ok' | '401-old' | '429-usage' | '429-plan' | '429-short' | '429-credit' | 'redirect' | '500' | 'untyped' | 'text' | 'hold' = 'ok'
 let refreshMode: 'ok' | 'invalid_grant' | 'redirect' | 'slow' = 'ok'
 let validAccess = new Set<string>()
 let n429 = 0
 const sse = (o: unknown) => `event: x\ndata: ${JSON.stringify(o)}\n\n`
+// an answer of chatgpt.com/backend-api/codex/responses as Codex 0.163 reads it (codex-api/src/sse/responses.rs
+// ResponseCompletedUsage): named events, the usage only in response.completed, and no content-type header at all
+const REAL_USAGE = { input_tokens: 9277, input_tokens_details: { cached_tokens: 8960 }, output_tokens: 31, output_tokens_details: { reasoning_tokens: 12 }, total_tokens: 9308 }
+const realEv = (o: { type: string; [k: string]: unknown }) => `event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`
+const msg = { id: 'msg_1', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'hi there', annotations: [] }] }
+const REAL_HEAD = realEv({ type: 'response.created', response: { id: 'resp_1', object: 'response', status: 'in_progress', model: 'gpt-5.4', output: [], usage: null } })
+  + realEv({ type: 'response.output_item.added', output_index: 0, item: { ...msg, status: 'in_progress', content: [] } })
+  + realEv({ type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, content_index: 0, delta: 'hi' })
+const REAL_TAIL = realEv({ type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, content_index: 0, delta: ' there' })
+  + realEv({ type: 'response.output_item.done', output_index: 0, item: msg })
+  + realEv({ type: 'response.completed', response: { id: 'resp_1', object: 'response', status: 'completed', model: 'gpt-5.4-2026-03-05', output: [msg], usage: REAL_USAGE } })
+let releaseUntyped: (() => void) | null = null
+let untypedCancelled = false
+let holdAborted = false
 const fake = Bun.serve({
   port: 0, hostname: '127.0.0.1',
   async fetch(req) {
@@ -51,6 +68,22 @@ const fake = Bun.serve({
     if (respMode === '429-plan') return Response.json({ error: { type: 'usage_not_included' } }, { status: 429 })
     if (respMode === '429-credit') return Response.json({ error: { type: 'insufficient_quota', code: 'insufficient_quota' } }, { status: 429 })
     if (respMode === '429-short' && n429++ === 0) return Response.json({ error: { type: 'rate_limit_exceeded' } }, { status: 429, headers: { 'retry-after': '1' } })
+    if (respMode === 'untyped') {
+      // the first events, then the rest once the test lets it go, then the end a moment later (Codex has hung up by then)
+      const e = new TextEncoder()
+      return new Response(new ReadableStream<Uint8Array>({
+        async start(c) {
+          c.enqueue(e.encode(REAL_HEAD))
+          await new Promise<void>((r) => (releaseUntyped = r))
+          try { c.enqueue(e.encode(REAL_TAIL)) } catch {}
+          await Bun.sleep(300)
+          try { c.close() } catch {}
+        },
+        cancel() { untypedCancelled = true },
+      }), { headers: { 'x-codex-primary-used-percent': '33' } })
+    }
+    if (respMode === 'text') return new Response(REAL_HEAD + REAL_TAIL, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
+    if (respMode === 'hold') { await new Promise<void>((r) => req.signal.addEventListener('abort', () => { holdAborted = true; r() })); return new Response(null, { status: 499 }) }
     return new Response(sse({ type: 'response.output_text.delta', delta: 'hi' }) + sse({ type: 'response.completed', response: { model: 'gpt-5.4', output: [{ type: 'message' }], usage: { input_tokens: 300, input_tokens_details: { cached_tokens: 100 }, output_tokens: 20 } } }),
       { headers: { 'content-type': 'text/event-stream', 'x-codex-primary-used-percent': '33' } })
   },
@@ -61,7 +94,13 @@ env.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES ('
 const OKEY = 'sk-proj-' + 'K'.repeat(40)
 const K = addCred(t.cc, 'openai-api-key', OKEY)
 const events: ProxyTurnEvent[] = []
-const proxy = await startModelProxy({ db: env.db, broker: createBroker(t.cc), codexModels: () => ['gpt-5.4', 'gpt-6.1-sol'], onTurnEvent: (_t, ev) => events.push(ev) })
+const logged: Record<string, unknown>[] = []
+const at = (level: string) => (msg: string, f: Record<string, unknown> = {}) => { logged.push({ level, msg, ...f }) }
+const stopped = new Map<string, 'stopped' | 'timeout' | 'shutdown'>()
+const broker = createBroker(t.cc)
+onUsage(t.cc, (_u, c) => afterCredentialUsage(t.cc, c)) // the monthly connection limits, as brokerOf() wires them
+const proxy = await startModelProxy({ db: env.db, broker, codexModels: () => ['gpt-5.4', 'gpt-6.1-sol'], onTurnEvent: (_t, ev) => events.push(ev),
+  log: { warn: at('warn'), info: at('info'), debug: at('debug') }, stopReason: (turnId) => stopped.get(turnId) ?? null })
 afterAll(async () => { await proxy.stop(); fake.stop(true) })
 
 let G = ''
@@ -306,5 +345,162 @@ describe('S-13 and the upstream\'s answers', () => {
     respMode = '500'
     expect((await post('openai', tokFor(K))).status).toBe(502)
     expect(getRow(env.db, K)!.status).toBe('ok')
+  })
+})
+
+describe('usage of a ChatGPT answer (QA 2026-10-30: 54 Codex turns, 0 tokens on the connection, no "last used")', () => {
+  const zero = () => {
+    env.db.query("UPDATE turns SET input_tokens = 0, output_tokens = 0, cost_usd = 0, usage_source = NULL WHERE id = 'cx'").run()
+    env.db.query('DELETE FROM credential_usage_daily').run()
+  }
+  const turn = () => env.db.query("SELECT input_tokens, output_tokens, cost_usd, usage_source FROM turns WHERE id = 'cx'").get()
+  const days = (id: string) => env.db.query('SELECT requests, input_tokens, output_tokens, cost_usd FROM credential_usage_daily WHERE credential_id = ?').all(id)
+
+  test('the fake answers like chatgpt.com: no content-type', async () => {
+    respMode = 'untyped'
+    const r = await fetch(`${up}/backend-api/codex/responses`, { method: 'POST', body: '{}' })
+    expect(r.headers.get('content-type')).toBeNull()
+    await r.body!.cancel(); releaseUntyped?.()
+  })
+
+  test('an untyped answer streams through as it comes; counted at response.completed, where Codex 0.163 hangs up', async () => {
+    freshChatgpt(); zero()
+    respMode = 'untyped'; releaseUntyped = null; untypedCancelled = false; logged.length = 0
+    expect(getRow(env.db, G)!.last_used_at).toBeNull()
+    const hangUp = new AbortController()
+    const r = await fetch(`${proxy.url}/codex/chatgpt/responses`, { method: 'POST', signal: hangUp.signal, headers: { authorization: 'Bearer ' + tokFor(G), 'content-type': 'application/json', accept: 'text/event-stream' }, body: JSON.stringify(body()) })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('x-codex-primary-used-percent')).toBe('33')
+    const reader = r.body!.getReader()
+    const dec = new TextDecoder()
+    let got = ''
+    // the first delta reaches the engine while the upstream still holds the rest: passed through, not buffered
+    while (!got.includes('"delta":"hi"')) got += dec.decode((await reader.read()).value, { stream: true })
+    expect(turn()).toMatchObject({ input_tokens: 0, output_tokens: 0 })
+    releaseUntyped!()
+    while (!got.includes('"type":"response.completed"')) got += dec.decode((await reader.read()).value, { stream: true })
+    // counted before the stream ends (the upstream keeps it open; Codex never reads further)
+    expect(turn()).toEqual({ input_tokens: 9277, output_tokens: 31, cost_usd: 0, usage_source: 'proxy' })
+    expect(days(G)).toEqual([{ requests: 1, input_tokens: 9277, output_tokens: 31, cost_usd: 0 }])
+    expect(getRow(env.db, G)!.last_used_at).not.toBeNull()
+    hangUp.abort() // Codex drops the connection here
+    expect(await waitFor(() => untypedCancelled, { timeoutMs: 5000 })).toBe(true) // the upstream request ends with it
+    expect(days(G)).toEqual([{ requests: 1, input_tokens: 9277, output_tokens: 31, cost_usd: 0 }]) // once
+    expect(logged.filter((l) => l.level === 'warn')).toEqual([])
+  })
+
+  test('the engine reading to the end counts once too; the month of the connection shows it', async () => {
+    freshChatgpt(); zero()
+    respMode = 'untyped'; releaseUntyped = null
+    const r = await post('chatgpt', tokFor(G))
+    const text = r.text()
+    expect(await waitFor(() => releaseUntyped !== null, { timeoutMs: 5000 })).toBe(true)
+    releaseUntyped!()
+    expect(await text).toContain('"type":"response.completed"')
+    expect(days(G)).toEqual([{ requests: 1, input_tokens: 9277, output_tokens: 31, cost_usd: 0 }])
+    expect(monthUsage(env.db, G, new Date())).toEqual({ usd: 0, tokens: 9277 + 31, requests: 1 })
+  })
+
+  test('events under another content-type are still counted (an API key answer here)', async () => {
+    zero()
+    respMode = 'text'
+    const r = await post('openai', tokFor(K))
+    expect(r.status).toBe(200)
+    expect(await r.text()).toContain('response.completed')
+    expect(turn()).toMatchObject({ input_tokens: 9277, output_tokens: 31, usage_source: 'proxy' })
+    expect((turn() as { cost_usd: number }).cost_usd).toBeGreaterThan(0) // an API key: list price (gpt-5.4 row)
+    expect(days(K)).toEqual([expect.objectContaining({ requests: 1, input_tokens: 9277, output_tokens: 31 })])
+  })
+
+  test('a monthly token limit on the ChatGPT connection now fills: warn tells the admins, block holds the next request', async () => {
+    freshChatgpt(); zero()
+    env.db.query("UPDATE engine_credentials SET spend_limit_tokens = 5000, spend_limit_action = 'warn' WHERE id = ?").run(G)
+    t.notices.length = 0
+    respMode = 'untyped'; releaseUntyped = null
+    const r = await post('chatgpt', tokFor(G))
+    expect(await waitFor(() => releaseUntyped !== null, { timeoutMs: 5000 })).toBe(true)
+    releaseUntyped!()
+    await r.text()
+    expect(t.notices.map((x) => x.n.code)).toEqual(['credential_limit', 'credential_limit']) // 80 % and 100 %, once each
+    expect((await post('chatgpt', tokFor(G), body(), {})).status).toBe(200) // warn only: it still works
+    env.db.query("UPDATE engine_credentials SET spend_limit_action = 'block' WHERE id = ?").run(G)
+    seen.length = 0
+    const held = await post('chatgpt', tokFor(G))
+    expect(held.status).toBe(403)
+    expect((await held.json()).error.message).toBe('credential_over_limit')
+    expect(events.at(-1)).toEqual({ type: 'credential', credentialId: G, reason: 'over_limit' })
+    expect(seen).toEqual([])
+    env.db.query('UPDATE engine_credentials SET spend_limit_tokens = NULL WHERE id = ?').run(G)
+  })
+})
+
+describe('what is logged', () => {
+  test("Codex 0.163's background GETs are answered 404 on purpose and not warned about; any other path still is", async () => {
+    logged.length = 0
+    for (const p of ['/codex/backend/api/codex/accounts/check', '/codex/backend/api/codex/settings/user', '/codex/backend/api/codex/accounts/check']) {
+      expect((await fetch(proxy.url + p, { headers: { authorization: 'Bearer mpx_x', 'chatgpt-account-id': 'teamax-x' } })).status).toBe(404)
+    }
+    expect(logged).toEqual([
+      { level: 'debug', msg: 'model proxy: answered here', status: 404, path: '/codex/backend/api/codex/accounts/check' },
+      { level: 'debug', msg: 'model proxy: answered here', status: 404, path: '/codex/backend/api/codex/settings/user' },
+      { level: 'debug', msg: 'model proxy: answered here', status: 404, path: '/codex/backend/api/codex/accounts/check' },
+    ])
+    logged.length = 0
+    expect((await fetch(proxy.url + '/codex/backend/api/codex/accounts/check', { method: 'POST', body: '{}' })).status).toBe(404)
+    expect((await fetch(proxy.url + '/codex/backend/api/codex/tasks/list')).status).toBe(404)
+    expect(logged).toEqual([
+      { level: 'warn', msg: 'model proxy: request not ok', status: 404, path: '/codex/backend/api/codex/accounts/check', reason: 'not_found_error: not found' },
+      { level: 'warn', msg: 'model proxy: request not ok', status: 404, path: '/codex/backend/api/codex/tasks/list', reason: 'not_found_error: not found' },
+    ])
+    expect(seen).toEqual([])
+  })
+
+  /** the engine goes away while its request waits for the model's first byte (the Stop button kills it) */
+  const hangUp = async (tok: string) => {
+    holdAborted = false; logged.length = 0; seen.length = 0
+    const ac = new AbortController()
+    const p = fetch(`${proxy.url}/codex/chatgpt/responses`, { method: 'POST', signal: ac.signal, headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json', accept: 'text/event-stream' }, body: JSON.stringify(body()) }).catch(() => null)
+    expect(await waitFor(() => seen.length === 1, { timeoutMs: 5000 })).toBe(true)
+    ac.abort()
+    await p
+    expect(await waitFor(() => holdAborted && logged.length > 0, { timeoutMs: 5000 })).toBe(true) // the upstream call is cancelled too
+  }
+  test('Stop: the request the engine gave up is one info line "ended by a stop" (by the person), never "could not be reached"', async () => {
+    freshChatgpt()
+    respMode = 'hold'
+    stopped.set('cx', 'stopped')
+    try {
+      await hangUp(tokFor(G))
+      expect(logged).toEqual([{ level: 'info', msg: 'model proxy: request ended by a stop', path: '/codex/chatgpt/responses', turn: 'cx', by: 'person' }])
+      // the connection is as it was, nothing counted, nothing refused
+      expect(getRow(env.db, G)).toMatchObject({ status: 'ok', status_code: null, limited_until: null })
+      expect(env.db.query("SELECT COUNT(*) AS n FROM credential_usage_daily WHERE credential_id = ?").get(G)).toEqual({ n: 0 })
+      stopped.set('cx', 'timeout')
+      await hangUp(tokFor(G))
+      expect(logged.filter((l) => (l.msg as string).includes('ended by a stop')).map((l) => l.by)).toEqual(['time_limit'])
+    } finally { stopped.delete('cx'); respMode = 'ok' }
+  })
+  test('the engine hanging up while its turn runs is still a warning, of its own', async () => {
+    freshChatgpt()
+    respMode = 'hold'
+    try {
+      await hangUp(tokFor(G))
+      expect(logged.filter((l) => l.level === 'warn')).toContainEqual({ level: 'warn', msg: 'model proxy: the engine hung up before its answer', path: '/codex/chatgpt/responses', turn: 'cx' })
+      expect(JSON.stringify(logged)).not.toContain('could not be reached')
+    } finally { respMode = 'ok' }
+  })
+  test('after a stop, a request with the revoked token is refused (401) and logged as the stop', async () => {
+    stopped.set('cx', 'stopped')
+    try {
+      const tok = tokFor(G)
+      env.db.query("UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = 'cx'").run(new Date().toISOString())
+      logged.length = 0
+      expect((await post('chatgpt', tok)).status).toBe(401)
+      expect(logged).toEqual([{ level: 'info', msg: 'model proxy: request ended by a stop', path: '/codex/chatgpt/responses', turn: 'cx', by: 'person' }])
+      stopped.delete('cx')
+      logged.length = 0
+      expect((await post('chatgpt', tok)).status).toBe(401) // a revoked token of a turn nobody stopped: a warning as before
+      expect(logged).toEqual([{ level: 'warn', msg: 'model proxy: request not ok', status: 401, path: '/codex/chatgpt/responses', reason: 'authentication_error: invalid proxy token' }])
+    } finally { stopped.delete('cx') }
   })
 })

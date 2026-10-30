@@ -107,8 +107,30 @@ export interface ProxyOpts {
   port?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
-   * or a credential). Without it the reason is lost: the engine shows most refusals as an authentication failure. */
-  log?: { warn(msg: string, f?: Record<string, unknown>): void }
+   * or a credential). Without it the reason is lost: the engine shows most refusals as an authentication failure.
+   * A request that ended because its turn was stopped is an info line; an answer given on purpose (Codex's background
+   * calls, ./codex-path.ts) a debug line. */
+  log?: { warn(msg: string, f?: Record<string, unknown>): void; info?(msg: string, f?: Record<string, unknown>): void; debug?(msg: string, f?: Record<string, unknown>): void }
+  /** why a turn was stopped, null while it runs (server.ts: the core's turn registry). A request its engine gives up
+   * because of the stop is logged as that stop, not as a model service that could not be reached. */
+  stopReason?: (turnId: string) => TurnStopReason | null
+}
+
+/** Turn.stop(): 'stopped' = the person (the Stop button, the chat deleted), 'timeout' = a time limit, 'shutdown' */
+export type TurnStopReason = 'stopped' | 'timeout' | 'shutdown'
+
+/** answers the proxy gives on purpose (Codex's background calls, ./codex-path.ts): not logged as failures */
+const EXPECTED = new WeakSet<Response>()
+export function expectedAnswer(r: Response): Response { EXPECTED.add(r); return r }
+/** the upstream call was cancelled because the engine hung up (its connection closed: the turn was stopped, or the
+ * engine gave up by itself); nobody reads this answer. Logged as the stop, or as the hang-up, never as a model
+ * service that could not be reached (QA 2026-10-30: the Stop button was logged as an outage). */
+const HUNG_UP = new WeakSet<Response>()
+export function unreachable(req: Request): Response {
+  if (!req.signal.aborted) return apiError(502, 'api_error', 'the model service could not be reached')
+  const r = apiError(502, 'api_error', 'the engine hung up')
+  HUNG_UP.add(r)
+  return r
 }
 
 // ---------------- forwarding rules (design tab 7 "모델 프록시를 통한 외부 전송", tab 3 "프록시 전달 규칙") ----------------
@@ -211,6 +233,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   let serverPort = 0
   const refusedAudit = (row: TokenRow | null, reason: string, extra: Record<string, unknown> = {}) =>
     audit(db, { actor: row?.user_id ?? null, action: 'proxy.refused', target: row?.turn_id ?? null, detail: { reason, ...(row?.credential_id ? { credentialId: row.credential_id } : {}), ...extra } })
+  /** the turn of a request whose token was found (also a revoked one): for the log line of a request a stop ended */
+  const turnOf = new WeakMap<Request, { turnId: string; revoked: boolean }>()
 
   /** token + peer: the request's proxy token row, or a Response that refuses it */
   async function admit(req: Request, clientPort: number, family: Family, path: string): Promise<TokenRow | Response> {
@@ -219,6 +243,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     const tok = (req.headers.get('x-api-key') || req.headers.get('authorization')?.replace(/^Bearer\s*/i, '') || '').trim()
     if (!tok) return apiError(401, 'authentication_error', 'missing proxy token')
     const row = tokenRow(db, tok)
+    if (row) turnOf.set(req, { turnId: row.turn_id, revoked: !!row.revoked_at })
     if (!row || row.revoked_at || row.expires_at < new Date().toISOString()) return apiError(401, 'authentication_error', 'invalid proxy token')
     // each path is for its own family's turns only: a Codex turn's token, a Claude turn's token on the Codex path, the
     // ChatGPT sign-in token (the engine's process passes the peer check, so the token has to say what it is for)
@@ -238,7 +263,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       if (req.headers.get('upgrade')) return apiError(400, 'invalid_request_error', 'no protocol upgrades on the model proxy')
       if (url.pathname.startsWith('/codex/')) {
         return handleCodex(req, url, {
-          db, broker: o.broker, codexModels: o.codexModels ?? (() => []), onTurnEvent: o.onTurnEvent, refused: refusedAudit,
+          db, broker: o.broker, codexModels: o.codexModels ?? (() => []), onTurnEvent: o.onTurnEvent, refused: refusedAudit, log: o.log,
           admit: (r) => admit(r, clientPort, 'openai', url.pathname),
         })
       }
@@ -301,7 +326,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         // another host, or the real credential to a path the rules above do not allow
         up = await fetch(cred.upstream.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
       } catch {
-        return apiError(502, 'api_error', 'the model service could not be reached')
+        return unreachable(req)
       }
       if (up.status >= 300 && up.status < 400) {
         await up.body?.cancel().catch(() => {})
@@ -392,11 +417,15 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const ip = srv.requestIP(req)
       const clientPort = ip ? links.get(ip.port) : undefined
       if (clientPort === undefined) return apiError(403, 'permission_error', 'not through the model proxy port')
+      const path = new URL(req.url).pathname.slice(0, 120)
       let res: Response
       try { res = await handle(req, clientPort) } catch (e) {
-        o.log?.warn('model proxy: request failed', { err: String((e as Error)?.message ?? e).slice(0, 200) })
+        // reading a non-streamed answer when the engine hung up throws (the upstream call was cancelled with it)
+        if (!(req.signal.aborted && endedByStop(req, path, true))) o.log?.warn('model proxy: request failed', { err: String((e as Error)?.message ?? e).slice(0, 200) })
         return apiError(502, 'api_error', 'the team server could not reach the model API')
       }
+      if (res.status >= 400 && EXPECTED.has(res)) { o.log?.debug?.('model proxy: answered here', { status: res.status, path }); return res }
+      if (HUNG_UP.has(res) ? endedByStop(req, path, true) : res.status === 401 && endedByStop(req, path, false)) return res
       // our refusals carry the message written above, the model service's its own error type and message
       if (res.status >= 400 && o.log) {
         let reason = ''
@@ -404,11 +433,27 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           const j = await res.clone().json() as { error?: { type?: unknown; message?: unknown } }
           reason = `${String(j.error?.type ?? '')}: ${String(j.error?.message ?? '')}`.slice(0, 200)
         } catch {}
-        o.log.warn('model proxy: request not ok', { status: res.status, path: new URL(req.url).pathname.slice(0, 120), reason })
+        o.log.warn('model proxy: request not ok', { status: res.status, path, reason })
       }
       return res
     },
   })
+  /** A request that lost its answer because the engine hung up (`hungUp`), or a 401 for a token its turn's stop
+   * revoked: when the turn was stopped, one info line that says by what (the person, a time limit, shutdown) and
+   * true; the caller logs nothing else. A hang-up while the turn runs is a warning of its own (true); a 401 of a turn
+   * nobody stopped is the caller's usual warning (false). */
+  function endedByStop(req: Request, path: string, hungUp: boolean): boolean {
+    const t = turnOf.get(req)
+    if (!hungUp && !t?.revoked) return false
+    const why = t ? o.stopReason?.(t.turnId) ?? null : null
+    if (why) {
+      o.log?.info?.('model proxy: request ended by a stop', { path, turn: t!.turnId, by: why === 'stopped' ? 'person' : why === 'timeout' ? 'time_limit' : 'shutdown' })
+      return true
+    }
+    if (!hungUp) return false
+    o.log?.warn('model proxy: the engine hung up before its answer', { path, ...(t ? { turn: t.turnId } : {}) })
+    return true
+  }
   const onConnect = o.connect ? codexConnectHandler({ db, ...o.connect }) : null
   const sockets = new Set<net.Socket>()
   let closing = false

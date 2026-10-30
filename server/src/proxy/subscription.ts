@@ -93,7 +93,9 @@ export interface ProxyServiceOptions {
   peerCheck?: ProxyOpts['peerCheck']
   /** CONNECT tunnels through the same port (office local-login Claude, the ChatGPT sign-in process) */
   connect?: ProxyOpts['connect']
-  log?: { warn(msg: string, f?: Record<string, unknown>): void; info(msg: string, f?: Record<string, unknown>): void }
+  log?: { warn(msg: string, f?: Record<string, unknown>): void; info(msg: string, f?: Record<string, unknown>): void; debug?(msg: string, f?: Record<string, unknown>): void }
+  /** why a turn was stopped (ProxyOpts.stopReason) */
+  stopReason?: ProxyOpts['stopReason']
   /** bind retry (design tab 1 "리슨": every 10 s, no restart loop) */
   retryMs?: number
 }
@@ -129,6 +131,7 @@ export class ModelProxyService {
       ...(this.o.codexModels ? { codexModels: this.o.codexModels } : {}),
       ...(this.o.log ? { log: this.o.log } : {}),
       peerCheck: this.o.peerCheck,
+      ...(this.o.stopReason ? { stopReason: this.o.stopReason } : {}),
       ...(this.o.connect ? { connect: this.o.connect } : {}),
       onTurnEvent: (turnId, ev) => this.listeners.get(turnId)?.(ev),
     }).then((p) => {

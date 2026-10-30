@@ -45,6 +45,9 @@ function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 
   const l = () => running.launcher as SocketLauncher | null
   return {
     ...o, db: running.db, peerCheck: proxyPeerCheck(running),
+    // a turn stopped a moment ago that already ended is no longer registered: its row says 'stopped'
+    stopReason: (turnId) => running.turns.get(turnId)?.stopReason
+      ?? ((running.db.query('SELECT status FROM turns WHERE id = ?').get(turnId) as { status: string } | null)?.status === 'stopped' ? 'stopped' : null),
     connect: {
       ...o.connect,
       turnSession: (turnId) => running.turns.get(turnId)?.pgid ?? null,
@@ -58,9 +61,10 @@ function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 
 export async function startEngineProxy(srv: Running, o: {
   port?: number; broker?: CredentialBroker | null; codexModels?: () => string[]; secretsDir?: string; connectHosts?: string[]; codexTurns?: boolean
   dial?: (host: string, port: number) => import('node:net').Socket
+  log?: ProxyServiceOptions['log']
 }) {
   const svc = new ModelProxyService(coreProxyOptions(srv, {
-    port: o.port ?? 0, broker: o.broker ?? null, secretsDir: o.secretsDir ?? srv.cfg.dataDir, ...(o.codexModels ? { codexModels: o.codexModels } : {}),
+    port: o.port ?? 0, broker: o.broker ?? null, secretsDir: o.secretsDir ?? srv.cfg.dataDir, ...(o.codexModels ? { codexModels: o.codexModels } : {}), ...(o.log ? { log: o.log } : {}),
     connect: { ...(o.connectHosts ? { hosts: o.connectHosts } : {}), ...(o.codexTurns ? { codexTurns: true } : {}), ...(o.dial ? { dial: o.dial } : {}) },
   })).start()
   await svc.started

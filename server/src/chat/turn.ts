@@ -218,7 +218,7 @@ export class TurnExec {
     this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
     this.abort.abort()
     // Stop authorizing tools/model requests immediately, even if process termination takes longer.
-    this.activeCore?.turns.invalidate(this.id)
+    this.activeCore?.turns.invalidate(this.id, reason)
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
     try { this.handle?.kill() } catch { this.quarantine() }
