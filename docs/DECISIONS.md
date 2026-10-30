@@ -2907,3 +2907,17 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
 - Crash leases have no TTL/PID reap. Stop all tenant services and children, clean owned
   snapshots, then delete only search lease rows offline. Never erase artifact identities.
   The default remains off; real CLI/host qualification and customer notice still gate enablement.
+
+
+### PWA install guide in Settings > Apps (2026-10-30, issue #9)
+
+- Put the guide in the Settings > Apps install section, not on a new route. The steps for this device come first
+  (iPhone/iPad, Android, computer). The other platforms follow.
+- An installed app (display-mode: standalone or navigator.standalone) shows no steps. It shows a link to
+  Settings > Notifications. Each step list ends with the push step, so a phone user can install and turn on push
+  from the guide only.
+- Show the guide only in a web browser (`clientKind() === 'web'`). The desktop app and the phone app are already apps.
+  The same rule removes the wrong "Add to Home Screen" hint in the phone app on iOS.
+- Settings > Notifications says that iOS gives push only to the Home Screen app (iOS 16.4+) and links the guide.
+  The guide does not read the iOS version from the user agent.
+- No mobile or first-run install banner exists, so this change adds no banner link.

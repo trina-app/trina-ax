@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { PushSettings } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { disablePush, enablePush, pushRegistration, pushSupported } from '../../lib/push'
-import { isIos, isStandalone } from '../../lib/pwa'
+import { pushNeedsInstall } from '../../lib/pwa'
 import { useT } from '../../i18n'
 import { notificationsChanged } from '../../store/live'
 import { Button, ErrorNote } from '../ui'
@@ -16,7 +17,7 @@ export function PushNotifications() {
   const [denied, setDenied] = useState(false)
   const [deviceReady, setDeviceReady] = useState(false)
   const life = useRef(0), revision = useRef(0)
-  const supported = pushSupported(), needsInstall = isIos() && !isStandalone()
+  const supported = pushSupported(), needsInstall = pushNeedsInstall()
   const load = async () => {
     const generation = life.current, rev = ++revision.current
     try {
@@ -56,7 +57,7 @@ export function PushNotifications() {
     <p className="text-xs text-muted">{t('push.description')}</p>
     {settings && !settings.configured && <p className="text-sm text-muted">{t('push.notConfigured')}</p>}
     {settings?.configured && <>
-      {needsInstall ? <p className="text-sm text-muted">{t('push.installIos')}</p> : !supported ? <p className="text-sm text-muted">{t('push.unsupported')}</p> : <>
+      {needsInstall ? <p className="text-sm text-muted">{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></p> : !supported ? <p className="text-sm text-muted">{t('push.unsupported')}</p> : <>
         <p className="text-sm">{t(settings.enabled && settings.subscriptionId && deviceReady ? 'push.on' : 'push.off')}</p>
         {(!settings.enabled || !settings.subscriptionId || !deviceReady) && <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>}
       </>}

@@ -1,5 +1,6 @@
 // Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (install as an app / desktop app download),
+// app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
+// screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
 // connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
 // member's own accounts (Integrations.tsx).
@@ -11,7 +12,7 @@ import type { EngineId, Memory, Schedule, Session, Theme } from '@mycel/shared/a
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
-import { isStandalone, platform, useInstallPrompt } from '../lib/pwa'
+import { installGuideShown, platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
@@ -28,6 +29,7 @@ import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
+import { InstallGuide } from '../components/settings/InstallGuide'
 import { ScheduleItem } from '../components/settings/ScheduleItem'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
@@ -462,7 +464,6 @@ function About() {
 function Apps() {
   const t = useT()
   const locale = useLocale()
-  const install = useInstallPrompt()
   const p = platform()
   const me = useMeStrict()
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
@@ -478,17 +479,12 @@ function Apps() {
   }, [])
   return (
     <>
-      <Section title={t('apps.installTitle')} desc={t('apps.installDesc')}>
-        {isStandalone() ? (
-          <p className="text-sm text-ok">{t('apps.installed')}</p>
-        ) : install.canPrompt ? (
-          <Button variant="primary" onClick={() => void install.prompt()}>
-            {t('apps.install')}
-          </Button>
-        ) : (
-          <p className="text-sm text-muted">{t(p === 'ios' ? 'apps.howIos' : p === 'android' ? 'apps.howAndroid' : 'apps.howDesktop')}</p>
-        )}
-      </Section>
+      {/* the desktop app and the phone app are already apps: no install guide there */}
+      {installGuideShown() && (
+        <Section title={t('apps.installTitle')} desc={t('apps.installDesc')}>
+          <InstallGuide />
+        </Section>
+      )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         {downloads === null && <Skeleton lines={2} />}
         {downloads === 'none' && (
