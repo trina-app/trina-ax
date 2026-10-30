@@ -3,7 +3,7 @@
 // region, so a screen reader hears "waiting" and "paused" without the focus moving.
 import clsx from 'clsx'
 import { Clock, FileText, FolderOpen, Pencil, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n'
 import type { QueuedMessage } from '../../lib/sendQueue'
 import { useSendQueue } from '../../store/sendQueue'
@@ -15,6 +15,8 @@ export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: st
   const q = useSendQueue((s) => s.queues[chatId])
   const editing = useSendQueue((s) => s.editing[chatId] ?? null)
   const list = useRef<HTMLUListElement>(null)
+  // leaving the chat ends an edit in progress, like Cancel: otherwise its messages would not go when the answer ends
+  useEffect(() => () => useSendQueue.getState().setEditing(chatId, null), [chatId])
   if (!q?.items.length) return null
   const { remove, update, setEditing, sendNow } = useSendQueue.getState()
 

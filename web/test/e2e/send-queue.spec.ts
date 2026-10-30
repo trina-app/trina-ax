@@ -118,6 +118,25 @@ test('a reload while the answer runs keeps the waiting message, and it still goe
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
 })
 
+test('leaving the chat in the middle of an edit does not hold the waiting message back', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await startSlow(page)
+  const chatPath = new URL(page.url()).pathname
+  await page.getByTestId('composer-input').fill('sent while I was away')
+  await page.getByTestId('composer-input').press('Enter')
+  await page.getByTestId('outbox-item').getByTestId('outbox-edit').click()
+  await expect(page.getByTestId('outbox-edit-input')).toBeFocused()
+  // another screen of the app (no reload) while the answer still runs: the edit ends like Cancel
+  await page.getByTestId('new-chat').click()
+  await expect(page).not.toHaveURL(new RegExp(`${chatPath}$`))
+  await expect(page.getByTestId('outbox-edit-input')).toHaveCount(0)
+  await page.goBack()
+  await expect(page).toHaveURL(new RegExp(`${chatPath}$`))
+  await expect(page.getByTestId('user-text').last()).toHaveText('sent while I was away', { timeout: 20_000 })
+  await expect(page.getByTestId('outbox')).toHaveCount(0)
+})
+
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   test('Enter makes a new line; the clock button next to Stop makes the message wait', async ({ page }) => {

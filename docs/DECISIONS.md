@@ -2974,6 +2974,10 @@ only themselves. The owner chose the safest defaults for the open questions:
   or a phone app back from the background keeps them. After a reload they still go by themselves only while their
   answer runs, or when that answer is the newest message; otherwise they wait for "Send now" so a message typed long
   ago never drops into a conversation that has moved on. Other windows of the same browser follow `storage` events.
+  Reading the stored copy is never stricter than writing it (up to 50 messages of any length; a queue taken back after
+  a 409 can briefly hold more than 10): a copy that failed to read would look empty, so its messages would sit unsent
+  and be gone after a reload. When storage is full the window keeps its own copy and removes the older stored one.
+  Leaving the chat during an edit of a waiting message ends the edit like Cancel, so the rest still go.
 - A combined send uses the clientMessageId `<first id>.<count>`: two windows sending the same queue make one message
   (the server answers a repeated id with the first result). A 409 (an answer started elsewhere meanwhile) puts them
   back to waiting and reloads the chat; any other failure shows on the sent message as "not sent [send again]".
