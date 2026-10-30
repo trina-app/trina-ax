@@ -298,6 +298,7 @@ export const ko = {
   'steps.running': '진행 중',
   'steps.done': '완료',
   'steps.failed': '실패',
+  'steps.paused': '여기서 멈춤',
   'steps.someFailed': '실패한 단계가 있어요',
   'steps.results': '결과 {n}개',
 

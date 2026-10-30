@@ -60,3 +60,22 @@ test('time limit: its own words; a waiting message still goes when the paused an
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await expect(page.getByTestId('continue')).toHaveCount(0)
 })
+
+test('time limit: the step it cut off shows as paused, not as a failed step', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'cap-time read every application in the folder')
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  await expect(lastAnswer(page).getByTestId('answer-paused')).toHaveAttribute('data-reason', 'time_limit')
+  const steps = lastAnswer(page).getByTestId('steps')
+  // folded: no "some steps failed" mark for a step the limit stopped
+  await expect(steps.getByTestId('steps-failed')).toHaveCount(0)
+  await steps.getByRole('button', { name: '작업 2단계' }).click()
+  const cut = steps.getByRole('listitem').filter({ hasText: 'read applications/21.pdf' })
+  await expect(cut.getByTestId('step-paused')).toHaveAttribute('aria-label', '여기서 멈춤')
+  await expect(steps.getByLabel('실패', { exact: true })).toHaveCount(0)
+  await shot(page, '3-time-limit-step-paused.png')
+  // after a reload the stored answer shows the same
+  await page.reload()
+  await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
+})

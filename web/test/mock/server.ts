@@ -4,7 +4,8 @@
 // server/src/routes/web.ts (same CSP and cache headers as production).
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
-// "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason);
+// "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
+// at the time limit a step still running ends paused);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
@@ -490,6 +491,12 @@ export class MockServer {
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key, type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
     const capped = /cap-tools/i.test(prompt) ? 'tool_limit' as const : /cap-time/i.test(prompt) ? 'time_limit' as const : null
+    // the time limit stops a step that is still running (a long read): like turn.ts, it ends paused, not failed
+    const cut = capped === 'time_limit' ? step({ id: 's-cut', kind: 'tool', tool: 'read', label: 'read applications/21.pdf' }) : null
+    if (cut) {
+      assistant.steps = [...assistant.steps, cut]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: cut } })
+    }
     const text = /error/i.test(prompt)
       ? ''
       : capped
@@ -510,6 +517,7 @@ export class MockServer {
     assistant.status = this.stopped.has(turnId) ? 'stopped' : /error/i.test(prompt) ? 'error' : 'done'
     // like server/src/chat/turn.ts at a per-answer limit: 'done', not an error, with the reason
     if (assistant.status === 'done' && capped) assistant.stopReason = capped
+    if (cut) assistant.steps = assistant.steps.map((x) => (x.id === cut.id ? { ...x, status: 'error' as const, endedAt: now(), ...(assistant.stopReason ? { paused: true as const } : {}) } : x))
     // like a fresh engine session (Codex every turn, an edit): history before this message past 40,000 characters
     // reaches the AI only in part (server/src/chat/prompt.ts historyWindow)
     let earlier = 0

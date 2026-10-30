@@ -3029,6 +3029,16 @@ only themselves. The owner chose the safest defaults for the open questions:
 - Not covered: Claude Code's own automatic compaction inside a resumed session (it keeps a summary and we do not see
   it), and the 4 KB memory block (memories, not the conversation). Summarizing the cut part is later work (row 34 ①).
 
+## A step the time limit cut off is paused, not failed (feat/chat-followups, 2026-10-30)
+
+- At the per-answer time limit the turn stops the engine; a step still running then (a long read, a slow page, the
+  thinking step) was closed as `error` and showed as a red failed step under an answer that says it paused. When the
+  answer pauses (`stopReason`), such a step now carries `Step.paused: true` (also one the engine reported failed only
+  because the stop ended its call) and shows a pause mark ("Paused here"); the folded list no longer says "some steps
+  failed" for it, and a scheduled run does not count it as a failed tool (the run is `problems` anyway).
+- Additive and optional: `status` stays `'error'`, so older apps and a rolled-back server still show it as not
+  finished, as before. Stop by the person, errors and the tool-call limit are unchanged.
+
 ## Plugins, stage 1: company scope, HWP Preview as the first plugin (2026-10-30)
 
 Placement: Trina AX only (`trina-app/trina-ax`), following the 10/29 decision to maintain Trina AX alone; the plan's

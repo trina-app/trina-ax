@@ -6,6 +6,8 @@
 //   @fake {"tool": "read", "args": {...}}    call one of our tools; {"sayResult": true} also says the result,
 //                                            {"sayLength": true} only its length and the start of its last line
 //   @fake {"sleep": 300}                     wait
+//   @fake {"toolStarted": "read", "args": {...}}  report a call of one of our tools that never finishes (a long
+//                                            download, a slow page): the step stays running until the turn ends
 //   @fake {"saySplit": "한글"}               one text delta whose stdout line is written in two pieces, cut inside
 //                                            the first multi-byte character (the launcher reads them separately)
 //   @fake {"refuseUnless": "sonnet"}         refuse unless --model contains the word
@@ -303,6 +305,12 @@ for (const d of directives) {
     const r = await tool(d.tool, d.args ?? {}, !!d.expectImage, !!d.inspectImages)
     if (d.sayResult) await say(r)
     if (d.sayLength) await say(`length=${r.length} tail=${r.trimEnd().split('\n').at(-1)?.slice(0, 12)}`)
+  } else if (d.toolStarted) {
+    turnsUsed++
+    closeBlock()
+    const id = `toolu_${++toolN}`
+    if (codex) out({ type: 'item.started', item: { id, type: 'mcp_tool_call', server: 'team', tool: d.toolStarted, arguments: d.args ?? {}, status: 'in_progress' } })
+    else out({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: `mcp__team__${d.toolStarted}`, input: d.args ?? {} }] } })
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }

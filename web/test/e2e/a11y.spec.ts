@@ -144,8 +144,8 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
-// Chat continuity: an answer paused at the per-answer limit with the long-conversation note, and a message waiting
-// to send (paused after Stop, with its edit / don't-send / "Send now" controls).
+// Chat continuity: an answer paused at the per-answer limit with the long-conversation note, a step the time limit
+// paused, and a message waiting to send (paused after Stop, with its edit / don't-send / "Send now" controls).
 for (const scheme of ['light', 'dark'] as const) {
   test(`paused answers, the memory note and waiting messages have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
@@ -162,6 +162,15 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(last.getByTestId('answer-paused')).toBeVisible()
     await expect(last.getByTestId('memory-note')).toBeVisible()
     await audit(page, 'paused answer + memory note')
+    await input.fill('cap-time go through the rest of the folder')
+    await page.getByTestId('send').click()
+    await expect(page.getByTestId('assistant-message')).toHaveCount(3)
+    await expect(last.getByTestId('answer-paused')).toHaveAttribute('data-reason', 'time_limit')
+    await last.getByTestId('steps').getByRole('button').first().click()
+    await expect(last.getByTestId('step-paused')).toBeVisible()
+    // focus in the answer shows its actions: audit them once they have faded in, not halfway
+    await expect(last.getByTestId('answer-actions')).toHaveCSS('opacity', '1')
+    await audit(page, 'time limit with a paused step')
     await input.fill('slow answer please, slow slow slow slow slow slow slow slow slow slow')
     await page.getByTestId('send').click()
     await expect(last).toHaveAttribute('data-status', 'streaming')

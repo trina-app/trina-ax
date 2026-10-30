@@ -179,6 +179,10 @@ export const Step = z.object({
   /** short human summary, e.g. 'grep "invoice" in finance/' (never raw tool input) */
   label: z.string().max(500),
   status: z.enum(['running', 'ok', 'error']),
+  /** the step was still running when the answer paused at its per-answer time limit (Message.stopReason): it was cut
+   * off, not failed, and "continue" picks the work up. status stays 'error' so apps without this field still show it
+   * as not finished; absent on every other step */
+  paused: z.literal(true).optional(),
   startedAt: IsoTime,
   endedAt: IsoTime.nullable(),
   /** optional longer result summary (e.g. search result titles), shown when expanded */

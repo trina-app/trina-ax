@@ -285,6 +285,7 @@ export const ja: Record<MessageKey, string> = {
   'steps.running': "実行中",
   'steps.done': "完了",
   'steps.failed': "失敗",
+  'steps.paused': "ここで一旦停止",
   'steps.someFailed': "一部の手順に失敗しました",
   'steps.results': "{n, plural, one {#件の結果} other {#件の結果}}",
   'ask.title': "AIからの質問です",

@@ -599,6 +599,37 @@ describe('per-answer limits', () => {
       expect(h.ctx.db.query('SELECT status, stop_reason, error FROM turns WHERE id = ?').get(r.started.turnId)).toEqual({ status: 'done', stop_reason: 'time_limit', error: null })
     } finally { rt.turnTimeoutMs = saved }
   })
+  test('a step still running at the time limit is paused, not failed; a step that failed before stays failed', async () => {
+    const rt = h.rt() as unknown as { turnTimeoutMs: number }
+    const saved = rt.turnTimeoutMs
+    rt.turnTimeoutMs = 1500
+    try {
+      const chat = await newChat()
+      const missing = { tool: 'read', args: { file_path: 'users/alice/no-such-file.md' } }
+      const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'working' }, missing, { toolStarted: 'grep', args: { pattern: 'invoice' } }, { sleep: 20000 }), { ms: 20_000 })
+      expect(r.done).toMatchObject({ status: 'done', error: null, stopReason: 'time_limit' })
+      const failed = r.done.steps.find((x) => x.tool === 'read')!
+      const cut = r.done.steps.find((x) => x.tool === 'grep')!
+      expect(failed.status).toBe('error')
+      expect(failed.paused).toBeUndefined()
+      // 'error' for apps that do not know `paused`; ended when the turn ended
+      expect(cut).toMatchObject({ status: 'error', paused: true })
+      expect(cut.endedAt).not.toBeNull()
+      const stored = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
+      expect(stored.items.find((m) => m.id === r.done.id)!.steps.find((x) => x.tool === 'grep')).toMatchObject({ status: 'error', paused: true })
+    } finally { rt.turnTimeoutMs = saved }
+  })
+  test('a step still running when the person stops the answer is not marked paused (only a limit pauses)', async () => {
+    const chat = await newChat()
+    const slow = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ say: 'x' }, { toolStarted: 'grep', args: { pattern: 'invoice' } }, { sleep: 20000 }), clientMessageId: cm(), attachmentIds: [] } })
+    await alice.next('message.step', (f) => f.data.messageId === slow.assistantMessage.id && f.data.step.tool === 'grep')
+    await h.api('alice').call(API.stop, { params: { id: chat.id } })
+    const stopped = await alice.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 20_000)
+    expect(stopped.data.status).toBe('stopped')
+    const cut = stopped.data.message.steps.find((x) => x.tool === 'grep')!
+    expect(cut.status).toBe('error')
+    expect(cut.paused).toBeUndefined()
+  })
   test('a time limit with nothing done yet stays the timeout error (nothing to continue from)', async () => {
     const rt = h.rt() as unknown as { turnTimeoutMs: number }
     const saved = rt.turnTimeoutMs

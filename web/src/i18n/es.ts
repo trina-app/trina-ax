@@ -285,6 +285,7 @@ export const es: Record<MessageKey, string> = {
   'steps.running': "En ejecución",
   'steps.done': "Completado",
   'steps.failed': "Falló",
+  'steps.paused': "En pausa aquí",
   'steps.someFailed': "Algunos pasos fallaron",
   'steps.results': "{n, plural, one {# resultado} other {# resultados}}",
   'ask.title': "La IA tiene una pregunta",

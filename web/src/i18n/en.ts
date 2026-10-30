@@ -299,6 +299,7 @@ export const en: Record<MessageKey, string> = {
   'steps.running': 'Running',
   'steps.done': 'Done',
   'steps.failed': 'Failed',
+  'steps.paused': 'Paused here',
   'steps.someFailed': 'Some steps failed',
   'steps.results': '{n, plural, one {# result} other {# results}}',
 

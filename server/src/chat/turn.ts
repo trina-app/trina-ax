@@ -106,6 +106,9 @@ export class TurnExec {
   historyTrimmed = false
   /** the engine wrote text or called a tool in this turn (any attempt): a time limit then pauses work to continue from */
   private producedOutput = false
+  /** steps still running when the turn was stopped (Stop, a time limit): if the answer pauses at its limit they were
+   * cut off by the pause, not failed (Step.paused) */
+  private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
   principal: Principal | null = null
@@ -204,6 +207,7 @@ export class TurnExec {
   stop(reason: 'stopped' | 'timeout' | 'shutdown' = 'stopped') {
     if (this.stopReason || this.status === 'finished') return
     this.stopReason = reason
+    this.runningAtStop = new Set(this.steps.filter((s) => s.status === 'running').map((s) => s.id))
     this.abort.abort()
     // Stop authorizing tools/model requests immediately, even if process termination takes longer.
     this.activeCore?.turns.invalidate(this.id)
@@ -1093,7 +1097,9 @@ export class TurnExec {
     this.rt.relay.cancelTurn(this.id)
     this.proxyUnsubscribe?.()
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
-    for (const s of this.steps) if (s.status === 'running') { s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
+    // what was still running when the turn was stopped, or is still running now (an event read after the stop)
+    const cut = new Set(this.runningAtStop)
+    for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
     // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
     // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
@@ -1106,6 +1112,9 @@ export class TurnExec {
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null
     if (stopReason) this.rt.log.info('turn paused at its limit', { turn: this.id, reason: stopReason, source: this.timeoutSource ?? 'engine' })
+    // a step the time limit cut off (also one the engine reported failed only because the stop ended its call) did not
+    // fail: it shows as paused, and "continue" picks it up. Its status stays 'error' for apps without Step.paused.
+    if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
     const files = this.fileSummary()
     const db = this.rt.db
     try {
@@ -1119,7 +1128,7 @@ export class TurnExec {
       // '(connect)' rows are bridge connection checks (mcp/socket.ts), not tool calls.
       if (this.spec.clientKind === 'schedule') {
         const refused = (db.query("SELECT count(*) AS n FROM tool_events WHERE turn_id = ? AND ok = 0 AND tool <> '(connect)'").get(this.id) as { n: number }).n
-        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error').length
+        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error' && !s.paused).length
         db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: refused + failedSteps, limited: !!stopReason }), this.id)
       }
       const core = this.registered ? this.activeCore : null
