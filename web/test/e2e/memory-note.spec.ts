@@ -27,7 +27,10 @@ test('a long conversation: the newest answer notes that only the recent part is 
   await expect(note).toHaveAttribute('role', 'note')
   // small and calm: not an alert, not an error
   await expect(lastAnswer(page).getByRole('alert')).toHaveCount(0)
-  if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, '3-long-conversation-memory-note.png') })
+  if (process.env.SHOTS_DIR) {
+    await note.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(process.env.SHOTS_DIR, '3-long-conversation-memory-note.png') })
+  }
   // only the newest answer carries it: after the next one, it moved there
   await input.fill('고마워요')
   await page.getByTestId('send').click()
