@@ -2907,3 +2907,35 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
 - Crash leases have no TTL/PID reap. Stop all tenant services and children, clean owned
   snapshots, then delete only search lease rows offline. Never erase artifact identities.
   The default remains off; real CLI/host qualification and customer notice still gate enablement.
+
+
+## Skills: folder permissions and personal skills (issue #10, 2026-10-30)
+
+Before this change, the skill list already used the folder rules of the reader, but nobody could keep a skill for
+only themselves. The owner chose the safest defaults for the open questions:
+
+1. **Folder permissions for skills = the same rules engine as files.** A skill in `skills/<sub>/` (any depth) is
+   visible and usable only by people who can read that path (`authorize`, `RuleSet.access`). Admins set this in
+   Admin > Folder permissions. A rule set that applies to nobody falls back to `skills/` (everyone reads), so a
+   restriction needs "Everyone: No access" plus read for the audience; the rule editor of a skills folder says so.
+   Skills directly in `skills/` stay team-wide: no migration, current rules unchanged.
+2. **Personal skills live in `users/<me>/skills/`.** Only the owner can see or use them. Owner and admins cannot
+   see them, the same as personal files. `readSkill` also checks that the path is the caller's own folder, so this
+   does not depend on the folder rules alone. A personal skill can be proposed to the team through the existing
+   suggestion flow (a file source in `users/<me>/`).
+3. **Every listing uses the permissions of the person who runs the turn**: the "/" menu and `GET /api/skills`,
+   skill issues, team rules, `skills_list` (remote MCP connector), `invokedSkill`, the skill index in the system
+   prompt, popular skills and the skill suggestion and manager screens. In a shared project chat this is the
+   sender; in a scheduled task it is the schedule owner (`schedules.ts` starts the turn with `s.user_id`).
+4. **A name conflict between a personal skill and a team skill: the personal skill wins for its owner only.**
+   `listSkills` drops the team skill from the owner's list; other people keep the team skill. When "/name" keys
+   have equal length, a personal skill wins over a team skill. The API marks it `personal: true` and the "/" menu
+   shows "Personal"; the prompt index marks it `[personal]`.
+
+- Personal skill usage is not recorded in `turn_skill_usage`: Admin > Usage shows skill paths and names to
+  admins. Popular skills count team skills only.
+- A file without a skill header in `users/<me>/skills/` is not a team rule. Team rules stay `skills/*.md`.
+- Each root (`skills/` and the personal folder) has its own entry cap, so team skills cannot push personal skills
+  out of the list.
+- The AI can write a personal skill in the person's own folder without the `skills/` confirmation card, because
+  nobody else follows it. Its name and description go into that person's own prompt index only.

@@ -3,7 +3,7 @@ import { FILE_TOOLS, type FileToolName } from '@mycel/shared'
 import type { AppContext } from '../../context'
 import { TurnFiles } from '../../files/service'
 import { authorize } from '../../policy/authorize'
-import { listSkills } from '../../chat/skills'
+import { listSkills, skillInfo } from '../../chat/skills'
 import { sourceKey, sourceOf, widening, type ReadSource } from '../../chat/read-scope'
 import { audit } from '../../admin/audit'
 import { hash, OAuthError } from './policy'
@@ -18,7 +18,7 @@ const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   delete schema.$schema
   return { name, description: t.description, inputSchema: schema, annotations: { readOnlyHint: !WRITE.has(name), destructiveHint: WRITE.has(name), openWorldHint: false } }
 })
-const skillTool = { name: 'skills_list', description: 'Discover team skills you can read. Use read on a returned path when needed. Skill metadata never grants tool permissions or executes scripts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, openWorldHint: false } }
+const skillTool = { name: 'skills_list', description: 'Discover the team skills you can read and your own personal skills (personal: true). Use read on a returned path when needed. Skill metadata never grants tool permissions or executes scripts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, openWorldHint: false } }
 const result = (text: string, isError = false) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}) })
 type Memory = { files: TurnFiles; tail: Promise<void>; queued: number; touched: number }
 
@@ -62,7 +62,7 @@ export class RemoteTools {
       const user = this.ctx.files.principal(fresh.user_id), policy = this.policy(user.id)
       if (name === 'skills_list') {
         if (args !== undefined && (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length)) return result('Invalid input.', true)
-        const skills = listSkills(this.ctx.files, user).map(({ path, name, description }) => ({ path, name, description }))
+        const skills = listSkills(this.ctx.files, user).map(skillInfo)
         return result(JSON.stringify(skills))
       }
       if (CONNECTOR_ONLY.has(name)) {

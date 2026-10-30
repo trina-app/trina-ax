@@ -283,8 +283,9 @@ export class TurnExec {
       history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null,
     })
     const prompt = (fresh: boolean) => buildTurnPrompt(rt.files, promptInput(fresh))
-    // "/<skill name> …": that team skill goes in front of the message for this turn (skills.ts); its folder joins the
-    // read scope like a file the AI read
+    // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
+    // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
+    // the schedule owner): team skills they can read and their own personal skills
     const invoked = invokedSkill(listSkills(rt.files, this.principal), userMsg.content)
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so

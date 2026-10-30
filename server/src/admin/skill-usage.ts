@@ -4,6 +4,8 @@ import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
 import { readSkill, SKILL_NAME_MAX, type SkillInfo } from '../chat/skills'
 
+// Team skills only (skills/...). A personal skill (users/<id>/skills/...) is never recorded: Admin > Usage shows
+// skill paths and names to admins, and admins must not see personal files.
 function skillPath(p: string): boolean {
   return p.startsWith('skills/') && p.endsWith('.md') && !p.includes('\\')
     && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && !/[\u0000-\u001f]/.test(s))

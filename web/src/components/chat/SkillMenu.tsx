@@ -1,5 +1,6 @@
-// The "/" list of team skills in the message box. Typing "/" at the start of the message lists the skills the person
-// can use (GET /api/skills, skills/**/*.md with a name header); choosing one writes "/<name> " and the server puts that
+// The "/" list of skills in the message box. Typing "/" at the start of the message lists the skills the person
+// can use (GET /api/skills: skills/**/*.md with a name header that they can read, and their own personal skills in
+// users/<me>/skills/, marked "Personal"); choosing one writes "/<name> " and the server puts that
 // skill in front of the message (server/src/chat/skills.ts). Arrow keys move, Enter / Tab choose, Esc closes.
 import clsx from 'clsx'
 import { Sparkles } from 'lucide-react'
@@ -77,7 +78,10 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
               onMouseEnter={() => setActive(i)}
               className={clsx('flex w-full flex-col rounded-xl px-2 py-1.5 text-left', i === active ? 'bg-accent-soft' : 'hover:bg-hover')}
             >
-              <span className="text-sm font-medium text-ink">/{s.name}</span>
+              <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                /{s.name}
+                {s.personal && <span className="rounded-full bg-hover px-1.5 text-[11px] font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
+              </span>
               <span className="truncate text-xs text-muted">{s.description || s.path}</span>
             </button>
           </li>

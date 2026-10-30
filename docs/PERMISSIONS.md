@@ -13,6 +13,8 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 | `groups/<그룹>/` | 그 그룹 사람 (관리자가 규칙으로 다른 그룹에 읽기·쓰기를 줄 수 있음) |
 | `projects/<프로젝트>/` | 그 프로젝트에 속한 사람 |
 | `skills/` (팀 스킬·팀 규칙) | 모두 읽기. 바꾸는 사람은 **스킬 관리자**: owner·관리자, 그리고 관리자가 멤버·그룹 화면의 "팀 스킬 관리"로 켜 준 사람·그룹(`skills/` 전체 또는 `skills/재무/` 같은 하위 폴더만) |
+| `skills/<sub>/` (restricted team skills) | The folder rules, the same as for files. Only people who can **read** the folder see and use its skills. See "Skills" below. |
+| `users/<id>/skills/` (personal skills) | **The owner only**, the same as all of `users/<id>/`. Owner and admins cannot see them. |
 | 스킬 제안 ("스킬로 제안") | 제안한 사람과 **제안을 넣을 폴더의 스킬 관리자**만. 다른 사람에게는 있다는 것도 안 보임 |
 | `users/<id>/` (개인 폴더) | **본인만**. owner·admin도 못 봄 |
 | `.system/` | 아무도 못 봄 (서버 내부용) |
@@ -23,6 +25,17 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 - 그룹에서 빠지거나 규칙이 바뀌면 **바로** 적용됩니다. AI 도구는 호출할 때마다 권한을 다시 읽고, 권한을 잃은 채팅은 AI 세션을 새로 시작합니다.
 - AI는 **묻는 사람의 권한만큼만** 일합니다. alice의 AI는 alice가 볼 수 있는 것만 봅니다.
 - **팀 스킬은 따로 조심합니다.** `skills/`의 내용은 팀 전체 AI가 따르는 지침입니다. 그래서 "팀 스킬 관리"는 별도 권한 표가 아니라 `skills/`(또는 하위 폴더)의 **쓰기 규칙** 그 자체입니다(폴더 권한 화면에도 같은 규칙으로 보임). 스킬 관리자의 AI라도 `skills/`에 저장하기 전에는 서버가 바뀌는 내용을 보여 주며 확인을 받고(AI가 대신 답할 수 없는 카드), 확인이 없으면 쓰지 않습니다. 사람이든 AI든 `skills/`가 바뀌면 감사 기록에 남고, owner·관리자에게 버전 기록 링크가 붙은 알림이 갑니다.
+
+## Skills: who sees which skill
+
+A skill is an instruction that the person can read. It never gives more access. Decisions: [DECISIONS.md](DECISIONS.md) "Skills: folder permissions and personal skills".
+
+- **Team skills use the folder rules.** A skill in `skills/<sub>/` (any depth) is visible and usable only by the people who can read that folder. Admins set this in Admin > Folder permissions, the same as for any folder. A folder rule that applies to nobody falls back to the rules of the folder above (`skills/`: everyone reads). Thus, to limit `skills/finance/`, set "Everyone: No access" and give read access to the finance group. Skills directly in `skills/` stay team-wide.
+- **Personal skills** are in `users/<id>/skills/` (a `.md` file with a skill header, or a `<name>/SKILL.md` folder). Only the owner sees and uses them. Owner and admins cannot see them. The owner can suggest one to the team with "Suggest as skill" on the Files screen. A manager of the target folder reviews it.
+- **One rule for every path.** The skill list is always the list of the person who runs the turn: the "/" menu (`GET /api/skills`), the skill index in the AI instructions, "/name" in a message, `skills_list` of the remote MCP connector, popular skills on the home screen, skill issues and the skill screens. In a shared project chat, this is the person who sent the message. In a scheduled task, this is the owner of the schedule.
+- **Same name.** When a personal skill has the same name as a team skill, the personal skill replaces the team skill for its owner only. The screens show it as "Personal".
+- **No usage records for personal skills.** Admin > Usage and popular skills count team skills only, so no admin sees the name of a personal skill.
+- Team rules (a `skills/*.md` file without a skill header) are unchanged. A file without a header in `users/<id>/skills/` is not a rule.
 
 ## AI 연결 (관리자 > AI 연결)
 

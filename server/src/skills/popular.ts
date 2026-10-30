@@ -1,11 +1,12 @@
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
-import { listSkills } from '../chat/skills'
+import { isPersonalSkill, listSkills } from '../chat/skills'
 
-/** Only aggregate counts of skills the caller can read now; no user identity or prompt content. */
+/** Only aggregate counts of team skills the caller can read now; no user identity or prompt content. Personal skills
+ * are never counted (admin/skill-usage.ts does not record them), and they are left out here too. */
 export function popularSkills(db: Database, files: FileService, user: Principal, now = new Date()) {
-  const allowed = listSkills(files, user), byPath = new Map(allowed.map(s => [s.path, s]))
+  const allowed = listSkills(files, user).filter((s) => !isPersonalSkill(s.path)), byPath = new Map(allowed.map(s => [s.path, s]))
   if (!allowed.length) return { items: [], days: 30 as const }
   const from = new Date(now.getTime() - 30 * 86400_000).toISOString()
   const rows = db.query(`SELECT s.skill_path AS path,COUNT(*) AS uses,COUNT(DISTINCT t.user_id) AS users
