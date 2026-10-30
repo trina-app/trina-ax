@@ -29,9 +29,16 @@ function walk(dir: string, rel = ''): string[] {
 export function findPluginPayload(target: string): string[] {
   const st = fs.statSync(target)
   let entries: string[]
+  // an archive that cannot be listed is a failure, never "no payload found"
+  const list = (cmd: string[]) => {
+    const r = Bun.spawnSync(cmd)
+    const out = r.stdout.toString().split('\n').filter(Boolean)
+    if (r.exitCode !== 0 || !out.length) throw new Error(`cannot list ${target}`)
+    return out
+  }
   if (st.isDirectory()) entries = walk(target)
-  else if (/\.zip$/i.test(target)) entries = Bun.spawnSync(['unzip', '-Z1', target]).stdout.toString().split('\n')
-  else if (/\.(tar|tgz|tar\.gz|tar\.zst)$/i.test(target)) entries = Bun.spawnSync(['tar', '-tf', target]).stdout.toString().split('\n')
+  else if (/\.zip$/i.test(target)) entries = list(['unzip', '-Z1', target])
+  else if (/\.(tar|tgz|tar\.gz|tar\.zst)$/i.test(target)) entries = list(['tar', '-tf', target])
   else throw new Error(`cannot list ${target}`)
   return entries.filter(Boolean).filter(forbiddenPluginPath)
 }

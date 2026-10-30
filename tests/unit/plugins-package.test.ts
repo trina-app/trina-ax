@@ -17,7 +17,7 @@ import { platformMismatch, productMismatch } from '../../server/src/plugins/plat
 import { driverMismatch } from '../../server/src/plugins/drivers'
 import { loadCatalog } from '../../server/src/plugins/catalog'
 import { checkTrust } from '../../scripts/plugins/trust'
-import { assertNoPluginPayload, forbiddenPluginPath, stagePluginCatalog } from '../../scripts/plugins/release-check'
+import { assertNoPluginPayload, findPluginPayload, forbiddenPluginPath, stagePluginCatalog } from '../../scripts/plugins/release-check'
 import { stageHwp, type HwpTarget } from '../../scripts/hwp-bundle'
 import { bundleManifest } from '../../scripts/build-office'
 import { linuxBundleFiles } from '../../scripts/build-bundle'
@@ -262,6 +262,9 @@ describe('trust root and release contents', () => {
       assertNoPluginPayload(stage)
       fs.writeFileSync(path.join(stage, 'resources/plugins/app.trina.hwp-preview-1.0.0-linux-x64.trinaplugin'), 'x')
       expect(() => assertNoPluginPayload(stage)).toThrow(/plugin payload/)
+      // an archive that cannot be listed fails the check instead of passing it
+      fs.writeFileSync(path.join(stage, 'broken.tar'), 'not a tar')
+      expect(() => findPluginPayload(path.join(stage, 'broken.tar'))).toThrow(/cannot list/)
       for (const p of ['app/native/bin/hwp/rhwp-darwin-arm64', 'licenses/hwp/rhwp-MIT.txt', 'resources/hwp/fonts/NotoSansKR-Regular.ttf', 'x/NotoSansKR-Regular.ttf', 'a.trinaplugin']) expect(forbiddenPluginPath(p)).toBe(true)
       for (const p of ['resources/plugins/catalog.json', 'resources/plugins/catalog.sig', 'server/src/hwp-preflight.js', 'licenses/LICENSE']) expect(forbiddenPluginPath(p)).toBe(false)
     } finally {
