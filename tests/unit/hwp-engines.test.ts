@@ -1,5 +1,5 @@
 // Actual Claude/Codex launch adapters, gate and MCP bridge; deterministic fake model processes, real native renderer
-// installed the way a company gets it: the HWP Preview plugin package (test-signed per run), turned on, release gate open.
+// installed the way a company gets it: the HWP Preview plugin package (test-signed per run), turned on.
 import { beforeAll, expect, test, setDefaultTimeout } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -16,7 +16,7 @@ beforeAll(async () => { pkg = (await buildHwpPlugin({ target: `${process.platfor
 for (const engine of ['claude-code','codex'] as const) test(`hwp_render image reaches ${engine} through its real launch and MCP bridge`, async () => {
   const h=await startHarness({name:`hwp-${engine}`,turnTimeoutMs:20000})
   const plugins=pluginsOf(h.ctx)
-  plugins.reconfigure({trust:prodTrust(key.pub),env:{MYCEL_HWP_PREVIEW:'1'}})
+  plugins.reconfigure({trust:prodTrust(key.pub)})
   const plan=plugins.inspect('dana',pkg,'file','en')
   plugins.install('dana',{token:plan.token,manifestSha256:plan.manifestSha256,enable:true,permissions:['files.read.selected','preview.render','runtime.native.isolated','model.send.preview-pixels']},'en')
   const socket=await h.ws('alice',{windowId:'hwp-engine-window'})

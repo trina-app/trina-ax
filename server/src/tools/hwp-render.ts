@@ -5,7 +5,7 @@ import { componentC } from '../team-files/component'
 import { pluginsOf } from '../plugins/manager'
 import type { ToolRegistry } from './registry'
 
-/** Offered only while the HWP Preview plugin is usable for the company (installed, on, release gate open, runnable
+/** Offered only while the HWP Preview plugin is usable for the company (installed, on, runnable
  * here) and the admin allowed page images to go to the AI provider; otherwise engines never see it. */
 export function registerHwpRender(ctx: AppContext, reg: ToolRegistry) {
   reg.register({

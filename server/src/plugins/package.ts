@@ -8,11 +8,11 @@
 // build scripts and tests.
 import crypto from 'node:crypto'
 import {
-  PLUGIN_MANIFEST_DOMAIN, PLUGIN_MANIFEST_FILE, PLUGIN_SIGNATURE_FILE, PluginManifest, platformKey, SUPPORTED_PLUGIN_KINDS, type PluginFile,
+  PLUGIN_MANIFEST_DOMAIN, PLUGIN_MANIFEST_FILE, PLUGIN_SCHEMA_VERSION, PLUGIN_SIGNATURE_FILE, PluginManifest, platformKey, SUPPORTED_PLUGIN_KINDS, type PluginFile,
 } from '@mycel/shared/plugins'
 import type { PluginRefusal, PluginTrust } from '@mycel/shared/api'
 import { ArchiveError, readArchive, writeArchive } from './archive'
-import type { ReleasePin } from './catalog'
+import { revokedKey, type ReleasePin } from './catalog'
 import { canonicalJson, JsonError, parseStrictJson } from './json'
 import { checkSignature, keyIdOf, publicKeyOfPem, signDetached, type SignatureCheck, type TrustRoot } from './trust'
 
@@ -60,7 +60,8 @@ export function pinFor(m: PluginManifest, manifestSha256: string, pins: readonly
   return hit
 }
 
-export function verifyPackage(bytes: Uint8Array, root: TrustRoot, pins: readonly ReleasePin[] = []): VerifiedPackage {
+/** `revoked`: builds the official list withdrew (catalog.ts revokedKeys), refused whatever their trust. */
+export function verifyPackage(bytes: Uint8Array, root: TrustRoot, pins: readonly ReleasePin[] = [], revoked: ReadonlySet<string> = new Set()): VerifiedPackage {
   let entries: Map<string, Buffer>
   try { entries = readArchive(bytes) } catch (e) {
     throw new PackageError('archive', e instanceof ArchiveError ? e.message : 'unreadable archive')
@@ -71,6 +72,9 @@ export function verifyPackage(bytes: Uint8Array, root: TrustRoot, pins: readonly
   const manifestText = manifestBytes.toString('utf8')
   let raw: unknown
   try { raw = parseStrictJson(manifestText) } catch (e) { throw new PackageError('manifest', e instanceof JsonError ? e.message : 'invalid JSON') }
+  // a format this build does not know is refused as such (schema 1 is frozen; a newer format needs a newer core)
+  const version = raw && typeof raw === 'object' ? (raw as { schemaVersion?: unknown }).schemaVersion : undefined
+  if (version !== PLUGIN_SCHEMA_VERSION) throw new PackageError('schema', `package format ${JSON.stringify(version ?? null).slice(0, 20)} is not ${PLUGIN_SCHEMA_VERSION}`)
   const parsed = PluginManifest.safeParse(raw)
   if (!parsed.success) throw new PackageError('manifest', parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || 'manifest'}: ${i.message}`).join('; '))
   const manifest = parsed.data
@@ -79,6 +83,7 @@ export function verifyPackage(bytes: Uint8Array, root: TrustRoot, pins: readonly
   // the digested and signed form is the document as written (strictly parsed), not a normalized copy
   const canonical = canonicalJson(raw)
   const manifestSha256 = sha256(canonical)
+  if (revoked.has(revokedKey(manifest.id, manifestSha256))) throw new PackageError('revoked', 'this build was withdrawn in the official list of this release')
   const sigBytes = entries.get(PLUGIN_SIGNATURE_FILE)
   const sigText = sigBytes ? sigBytes.toString('utf8') : null
   const pin = pinFor(manifest, manifestSha256, pins)

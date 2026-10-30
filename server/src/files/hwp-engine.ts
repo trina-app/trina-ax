@@ -162,12 +162,7 @@ export class NativeHwpEngine implements HwpEngine {
   }
 }
 
-/** The engine when HWP preview is not usable here (no plugin, plugin off, release gate closed): every page refused. */
+/** The engine when HWP preview is not usable here (no plugin, plugin off, not supported on this server, revoked): every
+ * page refused. Since the founder cleared the renderer (docs/DECISIONS.md "HWP Preview cleared"), the HWP Preview
+ * plugin turned on is the only switch; the old MYCEL_HWP_PREVIEW release gate is gone and ignored. */
 export const disabledHwpEngine: HwpEngine = { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') } }
-
-/**
- * The release gate, independent of the plugin: until the renderer's licence and platform review is finished, HWP
- * preview also needs MYCEL_HWP_PREVIEW=1 (internal review servers only). Turning the plugin on in the admin screen
- * alone never runs the uncleared renderer.
- */
-export const hwpReleaseGateOpen = (env: Record<string, string | undefined> = process.env) => env.MYCEL_HWP_PREVIEW === '1'

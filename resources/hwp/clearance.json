@@ -1,0 +1,6 @@
+{
+  "cleared": ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],
+  "date": "2026-10-30",
+  "by": "founder",
+  "note": "Redistribution of the HWP Preview plugin (rhwp 0.8.7 as pinned in manifest.json, Noto Sans KR Regular, notices/) cleared for these targets. The font-width tables compiled into rhwp have unknown provenance for most entries; accepted as a known risk while the question is open upstream (edwardkim/rhwp#8387). See docs/DECISIONS.md \"HWP Preview cleared\"."
+}

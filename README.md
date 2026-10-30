@@ -56,7 +56,7 @@ In managed installations, eligible personal connections take priority, followed 
 - Removing folder access does not erase earlier answers. Wider-sharing confirmation is not universal data-loss prevention.
 - No security certification, perfect answers, guaranteed savings or automatic legal/financial/HR decisions. Review outputs and deployment boundaries.
 - The AI sees photos and scanned PDF pages as images (an admin can turn this off), but Linux servers run no OCR: scanned documents and photos are not text-searchable there.
-- HWP/HWPX text extraction is available. Experimental [visual previews](resources/hwp/README.md) are included in this source but **off by default**, and their native runtime is excluded from default release bundles. Debian 12 does **not** support visual previews; text extraction and original downloads remain available. Complex layouts and conversions have limits.
+- HWP/HWPX text extraction is available. [Visual previews](resources/hwp/README.md) come as the optional HWP Preview plugin: an admin installs it from the official list in Admin > Plugins, and the server downloads the pinned build from the release feed. Default release bundles do not include its runtime. It needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support visual previews; text extraction and original downloads remain available. Complex layouts and conversions have limits.
 
 ## Clients, releases and help
 

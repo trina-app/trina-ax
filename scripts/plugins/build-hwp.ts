@@ -5,7 +5,8 @@
 //   bun run plugin:hwp -- --target linux-x64 --out dist/plugins
 //   bun run plugin:hwp -- --official --target linux-x64  an official package for the official list: unsigned (trusted by
 //                                                        the digest scripts/plugins/pin-catalog.ts pins in the release),
-//                                                        refused until resources/hwp/clearance.json lists the target
+//                                                        refused unless resources/hwp/clearance.json lists the target.
+//                                                        scripts/plugins/release-hwp.ts builds all four and pins them
 //   bun run plugin:hwp -- --key <pem> --cleared          a package signed by a plugin key (stage B5): the same clearance
 //                                                        rule, and never with the test key
 //
@@ -19,7 +20,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import hwpPins from '../../resources/hwp/manifest.json'
 import rustCrates from '../../resources/hwp/notices/rust-crates.json'
-import serverPkg from '../../server/package.json'
 import { PLUGIN_SCHEMA_VERSION, PluginCatalog } from '../../shared/src/plugins'
 import { buildPackage } from '../../server/src/plugins/package'
 import { publicKeyOfPem } from '../../server/src/plugins/trust'
@@ -28,6 +28,9 @@ import { ensureTestKey } from './test-key'
 
 const REPO = path.resolve(import.meta.dir, '../..')
 export const HWP_PLUGIN_VERSION = '1.0.0'
+/** The oldest core the package runs on (the plugin system and the rhwp-v1 driver). A constant, not the current core
+ * version, so a core release does not change the package and its pinned digest: the same published files stay valid. */
+export const HWP_MIN_PRODUCT = '0.2.10'
 
 /** Package licence (also the catalog entry's). MPL-2.0: the part of svg2pdf's draw_path that its NOTICE puts under it.
  * LicenseRef-HWP-Notices: the further licences that notices/THIRD_PARTY_NOTICES.md names and notices/ reproduces
@@ -81,7 +84,8 @@ The HWP adapter, input checks and isolation are part of Trina AX core (AGPL-3.0-
 
 const arg = (name: string) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : undefined }
 
-/** Targets whose redistribution review is finished (none yet). */
+/** Targets whose redistribution the founder cleared (resources/hwp/clearance.json; docs/DECISIONS.md "HWP Preview
+ * cleared"). */
 export function clearedTargets(repo = REPO): string[] {
   try { return (JSON.parse(fs.readFileSync(path.join(repo, 'resources/hwp/clearance.json'), 'utf8')) as { cleared?: string[] }).cleared ?? [] } catch { return [] }
 }
@@ -107,7 +111,7 @@ export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string | nu
       schemaVersion: PLUGIN_SCHEMA_VERSION, id: 'app.trina.hwp-preview', version: o.version ?? HWP_PLUGIN_VERSION,
       publisher: { id: 'trina', name: 'Trina', homepage: 'https://trina.app' },
       kinds: ['native-tool', 'preview'],
-      product: { apiVersion: 1, minVersion: serverPkg.version },
+      product: { apiVersion: 1, minVersion: HWP_MIN_PRODUCT },
       scopes: { install: ['company'], enable: ['company'] },
       i18n: entry.i18n,
       permissions: entry.permissions,

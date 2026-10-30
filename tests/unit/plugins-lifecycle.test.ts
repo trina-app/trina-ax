@@ -216,7 +216,8 @@ describe('catalog, recommendation and hosting', () => {
     expect(ko.catalogSource).toBe('release')
     const hwp = ko.catalog.find((c: any) => c.id === 'app.trina.hwp-preview')
     expect(hwp).toMatchObject({ recommended: true, installedVersion: null })
-    expect(['pending_clearance', 'unsupported']).toContain(hwp.availability)
+    // cleared and pinned for the four supported platforms: installable from the list where one fits this machine
+    expect(['available', 'unsupported']).toContain(hwp.availability)
     expect(hwp.name).toBe('HWP Preview')
     expect((await app.json('/api/admin/plugins', { as: 'carol', headers: { 'x-mycel-locale': 'ko' } } as never)).status).toBe(200)
     // the person's language and the browser do not matter: only the workspace default does
@@ -228,8 +229,10 @@ describe('catalog, recommendation and hosting', () => {
     expect(app.ctx.db.query('SELECT COUNT(*) AS n FROM plugin_installs').get()).toEqual({ n: 0 })
     expect(app.ctx.db.query('SELECT COUNT(*) AS n FROM plugin_access').get()).toEqual({ n: 0 })
     expect(m.usable('app.trina.hwp-preview')).toBe(false)
-    // and the HWP entry cannot be installed from the list
-    expect((await post('/api/admin/plugins/inspect-source', { source: 'catalog', id: 'app.trina.hwp-preview' })).body.error.params.reason).toBe('not_available')
+    // installing from the list downloads first (stubbed here: the feed is unreachable), and a failed download installs nothing
+    m.reconfigure({ download: { fetch: (async () => new Response('unavailable', { status: 503 })) as unknown as typeof fetch, lookup: async () => [{ address: '93.184.216.34', family: 4 }] } })
+    if (hwp.availability === 'available') expect((await post('/api/admin/plugins/inspect-source', { source: 'catalog', id: 'app.trina.hwp-preview' })).body.error.params.reason).toBe('download')
+    expect(app.ctx.db.query('SELECT COUNT(*) AS n FROM plugin_installs').get()).toEqual({ n: 0 })
     // Debian 12 (glibc 2.36): not supported on this server
     m.reconfigure({ host: { os: 'linux', arch: 'x64', libc: '2.36' } })
     expect((await app.json('/api/admin/plugins', { as: 'carol' })).body.catalog[0]).toMatchObject({ availability: 'unsupported', unsupported: 'libc', recommended: true })

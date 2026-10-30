@@ -9,8 +9,8 @@ import { disabledHwpEngine, HwpError, type HwpEngine, type RenderedPage } from '
 
 interface Cached { key: string; id: string; source: string; result: RenderedPage; expires: number }
 /** Cache IDs are random and never capabilities. Every lookup opens and authorizes the source again.
- * The engine is resolved for every request (server/src/plugins: the HWP Preview plugin's package while it is on and the
- * release gate is open, otherwise the disabled engine). */
+ * The engine is resolved for every request (server/src/plugins: the HWP Preview plugin's package while it is on and
+ * runnable here, otherwise the disabled engine). */
 export class HwpPreviews {
   private cache = new Map<string, Cached>()
   private running = new Set<string>()

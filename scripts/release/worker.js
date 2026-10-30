@@ -8,12 +8,15 @@
 //   server/<channel>.json and .sig         the Linux servers' channel head and its signature  never cached
 //   server/<version>/<file>.json and .sig  release.json, the bundles' file lists, signatures  never cached
 //   server/<version>/<file>                update archives and install kits                   immutable
+//   plugins/<id>/<version>/<file>          official plugin packages (docs/PLUGINS.md)          immutable
 // with Range for resumed downloads. Nothing is listed; every other path is 404. The signatures and the hashes in the
-// manifests are what the installations trust, not this server (scripts/release/publish.ts, publish-server.ts).
+// manifests are what the installations trust, not this server (scripts/release/publish.ts, publish-server.ts); a plugin
+// package is trusted only by the digests pinned in the official list inside the signed release.
 const DIR = 'office'
 const VERSION = '\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+){0,3})?'
 const FILE = '[A-Za-z0-9][A-Za-z0-9._+-]{0,150}'
-const KEY = new RegExp(`^(?:${DIR}\\/(?:(?:stable|beta)\\.json|${VERSION}\\/${FILE})|server\\/(?:(?:stable|beta)\\.json(?:\\.sig)?|${VERSION}\\/${FILE}))$`)
+const PLUGIN = '[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}'
+const KEY = new RegExp(`^(?:${DIR}\\/(?:(?:stable|beta)\\.json|${VERSION}\\/${FILE})|server\\/(?:(?:stable|beta)\\.json(?:\\.sig)?|${VERSION}\\/${FILE})|plugins\\/${PLUGIN}\\/${VERSION}\\/${FILE})$`)
 const MANIFEST = new RegExp(`^(?:${DIR}\\/(?:stable|beta)\\.json|server\\/.*\\.(?:json|sig))$`)
 
 const text = (status, body, extra = {}) =>
@@ -26,7 +29,7 @@ export default {
     let key
     try { key = decodeURIComponent(url.pathname).replace(/^\/+/, '') } catch { return text(404, 'Not found\n') }
     // publish-server.ts checks this line before it uploads: a Worker deployed before server/ was served says only "Office updates"
-    if (key === '') return text(200, `Updates: ${DIR}/, server/\n`)
+    if (key === '') return text(200, `Updates: ${DIR}/, server/, plugins/\n`)
     if (!KEY.test(key)) return text(404, 'Not found\n')
     const obj = await env.BUCKET.get(key, { range: req.headers, onlyIf: req.headers })
     if (obj === null) return text(404, 'Not found\n')

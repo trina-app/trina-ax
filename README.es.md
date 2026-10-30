@@ -56,7 +56,7 @@ En instalaciones con conexiones administradas se prioriza la conexión personal 
 - Retirar permisos no borra respuestas anteriores. La confirmación al ampliar el acceso no evita todas las posibles filtraciones.
 - No prometemos certificaciones de seguridad, respuestas perfectas, ahorros garantizados ni decisiones legales, financieras o de RR. HH. automáticas. Revisa los resultados y los límites de cada instalación.
 - La IA ve las fotos y las páginas PDF escaneadas como imágenes (un administrador puede desactivarlo), pero los servidores Linux no usan OCR: allí los documentos escaneados y las fotos no se pueden buscar como texto.
-- Se admite la extracción de texto de HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md) experimentales están en el código, pero **desactivadas de forma predeterminada**; las herramientas necesarias no se incluyen en los paquetes estándar. Debian 12 **no admite** estas vistas previas. La extracción de texto y las descargas originales siguen disponibles. Los formatos complejos y las conversiones tienen límites.
+- Se admite la extracción de texto de HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md) son el complemento opcional Vista previa de HWP: un administrador lo instala desde la lista oficial en Administración > Complementos y el servidor descarga la compilación fijada desde el canal de versiones. Los paquetes estándar no incluyen sus herramientas. Requiere macOS o Linux con glibc 2.39 o posterior, así que Debian 12 **no admite** estas vistas previas. La extracción de texto y las descargas originales siguen disponibles. Los formatos complejos y las conversiones tienen límites.
 
 ## Clientes, versiones y ayuda
 

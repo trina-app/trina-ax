@@ -4,11 +4,15 @@
 //   bun scripts/plugins/pin-catalog.ts dist/plugins/*.trinaplugin           write resources/plugins/catalog.json
 //   bun scripts/plugins/pin-catalog.ts --catalog <dir> <files...>           another folder (tests, mirrors)
 //   bun scripts/plugins/pin-catalog.ts --check <files...>                   exit 1 unless the list already pins them
+//   bun scripts/plugins/pin-catalog.ts --download <base-url> <files...>     also record where servers download each
+//                                                                            file: <base>/<id>/<version>/<file name>
+//                                                                            with its size and SHA-256 (release-hwp.ts)
 //
 // For each package: open it as the server does (archive limits, strict manifest, every file's size and SHA-256), check
 // that it is exactly what its catalog entry describes (id, version, publisher, kinds, permissions, licence, exactly one
 // of the entry's platforms, or none for a data-only entry), that a native package is the build core's driver accepts,
-// that an HWP target is cleared in resources/hwp/clearance.json, and that the local plugin TEST key did not sign it.
+// that an HWP target is cleared in resources/hwp/clearance.json, that the local plugin TEST key did not sign it, and that
+// the list has not revoked that build.
 // Then it writes { version, platform, manifestSha256 } into the entry's `pins`: the same platform is replaced, pins of
 // other versions are dropped, and the list's `sequence` goes up when anything changed. A pin makes the package
 // official on every server running that release, so review the diff like a key change.
@@ -42,10 +46,12 @@ export function formatCatalog(doc: unknown): string {
     const e = Object.entries(v)
     return e.length ? `{\n${e.map(([k, x]) => `${inner}${JSON.stringify(k)}: ${child(x, inner, k)}`).join(',\n')}\n${pad}}` : '{}'
   }
-  const field = (x: unknown, pad: string, key: string) =>
-    !isObj(x) || pad.length + JSON.stringify(key).length + 2 + inline(x).length + 1 <= WIDTH ? inline(x) : expanded(x, pad, (y) => inline(y))
+  const field = (x: unknown, pad: string, key: string): string =>
+    // one pin per block, one field per line: each is reviewed like a key
+    key === 'pins' && Array.isArray(x) ? expanded(x, pad, (y, p) => expanded(y as object, p, (z) => inline(z)))
+      : !isObj(x) || pad.length + JSON.stringify(key).length + 2 + inline(x).length + 1 <= WIDTH ? inline(x) : expanded(x, pad, (y) => inline(y))
   const entry = (x: unknown, pad: string) => expanded(x as object, pad, field)
-  return expanded(doc as object, '', (x, pad, key) => key === 'entries' && Array.isArray(x) ? expanded(x, pad, entry) : inline(x)) + '\n'
+  return expanded(doc as object, '', (x, pad, key) => key === 'entries' && Array.isArray(x) ? expanded(x, pad, entry) : field(x, pad, key)) + '\n'
 }
 
 const same = (a: readonly string[], b: readonly string[]) => [...a].sort().join('\n') === [...b].sort().join('\n')
@@ -56,7 +62,10 @@ export interface PinResult { text: string; changed: boolean; pins: { file: strin
  * The catalog text with these packages pinned. Throws (with the file name) when a package is not exactly an official
  * build of its entry. `cleared`: HWP targets whose redistribution review is finished; `testKeyId`: the local test key.
  */
-export function pinCatalog(catalogText: string, packages: { file: string; bytes: Uint8Array }[], o: { cleared: readonly string[]; testKeyId: string | null }): PinResult {
+/** The feed key of a published package: plugins/<id>/<version>/<file> (scripts/release/worker.js serves it). */
+export const downloadKey = (id: string, version: string, file: string) => `plugins/${id}/${version}/${path.basename(file)}`
+
+export function pinCatalog(catalogText: string, packages: { file: string; bytes: Uint8Array }[], o: { cleared: readonly string[]; testKeyId: string | null; downloadBase?: string }): PinResult {
   const before = canonicalJson(parseStrictJson(catalogText))
   // changing an entry's version leaves its old pins behind; they are dropped here (the list does not load with them)
   const raw = parseStrictJson(catalogText) as { entries?: { version?: unknown; pins?: { version?: unknown }[] }[] }
@@ -87,7 +96,10 @@ export function pinCatalog(catalogText: string, packages: { file: string; bytes:
       if (!o.cleared.includes(target)) fail(`HWP redistribution is not cleared for ${target} (resources/hwp/clearance.json)`)
     }
     if (o.testKeyId && m.signature?.keyId === o.testKeyId) fail('signed with the local plugin TEST key: build it with --official')
-    const pin: CatalogPin = { version: m.version, ...(m.platforms ? { platform: m.platforms[0]! } : {}), manifestSha256: v.manifestSha256 }
+    if ((doc.revoked ?? []).some((r) => r.id === m.id && r.manifestSha256 === v.manifestSha256)) fail('the official list revoked this build')
+    const download = o.downloadBase ? { url: `${o.downloadBase.replace(/\/+$/, '')}/${downloadKey(m.id, m.version, file).slice('plugins/'.length)}`, size: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') } : undefined
+    if (download && !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,150}$/.test(path.basename(file))) fail('the file name cannot be served from the release feed')
+    const pin: CatalogPin = { version: m.version, ...(m.platforms ? { platform: m.platforms[0]! } : {}), manifestSha256: v.manifestSha256, ...(download ? { download } : {}) }
     if (pinned.some((x) => x.id === m.id && platformKey(x.pin.platform) === platformKey(pin.platform))) fail(`two packages for ${m.id} ${platformKey(pin.platform) || '(any platform)'}`)
     pinned.push({ file, id: m.id, pin })
   }
@@ -118,10 +130,11 @@ if (import.meta.main) {
   const at = args.indexOf('--catalog')
   const dir = path.resolve(at >= 0 ? args[at + 1] ?? '' : path.join(REPO, 'resources/plugins'))
   const check = args.includes('--check')
-  const files = args.filter((a, i) => !a.startsWith('--') && !(at >= 0 && i === at + 1))
-  if (!files.length) { console.error('usage: bun scripts/plugins/pin-catalog.ts [--catalog <dir>] [--check] <package.trinaplugin>...'); process.exit(2) }
+  const dl = args.indexOf('--download')
+  const files = args.filter((a, i) => !a.startsWith('--') && !(at >= 0 && i === at + 1) && !(dl >= 0 && i === dl + 1))
+  if (!files.length) { console.error('usage: bun scripts/plugins/pin-catalog.ts [--catalog <dir>] [--check] [--download <base-url>] <package.trinaplugin>...'); process.exit(2) }
   const catalogFile = path.join(dir, 'catalog.json')
-  const r = pinCatalog(fs.readFileSync(catalogFile, 'utf8'), files.map((f) => ({ file: f, bytes: fs.readFileSync(f) })), { cleared: clearedTargets(), testKeyId: localTestKeyId() })
+  const r = pinCatalog(fs.readFileSync(catalogFile, 'utf8'), files.map((f) => ({ file: f, bytes: fs.readFileSync(f) })), { cleared: clearedTargets(), testKeyId: localTestKeyId(), downloadBase: dl >= 0 ? args[dl + 1] : undefined })
   for (const p of r.pins) console.log(`${p.id} ${p.pin.version} ${platformKey(p.pin.platform) || '(any platform)'} ${p.pin.manifestSha256}  ${path.basename(p.file)}`)
   if (check) {
     if (r.changed) { console.error(`${catalogFile} does not pin these packages yet`); process.exit(1) }

@@ -1,7 +1,7 @@
-// Plugin package contract, schema 0 = experimental (docs/PLUGINS.md, docs/DECISIONS.md "Plugins, stage 1"). The
-// format may still change (for example toward Claude Code's `.claude-plugin/plugin.json` + `skills/` layout) before
-// the first official package is published (pinned in a release) or a real plugin key signs anything; schema 1 will be
-// fixed at that point.
+// Plugin package contract, schema 1 (docs/PLUGINS.md, docs/DECISIONS.md "Plugins, stage 1"), frozen on 2026-10-30
+// before the first official package was pinned: a change to the manifest or catalog shape is a new schemaVersion, and
+// a reader refuses any version it does not know (refusal `schema`). Moving to Claude Code's `.claude-plugin/plugin.json`
+// + `skills/` layout, if ever, is a later schema.
 //
 // A plugin is a versioned package (`.trinaplugin`: a bounded tar, optionally gzip) with `trina-plugin.json` (this
 // manifest) and payload files. The manifest lists every payload byte (path, size, SHA-256), so the SHA-256 of its
@@ -81,7 +81,8 @@ export type PluginFile = z.infer<typeof PluginFile>
 export const PluginDriver = z.enum(['rhwp-v1'])
 export type PluginDriver = z.infer<typeof PluginDriver>
 
-export const PLUGIN_SCHEMA_VERSION = 0
+/** The only manifest and catalog version this build reads (schema 0 was the unreleased experimental format). */
+export const PLUGIN_SCHEMA_VERSION = 1
 export const PluginManifest = z.strictObject({
   schemaVersion: z.literal(PLUGIN_SCHEMA_VERSION),
   id: PluginId,
@@ -165,7 +166,14 @@ export type PluginSignature = z.infer<typeof PluginSignature>
  * (absent for data-only packages that name no platform) must equal the package's own, so a pin never vouches for
  * another version or another OS, CPU or C library.
  */
-export const CatalogPin = z.strictObject({ version: SemVer, platform: PluginPlatform.optional(), manifestSha256: Sha256 })
+/** The largest package a server downloads (the same bound as an uploaded package). */
+export const PLUGIN_DOWNLOAD_MAX = 50 * 1024 * 1024
+export const CatalogPin = z.strictObject({
+  version: SemVer, platform: PluginPlatform.optional(), manifestSha256: Sha256,
+  /** where servers download this build (https, on the release feed's origin; checked by the server) with the archive's
+   * exact size and SHA-256, checked before the bytes are opened. Absent: install the official file by hand. */
+  download: z.strictObject({ url: z.string().url().max(300).startsWith('https://'), size: z.number().int().positive().max(PLUGIN_DOWNLOAD_MAX), sha256: Sha256 }).optional(),
+})
 export type CatalogPin = z.infer<typeof CatalogPin>
 
 /** One platform as a comparable key ('' for none): os/arch and, on Linux, the glibc floor. */
@@ -187,7 +195,7 @@ export const CatalogEntry = z.strictObject({
   permissions: z.strictObject({ required: z.array(PluginPermission), optional: z.array(PluginPermission) }),
   /** where it can run; absent = any server (data only) */
   platforms: z.array(PluginPlatform).optional(),
-  /** pending_clearance: listed for discovery, no bytes are distributed yet (HWP: licence and platform review) */
+  /** pending_clearance: listed for discovery, no bytes are distributed yet (a licence or platform review is open) */
   availability: z.enum(['available', 'pending_clearance']),
   /** a recommendation signal only: never installs or enables anything */
   recommendedFor: z.strictObject({ locales: z.array(z.enum(['ko', 'en', 'id', 'ja', 'es'])).max(5) }).optional(),
@@ -208,7 +216,15 @@ export const CatalogEntry = z.strictObject({
   .refine((e) => (e.pins ?? []).every((p) => e.platforms?.length ? e.platforms.some((q) => platformKey(q) === platformKey(p.platform)) : !p.platform), 'a pin is for a platform the entry does not list')
   .refine((e) => new Set((e.pins ?? []).map((p) => platformKey(p.platform))).size === (e.pins ?? []).length, 'two pins for one platform')
 export type CatalogEntry = z.infer<typeof CatalogEntry>
-export const PluginCatalog = z.strictObject({ schemaVersion: z.literal(PLUGIN_SCHEMA_VERSION), sequence: z.number().int().min(1), entries: z.array(CatalogEntry).max(200) })
+/** A package build withdrawn by a later release: a server that has it installed turns it off (audit `plugin.revoke`) and
+ * refuses to install, enable or roll back to it, whatever its trust. */
+export const RevokedPackage = z.strictObject({ id: PluginId, manifestSha256: Sha256 })
+export type RevokedPackage = z.infer<typeof RevokedPackage>
+export const PluginCatalog = z.strictObject({
+  schemaVersion: z.literal(PLUGIN_SCHEMA_VERSION), sequence: z.number().int().min(1), entries: z.array(CatalogEntry).max(200),
+  revoked: z.array(RevokedPackage).max(1000).optional(),
+})
+  // (a pin that is also revoked loses at runtime instead of hiding the list, which would drop the revocations too)
   .refine((c) => new Set(c.entries.map((e) => e.id)).size === c.entries.length, 'an id repeats')
 export type PluginCatalog = z.infer<typeof PluginCatalog>
 

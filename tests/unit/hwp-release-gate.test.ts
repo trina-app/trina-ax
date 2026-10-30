@@ -2,17 +2,17 @@ import { expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { disabledHwpEngine, hwpReleaseGateOpen } from '../../server/src/files/hwp-engine'
+import { disabledHwpEngine } from '../../server/src/files/hwp-engine'
 import { stageHwp, type HwpTarget } from '../../scripts/hwp-bundle'
 import { bundleManifest } from '../../scripts/build-office'
 import { linuxBundleFiles } from '../../scripts/build-bundle'
 import { sha256 } from '../../server/src/files/store'
 import { makeCApp, type CApp } from '../lib/c-app'
 
-// This gate protects distribution as well as execution. HWP ships only as the separately built HWP Preview plugin
-// (docs/PLUGINS.md): local QA assets, stale destination assets and the old MYCEL_HWP_PREVIEW build switch never put the
-// renderer into a server or office release. At runtime the release gate stays a second, independent condition.
-test('release staging never carries the HWP runtime; the runtime gate is independent of installed assets', async () => {
+// HWP ships only as the separately built HWP Preview plugin (docs/PLUGINS.md): local QA assets, stale destination assets
+// and the old MYCEL_HWP_PREVIEW build switch never put the renderer into a server or office release. At runtime the
+// plugin turned on is the only switch (the old release gate was removed when the founder cleared the renderer).
+test('release staging never carries the HWP runtime; without the plugin nothing renders', async () => {
   const prior = process.env.MYCEL_HWP_PREVIEW
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'hwp-gate-'))
   const repo = path.resolve(import.meta.dir, '../..')
@@ -20,9 +20,6 @@ test('release staging never carries the HWP runtime; the runtime gate is indepen
   try {
     expect(disabledHwpEngine.identity).toBe('hwp-disabled')
     await expect(disabledHwpEngine.render(Buffer.from('unparsed'), 'hwp', 1)).rejects.toMatchObject({ reason: 'disabled' })
-    expect(hwpReleaseGateOpen({})).toBe(false)
-    expect(hwpReleaseGateOpen({ MYCEL_HWP_PREVIEW: 'true' })).toBe(false)
-    expect(hwpReleaseGateOpen({ MYCEL_HWP_PREVIEW: '1' })).toBe(true)
     for (const flag of [undefined, '1']) {
       if (flag) process.env.MYCEL_HWP_PREVIEW = flag; else delete process.env.MYCEL_HWP_PREVIEW
       for (const rel of ['native/bin/hwp', 'resources/hwp']) {

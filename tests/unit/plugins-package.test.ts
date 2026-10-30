@@ -140,13 +140,15 @@ describe('manifest', () => {
     expect(() => parseStrictJson('{"id":"a","id":"b"}')).toThrow(/duplicate key/)
     expect(() => parseStrictJson('{"a":' + '['.repeat(40) + ']'.repeat(40) + '}')).toThrow(/nested/)
     const { bytes } = skillPack({ keyPem: key.pem })
-    const dup = rewrite(bytes, (f) => f.set('trina-plugin.json', Buffer.from(Buffer.from(f.get('trina-plugin.json')!).toString().replace('"schemaVersion": 0,', '"schemaVersion": 0, "schemaVersion": 0,'))))
+    const dup = rewrite(bytes, (f) => f.set('trina-plugin.json', Buffer.from(Buffer.from(f.get('trina-plugin.json')!).toString().replace('"schemaVersion": 1,', '"schemaVersion": 1, "schemaVersion": 1,'))))
     expect(reason(() => verifyPackage(dup, prodTrust(key.pub)))).toBe('manifest')
     const unknown = rewrite(bytes, (f) => { const m = JSON.parse(Buffer.from(f.get('trina-plugin.json')!).toString()); m.hooks = { start: 'curl x | sh' }; f.set('trina-plugin.json', Buffer.from(JSON.stringify(m))) })
     expect(reason(() => verifyPackage(unknown, prodTrust(key.pub)))).toBe('manifest')
     const base = { ...skillManifest({ skills: ['a'] }), files: [{ path: 'skills/a/SKILL.md', sha256: 'a'.repeat(64), size: 1 }] }
     expect(PluginManifest.safeParse(base).success).toBe(true)
-    expect(PluginManifest.safeParse({ ...base, schemaVersion: 1 }).success).toBe(false)
+    // schema 1 is frozen: the experimental 0 and any later version are refused
+    expect(PluginManifest.safeParse({ ...base, schemaVersion: 0 }).success).toBe(false)
+    expect(PluginManifest.safeParse({ ...base, schemaVersion: 2 }).success).toBe(false)
     expect(PluginManifest.safeParse({ ...base, permissions: { required: [], optional: [] } }).success).toBe(false)
     expect(PluginManifest.safeParse({ ...base, permissions: { required: ['skills.company', 'shell.anything'], optional: [] } }).success).toBe(false)
     expect(PluginManifest.safeParse({ ...base, files: [...base.files, { path: 'bin/tool', sha256: 'b'.repeat(64), size: 1, executable: true }] }).success).toBe(false)
@@ -204,7 +206,7 @@ describe('platform, product and driver', () => {
   test('rhwp-v1 accepts only the executable and font core pinned', () => {
     const target = 'linux-x64'
     const m = PluginManifest.parse({
-      schemaVersion: 0, id: 'app.trina.hwp-preview', version: '1.0.0', publisher: { id: 'trina', name: 'Trina' }, kinds: ['native-tool', 'preview'],
+      schemaVersion: 1, id: 'app.trina.hwp-preview', version: '1.0.0', publisher: { id: 'trina', name: 'Trina' }, kinds: ['native-tool', 'preview'],
       product: { apiVersion: 1, minVersion: '0.1.0' }, scopes: { install: ['company'], enable: ['company'] }, i18n: { en: { name: 'HWP Preview', description: 'Pages.' } },
       permissions: { required: ['files.read.selected', 'preview.render', 'runtime.native.isolated'], optional: ['model.send.preview-pixels'] },
       platforms: [{ os: 'linux', arch: 'x64', libc: { family: 'glibc', minVersion: '2.39' } }],
@@ -238,11 +240,15 @@ describe('trust root and release contents', () => {
     expect(fs.existsSync(path.join(repo, 'editions/trina/branding/plugin-trust.json'))).toBe(true)
   })
 
-  test('the bundled official list is metadata only: HWP not yet available, no package, no test signature', () => {
+  test('the bundled official list is metadata and digests only: HWP cleared and pinned, no package, no test signature', () => {
     const repo = path.resolve(import.meta.dir, '../..')
     const cat = PluginCatalog.parse(JSON.parse(fs.readFileSync(path.join(repo, 'resources/plugins/catalog.json'), 'utf8')))
     expect(cat.entries.every((e) => !e.package)).toBe(true)
-    expect(cat.entries.find((e) => e.id === 'app.trina.hwp-preview')).toMatchObject({ availability: 'pending_clearance', recommendedFor: { locales: ['ko'] } })
+    const hwp = cat.entries.find((e) => e.id === 'app.trina.hwp-preview')!
+    expect(hwp).toMatchObject({ availability: 'available', recommendedFor: { locales: ['ko'] } })
+    // one pin per listed platform, each downloadable from the release feed
+    expect(hwp.pins!.map((p) => `${p.platform!.os}-${p.platform!.arch}`).sort()).toEqual(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'])
+    for (const p of hwp.pins!) expect(p.download!.url.startsWith('https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/')).toBe(true)
     expect(fs.readdirSync(path.join(repo, 'resources/plugins')).sort()).toEqual(['catalog.json'])
     expect(CatalogEntry.safeParse({ ...cat.entries[0], default: true }).success).toBe(false)
   })

@@ -178,15 +178,30 @@ describe('the feed Worker (scripts/release/worker.js)', () => {
     [`server/${v}/manifest-linux-amd64.json`]: '{}', [`server/${v}/manifest-linux-amd64.json.sig`]: '{}',
     [`server/${v}/${v}-linux-amd64.tar.zst`]: '0123456789', [`server/${v}/TeamAX-server-${v}-linux-arm64.tar.gz`]: 'kit',
     'server/x.json': 'stray', 'secret/key.pem': 'nope', 'server/0.3.0/sub/file': 'deep',
+    'plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-x64.trinaplugin': 'package', 'plugins/stray.bin': 'stray',
   }
   const env = { BUCKET: fakeBucket(objects) }
   const get = async (w: Awaited<ReturnType<typeof loadWorker>>, p: string, init: RequestInit = {}) => w.fetch(new Request(`https://feed.example${p}`, init), env)
 
-  test('the root says it serves server/ (publish-server.ts checks this before uploading)', async () => {
+  test('the root says it serves server/ (publish-server.ts checks this before uploading) and plugins/', async () => {
     const w = await loadWorker()
     const r = await get(w, '/')
     expect(r.status).toBe(200)
-    expect(await r.text()).toBe('Updates: office/, server/\n')
+    expect(await r.text()).toBe('Updates: office/, server/, plugins/\n')
+  })
+
+  test('plugins/: official packages by id and version, immutable; nothing else under plugins/', async () => {
+    const w = await loadWorker()
+    const p = 'plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-x64.trinaplugin'
+    const r = await get(w, '/' + p)
+    expect(r.status).toBe(200)
+    expect(r.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+    expect(await r.text()).toBe('package')
+    for (const bad of ['/plugins/stray.bin', '/plugins/', '/plugins/app.trina.hwp-preview/1.0.0/', '/plugins/App.Trina.x/1.0.0/a', '/plugins/hwp/1.0.0/a',
+      '/plugins/app.trina.hwp-preview/latest/a', '/plugins/app.trina.hwp-preview/1.0.0/sub/a', '/plugins/app.trina.hwp-preview/1.0.0/.hidden']) {
+      expect((await get(w, bad)).status, bad).toBe(404)
+    }
+    expect((await get(w, '/' + p, { method: 'PUT' })).status).toBe(405)
   })
 
   test('server/: the head and every .json / .sig are never cached, update archives and kits are immutable', async () => {
@@ -233,7 +248,7 @@ describe('the feed Worker (scripts/release/worker.js)', () => {
 
   test("an edition's office folder: its own folder and server/, not office/", async () => {
     const w = await loadWorker('medical-office')
-    expect(await (await get(w, '/')).text()).toBe('Updates: medical-office/, server/\n')
+    expect(await (await get(w, '/')).text()).toBe('Updates: medical-office/, server/, plugins/\n')
     expect((await get(w, '/office/stable.json')).status).toBe(404)
     expect((await get(w, '/server/stable.json')).status).toBe(200)
   })

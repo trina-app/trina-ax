@@ -159,7 +159,7 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
       <div className="flex flex-wrap gap-2 pt-1">
         {p.enabled
           ? <Button size="sm" busy={busy} onClick={() => void run(() => api.call(API.disablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.disabled', { name: p.name }))} data-testid="plugin-disable">{t('plugins.disable')}</Button>
-          : <Button size="sm" variant="primary" busy={busy} disabled={p.status === 'unsupported' && p.unsupported !== 'gate'} onClick={() => void run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name }))} data-testid="plugin-enable">{t('plugins.enable')}</Button>}
+          : <Button size="sm" variant="primary" busy={busy} disabled={p.status === 'unsupported'} onClick={() => void run(() => api.call(API.enablePlugin, { params: { id: p.id }, body: {} }), t('plugins.done.enabled', { name: p.name }))} data-testid="plugin-enable">{t('plugins.enable')}</Button>}
         {p.previousVersion && (
           <Button size="sm" busy={busy} onClick={() => void run(() => api.call(API.rollbackPlugin, { params: { id: p.id }, body: {} }), t('plugins.done.rolledBack', { name: p.name, version: p.previousVersion! }))} data-testid="plugin-rollback">
             <RotateCcw size={14} aria-hidden /> {t('plugins.rollback', { version: p.previousVersion })}
@@ -176,8 +176,10 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
   )
 }
 
-function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => void; fileInstall: boolean }) {
+function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean }) {
   const t = useT()
+  // the server may first download the package from the release feed
+  const [busy, setBusy] = useState(false)
   return (
     <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -191,7 +193,7 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
       {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
       <Permissions items={c.permissions} />
       {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
-        <Button size="sm" variant="primary" onClick={() => review(c.id)} data-testid="plugin-catalog-install">{c.installedVersion ? t('plugins.update', { version: c.version }) : t('plugins.install')}</Button>
+        <Button size="sm" variant="primary" busy={busy} disabled={busy} onClick={async () => { setBusy(true); try { await review(c.id) } finally { setBusy(false) } }} data-testid="plugin-catalog-install">{c.installedVersion ? t('plugins.update', { version: c.version }) : t('plugins.install')}</Button>
       )}
       {c.availability === 'file' && (!c.installedVersion || c.updateAvailable) && (
         <p className="text-sm text-muted" data-testid="plugin-from-file">{t(fileInstall ? 'plugins.availability.file' : 'plugins.availability.fileHosted')}</p>
@@ -240,7 +242,7 @@ export default function Plugins() {
           </Card>
           <Card title={t('plugins.catalog')} desc={t(`plugins.catalog.${d.catalogSource}` as MessageKey)}>
             {d.catalog.length
-              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} fileInstall={d.fileInstall} review={(id) => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
+              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} fileInstall={d.fileInstall} review={(id) => inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
               : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
           </Card>
           {d.imports.length > 0 && (

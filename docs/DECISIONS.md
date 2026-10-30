@@ -3266,12 +3266,12 @@ publishers (B5). Admin doc: [PLUGINS](PLUGINS.md) "공식 플러그인 확인".
   exact pinned bytes and no signature file. Archive digests were not used: they change on re-gzip and cover tar/gzip
   framing that is never installed.
 - **Unchanged guarantees.** `pending_clearance` still blocks (a matching pin of such an entry is refused as
-  `not_available`; flipping availability is a separate reviewed edit). HWP still needs `MYCEL_HWP_PREVIEW=1` and the
-  plugin on. Default bundles carry digests only, never a package, renderer or font. Admin-only routes, CSRF, the
-  approved-digest check and `plugin.*` audit (now with `verifiedBy`) stay. Hosted servers still take no package files;
-  they get official bytes with the B3 download, checked against the same pins. No environment variable or `server.json`
-  key adds a pin and test settings never make a package official; a unit test pins the settings the plugin code reads.
-  A `catalog.sig` that does not verify still hides the whole list.
+  `not_available`; flipping availability is a separate reviewed edit). Default bundles carry digests only, never a
+  package, renderer or font. Admin-only routes, CSRF, the approved-digest check and `plugin.*` audit (now with
+  `verifiedBy`) stay. Hosted servers still take no package files (they install from the list by download, see "HWP
+  Preview cleared"). No environment variable or `server.json` key adds a pin and test settings never make a package
+  official; a unit test pins the settings the plugin code reads. A `catalog.sig` that does not verify still hides the
+  whole list.
 - **Release step.** `bun run plugin:hwp -- --official --target <t>` builds an unsigned official package (refused until
   `resources/hwp/clearance.json` lists the target). `scripts/plugins/pin-catalog.ts` opens each package as the server
   does, checks it against its entry (id, version, publisher, kinds, permissions, licence, platform, the core driver's
@@ -3281,8 +3281,42 @@ publishers (B5). Admin doc: [PLUGINS](PLUGINS.md) "공식 플러그인 확인".
   mirror may place it next to the list (`package`). The official-list card says to upload the file when a pin exists
   for this server but no bytes do.
 - **Deferred.** The Ed25519 plugin-key path (trust root, catalog signature, `sign-catalog.ts`) stays for B5;
-  `plugin-trust.json` stays empty. Revocation: a pin dropped by a later release does not turn off an installed
-  package, so a revoked-digest list in the same catalog must exist before the first official package is published.
-  Schema 0 must be frozen before the first pin ships.
+  `plugin-trust.json` stays empty. Revocation and the frozen format landed with HWP (next entry).
 - **Wording.** Korean Admin > Plugins and HWP viewer strings now use 해요체 like the rest of Admin. Optional permissions
   (HWP: page images sent to the AI provider) stay pre-ticked as in Claude Code, and the prompt says so.
+
+## HWP Preview cleared 2026-10-30 by the founder; font-width tables accepted as a known risk, rhwp#8387 open
+
+The founder cleared redistribution of the HWP Preview plugin for all four targets (`resources/hwp/clearance.json`:
+darwin-arm64, darwin-x64, linux-arm64, linux-x64). The font-width tables compiled into rhwp 0.8.7 have unknown
+provenance for most entries (see "HWP plugin notices"); this is accepted as a known risk while the question is open
+upstream at edwardkim/rhwp#8387. Admin doc: [PLUGINS](PLUGINS.md) "한글 문서 미리보기(HWP)".
+
+- **Catalog.** The HWP entry is `available` and pins the four official builds (unsigned, `bun run plugin:hwp --
+  --official`) with their download address on the release feed and the archive's exact size and SHA-256.
+  `scripts/plugins/release-hwp.ts` downloads and checks the pinned rhwp archives, builds the four packages, writes the
+  pins and prints the upload commands; `--check` verifies, `--upload` (operator) puts them in R2 and reads them back
+  through the feed. The package's product floor is a constant (`HWP_MIN_PRODUCT`), so core releases do not change the
+  package or its pins; a unit test rebuilds this machine's package and compares it with its pin byte for byte.
+- **Download path.** "Install" on the official list downloads the pinned build for this server: https on the release
+  feed's origin only, names that resolve to public addresses only (the hosted outbound rule, `system/egress.ts`), no
+  redirects, at most the listed size, then the exact size and SHA-256 before the archive is opened; then the normal
+  inspect → permission prompt → install. Hosted servers install this way; uploads and the import folder stay off there.
+  A server whose platform does not match (Debian 12, glibc 2.36) shows "not supported here" and downloads nothing. The
+  feed Worker serves `plugins/<id>/<version>/<file>` as immutable; it must be redeployed once
+  (`scripts/release/hosting.ts setup`) before the files are uploaded.
+- **Gate removed.** With the renderer cleared, the plugin turned on is the only switch: `MYCEL_HWP_PREVIEW` is gone
+  (ignored if set). This is safe because what the gate stood in for is now decided (redistribution), and what keeps
+  execution safe never depended on it: only an official pinned build (or, on dev/marked test servers, a test-signed
+  one) installs, the `rhwp-v1` driver accepts only the pinned executable and font, the executable is hashed before
+  every run, isolation is required (Linux bwrap + converter cgroup, macOS sandbox-exec) and preflight and limits stay in
+  core. Owners/admins approve the install; `hwp_render` still needs the optional page-image permission (pre-ticked,
+  stated in the prompt). Hosted and office rules for test keys are unchanged.
+- **Revocation.** The catalog's `revoked: [{id, manifestSha256}]` withdraws a build: at start a server turns an
+  installed, enabled one off (access removed, skills taken out, audit `plugin.revoke` with no actor), shows "this version
+  was withdrawn" and refuses installing, enabling or rolling back to it whatever its trust; a revoked digest is never
+  a pin even if the list still names it. Revocations ship with the core release, like pins.
+- **Format frozen.** Manifest and catalog are `schemaVersion: 1`; a reader refuses any other version (`schema` for a
+  package; the list is not read). Internal review servers with a schema-0 test package reinstall it.
+- **Not yet verified on hardware.** End-to-end runs on Linux amd64 with the converter cgroup and on an Intel Mac; the
+  engine adapters are covered by tests that need the real engine harness.

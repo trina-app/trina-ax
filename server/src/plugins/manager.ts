@@ -8,6 +8,11 @@
 //             check them again, move the folder into <data>/plugins/store in one rename, then record it
 //   enable / disable / update / rollback / uninstall — every change is audited (plugin.*), cancels HWP renders in
 //             flight, drops cached pages and replaces the renderer instance
+//   catalog   "Install" on the official list: the pinned build for this server is read next to the list or downloaded
+//             from the release feed (https, the feed's origin only, public addresses, no redirects, the exact size and
+//             SHA-256 the list names), then goes through the same inspect -> permission prompt -> install
+//   revoked   a build the official list of this release withdrew is turned off at start (audit plugin.revoke) and is
+//             never usable, installable, enabled or rolled back to
 //
 // Nothing here runs package code in the server. A native package only supplies bytes for a driver core implements
 // (plugins/drivers.ts), run through the existing isolated converter path. The store lives outside the team folder, so
@@ -17,8 +22,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  compareSemVer, PLUGIN_MANIFEST_FILE, PLUGIN_SIGNATURE_FILE, PluginManifest, pluginStrings, type CatalogEntry, type PluginPermission,
+  compareSemVer, PLUGIN_DOWNLOAD_MAX, PLUGIN_MANIFEST_FILE, PLUGIN_SIGNATURE_FILE, PluginManifest, pluginStrings, type CatalogEntry, type CatalogPin, type PluginPermission,
 } from '@mycel/shared/plugins'
+import { RELEASE_CHANNEL } from '@mycel/shared'
 import type {
   CatalogPlugin, InstalledPlugin, PluginList, PluginPlan, PluginRefusal, PluginTrust, PluginUnsupported, PluginVerifiedBy,
 } from '@mycel/shared/api'
@@ -27,11 +33,12 @@ import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
 import { checkSkill } from '../chat/skills'
 import { fileEvent } from '../files/store'
-import { disabledHwpEngine, hwpReleaseGateOpen, NativeHwpEngine, type HwpEngine } from '../files/hwp-engine'
-import { fail } from '../http/errors'
+import { disabledHwpEngine, NativeHwpEngine, type HwpEngine } from '../files/hwp-engine'
+import { fail, HttpError } from '../http/errors'
 import { feature, runKindOf } from '../system/deployment'
+import { assertPublicHttps, type Lookup } from '../system/egress'
 import { publishChanges } from '../team-files/changes'
-import { defaultCatalogDir, loadCatalog, releasePins, type LoadedCatalog } from './catalog'
+import { defaultCatalogDir, loadCatalog, releasePins, revokedKey, revokedKeys, type LoadedCatalog } from './catalog'
 import { driverMismatch, HWP_PLUGIN_ID } from './drivers'
 import { PackageError, verifyPackage, type VerifiedPackage } from './package'
 import { hostInfo, platformMismatch, productMismatch, type HostInfo } from './platform'
@@ -46,8 +53,13 @@ export interface PluginOptions {
   catalogDir?: string
   host?: HostInfo
   version?: string
+  /** the environment's test trust settings (trust.ts), read when the trust root is built */
   env?: Record<string, string | undefined>
+  /** test hooks for downloads from the release feed */
+  download?: { fetch?: typeof fetch; lookup?: Lookup; origin?: string }
 }
+
+const DOWNLOAD_TIMEOUT_MS = 5 * 60_000
 
 interface Plan { token: string; actor: string; expires: number; file: string; archiveSha256: string; manifestSha256: string; source: 'file' | 'catalog' | 'import'; id: string; version: string }
 interface PackageRow { plugin_id: string; version: string; archive_sha256: string; manifest_sha256: string; manifest: string; signature: string | null; trust: 'official' | 'test' | 'unverified'; key_id: string | null; source: 'file' | 'catalog' | 'import'; store_dir: string; installed_by: string | null; installed_at: string }
@@ -64,7 +76,7 @@ export class PluginManager {
   host: HostInfo
   version: string
   catalogDir: string
-  private env: Record<string, string | undefined>
+  private download: NonNullable<PluginOptions['download']> = {}
   private catalogCache: LoadedCatalog | null = null
   private plans = new Map<string, Plan>()
   private engines = new Map<string, NativeHwpEngine>()
@@ -76,8 +88,8 @@ export class PluginManager {
     // team-folder writes under a skill pack's folder are refused (policy/authorize.ts). Installed first, so nothing
     // below that fails can leave placed skill files writable.
     ctx.files.fx.managed = { managerOf: (segs) => this.managerOf(segs), heldBelow: (segs) => this.heldBelow(segs) }
-    this.env = o.env ?? process.env
-    this.trust = o.trust ?? trustRoot({ runKind: runKindOf(ctx.config), env: this.env })
+    this.trust = o.trust ?? trustRoot({ runKind: runKindOf(ctx.config), env: o.env ?? process.env })
+    this.download = o.download ?? {}
     this.host = o.host ?? hostInfo()
     this.version = o.version ?? ctx.version
     this.catalogDir = o.catalogDir ?? defaultCatalogDir()
@@ -90,17 +102,20 @@ export class PluginManager {
     this.storeRefused = (path.resolve(this.base) + path.sep).startsWith(team)
     if (this.storeRefused) ctx.log.error('the plugin store would be inside the team folder: plugin installs are off', { dataDir: ctx.config.dataDir })
     try { this.sweep() } catch (e) { ctx.log.warn('plugin incoming sweep failed', { err: e }) }
+    try { this.turnOffRevoked() } catch (e) { ctx.log.error('could not turn off a revoked plugin build (it stays unusable)', { err: e }) }
   }
 
-  /** Test hook: new trust / catalog / host. */
+  /** Test hook: new trust / catalog / host / download (the trust settings in `env` only count when the trust root is
+   * built; pass `trust`). */
   reconfigure(o: PluginOptions) {
-    if (o.env) this.env = o.env
+    if (o.download) this.download = o.download
     if (o.trust) this.trust = o.trust
     if (o.host) this.host = o.host
     if (o.version) this.version = o.version
     if (o.catalogDir) this.catalogDir = o.catalogDir
     this.catalogCache = null
     this.changed()
+    this.turnOffRevoked()
   }
 
   private dir(...p: string[]) { return path.join(this.base, ...p) }
@@ -151,12 +166,37 @@ export class PluginManager {
   /** Why an installed plugin cannot run here now (null: it can). */
   private unsupported(x: Installed, full = false): PluginUnsupported | null {
     const m = x.manifest
+    if (this.isRevoked(x.pkg.plugin_id, x.pkg.manifest_sha256)) return 'revoked'
     const shas = new Map(m.files.map((f) => [f.path, f.sha256]))
     const why = platformMismatch(m.platforms, this.host) ?? productMismatch(m.product, this.version) ?? driverMismatch(m, (p) => shas.get(p))
     if (why) return why
     if (!this.storeIntact(x.pkg, m, full)) return 'damaged'
-    if (m.runtime?.driver === 'rhwp-v1' && !hwpReleaseGateOpen(this.env)) return 'gate'
     return null
+  }
+
+  /** The official list of this release withdrew this build. */
+  isRevoked(id: string, manifestSha256: string): boolean {
+    try { return revokedKeys(this.catalog()).has(revokedKey(id, manifestSha256)) } catch { return false }
+  }
+
+  /** Turn off every installed plugin whose active build the official list withdrew (at start, after a core update):
+   * not on for anyone, its skills taken out, one audit line each. It also stays unusable without this (unsupported). */
+  private turnOffRevoked() {
+    const revoked = revokedKeys(this.catalog())
+    if (!revoked.size) return
+    for (const x of this.allInstalled()) {
+      if (!revoked.has(revokedKey(x.pkg.plugin_id, x.pkg.manifest_sha256))) continue
+      if (!this.ctx.db.query('SELECT 1 FROM plugin_access WHERE plugin_id = ?').get(x.pkg.plugin_id)) continue
+      const id = x.pkg.plugin_id
+      this.ctx.db.transaction(() => {
+        this.ctx.db.query('DELETE FROM plugin_access WHERE plugin_id = ?').run(id)
+        this.ctx.db.query('UPDATE plugin_installs SET updated_at = ? WHERE plugin_id = ?').run(now(), id)
+      })()
+      this.changed()
+      this.removeSkills(id, null)
+      audit(this.ctx.db, { actor: null, action: 'plugin.revoke', target: id, detail: { version: x.manifest.version, manifestSha256: x.pkg.manifest_sha256, reason: 'withdrawn in the official list of this release' } })
+      this.ctx.log.warn('a withdrawn plugin build was turned off', { plugin: id, version: x.manifest.version })
+    }
   }
 
   private approved(x: Installed): Set<PluginPermission> {
@@ -259,7 +299,7 @@ export class PluginManager {
    * are deleted; one changed outside the app (a shell, Finder on the office Mac, a database restore) stays where it is.
    * `keepRoot`: the skills are placed again right away (update, rollback, re-enable), so the folder stays this plugin's
    * and its own leftovers cannot block that. */
-  private removeSkills(id: string, actor: string, keepRoot = false) {
+  private removeSkills(id: string, actor: string | null, keepRoot = false) {
     const rows = this.ctx.db.query('SELECT rel, sha256 FROM plugin_managed_files WHERE plugin_id = ?').all(id) as { rel: string; sha256: string }[]
     const root = this.ctx.files.fx.root
     const changes: { path: string; action: 'delete'; by: { id: string; name: string }; turnId: null }[] = []
@@ -271,7 +311,8 @@ export class PluginManager {
         if (!st.isFile() || st.isSymbolicLink()) continue
         if (sha256(fs.readFileSync(abs)) !== r.sha256) { this.ctx.log.warn('a plugin skill file was changed outside the app; it stays in place', { plugin: id, path: r.rel }); continue }
         fs.rmSync(abs)
-        fileEvent(this.ctx.db, { turnId: null, userId: actor, path: r.rel, action: 'delete', detail: { plugin: id } })
+        // a withdrawn build turned off at start has no person behind it
+        fileEvent(this.ctx.db, { turnId: null, userId: actor ?? 'system', path: r.rel, action: 'delete', detail: { plugin: id } })
         changes.push({ path: r.rel, action: 'delete', by, turnId: null })
       } catch { /* already gone */ }
     }
@@ -349,14 +390,13 @@ export class PluginManager {
   private catalogView(e: CatalogEntry, locale: string, teamLocale: string, source: LoadedCatalog['source']): CatalogPlugin {
     const inst = this.installed(e.id)
     const platform = platformMismatch(e.platforms, this.host)
-    // an official build of this version is pinned for this server's platform
-    const pinnedHere = (e.pins ?? []).some((p) => !platformMismatch(p.platform ? [p.platform] : undefined, this.host))
-    // installable from the list: its bytes are next to it and the list vouches for them (a pin; or a plugin-key signed
-    // list, stage B5). Pinned without bytes here: the official package file installs through a file or the import folder.
-    // A pin never lifts pending_clearance.
-    const fromList = !!e.package && (source === 'signed' || pinnedHere)
+    const pins = this.hostPins(e)
+    // installable from the list: a pinned build for this server to download from the release feed, or bytes next to the
+    // list that it vouches for (a pin; or a plugin-key signed list, stage B5). Pinned without either: the official
+    // package file installs through a file or the import folder. A pin never lifts pending_clearance.
+    const fromList = pins.some((p) => p.download) || (!!e.package && (source === 'signed' || pins.length > 0))
     const availability: CatalogPlugin['availability'] = platform ? 'unsupported'
-      : e.availability !== 'available' ? 'pending_clearance' : fromList ? 'available' : pinnedHere ? 'file' : 'pending_clearance'
+      : e.availability !== 'available' ? 'pending_clearance' : fromList ? 'available' : pins.length ? 'file' : 'pending_clearance'
     return {
       id: e.id, ...pluginStrings(e.i18n, locale), publisher: e.publisher, version: e.version, kinds: e.kinds,
       permissions: [...e.permissions.required.map((id) => ({ id, required: true, granted: false })), ...e.permissions.optional.map((id) => ({ id, required: false, granted: false }))],
@@ -382,7 +422,6 @@ export class PluginManager {
       host: { os: this.host.os, arch: this.host.arch, libc: this.host.libc },
       trust: { productionKeys: this.trust.keys.filter((k) => k.kind === 'official').length, testKeys: this.trust.keys.filter((k) => k.kind === 'test').length, allowUnsigned: this.trust.allowUnsigned, hosted: this.trust.hosted },
       trustWarnings: this.trust.warnings,
-      hwpReleaseGate: hwpReleaseGateOpen(this.env) ? 'open' : 'closed',
       fileInstall: this.fileInstall,
     }
   }
@@ -420,7 +459,8 @@ export class PluginManager {
 
   private verify(bytes: Uint8Array): VerifiedPackage {
     // pins come only from the official list in this release (never from a setting or the environment)
-    try { return verifyPackage(bytes, this.trust, releasePins(this.catalog())) } catch (e) {
+    const cat = this.catalog()
+    try { return verifyPackage(bytes, this.trust, releasePins(cat), revokedKeys(cat)) } catch (e) {
       if (e instanceof PackageError) return refuse(e.reason, 'validation', e.message)
       throw e
     }
@@ -469,16 +509,64 @@ export class PluginManager {
     }
   }
 
-  inspectCatalog(actor: string, id: string, locale: string): PluginPlan {
+  /** The entry's pinned builds for this server's platform that the list has not withdrawn. */
+  private hostPins(e: CatalogEntry): CatalogPin[] {
+    return (e.pins ?? []).filter((p) => !platformMismatch(p.platform ? [p.platform] : undefined, this.host) && !this.isRevoked(e.id, p.manifestSha256))
+  }
+
+  /** Download a pinned build from the release feed: https on the feed's own origin, public addresses only (the hosted
+   * outbound rule, system/egress.ts), no redirects, at most the size the list names, then that exact size and SHA-256
+   * before anything opens the bytes. */
+  private async fetchPinned(d: NonNullable<CatalogPin['download']>): Promise<Buffer> {
+    const origin = this.download.origin ?? new URL(RELEASE_CHANNEL.feed).origin
+    let url: URL
+    try { url = await assertPublicHttps(d.url, { lookup: this.download.lookup }) } catch (e) { return refuse('download', 'conflict', (e as Error).message) }
+    if (url.origin !== origin) return refuse('download', 'conflict', 'the package address is not on the release feed')
+    const max = Math.min(d.size, PLUGIN_DOWNLOAD_MAX)
+    let r: Response
+    try { r = await (this.download.fetch ?? fetch)(url.href, { redirect: 'error', signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) }) } catch (e) { return refuse('download', 'conflict', (e as Error).message) }
+    if (!r.ok || !r.body) return refuse('download', 'conflict', `HTTP ${r.status}`)
+    if (Number(r.headers.get('content-length') ?? 0) > max) return refuse('tampered', 'validation', 'the download is larger than the official list says')
+    const chunks: Uint8Array[] = []
+    let n = 0
+    try {
+      for await (const c of r.body as unknown as AsyncIterable<Uint8Array>) {
+        n += c.byteLength
+        // leaving the loop cancels the stream
+        if (n > max) return refuse('tampered', 'validation', 'the download is larger than the official list says')
+        chunks.push(c)
+      }
+    } catch (e) {
+      if (e instanceof HttpError) throw e
+      return refuse('download', 'conflict', (e as Error).message)
+    }
+    const bytes = Buffer.concat(chunks)
+    if (bytes.length !== d.size || sha256(bytes) !== d.sha256) return refuse('tampered', 'validation', 'the download does not match the official list')
+    return bytes
+  }
+
+  async inspectCatalog(actor: string, id: string, locale: string): Promise<PluginPlan> {
     const cat = this.catalog()
     const e = cat.entries.find((x) => x.id === id)
     if (!e) return refuse('not_available', 'not_found')
-    // cleared for distribution, with bytes next to the list that the list vouches for: pinned (or, stage B5, a signed
-    // list). A pin never lifts pending_clearance.
-    if (e.availability !== 'available' || !e.package || (cat.source !== 'signed' && !e.pins?.length)) return refuse('not_available', 'conflict')
+    // cleared for distribution (a pin never lifts pending_clearance), made for this server, newer than what is installed:
+    // checked before anything is downloaded
+    if (e.availability !== 'available') return refuse('not_available', 'conflict')
+    const why = platformMismatch(e.platforms, this.host)
+    if (why) return refuse('unsupported', 'validation', why)
+    const cur = this.installed(e.id)
+    if (cur && compareSemVer(e.version, cur.manifest.version) <= 0) return refuse(compareSemVer(e.version, cur.manifest.version) === 0 ? 'same_version' : 'downgrade', 'conflict')
+    const pins = this.hostPins(e)
     let bytes: Buffer
-    try { bytes = fs.readFileSync(path.join(cat.dir, ...e.package.file.split('/'))) } catch { return refuse('not_available', 'conflict') }
-    if (bytes.length !== e.package.size || sha256(bytes) !== e.package.sha256) return refuse('tampered', 'validation', 'the package does not match the catalog')
+    if (e.package && (cat.source === 'signed' || pins.length)) {
+      // an offline mirror: the package next to the list
+      try { bytes = fs.readFileSync(path.join(cat.dir, ...e.package.file.split('/'))) } catch { return refuse('not_available', 'conflict') }
+      if (bytes.length !== e.package.size || sha256(bytes) !== e.package.sha256) return refuse('tampered', 'validation', 'the package does not match the catalog')
+    } else {
+      const d = pins.find((p) => p.download)?.download
+      if (!d) return refuse('not_available', 'conflict')
+      bytes = await this.fetchPinned(d)
+    }
     const plan = this.inspect(actor, bytes, 'catalog', locale)
     if (plan.id !== e.id || plan.version !== e.version) { this.drop(plan.token); return refuse('tampered', 'validation', 'the package is not the catalog entry') }
     // from a list without a plugin-key signature, only the builds it pins
@@ -610,7 +698,8 @@ export class PluginManager {
     // on enable every stored byte is hashed again (a replaced executable is refused here and before every run)
     const why = this.unsupported(x, true)
     if (why === 'damaged') return refuse('tampered', 'conflict')
-    if (why && why !== 'gate') return refuse('unsupported', 'validation', why)
+    if (why === 'revoked') return refuse('revoked', 'conflict')
+    if (why) return refuse('unsupported', 'validation', why)
     let permissions: PluginPermission[] | null = null
     if (input.permissions) {
       if (input.manifestSha256 !== x.pkg.manifest_sha256) return refuse('digest', 'conflict')
@@ -655,7 +744,8 @@ export class PluginManager {
     const back: Installed = { install: x.install, pkg: prev, manifest: pm }
     const why = this.unsupported(back, true)
     if (why === 'damaged') return refuse('tampered', 'conflict')
-    if (why && why !== 'gate') return refuse('unsupported', 'validation', why)
+    if (why === 'revoked') return refuse('revoked', 'conflict')
+    if (why) return refuse('unsupported', 'validation', why)
     const approved = this.approved(x)
     const permissions = [...new Set([...pm.permissions.required, ...pm.permissions.optional.filter((p) => approved.has(p))])].sort()
     const on = this.access(id).everyone

@@ -1,5 +1,5 @@
 // HWP as the first plugin (docs/PLUGINS.md): preview and hwp_render exist only while the HWP Preview plugin is
-// installed, on for the company, runnable here AND the release gate MYCEL_HWP_PREVIEW=1 is open. Reading HWP text and
+// installed, on for the company and runnable here (the old MYCEL_HWP_PREVIEW release gate is gone). Reading HWP text and
 // refusing plaintext writes to .hwp/.hwpx are core and work in every plugin state. Turning the plugin off, updating
 // it or rolling it back cancels renders, drops cached pages and replaces the renderer; a replaced executable is refused.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -65,7 +65,7 @@ beforeAll(async () => {
   app = await makeCApp('plugins-hwp')
   fs.copyFileSync(path.join(import.meta.dir, '../fixtures/hwp/agreement.hwp'), path.join(app.team, SRC))
   m = pluginsOf(app.ctx)
-  m.reconfigure({ trust: prodTrust(key.pub), env: { MYCEL_HWP_PREVIEW: '1' } })
+  m.reconfigure({ trust: prodTrust(key.pub) })
   v100 = (await buildHwpPlugin({ target, keyPem: key.pem, provision: false })).bytes
   v101 = (await buildHwpPlugin({ target, keyPem: key.pem, provision: false, version: '1.0.1' })).bytes
 })
@@ -86,17 +86,17 @@ describe('HWP availability follows the plugin state', () => {
     await coreStillWorks()
   })
 
-  test('on, but the release gate is closed (no MYCEL_HWP_PREVIEW=1): the uncleared renderer never runs', async () => {
-    m.reconfigure({ env: {} })
-    const r = await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}/enable`, { ...jsonBody({}), as: 'carol' })
-    expect(r.body).toMatchObject({ enabled: true, status: 'unsupported', unsupported: 'gate' })
-    expect(await listed()).toBe(false)
-    expect(await preview()).toBe('503:disabled')
-    await coreStillWorks()
-    m.reconfigure({ env: { MYCEL_HWP_PREVIEW: '1' } })
+  test('turning it on is the only switch: the old MYCEL_HWP_PREVIEW release gate is gone', async () => {
+    const prior = process.env.MYCEL_HWP_PREVIEW
+    delete process.env.MYCEL_HWP_PREVIEW
+    try {
+      const r = await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}/enable`, { ...jsonBody({}), as: 'carol' })
+      expect(r.body).toMatchObject({ enabled: true, status: 'enabled', unsupported: null })
+      expect(m.usable(HWP_PLUGIN_ID)).toBe(true)
+    } finally { if (prior !== undefined) process.env.MYCEL_HWP_PREVIEW = prior }
   })
 
-  test('on with the gate open: the plugin renderer previews real pages, and the AI tool is offered', async () => {
+  test('on: the plugin renderer previews real pages, and the AI tool is offered', async () => {
     expect(m.usable(HWP_PLUGIN_ID)).toBe(true)
     expect(await preview()).toBe('png')
     expect(m.hwpEngine().identity).toContain(`:pkg-`)

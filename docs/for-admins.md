@@ -19,6 +19,6 @@ Pilot acceptance: demonstrate two users' different file access, review a skill r
 
 Before updating, read the [latest release](https://github.com/trina-app/trina-ax/releases/latest), including default changes, and back up. Linux and office Mac use the Trina feed. App rollback is not database/file rollback. [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md).
 
-Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES. HWP visual preview is experimental, off by default and unavailable on Debian 12; default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
+Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES. HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
 
-Plugins (HWP Preview and others), their permission prompt and the signing-key steps: [Plugins (Korean)](PLUGINS.md).
+Plugins (HWP Preview and others), their permission prompt and how official packages are verified: [Plugins (Korean)](PLUGINS.md).

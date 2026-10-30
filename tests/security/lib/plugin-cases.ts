@@ -14,8 +14,9 @@ export const PLUGIN_SPECS: Record<string, Spec> = {
   },
   // a package that does not open: the admin passes the permission check and gets a validation refusal
   inspectPluginFile: { build: c => c.req('POST', '/api/admin/plugins/inspect', undefined, { form: junk() }), scope: 'byLevel' },
-  // HWP is listed but not distributed yet: the admin passes the permission check and gets not_available
-  inspectPluginSource: { build: c => c.post('/api/admin/plugins/inspect-source', { source: 'catalog', id: 'app.trina.hwp-preview' }), scope: 'byLevel' },
+  // an id the official list does not have: the admin passes the permission check and gets not_available (a listed id
+  // would start a download from the release feed)
+  inspectPluginSource: { build: c => c.post('/api/admin/plugins/inspect-source', { source: 'catalog', id: UNKNOWN }), scope: 'byLevel' },
   installPlugin: { build: c => c.post('/api/admin/plugins/install', { token: '00000000-0000-4000-8000-000000000000', manifestSha256: 'a'.repeat(64), enable: true, permissions: [] }), scope: 'nobody' },
   enablePlugin: { build: c => c.post(`/api/admin/plugins/${UNKNOWN}/enable`, {}), scope: 'nobody' },
   disablePlugin: { build: c => c.post(`/api/admin/plugins/${UNKNOWN}/disable`, {}), scope: 'nobody' },

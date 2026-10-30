@@ -1,14 +1,15 @@
 // Official plugins without a plugin key (docs/PLUGINS.md "공식 플러그인 확인"): a package whose canonical manifest digest
 // is pinned, for its version and platform, in the official list that ships inside the signed core release is official.
 // A wrong digest, platform or version, an entry without a pin, a hidden list or any environment setting never makes a
-// package official; a pin never lifts pending_clearance; HWP still needs MYCEL_HWP_PREVIEW=1 as well as the plugin on;
-// the release tooling pins exactly the built packages and default release bundles still carry no plugin bytes.
+// package official; a pin never lifts pending_clearance; the cleared HWP build runs once the plugin is on (no other
+// switch); the release tooling pins exactly the built packages and default release bundles still carry no plugin bytes.
+// Downloads, revocation and the frozen format: plugins-release.test.ts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PluginCatalog, type CatalogEntry, type PluginPlatform } from '@mycel/shared/plugins'
+import { PLUGIN_SCHEMA_VERSION, PluginCatalog, type CatalogEntry, type PluginPlatform } from '@mycel/shared/plugins'
 import { defaultCatalogDir, loadCatalog, releasePins } from '../../server/src/plugins/catalog'
 import { HWP_PLUGIN_ID } from '../../server/src/plugins/drivers'
 import { parseStrictJson } from '../../server/src/plugins/json'
@@ -269,15 +270,16 @@ describe('installing a pinned package', () => {
       expect(releasePins(h.catalog())).toEqual(releasePins(loadCatalog(defaultCatalogDir(), noKeyTrust('hosted'))))
       expect(h.list('en')).toMatchObject({ fileInstall: false, trustWarnings: [] })
       expect(() => h.inspect('carol', build(), 'file', 'en')).toThrow()
-      expect(() => h.inspectCatalog('carol', HWP_PLUGIN_ID, 'en')).toThrow()
     } finally { await hosted.close() }
   })
 })
 
-describe('HWP keeps its double gate', () => {
+describe('HWP: pending until cleared, then the plugin is the only switch', () => {
   const target = `${process.platform}-${process.arch}` as HwpTarget
-  test('a pinned official HWP build installs as official but previews only with MYCEL_HWP_PREVIEW=1; the shipped list refuses it', async () => {
+  test('a pinned HWP build of a pending entry is refused; once cleared it installs as official and runs with no other switch', async () => {
     const app = await makeCApp('plugins-pins-hwp')
+    const prior = process.env.MYCEL_HWP_PREVIEW
+    delete process.env.MYCEL_HWP_PREVIEW
     try {
       const { bytes } = await buildHwpPlugin({ target, keyPem: null, provision: false })
       const digest = manifestDigest(bytes)
@@ -285,29 +287,32 @@ describe('HWP keeps its double gate', () => {
       const hwp = shipped.entries.find((e) => e.id === HWP_PLUGIN_ID)!
       const platform = verifyPackage(bytes, noKeyTrust('dev', { MYCEL_PLUGINS_ALLOW_UNSIGNED: '1' })).manifest.platforms![0]!
       const m = pluginsOf(app.ctx)
-      // the shipped list (pending_clearance) with this build pinned: still not installable
-      const pending = catalogDir(path.join(app.data, 'pending'), [{ ...hwp, pins: [{ version: hwp.version, platform, manifestSha256: digest }] } as CatalogEntry])
-      m.reconfigure({ trust: noKeyTrust(), catalogDir: pending, env: { MYCEL_HWP_PREVIEW: '1' } })
+      // pending_clearance with this build pinned: still not installable
+      const pending = catalogDir(path.join(app.data, 'pending'), [{ ...hwp, availability: 'pending_clearance', pins: [{ version: hwp.version, platform, manifestSha256: digest }] } as CatalogEntry])
+      m.reconfigure({ trust: noKeyTrust(), catalogDir: pending })
       const fd = () => { const f = new FormData(); f.set('file', new Blob([new Uint8Array(bytes)]), 'hwp.trinaplugin'); return f }
       expect((await app.json('/api/admin/plugins/inspect', { method: 'POST', body: fd(), as: 'carol' })).body.error.params.reason).toBe('not_available')
-      // once cleared (availability flipped by a reviewed edit), the pinned build is official
+      // cleared (as shipped): the pinned build is official
       const cleared = catalogDir(path.join(app.data, 'cleared'), [{ ...hwp, availability: 'available', pins: [{ version: hwp.version, platform, manifestSha256: digest }] } as CatalogEntry])
-      m.reconfigure({ catalogDir: cleared, env: {} })
+      m.reconfigure({ catalogDir: cleared })
       const plan = (await app.json('/api/admin/plugins/inspect', { method: 'POST', body: fd(), as: 'carol' })).body
       expect(plan).toMatchObject({ id: HWP_PLUGIN_ID, trust: 'official', verifiedBy: 'release', supported: true })
       // the optional page-image permission is offered (the prompt ticks it); install with it
       expect(plan.permissions.find((p: any) => p.id === 'model.send.preview-pixels')).toMatchObject({ required: false })
       const done = await app.json('/api/admin/plugins/install', { ...jsonBody({ token: plan.token, manifestSha256: plan.manifestSha256, enable: true, permissions: plan.permissions.map((p: any) => p.id) }), as: 'carol' })
-      expect(done.body).toMatchObject({ trust: 'official', verifiedBy: 'release', enabled: true, status: 'unsupported', unsupported: 'gate' })
-      // on, official, but the release gate is closed: no renderer, no AI tool
-      expect(m.usable(HWP_PLUGIN_ID)).toBe(false)
+      expect(done.body).toMatchObject({ trust: 'official', verifiedBy: 'release', enabled: true, status: 'enabled', unsupported: null })
+      // turned on is enough: no MYCEL_HWP_PREVIEW in the environment
+      expect(m.usable(HWP_PLUGIN_ID)).toBe(true)
+      expect(m.hwpEngine().identity).not.toBe('hwp-disabled')
+      expect(m.hwpToolUsable()).toBe(true)
+      // turned off: nothing renders
+      await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}/disable`, { ...jsonBody({}), as: 'carol' })
       expect(m.hwpEngine().identity).toBe('hwp-disabled')
       expect(m.hwpToolUsable()).toBe(false)
-      // both conditions: the gate open as well
-      m.reconfigure({ env: { MYCEL_HWP_PREVIEW: '1' } })
-      expect(m.usable(HWP_PLUGIN_ID)).toBe(true)
-      expect(m.hwpToolUsable()).toBe(true)
-    } finally { await app.close() }
+    } finally {
+      if (prior !== undefined) process.env.MYCEL_HWP_PREVIEW = prior
+      await app.close()
+    }
   })
 })
 
@@ -322,7 +327,7 @@ describe('release tooling', () => {
   })
 
   test('the pin script pins exactly the built packages, is idempotent, and drops pins of an older version', () => {
-    const base = formatCatalog({ schemaVersion: 0, sequence: 1, entries: [pinnedEntry([], { platforms: [LINUX, MAC] })].map(({ pins: _p, ...e }) => e) })
+    const base = formatCatalog({ schemaVersion: PLUGIN_SCHEMA_VERSION, sequence: 1, entries: [pinnedEntry([], { platforms: [LINUX, MAC] })].map(({ pins: _p, ...e }) => e) })
     const mac = platformBuild(MAC), linux = platformBuild(LINUX)
     const r = pinCatalog(base, [{ file: 'mac.trinaplugin', bytes: mac }, { file: 'linux.trinaplugin', bytes: linux }], opts)
     expect(r.changed).toBe(true)
@@ -348,7 +353,7 @@ describe('release tooling', () => {
   })
 
   test('the pin script refuses anything that is not exactly the entry', () => {
-    const base = formatCatalog({ schemaVersion: 0, sequence: 1, entries: [pinnedEntry([], { platforms: [LINUX, MAC] })].map(({ pins: _p, ...e }) => e) })
+    const base = formatCatalog({ schemaVersion: PLUGIN_SCHEMA_VERSION, sequence: 1, entries: [pinnedEntry([], { platforms: [LINUX, MAC] })].map(({ pins: _p, ...e }) => e) })
     const err = (bytes: Uint8Array, o = opts) => { try { pinCatalog(base, [{ file: 'x.trinaplugin', bytes }], o); return 'pinned' } catch (e) { return (e as Error).message } }
     expect(err(platformBuild(MAC, '1.0.1'))).toContain('the official list is at 1.0.0')
     expect(err(platformBuild({ os: 'linux', arch: 'arm64' }))).toContain('is not one the list names')
@@ -364,7 +369,10 @@ describe('release tooling', () => {
   test('HWP builds are pinned only for cleared targets, and a pinned list still ships no plugin bytes', async () => {
     const target = `${process.platform}-${process.arch}` as HwpTarget
     const { bytes } = await buildHwpPlugin({ target, keyPem: null, provision: false })
-    const text = shippedText()
+    // the list as it was before clearance: pending, no pins
+    const doc = PluginCatalog.parse(parseStrictJson(shippedText()))
+    for (const e of doc.entries) if (e.id === HWP_PLUGIN_ID) { e.availability = 'pending_clearance'; delete e.pins }
+    const text = formatCatalog(doc)
     expect(() => pinCatalog(text, [{ file: 'hwp.trinaplugin', bytes }], { cleared: [], testKeyId: null })).toThrow(/not cleared/)
     const r = pinCatalog(text, [{ file: 'hwp.trinaplugin', bytes }], { cleared: [target], testKeyId: null })
     const hwp = PluginCatalog.parse(JSON.parse(r.text)).entries.find((e) => e.id === HWP_PLUGIN_ID)!
@@ -382,10 +390,21 @@ describe('release tooling', () => {
     fs.rmSync(repo, { recursive: true, force: true }); fs.rmSync(stage, { recursive: true, force: true })
   })
 
-  test('the shipped list pins nothing that is not cleared', () => {
+  test('the shipped list pins exactly the cleared HWP targets, and this checkout rebuilds the pinned files byte for byte', async () => {
     const shipped = PluginCatalog.parse(parseStrictJson(shippedText()))
-    // HWP stays pending until the founder clears its licensing; any pin there must still be refused at install
-    expect(shipped.entries.find((e) => e.id === HWP_PLUGIN_ID)).toMatchObject({ availability: 'pending_clearance' })
+    const hwp = shipped.entries.find((e) => e.id === HWP_PLUGIN_ID)!
+    const cleared = (JSON.parse(fs.readFileSync(path.join(REPO, 'resources/hwp/clearance.json'), 'utf8')) as { cleared: string[] }).cleared
+    expect(hwp.availability).toBe('available')
+    expect(hwp.pins!.map((p) => `${p.platform!.os}-${p.platform!.arch}`).sort()).toEqual([...cleared].sort())
     for (const e of shipped.entries) for (const p of e.pins ?? []) expect(p.version).toBe(e.version)
+    // no pinned build is also revoked
+    for (const e of shipped.entries) for (const p of e.pins ?? []) expect((shipped.revoked ?? []).some((r) => r.id === e.id && r.manifestSha256 === p.manifestSha256)).toBe(false)
+    // the build for this machine reproduces its pin: the manifest digest and the published archive's size and SHA-256
+    // (a change to the notices, font, executable or the entry's texts needs scripts/plugins/release-hwp.ts again)
+    const target = `${process.platform}-${process.arch}` as HwpTarget
+    const { bytes } = await buildHwpPlugin({ target, keyPem: null, provision: false })
+    const pin = hwp.pins!.find((p) => `${p.platform!.os}-${p.platform!.arch}` === target)!
+    expect(manifestDigest(bytes)).toBe(pin.manifestSha256)
+    expect({ size: bytes.length, sha256: sha256(bytes) }).toEqual({ size: pin.download!.size, sha256: pin.download!.sha256 })
   })
 })

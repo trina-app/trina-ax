@@ -17,14 +17,15 @@ export type PluginTrust = z.infer<typeof PluginTrust>
  * (official or test); null: nothing (unverified). */
 export const PluginVerifiedBy = z.enum(['release', 'key']).nullable()
 export type PluginVerifiedBy = z.infer<typeof PluginVerifiedBy>
-/** Why a package cannot run here. gate: the HWP release gate (MYCEL_HWP_PREVIEW) is closed on this server;
- * damaged: the stored files no longer match the verified package. */
-export const PluginUnsupported = z.enum(['os', 'arch', 'libc', 'product', 'api', 'kind', 'driver', 'gate', 'damaged'])
+/** Why a package cannot run here. damaged: the stored files no longer match the verified package; revoked: the official
+ * list of this release withdrew this exact build (it was turned off). */
+export const PluginUnsupported = z.enum(['os', 'arch', 'libc', 'product', 'api', 'kind', 'driver', 'damaged', 'revoked'])
 export type PluginUnsupported = z.infer<typeof PluginUnsupported>
 /** Why an install / enable request was refused (error params.reason). */
 export const PluginRefusal = z.enum([
   'archive', 'manifest', 'signature', 'untrusted', 'tampered', 'unsupported', 'kind', 'driver', 'downgrade', 'same_version',
   'skills_conflict', 'expired', 'digest', 'permissions', 'not_available', 'not_installed', 'no_rollback', 'import_missing', 'file_install_off',
+  'revoked', 'download', 'schema',
 ])
 export type PluginRefusal = z.infer<typeof PluginRefusal>
 
@@ -63,8 +64,9 @@ export const CatalogPlugin = z.object({
   id: z.string(), ...Strings, publisher: Publisher, version: z.string(), kinds: z.array(PluginKind),
   permissions: z.array(PluginPermissionView),
   platforms: z.array(PluginPlatform).nullable(),
-  /** available: can be installed here from the list; file: official builds are pinned for this server, install the
-   * official package file (Install from file or the import folder; hosted servers wait for the update-feed download);
+  /** available: can be installed here from the list (the server downloads the pinned build from the release feed, or
+   * reads it next to the list); file: an official build is pinned for this server without a download address, install
+   * the official package file (Install from file or the import folder);
    * pending_clearance: listed, not yet distributed; unsupported: not on this server */
   availability: z.enum(['available', 'file', 'pending_clearance', 'unsupported']),
   unsupported: PluginUnsupported.nullable(),
@@ -89,9 +91,6 @@ export const PluginList = z.object({
   trust: z.object({ productionKeys: z.number().int(), testKeys: z.number().int(), allowUnsigned: z.boolean(), hosted: z.boolean() }),
   /** development trust settings in effect (an admin warning band is shown while any is on) */
   trustWarnings: z.array(z.enum(['test_keys', 'unsigned', 'test_server'])),
-  /** the HWP release gate: open only where the operator set MYCEL_HWP_PREVIEW=1 (internal review). HWP preview needs
-   * this AND the plugin turned on, until the licence and platform review is finished. */
-  hwpReleaseGate: z.enum(['open', 'closed']),
   /** this server takes package files (upload, import folder); hosted servers take official catalog packages only */
   fileInstall: z.boolean(),
 })
