@@ -19,6 +19,9 @@ import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
 
 setDefaultTimeout(60_000)
+// making the fixture team (pandoc, an app) can take long on a busy CI machine: a hook that times out keeps running into
+// the next test file
+const HOOK_MS = 120_000
 const FIX = path.resolve(import.meta.dir, '..', 'fixtures', 'ocr')
 let A: CApp
 const ALICE = 'users/alice'
@@ -39,8 +42,8 @@ beforeAll(async () => {
   put(`${ALICE}/mixed.pdf`, makePagesPdf([{ lines: ['Page one has a real text layer with enough words.'] }, { image: CCITT_SCAN }, { lines: ['Page three is text again, also with enough words.'] }]))
   put(`${ALICE}/eleven.pdf`, makePagesPdf(Array.from({ length: 11 }, (_, i) => ({ lines: [`This is page number ${i + 1} of the eleven page report.`] }))))
   put(`${ALICE}/long.pdf`, makePagesPdf(Array.from({ length: 25 }, (_, i) => ({ lines: [`Chapter ${i + 1}: a page of the twenty-five page manual.`] }))))
-})
-afterAll(async () => { await A.close() })
+}, HOOK_MS)
+afterAll(async () => { await A?.close() }, HOOK_MS)
 
 const handler = (who: string, turn: string | null = null, ctx = A.toolCtx(who as any, turn)) => ({ ctx, call: (name: string, args: unknown) => makeHandler(A.ctx.files, A.ctx.db, ctx)({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })
 const images = (r: any) => (r.result.content as any[]).filter((c) => c.type === 'image')

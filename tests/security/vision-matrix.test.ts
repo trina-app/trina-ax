@@ -22,8 +22,8 @@ beforeAll(async () => {
   // a hard link makes both names unreadable (nlink > 1): its own source file, so statement.pdf stays readable
   fs.writeFileSync(path.join(A.team, 'groups/finance/linked.pdf'), makePagesPdf([{ image: CCITT_SCAN }]))
   fs.linkSync(path.join(A.team, 'groups/finance/linked.pdf'), path.join(A.team, 'users/alice/hard.pdf'))
-})
-afterAll(async () => { await A.close() })
+}, 120_000)
+afterAll(async () => { await A?.close() }, 120_000)
 
 // [person, path, allowed]: the fixture's rules (tests/lib/fixtures.ts seed)
 const matrix: [Person, string, boolean][] = [

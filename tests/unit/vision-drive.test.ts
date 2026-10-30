@@ -21,8 +21,8 @@ beforeEach(async () => {
   registerDriveTools(a.ctx, toolRegistry(a.ctx.files))
   fake.blobs.set('photo', { owner: 'alice', name: 'receipt', mime: 'image/png', bytes: makePng(32, 24) })
   fake.blobs.set('scan', { owner: 'alice', name: 'scan.pdf', mime: 'application/pdf', bytes: makePagesPdf([{ lines: ['A page with a real text layer and enough words.'] }, { image: CCITT_SCAN }]) })
-})
-afterEach(async () => { await a?.close() })
+}, 120_000)
+afterEach(async () => { await a?.close() }, 120_000)
 const read = (fileId: string, engine = 'claude-code') => {
   const turn = a.turn('alice', a.chat('alice'))
   a.ctx.db.query('UPDATE turns SET engine = ? WHERE id = ?').run(engine, turn)

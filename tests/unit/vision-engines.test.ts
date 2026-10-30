@@ -23,8 +23,8 @@ beforeAll(async () => {
   h = await startHarness({ name: 'vision-engines', turnTimeoutMs: 40_000 })
   fs.writeFileSync(path.join(h.team, 'users/alice/receipt.png'), makePng(320, 200))
   fs.writeFileSync(path.join(h.team, 'users/alice/scan.pdf'), makePagesPdf([{ lines: ['A text page with plenty of words on it.'] }, { image: CCITT_SCAN }]))
-})
-afterAll(async () => { await h?.close() })
+}, 120_000)
+afterAll(async () => { await h?.close() }, 120_000)
 
 for (const engine of ['claude-code', 'codex'] as const)
   test.skipIf(!ready)(`${engine}: images and scanned PDF pages arrive as MCP image blocks (real converters, no confidential lock)`, async () => {

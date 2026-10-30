@@ -27,8 +27,8 @@ beforeAll(async () => {
   A.ctx.db.query("UPDATE users SET locale = 'en'").run()
   for (const f of ['scan.pdf', 'mixed.pdf', 'page.png']) fs.copyFileSync(path.join(FIX, f), path.join(A.team, 'users/alice', f))
   fs.writeFileSync(path.join(A.team, 'users/alice/photo.png'), makePng(64, 64))
-})
-afterAll(async () => { await A.close() })
+}, 120_000)
+afterAll(async () => { await A?.close() }, 120_000)
 
 /** Every process the server starts while `f` runs (runIsolated, the office worker ...), as argv lists. */
 async function spawned(f: () => Promise<unknown>): Promise<string[][]> {
@@ -46,7 +46,8 @@ const tesseract = (calls: string[][]) => calls.filter((c) => c.some((a) => base(
 /** mycel-ocr in recognition mode (the other modes draw pages, read text layers or decode HEIC) */
 const recognition = (calls: string[][]) => calls.filter((c) => c.some((a) => base(a) === 'mycel-ocr') && !c.some((a) => ['--layer', '--page', '--jpeg'].includes(a)))
 
-describe('the Linux installer and kit have no OCR', () => {
+// the Linux T1 container holds no scripts/ or native/ (tests/linux/Dockerfile): checked where the checkout has them
+describe.skipIf(!fs.existsSync(path.join(ROOT, 'scripts/linux/deps.txt')))('the Linux installer and kit have no OCR', () => {
   test('deps.txt and install-linux.sh install no tesseract; the kit and native build have no Linux mycel-ocr', () => {
     expect(fs.readFileSync(path.join(ROOT, 'scripts/linux/deps.txt'), 'utf8')).not.toContain('tesseract')
     expect(fs.readFileSync(path.join(ROOT, 'scripts/install-linux.sh'), 'utf8')).not.toContain('tesseract')
