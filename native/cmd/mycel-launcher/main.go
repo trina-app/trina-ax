@@ -325,6 +325,16 @@ func resolvePath(p string) string {
 	return p
 }
 
+// reservedTurnFile: the turn files the launcher writes itself (the bridge's token, the MCP config, the system prompt):
+// a request's files may not replace them (writeNew removes what is there first; plan review S12)
+func reservedTurnFile(rel string) bool {
+	switch filepath.Clean(rel) {
+	case filepath.Join(".turn", "token"), filepath.Join(".turn", "mcp.json"), filepath.Join(".turn", "system.md"), ".turn":
+		return true
+	}
+	return false
+}
+
 var profileParam = regexp.MustCompile(`\(param "([A-Za-z_][A-Za-z0-9_]*)"\)`)
 
 // baseURLArg: a Codex `-c` option that names an address the engine sends requests to (model_providers.<id>.base_url,
@@ -636,6 +646,9 @@ func run(req *request, o *out, r *bufio.Reader) error {
 			return fmt.Errorf("file outside chat folder")
 		}
 		rel, _ := filepath.Rel(chat, p)
+		if reservedTurnFile(rel) {
+			return fmt.Errorf("file name reserved for the launcher")
+		}
 		if err := chatRoot.writeNew(rel, []byte(subst.Replace(f.Content)), 0o600); err != nil {
 			return err
 		}
