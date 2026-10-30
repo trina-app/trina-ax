@@ -64,8 +64,8 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
   - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다.
-  - root 부분(실행기·샌드박스·유닛)이 바뀐 릴리스(`needsRoot`)는 `mycel-update.timer`(매일 04:30 ± 90분)가 적용한다.
-  - `needsRoot`는 `publish-server.ts`가 정한다. 새 묶음의 `root/` 파일을 두 채널 머리 버전의 `manifest-linux-<arch>.json`과 비교하고, 비교할 수 없으면 "바뀜"으로 둔다.
+  - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스(`needsRoot`)는 `mycel-update.timer`(매일 04:30 ± 90분)가 적용한다.
+  - `needsRoot`는 `publish-server.ts`가 정한다. 새 묶음의 `root/` 파일과 `native/mycel-safeops`·`bin/pandoc`(`build-bundle.ts` `LINUX_ROOT_COPIES`)을 두 채널 머리 버전의 `manifest-linux-<arch>.json`과 비교하고, 비교할 수 없으면 "바뀜"으로 둔다.
 
 ## 3. 지키는 것
 
