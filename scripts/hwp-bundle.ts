@@ -6,10 +6,15 @@ import crypto from 'node:crypto'
 import manifest from '../resources/hwp/manifest.json'
 export type HwpTarget = keyof typeof manifest.targets
 const hash = (p: string) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')
+/**
+ * Repo (destination === repo): provision the pinned rhwp CLI into ignored native/bin/hwp (`bun run prepare:hwp`; the
+ * HWP plugin build, scripts/plugins/build-hwp.ts, and local tests use it).
+ * Release staging (any other destination): server, office and desktop bundles never carry the renderer, its font or
+ * any plugin package, whatever the environment says. HWP now ships only as the separately built HWP Preview plugin
+ * package, and only once its licence and platform review is cleared (docs/PLUGINS.md). Stale assets are removed.
+ */
 export async function stageHwp(repo: string, destination: string, targets: HwpTarget[]) {
-  // prepare:hwp may provision local review assets. Release staging must opt in
-  // separately; disabling execution alone would still redistribute the binary.
-  if (destination !== repo && process.env.MYCEL_HWP_PREVIEW !== '1') {
+  if (destination !== repo) {
     for (const rel of ['native/bin/hwp', 'resources/hwp']) fs.rmSync(path.join(destination, rel), { recursive: true, force: true })
     return
   }
@@ -34,12 +39,7 @@ export async function stageHwp(repo: string, destination: string, targets: HwpTa
         fs.copyFileSync(extracted, bin); fs.chmodSync(bin, 0o755)
       } finally { fs.rmSync(work, { recursive: true, force: true }) }
     }
-    if (destination !== repo) {
-      const out = path.join(destination, 'native/bin/hwp', `rhwp-${target}`)
-      fs.mkdirSync(path.dirname(out), { recursive: true }); fs.copyFileSync(bin, out); fs.chmodSync(out, 0o755)
-    }
   }
-  if (destination !== repo) fs.cpSync(path.join(repo, 'resources/hwp'), path.join(destination, 'resources/hwp'), { recursive: true })
 }
 if (import.meta.main) {
   const repo = path.resolve(import.meta.dir, '..')

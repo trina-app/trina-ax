@@ -42,9 +42,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
   // with the turn's file-tool context (same input checks, error mapping and audit summary as the MCP path)
   const turnTools = (ctx.services.turnTools ??= [])
   const exposeToTurns = (name: string) => {
-    const entry = reg.list().find((t) => t.name === name)!
+    const entry = reg.describeTool(name)!
     turnTools.push({
       name, description: entry.description, inputSchema: entry.inputSchema,
+      // a tool that is not offered now (hwp_render without a usable HWP plugin) is left out of the turn's list
+      available: () => reg.available(name),
       async call(args, t) {
         const r = await reg.call(name, args, t.files)
         return { content: [{ type: 'text', text: r.text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }

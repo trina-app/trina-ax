@@ -33,6 +33,7 @@ import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
+import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -87,7 +88,8 @@ const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
 export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string[] {
   return [
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
-    ...(process.env.MYCEL_HWP_PREVIEW === '1' ? ['app/native/bin/hwp/rhwp-darwin-arm64', 'app/native/bin/hwp/rhwp-darwin-x64', 'app/resources/hwp/manifest.json', 'app/resources/hwp/fonts/NotoSansKR-Regular.ttf'] : []),
+    // the official plugin list (metadata only); never the HWP renderer, its font or a plugin package
+    'app/resources/plugins/catalog.json',
     'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md', 'app/docs/OFFICE.en.md',
     ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [
@@ -270,6 +272,8 @@ export async function buildOffice(o: {
   if (o.desktop?.length) fs.writeFileSync(path.join(stage, MANIFEST), o.desktop.map((d) => `${d.sha256}  ${path.basename(d.file)}\n`).join(''))
 
   await stageHwp(REPO, app, ['darwin-arm64', 'darwin-x64'])
+  stagePluginCatalog(REPO, app)
+  assertNoPluginPayload(stage)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: app, version: o.version, target: 'darwin', arch: 'universal', kind: 'office', includeWeb: true })
   reportReleaseNotices(notices)
   const lack = missingFromStage(stage, bundleManifest({ pandoc: o.pandoc, desktop: !!o.desktop?.length }))

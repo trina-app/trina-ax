@@ -19,6 +19,9 @@ export interface ToolDef<I extends z.ZodType = z.ZodType> {
   run(args: z.output<I>, ctx: ToolCtx): Promise<ToolResult> | ToolResult
   /** short audit line of the input (tool_events.summary prefix); default: the tool name */
   describe?(args: z.output<I>): string
+  /** offered right now? (default: always). A tool that is not available is not listed and its calls are refused as
+   * unknown, e.g. hwp_render while the HWP plugin is not usable (server/src/plugins). */
+  available?(): boolean
 }
 
 export class ToolRegistry {
@@ -31,20 +34,26 @@ export class ToolRegistry {
   }
   has(name: string) { return this.tools.has(name) }
   names() { return [...this.tools.keys()] }
+  private offered(t: ToolDef) { try { return t.available ? t.available() : true } catch { return false } }
+  /** Is this registered tool offered right now? */
+  available(name: string) { const t = this.tools.get(name); return !!t && this.offered(t) }
 
-  /** MCP tools/list entries */
-  list(): { name: string; description: string; inputSchema: Record<string, unknown> }[] {
-    return [...this.tools.values()].map((t) => {
-      const schema = z.toJSONSchema(t.input as z.ZodType, { target: 'draft-7', io: 'input' }) as Record<string, unknown>
-      delete schema.$schema
-      return { name: t.name, description: t.description, inputSchema: schema }
-    })
+  private entry(t: ToolDef) {
+    const schema = z.toJSONSchema(t.input as z.ZodType, { target: 'draft-7', io: 'input' }) as Record<string, unknown>
+    delete schema.$schema
+    return { name: t.name, description: t.description, inputSchema: schema }
   }
+  /** MCP tools/list entries (only the tools offered right now) */
+  list(): { name: string; description: string; inputSchema: Record<string, unknown> }[] {
+    return [...this.tools.values()].filter((t) => this.offered(t)).map((t) => this.entry(t))
+  }
+  /** One registered tool's listing, offered or not (for wiring it into chat turns with its own availability). */
+  describeTool(name: string) { const t = this.tools.get(name); return t ? this.entry(t) : undefined }
 
   /** Run a tool; errors become an isError result (the engine sees the message, the audit log the summary). */
   async call(name: string, raw: unknown, ctx: ToolCtx): Promise<ToolResult> {
     const t = this.tools.get(name)
-    if (!t) return { text: `Error: unknown tool '${name}'`, isError: true, summary: `${name} -> unknown tool` }
+    if (!t || !this.offered(t)) return { text: `Error: unknown tool '${name}'`, isError: true, summary: `${name} -> unknown tool` }
     const parsed = t.input.safeParse(raw ?? {})
     if (!parsed.success) {
       return { text: 'Invalid input: ' + parsed.error.issues.map((i) => `${i.path.join('.') || '(input)'}: ${i.message}`).join('; '), isError: true, summary: `${name} -> invalid input` }

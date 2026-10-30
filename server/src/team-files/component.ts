@@ -4,6 +4,7 @@
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
 import fs from 'node:fs'
 import { HwpPreviews } from '../files/hwp-preview'
+import { pluginsOf } from '../plugins/manager'
 import path from 'node:path'
 import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -53,7 +54,8 @@ export function componentC(ctx: AppContext): ComponentC {
   const stt = transcribeConfig(ctx.config.dataDir)
   const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
-    hwp: new HwpPreviews(files),
+    // the renderer of the HWP Preview plugin while it is usable, otherwise every page is refused ('disabled')
+    hwp: new HwpPreviews(files, () => pluginsOf(ctx).hwpEngine()),
     files, attachments, teamRefs, uploads, jobs,
     artifacts: new Artifacts(ctx),
     makeFile: new MakeFile(ctx, files, findConverters(ctx.engineConfig.pandoc)),

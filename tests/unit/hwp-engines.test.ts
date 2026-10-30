@@ -1,15 +1,24 @@
-// Actual Claude/Codex launch adapters, gate and MCP bridge; deterministic fake model processes, real native renderer.
-import { beforeAll, afterAll, expect, test, setDefaultTimeout } from 'bun:test'
+// Actual Claude/Codex launch adapters, gate and MCP bridge; deterministic fake model processes, real native renderer
+// installed the way a company gets it: the HWP Preview plugin package (test-signed per run), turned on, release gate open.
+import { beforeAll, expect, test, setDefaultTimeout } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
+import { pluginsOf } from '../../server/src/plugins/manager'
+import { buildHwpPlugin } from '../../scripts/plugins/build-hwp'
+import type { HwpTarget } from '../../scripts/hwp-bundle'
 import { ask, startHarness } from '../lib/b-harness'
-setDefaultTimeout(30000)
-const previousHwpOptIn = process.env.MYCEL_HWP_PREVIEW
-beforeAll(() => { process.env.MYCEL_HWP_PREVIEW = '1' })
-afterAll(() => { if (previousHwpOptIn === undefined) delete process.env.MYCEL_HWP_PREVIEW; else process.env.MYCEL_HWP_PREVIEW = previousHwpOptIn })
+import { newKey, prodTrust } from '../lib/plugins'
+setDefaultTimeout(60000)
+const key = newKey()
+let pkg: Buffer
+beforeAll(async () => { pkg = (await buildHwpPlugin({ target: `${process.platform}-${process.arch}` as HwpTarget, keyPem: key.pem, provision: false })).bytes })
 for (const engine of ['claude-code','codex'] as const) test(`hwp_render image reaches ${engine} through its real launch and MCP bridge`, async () => {
   const h=await startHarness({name:`hwp-${engine}`,turnTimeoutMs:20000})
+  const plugins=pluginsOf(h.ctx)
+  plugins.reconfigure({trust:prodTrust(key.pub),env:{MYCEL_HWP_PREVIEW:'1'}})
+  const plan=plugins.inspect('dana',pkg,'file','en')
+  plugins.install('dana',{token:plan.token,manifestSha256:plan.manifestSha256,enable:true,permissions:['files.read.selected','preview.render','runtime.native.isolated','model.send.preview-pixels']},'en')
   const socket=await h.ws('alice',{windowId:'hwp-engine-window'})
   try {
     await socket.next('hello')

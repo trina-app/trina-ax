@@ -12,16 +12,19 @@ import { componentC } from '../../server/src/team-files/component'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { runIsolated } from '../../server/src/tools/isolate'
+import { pluginsOf } from '../../server/src/plugins/manager'
 
 setDefaultTimeout(30000)
-const previousHwpOptIn = process.env.MYCEL_HWP_PREVIEW
-beforeAll(() => { process.env.MYCEL_HWP_PREVIEW = '1' })
-afterAll(() => { if (previousHwpOptIn === undefined) delete process.env.MYCEL_HWP_PREVIEW; else process.env.MYCEL_HWP_PREVIEW = previousHwpOptIn })
 const fixture = (name: string) => fs.readFileSync(path.join(import.meta.dir, '../fixtures/hwp', name))
 let app: CApp
-beforeAll(async () => { app = await makeCApp('hwp'); fs.writeFileSync(path.join(app.team, 'users/alice/test.hwp'), fixture('agreement.hwp')) })
-afterAll(async () => { await app.close() })
+// The core driver against the repo's pinned local assets (prepare:hwp). How the plugin selects the renderer, and the
+// plugin / release-gate boundary, are in plugins-hwp.test.ts.
 const engine = new NativeHwpEngine()
+beforeAll(async () => {
+  app = await makeCApp('hwp'); fs.writeFileSync(path.join(app.team, 'users/alice/test.hwp'), fixture('agreement.hwp'))
+  const c = componentC(app.ctx); c.hwp = new HwpPreviews(c.files, engine)
+})
+afterAll(async () => { await app.close() })
 for (const name of ['agreement.hwp','agreement.hwpx','notice.hwpx','synthetic-form.hwp','two-pages.hwp']) {
   test(`native isolated PNG: ${name}`, async () => {
     const r = await engine.render(fixture(name), name.endsWith('hwpx') ? 'hwpx' : 'hwp', 1)
@@ -119,8 +122,12 @@ test('one active render per person and server; no unbounded queue', async () => 
   finish();await p
 })
 for (const name of ['claude','codex']) test(`${name}: shared MCP contract carries image and metadata (fake engine)`, async () => {
-  const c=componentC(app.ctx), old=c.hwp
+  const c=componentC(app.ctx), old=c.hwp, plugins=pluginsOf(app.ctx), usable=plugins.hwpToolUsable
+  // without the HWP plugin the engines never see the tool
+  const none=await makeHandler(app.ctx.files,app.ctx.db,app.toolCtx('alice'))({jsonrpc:'2.0',id:0,method:'tools/list'})
+  expect(none.result.tools.some((x:{name:string})=>x.name==='hwp_render')).toBe(false)
   c.hwp=new HwpPreviews(c.files,fake())
+  plugins.hwpToolUsable=()=>true
   try {
     const turn=app.turn('alice',app.chat('alice')), t=app.toolCtx('alice',turn)
     const handler=makeHandler(app.ctx.files,app.ctx.db,t)
@@ -134,7 +141,7 @@ for (const name of ['claude','codex']) test(`${name}: shared MCP contract carrie
     const r2=await viaTurn.call({source:'users/alice/test.hwp',page:1,format:'png'},{files:t} as any)
     expect(r2.content[1].type).toBe('image')
     expect((await toolRegistry(app.ctx.files).call('hwp_render',{source:'users/alice/test.hwp',page:0,format:'png'},t)).isError).toBe(true)
-  } finally { c.hwp=old }
+  } finally { c.hwp=old; plugins.hwpToolUsable=usable }
 })
 test('HTTP route: unauthorized, denied, valid PNG and no browser cache', async () => {
   const url='/api/files/hwp-preview?path=users%2Falice%2Ftest.hwp&page=1'

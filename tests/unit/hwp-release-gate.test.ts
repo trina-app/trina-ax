@@ -2,39 +2,38 @@ import { expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { nativeHwpEngine } from '../../server/src/files/hwp-engine'
+import { disabledHwpEngine, hwpReleaseGateOpen } from '../../server/src/files/hwp-engine'
 import { stageHwp, type HwpTarget } from '../../scripts/hwp-bundle'
 import { bundleManifest } from '../../scripts/build-office'
 import { linuxBundleFiles } from '../../scripts/build-bundle'
-import manifest from '../../resources/hwp/manifest.json'
 import { sha256 } from '../../server/src/files/store'
 import { makeCApp, type CApp } from '../lib/c-app'
 
-// This gate protects distribution as well as execution. Existing local QA assets
-// and even stale destination assets must not leak into a default release.
-test('HWP runtime and office/Linux staging are default off, independently of installed assets', async () => {
+// This gate protects distribution as well as execution. HWP ships only as the separately built HWP Preview plugin
+// (docs/PLUGINS.md): local QA assets, stale destination assets and the old MYCEL_HWP_PREVIEW build switch never put the
+// renderer into a server or office release. At runtime the release gate stays a second, independent condition.
+test('release staging never carries the HWP runtime; the runtime gate is independent of installed assets', async () => {
   const prior = process.env.MYCEL_HWP_PREVIEW
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'hwp-gate-'))
   const repo = path.resolve(import.meta.dir, '../..')
   const target = `${process.platform}-${process.arch}` as HwpTarget
   try {
-    delete process.env.MYCEL_HWP_PREVIEW
-    expect(nativeHwpEngine().identity).toBe('hwp-disabled')
-    await expect(nativeHwpEngine().render(Buffer.from('unparsed'), 'hwp', 1)).rejects.toMatchObject({ reason: 'disabled' })
-    for (const rel of ['native/bin/hwp', 'resources/hwp']) {
-      fs.mkdirSync(path.join(stage, rel), { recursive: true })
-      fs.writeFileSync(path.join(stage, rel, 'stale'), 'old QA assets')
+    expect(disabledHwpEngine.identity).toBe('hwp-disabled')
+    await expect(disabledHwpEngine.render(Buffer.from('unparsed'), 'hwp', 1)).rejects.toMatchObject({ reason: 'disabled' })
+    expect(hwpReleaseGateOpen({})).toBe(false)
+    expect(hwpReleaseGateOpen({ MYCEL_HWP_PREVIEW: 'true' })).toBe(false)
+    expect(hwpReleaseGateOpen({ MYCEL_HWP_PREVIEW: '1' })).toBe(true)
+    for (const flag of [undefined, '1']) {
+      if (flag) process.env.MYCEL_HWP_PREVIEW = flag; else delete process.env.MYCEL_HWP_PREVIEW
+      for (const rel of ['native/bin/hwp', 'resources/hwp']) {
+        fs.mkdirSync(path.join(stage, rel), { recursive: true })
+        fs.writeFileSync(path.join(stage, rel, 'stale'), 'old QA assets')
+      }
+      await stageHwp(repo, stage, [target])
+      for (const rel of ['native/bin/hwp', 'resources/hwp']) expect(fs.existsSync(path.join(stage, rel))).toBe(false)
+      expect(bundleManifest({ pandoc: false, desktop: false }).some(p => /rhwp-|NotoSansKR|resources\/hwp|\.trinaplugin/.test(p))).toBe(false)
+      expect(linuxBundleFiles({ arch: 'arm64', codexVersion: 'test', whisper: false, systemd: [] }).some(p => /rhwp-|NotoSansKR|resources\/hwp|\.trinaplugin/.test(p))).toBe(false)
     }
-    await stageHwp(repo, stage, [target])
-    for (const rel of ['native/bin/hwp', 'resources/hwp']) expect(fs.existsSync(path.join(stage, rel))).toBe(false)
-    expect(bundleManifest({ pandoc: false, desktop: false }).some(p => p.includes('rhwp-'))).toBe(false)
-    expect(linuxBundleFiles({ arch: 'arm64', codexVersion: 'test', whisper: false, systemd: [] }).some(p => p.includes('rhwp-'))).toBe(false)
-    process.env.MYCEL_HWP_PREVIEW = '1'
-    await stageHwp(repo, stage, [target])
-    expect(sha256(fs.readFileSync(path.join(stage, 'native/bin/hwp', `rhwp-${target}`)))).toBe(manifest.targets[target].binary)
-    expect(fs.existsSync(path.join(stage, 'resources/hwp/notices/rhwp-MIT.txt'))).toBe(true)
-    expect(bundleManifest({ pandoc: false, desktop: false }).some(p => p.includes('rhwp-'))).toBe(true)
-    expect(linuxBundleFiles({ arch: 'arm64', codexVersion: 'test', whisper: false, systemd: [] }).some(p => p.includes('rhwp-'))).toBe(true)
   } finally {
     fs.rmSync(stage, { recursive: true, force: true })
     if (prior === undefined) delete process.env.MYCEL_HWP_PREVIEW
@@ -42,12 +41,13 @@ test('HWP runtime and office/Linux staging are default off, independently of ins
   }
 })
 
-// Installed QA assets must not enable the real preview route or prevent original downloads.
+// Without the HWP plugin, installed QA assets and the gate switch do not enable the preview route, and original downloads
+// stay byte-identical.
 test('default-off HTTP preview is 503 while authorized original download remains byte-identical', async () => {
   const prior = process.env.MYCEL_HWP_PREVIEW
   let app: CApp | undefined
   try {
-    delete process.env.MYCEL_HWP_PREVIEW
+    process.env.MYCEL_HWP_PREVIEW = '1'
     app = await makeCApp('hwp-default-route')
     const bytes = fs.readFileSync(path.join(import.meta.dir, '../fixtures/hwp/two-pages.hwp'))
     fs.writeFileSync(path.join(app.team, 'users/alice/original.hwp'), bytes)

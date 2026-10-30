@@ -176,12 +176,8 @@ function collect(o: ReleaseNoticeOptions): ReleaseNoticeManifest {
   copy(textFile(path.join(repo, 'LICENSE'), repo), 'LICENSE', 'project', 'LICENSE')
   if (fs.existsSync(path.join(repo, 'NOTICE'))) copy(textFile(path.join(repo, 'NOTICE'), repo), 'NOTICE', 'project', 'NOTICE')
   else if (fs.existsSync(path.join(artifact, 'NOTICE'))) fs.unlinkSync(destination(artifact, 'NOTICE'))
-  const hwpNotices = path.join(repo, 'resources/hwp/notices')
-  if (fs.existsSync(hwpNotices)) {
-    for (const name of fs.readdirSync(hwpNotices).sort()) copy(textFile(path.join(hwpNotices, name), repo), 'licenses/hwp/' + name, 'project', 'resources/hwp/notices/' + name, 'rhwp-0.8.7')
-    pending('native-feature-inventory-and-font-metrics-provenance', 'rhwp-0.8.7')
-    m.inputs.push({ path: 'resources/hwp/manifest.json', sha256: hash(original(path.join(repo, 'resources/hwp/manifest.json'), repo)) })
-  }
+  // The HWP renderer (rhwp, Noto Sans KR) is not part of default releases: its notices, source offer and the pending
+  // inventory findings travel inside the HWP Preview plugin package (scripts/plugins/build-hwp.ts, docs/PLUGINS.md).
   const protocol = 'shared/src/cloud-protocol/LICENSE'
   if (fs.existsSync(path.join(repo, protocol))) copy(textFile(path.join(repo, protocol), repo), 'licenses/shared-cloud-protocol/LICENSE', 'shared-cloud-protocol', protocol)
   else if (fs.existsSync(path.dirname(path.join(repo, protocol)))) pending('scoped-license-missing', 'shared/cloud-protocol')

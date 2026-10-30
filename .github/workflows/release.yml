@@ -172,6 +172,8 @@ jobs:
           bun scripts/build-bundle.ts --os linux --arch "$ARCH" --version "$VERSION" --whisper-dir dist/whisper --strict "${notes[@]}" --out dist/linux
           # tar keeps the file modes (an artifact does not); the unsigned packs are not needed
           tar -C dist/linux -cf "dist/release-linux-$ARCH.tar" app install-linux.sh VERSION product.env
+          # plugins ship separately: no rhwp, runtime font, resources/hwp or .trinaplugin in a default kit (docs/PLUGINS.md)
+          bun scripts/plugins/release-check.ts "dist/release-linux-$ARCH.tar"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-linux-${{ matrix.arch }}
@@ -205,6 +207,7 @@ jobs:
           swiftc --version | head -1
           bun run build:office -- --version "$VERSION"
           ls -l dist/office/*-mac.zip
+          bun scripts/plugins/release-check.ts dist/office/*-mac.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-office
@@ -233,6 +236,7 @@ jobs:
         run: |
           bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$VERSION"
           ls -l desktop/release
+          bun scripts/plugins/release-check.ts desktop/dist
           tr -d '\r' < desktop/release/latest.yml | grep -qx "version: $VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

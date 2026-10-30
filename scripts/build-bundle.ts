@@ -49,6 +49,7 @@ import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, type Linux
 import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
+import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
@@ -96,6 +97,8 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   if (fs.existsSync(web)) fs.cpSync(web, path.join(dir, 'web'), { recursive: true })
   if (o.notes) fs.copyFileSync(o.notes, path.join(dir, 'RELEASE_NOTES.md'))
   await stageHwp(REPO, dir, arch === 'universal' ? ['darwin-arm64', 'darwin-x64'] : [arch === 'amd64' ? 'darwin-x64' : 'darwin-arm64'])
+  stagePluginCatalog(REPO, dir)
+  assertNoPluginPayload(dir)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'darwin', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
   reportReleaseNotices(notices)
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
@@ -263,7 +266,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
-    ...(process.env.MYCEL_HWP_PREVIEW === '1' ? ['resources/hwp/manifest.json', 'resources/hwp/fonts/NotoSansKR-Regular.ttf', `native/bin/hwp/rhwp-linux-${o.arch === 'amd64' ? 'x64' : 'arm64'}`] : []),
+    // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
+    'resources/plugins/catalog.json',
     'server/src/hwp-preflight.js',
     'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
@@ -382,6 +386,8 @@ export async function buildLinuxBundle(o: {
   for (const m of missing) console.warn(`warning: ${m} is missing; the bundle is incomplete`)
 
   await stageHwp(REPO, dir, [arch === 'amd64' ? 'linux-x64' : 'linux-arm64'])
+  stagePluginCatalog(REPO, dir)
+  assertNoPluginPayload(dir)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'linux', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
   reportReleaseNotices(notices)
 
