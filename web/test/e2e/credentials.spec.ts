@@ -47,7 +47,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByTestId('credential-secret').fill(TOKEN)
   await page.getByTestId('credential-password').fill(OWNER.password)
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
-  await expect(page.getByTestId('plan-notice')).toContainText('개인 사용을 전제로')
+  await expect(page.getByTestId('plan-notice')).toContainText('제공사 약관에 따라 목적에 맞는 사용을 허용하는지 확인하세요. 트리나가 그 허가를 줄 수는 없어요.')
   await page.getByTestId('plan-notice-ack').check()
   await page.getByTestId('credential-submit').click()
   await expect(dialog).toHaveCount(0)

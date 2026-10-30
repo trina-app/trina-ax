@@ -9,7 +9,7 @@ test('a server in DEV mode says so on every screen, and the banner cannot be clo
   await reset(page)
   await signIn(page)
   const banner = page.getByTestId('dev-banner')
-  await expect(banner).toContainText('개발 모드: OS 격리 없음')
+  await expect(banner).toContainText('개발 모드: 운영용 OS 계정 격리가 없어요. 켜진 엔진은 서버 OS 사용자로 실행돼요.')
   await expect(banner.getByRole('button')).toHaveCount(0)
   for (const p of ['/files', '/admin/members', '/settings']) {
     await page.goto(p)
