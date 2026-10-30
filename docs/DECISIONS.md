@@ -3091,7 +3091,8 @@ Placement: Trina AX only (`trina-app/trina-ax`), following the 10/29 decision to
   prefixes; a release key there is dropped and refused by the tool. Signatures cover
   `"trina-plugin-manifest-v1\n" + canonical JSON` (catalog: `trina-plugin-catalog-v1`), so release and plugin
   signatures never substitute for each other. The trust root is empty: production refuses every package until the
-  owner creates the key (documented, not done). No test private key is in the repository: tests make one per run;
+  owner creates the key (documented, not done). Superseded for official packages by "Official plugins: trusted by
+  digest pinned in the signed release" below. No test private key is in the repository: tests make one per run;
   developers keep one outside the repo. Test keys (`MYCEL_PLUGINS_TEST_KEYS`) and unsigned packages
   (`MYCEL_PLUGINS_ALLOW_UNSIGNED`) count only in dev mode, or on a prod-mode test server whose root-managed environment
   also sets `MYCEL_PLUGINS_TEST_SERVER=1`; hosted and office ignore them; an admin warning band shows while on.
@@ -3247,3 +3248,41 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
 - Not behind the switch or the budget (as before this change): `hwp_render` page images and the in-app browser's
   screenshots still reach the model with image viewing off. On a Mac the API engine and the remote MCP connector used
   to get Apple Vision text of images and scanned pages; they now get the note (with image viewing off they keep it).
+
+## Official plugins: trusted by digest pinned in the signed release (2026-10-30)
+
+The founder asked why our own plugins need a separate signing key; they do not. The plugin key waits for third-party
+publishers (B5). Admin doc: [PLUGINS](PLUGINS.md) "공식 플러그인 확인".
+
+- **Trust.** `resources/plugins/catalog.json` ships inside every core release, which the update feed already signs; it
+  is trusted exactly as much as the server code next to it. An entry's `pins` lists `{version, platform?,
+  manifestSha256}` for its official builds. A package whose canonical-manifest SHA-256, id, publisher, version and
+  exact platform (OS, CPU, glibc floor; none for data-only packs) match a pin of an `available` entry is `official`
+  without any key (`verifiedBy: release`, no key id), shown as "Official · matches the official list". Pins of another
+  version, a platform the entry does not list or two per platform make the list fail to load (nothing trusted).
+- **What the digest covers.** The canonical manifest digest the installer already carries end to end (prompt, install
+  request, approval binding, renderer identity). The manifest lists every file's size and SHA-256 and the installer
+  refuses any other byte, so a match fixes everything it writes; a pinned package is stored with its manifest as the
+  exact pinned bytes and no signature file. Archive digests were not used: they change on re-gzip and cover tar/gzip
+  framing that is never installed.
+- **Unchanged guarantees.** `pending_clearance` still blocks (a matching pin of such an entry is refused as
+  `not_available`; flipping availability is a separate reviewed edit). HWP still needs `MYCEL_HWP_PREVIEW=1` and the
+  plugin on. Default bundles carry digests only, never a package, renderer or font. Admin-only routes, CSRF, the
+  approved-digest check and `plugin.*` audit (now with `verifiedBy`) stay. Hosted servers still take no package files;
+  they get official bytes with the B3 download, checked against the same pins. No environment variable or `server.json`
+  key adds a pin and test settings never make a package official; a unit test pins the settings the plugin code reads.
+  A `catalog.sig` that does not verify still hides the whole list.
+- **Release step.** `bun run plugin:hwp -- --official --target <t>` builds an unsigned official package (refused until
+  `resources/hwp/clearance.json` lists the target). `scripts/plugins/pin-catalog.ts` opens each package as the server
+  does, checks it against its entry (id, version, publisher, kinds, permissions, licence, platform, the core driver's
+  pinned build, HWP clearance, not test-signed) and writes the pins, keeping the file's layout. Review the diff like a
+  key change; publish exactly the files that were pinned.
+- **Install paths.** Self-hosted and office servers upload the official file or use the import folder; an offline
+  mirror may place it next to the list (`package`). The official-list card says to upload the file when a pin exists
+  for this server but no bytes do.
+- **Deferred.** The Ed25519 plugin-key path (trust root, catalog signature, `sign-catalog.ts`) stays for B5;
+  `plugin-trust.json` stays empty. Revocation: a pin dropped by a later release does not turn off an installed
+  package, so a revoked-digest list in the same catalog must exist before the first official package is published.
+  Schema 0 must be frozen before the first pin ships.
+- **Wording.** Korean Admin > Plugins and HWP viewer strings now use 해요체 like the rest of Admin. Optional permissions
+  (HWP: page images sent to the AI provider) stay pre-ticked as in Claude Code, and the prompt says so.

@@ -3,9 +3,11 @@
 //   bun run plugin:hwp                                   test package for this Mac/Linux CPU, signed with the
 //                                                        developer's test key (scripts/plugins/test-key.ts)
 //   bun run plugin:hwp -- --target linux-x64 --out dist/plugins
-//   bun run plugin:hwp -- --key <pem> --cleared          a release package: refused until resources/hwp/clearance.json
-//                                                        lists the target (licence + platform review), and never with
-//                                                        the test key
+//   bun run plugin:hwp -- --official --target linux-x64  an official package for the official list: unsigned (trusted by
+//                                                        the digest scripts/plugins/pin-catalog.ts pins in the release),
+//                                                        refused until resources/hwp/clearance.json lists the target
+//   bun run plugin:hwp -- --key <pem> --cleared          a package signed by a plugin key (stage B5): the same clearance
+//                                                        rule, and never with the test key
 //
 // The package holds third-party bytes only: the pinned rhwp executable (downloaded and checked against
 // resources/hwp/manifest.json by scripts/hwp-bundle.ts), the unchanged Noto Sans KR Regular font, and their notices and
@@ -84,7 +86,7 @@ export function clearedTargets(repo = REPO): string[] {
   try { return (JSON.parse(fs.readFileSync(path.join(repo, 'resources/hwp/clearance.json'), 'utf8')) as { cleared?: string[] }).cleared ?? [] } catch { return [] }
 }
 
-export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string; version?: string; repo?: string; provision?: boolean }): Promise<{ bytes: Buffer; fileName: string }> {
+export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string | null; version?: string; repo?: string; provision?: boolean }): Promise<{ bytes: Buffer; fileName: string }> {
   const repo = o.repo ?? REPO
   const pin = hwpPins.targets[o.target]
   if (!pin) throw new Error(`unknown HWP target ${o.target}`)
@@ -125,10 +127,12 @@ export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string; ver
 if (import.meta.main) {
   const target = (arg('--target') ?? `${process.platform}-${process.arch}`) as HwpTarget
   const out = path.resolve(arg('--out') ?? path.join(REPO, 'dist/plugins'))
-  const testPem = ensureTestKey()
+  const official = process.argv.includes('--official')
   const keyFile = arg('--key')
-  const keyPem = keyFile ? fs.readFileSync(keyFile, 'utf8') : testPem
-  const isTest = publicKeyOfPem(keyPem) === publicKeyOfPem(testPem)
+  if (official && keyFile) { console.error('--official builds an unsigned package that the official list pins; it takes no --key'); process.exit(2) }
+  const testPem = official ? null : ensureTestKey()
+  const keyPem = official ? null : keyFile ? fs.readFileSync(keyFile, 'utf8') : testPem!
+  const isTest = !!keyPem && publicKeyOfPem(keyPem) === publicKeyOfPem(testPem!)
   if (!isTest && !clearedTargets().includes(target)) {
     console.error(`HWP redistribution is not cleared for ${target} (resources/hwp/README.md: compiled font-metric provenance, platform qualification, owner sign-off). Only test packages can be built.`)
     process.exit(1)
@@ -137,5 +141,5 @@ if (import.meta.main) {
   const { bytes, fileName } = await buildHwpPlugin({ target, keyPem, version: arg('--version') })
   fs.mkdirSync(out, { recursive: true })
   fs.writeFileSync(path.join(out, fileName), bytes)
-  console.log(`${isTest ? 'TEST ' : ''}package: ${path.join(out, fileName)} (${bytes.length} bytes)`)
+  console.log(`${isTest ? 'TEST ' : official ? 'OFFICIAL (pin it: bun scripts/plugins/pin-catalog.ts <files>) ' : ''}package: ${path.join(out, fileName)} (${bytes.length} bytes)`)
 }

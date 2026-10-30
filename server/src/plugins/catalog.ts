@@ -1,13 +1,17 @@
-// The official catalog shipped with the app (resources/plugins/catalog.json, metadata only in default releases; stage 3
-// serves the same signed document from the update feed). Three outcomes:
-//   signed   its detached plugin-key signature (catalog.sig) verifies: shown, and an entry's pinned package may install
-//   release  no signature yet (no production plugin key exists): the list travels inside the signed core release and is
-//            shown as information only (availability, recommendation); nothing installs from it
-//   none     missing, malformed, or a signature that does not verify (treated as tampering): nothing is shown
-// Catalog text is presentation data: plain strings, never HTML. An entry never authorizes bytes by itself.
+// The official catalog shipped with the app (resources/plugins/catalog.json, metadata and digests only in default
+// releases; stage 3 serves the same document from the update feed). It sits in the release bundle next to the server
+// code, so the core release signature (the update feed) covers it as much as the code that reads it. Three outcomes:
+//   release  no detached signature: the list as this release shipped it. Shown, and its pins vouch for official
+//            packages (an entry's `pins`: canonical manifest digests per version and platform, like a lockfile)
+//   signed   a detached plugin-key signature (catalog.sig, stage B5) verifies too: the same, plus a package signed by
+//            a trusted plugin key may install from the list
+//   none     missing, malformed, or a signature that does not verify (treated as tampering): nothing is shown or
+//            trusted from it
+// Catalog text is presentation data: plain strings, never HTML. No setting or environment variable adds pins: they
+// come only from this file in the release (docs/PLUGINS.md "공식 플러그인 확인").
 import fs from 'node:fs'
 import path from 'node:path'
-import { PLUGIN_CATALOG_DOMAIN, PluginCatalog, type CatalogEntry } from '@mycel/shared/plugins'
+import { PLUGIN_CATALOG_DOMAIN, PluginCatalog, type CatalogEntry, type PluginPlatform } from '@mycel/shared/plugins'
 import { canonicalJson, parseStrictJson } from './json'
 import { checkSignature, type TrustRoot } from './trust'
 
@@ -33,4 +37,17 @@ export function loadCatalog(dir: string, root: TrustRoot): LoadedCatalog {
   const check = checkSignature(root, PLUGIN_CATALOG_DOMAIN, canonicalJson(raw), sig, 'catalog')
   if (!check.ok) return none
   return { source: 'signed', entries: parsed.data.entries, dir, sequence: parsed.data.sequence }
+}
+
+/** One digest the release vouches for. `available` false: the entry is listed but not cleared for distribution
+ * (`pending_clearance`), so the pin must not make the package installable. */
+export interface ReleasePin { id: string; publisher: string; version: string; platform: PluginPlatform | null; manifestSha256: string; available: boolean }
+
+/** Every pin of a catalog this server can stand behind (a 'none' catalog vouches for nothing). */
+export function releasePins(cat: LoadedCatalog): ReleasePin[] {
+  if (cat.source === 'none') return []
+  return cat.entries.flatMap((e) => (e.pins ?? []).map((p) => ({
+    id: e.id, publisher: e.publisher.id, version: p.version, platform: p.platform ?? null, manifestSha256: p.manifestSha256,
+    available: e.availability === 'available',
+  })))
 }

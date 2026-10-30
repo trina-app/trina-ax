@@ -1,12 +1,14 @@
 // Plugin package contract, schema 0 = experimental (docs/PLUGINS.md, docs/DECISIONS.md "Plugins, stage 1"). The
-// format may still change (for example toward Claude Code's `.claude-plugin/plugin.json` + `skills/` layout) before a
-// real plugin key signs anything; schema 1 will be fixed at that point.
+// format may still change (for example toward Claude Code's `.claude-plugin/plugin.json` + `skills/` layout) before
+// the first official package is published (pinned in a release) or a real plugin key signs anything; schema 1 will be
+// fixed at that point.
 //
-// A plugin is a signed, versioned package (`.trinaplugin`: a bounded tar, optionally gzip) with `trina-plugin.json`
-// (this manifest), a detached `trina-plugin.sig` and payload files. The manifest lists every payload byte (path,
-// size, SHA-256); the signature covers "trina-plugin-manifest-v1\n" + canonical JSON of the manifest, so it binds the
-// files, platforms, permissions and product range. The `signature` field names the key and file; it never carries
-// signature bytes (no self-hash cycle).
+// A plugin is a versioned package (`.trinaplugin`: a bounded tar, optionally gzip) with `trina-plugin.json` (this
+// manifest) and payload files. The manifest lists every payload byte (path, size, SHA-256), so the SHA-256 of its
+// canonical JSON binds the files, platforms, permissions and product range. An official package is trusted because
+// that digest is pinned in the official list shipped inside the signed core release (CatalogPin). Later, third-party
+// packages carry a detached `trina-plugin.sig`: Ed25519 over "trina-plugin-manifest-v1\n" + the canonical JSON. The
+// `signature` field names the key and file; it never carries signature bytes (no self-hash cycle).
 //
 // Stage 1 installs two kinds: data-only skill packs (company skills) and native tool/preview packages whose driver
 // core already knows (HWP: rhwp-v1). The other kinds are accepted by this schema so future packages parse, but the
@@ -156,10 +158,25 @@ export const PluginSignature = z.strictObject({ keyId: KeyId, sig: z.string().re
 export type PluginSignature = z.infer<typeof PluginSignature>
 
 /**
- * The bundled official catalog (stage 1: a static file shipped with the app, `resources/plugins/catalog.json`, with a
- * detached plugin-key signature; stage 3 serves the same document from the update feed). Entries describe; they never
- * authorize bytes on their own: a bundled package must also match its pinned archive SHA-256 and carry a valid
- * manifest signature.
+ * A release pin: one package the product release vouches for, like a lockfile line. `manifestSha256` is the SHA-256 of
+ * the package's canonical manifest — the digest the installer checks end to end (the admin approves it, installs and
+ * approvals are bound to it, the renderer identity carries it). The manifest lists every payload file's size and
+ * SHA-256 and the installer refuses any other byte, so a match fixes every byte it writes. `version` and `platform`
+ * (absent for data-only packages that name no platform) must equal the package's own, so a pin never vouches for
+ * another version or another OS, CPU or C library.
+ */
+export const CatalogPin = z.strictObject({ version: SemVer, platform: PluginPlatform.optional(), manifestSha256: Sha256 })
+export type CatalogPin = z.infer<typeof CatalogPin>
+
+/** One platform as a comparable key ('' for none): os/arch and, on Linux, the glibc floor. */
+export const platformKey = (p: PluginPlatform | undefined | null): string => p ? `${p.os}/${p.arch}${p.libc ? `/${p.libc.family}-${p.libc.minVersion}` : ''}` : ''
+
+/**
+ * The bundled official catalog (stage 1: a static file shipped with the app, `resources/plugins/catalog.json`; stage 3
+ * serves the same document from the update feed). It travels inside the signed core release, so the release's
+ * signature covers it. Entries describe; an entry authorizes bytes only through `pins` (an official package is one
+ * whose manifest digest a pin lists, for an entry that is `available`), or, once a plugin key exists, a detached
+ * catalog signature plus a manifest signature by that key.
  */
 export const CatalogEntry = z.strictObject({
   id: PluginId,
@@ -177,11 +194,19 @@ export const CatalogEntry = z.strictObject({
   /** where the package bytes come from, pinned by archive digest: a file next to the catalog (tests, offline mirrors;
    * the catalog shipped in default release bundles carries metadata only and never a package) */
   package: z.strictObject({ file: PluginPath, sha256: Sha256, size: z.number().int().positive() }).optional(),
+  /** the official builds of this version, one per platform (docs/PLUGINS.md "공식 플러그인 확인"). Written by
+   * scripts/plugins/pin-catalog.ts from the built packages, never by hand. A pin never makes a `pending_clearance`
+   * entry installable. */
+  pins: z.array(CatalogPin).max(16).optional(),
   /** a data-only official pack a new company gets turned on (decision pending, docs/PLUGINS.md); never for packages
    * that run programs */
   default: z.boolean().optional(),
   license: z.string().min(1).max(100),
 }).refine((e) => !e.default || !e.kinds.some((k) => k === 'native-tool' || k === 'preview'), 'only data-only packs can be default')
+  // pins are for this entry's version and for platforms it lists, at most one per platform
+  .refine((e) => (e.pins ?? []).every((p) => p.version === e.version), 'a pin is for another version')
+  .refine((e) => (e.pins ?? []).every((p) => e.platforms?.length ? e.platforms.some((q) => platformKey(q) === platformKey(p.platform)) : !p.platform), 'a pin is for a platform the entry does not list')
+  .refine((e) => new Set((e.pins ?? []).map((p) => platformKey(p.platform))).size === (e.pins ?? []).length, 'two pins for one platform')
 export type CatalogEntry = z.infer<typeof CatalogEntry>
 export const PluginCatalog = z.strictObject({ schemaVersion: z.literal(PLUGIN_SCHEMA_VERSION), sequence: z.number().int().min(1), entries: z.array(CatalogEntry).max(200) })
   .refine((c) => new Set(c.entries.map((e) => e.id)).size === c.entries.length, 'an id repeats')

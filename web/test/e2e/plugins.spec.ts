@@ -19,20 +19,22 @@ test('Korean workspace: HWP is recommended but not installable yet; a skill pack
   await page.goto('/admin/plugins')
   await expect(page.getByRole('link', { name: '플러그인' })).toBeVisible()
   // nothing is installed by the recommendation
-  await expect(page.getByText('아직 설치한 플러그인이 없습니다.')).toBeVisible()
+  await expect(page.getByText('아직 설치한 플러그인이 없어요.')).toBeVisible()
   const hwp = catalogRow(page, 'app.trina.hwp-preview')
   await expect(hwp).toContainText('한글 문서 미리보기')
   await expect(hwp.getByTestId('plugin-recommended')).toHaveText('추천')
-  await expect(hwp.getByTestId('plugin-not-yet')).toHaveText('아직 설치할 수 없습니다. 배포 요건과 지원 환경을 검토 중입니다.')
+  await expect(hwp.getByTestId('plugin-not-yet')).toHaveText('아직 설치할 수 없어요. 배포 요건과 지원 환경을 검토하고 있어요.')
   await expect(hwp.getByTestId('plugin-catalog-install')).toHaveCount(0)
-  await expect(hwp).toContainText('이 서버의 격리된 프로세스에서 프로그램을 실행합니다')
+  await expect(hwp).toContainText('이 서버의 격리된 프로세스에서 프로그램을 실행해요')
   await expect(hwp).toContainText('Linux x64 (glibc 2.39 이상)')
   await shot(page, 'plugins-ko-catalog.png')
 
   await catalogRow(page, 'app.trina.office-starter').getByTestId('plugin-catalog-install').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: '회사에 업무 시작 스킬을(를) 설치할까요?' })).toBeVisible()
-  await expect(dialog.getByTestId('plugin-permissions')).toContainText('회사 스킬 폴더를 읽을 수 있는 모든 사람에게 AI 지침(스킬)을 더합니다')
+  await expect(dialog.getByTestId('plugin-permissions')).toContainText('회사 스킬 폴더를 읽을 수 있는 모든 사람에게 AI 지침(스킬)을 더해요')
+  // official without a plugin key: the package matches the list that came with this release
+  await expect(dialog.getByTestId('plugin-plan-release')).toContainText('공식 빌드예요.')
   await expect(dialog).toContainText('더해지는 회사 스킬: meeting-minutes, weekly-report')
   await expect(dialog).toContainText('사용 대상: 회사 전체')
   await shot(page, 'plugins-ko-prompt.png')
@@ -41,6 +43,7 @@ test('Korean workspace: HWP is recommended but not installable yet; a skill pack
   const row = installedRow(page, 'app.trina.office-starter')
   await expect(row).toContainText('회사 전체에 켜짐')
   await expect(row).toContainText('공식')
+  await expect(row.getByTestId('plugin-verified-release')).toContainText('공식 목록과 일치')
   await expect(row).toContainText('스킬: meeting-minutes, weekly-report')
   await shot(page, 'plugins-ko-installed.png')
 
@@ -51,7 +54,7 @@ test('Korean workspace: HWP is recommended but not installable yet; a skill pack
   await row.getByTestId('plugin-remove').click()
   await page.getByRole('dialog').getByRole('button', { name: '제거' }).click()
   await expect(row).toHaveCount(0)
-  await expect(page.getByText('아직 설치한 플러그인이 없습니다.')).toBeVisible()
+  await expect(page.getByText('아직 설치한 플러그인이 없어요.')).toBeVisible()
   // the mock has no /api/skills list (home page), unrelated to this page
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
@@ -76,7 +79,21 @@ test('English workspace: no recommendation; an uploaded test build shows its war
   await expect(page.getByText('No plugins are installed yet.')).toBeVisible()
 
   await page.getByTestId('plugin-file-input').setInputFiles({ name: 'bad.trinaplugin', mimeType: 'application/octet-stream', buffer: Buffer.from('package') })
-  await expect(page.getByText('The package is not signed, or its signature does not match.')).toBeVisible()
+  await expect(page.getByText("This package is not in this version's official list and has no valid signature.")).toBeVisible()
+})
+
+test('the install prompt ticks the optional page-image permission and says so', async ({ page }) => {
+  await reset(page, { teamLocale: 'ko', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/admin/plugins')
+  await page.getByTestId('plugin-file-input').setInputFiles({ name: 'hwp.trinaplugin', mimeType: 'application/octet-stream', buffer: Buffer.from('package') })
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByTestId('plugin-plan-release')).toBeVisible()
+  await expect(dialog.getByTestId('plugin-optional-model.send.preview-pixels')).toBeChecked()
+  await expect(dialog).toContainText('요청하면 AI가 페이지 이미지를 볼 수 있어요. 이때 이미지가 설정된 AI 제공사로 전송돼요.')
+  await expect(dialog.getByTestId('plugin-optional-on')).toHaveText('선택 권한도 미리 체크해 두었어요. 원하지 않는 항목은 체크를 해제하세요.')
+  await shot(page, 'plugins-ko-optional.png')
+  await dialog.getByRole('button', { name: '취소' }).click()
 })
 
 test('members do not see the Plugins page', async ({ page }) => {

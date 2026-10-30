@@ -1,6 +1,7 @@
 // Admin > Plugins (docs/PLUGINS.md): what the company has installed, the official list, and package files. Installing
-// always goes through the permission prompt: the server checks the package first (signature, files, platform) and the
-// admin approves exactly the digest and permissions shown. Stage 1 turns plugins on for the whole company only.
+// always goes through the permission prompt: the server checks the package first (official pin or signature, files,
+// platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
+// Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
@@ -31,9 +32,15 @@ function platformText(t: T, platforms: PluginPlatform[] | null): string {
   }).join(' · ')
 }
 
-function TrustBadge({ trust }: { trust: InstalledPlugin['trust'] }) {
+/** Official, test build or unverified; an official package the release vouches for says so. */
+function TrustBadge({ trust, verifiedBy }: { trust: InstalledPlugin['trust']; verifiedBy: InstalledPlugin['verifiedBy'] }) {
   const t = useT()
-  return <Badge tone={trust === 'official' ? 'ok' : 'warn'}>{t(`plugins.trust.${trust}`)}</Badge>
+  return (
+    <>
+      <Badge tone={trust === 'official' ? 'ok' : 'warn'}>{t(`plugins.trust.${trust}`)}</Badge>
+      {trust === 'official' && verifiedBy === 'release' && <span className="text-xs text-faint" data-testid="plugin-verified-release">{t('plugins.trust.release')}</span>}
+    </>
+  )
 }
 
 /** `showGrant`: an installed plugin — an optional permission the admin did not allow is shown as such. */
@@ -91,7 +98,7 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
           <p className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{plan.name}</span>
             <span className="text-muted">{t('plugins.version', { version: plan.version })}</span>
-            <TrustBadge trust={plan.trust} />
+            <TrustBadge trust={plan.trust} verifiedBy={plan.verifiedBy} />
           </p>
           <p className="mt-1 text-muted">{plan.description}</p>
           <p className="mt-1 text-xs text-faint">{t('plugins.publisher', { name: plan.publisher.name })} · {t('plugins.prompt.size', { size: formatSize(plan.sizeBytes, locale) })} · {t('plugins.platforms', { list: platformText(t, plan.platforms) })}</p>
@@ -102,10 +109,12 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
           </p>
         )}
         {plan.trust !== 'official' && <p className="rounded-lg bg-warn-soft px-3 py-2 text-warn">{t(plan.trust === 'test' ? 'plugins.prompt.test' : 'plugins.prompt.unverified')}</p>}
+        {plan.trust === 'official' && plan.verifiedBy === 'release' && <p className="text-muted" data-testid="plugin-plan-release">{t('plugins.prompt.release')}</p>}
         {plan.permissions.some((p) => p.new) && <p className="text-warn">{t('plugins.prompt.newAccess')}</p>}
         <div>
           <p className="mb-1.5 font-medium">{t('plugins.prompt.does')}</p>
           <Permissions items={plan.permissions} choose={{ chosen, set: (p, on) => setChosen((s) => { const n = new Set(s); if (on) n.add(p); else n.delete(p); return n }) }} />
+          {plan.supported && plan.permissions.some((p) => !p.required) && <p className="mt-1.5 text-xs text-muted" data-testid="plugin-optional-on">{t('plugins.prompt.optionalOn')}</p>}
         </div>
         {plan.skills.length > 0 && <p>{t('plugins.prompt.skills', { list: plan.skills.join(', ') })}</p>}
         <p className="text-muted">{t('plugins.prompt.who')}</p>
@@ -137,7 +146,7 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{p.name}</span>
         <span className="text-xs text-muted">{t('plugins.version', { version: p.version })}</span>
-        <TrustBadge trust={p.trust} />
+        <TrustBadge trust={p.trust} verifiedBy={p.verifiedBy} />
         {status}
       </div>
       <p className="text-sm text-muted">{p.description}</p>
@@ -167,7 +176,7 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
   )
 }
 
-function CatalogRow({ c, review }: { c: CatalogPlugin; review: (id: string) => void }) {
+function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => void; fileInstall: boolean }) {
   const t = useT()
   return (
     <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
@@ -183,6 +192,9 @@ function CatalogRow({ c, review }: { c: CatalogPlugin; review: (id: string) => v
       <Permissions items={c.permissions} />
       {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
         <Button size="sm" variant="primary" onClick={() => review(c.id)} data-testid="plugin-catalog-install">{c.installedVersion ? t('plugins.update', { version: c.version }) : t('plugins.install')}</Button>
+      )}
+      {c.availability === 'file' && (!c.installedVersion || c.updateAvailable) && (
+        <p className="text-sm text-muted" data-testid="plugin-from-file">{t(fileInstall ? 'plugins.availability.file' : 'plugins.availability.fileHosted')}</p>
       )}
       {c.availability === 'pending_clearance' && <p className="text-sm text-warn" data-testid="plugin-not-yet">{t('plugins.availability.pending')}</p>}
       {c.availability === 'unsupported' && (
@@ -228,7 +240,7 @@ export default function Plugins() {
           </Card>
           <Card title={t('plugins.catalog')} desc={t(`plugins.catalog.${d.catalogSource}` as MessageKey)}>
             {d.catalog.length
-              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} review={(id) => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
+              ? <ul className="-m-4 divide-y divide-line" data-testid="plugins-catalog">{d.catalog.map((c) => <CatalogRow key={c.id} c={c} fileInstall={d.fileInstall} review={(id) => void inspect(() => api.call(API.inspectPluginSource, { body: { source: 'catalog', id } }))} />)}</ul>
               : <p className="text-sm text-muted">{t('plugins.catalog.none')}</p>}
           </Card>
           {d.imports.length > 0 && (

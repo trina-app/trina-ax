@@ -1,7 +1,9 @@
 // The plugin manager of one server (docs/PLUGINS.md). Stage 1: company scope, owners and admins only.
 //
-//   inspect   verify a package (archive limits, strict manifest, signature, file inventory, platform, driver) and keep
-//             it in <data>/plugins/incoming under a one-use token bound to the admin and the manifest digest
+//   inspect   verify a package (archive limits, strict manifest, trust, file inventory, platform, driver) and keep it
+//             in <data>/plugins/incoming under a one-use token bound to the admin and the manifest digest. Trust: the
+//             manifest digest pinned in the official list of this release (official, no key), else a plugin-key
+//             signature (package.ts)
 //   install   the admin approved exactly that digest and its permissions: stage the files in a temporary folder,
 //             check them again, move the folder into <data>/plugins/store in one rename, then record it
 //   enable / disable / update / rollback / uninstall — every change is audited (plugin.*), cancels HWP renders in
@@ -18,7 +20,7 @@ import {
   compareSemVer, PLUGIN_MANIFEST_FILE, PLUGIN_SIGNATURE_FILE, PluginManifest, pluginStrings, type CatalogEntry, type PluginPermission,
 } from '@mycel/shared/plugins'
 import type {
-  CatalogPlugin, InstalledPlugin, PluginList, PluginPlan, PluginRefusal, PluginUnsupported,
+  CatalogPlugin, InstalledPlugin, PluginList, PluginPlan, PluginRefusal, PluginTrust, PluginUnsupported, PluginVerifiedBy,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
@@ -29,7 +31,7 @@ import { disabledHwpEngine, hwpReleaseGateOpen, NativeHwpEngine, type HwpEngine 
 import { fail } from '../http/errors'
 import { feature, runKindOf } from '../system/deployment'
 import { publishChanges } from '../team-files/changes'
-import { defaultCatalogDir, loadCatalog, type LoadedCatalog } from './catalog'
+import { defaultCatalogDir, loadCatalog, releasePins, type LoadedCatalog } from './catalog'
 import { driverMismatch, HWP_PLUGIN_ID } from './drivers'
 import { PackageError, verifyPackage, type VerifiedPackage } from './package'
 import { hostInfo, platformMismatch, productMismatch, type HostInfo } from './platform'
@@ -54,6 +56,8 @@ interface Installed { install: InstallRow; pkg: PackageRow; manifest: PluginMani
 
 const refuse = (reason: PluginRefusal, code: 'validation' | 'conflict' | 'not_found' | 'gone' | 'forbidden' = 'validation', detail?: string): never =>
   fail(code, undefined, { params: { reason, ...(detail ? { detail: detail.slice(0, 300) } : {}) } })
+/** A key always records its id; an official package without one was vouched for by a release pin (package.ts). */
+const verifiedBy = (trust: PluginTrust, keyId: string | null): PluginVerifiedBy => trust === 'unverified' ? null : keyId ? 'key' : 'release'
 
 export class PluginManager {
   trust: TrustRoot
@@ -331,7 +335,7 @@ export class PluginManager {
     const why = this.unsupported(x)
     return {
       id: m.id, ...s, publisher: { id: m.publisher.id, name: m.publisher.name }, version: m.version, kinds: m.kinds,
-      trust: x.pkg.trust, keyId: x.pkg.key_id, manifestSha256: x.pkg.manifest_sha256, archiveSha256: x.pkg.archive_sha256,
+      trust: x.pkg.trust, verifiedBy: verifiedBy(x.pkg.trust, x.pkg.key_id), keyId: x.pkg.key_id, manifestSha256: x.pkg.manifest_sha256, archiveSha256: x.pkg.archive_sha256,
       enabled: access.everyone, access,
       status: why ? 'unsupported' : access.everyone ? 'enabled' : 'disabled', unsupported: why,
       permissions: [...m.permissions.required.map((id) => ({ id, required: true, granted: approved.has(id) })), ...m.permissions.optional.map((id) => ({ id, required: false, granted: approved.has(id) }))],
@@ -345,9 +349,14 @@ export class PluginManager {
   private catalogView(e: CatalogEntry, locale: string, teamLocale: string, source: LoadedCatalog['source']): CatalogPlugin {
     const inst = this.installed(e.id)
     const platform = platformMismatch(e.platforms, this.host)
-    // installable only from a signed catalog with pinned bytes; everything else is listed for information
-    const installable = source === 'signed' && !!e.package && e.availability === 'available'
-    const availability: CatalogPlugin['availability'] = platform ? 'unsupported' : installable ? 'available' : 'pending_clearance'
+    // an official build of this version is pinned for this server's platform
+    const pinnedHere = (e.pins ?? []).some((p) => !platformMismatch(p.platform ? [p.platform] : undefined, this.host))
+    // installable from the list: its bytes are next to it and the list vouches for them (a pin; or a plugin-key signed
+    // list, stage B5). Pinned without bytes here: the official package file installs through a file or the import folder.
+    // A pin never lifts pending_clearance.
+    const fromList = !!e.package && (source === 'signed' || pinnedHere)
+    const availability: CatalogPlugin['availability'] = platform ? 'unsupported'
+      : e.availability !== 'available' ? 'pending_clearance' : fromList ? 'available' : pinnedHere ? 'file' : 'pending_clearance'
     return {
       id: e.id, ...pluginStrings(e.i18n, locale), publisher: e.publisher, version: e.version, kinds: e.kinds,
       permissions: [...e.permissions.required.map((id) => ({ id, required: true, granted: false })), ...e.permissions.optional.map((id) => ({ id, required: false, granted: false }))],
@@ -357,7 +366,7 @@ export class PluginManager {
       // the workspace's own default language only (never the browser, the person or the network); a suggestion only
       recommended: !!e.recommendedFor?.locales.includes(teamLocale as never),
       installedVersion: inst?.manifest.version ?? null,
-      updateAvailable: !!inst && availability === 'available' && compareSemVer(e.version, inst.manifest.version) > 0,
+      updateAvailable: !!inst && (availability === 'available' || availability === 'file') && compareSemVer(e.version, inst.manifest.version) > 0,
       license: e.license,
     }
   }
@@ -410,7 +419,8 @@ export class PluginManager {
   }
 
   private verify(bytes: Uint8Array): VerifiedPackage {
-    try { return verifyPackage(bytes, this.trust) } catch (e) {
+    // pins come only from the official list in this release (never from a setting or the environment)
+    try { return verifyPackage(bytes, this.trust, releasePins(this.catalog())) } catch (e) {
       if (e instanceof PackageError) return refuse(e.reason, 'validation', e.message)
       throw e
     }
@@ -449,7 +459,7 @@ export class PluginManager {
     return {
       token, expiresAt: new Date(expires).toISOString(),
       id: m.id, ...pluginStrings(m.i18n, locale), publisher: { id: m.publisher.id, name: m.publisher.name }, version: m.version, kinds: m.kinds,
-      trust: v.trust, keyId: v.keyId, manifestSha256: v.manifestSha256,
+      trust: v.trust, verifiedBy: verifiedBy(v.trust, v.keyId), keyId: v.keyId, manifestSha256: v.manifestSha256,
       permissions: [...m.permissions.required.map((id) => ({ id, required: true, new: !!cur && !had.has(id) })), ...m.permissions.optional.map((id) => ({ id, required: false, new: !!cur && !had.has(id) }))],
       platforms: m.platforms ?? null, supported: !why, unsupported: why,
       license: m.license, components: m.components.map((c) => ({ name: c.name, version: c.version ?? null, license: c.license })), notices: m.notices,
@@ -463,13 +473,16 @@ export class PluginManager {
     const cat = this.catalog()
     const e = cat.entries.find((x) => x.id === id)
     if (!e) return refuse('not_available', 'not_found')
-    // a list shipped without a plugin-key signature is information only
-    if (cat.source !== 'signed' || e.availability !== 'available' || !e.package) return refuse('not_available', 'conflict')
+    // cleared for distribution, with bytes next to the list that the list vouches for: pinned (or, stage B5, a signed
+    // list). A pin never lifts pending_clearance.
+    if (e.availability !== 'available' || !e.package || (cat.source !== 'signed' && !e.pins?.length)) return refuse('not_available', 'conflict')
     let bytes: Buffer
     try { bytes = fs.readFileSync(path.join(cat.dir, ...e.package.file.split('/'))) } catch { return refuse('not_available', 'conflict') }
     if (bytes.length !== e.package.size || sha256(bytes) !== e.package.sha256) return refuse('tampered', 'validation', 'the package does not match the catalog')
     const plan = this.inspect(actor, bytes, 'catalog', locale)
     if (plan.id !== e.id || plan.version !== e.version) { this.drop(plan.token); return refuse('tampered', 'validation', 'the package is not the catalog entry') }
+    // from a list without a plugin-key signature, only the builds it pins
+    if (cat.source !== 'signed' && plan.verifiedBy !== 'release') { this.drop(plan.token); return refuse('not_available', 'conflict') }
     return plan
   }
 
@@ -583,7 +596,7 @@ export class PluginManager {
       if (place) this.placeSkills(x, actor)
     }
     audit(db, { actor, action: cur ? 'plugin.update' : 'plugin.install', target: m.id, detail: {
-      version: m.version, ...(cur ? { from: cur.manifest.version } : {}), trust: v.trust, keyId: v.keyId, source: plan.source,
+      version: m.version, ...(cur ? { from: cur.manifest.version } : {}), trust: v.trust, verifiedBy: verifiedBy(v.trust, v.keyId), keyId: v.keyId, source: plan.source,
       archiveSha256: v.archiveSha256, manifestSha256: v.manifestSha256, permissions, enabled: on, ...(cur ? { wasEnabled: wasOn } : {}),
     } })
     return this.installedView(x, locale)

@@ -6,11 +6,17 @@ import { PluginKind, PluginPermission, PluginPlatform } from '../plugins'
 import { IsoTime, SMALL_UPLOAD_MAX } from './common'
 import { empty, endpoint, multipart } from './endpoint'
 
-/** How a package was authenticated. official: a key in this product's plugin trust root; test: a test key trusted only
- * in development (or on a test server the operator marked with MYCEL_PLUGINS_TEST_SERVER=1); unverified: no valid
- * signature, accepted only with the same development settings. Never on hosted or office servers. */
+/** How a package was authenticated. official: its manifest digest is pinned in the official list that shipped inside
+ * this signed product release, or (later, stage B5) a key in this product's plugin trust root signed it; test: a test
+ * key trusted only in development (or on a test server the operator marked with MYCEL_PLUGINS_TEST_SERVER=1);
+ * unverified: no valid signature, accepted only with the same development settings. Test and unverified never happen
+ * on hosted or office servers, and no setting adds pins. */
 export const PluginTrust = z.enum(['official', 'test', 'unverified'])
 export type PluginTrust = z.infer<typeof PluginTrust>
+/** What vouched for the package. release: the digest pinned in this release's official list; key: a plugin signing key
+ * (official or test); null: nothing (unverified). */
+export const PluginVerifiedBy = z.enum(['release', 'key']).nullable()
+export type PluginVerifiedBy = z.infer<typeof PluginVerifiedBy>
 /** Why a package cannot run here. gate: the HWP release gate (MYCEL_HWP_PREVIEW) is closed on this server;
  * damaged: the stored files no longer match the verified package. */
 export const PluginUnsupported = z.enum(['os', 'arch', 'libc', 'product', 'api', 'kind', 'driver', 'gate', 'damaged'])
@@ -30,7 +36,7 @@ export const PluginComponentView = z.object({ name: z.string(), version: z.strin
 
 export const InstalledPlugin = z.object({
   id: z.string(), ...Strings, publisher: Publisher, version: z.string(), kinds: z.array(PluginKind),
-  trust: PluginTrust, keyId: z.string().nullable(),
+  trust: PluginTrust, verifiedBy: PluginVerifiedBy, keyId: z.string().nullable(),
   manifestSha256: z.string(), archiveSha256: z.string(),
   /** turned on for the whole company (stage 1 shows only this; the table also holds groups and people later) */
   enabled: z.boolean(),
@@ -57,8 +63,10 @@ export const CatalogPlugin = z.object({
   id: z.string(), ...Strings, publisher: Publisher, version: z.string(), kinds: z.array(PluginKind),
   permissions: z.array(PluginPermissionView),
   platforms: z.array(PluginPlatform).nullable(),
-  /** available: can be installed here; pending_clearance: listed, not yet distributed; unsupported: not on this server */
-  availability: z.enum(['available', 'pending_clearance', 'unsupported']),
+  /** available: can be installed here from the list; file: official builds are pinned for this server, install the
+   * official package file (Install from file or the import folder; hosted servers wait for the update-feed download);
+   * pending_clearance: listed, not yet distributed; unsupported: not on this server */
+  availability: z.enum(['available', 'file', 'pending_clearance', 'unsupported']),
   unsupported: PluginUnsupported.nullable(),
   /** suggested for this company's language; a suggestion only, never installed or enabled automatically */
   recommended: z.boolean(),
@@ -71,9 +79,9 @@ export type CatalogPlugin = z.infer<typeof CatalogPlugin>
 export const PluginList = z.object({
   installed: z.array(InstalledPlugin),
   catalog: z.array(CatalogPlugin),
-  /** signed: the catalog's plugin-key signature verified (its packages may be installed); release: no signature yet,
-   * the list shipped inside this signed release is shown as information only (no installs from it); none: no catalog,
-   * or a signature that does not verify (nothing from it is shown) */
+  /** release: the list shipped inside this signed release (its pins vouch for official packages); signed: it also
+   * carries a plugin-key signature that verified (stage B5); none: no catalog, or a signature that does not verify
+   * (nothing from it is shown or trusted) */
   catalogSource: z.enum(['signed', 'release', 'none']),
   /** package files an operator placed in <data>/plugins/import on this server (self-hosted servers) */
   imports: z.array(z.object({ name: z.string(), size: z.number().int() })),
@@ -93,7 +101,7 @@ export type PluginList = z.infer<typeof PluginList>
 export const PluginPlan = z.object({
   token: z.string(), expiresAt: IsoTime,
   id: z.string(), ...Strings, publisher: Publisher, version: z.string(), kinds: z.array(PluginKind),
-  trust: PluginTrust, keyId: z.string().nullable(),
+  trust: PluginTrust, verifiedBy: PluginVerifiedBy, keyId: z.string().nullable(),
   /** the digest the admin approves; the install request must send it back unchanged */
   manifestSha256: z.string(),
   /** `new`: not granted to the installed version (an update asking for more) */

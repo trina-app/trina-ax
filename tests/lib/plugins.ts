@@ -1,10 +1,10 @@
 // Plugin test helpers: a fresh Ed25519 key per run (no test private key is ever committed), skill-pack packages,
-// trust roots and signed catalogs.
+// trust roots, signed catalogs and release pins.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { PLUGIN_CATALOG_DOMAIN, PLUGIN_SCHEMA_VERSION, type CatalogEntry, type PluginPermission } from '@mycel/shared/plugins'
-import { buildPackage, type ManifestDraft } from '../../server/src/plugins/package'
+import { PLUGIN_CATALOG_DOMAIN, PLUGIN_SCHEMA_VERSION, type CatalogEntry, type CatalogPin, type PluginPermission } from '@mycel/shared/plugins'
+import { buildPackage, verifyPackage, type ManifestDraft } from '../../server/src/plugins/package'
 import { canonicalJson } from '../../server/src/plugins/json'
 import { keyIdOf, publicKeyOfPem, signDetached, trustRoot } from '../../server/src/plugins/trust'
 
@@ -13,6 +13,23 @@ export function newKey() {
   const pem = privateKey.export({ format: 'pem', type: 'pkcs8' }) as string
   const pub = publicKeyOfPem(pem)
   return { pem, pub, keyId: keyIdOf(pub) }
+}
+
+/** Production trust as shipped today: no plugin key at all (official packages are trusted by release pins). */
+export const noKeyTrust = (runKind: 'selfhost' | 'hosted' | 'office' | 'dev' = 'selfhost', env: Record<string, string> = {}) =>
+  trustRoot({ runKind, env, productionKeys: [] })
+
+/** The canonical manifest digest a release pin lists for a package (opened as the pin script does, trust aside). */
+export const manifestDigest = (bytes: Uint8Array) =>
+  verifyPackage(bytes, trustRoot({ runKind: 'dev', env: { MYCEL_PLUGINS_ALLOW_UNSIGNED: '1' }, productionKeys: [] })).manifestSha256
+
+/** An official list entry for the office-starter skill pack with release pins (no package bytes next to it). */
+export function pinnedEntry(pins: CatalogPin[], extra: Partial<CatalogEntry> = {}): CatalogEntry {
+  return {
+    id: 'app.trina.office-starter', version: '1.0.0', publisher: { id: 'trina', name: 'Trina' }, kinds: ['skill-pack'],
+    i18n: { en: { name: 'Office starter', description: 'Meeting minutes and weekly reports.' } },
+    permissions: { required: ['skills.company'], optional: [] }, availability: 'available', pins, license: 'CC0-1.0', ...extra,
+  }
 }
 
 /** Production trust with one official key for publisher "trina" (ids app.trina.*). */

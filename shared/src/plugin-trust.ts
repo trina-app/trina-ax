@@ -3,10 +3,11 @@
 // server/office update, and a release key never makes a plugin trusted. Each key is limited to the publishers and
 // plugin ids it may sign for.
 //
-// Written by scripts/plugins/trust.ts from editions/<name>/branding/plugin-trust.json (never by hand). The
-// owner/operator creates the production key outside this repository; until then the list is empty and every plugin
-// package and the bundled catalog are refused in production (development may trust test keys explicitly with
-// MYCEL_PLUGINS_TEST_KEYS, never on hosted servers).
+// Written by scripts/plugins/trust.ts from editions/<name>/branding/plugin-trust.json (never by hand). Official
+// packages do not need a key: they are trusted by the digests pinned in the official list shipped with each signed
+// release (resources/plugins/catalog.json `pins`). A plugin key is deferred to third-party publishers (stage B5); until
+// the owner/operator creates one outside this repository the list is empty and production accepts only pinned packages
+// (development may trust test keys explicitly with MYCEL_PLUGINS_TEST_KEYS, never on hosted or office servers).
 export interface PluginTrustKey {
   /** raw 32-byte Ed25519 public key, base64 */
   publicKey: string

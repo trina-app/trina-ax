@@ -1,7 +1,11 @@
 // Who may sign plugins and the plugin catalog on this server.
 //
-// Production: PLUGIN_TRUST (shared/src/plugin-trust.ts, set per edition by scripts/plugins/trust.ts) — separate from
-// the release keys (a release key listed there is dropped), each key limited to publishers and plugin id prefixes.
+// Official packages need no key: their manifest digests are pinned in the official list shipped inside the signed core
+// release (catalog.ts releasePins, package.ts). Nothing here, and no environment variable, adds a pin.
+//
+// Production keys (stage B5, third-party publishers; the list is empty today): PLUGIN_TRUST
+// (shared/src/plugin-trust.ts, set per edition by scripts/plugins/trust.ts) — separate from the release keys (a
+// release key listed there is dropped), each key limited to publishers and plugin id prefixes.
 // Test trust, clearly labelled, through environment variables only (on Linux the root-owned /etc/default/<id>; never
 // server.json, which the app itself can rewrite):
 //   MYCEL_PLUGINS_TEST_KEYS=<base64>[,<base64>]   also trust these test public keys ("Test build")

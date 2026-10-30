@@ -9,7 +9,7 @@
       "kinds": ["native-tool", "preview"],
       "i18n": {
         "en": { "name": "HWP Preview", "description": "Preview Hangul (HWP/HWPX) documents page by page in the file panel, and let the AI look at a page. Original files are not changed." },
-        "ko": { "name": "한글 문서 미리보기", "description": "한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI가 페이지를 볼 수 있게 합니다. 원본 파일은 바꾸지 않습니다." },
+        "ko": { "name": "한글 문서 미리보기", "description": "한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI도 페이지를 볼 수 있어요. 원본 파일은 바꾸지 않아요." },
         "id": { "name": "Pratinjau HWP", "description": "Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah." },
         "ja": { "name": "HWPプレビュー", "description": "ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。" },
         "es": { "name": "Vista previa de HWP", "description": "Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian." }

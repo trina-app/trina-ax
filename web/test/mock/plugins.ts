@@ -1,21 +1,24 @@
 // Admin > Plugins for the mock team server: an in-memory version of server/src/plugins/manager.ts with the same
 // contract. The official list holds HWP Preview (not yet available, recommended for a Korean workspace) and one
-// installable skill pack; an uploaded file named "*bad*" is refused as unsigned, any other upload is a test-signed pack.
+// installable skill pack pinned in the release's list (official, no key); an uploaded file named "*bad*" is refused as
+// not official and unsigned, "*hwp*" is the official HWP build (with its optional page-image permission), any other
+// upload is a test-signed pack.
 import type { CatalogPlugin, InstalledPlugin, Locale, PluginList, PluginPlan } from '@mycel/shared/api'
 
-type Pack = { id: string; version: string; name: Record<string, string>; description: Record<string, string>; trust: InstalledPlugin['trust']; skills: string[]; source: InstalledPlugin['source'] }
+type Pack = { id: string; version: string; name: Record<string, string>; description: Record<string, string>; trust: InstalledPlugin['trust']; skills: string[]; source: InstalledPlugin['source']; kinds?: PluginPlan['kinds']; permissions?: PluginPlan['permissions'] }
 const now = () => new Date().toISOString()
+const verifiedBy = (trust: InstalledPlugin['trust']): InstalledPlugin['verifiedBy'] => trust === 'official' ? 'release' : trust === 'test' ? 'key' : null
 const hex = (seed: string) => [...new Bun.CryptoHasher('sha256').update(seed).digest('hex')].join('')
 
 const STARTER: Pack = {
   id: 'app.trina.office-starter', version: '1.0.0', trust: 'official', source: 'catalog', skills: ['meeting-minutes', 'weekly-report'],
   name: { en: 'Office starter skills', ko: '업무 시작 스킬', id: 'Skill awal kantor', ja: 'オフィス入門スキル', es: 'Habilidades de oficina iniciales' },
-  description: { en: 'Meeting minutes and weekly reports for the whole company.', ko: '회사 전체가 쓰는 회의록·주간 보고 스킬입니다.', id: 'Notulen rapat dan laporan mingguan untuk seluruh perusahaan.', ja: '会社全体で使う議事録と週次報告のスキルです。', es: 'Actas de reuniones e informes semanales para toda la empresa.' },
+  description: { en: 'Meeting minutes and weekly reports for the whole company.', ko: '회사 전체가 쓰는 회의록·주간 보고 스킬이에요.', id: 'Notulen rapat dan laporan mingguan untuk seluruh perusahaan.', ja: '会社全体で使う議事録と週次報告のスキルです。', es: 'Actas de reuniones e informes semanales para toda la empresa.' },
 }
 const HWP = {
   id: 'app.trina.hwp-preview', version: '1.0.0',
   name: { en: 'HWP Preview', ko: '한글 문서 미리보기', id: 'Pratinjau HWP', ja: 'HWPプレビュー', es: 'Vista previa de HWP' },
-  description: { en: 'Preview Hangul (HWP/HWPX) documents page by page in the file panel, and let the AI look at a page. Original files are not changed.', ko: '한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI가 페이지를 볼 수 있게 합니다. 원본 파일은 바꾸지 않습니다.', id: 'Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah.', ja: 'ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。', es: 'Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian.' },
+  description: { en: 'Preview Hangul (HWP/HWPX) documents page by page in the file panel, and let the AI look at a page. Original files are not changed.', ko: '한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI도 페이지를 볼 수 있어요. 원본 파일은 바꾸지 않아요.', id: 'Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah.', ja: 'ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。', es: 'Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian.' },
 }
 
 export class MockPlugins {
@@ -45,9 +48,9 @@ export class MockPlugins {
   list(locale: Locale, teamLocale: Locale): PluginList {
     return {
       installed: this.installed.map(({ pack, ...p }) => ({ ...p, name: pack.name[locale] ?? pack.name.en, description: pack.description[locale] ?? pack.description.en })),
-      catalog: this.catalog(locale, teamLocale), catalogSource: 'signed', imports: [],
+      catalog: this.catalog(locale, teamLocale), catalogSource: 'release', imports: [],
       host: { os: 'linux', arch: 'x64', libc: '2.39' },
-      trust: { productionKeys: 1, testKeys: 0, allowUnsigned: false, hosted: false }, trustWarnings: [], hwpReleaseGate: 'closed', fileInstall: true,
+      trust: { productionKeys: 0, testKeys: 0, allowUnsigned: false, hosted: false }, trustWarnings: [], hwpReleaseGate: 'closed', fileInstall: true,
     }
   }
 
@@ -56,8 +59,8 @@ export class MockPlugins {
     const token = crypto.randomUUID()
     const plan: PluginPlan = {
       token, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), id: pack.id, name: pack.name[locale] ?? pack.name.en, description: pack.description[locale] ?? pack.description.en,
-      publisher: { id: 'trina', name: 'Trina' }, version: pack.version, kinds: ['skill-pack'], trust: pack.trust, keyId: pack.trust === 'official' ? 'a1b2c3d4e5f60718' : '0f1e2d3c4b5a6978',
-      manifestSha256: hex(pack.id + pack.version), permissions: [{ id: 'skills.company', required: true, new: false }], platforms: null, supported: true, unsupported: null,
+      publisher: { id: 'trina', name: 'Trina' }, version: pack.version, kinds: pack.kinds ?? ['skill-pack'], trust: pack.trust, verifiedBy: verifiedBy(pack.trust), keyId: pack.trust === 'test' ? '0f1e2d3c4b5a6978' : null,
+      manifestSha256: hex(pack.id + pack.version), permissions: pack.permissions ?? [{ id: 'skills.company', required: true, new: false }], platforms: null, supported: true, unsupported: null,
       license: 'CC0-1.0', components: [], notices: [], skills: pack.skills, sizeBytes: 4096, archiveSha256: hex('archive' + pack.id + pack.version),
       update: cur ? { from: cur.version } : null, source: pack.source,
     }
@@ -67,6 +70,10 @@ export class MockPlugins {
 
   inspectFile(name: string, actor: string, locale: Locale): PluginPlan | { reason: string } {
     if (/bad/i.test(name)) return { reason: 'signature' }
+    if (/hwp/i.test(name)) return this.plan({
+      ...HWP, trust: 'official', source: 'file', skills: [], kinds: ['native-tool', 'preview'],
+      permissions: [{ id: 'files.read.selected', required: true, new: false }, { id: 'preview.render', required: true, new: false }, { id: 'runtime.native.isolated', required: true, new: false }, { id: 'model.send.preview-pixels', required: false, new: false }],
+    }, actor, locale)
     return this.plan({ id: 'app.example.sample-skills', version: '0.1.0', trust: 'test', source: 'file', skills: ['sample'], name: { en: 'Sample skills' }, description: { en: 'A test-signed skill pack.' } }, actor, locale)
   }
   inspectCatalog(id: string, actor: string, locale: Locale): PluginPlan | { reason: string } {
@@ -83,7 +90,7 @@ export class MockPlugins {
     this.installed = this.installed.filter((x) => x.id !== p.pack.id)
     const row = {
       pack: p.pack, id: p.pack.id, name: p.plan.name, description: p.plan.description, publisher: p.plan.publisher, version: p.pack.version, kinds: p.plan.kinds,
-      trust: p.pack.trust, keyId: p.plan.keyId, manifestSha256: p.plan.manifestSha256, archiveSha256: p.plan.archiveSha256,
+      trust: p.pack.trust, verifiedBy: p.plan.verifiedBy, keyId: p.plan.keyId, manifestSha256: p.plan.manifestSha256, archiveSha256: p.plan.archiveSha256,
       enabled: enable, access: { everyone: enable, groups: [], users: [] }, status: enable ? 'enabled' as const : 'disabled' as const, unsupported: null,
       permissions: [{ id: 'skills.company' as const, required: true, granted: true }], platforms: null, license: 'CC0-1.0', components: [], source: p.pack.source,
       previousVersion: prev?.version ?? null, skills: enable ? p.pack.skills.map((s) => `skills/${p.pack.id}/${s}/SKILL.md`) : [],
