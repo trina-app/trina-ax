@@ -5,7 +5,7 @@ import type { Database } from 'bun:sqlite'
 
 export const VISION_TEXT = {
   off: {
-    ko: '이 팀은 AI에게 이미지를 보내지 않도록 설정되어 있어 이미지를 보여 줄 수 없습니다. 관리자가 팀 설정에서 "이미지와 PDF 쪽을 AI에게 보내기"를 켤 수 있습니다.',
+    ko: '이 팀은 AI에게 이미지를 보내지 않도록 설정되어 있어 이미지를 보여 줄 수 없습니다. 관리자가 팀 설정에서 "이미지와 PDF 페이지를 AI에게 보내기"를 켤 수 있습니다.',
     en: 'This team does not send images to the AI, so the image was not shown. An admin can turn on "Send images and PDF pages to the AI" in Team settings.',
     id: 'Tim ini tidak mengirim gambar ke AI, jadi gambar tidak ditampilkan. Admin dapat mengaktifkan "Kirim gambar dan halaman PDF ke AI" di Pengaturan tim.',
     ja: 'このチームは画像を AI に送信しない設定のため、画像は表示されませんでした。管理者は「チーム設定」で「画像と PDF のページを AI に送信」をオンにできます。',
@@ -75,14 +75,14 @@ export const VISION_TEXT = {
     es: 'Se están convirtiendo muchas imágenes en este momento. Vuelve a leerla en un momento.',
   },
   scanned: {
-    ko: '글자 층이 없는 쪽(스캔·그림): {pages}.',
+    ko: '텍스트 레이어가 없는 페이지(스캔·그림): {pages}.',
     en: 'Pages without a text layer (scans or pictures): {pages}.',
     id: 'Halaman tanpa lapisan teks (pindaian atau gambar): {pages}.',
     ja: 'テキスト層のないページ（スキャンまたは画像）: {pages}。',
     es: 'Páginas sin capa de texto (escaneos o imágenes): {pages}.',
   },
   scannedHint: {
-    ko: '보려면 pages로 그 쪽을 읽으세요(예: pages: "{first}"). 이미지로 보입니다.',
+    ko: '이미지로 보려면 pages로 그 페이지를 읽으세요(예: pages: "{first}").',
     en: 'Read them with pages to see them as images (for example pages: "{first}").',
     id: 'Baca dengan pages untuk melihatnya sebagai gambar (misalnya pages: "{first}").',
     ja: 'pages で読み取ると画像として表示されます（例: pages: "{first}"）。',

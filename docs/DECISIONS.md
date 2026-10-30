@@ -3145,8 +3145,10 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
 - **PDFs follow Claude Code's Read contract.** `pages` ("3", "1-5", "1-3,7"), at most 20 per call and required over 10
   pages, with an error that says what to send. Pages with a text layer come back as text; pages with fewer than 20
   non-space characters (scans, pictures) as page images; `as_images` also shows text pages (charts, tables, layout).
-  `offset`/`limit` without `pages` give numbered lines of the text layer, the lines grep reports, so grep → read keeps
-  working on long PDFs; the result names the scanned pages to read with `pages`.
+  `offset`/`limit` without `pages` give numbered lines of the text grep searched, so grep → read keeps working on long
+  PDFs: the text layer on Linux; on a Mac the search index's own extraction (Apple Vision for pages without a text
+  layer, PDFKit's text without poppler, as before this change), because the text layer alone numbers lines differently
+  there (found in review). The result names the scanned pages to read with `pages`.
 - **Default on, decoupled from 1A.** No `MYCEL_SAFE_OPS_1A`, no confidential mark, no 1A workflow admission. The flag
   still gates 1A's PPTX safe operations, artifact quarantine and its confidential lock; with the flag on, image reads
   take this path too (1A's eight workflows per user-hour and single global converter slot do not fit interactive reads).
@@ -3161,7 +3163,9 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
   (`tools/isolate.ts`: bwrap with no network, a read-only system and only a private work folder, inside the converter
   cgroup with rlimits on Linux; sandbox-exec on macOS), input on stdin, 30 s, 1 GiB resident memory and an output cap,
   at most three conversions at once with a bounded queue. The normalizer (`mycel-safeops vision`) uses Go's memory-safe
-  decoders, checks the declared size before decoding (50 MP, 32 MiB), and writes a new baseline JPEG from pixels only:
+  decoders, checks the declared size before decoding (50 MP, 32 MiB, at most 65,535 px on a side, since the scaler's
+  buffers grow with the input height; for a WebP also the lossless frame's own size, which x/image/webp decodes before
+  comparing it with the VP8X canvas), and writes a new baseline JPEG from pixels only:
   long side 1568 px (Anthropic's recommended size), at most 1 MiB, EXIF orientation applied, transparency on white,
   no EXIF/GPS/XMP/ICC/comment copied. HEIC is decoded by heif-dec or macOS ImageIO in the same isolation, then
   normalized. PDF pages are drawn by pdftoppm (Linux) or PDFKit (macOS) and normalized. The read binds the bytes to the
@@ -3182,7 +3186,8 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
 - **No OCR on Linux.** tesseract leaves `deps.txt`, the installer and the test images; the Go `mycel-ocr` is removed
   (not kept disabled); `ocrBin()` is null on Linux even when tesseract is installed. Scanned PDFs and images are not
   text-searchable on Linux servers, like Claude Code's own Grep. `drive_read` no longer runs OCR on either platform:
-  Drive photos become image blocks, Drive PDFs give their text layer and a note about pages without one.
+  Drive photos become image blocks, Drive PDFs give their text layer and a note about pages without one (only a Mac
+  with image viewing off reads Drive photos with Apple Vision, like team-folder photos).
 - **macOS keeps Apple Vision only for the search index** (grep text cache and semantic index) of scanned PDFs; photos
   stay out of the index. `mycel-ocr` gains `--layer` (text layers, a Mac without poppler) and `--page P --px N` (page
   PNG) for reads; neither recognizes text.
@@ -3193,3 +3198,6 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
   2026-10-29 Codex entry.
 - Release gates: real Claude Code and Codex image turns on an installed Linux server (fake engines cover the real
   launcher, gate, bridge and socket); provider-side behaviour for very long image conversations.
+- Not behind the switch or the budget (as before this change): `hwp_render` page images and the in-app browser's
+  screenshots still reach the model with image viewing off. On a Mac the API engine and the remote MCP connector used
+  to get Apple Vision text of images and scanned pages; they now get the note (with image viewing off they keep it).

@@ -235,6 +235,25 @@ test('settings: the team time zone', async ({ page }) => {
   await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
 })
 
+// "Send images and PDF pages to the AI" (server/src/files/vision.ts): on by default; the admin's switch saves only it
+test('settings: the team turns sending images and PDF pages to the AI off', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const sw = page.getByTestId('team-ai-vision')
+  await expect(sw).toHaveAttribute('data-on', 'true')
+  await expect(sw).toContainText('이미지와 PDF 페이지를 AI에게 보내기')
+  const saved = page.waitForRequest((r) => r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH')
+  await sw.getByRole('checkbox').uncheck({ force: true })
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  expect((await saved).postDataJSON()).toEqual({ aiVision: false })
+  await expect(page.getByText('저장했어요.')).toBeVisible()
+  await page.reload()
+  await expect(page.getByTestId('team-ai-vision')).toHaveAttribute('data-on', 'false')
+  expect(realErrors(errors)).toEqual([])
+})
+
 // QA R2-PERM-10: the owner gives the role to another person in Team settings, with the password again; the old owner
 // is an admin at once, so the transfer card and the team name input go away
 test('settings: the owner transfers ownership with the password again and becomes an admin', async ({ page }) => {

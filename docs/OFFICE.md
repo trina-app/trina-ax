@@ -600,7 +600,7 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 - IPv4만 씁니다(IPv6 주소는 인증서·접속 대상에 넣지 않음). VPN(Tailscale 등) 주소도 빼며, 필요하면 `TEAMAX_INCLUDE_VPN=1`과
   `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`).
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
-- AI가 사진(png·jpg·heic 등)과 글자 층이 없는 스캔 PDF 쪽을 읽으면 Claude Code처럼 이미지를 직접 봅니다(관리자 > 팀 설정 "이미지와 PDF 쪽을 AI에게 보내기", 기본 켜짐; 끄면 애플 Vision 글자 인식으로 대신). PDF의 글자 층과 쪽 이미지는 번들의 `mycel-ocr`(PDFKit)로, `pdftotext`(Homebrew `poppler`)가 있으면 글자 층은 그것으로 읽습니다. 스캔 PDF는 애플 Vision으로 글자를 인식해 검색 색인에 넣습니다(쪽당 약 1초, 최대 100쪽; 사진은 색인하지 않음). docx·pptx는 번들의 pandoc으로, 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
+- AI가 사진(png·jpg·heic 등)과 글자 층이 없는 스캔 PDF 페이지를 읽으면 Claude Code처럼 이미지를 직접 봅니다(관리자 > 팀 설정 "이미지와 PDF 페이지를 AI에게 보내기", 기본 켜짐; 끄면 애플 Vision 글자 인식으로 대신). PDF의 글자 층과 페이지 이미지는 번들의 `mycel-ocr`(PDFKit)로, `pdftotext`(Homebrew `poppler`)가 있으면 글자 층은 그것으로 읽습니다. 스캔 PDF는 애플 Vision으로 글자를 인식해 검색 색인에 넣습니다(쪽당 약 1초, 최대 100쪽; 사진은 색인하지 않음). docx·pptx는 번들의 pandoc으로, 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
 - 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared, 자동 업데이트도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
 - 자동 업데이트(6장): 데이터베이스는 되돌리지 않습니다(호환되는 앱 버전인지 먼저 확인하고 필요하면
   `업데이트 전` 백업으로 복원). 키트로 만든 데스크 앱(부록 C)은 자동 업데이트 뒤 일반 빌드가 되고, 새로 설치하는 데스크는
