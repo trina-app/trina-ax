@@ -42,7 +42,7 @@
 - `hwp_render`는 위 조건에 더해 "AI가 페이지 이미지를 본다"(선택 권한)를 허용했을 때만 AI에게 보입니다. 허용하지 않으면 사람용 미리보기만 됩니다.
 - Debian 12(glibc 2.36)는 지원하지 않습니다(고정 렌더러는 glibc 2.39 필요). Ubuntu 24.04, Debian 13, macOS(Apple 실리콘·Intel)가 대상입니다.
 - 플러그인과 상관없이 늘 되는 것: HWP/HWPX **글자 읽기와 검색**, **원본 다운로드**, `.hwp`/`.hwpx`에 평문을 쓰는 것을 막는 보호.
-- 꾸러미에는 제3자 파일만 들어 있습니다: rhwp 실행 파일(MIT, 안에 Rust 크레이트·Skia·ICU·HarfBuzz·libjpeg-turbo·libpng·zlib·Expat·Wuffs가 정적으로 들어 있음), Noto Sans KR Regular(OFL-1.1), 고지와 소스 안내. 구성 요소와 라이선스는 `notices/THIRD_PARTY_NOTICES.md`에 있고, 설치 화면에도 보입니다. 입력 검사(preflight), 한도, 격리, 고정 해시는 코어에 남아 있어 꾸러미가 바꿀 수 없습니다.
+- 꾸러미에는 제3자 파일만 들어 있습니다: rhwp 실행 파일(MIT, 안에 Rust 크레이트·Skia·HarfBuzz·libjpeg-turbo·libpng·zlib·Wuffs와 Linux판에는 Expat이 정적으로 들어 있음. svg2pdf 함수 하나의 일부는 MPL-2.0), Noto Sans KR Regular(OFL-1.1), 고지와 소스 안내. 구성 요소와 라이선스는 `notices/THIRD_PARTY_NOTICES.md`에 있고, 설치 화면에도 보입니다. 입력 검사(preflight), 한도, 격리, 고정 해시는 코어에 남아 있어 꾸러미가 바꿀 수 없습니다.
 
 ### 기존 내부 검토 서버 옮기기
 

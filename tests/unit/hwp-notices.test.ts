@@ -7,7 +7,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import hwpPins from '../../resources/hwp/manifest.json'
 import rustCrates from '../../resources/hwp/notices/rust-crates.json'
-import { HWP_COMPONENTS, HWP_NOTICE_FILES, HWP_PLUGIN_LICENSE } from '../../scripts/plugins/build-hwp'
+import { HWP_COMPONENTS, HWP_NOTICE_FILES, HWP_PLUGIN_LICENSE, hwpComponents } from '../../scripts/plugins/build-hwp'
+import type { HwpTarget } from '../../scripts/hwp-bundle'
 import { conjuncts, elect } from '../../scripts/plugins/hwp-notices'
 import { PluginCatalog } from '../../shared/src/plugins'
 
@@ -62,6 +63,32 @@ describe('HWP plugin notices', () => {
 
   test('the JPEG statement the IJG licence requires is in the package notices', () => {
     for (const f of ['THIRD_PARTY_NOTICES.md', 'native-libraries.txt']) expect(read(`resources/hwp/notices/${f}`)).toContain('This software is based in part on the work of the Independent JPEG Group.')
+  })
+
+  test('copyleft text in a reproduced notice is declared, never silent', () => {
+    // A crate's declared licence can leave out parts under another licence (svg2pdf's NOTICE: part of draw_path, taken
+    // from resvg, is MPL-2.0). The Rust standard-library notice is left out here: it covers every Rust target, and its
+    // MPL/LGPL entries (fortanix-sgx-abi, r-efi) are SGX/UEFI-only (THIRD_PARTY_NOTICES.md).
+    const COPYLEFT = /Mozilla Public License|GNU (Lesser |Library |Affero )?General Public License|Eclipse Public License|Common Development and Distribution License/
+    expect(read('resources/hwp/notices/native-libraries.txt')).not.toMatch(COPYLEFT)
+    const owners = new Set<string>()
+    let group: string[] = [], header = false
+    for (const line of read('resources/hwp/notices/rust-crates.txt').split('\n')) {
+      if (line.startsWith('Applies to: ')) { if (!header) group = []; group.push(line.slice('Applies to: '.length)); header = true; continue }
+      header = false
+      if (COPYLEFT.test(line)) for (const o of group) owners.add(o)
+    }
+    expect([...owners]).toEqual(['svg2pdf 0.13.0 (NOTICE)'])
+    expect(HWP_COMPONENTS.find((c) => c.name.startsWith('svg2pdf'))).toMatchObject({ version: '0.13.0', license: 'MPL-2.0' })
+    expect(HWP_PLUGIN_LICENSE).toContain('MPL-2.0')
+    expect(read('resources/hwp/notices/SOURCE-OFFER.txt')).toContain(`${hwpPins.source.split('/').pop()}/vendor/svg2pdf/src/render/path.rs`)
+  })
+
+  test('each package lists what its executable contains: Expat only on Linux', () => {
+    const names = (t: HwpTarget) => hwpComponents(t).map((c) => c.name)
+    for (const t of ['linux-x64', 'linux-arm64'] as const) expect(names(t)).toContain('Expat')
+    for (const t of ['darwin-arm64', 'darwin-x64'] as const) expect(names(t)).not.toContain('Expat')
+    for (const c of hwpComponents('linux-x64')) expect(c).not.toHaveProperty('linuxOnly') // not a manifest field
   })
 
   test('the catalog shows the package licence', () => {

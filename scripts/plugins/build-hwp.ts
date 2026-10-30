@@ -27,10 +27,10 @@ import { ensureTestKey } from './test-key'
 const REPO = path.resolve(import.meta.dir, '../..')
 export const HWP_PLUGIN_VERSION = '1.0.0'
 
-/** Package licence (also the catalog entry's). LicenseRef-HWP-Notices: the further licences that
- * notices/THIRD_PARTY_NOTICES.md names and notices/ reproduces (BSD-2-Clause, MIT-0, Zlib, Unicode-3.0, ICU, NAIST-2003
- * and ICU's data notices, MIT-Modern-Variant, IJG, libpng-2.0). */
-export const HWP_PLUGIN_LICENSE = 'MIT AND Apache-2.0 AND BSD-3-Clause AND OFL-1.1 AND LicenseRef-HWP-Notices'
+/** Package licence (also the catalog entry's). MPL-2.0: the part of svg2pdf's draw_path that its NOTICE puts under it.
+ * LicenseRef-HWP-Notices: the further licences that notices/THIRD_PARTY_NOTICES.md names and notices/ reproduces
+ * (BSD-2-Clause, MIT-0, Zlib, Unicode-3.0, MIT-Modern-Variant, IJG, libpng-2.0). */
+export const HWP_PLUGIN_LICENSE = 'MIT AND Apache-2.0 AND BSD-3-Clause AND MPL-2.0 AND OFL-1.1 AND LicenseRef-HWP-Notices'
 
 /** Package path → repository path of every notice file the package carries. */
 export const HWP_NOTICE_FILES: Record<string, string> = Object.fromEntries([
@@ -39,28 +39,35 @@ export const HWP_NOTICE_FILES: Record<string, string> = Object.fromEntries([
 ].map((f) => [`notices/${f}`, `resources/hwp/notices/${f}`]))
 
 const NATIVE = 'notices/native-libraries.txt'
-/** What the install prompt lists. Versions of the C/C++ parts mirror notices/native-libraries.txt (tested). */
-export const HWP_COMPONENTS: { name: string; version?: string; license: string; notice: string }[] = [
+/** What the install prompt lists: what the linker kept in the four executables (ICU and Skia text layout are built but
+ * not linked; Expat is in the Linux executables only). Versions of the C/C++ parts mirror notices/native-libraries.txt
+ * (tested). */
+export const HWP_COMPONENTS: { name: string; version?: string; license: string; notice: string; linuxOnly?: true }[] = [
   { name: 'rhwp', version: hwpPins.version, license: 'MIT', notice: 'notices/rhwp-MIT.txt' },
   { name: `Rust crates linked into rhwp (${rustCrates.crates.length})`, license: rustCrates.licenses.join(' AND '), notice: 'notices/rust-crates.txt' },
+  { name: 'svg2pdf, the part of draw_path taken from resvg', version: '0.13.0', license: 'MPL-2.0', notice: 'notices/rust-crates.txt' },
   { name: 'Rust standard library', version: '1.93.1', license: '(MIT OR Apache-2.0) AND Unicode-3.0', notice: 'notices/rust-std-1.93.1-COPYRIGHT-library.html' },
   { name: 'Skia', version: 'm153', license: 'BSD-3-Clause', notice: NATIVE },
-  { name: 'ICU', version: '78.2', license: 'Unicode-3.0 AND ICU AND BSD-3-Clause AND NAIST-2003', notice: NATIVE },
   { name: 'HarfBuzz', version: '13.1.0', license: 'MIT-Modern-Variant AND MIT', notice: NATIVE },
   { name: 'libjpeg-turbo', version: '3.1.0', license: 'IJG AND BSD-3-Clause AND Zlib', notice: NATIVE },
   { name: 'libpng', version: '1.6.56', license: 'libpng-2.0', notice: NATIVE },
   { name: 'zlib (Chromium)', version: '1.3.0.1', license: 'Zlib AND BSD-3-Clause', notice: NATIVE },
-  { name: 'Expat', version: '2.7.4', license: 'MIT', notice: NATIVE },
+  { name: 'Expat', version: '2.7.4', license: 'MIT', notice: NATIVE, linuxOnly: true },
   { name: 'Wuffs', version: '0.3.3', license: 'Apache-2.0', notice: NATIVE },
   { name: 'Noto Sans KR Regular', license: 'OFL-1.1', notice: 'notices/NotoSans-OFL.txt' },
 ]
+/** The components the package for one target lists. */
+export const hwpComponents = (target: HwpTarget) =>
+  HWP_COMPONENTS.filter((c) => target.startsWith('linux-') || !c.linuxOnly).map(({ linuxOnly: _, ...c }) => c)
 
 const PACKAGE_NOTICE = `HWP Preview plugin for Trina AX
 
 This package contains third-party software only, unchanged:
 - rhwp ${hwpPins.version} command-line program (MIT), ${hwpPins.source}
-  It statically links Rust crates, the Rust standard library, Skia and Skia's libraries ICU, HarfBuzz, libjpeg-turbo,
-  libpng, zlib, Expat and Wuffs (BSD, MIT, Apache-2.0, Zlib, Unicode, IJG and libpng licences).
+  It statically links Rust crates, the Rust standard library, Skia and Skia's libraries HarfBuzz, libjpeg-turbo,
+  libpng, zlib, Wuffs and (Linux) Expat (BSD, MIT, Apache-2.0, Zlib, Unicode, IJG and libpng licences). One function
+  of the svg2pdf crate contains code under the Mozilla Public License 2.0; notices/SOURCE-OFFER.txt says where its
+  source is.
 - Noto Sans KR Regular (SIL Open Font License 1.1).
 
 This software is based in part on the work of the Independent JPEG Group.
@@ -106,7 +113,7 @@ export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string; ver
       runtime: { driver: 'rhwp-v1', executable: 'bin/rhwp', fonts: hwpPins.fonts.map((f) => `fonts/${f.file}`) },
       contributes: { tools: [{ id: 'render-page', name: 'hwp_render', driver: 'rhwp-v1' }], previews: [{ extensions: ['hwp', 'hwpx'], tool: 'render-page', viewer: 'core-raster-v1' }] },
       license: HWP_PLUGIN_LICENSE,
-      components: HWP_COMPONENTS,
+      components: hwpComponents(o.target),
       notices: ['NOTICE', 'notices/THIRD_PARTY_NOTICES.md', 'notices/SOURCE-OFFER.txt'],
       source: { url: 'https://github.com/edwardkim/rhwp', revision: hwpPins.source.split('/').pop() },
     },

@@ -16,7 +16,8 @@ Pin updates require archive and executable hashes for every target, internal fon
 
 1. Find the upstream workflow run that built the release archives and confirm its source commit, cargo features and archive hashes (the v0.8.7 archives come from a later run than the tag push).
 2. With a Rust toolchain and the rhwp source at the pinned commit: `bun scripts/plugins/hwp-notices.ts --rhwp <checkout>` regenerates `rust-crates.txt` and `rust-crates.json` (`--check` verifies them).
-3. If skia-bindings changed: take the third-party revisions from its Skia tag's `DEPS`, list the objects in the matching skia-binaries archives, and refresh `native-libraries.txt` and the C/C++ entries in `HWP_COMPONENTS` (`scripts/plugins/build-hwp.ts`). Copy the Rust toolchain's `share/doc/rust/COPYRIGHT-library.html` when the Rust version changes.
-4. `bun test tests/unit/hwp-notices.test.ts`.
+3. If skia-bindings changed: take the third-party revisions from its Skia tag's `DEPS`, list the objects in the matching skia-binaries archives, then check which of them the linker kept in each pinned executable (`nm -a`: symbols and source-file entries; the static libraries hold more than the executables, e.g. ICU is built but not linked in 0.8.7). Refresh `native-libraries.txt` and the C/C++ entries in `HWP_COMPONENTS` (`scripts/plugins/build-hwp.ts`). Copy the Rust toolchain's `share/doc/rust/COPYRIGHT-library.html` when the Rust version changes.
+4. Read the NOTICE/COPYRIGHT files that `rust-crates.txt` reproduces: a crate's declared licence can omit parts under another licence (svg2pdf's NOTICE puts part of `draw_path` under MPL-2.0). The test refuses copyleft text that `HWP_COMPONENTS` does not declare.
+5. `bun test tests/unit/hwp-notices.test.ts`.
 
 Limits and stable diagnostics: shared/src/hwp.ts. One active preview per server; requests over the limit receive busy and can retry. A fresh bounded process runs each preflight/info/page stage. Linux production requires its existing delegated converter cgroup and bwrap. macOS uses sandbox-exec plus RSS/work-directory watchdogs; those polling limits are not hard OS quotas.

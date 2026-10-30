@@ -1,7 +1,8 @@
 HWP Preview plugin: where the source of this package comes from
 
-The package ships third-party software only, unchanged. Every licence in it is permissive and none of them requires a
-source offer; this file names the exact sources so that anyone can audit or rebuild them.
+The package ships third-party software only, unchanged. Every licence in it is permissive except one small MPL-2.0 part
+of svg2pdf (below), for which this file says where the source is, as MPL-2.0 section 3.2 asks. This file names the exact
+sources so that anyone can audit or rebuild them.
 
 rhwp 0.8.7 command-line program (MIT)
   Source commit: 1a76570e833917d15817415a53c09ad61ab3203f (tag v0.8.7)
@@ -19,10 +20,14 @@ rhwp 0.8.7 command-line program (MIT)
   v0.8.7 release on 2026-10-11.
   Rust crates: crates.io at the versions in that Cargo.lock (list: rust-crates.txt); svg2pdf is vendored and patched in
   vendor/svg2pdf of the rhwp tree (vendor/svg2pdf/RHWP_PATCHES.md).
+  MPL-2.0 source: svg2pdf's NOTICE puts parts of draw_path (taken from resvg) under the Mozilla Public License 2.0. The
+  source of that file, as built into the executable, is
+  https://github.com/edwardkim/rhwp/blob/1a76570e833917d15817415a53c09ad61ab3203f/vendor/svg2pdf/src/render/path.rs
+  (the MPL text is in svg2pdf's NOTICE in rust-crates.txt).
   Skia and its libraries: skia-bindings 0.153.3 builds https://github.com/rust-skia/skia/tree/m153-0.101.2 (commit
   61e7ca4e99062cdd0ab69445d5963fb3365778f6) with the third-party revisions of its DEPS file, or downloads the same build
-  prebuilt from https://github.com/rust-skia/skia-binaries/releases/tag/0.153.3. Revisions and archive hashes:
-  native-libraries.txt.
+  prebuilt from https://github.com/rust-skia/skia-binaries/releases/tag/0.153.3. Revisions, archive hashes and which of
+  those libraries the executables actually contain: native-libraries.txt.
   Rust standard library 1.93.1: https://github.com/rust-lang/rust/tree/1.93.1/library
 
 Noto Sans KR Regular (OFL-1.1)
@@ -40,8 +45,10 @@ Trina AX
 
 Open
   rhwp compiles in font metric tables (src/renderer/font_metrics_generated.rs, font_metrics_overlays.rs): advance
-  widths for 595 font names, including proprietary fonts, taken from font files and from measurements of Hancom Office
-  output. No font program or glyph outline is included, and rhwp distributes the tables under MIT, but the upstream
-  file says that item-level source-font provenance is not verified. A per-entry lineage record and a statement from the
-  rhwp author are still to be obtained. Public release of the plugin is a separate decision recorded in Trina AX
+  widths for 600 entries (about 400 font names, most of them commercial fonts), taken from font files and from
+  measurements of Hancom Office output. No font program or glyph outline is included, and rhwp distributes the tables
+  under MIT. Upstream's per-entry lineage record
+  (mydocs/tech/investigations/issue-4964/font_metric_lineage_manifest.json at the source commit) lists the source font,
+  its licence and provenance as unknown for 599 of the 600 entries. A statement from the rhwp author about where those
+  widths came from is still to be obtained. Public release of the plugin is a separate decision recorded in Trina AX
   resources/hwp/clearance.json.

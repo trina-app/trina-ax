@@ -5,9 +5,9 @@ package ships: the pinned rhwp 0.8.7 command-line program for one of four target
 project that are not in that program (the WebAssembly build, rhwp-studio, browser and editor extensions, other fonts,
 test data) are not shipped and not listed.
 
-Package licence: `MIT AND Apache-2.0 AND BSD-3-Clause AND OFL-1.1 AND LicenseRef-HWP-Notices`.
+Package licence: `MIT AND Apache-2.0 AND BSD-3-Clause AND MPL-2.0 AND OFL-1.1 AND LicenseRef-HWP-Notices`.
 `LicenseRef-HWP-Notices` stands for the further licences named below and reproduced in `notices/`: BSD-2-Clause, MIT-0,
-Zlib, Unicode-3.0, ICU, NAIST-2003 and the other ICU data notices, MIT-Modern-Variant, IJG and libpng-2.0.
+Zlib, Unicode-3.0, MIT-Modern-Variant, IJG and libpng-2.0. MPL-2.0 covers one small part of the svg2pdf crate (below).
 
 This software is based in part on the work of the Independent JPEG Group.
 
@@ -41,23 +41,33 @@ archive SHA-256 values above. Details: `notices/SOURCE-OFFER.txt`.
 | --- | --- | --- | --- |
 | rhwp, rhwp-contracts, rhwp-ooxml-chart, rhwp-password-crypto | 0.8.7 / 0.1.0 | MIT | `notices/rhwp-MIT.txt` |
 | 177 Rust crates (incl. the above, skia-safe / skia-bindings 0.153.3, the vendored svg2pdf 0.13.0), list with versions in the file | see file | MIT, MIT-0, Apache-2.0, BSD-3-Clause, BSD-2-Clause, Zlib, Unicode-3.0 | `notices/rust-crates.txt` |
+| svg2pdf, the part of `draw_path` taken from resvg | 0.13.0 | MPL-2.0 (svg2pdf's NOTICE) | `notices/rust-crates.txt` |
 | Rust standard library | 1.93.1 | (MIT OR Apache-2.0) AND Unicode-3.0, with the notices of its dependencies | `notices/rust-std-1.93.1-COPYRIGHT-library.html` |
 | Skia (incl. skcms) | m153 (rust-skia/skia 61e7ca4e) | BSD-3-Clause | `notices/native-libraries.txt` |
-| ICU, data compiled in | 78.2 | Unicode-3.0 AND ICU AND BSD-3-Clause AND NAIST-2003, plus ICU's data notices | `notices/native-libraries.txt` |
 | HarfBuzz | 13.1.0 | MIT-Modern-Variant ("Old MIT"); `src/ms-use` MIT | `notices/native-libraries.txt` |
 | libjpeg-turbo | 3.1.0 | IJG AND BSD-3-Clause AND Zlib | `notices/native-libraries.txt` |
 | libpng | 1.6.56 | libpng-2.0 | `notices/native-libraries.txt` |
 | zlib (Chromium) | 1.3.0.1 | Zlib; Chromium additions BSD-3-Clause | `notices/native-libraries.txt` |
-| Expat | 2.7.4 | MIT | `notices/native-libraries.txt` |
+| Expat (Linux executables only) | 2.7.4 | MIT | `notices/native-libraries.txt` |
 | Wuffs | 0.3.3 | Apache-2.0 | `notices/native-libraries.txt` |
 
 Where a crate offers a choice of licences it is used under the first of MIT, MIT-0, Apache-2.0, BSD-3-Clause,
 BSD-2-Clause, Zlib it offers; `notices/rust-crates.txt` names the choice for each crate. Apache-2.0-only parts: Wuffs and
 the zopfli crate; neither has a NOTICE file. The NOTICE files of subsetter and svg2pdf are reproduced in full.
 
-There is no GPL, LGPL, MPL or other copyleft licence, no non-commercial or field-of-use restriction and no component
-without a licence in the executable. ICU's LICENSE also lists GPL-licensed build files (`config.guess`) of ICU's own
-build system; they are not compiled into the program.
+Built but not linked: Skia's static libraries also hold ICU 78.2 (with its data), skparagraph, skshaper and skunicode.
+rhwp does not use Skia text layout and none of them is in any of the four executables (symbol tables and bytes
+checked), so their licences are not reproduced.
+
+Copyleft: one part only. svg2pdf's NOTICE says that parts of `draw_path` in `src/render/path.rs` were taken from resvg
+and are under the Mozilla Public License 2.0 (the quadratic-to-cubic conversion; resvg itself, in this program as
+0.45.1 and 0.47.0, has since been relicensed to MIT OR Apache-2.0). That function is in all four executables. MPL-2.0
+is a file-level licence: the executable may be distributed under other terms as long as the MPL text comes with it
+(svg2pdf's NOTICE in `notices/rust-crates.txt`) and recipients are told where that file's source is
+(`notices/SOURCE-OFFER.txt`). svg2pdf's NOTICE also names MPL-2.0, CC BY-SA 4.0, OFL-1.1 and Apache-2.0 for test files
+that are not compiled in. There is no GPL or LGPL code, no non-commercial or field-of-use restriction and no component
+without a licence in the executable. The Rust standard-library notice covers every Rust target; crates it lists for other
+targets only (for example fortanix-sgx-abi, MPL-2.0, for SGX and r-efi for UEFI) are not in these executables.
 
 ### Not shipped: operating-system libraries
 
@@ -67,12 +77,15 @@ Linux: glibc (libc, libm, 2.39 or newer), libstdc++, libgcc_s, FreeType (`libfre
 
 ### Data compiled into rhwp
 
-- **Font metric tables** (`src/renderer/font_metrics_generated.rs`, 595 entries, and `font_metrics_overlays.rs`):
-  per-character advance widths keyed by font family name, so that documents lay out as in Hancom Office even without
-  the original fonts. The names include proprietary families (for example HCR Batang / HCR Dotum, Malgun Gothic, HY and
-  Haansoft fonts, Arial, Times New Roman). They are numbers, not font programs or glyph outlines; no proprietary font
-  file is in the package. rhwp distributes them under its MIT licence. The upstream file states that item-level
-  source-font provenance is not verified; see "Open" in `notices/SOURCE-OFFER.txt`.
+- **Font metric tables** (`src/renderer/font_metrics_generated.rs`, 595 entries, and `font_metrics_overlays.rs`, 5
+  entries measured from Hancom Office output): per-character advance widths keyed by font name (about 400 family
+  names), so that documents lay out as in Hancom Office even without the original fonts. Most names are commercial
+  families (for example HCR Batang / HCR Dotum, Malgun Gothic, HY and Haansoft fonts, Arial, Times New Roman, Office
+  and Bitstream fonts). They are numbers, not font programs or glyph outlines; no proprietary font file is in the
+  package. rhwp distributes them under its MIT licence. Upstream's own per-entry record
+  (`mydocs/tech/investigations/issue-4964/font_metric_lineage_manifest.json` at the commit above) lists source font,
+  licence and provenance as unknown for 599 of the 600 entries (only Noto Sans KR is verified); see "Open" in
+  `notices/SOURCE-OFFER.txt`.
 - Small HWP document fragments that rhwp uses when it writes new files: a blank HWP 5 template and a few streams taken
   from sample documents (the summary stream's metadata names the rhwp author as creator). The plugin only reads
   documents and renders pages.
@@ -89,6 +102,8 @@ Reserved Font Name 'Source'." SIL Open Font License 1.1: `notices/NotoSans-OFL.t
 - `notices/rust-crates.txt`: `scripts/plugins/hwp-notices.ts` in Trina AX (`cargo tree -e normal,no-proc-macro
   --features native-skia` for each target, licence files from the crates themselves).
 - `notices/native-libraries.txt`: the object lists of the four Skia static-library archives and Skia's `DEPS` at the
-  pinned revision; licence texts from those revisions.
+  pinned revision, narrowed to what the linker kept (symbol tables and source-file entries of the four executables;
+  versions also read from strings in them: libpng 1.6.56, zlib 1.3.0.1, libjpeg-turbo 3.1.0, Expat 2.7.4); licence
+  texts from those revisions.
 - Cross-check: every crate whose source path is embedded in the four executables is in `notices/rust-crates.txt`, and
   the dynamic library lists come from the executables' ELF and Mach-O headers.
