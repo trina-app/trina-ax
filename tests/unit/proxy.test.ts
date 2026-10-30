@@ -139,3 +139,33 @@ describe('model proxy', () => {
     expect(seen.length).toBe(n + 1)
   })
 })
+
+// Sub-agents (docs/DECISIONS.md "Sub-agents", review M1): a child's tool list shows only in its own model requests,
+// which come with the turn's token; every request's tool names are checked against the attempt's policy.
+describe('model proxy: the lockdown of tool names', () => {
+  test('our tools, Agent and WebSearch where allowed pass; anything else is refused, audited and stops the turn', async () => {
+    const events: { turnId: string; ev: unknown }[] = []
+    const p = await startModelProxy({ db: env.db, broker, onTurnEvent: (t, ev) => events.push({ turnId: t, ev }) })
+    try {
+      const tool = (name: string) => ({ name, description: 'x', input_schema: { type: 'object' } })
+      const body = (...names: string[]) => ({ model: 'claude-opus-x', max_tokens: 5, messages: [], tools: names.map(tool) })
+      const withAgent = issueProxyToken(env.db, turnId, 'alice', { credentialId: KEY_ID, family: 'anthropic', tools: { agent: true, webSearch: true } })
+      expect((await call(p.url, { 'x-api-key': withAgent }, body('Agent', 'WebSearch', 'mcp__team__read'))).status).toBe(200)
+      expect((await call(p.url, { 'x-api-key': withAgent }, { ...body('mcp__team__read'), tools: [{ type: 'web_search_20250305', name: 'web_search' }] })).status).toBe(200)
+      expect(events).toEqual([])
+      const n0 = seen.length
+      const r = await call(p.url, { 'x-api-key': withAgent }, body('mcp__team__read', 'Glob', 'Grep'))
+      expect(r.status).toBe(403)
+      expect(await r.text()).toContain('tools outside the lockdown: Glob, Grep')
+      expect(seen.length).toBe(n0) // never forwarded
+      expect(events).toEqual([{ turnId, ev: { type: 'lockdown', reason: 'tools outside the lockdown: Glob, Grep' } }])
+      expect(env.db.query("SELECT count(*) AS n FROM audit_log WHERE action = 'proxy.refused' AND detail LIKE '%Glob%'").get()).toEqual({ n: 1 })
+      // a turn without sub-agents (or a token from before the policy): no Agent tool
+      const noAgent = issueProxyToken(env.db, turnId, 'alice', { credentialId: KEY_ID, family: 'anthropic', tools: { agent: false, webSearch: false } })
+      expect((await call(p.url, { 'x-api-key': noAgent }, body('mcp__team__read', 'Agent'))).status).toBe(403)
+      expect((await call(p.url, { 'x-api-key': noAgent }, body('mcp__team__read', 'WebSearch'))).status).toBe(403)
+      expect((await call(p.url, { 'x-api-key': bound(KEY_ID) }, body('mcp__team__read', 'Agent'))).status).toBe(403)
+      expect((await call(p.url, { 'x-api-key': bound(KEY_ID) }, body('mcp__team__read', 'WebSearch'))).status).toBe(200)
+    } finally { await p.stop() }
+  })
+})
