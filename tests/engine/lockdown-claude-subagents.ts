@@ -151,7 +151,12 @@ try {
     const results = r.lines.filter((l) => l.type === 'user' && !l.parent_tool_use_id).flatMap((l) => l.message?.content ?? []).filter((b: any) => b.type === 'tool_result')
     const text = JSON.stringify(results)
     check('args: answer done', r.done.status === 'done', r.done.error)
-    check('isolation "worktree": refused or local; no worktree of the checkout was made', Bun.spawnSync(['git', '-C', path.join(import.meta.dir, '..', '..'), 'worktree', 'list', '--porcelain']).stdout.toString() === worktreesBefore, '')
+    // other sessions may add worktrees to this repository meanwhile: only new ones of this turn's agents count
+    const ids = r.lines.flatMap((l) => [l.task_id, l.agent_id, l.tool_use_result?.agentId]).filter((x): x is string => typeof x === 'string' && x.length > 4)
+    const added = Bun.spawnSync(['git', '-C', path.join(import.meta.dir, '..', '..'), 'worktree', 'list', '--porcelain']).stdout.toString().split('\n').filter((l) => l.startsWith('worktree ') && !worktreesBefore.includes(l))
+    const ours = added.filter((l) => ids.some((id) => l.includes(id)) || l.includes(agentRoot) || l.includes(r.chatDir))
+    const wtResult = JSON.stringify(results.filter((b: any) => JSON.stringify(b).includes('worktree')))
+    check('isolation "worktree": refused or local; no worktree of the checkout was made', ours.length === 0 && !fs.existsSync(path.join(r.chatDir, '.claude', 'worktrees')), { ours, wtResult: wtResult.slice(0, 300) })
     const c22 = childReqs(r.reqs, 'CHILD-22')
     check('isolation "remote": ran here as a local child with our tools (or not at all)', c22.every((x) => noBuiltins(x.tools).length === 0), offered(c22))
     check('fork: refused', childReqs(r.reqs, 'CHILD-23').length === 0 && /fork/i.test(text), text.slice(0, 400))
