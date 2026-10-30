@@ -6,6 +6,7 @@
 //   B5  the Stop button, on either engine, while a request waits for the model: the turn is "stopped" without an
 //       error, the upstream request is cancelled, the log says it was the person's stop (never "the model service
 //       could not be reached"), and nothing is counted or marked against the AI connection
+//       (sub-agents: each child's request, sent with the turn's token at the same time, is the same stop)
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -134,4 +135,29 @@ describe('B5: Stop while a request waits for the model', () => {
       } finally { hold = false }
     })
   }
+})
+
+describe('B5 with sub-agents: Stop while two children wait for the model', () => {
+  test("each child's request is cancelled and logged as the person's stop; nothing counted, no warning", async () => {
+    const before = days(K)
+    lines.length = 0; holding = 0; aborted = 0; hold = true
+    try {
+      const chat = await newChat('claude-code')
+      const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: fake({ agents: [
+        { id: 'toolu_S1', description: 'first part', steps: [{ model: 'wait' }] }, { id: 'toolu_S2', description: 'second part', steps: [{ model: 'wait' }] }] }) } })
+      expect(await waitFor(() => holding === 2, { timeoutMs: 20_000 })).toBe(true)
+      expect((await h.api('alice').call(API.stop, { params: { id: chat.id } })).stopped).toBe(true)
+      const done = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(done.data.status).toBe('stopped')
+      expect(done.data.message.error ?? null).toBeNull()
+      expect(await waitFor(() => aborted === 2, { timeoutMs: 10_000 })).toBe(true)
+      expect(await waitFor(() => proxyLines().filter((l) => l.msg === 'model proxy: request ended by a stop').length === 2, { timeoutMs: 5000 })).toBe(true)
+      expect(proxyLines().map(({ level, msg, path: p, turn, by }) => ({ level, msg, path: p, turn, by }))).toEqual([
+        { level: 'info', msg: 'model proxy: request ended by a stop', path: '/v1/messages', turn: r.turnId, by: 'person' },
+        { level: 'info', msg: 'model proxy: request ended by a stop', path: '/v1/messages', turn: r.turnId, by: 'person' }])
+      expect(h.ctx.db.query('SELECT status, error FROM turns WHERE id = ?').get(r.turnId)).toEqual({ status: 'stopped', error: null })
+      expect(days(K)).toEqual(before)
+      expect(getRow(h.ctx.db, K)).toMatchObject({ status: 'ok', status_code: null, limited_until: null })
+    } finally { hold = false }
+  })
 })

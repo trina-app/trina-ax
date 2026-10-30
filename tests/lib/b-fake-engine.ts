@@ -51,6 +51,8 @@
 //                                            "lateAgentLine": ms (next to "agents"): the Agent line comes that late.
 //                                            A child step {"webSearch": {"query", "hits", "wrote", "textLinks"}}: a WebSearch
 //                                            with its structured result (tool_use_result) like Claude Code's.
+//                                            A child step {"model": "prompt"}: the child calls the model through the proxy
+//                                            with the turn's token, like Claude Code's sub-agents (its text is not said).
 //   @fake {"init": {"tools": [...], "agents": [...]}}  what the init event reports (lockdown check tests)
 //   @fake {"echo": "agents" | "subagentPrompt" | "args"}  say the --agents file, the sub-agents' instructions, argv
 // Every team tool call carries Claude Code's _meta {"claudecode/toolUseId": <the tool_use id>}.
@@ -249,7 +251,7 @@ function proxyToken(): string {
   delete process.env[fdVar] // like Claude Code: read once, then forget where it came from
   return modelToken
 }
-async function callModel(prompt: string) {
+async function callModel(prompt: string, speak = true) {
   const base = process.env.ANTHROPIC_BASE_URL
   if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
   let r: Response
@@ -269,7 +271,7 @@ async function callModel(prompt: string) {
     while ((i = buf.indexOf('\n')) >= 0) {
       const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
       if (!l.startsWith('data:')) continue
-      try { const ev = JSON.parse(l.slice(5)); if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') await say(ev.delta.text) } catch {}
+      try { const ev = JSON.parse(l.slice(5)); if (speak && ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') await say(ev.delta.text) } catch {}
     }
   }
 }
@@ -383,6 +385,7 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
       else if (st.refuse) out({ type: 'assistant', parent_tool_use_id: a.id, error: 'refusal', message: { stop_reason: 'refusal', content: [{ type: 'text', text: 'API Error: refused' }] } })
       else if (st.apiError) out({ type: 'assistant', parent_tool_use_id: a.id, error: 'rate_limit', message: { content: [{ type: 'text', text: 'API Error: 429 rate limited' }] } })
       else if (st.sleep) await Bun.sleep(Number(st.sleep))
+      else if (st.model !== undefined) await callModel(String(st.model), false)
     }
     if (stopped) return
     const ms = Date.now() - t0
