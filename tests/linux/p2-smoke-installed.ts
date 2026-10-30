@@ -261,6 +261,21 @@ export async function runInstalledSmoke(i: InstalledSmokeInput): Promise<SmokeRe
       turnsForChat(chatId) { return (i.db.query('SELECT id FROM turns WHERE chat_id = ?').all(chatId) as { id: string }[]).map(r => inspect(r.id)!) },
       file(rel) { return { text: read(i.cfg.teamRoot, rel), versions: count('SELECT count(*) n FROM file_versions WHERE path = ?', rel) } },
       async schedules(who) { return API.listSchedules.response.parse(await api(who, 'GET', '/api/schedules')) },
+      async approveScheduleCard(turnId) {
+        // the server's card of schedule_create (origin server, a "create" answer), seen on alice's own socket
+        for (;;) {
+          gate.check()
+          const f = channels.get('alice')!.frames.find((e) => e.type === 'turn.request' && e.data.turnId === turnId && e.data.request.kind === 'ask_user'
+            && e.data.request.origin === 'server' && !!e.data.request.options?.some((o) => o.value === 'create'))
+          if (f && f.type === 'turn.request') {
+            await api('alice', 'POST', `/api/turns/${turnId}/answer`, { kind: 'ask_user', requestId: f.data.request.requestId, answer: 'create' })
+            return true
+          }
+          const st = inspect(turnId)?.status
+          if (st && st !== 'running' && st !== 'queued') return false
+          await Bun.sleep(100)
+        }
+      },
       cleanup,
     }
     return await runSmoke(driver, i, gate)

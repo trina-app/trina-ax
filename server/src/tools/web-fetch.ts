@@ -172,6 +172,38 @@ export interface ResolveOptions {
 }
 const sysLookup = (h: string) => dns.lookup(h, { all: true, verbatim: true })
 
+/**
+ * Every rule that needs no DNS lookup: the scheme, no user:password@, the name rules, and for an IP literal all the
+ * address rules. web_fetch runs this before the person is asked (a refused address bothers nobody) and looks the name
+ * up only after the URL passed the card (tools/url-gate.ts): the name itself can carry data to the attacker's DNS
+ * server even when the person declines (docs/DECISIONS.md "Outbound web channels").
+ */
+export function precheckTarget(raw: string, o: Pick<ResolveOptions, 'testAllow' | 'blockedIps'> = {}): void {
+  let url: URL
+  try { url = new URL(raw) } catch { throw new ToolError('not a valid URL') }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new ToolError('only http and https URLs can be fetched')
+  if (url.username || url.password) throw new ToolError('URLs with a user name or password are not allowed')
+  const port = url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80
+  const host = url.hostname.replace(/^\[|\]$/g, '')
+  if (net.isIP(host)) { checkAddresses(host, [{ address: host, family: net.isIP(host) }], port, o); return }
+  const bad = checkHostName(host)
+  if (bad) throw new ToolError(`${bad}: ${host}`)
+  // a name on another port: refused now unless a test server may answer (decided after the lookup)
+  if (port !== 80 && port !== 443 && !o.testAllow) throw new ToolError('only ports 80 and 443 can be fetched')
+}
+
+function checkAddresses(host: string, addrs: { address: string; family: number }[], port: number, o: Pick<ResolveOptions, 'testAllow' | 'blockedIps'>): void {
+  const testOk = (ip: string) => !!o.testAllow?.(ip)
+  if (!addrs.length) throw new ToolError(`could not resolve ${host}`)
+  const own = new Set((o.blockedIps?.() ?? []).map(normIp))
+  for (const a of addrs) {
+    if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this office's own public address; the server cannot fetch it (it would reach the office's own router or devices)`)
+    if (testOk(a.address)) continue
+    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
+  }
+  if ((port !== 80 && port !== 443) && !addrs.every((a) => testOk(a.address))) throw new ToolError('only ports 80 and 443 can be fetched')
+}
+
 export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promise<Target> {
   const lookup = o.lookup ?? sysLookup
   let url: URL
@@ -180,7 +212,6 @@ export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promis
   if (url.username || url.password) throw new ToolError('URLs with a user name or password are not allowed')
   const port = url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80
   const host = url.hostname.replace(/^\[|\]$/g, '')
-  const testOk = (ip: string) => !!o.testAllow?.(ip)
   let addrs: { address: string; family: number }[]
   if (net.isIP(host)) addrs = [{ address: host, family: net.isIP(host) }]
   else {
@@ -193,14 +224,7 @@ export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promis
       throw new ToolError(`could not resolve ${host}`)
     } finally { clearTimeout(timer) }
   }
-  if (!addrs.length) throw new ToolError(`could not resolve ${host}`)
-  const own = new Set((o.blockedIps?.() ?? []).map(normIp))
-  for (const a of addrs) {
-    if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this office's own public address; the server cannot fetch it (it would reach the office's own router or devices)`)
-    if (testOk(a.address)) continue
-    if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
-  }
-  if ((port !== 80 && port !== 443) && !addrs.every((a) => testOk(a.address))) throw new ToolError('only ports 80 and 443 can be fetched')
+  checkAddresses(host, addrs, port, o)
   const pick = addrs.find((a) => a.family === 4) ?? addrs[0]!
   return { url, host, ip: pick.address, family: pick.family === 6 ? 6 : 4, port }
 }

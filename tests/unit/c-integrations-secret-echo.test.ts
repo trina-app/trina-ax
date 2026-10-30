@@ -97,7 +97,8 @@ describe('a turn that repeats the stored key', () => {
     hub.publish = (userId, ev) => { published.push({ userId, ev: JSON.parse(JSON.stringify(ev)) }); publish(userId, ev) }
     svc = new FakeServices()
     integrationsOf(h.ctx, { net: svc.net() })
-    const qa = await h.api('alice').call(API.createIntegration, { body: { kind: 'http', name: 'QA API', url: `${svc.base}/echo`, auth: 'bearer', secret: KEY, writePolicy: 'allow' } })
+    // a personal connection asks before every change ("run without asking" is for team connections): turn() answers the card
+    const qa = await h.api('alice').call(API.createIntegration, { body: { kind: 'http', name: 'QA API', url: `${svc.base}/echo`, auth: 'bearer', secret: KEY, writePolicy: 'ask' } })
     expect(qa.status).toBe('connected')
   })
   afterAll(async () => { svc?.stop(); await h?.close() })
@@ -107,7 +108,16 @@ describe('a turn that repeats the stored key', () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const started = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const id = started.assistantMessage.id
-    const doneEv = await waitFor(() => published.find((p) => p.ev.type === 'message.done' && p.ev.data.messageId === id), { timeoutMs: 40_000, what: 'message.done' })
+    // the person allows each change on the server's card
+    const answered = new Set<string>()
+    const approve = setInterval(() => {
+      for (const p of published) {
+        if (p.ev.type !== 'turn.request' || p.ev.data.turnId !== started.turnId || answered.has(p.ev.data.request.requestId)) continue
+        answered.add(p.ev.data.request.requestId)
+        void h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: p.ev.data.request.requestId, answer: 'allow' } }).catch(() => {})
+      }
+    }, 20)
+    const doneEv = await waitFor(() => published.find((p) => p.ev.type === 'message.done' && p.ev.data.messageId === id), { timeoutMs: 40_000, what: 'message.done' }).finally(() => clearInterval(approve))
     expect(doneEv).toBeTruthy()
     const r = { started, done: doneEv!.ev.data.message }
     const deltas = published.filter((p) => p.userId === 'alice' && p.ev.type === 'message.delta' && p.ev.data.messageId === id).map((p) => p.ev.data as { offset: number; text: string })

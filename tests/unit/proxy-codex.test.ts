@@ -172,6 +172,23 @@ describe('S-7: what may reach OpenAI with the team\'s credential', () => {
     expect(JSON.stringify(seen[0]!.body)).not.toContain('evil')
     expect(seen[0]!.body.store).toBe(false)
   })
+  test('web search stays on the cached index: every web_search goes out with external_web_access false; web_search_preview (always live) is refused', async () => {
+    // a live search could open any address outside the team server's address rules (docs/DECISIONS.md "Outbound web channels")
+    const tok = tokFor(K)
+    expect((await post('openai', tok, body({ tools: [{ type: 'web_search', external_web_access: true }] }))).status).toBe(200)
+    expect(seen.at(-1)!.body.tools).toEqual([{ type: 'web_search', external_web_access: false }])
+    expect((await post('openai', tok, body())).status).toBe(200)
+    expect(seen.at(-1)!.body.tools[1]).toEqual({ type: 'web_search', external_web_access: false })
+    expect((await post('openai', tok, body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [{ type: 'namespace', name: 'mcp__team', tools: [{ type: 'function', name: 'list', parameters: {} }] }, { type: 'web_search', external_web_access: true }] }] }))).status).toBe(200)
+    expect(seen.at(-1)!.body.input[0].tools[1]).toEqual({ type: 'web_search', external_web_access: false })
+    const before = seen.length
+    for (const b of [body({ tools: [{ type: 'web_search_preview' }] }), body({ tools: [{ type: 'web_search_preview', tools: [] }] }), body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [{ type: 'web_search_preview' }] }] })]) {
+      const r = await post('openai', tok, b)
+      expect(r.status).toBe(403)
+      expect((await r.json()).error.message).toContain('web_search_preview')
+    }
+    expect(seen.length).toBe(before)
+  })
   test('background calls are answered here; the engine\'s own refresh is refused and audited; unknown paths 404', async () => {
     expect(await (await fetch(proxy.url + '/codex/backend/wham/config/bundle')).json()).toEqual({})
     expect((await fetch(proxy.url + '/codex/backend/wham/accounts/check')).status).toBe(404)

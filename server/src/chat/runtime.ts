@@ -423,7 +423,7 @@ export class ChatRuntime {
       queueSeq = this.queueStore.admit(o.userId)
       if (o.user) {
         userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
-          attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId })
+          attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
       }
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })

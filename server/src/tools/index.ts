@@ -19,7 +19,7 @@ import { registerSearch } from './search'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
-import { resolveTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 
 export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'share_file', 'artifact', 'web_fetch'] as const
 
@@ -120,12 +120,14 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
     // the full URL is kept in the audit log (design tab 1 tool_events)
     describe: (a) => `web_fetch ${a.url}`,
     async run(a, t) {
-      // the address rules first (a private target is refused without bothering the person), then where the URL came
-      // from: an address the conversation never showed needs the person's OK (design tab 7, server/src/tools/url-gate.ts)
+      // the address rules that need no DNS first (a private literal or local name is refused without bothering the
+      // person), then where the URL came from: an address the conversation never showed needs the person's OK (design
+      // tab 7, server/src/tools/url-gate.ts). The name is looked up only after that (webFetch): a host name can carry
+      // data to the attacker's name server even when the person declines (docs/DECISIONS.md "Outbound web channels")
       const blockedIps = () => egressOf(ctx).ips
-      await resolveTarget(a.url, { ...o.fetch, blockedIps })
+      precheckTarget(a.url, { ...o.fetch, blockedIps })
       const chatId = t.turnId ? (ctx.db.query('SELECT chat_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
-      const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown: egressOf(ctx).known })
+      const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown: egressOf(ctx).known, turnId: t.turnId })
       const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext })
       ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
       // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result")

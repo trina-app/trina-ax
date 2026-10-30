@@ -85,6 +85,18 @@ export const SkillWritePreview = z.object({
 })
 export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 
+/** What a server check is about to let out, shown in full (docs/DECISIONS.md "Outbound web channels"): what a connected
+ * service is sent, a scheduled task's instruction and the addresses it may open. `fields` (who receives it: to, channel,
+ * repo, address …) come first; the whole `text` is shown, scrollable, with its size; `marks` are long random-looking
+ * parts of it (they can carry data in an address) to highlight. */
+export const ConfirmDetail = z.object({
+  label: z.string(),
+  text: z.string(),
+  fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+  marks: z.array(z.string()).optional(),
+})
+export type ConfirmDetail = z.infer<typeof ConfirmDetail>
+
 export const AskUserRequest = z.object({
   kind: z.literal('ask_user'),
   requestId: z.string(),
@@ -101,6 +113,8 @@ export const AskUserRequest = z.object({
   /** a server check that shows what is about to be saved (the AI saving under skills/: team skills and team rules
    * every teammate's AI follows): the file, new or changed, and the change as a unified diff (cut when long) */
   preview: SkillWritePreview.optional(),
+  /** a server check: exactly what is about to go out, each block in full (ConfirmDetail) */
+  details: z.array(ConfirmDetail).max(8).optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })

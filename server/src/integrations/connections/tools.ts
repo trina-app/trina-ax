@@ -99,16 +99,56 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   })()
 }
 
-/** Anything that changes something at the service: refused ('deny'), asked on the server's card ('ask'), or sent ('allow'). */
-async function gate(row: Row, what: string, sent: string, b: BuildCtx, tc: TurnToolContext): Promise<boolean> {
-  if (row.write_policy === 'allow') return false
+/** What a write sends: the whole text and the parts that say where it goes (shown first on the card). */
+interface Sent { text: string; fields: { name: string; value: string }[] }
+
+/** more than this cannot be checked on a card: such a write is refused, never shown cut */
+export const MAX_CARD_PAYLOAD = 100_000
+/** argument names that say where something goes or who sees it */
+const RECIPIENT = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)|chat_?id|conversation(_?id)?|thread(_?id)?|repo(sitory)?|owner|org(anization)?|project(_?(id|key))?|space(_?key)?|team(_?id)?|workspace|url|link|webhook(_?url)?|endpoint|address|domain|host|users?(_?(id|name)s?)?|assignees?|share_?with|visibility|public|parent(_?id)?|folder(_?id)?|page_?id|database_?id|list_?id|board_?id)$/i
+
+/** Recipient-like arguments (two levels deep), for the top of the card. */
+export function recipientFields(args: unknown): { name: string; value: string }[] {
+  const out: { name: string; value: string }[] = []
+  const walk = (v: unknown, prefix: string, depth: number) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v) || depth > 1) return
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (out.length >= 20) return
+      if (RECIPIENT.test(k) && x !== undefined && x !== null) out.push({ name: prefix + k, value: clip(typeof x === 'string' ? x : JSON.stringify(x), 2000) })
+      else walk(x, `${prefix}${k}.`, depth + 1)
+    }
+  }
+  walk(args, '', 0)
+  return out
+}
+
+/** A scheduled run may send to an "allow" connection only when the person allowed that on the schedule's card. */
+function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string): boolean {
+  const r = ctx.db.query('SELECT s.write_connections AS w FROM turns t JOIN schedules s ON s.id = t.schedule_id WHERE t.id = ?').get(turnId) as { w: string | null } | null
+  try { const ids = JSON.parse(r?.w ?? '[]'); return Array.isArray(ids) && ids.includes(connectionId) } catch { return false }
+}
+
+/**
+ * Anything that changes something at the service: refused ('deny'), asked on the server's card ('ask'), or sent
+ * ('allow', team connections only: a personal one asks). The card shows everything that is sent, in full, with the
+ * recipient-like fields first; a write too large for that is refused. In a scheduled run nobody is asked: an "allow"
+ * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused.
+ */
+async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean> {
   if (row.write_policy === 'deny') throw new CallError(`${row.name} is set to refuse changes from the AI, so nothing was sent. Tell the user; whoever manages the connection can change that in its settings.`, 'refused (write policy deny)')
+  if (row.write_policy === 'allow' && row.scope === 'team') {
+    if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
+    throw new CallError(`this is a scheduled run and the user did not allow this scheduled task to send to ${row.name} when it was created, so nothing was sent. Say so in the summary; the user can do it in a chat or create the task again.`, 'refused (scheduled run not allowed)')
+  }
   const person = b.scheduled ? null : tc.files.person
   if (!person) throw new CallError(`this would change something at ${row.name} and nobody can confirm it here (a scheduled run), so nothing was sent. Ask the user to do it in a chat.`, 'refused (nobody to ask)')
+  // the address (an api_request query can be long) counts as well: everything the card shows
+  const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
+  if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
-  const shown = sent.trim() ? clip(sent, 300) : say('nothing', L)
-  const question = `${say('confirm', L, { name: row.name, what })}\n\n${say('sends', L)}\n${shown}\n\n${say('ask', L)}`
-  if (!(await person.confirm(question, say('yes', L), say('no', L)))) {
+  const question = `${say('confirm', L, { name: row.name, what })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  const details = [{ label: say('sendsLabel', L), text: sent.text.trim() ? sent.text : say('nothing', L), ...(sent.fields.length ? { fields: sent.fields } : {}) }]
+  if (!(await person.confirm(question, say('yes', L), say('no', L), { details }))) {
     throw new CallError(`the user did not allow this, so nothing was sent to ${row.name}. Do not try it another way; ask the user what they want.`, 'not allowed by the user')
   }
   return true
@@ -148,7 +188,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         const t = savedTools(current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         if (!t.readOnly) {
-          confirmed = await gate(current, t.name, JSON.stringify(args ?? {}), b, tc)
+          confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args) }, b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
           current = h.use(svc.forCall(tc.userId, row.id))
@@ -303,7 +343,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const u = new URL(url)
         let current = row
         if (a.method !== 'GET' && a.method !== 'HEAD') {
-          confirmed = await gate(row, `${a.method} ${clip(u.pathname + u.search, 200)}`, req.shown, b, tc)
+          confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)] }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
         }

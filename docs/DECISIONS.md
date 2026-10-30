@@ -3323,3 +3323,62 @@ upstream at edwardkim/rhwp#8387. Admin doc: [PLUGINS](PLUGINS.md) "한글 문서
   package; the list is not read). Internal review servers with a schema-0 test package reinstall it.
 - **Not yet verified on hardware.** End-to-end runs on Linux amd64 with the converter cgroup and on an Intel Mac; the
   engine adapters are covered by tests that need the real engine harness.
+
+## Outbound web channels: scheduled tasks, DNS after the card, link budget, connection cards (feat/exfil-server, 2026-10-30)
+
+From the web-exfiltration analysis of 2026-10-30 and its independent review (must-change M3–M5, missed channels N1–N4).
+This is the server and desktop-main half; the artifact / HTML-preview frame (WebRTC, nested frames, WebKit) is a
+separate change. Founder decisions taken as the reviewers recommended ("do everything"): AI-made schedules get a card,
+Codex search `cached`, link budget 8 per answer and 30 per chat, personal connections cannot "run without asking",
+medical edition "allow all websites" off by default.
+
+- **Scheduled tasks no longer launder addresses.** A run's message is the AI's text, but it went in as the person's own
+  words, so every address in it opened without a card on every run. Now `schedule_create` asks on a server card first
+  (title, schedule in the person's language, the whole instruction, the addresses in it, long random-looking parts
+  highlighted, and the "allow" team connections a run could write to). Declined or nobody to ask = not created. The
+  run's user message is marked `messages.auto_sent` (migration 214, reader 1, which also marks earlier runs: the user
+  message of every scheduled turn and the first message of a "⏰" run chat): `url-gate.ts` never takes its addresses
+  as typed, also after the person writes more in that chat or the schedule is deleted. A person who edits and resends
+  that message has typed it (a new message, not auto_sent). The card shows the AI's title on one line. Only the addresses the card
+  showed are stored (`schedules.allowed_urls`) and copied into each run's chat as allowed. Schedules made before this
+  (and templates) carry none: their runs need a card for any address, which an unattended run cannot get — recreate
+  them in a chat. There is no AI tool that edits a schedule; the person cannot edit a prompt either (on / off only).
+- **"Ask the AI to fix it"** defangs the artifact's title and key like the error text (`fixPromptWords`), since that
+  message is sent as the person's words.
+- **DNS after the card.** `web_fetch` runs only the checks that need no lookup before the card (`precheckTarget`:
+  scheme, credentials, name rules, IP literals, ports) and resolves the name after `gateUrl` passed; a name that
+  resolves privately is refused after its card (rare, harmless). Browser tools: IP literals and local names get the
+  office-network card at once; any other name passes the address card first and is looked up after it, then gets the
+  office card if it is private. The desktop pane's `net-guard` decides before any lookup
+  (`common/net-policy.ts beforeLookupVerdict`): a sub-request of a scripted document to another site nobody allowed is
+  cancelled unresolved (only an allowed office page, checked as before, lets its requests be looked up), and a page
+  load that must be asked about asks first ("site", then "private" after the lookup when the name is an office
+  address). Other resolvers checked: integration and OAuth metadata addresses are set by
+  people or by the configured service, `api_request` stays on its connection's origin, the API engine and push
+  endpoints are owner/browser addresses, web search sources are plain links without favicons, Markdown images do not
+  load. Redirect hops resolve after the first request already reached that server.
+- **Search results the AI wrote.** Claude's WebSearch output repeats the query, which the AI wrote; a query holding a
+  `Links: [...]` block made its own addresses "search results". `searchSources` now skips a Links block that starts
+  inside the echoed query (raw or JSON-escaped) and any source whose address the query holds.
+- **Link budget.** Search results and links of fetched pages ("learned") open without a card at most 8 per answer and
+  30 per chat (`LINK_BUDGET`, operators: `MYCEL_WEB_LINK_BUDGET="8,30"`); then each new one asks with the budget text.
+  Addresses the person typed or allowed are outside it; an address already counted opens again for free. Counted in
+  `chat_seen_urls.free_turn_id` with `source` fetched / search / allowed (migration 322, reader 1; old rows count as
+  fetched), synchronously so parallel calls cannot share the last places. A scheduled run is one answer (8). The
+  per-page link limit stays 500 (100 after audit data, review Q4).
+- **Codex search.** `web_search="cached"` (Codex's default) instead of `live`; the model proxy writes
+  `external_web_access: false` into every `web_search` tool (top level and `additional_tools`) and refuses
+  `web_search_preview`, which ignores it; only a `namespace` entry is a mere container. The CONNECT tunnel (agent-own) cannot see bodies and relies on the CLI flag.
+- **Connected-service writes.** The card shows every character that is sent (`AskUserRequest.details`: scrollable,
+  with its size, recipient-like fields such as to / channel / repo / url first, `api_request`'s full address); a write
+  over 100,000 characters, address included, is refused rather than shown cut. "Run without asking" is for team connections only: a
+  personal one is refused on create / change and migration 322 sets existing ones to "ask". A team "allow" connection
+  writes in a scheduled run only when that schedule's card allowed it (`schedules.write_connections`); otherwise the run
+  refuses.
+- **Not here:** the medical edition's "allow all websites" default — the medical fork is frozen and not in this
+  repository; the decision is recorded for when it resumes. Pinning Claude `web_search_*` versions (review S2), the
+  long-string warning on the plain address card (F6; the schedule card has it), URL checks for read-only open-world MCP
+  tools (F7b), confidential labels (F9), and WebRTC / `dns-prefetch` in the browser pane (F8) remain follow-ups.
+- Tests: `tests/unit/p0-exfil-server.test.ts` (stubbed DNS: no lookup before or after a declined card, three parallel
+  calls, 50 unattended names, schedule card and runs, auto_sent, "fix it", budget), `e-pane-dns-order.test.ts`,
+  `proxy-codex.test.ts`, `c-integrations-tools.test.ts`, `web/test/e2e/safety-cards.spec.ts`.

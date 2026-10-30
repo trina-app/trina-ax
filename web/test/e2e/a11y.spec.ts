@@ -245,7 +245,7 @@ for (const scheme of ['light', 'dark'] as const) {
 async function seedIntegrations(page: Page) {
   const post = (path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
   expect((await post('/api/integrations', { kind: 'http', name: 'AI PM', url: 'https://pm.example.com/api', auth: 'bearer', secret: 'pm-key-1234567890', notes: 'GET /projects' })).status()).toBe(201)
-  expect((await post('/api/integrations', { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none', writePolicy: 'allow' })).status()).toBe(201)
+  expect((await post('/api/integrations', { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none', writePolicy: 'deny' })).status()).toBe(201)
   expect((await post('/api/integrations', { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' })).status()).toBe(201)
   expect((await post('/api/integrations', { kind: 'http', name: 'Old API', url: 'https://down.example.com/api', auth: 'none' })).status()).toBe(201)
   expect((await post('/api/admin/integrations', { kind: 'http', name: 'Company PM', url: 'https://pm.example.com/api', auth: 'none', writePolicy: 'deny', access: { everyone: true, groups: [], users: [] } })).status()).toBe(201)
@@ -258,7 +258,7 @@ async function auditIntegrations(page: Page, where: string) {
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-tools-toggle').click()
   await audit(page, `settings/integrations${where}`)
   await page.getByTestId('integration-add').click()
-  await page.getByTestId('integration-write-allow').check()
+  await page.getByTestId('integration-write-deny').check()
   await page.getByTestId('integration-save').click() // shows the field errors
   await audit(page, `integration add (MCP)${where}`)
   await page.getByTestId('integration-kind-http').check()

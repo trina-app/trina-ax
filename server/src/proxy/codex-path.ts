@@ -8,7 +8,8 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 //   GET  /codex/backend/wham/config/bundle -> {} (a remote config bundle could change the lockdown: never passed)
 //   other /codex/backend/*, /codex/*/models  -> 404 (never sent upstream)
 //   POST /codex/oauth/token         -> 400 invalid_grant, audited (the engine must never refresh by itself)
-// Requests are filtered like the Claude path: Responses only, function / web_search tools only, inline images and
+// Requests are filtered like the Claude path: Responses only, function / web_search tools only (web_search held to
+// the cached index: external_web_access false, web_search_preview refused), inline images and
 // files only, no background / stored-prompt / conversation state, models from the locked catalog only, store forced
 // to false, the checked body written again. 401 of a ChatGPT sign-in: one refresh (single-flight) and one retry; the
 // engine then gets 403 (never 401, which would make Codex try to refresh). Long 429s mark this connection only.
@@ -30,7 +31,8 @@ export interface CodexPathDeps {
 const FORWARD = ['content-type', 'accept', 'user-agent', 'originator', 'version', 'session-id', 'thread-id', 'x-client-request-id', 'x-openai-subagent',
   'x-codex-beta-features', 'x-codex-turn-state', 'x-codex-window-id', 'x-codex-turn-metadata', 'x-codex-parent-thread-id']
 const DROP_RESPONSE = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'set-cookie', 'proxy-authenticate', 'upgrade'])
-const TOOL_OK = new Set(['function', 'web_search', 'web_search_preview'])
+// web_search_preview ignores external_web_access (always live): refused. web_search is held to the cached index.
+const TOOL_OK = new Set(['function', 'web_search'])
 const FORBIDDEN_KEYS = ['background', 'previous_response_id', 'conversation', 'prompt']
 const MAX_BODY = 32 * 1024 * 1024
 /** a 429 whose retry-after is this short is retried once by the proxy (Codex does not retry 429 itself, C14) */
@@ -64,8 +66,13 @@ function checkTools(tools: unknown, depth = 0): string | null {
   if (depth > 4) return 'tools nested too deep'
   for (const t of tools as Record<string, unknown>[]) {
     const type = t && typeof t === 'object' ? t.type : undefined
-    if (type === 'namespace' || Array.isArray((t as { tools?: unknown })?.tools)) { const r = checkTools((t as { tools?: unknown }).tools, depth + 1); if (r) return r; continue }
+    if (Array.isArray((t as { tools?: unknown })?.tools)) { const r = checkTools((t as { tools?: unknown }).tools, depth + 1); if (r) return r }
+    // a namespace only groups tools; any other entry is checked itself too, whatever it holds
+    if (type === 'namespace') continue
     if (typeof type !== 'string' || !TOOL_OK.has(type)) return `tool type ${String(type).slice(0, 40)} is not allowed`
+    // cached results only: a live search could open any address, outside the team server's address rules (web_fetch,
+    // docs/DECISIONS.md "Outbound web channels"). Written into the forwarded body whatever the engine sent.
+    if (type === 'web_search') (t as Record<string, unknown>).external_web_access = false
   }
   return null
 }

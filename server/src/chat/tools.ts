@@ -10,11 +10,11 @@ import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
-import { browserUrl, isPrivateHost } from '../realtime/private-net'
+import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { MEMORY_ITEM_MAX } from './prompt'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
-import { extractUrls, gateUrl, type TurnPerson } from '../tools/url-gate'
+import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { recordSkillRead } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
@@ -121,14 +121,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
 
 /** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
 export function turnPerson(exec: TurnExec): TurnPerson {
+  const choose = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null> => {
+    const answer = await exec.waitForPerson({
+      kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
+      multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
+      ...(extra?.details?.length ? { details: extra.details } : {}),
+    } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
+    const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
+    // only one of the card's own answers counts (never free text)
+    return typeof v === 'string' && options.some((o) => o.value === v) ? v : null
+  }
   return {
     locale: exec.spec.locale,
-    async confirm(question, allow, deny) {
-      const answer = await exec.waitForPerson({
-        kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options: [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }],
-        multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
-      return answer === 'allow' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'allow')
+    choose,
+    async confirm(question, allow, deny, extra) {
+      return (await choose(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)) === 'allow'
     },
     *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
   }
@@ -258,6 +265,9 @@ function bTools(exec: TurnExec): Tool[] {
 // the AI runs in the page (javascript_tool) are checked the same way. Links on pages the pane showed are NOT added to
 // the "seen" addresses (unlike web_fetch): the AI can put anything on a page it drives (form_input, javascript_tool)
 // and read it back, which would launder an address of its own making.
+// A name is looked up in DNS (is it the office network?) only after the address card passed: the name itself can
+// carry data to the attacker's DNS server even when the person declines (docs/DECISIONS.md "Outbound web channels").
+// An IP literal or a local name needs no lookup and gets the office-network card at once.
 function browserTool(exec: TurnExec, name: BrowserToolName, description: string, inputSchema: Record<string, unknown>): Tool {
   const { rt, spec } = exec
   return {
@@ -268,7 +278,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       /** null when the address may be opened; otherwise the refusal for the AI */
       const gate = async (href: string): Promise<string | null> => {
         try {
-          await gateUrl(rt.db, spec.chatId, href, person)
+          await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId })
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -280,18 +290,28 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         if (!u.ok) return { ...text(`Cannot open ${url.slice(0, 200)}: ${u.reason}.`, true), summary: `${name} -> refused url (${u.reason})` }
         const host = u.host
         if (!host || !u.href) continue
-        // the office-network card shows the full address (up to 2000 characters): no second card for it
-        let shownInFull = false
-        if (await isPrivateHost(host) && !(exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host))) {
+        const office = async (): Promise<Awaited<ReturnType<Tool['call']>> | 'ok' | 'shown'> => {
+          if (exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host)) return 'ok'
           const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
           if (decision === 'always') rt.grantSite(spec.userId, host)
           else if (decision === 'once') exec.allowedHosts.add(host)
           else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
-          shownInFull = url.length <= 2000
+          // the office-network card showed the full address (up to 2000 characters)
+          return url.length <= 2000 ? 'shown' : 'ok'
         }
-        if (shownInFull) continue
+        // an IP literal or a local name: the office-network card first (no DNS), and no second card for the address
+        if (staticPrivateHost(host) === true) {
+          const r = await office()
+          if (typeof r === 'object') return r
+          if (r === 'shown') continue
+        }
         const refusal = await gate(u.href)
         if (refusal) return { ...text(`Cannot open ${u.href.slice(0, 200)}: ${refusal}.`, true), summary: `${name} -> ${u.href.slice(0, 300)} not allowed (address check)` }
+        // a name: looked up only now; one that leads into the office network still needs the office-network card
+        if (staticPrivateHost(host) === null && await isPrivateHost(host)) {
+          const r = await office()
+          if (typeof r === 'object') return r
+        }
       }
       for (const code of scriptsOf(name, args)) {
         for (const href of new Set(extractUrls(code))) {

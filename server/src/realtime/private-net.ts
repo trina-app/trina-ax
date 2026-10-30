@@ -82,11 +82,20 @@ export function hostOf(url: string): string | null {
   return r.ok ? r.host : null
 }
 
-export async function isPrivateHost(host: string, resolve: (h: string) => Promise<string[]> = defaultResolve): Promise<boolean> {
+/** What can be told without DNS: true / false for an IP literal or a local name, null when only a lookup can tell
+ * (chat/tools.ts asks the address card first then: the name itself can carry data to its DNS server). */
+export function staticPrivateHost(host: string): boolean | null {
   host = normHost(host)
   if (!host) return false
   if (net.isIP(host)) return privateIp(host)
   if (host === 'localhost' || !host.includes('.') || LOCAL_SUFFIXES.some((s) => host.endsWith(s))) return true
+  return null
+}
+
+export async function isPrivateHost(host: string, resolve: (h: string) => Promise<string[]> = defaultResolve): Promise<boolean> {
+  host = normHost(host)
+  const known = staticPrivateHost(host)
+  if (known !== null) return known
   try {
     const ips = await resolve(host)
     return ips.some(privateIp)

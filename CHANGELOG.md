@@ -3,6 +3,17 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+**Upgrade note:** migrations 214 and 322 are additive (reader 1). Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
+
+- Scheduled tasks: when the AI creates one, a card shows the title, the schedule, the whole instruction and the web addresses in it; only those addresses open without asking in its runs, and a run's message no longer counts as typed by the person.
+- Web pages and search results: the AI opens at most 8 of their links per answer and 30 per conversation without asking; then each new one asks.
+- web_fetch and the in-app browser look a web address up only after the person allowed it; the desktop browser cancels requests it blocks without looking the name up.
+- Connected services: the card before a change shows everything that is sent, where it goes first; "run without asking" is for team connections only, and runs in a scheduled task only if its card allowed it.
+- Codex web search uses its cached index (no live page loads), enforced by the model proxy.
+- "Ask the AI to fix it" no longer carries web addresses from the artifact's title or key.
+
 ## 0.2.11 — 2026-10-30
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.11).

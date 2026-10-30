@@ -10,7 +10,7 @@ import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
-import type { SkillWritePreview } from '@mycel/shared/api'
+import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
 import { Button, inputCls } from '../ui'
 
 export default function AskCard({ req }: { req: OpenRequest }) {
@@ -96,6 +96,7 @@ export default function AskCard({ req }: { req: OpenRequest }) {
         <fieldset className="space-y-2">
           <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
           {fromServer && r.preview && <SkillPreview p={r.preview} />}
+          {fromServer && r.details?.length ? <Details items={r.details} /> : null}
           {options.length > 0 && (
             <div className="flex flex-col gap-1.5">
               {options.map((o) => (
@@ -174,5 +175,77 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
       )}
       {p.truncated && <p className="border-t border-line px-3 py-1 text-[11px] text-faint">{t('ask.skillTruncated')}</p>}
     </div>
+  )
+}
+
+/** What a server check is about to let out, every character of it (a connected service's write with where it goes, a
+ * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted. */
+function Details({ items }: { items: ConfirmDetail[] }) {
+  const t = useT()
+  return (
+    <div className="mb-2 space-y-2" data-testid="ask-details">
+      {items.map((d, i) => (
+        <div key={i} className="overflow-hidden rounded-lg border border-line" data-testid="ask-detail">
+          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
+            <span className="min-w-0 flex-1 font-medium">{d.label}</span>
+            <span className="text-faint" data-testid="ask-detail-size">
+              {t('ask.detailSize', { n: d.text.length })}
+            </span>
+          </div>
+          {d.fields?.length ? (
+            <div
+              className="scroll-thin max-h-40 space-y-0.5 overflow-auto border-b border-line px-3 py-1.5 font-mono text-xs"
+              role="group"
+              aria-label={d.label}
+              tabIndex={0}
+              data-testid="ask-detail-fields"
+            >
+              {d.fields.map((f, j) => (
+                <div key={j} className="flex gap-3">
+                  <span className="shrink-0 text-faint">{f.name}</span>
+                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <pre
+            className="scroll-thin max-h-64 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
+            tabIndex={0}
+            aria-label={d.label}
+            data-testid="ask-detail-text"
+          >
+            <Marked text={d.text} marks={d.marks} />
+          </pre>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The text with the server's marks (long random-looking parts) highlighted. */
+function Marked({ text, marks }: { text: string; marks?: string[] }) {
+  const list = [...new Set((marks ?? []).filter((m) => m.length >= 8))].slice(0, 50)
+  if (!list.length) return <>{text}</>
+  const re = new RegExp(list.map((m) => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
+  const parts: { s: string; mark: boolean }[] = []
+  let at = 0
+  for (const m of text.matchAll(re)) {
+    if (m.index > at) parts.push({ s: text.slice(at, m.index), mark: false })
+    parts.push({ s: m[0], mark: true })
+    at = m.index + m[0].length
+  }
+  if (at < text.length) parts.push({ s: text.slice(at), mark: false })
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.mark ? (
+          <mark key={i} className="rounded-sm bg-warn-soft text-warn" data-testid="ask-detail-mark">
+            {p.s}
+          </mark>
+        ) : (
+          p.s
+        ),
+      )}
+    </>
   )
 }

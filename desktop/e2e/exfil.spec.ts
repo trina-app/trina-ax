@@ -7,7 +7,7 @@
 // no other site the person has not allowed (common/net-policy.ts, main/pane/net-guard.ts).
 // attacker.test (fake-team-server.ts, port 19158) logs every request URL.
 import { expect, test, type ElectronApplication } from '@playwright/test'
-import { ACME, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, ATTACKER, call, chrome, close, launch, newTurn, newUserData, result, run, SHOP, text, signIn } from './helpers'
 
 const leaked = async (marker: string): Promise<string[]> =>
   ((await (await fetch('http://127.0.0.1:19158/__log')).json()) as { log: string[] }).log.filter((u) => u.includes(marker))
@@ -77,6 +77,22 @@ test.describe('the AI cannot carry data out of the in-app browser without the pe
     await answer(app, '거부', 'site')
     await pause(500)
     expect(await leaked('SECRET_D')).toEqual([])
+  })
+
+  test('N3: a scripted page\'s request to another site is cancelled before its name is looked up', async () => {
+    // script can build any host name ('https://' + secret + '.attacker…'); the lookup alone would carry it to that name's
+    // DNS server. rebind.test resolves (in the browser's own resolver) to this computer, so a lookup would have logged it
+    // as "forbidden"; cancelled unresolved it is logged as held back ("offsite")
+    newTurn()
+    const s = await call(ACME, 'navigate', { url: `${SHOP}/` })
+    await answer(app, '이번만 허용', 'site')
+    await result(ACME, s.callId)
+    const r = await run(ACME, 'javascript_tool', { action: 'javascript_exec', text: `await fetch('http://rebind.test:19153/n3.js', { mode: 'no-cors' }).then(() => 'sent', () => 'held')` })
+    expect(text(r)).toContain('held')
+    const log = await activityLog(app)
+    await expect(log.locator('[data-kind="offsite"]', { hasText: 'rebind.test' }).first()).toBeVisible()
+    await expect(log.locator('[data-kind="forbidden"]', { hasText: 'rebind.test' })).toHaveCount(0)
+    await (await chrome(app)).getByTestId('activity-button').click()
   })
 
   test('the person allowing a site lets the AI open it (sharing a link still works)', async () => {

@@ -37,6 +37,9 @@ export interface SmokeDriver {
   scheduledTurns(): SmokeTurn[]
   file(rel: string): { text: string | null; versions: number }
   schedules(who: 'alice' | 'bob'): Promise<{ items: SmokeSchedule[]; timeZone: string }>
+  /** Alice allows the scheduled task on the server's card of this turn (tools/schedules.ts: schedule_create asks first).
+   * Waits for the card; false when the turn ended without one. */
+  approveScheduleCard(turnId: string): Promise<boolean>
   cleanup(): Promise<SmokeCleanup>
 }
 export type SmokeCaseId = 'L1' | 'L2' | 'L3' | 'L4'
@@ -138,9 +141,10 @@ export async function runSmoke(d: SmokeDriver, i: SmokeInput, gate: SmokeGate): 
     need(t.usageSource === 'proxy' && t.inputTokens + t.outputTokens > 0, 'usage_missing')
     need(t.canaryAbsent && !t.text.includes(i.files.bobCanary), 'canary_leak')
   }
-  const ask = async (id: SmokeCaseId, prompt: string) => {
+  const ask = async (id: SmokeCaseId, prompt: string, o: { approveScheduleCard?: boolean } = {}) => {
     const chat = await bounded(() => d.createChat(`${i.runId}-${id}`))
     const sent = await bounded(() => d.send(chat, prompt))
+    if (o.approveScheduleCard) need(await bounded(() => d.approveScheduleCard(sent.turnId)), 'schedule_card_missing')
     const t = await wait(() => completed(sent.turnId), i.limits.turnTimeoutMs)
     need(t.messageId === sent.messageId && t.chatId === chat, 'event_mismatch')
     verify(t); return t
@@ -177,7 +181,7 @@ export async function runSmoke(d: SmokeDriver, i: SmokeInput, gate: SmokeGate): 
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: before.timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(due).map((p) => [p.type, p.value]))
     const scheduleVersion = d.file(i.files.scheduleWrite).versions
     const scheduledPrompt = `First read ${i.files.scheduleWrite} with the team read tool. Then write exactly ${JSON.stringify(i.files.scheduleText)} to ${i.files.scheduleWrite} using the team write tool. Do not ask any questions.`
-    const made = await ask('L4', `Call schedule_create exactly once: title ${JSON.stringify(i.runId)}, repeat "once", date "${parts.year}-${parts.month}-${parts.day}", time "${parts.hour}:${parts.minute}" in ${before.timeZone}, prompt ${JSON.stringify(scheduledPrompt)}. Do not execute it now.`)
+    const made = await ask('L4', `Call schedule_create exactly once: title ${JSON.stringify(i.runId)}, repeat "once", date "${parts.year}-${parts.month}-${parts.day}", time "${parts.hour}:${parts.minute}" in ${before.timeZone}, prompt ${JSON.stringify(scheduledPrompt)}. Do not execute it now.`, { approveScheduleCard: true })
     writesOnly(made, [])
     need(made.audit.some((a) => a.tool === 'schedule_create' && a.ok === 1), 'schedule_audit_missing')
     const mine = await bounded(() => d.schedules('alice'))

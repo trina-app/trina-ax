@@ -171,12 +171,14 @@ export class ChatStore {
   insertMessage(m: {
     chatId: string; parentId: string | null; role: 'user' | 'assistant'; authorId: string | null; content: string; attachments?: Attachment[]
     status: MessageStatus; turnId?: string | null; engine?: string | null; model?: string | null; clientMessageId?: string | null; id?: string
+    /** the server sent this user message for the person (a scheduled run): its web addresses are not the person's own (tools/url-gate.ts) */
+    autoSent?: boolean
   }): string {
     const id = m.id ?? newId()
     const now = new Date().toISOString()
-    this.db.query(`INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, attachments, steps, status, turn_id, engine, model, client_message_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, m.chatId, m.parentId, m.role, m.authorId, m.content, JSON.stringify(m.attachments ?? []), '[]', m.status,
-      m.turnId ?? null, m.engine ?? null, m.model ?? null, m.clientMessageId ?? null, now, now)
+    this.db.query(`INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, attachments, steps, status, turn_id, engine, model, client_message_id, created_at, updated_at, auto_sent)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, m.chatId, m.parentId, m.role, m.authorId, m.content, JSON.stringify(m.attachments ?? []), '[]', m.status,
+      m.turnId ?? null, m.engine ?? null, m.model ?? null, m.clientMessageId ?? null, now, now, m.autoSent ? 1 : 0)
     return id
   }
 

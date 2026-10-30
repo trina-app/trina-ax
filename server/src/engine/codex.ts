@@ -177,7 +177,10 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
     // the login is a file the launcher writes (never the keychain, which the engine account cannot reach; C11)
     ...(conf.auth === 'agent-own' || conf.auth === 'managed' ? ['-c', 'cli_auth_credentials_store="file"'] : []),
     ...(o.managed ? codexManagedArgs(o.managed) : []),
-    '-c', `web_search="${o.webSearch === false ? 'disabled' : 'live'}"`,
+    // "cached" (Codex's own default): results from OpenAI's index, no live page loads. "live" let the search tool open
+    // any address, outside the team server's address rules (docs/DECISIONS.md "Outbound web channels"); the model
+    // proxy holds every web_search tool to external_web_access=false as well (proxy/codex-path.ts)
+    '-c', `web_search="${o.webSearch === false ? 'disabled' : 'cached'}"`,
     '-c', `model_catalog_json=${JSON.stringify(conf.catalog)}`,
     '-c', `model=${JSON.stringify(o.model ?? conf.model)}`,
     ...CODEX_DISABLED_FEATURES.flatMap((f) => ['-c', `features.${f}=false`]),

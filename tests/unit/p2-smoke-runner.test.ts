@@ -97,6 +97,8 @@ class FakeDriver implements SmokeDriver {
   turnsForChat = (id: string) => this.turnRows.filter((t) => t.chatId === id)
   file = (rel: string) => this.files.get(rel) ?? { text: null, versions: 0 }
   schedules = async (who: 'alice' | 'bob') => ({ items: who === 'alice' ? this.records.map((s) => ({ ...s })) : [], timeZone: 'UTC' })
+  cardsApproved: string[] = []; noCard = false
+  approveScheduleCard = async (turnId: string) => { this.cardsApproved.push(turnId); return !this.noCard }
   cleanup = async () => {
     this.cleaned = true; this.gateClosedAtCleanup = this.gate.closed
     this.records = []; for (const t of this.turnRows) if (t.status === 'running') t.status = 'stopped'
@@ -107,9 +109,10 @@ const fixture = () => { const i = input(); let d: FakeDriver; const g = new Smok
 test('L1-L4 include the scheduled turn, per-turn credential, audit, content and cleanup evidence', async () => {
   const { i, g, d } = fixture(); const r = await runSmoke(d, i, g)
   expect(r.ok).toBe(true); expect(r.cases.map((c) => c.status)).toEqual(['passed', 'passed', 'passed', 'passed'])
+  expect(d.cardsApproved).toEqual(['turn-3']) // only L4 answers the schedule's card
   expect(r.counts).toEqual({ providerRequests: 5, engineAttempts: 5 }); expect(d.gateClosedAtCleanup).toBe(true)
 })
-for (const field of ['badCredential', 'leak', 'denyMissing', 'duplicateSchedule', 'hang', 'dirtyCleanup'] as const) {
+for (const field of ['badCredential', 'leak', 'denyMissing', 'duplicateSchedule', 'hang', 'dirtyCleanup', 'noCard'] as const) {
   test(`rejects ${field}; always closes admission and cleans up`, async () => {
     const { i, g, d } = fixture(); d[field] = true
     const r = await runSmoke(d, i, g)

@@ -1,6 +1,8 @@
 // Scheduled tasks: a person's prompt that the server sends for them on a schedule ("every weekday at 9:00, summarize
 // what changed in shared/회의록"). Each run is a new chat of theirs ("⏰ <title> · <date>") with their own access, as if
-// they had typed it, so the folder rules, budgets and audit apply unchanged. A run is unattended: its turn has
+// they had typed it, so the folder rules, budgets and audit apply unchanged — except web addresses: the text is the
+// AI's (tools/schedules.ts), so the message is marked auto_sent and only the addresses the person saw on the schedule's
+// card open without asking (tools/url-gate.ts). A run is unattended: its turn has
 // client_kind 'schedule', nothing in it waits for a person (ask_user and confirmation cards answer "no" at once,
 // turn.ts waitForPerson), and the message tells the AI so. Times are the team's time zone (ChatRuntime.timeZone).
 // The office Mac may be off at the time: a run that was missed happens once when the server is back, then the
@@ -18,6 +20,7 @@ import { notificationsOf } from '../notifications/service'
 import { storedRunOutcome } from './schedule-outcome'
 import type { ChatRuntime } from './runtime'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
+import { rememberUrls } from '../tools/url-gate'
 
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable'
 
@@ -48,6 +51,19 @@ export interface ScheduleRow {
   template_id: string | null; template_version: number | null; template_source_path: string | null; template_output_path: string | null
   pending_due_at: string | null; retry_at: string | null; deferred_count: number
   next_run_at: string | null; last_run_at: string | null; last_chat_id: string | null; created_at: string
+  /** JSON: addresses the person saw on the schedule's card; each run's chat gets them as allowed (tools/url-gate.ts) */
+  allowed_urls: string | null
+  /** JSON: ids of "allow" team connections the person let this schedule write to without asking */
+  write_connections: string | null
+}
+
+/** What the person approved on a scheduled task's card (tools/schedules.ts). */
+export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[] }
+
+/** The JSON string list of a schedule column (a bad or missing value is an empty list). */
+export function scheduleList(v: string | null | undefined): string[] {
+  if (!v) return []
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : [] } catch { return [] }
 }
 
 // ---------------- time zone arithmetic (system/time-zone.ts; re-exported for the callers that import them here) ----------------
@@ -105,15 +121,22 @@ export class Schedules {
     return this.db.query('SELECT * FROM schedules WHERE id = ? AND user_id = ?').get(id, userId) as ScheduleRow | null
   }
 
-  create(userId: string, input: ScheduleInput, now = new Date()): ScheduleRow {
+  /** Why create() would refuse (too many, a time that has passed), checked before anyone is asked; else the first run. */
+  check(userId: string, input: ScheduleInput, now = new Date()): Date {
     const n = (this.db.query('SELECT count(*) AS n FROM schedules WHERE user_id = ?').get(userId) as { n: number }).n
     if (n >= SCHEDULES_PER_PERSON) throw new ToolError(`at most ${SCHEDULES_PER_PERSON} scheduled tasks per person; delete one first`)
-    const s = { repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
-    const next = nextRun(s, now, this.rt.timeZone)
+    const next = nextRun({ repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }, now, this.rt.timeZone)
     if (!next) throw new ToolError('that time has already passed')
+    return next
+  }
+
+  create(userId: string, input: ScheduleInput, now = new Date(), approval?: ScheduleApproval): ScheduleRow {
+    const next = this.check(userId, input, now)
+    const s = { repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
     const id = newId()
-    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString())
+    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+      approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null)
     return this.get(userId, id)!
   }
 
@@ -209,6 +232,9 @@ export class Schedules {
       chat: () => {
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
           .run(id, s.user_id, project ? s.project_id : null, `⏰ ${s.title} · ${date}`, engine, model, ts, ts)
+        // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
+        // without asking (docs/DECISIONS.md "Outbound web channels")
+        rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
         return this.rt.store.chatRow(id)!
       },
       userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine, model,

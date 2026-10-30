@@ -154,9 +154,12 @@ connections with their address and the first 1,000 characters of their notes.
 
 - MCP tools with `readOnlyHint: true` and `api_request` GET/HEAD are reads and run at once. Everything else is a write.
 - Writes follow the connection's write policy: `deny` refuses; `ask` (default) shows the server's own card
-  (`ToolCtx.person.confirm`, never the AI's `ask_user`) with the connection's name, the tool or method and path, and the
-  first 300 characters of what is sent; `allow` sends. With nobody to ask (a scheduled run, no chat) a write is refused
-  unless the policy is `allow`.
+  (`ToolCtx.person.confirm`, never the AI's `ask_user`) with the connection's name, the tool or method and path, and
+  everything that is sent (`details`: scrollable, with its size, recipient-like fields and `api_request`'s full address
+  first; a write over 100,000 characters is refused, never shown cut); `allow` sends. `allow` is for team connections
+  only (an admin's choice): a personal connection is refused it and asks. With nobody to ask (a scheduled run, no chat)
+  a write is refused, except to an `allow` team connection that the schedule's own card allowed (docs/DECISIONS.md
+  "Outbound web channels").
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team

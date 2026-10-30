@@ -216,6 +216,13 @@ export function artifactFailure(frameDoc: FrameDoc | null, runtimeError: string 
  * asking (design tab 7 "프롬프트 주입" ①). So URLs in it are defanged ("https[:]//…") and it is cut to 1,000 characters.
  */
 export function fixPromptError(message: string): string {
-  const s = message.replace(/\b([a-z][a-z0-9+.-]{1,20}):\/\//gi, '$1[:]//')
-  return s.length > 1000 ? s.slice(0, 1000) + '…' : s
+  return fixPromptWords(message, 1000)
+}
+
+/** The other AI-chosen words in that message (the artifact's title and key): defanged the same way, so they cannot
+ * carry an address into the person's own words either (docs/DECISIONS.md "Outbound web channels"). */
+export function fixPromptWords(text: string, max: number): string {
+  // every "://", wherever it is: the server finds an address at any "http(s)://", even inside a word (_https://…)
+  const s = text.replace(/:\/\//g, '[:]//')
+  return s.length > max ? s.slice(0, max) + '…' : s
 }

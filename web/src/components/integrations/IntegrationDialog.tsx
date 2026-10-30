@@ -162,8 +162,14 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
               value={f.writePolicy}
               onChange={(p) => change({ writePolicy: p }, 'writePolicy')}
               error={errorOf('writePolicy')}
-              options={POLICIES.map((p) => ({ value: p, label: t(`integrations.write.${p}`), desc: t(`integrations.write.${p}.desc`), testId: `integration-write-${p}` }))}
+              // "run without asking" is the team's choice (an admin's), never one person's for their own connection
+              options={POLICIES.filter((p) => team || p !== 'allow' || f.writePolicy === 'allow').map((p) => ({ value: p, label: t(`integrations.write.${p}`), desc: t(`integrations.write.${p}.desc`), testId: `integration-write-${p}` }))}
             />
+            {!team && (
+              <p className="mt-1.5 text-xs text-faint" data-testid="integration-allow-team-only">
+                {t('integrations.write.allowTeamOnly')}
+              </p>
+            )}
             {f.writePolicy === 'allow' && (
               <div className="mt-2" data-testid="integration-allow-warning">
                 <Warning>{t('integrations.write.allowWarning')}</Warning>

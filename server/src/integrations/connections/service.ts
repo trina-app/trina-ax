@@ -123,6 +123,8 @@ export class Integrations {
     const L = locale
     if (scope === 'personal' && !getTeamSettings(this.db).personalIntegrations) fail('forbidden', say('personalOff', L))
     if (scope === 'personal' && input.access) fieldError(L, 'access', 'accessTeamOnly')
+    // sending without asking is the team's choice (an admin's), never one person's for their own connection
+    if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
     const count = scope === 'personal'
       ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").get(viewer.id) as { n: number }).n
       : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team'").get() as { n: number }).n
@@ -167,6 +169,7 @@ export class Integrations {
     const changed: string[] = []
     if (patch.name !== undefined && oneLine(patch.name) !== row.name) { next.name = oneLine(patch.name); changed.push('name') }
     if (patch.notes !== undefined && cleanNotes(patch.notes) !== row.notes) { next.notes = cleanNotes(patch.notes); changed.push('notes') }
+    if (patch.writePolicy === 'allow' && row.scope === 'personal') fieldError(L, 'writePolicy', 'allowTeamOnly')
     if (patch.writePolicy !== undefined && patch.writePolicy !== row.write_policy) { next.write_policy = patch.writePolicy; changed.push('writePolicy') }
     if (patch.url !== undefined && normUrl(patch.url) !== row.url) {
       next.url = normUrl(patch.url)

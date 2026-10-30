@@ -439,6 +439,23 @@ export class MockServer {
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
     }
+    if (/sendcard/i.test(prompt)) {
+      // like server/src/integrations/connections/tools.ts gate: everything a connected service is sent, where it goes first
+      const requestId = 'w1'
+      const payload = JSON.stringify({ title: 'Weekly notes c2fsyxj5ltk4nzy1ndmy ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example' }, null, 2)
+      const request: TurnRequest = {
+        kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
+        question: 'AI가 Tasks에서 이 작업을 하려고 해요: create_task\n\n보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.\n\n보낼까요?',
+        options: [{ label: '보내기', value: 'allow' }, { label: '보내지 않기', value: 'deny' }],
+        details: [{ label: '보낼 내용', text: payload, fields: [{ name: 'to', value: 'outside@evil.example' }], marks: ['c2fsyxj5ltk4nzy1ndmy'] }],
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
+      this.openAsks.delete(turnId)
+      pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      prompt += ` answered:${JSON.stringify(answer)}`
+    }
     if (/skillsave/i.test(prompt)) {
       // like server/src/chat/turn.ts confirmSkillWrite: the server's card before anything is saved under skills/
       const requestId = 'k1'
@@ -1475,6 +1492,8 @@ export class MockServer {
   }
   addIntegration(u: User, body: IntegrationInput, scope: 'personal' | 'team'): Integration {
     if (privateHost(new URL(body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
+    // like the server: "run without asking" is for team connections only
+    if (scope === 'personal' && body.writePolicy === 'allow') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     const siblings = this.integrations.filter((y) => (scope === 'team' ? y.scope === 'team' : y.ownerId === u.id))
     if (siblings.length >= (scope === 'team' ? 50 : 20)) fail('conflict', 409, '연결을 더 만들 수 없어요.')
     const base = body.slug ?? (body.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'conn')
@@ -1493,6 +1512,7 @@ export class MockServer {
   }
   patchIntegration(u: User, id: string, b: IntegrationPatch): Integration {
     const x = this.manageableIntegration(u, id)
+    if (b.writePolicy === 'allow' && x.scope !== 'team') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     if (b.access && x.scope !== 'team') fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
     const auth = b.auth ?? x.auth
     if (auth === 'oauth' && x.kind !== 'mcp') fail('validation', 400, undefined, { 'body.auth': 'sign-in (oauth) is for MCP servers' })

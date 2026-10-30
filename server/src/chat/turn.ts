@@ -145,6 +145,8 @@ export class TurnExec {
   private registered = false
   private thinkingStep: Step | null = null
   private toolNames = new Map<string, string>()
+  /** the query of each running web search (its echo in the result is the AI's text, never a source) */
+  private searchQueries = new Map<string, string>()
   private patched = new Set<string>()
   private pendingPatches = new Map<string, ((s: Step) => Partial<Step>)[]>()
   private attemptHadOutput = false
@@ -678,6 +680,7 @@ export class TurnExec {
         const kind = ENGINE_TEXT_STEP_KIND(tool)
         const label = kind === 'web_search' ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) })
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
+        if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         const step = this.addStep({ id: e.id, kind, tool, label, status: 'running' })
         const waiting = this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
@@ -688,9 +691,10 @@ export class TurnExec {
         const tool = this.toolNames.get(e.id) ?? ''
         const patch: Partial<Step> = { status: e.ok ? 'ok' : 'error', endedAt: new Date().toISOString() }
         if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search' && e.output) {
-          const sources = searchSources(e.output)
+          const sources = searchSources(e.output, this.searchQueries.get(e.id) ?? '')
           if (sources.length) patch.sources = sources
         }
+        this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again
         this.updateStep(e.id, patch)
         return
@@ -1202,14 +1206,23 @@ function queryOf(input: unknown): string {
   const q = (input as { query?: unknown } | null)?.query
   return typeof q === 'string' ? (q.length > 120 ? q.slice(0, 119) + '…' : q) : ''
 }
-/** Claude's WebSearch result text: 'Links: [{"title":..,"url":..}, ...]' (one or more blocks). */
-export function searchSources(text: string): { title: string; url: string }[] {
+/**
+ * Claude's WebSearch result text: 'Links: [{"title":..,"url":..}, ...]' (one or more blocks). The text starts by
+ * repeating the query, which the AI wrote: a query holding 'Links: [{"url": ...}]' would make its own address a
+ * search result (opened without a card within the link budget, tools/url-gate.ts). So a Links block that starts inside
+ * the echoed query is skipped, and no source may appear in the query.
+ */
+export function searchSources(text: string, query = ''): { title: string; url: string }[] {
+  // where the query comes back (raw or JSON-escaped; the first place it appears is the echo at the top)
+  const echoes: [number, number][] = []
+  if (query) for (const e of new Set([query, JSON.stringify(query).slice(1, -1)])) { const i = text.indexOf(e); if (i >= 0) echoes.push([i, i + e.length]) }
   const out: { title: string; url: string }[] = []
   const seen = new Set<string>()
   for (const m of text.matchAll(/Links:\s*(\[[\s\S]*?\])(?=\s*(?:\n|$))/g)) {
+    if (echoes.some(([a, b]) => m.index >= a && m.index < b)) continue
     try {
       for (const x of JSON.parse(m[1]!) as { title?: unknown; url?: unknown }[]) {
-        if (typeof x?.url === 'string' && /^https?:\/\//.test(x.url) && !seen.has(x.url)) { seen.add(x.url); out.push({ title: String(x.title ?? x.url).slice(0, 300), url: x.url.slice(0, 2000) }) }
+        if (typeof x?.url === 'string' && /^https?:\/\//.test(x.url) && !seen.has(x.url) && !(query && query.includes(x.url))) { seen.add(x.url); out.push({ title: String(x.title ?? x.url).slice(0, 300), url: x.url.slice(0, 2000) }) }
       }
     } catch {}
   }

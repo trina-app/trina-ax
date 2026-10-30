@@ -11,6 +11,7 @@ import { buildUrl, integrationToolProvider, MAX_RESULT_CHARS, toolName } from '.
 import { readScope, sourceLabel, widening } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
+import type { ConfirmDetail } from '@mycel/shared/api'
 
 setDefaultTimeout(30_000)
 
@@ -30,15 +31,15 @@ beforeAll(async () => {
 })
 afterAll(async () => { fake?.stop(); await A?.close() })
 
-type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void> }
-const ask = (answer: boolean): Asked => ({ answer, questions: [] })
+type Asked = { answer: boolean; questions: string[]; details: ConfirmDetail[][]; beforeAnswer?: () => Promise<void> }
+const ask = (answer: boolean): Asked => ({ answer, questions: [], details: [] })
 
 function turn(user: Person, o: { person?: Asked; scheduled?: boolean; chat?: string } = {}) {
   const chat = o.chat ?? A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
   const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles() } as TurnToolContext['files']
-  if (o.person) { const p = o.person; files.person = { locale: 'en', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} } }
+  if (o.person) { const p = o.person; files.person = { locale: 'en', async confirm(q, _a, _d, extra) { p.questions.push(q); p.details.push(extra?.details ?? []); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} } }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: 'en', signal: new AbortController().signal, files }
   const tools = new Map(built.tools.map((t) => [t.name, t]))
   const call = async (name: string, args: unknown) => {
@@ -154,17 +155,41 @@ describe('calls', () => {
     expect(r0.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
     expect(no.questions[0]).toContain('The AI wants to do this at Tasks: create_task')
-    expect(no.questions[0]).toContain('{"title":"Quarterly plan"}')
+    expect(no.details[0]![0]!.text).toBe(JSON.stringify({ title: 'Quarterly plan' }, null, 2))
     expect(fake.calls.length).toBe(before)
     const yes = ask(true)
     const r = await turn('alice', { person: yes }).call('my_tasks__create_task', { title: 'Q'.repeat(500) })
     expect(r.isError).toBe(false)
     expect(r.summary).toContain('(confirmed by the user)')
-    expect(yes.questions[0]!.length).toBeLessThan(500) // the first 300 characters of what is sent
+    expect(yes.details[0]![0]!.text).toContain('Q'.repeat(500)) // everything that is sent
     expect(fake.calls.at(-1)!.name).toBe('create_task')
   })
 
-  test('nobody to ask (a scheduled run, no person): refused unless the policy is "allow"; "deny" refuses without asking', async () => {
+  test('the card shows the whole payload, where it goes first; more than a card can show is refused (review F7a)', async () => {
+    // the first 300 characters used to be all the card showed: harmless words first, the data and the recipient after
+    const padded = { title: 'Weekly notes ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example', meta: { channel: '#public-feed' } }
+    const p = ask(false)
+    await turn('alice', { person: p }).call('my_tasks__create_task', padded)
+    const [d] = p.details[0]!
+    expect(d!.text).toBe(JSON.stringify(padded, null, 2))
+    expect(d!.text).toContain('SECRET-AT-THE-END')
+    expect(d!.fields).toEqual([{ name: 'to', value: 'outside@evil.example' }, { name: 'meta.channel', value: '#public-feed' }])
+    const before = fake.calls.length
+    const huge = ask(true)
+    const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(100_001) })
+    expect(r.summary).toBe('my_tasks__create_task -> refused (too large to confirm)')
+    expect(huge.questions).toHaveLength(0)
+    expect(fake.calls.length).toBe(before)
+    // an api_request's address counts too: an empty body with a huge query is no smaller
+    const query = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, 'q'.repeat(4000)]))
+    const requests = fake.seen.length
+    const big = await turn('alice', { person: huge }).call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', query })
+    expect(big.summary).toBe('api_request my_aipm POST -> refused (too large to confirm)')
+    expect(huge.questions).toHaveLength(0)
+    expect(fake.seen.length).toBe(requests)
+  })
+
+  test('nobody to ask (a scheduled run, no person): refused; "deny" refuses without asking', async () => {
     const before = fake.calls.length
     expect((await turn('alice', { scheduled: true, person: ask(true) }).call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> refused (nobody to ask)')
     expect((await turn('alice').call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> refused (nobody to ask)')
@@ -174,11 +199,43 @@ describe('calls', () => {
     const d = await turn('alice', { person: p }).call('my_tasks__create_task', { title: 'x' })
     expect(d.summary).toBe('my_tasks__create_task -> refused (write policy deny)')
     expect(p.questions).toHaveLength(0)
-    await patch('alice', tasks.id, { writePolicy: 'allow' })
-    const s = await turn('alice', { scheduled: true }).call('my_tasks__create_task', { title: 'by schedule' })
-    expect(s.isError).toBe(false)
-    expect(fake.calls.filter((c) => c.name === 'create_task').length - fake.calls.slice(0, before).filter((c) => c.name === 'create_task').length).toBe(1)
     await patch('alice', tasks.id, { writePolicy: 'ask' })
+    expect(fake.calls.filter((c) => c.name === 'create_task').length - fake.calls.slice(0, before).filter((c) => c.name === 'create_task').length).toBe(0)
+  })
+
+  test('"run without asking" is for team connections; in a scheduled run only when the schedule\'s card allowed it (review N4, Q7, Q10)', async () => {
+    // a person cannot set it on their own connection
+    const own = await patch('alice', tasks.id, { writePolicy: 'allow' })
+    expect(own.status).toBe(400)
+    expect(JSON.stringify(own.body)).toContain('team connections only')
+    expect((await post('alice', '/api/integrations', { kind: 'mcp', name: 'Mine', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow' })).status).toBe(400)
+    // one set before (migration 322 turns those into "ask"; the tool asks anyway)
+    A.ctx.db.query("UPDATE integrations SET write_policy = 'allow' WHERE id = ?").run(tasks.id)
+    const old = ask(false)
+    expect((await turn('alice', { person: old }).call('my_tasks__create_task', { title: 'x' })).summary).toBe('my_tasks__create_task -> not allowed by the user')
+    expect(old.questions).toHaveLength(1)
+    A.ctx.db.query("UPDATE integrations SET write_policy = 'ask' WHERE id = ?").run(tasks.id)
+    // an admin's team connection that alice may use
+    const t = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Team tasks', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow', access: { everyone: false, groups: [], users: ['alice'] } })).body
+    try {
+      const sent = () => fake.calls.filter((c) => c.name === 'create_task').length
+      const n0 = sent()
+      // a chat turn: sent without a card
+      const p = ask(false)
+      expect((await turn('alice', { person: p }).call('team_teamtasks__create_task', { title: 'now' })).isError).toBe(false)
+      expect(p.questions).toHaveLength(0)
+      // a scheduled run of a task whose card did not allow it: refused, nothing sent
+      const run = turn('alice', { scheduled: true })
+      const r = await run.call('team_teamtasks__create_task', { title: 'unattended' })
+      expect(r.summary).toBe('team_teamtasks__create_task -> refused (scheduled run not allowed)')
+      // the same with a schedule that the person let send to this connection
+      const sid = crypto.randomUUID()
+      A.ctx.db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, write_connections) VALUES (?, 'alice', 's', 'p', 'daily', '09:00', ?)").run(sid, JSON.stringify([t.id]))
+      A.ctx.db.query('UPDATE turns SET schedule_id = ? WHERE id = ?').run(sid, run.turnId)
+      expect((await run.call('team_teamtasks__create_task', { title: 'allowed run' })).isError).toBe(false)
+      expect(sent() - n0).toBe(2)
+      A.ctx.db.query('DELETE FROM schedules WHERE id = ?').run(sid)
+    } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
   })
 
   test('a changed connection invalidates pending MCP and HTTP write approval', async () => {
@@ -324,7 +381,8 @@ describe('api_request', () => {
     expect(r.text).toContain('HTTP 201')
     expect(r.text).toContain('"type":"application/json"')
     expect(yes.questions[0]).toContain('The AI wants to do this at AI PM: POST /api/v1/tasks')
-    expect(yes.questions[0]).toContain('{"title":"New"}')
+    expect(yes.details[0]![0]!.text).toBe('{"title":"New"}')
+    expect(yes.details[0]![0]!.fields![0]).toEqual({ name: 'URL', value: `${fake.base}/api/v1/tasks` })
     expect(r.summary).toContain('(confirmed by the user)')
     const del = await a.call('api_request', { connection: 'my_aipm', method: 'DELETE', path: '/tasks/7' })
     expect(del.text).toContain('HTTP 204')

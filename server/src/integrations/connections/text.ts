@@ -8,9 +8,10 @@ const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ 
 export const TEXT = {
   // the card before a call that changes something at the service
   confirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}', 'The AI wants to do this at {name}: {what}', 'AI ingin melakukan ini di {name}: {what}', "AIが{name}で次の操作を実行しようとしています：{what}", "La IA quiere hacer esto en {name}: {what}"),
-  sends: t('보낼 내용:', 'What it sends:', 'Yang dikirim:', "送信内容：", "Lo que envía:"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)"),
   ask: t('보낼까요?', 'Send it?', 'Kirim?', "送信しますか？", "¿Enviarlo?"),
+  checkBelow: t('보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.', 'Check everything it sends, and where it goes, below.', 'Periksa semua yang dikirim, dan tujuannya, di bawah.', "送信内容全体と送信先を下で確認してください。", "Revise abajo todo lo que envía y a dónde va."),
+  sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía"),
   yes: t('보내기', 'Send', 'Kirim', "送信", "Enviar"),
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar"),
   // API refusals
@@ -18,6 +19,7 @@ export const TEXT = {
   tooMany: t('연결은 {n}개까지 만들 수 있어요.', 'You can have at most {n} connections.', 'Paling banyak {n} koneksi.', "接続は最大{n}件です。", "Puede tener como máximo {n} conexiones."),
   slugTaken: t('이 짧은 이름은 이미 쓰고 있어요.', 'This short name is already in use.', 'Nama pendek ini sudah dipakai.', "この短縮名は使用されています。", "Este nombre corto ya está en uso."),
   keyNeedsKeyAuth: t('키는 API 키 방식에서만 넣을 수 있어요.', 'A key can only be set when the connection uses an API key.', 'Kunci hanya bisa diisi bila koneksi memakai kunci API.', "キーを設定できるのはAPIキーを使う接続のみです。", "Solo se puede establecer una clave cuando la conexión usa una clave de API."),
+  allowTeamOnly: t('"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', '"Run without asking" is for team connections only.', '"Jalankan tanpa bertanya" hanya untuk koneksi tim.', "「確認なしで実行」はチームの接続でのみ選べます。", "\"Ejecutar sin preguntar\" solo está disponible para conexiones del equipo."),
   accessTeamOnly: t('사용할 사람은 공용 연결에서만 정할 수 있어요.', 'Who may use it is set on team connections only.', 'Siapa yang boleh memakai hanya diatur pada koneksi tim.', "利用者を設定できるのはチームの接続のみです。", "Solo se puede definir quién la usa en las conexiones del equipo."),
   badHeader: t('이 헤더 이름은 쓸 수 없어요.', 'This header name cannot be used.', 'Nama header ini tidak bisa dipakai.', "このヘッダー名は使用できません。", "No se puede usar este nombre de encabezado."),
   oauthMcpOnly: t('로그인 방식은 MCP 서버 연결에서만 쓸 수 있어요.', 'Sign-in is for MCP server connections only.', 'Login hanya untuk koneksi server MCP.', "ログインはMCPサーバー接続専用です。", "El inicio de sesión es solo para conexiones a servidores MCP."),
