@@ -260,3 +260,57 @@ func TestVisionOutputLimit(t *testing.T) {
 	}
 	visionConfig(t, out)
 }
+
+// riffWebP builds a WebP container from raw chunks (id, payload), padded to even lengths.
+func riffWebP(chunks ...[2][]byte) []byte {
+	body := []byte("WEBP")
+	for _, c := range chunks {
+		h := append([]byte{}, c[0]...)
+		h = binary.LittleEndian.AppendUint32(h, uint32(len(c[1])))
+		body = append(append(body, h...), c[1]...)
+		if len(c[1])%2 == 1 {
+			body = append(body, 0)
+		}
+	}
+	return append(binary.LittleEndian.AppendUint32([]byte("RIFF"), uint32(len(body))), body...)
+}
+
+// Review of feat/vision-read: image.DecodeConfig reports a VP8X canvas, but x/image/webp decodes the lossless frame at
+// its own declared size before comparing; a 2 KB file could make the normalizer decode 268 MP. The frame is checked
+// first.
+func TestVisionWebPFrameLargerThanCanvas(t *testing.T) {
+	canvas := []byte{0, 0, 0, 0, 99, 0, 0, 99, 0, 0} // 100x100
+	frame := func(w, h uint32) []byte {
+		return append(binary.LittleEndian.AppendUint32([]byte{0x2f}, (w-1)|(h-1)<<14), bytes.Repeat([]byte{0x55}, 64)...)
+	}
+	b := riffWebP([2][]byte{[]byte("VP8X"), canvas}, [2][]byte{[]byte("EXIF"), []byte("odd")}, [2][]byte{[]byte("VP8L"), frame(16384, 16384)})
+	if c, f, err := image.DecodeConfig(bytes.NewReader(b)); err != nil || f != "webp" || c.Width != 100 {
+		t.Fatalf("fixture: %v %v %+v", f, err, c)
+	}
+	if w, h, ok := webpLosslessSize(b); !ok || w != 16384 || h != 16384 {
+		t.Fatalf("frame size %d %d %v", w, h, ok)
+	}
+	if _, err := Vision(b); !errors.Is(err, ErrVisionPixels) {
+		t.Fatalf("got %v, want the pixel limit before decoding", err)
+	}
+	// a frame within the limits goes on to the decoder (this one is not a valid bitstream)
+	small := riffWebP([2][]byte{[]byte("VP8X"), canvas}, [2][]byte{[]byte("VP8L"), frame(100, 100)})
+	if _, err := Vision(small); !errors.Is(err, ErrVisionCorrupt) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// A strip a few pixels wide and tens of thousands tall: the scaler's work buffers grow with the input height, so the
+// longest input side is capped (a 1x50,000,000 PNG of 97 KB took 2.5 GB before).
+func TestVisionLongSideCap(t *testing.T) {
+	if _, err := Vision(encodePNG(t, image.NewGray(image.Rect(0, 0, 2, VisionSideInMax+1)))); !errors.Is(err, ErrVisionPixels) {
+		t.Fatalf("got %v", err)
+	}
+	out, err := Vision(encodePNG(t, image.NewGray(image.Rect(0, 0, 2, VisionSideInMax))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := visionConfig(t, out); c.Width != 1 || c.Height != VisionSideMax {
+		t.Fatalf("%+v", c)
+	}
+}

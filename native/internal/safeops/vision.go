@@ -8,6 +8,7 @@ package safeops
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -26,6 +27,9 @@ const (
 	VisionInputMax = 32 << 20
 	// VisionPixelMax is the largest declared image (a 48 MP phone photo is 8064x6048).
 	VisionPixelMax = 50_000_000
+	// VisionSideInMax is the longest side of an input. The scaler keeps (output width x input height) float pixels plus
+	// weights per input row and column: a 1-pixel strip 50 million pixels tall (a 97 KB PNG) would take gigabytes.
+	VisionSideInMax = 65535
 	// VisionSideMax is the longest side of the output, Anthropic's recommended size: larger images are only
 	// scaled down again by the model provider, after costing more bytes.
 	VisionSideMax = 1568
@@ -60,8 +64,15 @@ func Vision(b []byte) ([]byte, error) {
 	if !visionFormats[format] {
 		return nil, ErrVisionFormat
 	}
-	if c.Width < 1 || c.Height < 1 || c.Width > VisionPixelMax/c.Height {
+	if !visionSize(c.Width, c.Height) {
 		return nil, ErrVisionPixels
+	}
+	// a WebP with a VP8X header reports its canvas, but x/image/webp decodes a lossless (VP8L) frame at the frame's own
+	// size before comparing the two: the frame's declared size is checked as well
+	if format == "webp" {
+		if w, h, ok := webpLosslessSize(b); ok && !visionSize(w, h) {
+			return nil, ErrVisionPixels
+		}
 	}
 	im, _, err := image.Decode(bytes.NewReader(b))
 	if err != nil {
@@ -69,7 +80,7 @@ func Vision(b []byte) ([]byte, error) {
 	}
 	// a frame may be smaller than the declared screen; never larger than what was checked above
 	bw, bh := im.Bounds().Dx(), im.Bounds().Dy()
-	if bw < 1 || bh < 1 || bw > VisionPixelMax/bh {
+	if !visionSize(bw, bh) {
 		return nil, ErrVisionPixels
 	}
 	o := 1
@@ -99,6 +110,38 @@ func Vision(b []byte) ([]byte, error) {
 		}
 	}
 	return nil, ErrVisionOutput
+}
+
+// visionSize: within the pixel and side limits.
+func visionSize(w, h int) bool {
+	return w >= 1 && h >= 1 && w <= VisionSideInMax && h <= VisionSideInMax && w <= VisionPixelMax/h
+}
+
+// webpLosslessSize is the size the first VP8L frame of a WebP declares (14 bits each after the 0x2f signature), found
+// the way x/image/webp walks the RIFF chunks (padded to even lengths). ok is false without one.
+func webpLosslessSize(b []byte) (w, h int, ok bool) {
+	if len(b) < 12 || string(b[:4]) != "RIFF" || string(b[8:12]) != "WEBP" {
+		return 0, 0, false
+	}
+	for p := 12; p+8 <= len(b); {
+		id, n := string(b[p:p+4]), uint64(binary.LittleEndian.Uint32(b[p+4:p+8]))
+		d := b[p+8:]
+		switch id {
+		case "VP8L":
+			if len(d) < 5 || d[0] != 0x2f {
+				return 0, 0, false
+			}
+			v := binary.LittleEndian.Uint32(d[1:5])
+			return int(v&0x3fff) + 1, int(v>>14&0x3fff) + 1, true
+		case "VP8 ":
+			return 0, 0, false // the VP8 decoder compares its frame with the canvas before decoding
+		}
+		if n+n&1 > uint64(len(d)) {
+			return 0, 0, false
+		}
+		p += 8 + int(n+n&1)
+	}
+	return 0, 0, false
 }
 
 // fit gives the scaled size in the stored orientation: the longest side at most VisionSideMax (turning the image
