@@ -188,6 +188,12 @@ describe('archive intake', () => {
   test('the gzip form of a good package verifies too', () => {
     expect(verifyPackage(skillPack({ keyPem: key.pem, gzip: true }).bytes, trust).trust).toBe('official')
   })
+  test('the gzip form is the same on every build machine: no time, no name, OS byte fixed to Unix', () => {
+    const gz = writeArchive(new Map([['a.txt', Buffer.from('same bytes on a Mac and on Linux')]]), { gzip: true })
+    // zlib would write 19 on macOS and 3 on Linux; the official list pins the archive's SHA-256
+    expect([...gz.subarray(0, 10)]).toEqual([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 2, 3])
+    expect(readArchive(gz).get('a.txt')!.toString()).toBe('same bytes on a Mac and on Linux')
+  })
 })
 
 describe('platform, product and driver', () => {

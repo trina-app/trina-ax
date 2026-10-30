@@ -128,5 +128,12 @@ export function writeArchive(files: Map<string, Uint8Array> | Record<string, Uin
   }
   parts.push(Buffer.alloc(BLOCK * 2))
   const tar = Buffer.concat(parts)
-  return o.gzip ? zlib.gzipSync(tar, { level: 9 }) : tar
+  if (!o.gzip) return tar
+  const gz = zlib.gzipSync(tar, { level: 9 })
+  // zlib writes the build machine's OS into the gzip header (19 on macOS, 3 on Linux), so the same files would give
+  // different package bytes on a Mac and on the Linux CI. The official list pins the archive's SHA-256: fix it to 3
+  // (Unix). The header carries no CRC of its own (FLG 0), and the deflate stream is the same on both.
+  if (gz[3] !== 0) throw new ArchiveError('unexpected gzip header flags')
+  gz[9] = 3
+  return gz
 }

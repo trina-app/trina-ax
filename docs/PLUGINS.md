@@ -71,7 +71,7 @@
 
 ### 릴리스에서 고정 digest를 더하는 방법
 
-HWP는 한 명령으로 1–2번을 합니다: `bun scripts/plugins/release-hwp.ts`(고정된 rhwp 압축 파일 네 개를 받아 확인하고, 네 꾸러미를 `dist/plugins/app.trina.hwp-preview/<버전>/`에 만들고, digest·주소·크기·SHA-256을 목록에 적고, 올릴 명령을 출력). `--check`는 목록이 이미 정확히 그 파일들을 고정했는지 확인하고, `--upload`는 운영 담당이 R2에 올린 뒤 피드에서 다시 받아 비교합니다. 빌드는 결정적이라(정렬한 tar, 고정 머리글, 고정한 제품 최소 버전, 고정한 Bun) 같은 커밋이면 같은 파일이 나옵니다.
+HWP는 한 명령으로 1–2번을 합니다: `bun scripts/plugins/release-hwp.ts`(고정된 rhwp 압축 파일 네 개를 받아 확인하고, 네 꾸러미를 `dist/plugins/app.trina.hwp-preview/<버전>/`에 만들고, digest·주소·크기·SHA-256을 목록에 적고, 올릴 명령을 출력). `--check`는 목록이 이미 정확히 그 파일들을 고정했는지 확인하고, `--upload`는 운영 담당이 R2에 올린 뒤 피드에서 다시 받아 비교합니다(피드에 같은 바이트가 이미 있으면 건너뛰고, 다른 바이트가 있으면 아무것도 올리지 않고 멈춥니다). 빌드는 결정적이라(정렬한 tar, gzip OS 바이트까지 고정한 머리글, 고정한 제품 최소 버전, 고정한 Bun) 같은 커밋이면 Mac에서든 Linux에서든 같은 파일이 나옵니다.
 
 1. 공식 빌드를 만듭니다. HWP는 `resources/hwp/clearance.json`에 대상이 있어야 만들어집니다.
    ```sh
@@ -84,7 +84,7 @@ HWP는 한 명령으로 1–2번을 합니다: `bun scripts/plugins/release-hwp.
    bun scripts/plugins/pin-catalog.ts --download https://<피드>/plugins dist/plugins/*.trinaplugin   # 내려받을 주소도 적음
    ```
 3. `catalog.json` 변경을 키 변경처럼 검토합니다. 고정 digest는 그 릴리스를 쓰는 모든 서버에서 그 꾸러미를 "공식"으로 만듭니다. 배포 보류를 풀 때는 `availability`를 따로 바꿉니다.
-4. 꾸러미 파일을 피드의 `plugins/<id>/<버전>/`에 1번에서 만든 **그 파일 그대로** 올립니다(피드 Worker가 `plugins/`를 내주려면 `bun scripts/release/hosting.ts setup`으로 한 번 다시 배포). 한 번 올린 경로는 다른 바이트로 덮어쓰지 않습니다(영구 캐시).
+4. 꾸러미 파일을 피드의 `plugins/<id>/<버전>/`에 1번에서 만든 **그 파일 그대로** 올립니다(피드 Worker가 `plugins/`를 내주려면 `bun scripts/release/hosting.ts setup`으로 한 번 다시 배포). 한 번 올린 경로는 다른 바이트로 덮어쓰지 않습니다(영구 캐시이고, 이전 릴리스의 서버가 그 파일의 크기·SHA-256을 고정하고 있음). 바이트가 바뀌면 버전을 올립니다.
 5. 코어 릴리스를 냅니다(목록이 릴리스 서명 안에 들어갑니다). 꾸러미는 그 릴리스를 쓰는 서버에서 바로 설치할 수 있게 됩니다.
 
 ## 플러그인 키(나중: 외부 개발자, B5)

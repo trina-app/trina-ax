@@ -10,16 +10,20 @@
 //   bun scripts/plugins/release-hwp.ts --upload   owner/operator: put the built files into the feed's R2 bucket (token as
 //                                                 for scripts/release/publish.ts), then read each back through the feed
 //                                                 and compare its SHA-256. Refused unless the list pins exactly these
-//                                                 files and the feed's Worker already serves plugins/.
+//                                                 files and the feed's Worker already serves plugins/. A file already on
+//                                                 the feed with the same bytes is skipped; one with other bytes is never
+//                                                 replaced (publish a new version).
 //
 // The package bytes never go into resources/plugins or a default release bundle. Builds are deterministic (sorted tar,
-// fixed headers, a fixed product floor), so the same commit gives the same files and pins; the archive SHA-256 also
-// depends on the zlib in this Bun, so upload the files this run built (`--upload` refuses anything else).
+// fixed headers including the gzip OS byte, a fixed product floor), so the same commit gives the same files and pins on
+// a Mac or on Linux; the archive SHA-256 also depends on the zlib in the pinned Bun, so upload the files this run built
+// (`--upload` refuses anything else).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import hwpPins from '../../resources/hwp/manifest.json'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
+import { remoteHash } from '../release/sign'
 import { stageHwp, type HwpTarget } from '../hwp-bundle'
 import { buildHwpPlugin, clearedTargets, HWP_PLUGIN_VERSION } from './build-hwp'
 import { downloadKey, pinCatalog, type PinResult } from './pin-catalog'
@@ -56,14 +60,33 @@ export function pinHwpRelease(catalogText: string, files: { file: string; bytes:
   return pinCatalog(catalogText, files, { cleared: clearedTargets(repo), testKeyId: null, downloadBase: PLUGIN_FEED_BASE })
 }
 
+/** What `--upload` would put on the feed. A file already published there with the same bytes is skipped; one published
+ * with other bytes stops everything: servers on an earlier release pin that address's size and SHA-256 (and the feed
+ * caches it as immutable), so new bytes need a new version (HWP_PLUGIN_VERSION and the list entry's version). */
+export async function uploadPlan(files: { file: string; bytes: Uint8Array }[], f: typeof fetch = fetch): Promise<{ file: string; key: string; skip: boolean }[]> {
+  const out: { file: string; key: string; skip: boolean }[] = []
+  for (const x of files) {
+    const key = downloadKey(HWP_PLUGIN_ID, HWP_PLUGIN_VERSION, x.file)
+    const have = await remoteHash(`${RELEASE_CHANNEL.feed}/${key}?t=${Date.now()}`, f)
+    if (have && (have.sha256 !== sha256(x.bytes) || have.size !== x.bytes.length)) {
+      throw new Error(`${RELEASE_CHANNEL.feed}/${key} is already published with other bytes: never replace it, publish a new version instead (HWP_PLUGIN_VERSION in scripts/plugins/build-hwp.ts and the entry's version in resources/plugins/catalog.json)`)
+    }
+    out.push({ file: x.file, key, skip: !!have })
+  }
+  return out
+}
+
 async function upload(files: { file: string; bytes: Buffer }[]) {
   const root = await fetch(`${RELEASE_CHANNEL.feed}/`, { signal: AbortSignal.timeout(20_000) }).then((r) => r.text()).catch((e) => `(${(e as Error).message})`)
   if (!root.includes('plugins/')) throw new Error(`${RELEASE_CHANNEL.feed}/ does not serve plugins/ yet (it says ${JSON.stringify(root.trim().slice(0, 60))}): deploy scripts/release/worker.js first with \`bun scripts/release/hosting.ts setup\``)
+  // checked for every file before anything is uploaded
+  const plan = await uploadPlan(files)
   const { Cloudflare } = await import('../release/cloudflare')
   const cf = new Cloudflare()
   const { account } = await cf.accountAndZone()
   for (const f of files) {
     const key = downloadKey(HWP_PLUGIN_ID, HWP_PLUGIN_VERSION, f.file)
+    if (plan.find((p) => p.key === key)?.skip) { console.log(`already published with these bytes: ${RELEASE_CHANNEL.feed}/${key}`); continue }
     await cf.putObject(account, key, f.file, 'application/octet-stream')
     const back = new Uint8Array(await (await fetch(`${RELEASE_CHANNEL.feed}/${key}?t=${Date.now()}`, { signal: AbortSignal.timeout(120_000) })).arrayBuffer())
     if (sha256(back) !== sha256(f.bytes)) throw new Error(`${key}: the feed serves other bytes than were uploaded`)

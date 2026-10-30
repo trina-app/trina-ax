@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sequence": 2,
+  "sequence": 3,
   "entries": [
     {
       "id": "app.trina.hwp-preview",
@@ -31,25 +31,25 @@
           "version": "1.0.0",
           "platform": { "os": "darwin", "arch": "arm64" },
           "manifestSha256": "00f29ca35116e24d65c763e1931449c86845cb299c52c2d807a4f7dc2730a435",
-          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-darwin-arm64.trinaplugin", "size": 14389924, "sha256": "89fd5005183cd05098a94425d66fd0e6477fd61106d8c5b3426a8a200d913646" }
+          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-darwin-arm64.trinaplugin", "size": 14389924, "sha256": "4a11399c3deb5bbef0b5c1cfb3f0e7381aee65a7c6ad7451c997248da0bf0fac" }
         },
         {
           "version": "1.0.0",
           "platform": { "os": "darwin", "arch": "x64" },
           "manifestSha256": "08b9522af783569b9455d443b7e4d5f84f926b4146d86378ccbc239f1558dfc3",
-          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-darwin-x64.trinaplugin", "size": 15328221, "sha256": "7873437240bc5814a83709a456b6b6a2af03a333c8650e0b415179e4bc7bc43b" }
+          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-darwin-x64.trinaplugin", "size": 15328221, "sha256": "c5795019ef5f0ed53dfc956a37c5033140091ba315d3e0fd9b3c17f59791a055" }
         },
         {
           "version": "1.0.0",
           "platform": { "os": "linux", "arch": "x64", "libc": { "family": "glibc", "minVersion": "2.39" } },
           "manifestSha256": "c37bb3f109b70f21a7283df47d1533ca4892b876a34cfdaa3c612cfb8a549028",
-          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-x64.trinaplugin", "size": 15857475, "sha256": "21fb738e3ba6c39ac1d0dafe48acde9c6a2e60d6f93205c9132d22e037981bd0" }
+          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-x64.trinaplugin", "size": 15857475, "sha256": "a74cdc8fbaf992302347d58bc0126a74bc0b172745909e576e51c287077bd082" }
         },
         {
           "version": "1.0.0",
           "platform": { "os": "linux", "arch": "arm64", "libc": { "family": "glibc", "minVersion": "2.39" } },
           "manifestSha256": "c280114cf89effbdc4948054f474abd7008830604a2a9e0a0ce0f7e98db8464a",
-          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-arm64.trinaplugin", "size": 15312397, "sha256": "8038cd5bef175a2344c0267e439f9f2ca9e4692e94848439a76ea65a0588e6c4" }
+          "download": { "url": "https://updates.trina.app/plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-arm64.trinaplugin", "size": 15312397, "sha256": "96891fb99e40ff6b59fdd42a0d70045327709df5ebf296ff7136440d59a9cc6c" }
         }
       ],
       "license": "MIT AND Apache-2.0 AND BSD-3-Clause AND MPL-2.0 AND OFL-1.1 AND LicenseRef-HWP-Notices"

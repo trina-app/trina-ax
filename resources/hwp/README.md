@@ -8,7 +8,7 @@ Development: `bun run prepare:hwp` installs only the pinned CLI for the current 
 
 The upstream Linux 0.8.7 executables require **glibc >= 2.39** (Ubuntu 24.04 / Debian 13). Debian 12 ships glibc 2.36: **BLOCKED for previews** pending a reproducible native-skia build against that baseline, new executable checksums and smoke tests. The rest of Trina and original downloads remain available; startup verification fails closed. Do not claim Debian 12 preview support or change the product-wide OS floor to hide this limitation.
 
-Pin updates require archive and executable hashes for every target, internal font identity checks, fixture/corruption/security/visual tests and new notices. After any change to the executable, font, notices or the HWP entry's texts in the official list, run `bun scripts/plugins/release-hwp.ts` and commit the new pins (a unit test fails until the pins match this checkout's build), then publish the new files. The CLI archive alone does not contain its third-party notices.
+Pin updates require archive and executable hashes for every target, internal font identity checks, fixture/corruption/security/visual tests and new notices. After any change to the executable, font, notices or the HWP entry's texts in the official list, run `bun scripts/plugins/release-hwp.ts` and commit the new pins (a unit test fails until the pins match this checkout's build), then publish the new files. Once a version's files are on the feed, new bytes need a new version (`HWP_PLUGIN_VERSION` in `scripts/plugins/build-hwp.ts` and the entry's version): servers on earlier releases pin the published files, and `--upload` never replaces one. The CLI archive alone does not contain its third-party notices.
 
 ## Notices
 
