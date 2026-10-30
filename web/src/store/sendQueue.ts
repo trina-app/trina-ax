@@ -43,10 +43,12 @@ const storage = (): Store | null => {
     return null
   }
 }
-/** what is stored for the chat (null: nothing, or no storage in this browser) */
+/** chats whose last write to storage failed (full): this window's copy is the truth for them until a write works */
+const memoryOnly = new Set<string>()
+/** what is stored for the chat (null: nothing; undefined: no storage in this browser, or only this window's copy) */
 function readStored(userId: string, chatId: string): ChatQueue | null | undefined {
   const s = storage()
-  if (!s) return undefined
+  if (!s || memoryOnly.has(queueKey(userId, chatId))) return undefined
   try {
     return parseQueue(s.getItem(queueKey(userId, chatId)))
   } catch {
@@ -54,12 +56,19 @@ function readStored(userId: string, chatId: string): ChatQueue | null | undefine
   }
 }
 function writeStored(userId: string, chatId: string, q: ChatQueue) {
+  const key = queueKey(userId, chatId)
+  const s = storage()
+  if (!s) return
   try {
-    const s = storage()
-    if (!s) return
-    if (q.items.length) s.setItem(queueKey(userId, chatId), serializeQueue(q))
-    else s.removeItem(queueKey(userId, chatId))
-  } catch { /* storage full or blocked: this window still has them */ }
+    if (q.items.length) s.setItem(key, serializeQueue(q))
+    else s.removeItem(key)
+    memoryOnly.delete(key)
+  } catch {
+    // storage full or blocked: this window still has them. The older stored copy must not come back as the truth
+    // (it lacks the newest message) in this window, another one or after a reload.
+    memoryOnly.add(key)
+    try { s.removeItem(key) } catch { /* blocked */ }
+  }
 }
 
 /** chats whose waiting messages are being handed to send() right now */
@@ -165,6 +174,7 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
     reset() {
       flushing.clear()
       holdUntil.clear()
+      memoryOnly.clear()
       set({ userId: null, queues: {}, editing: {} })
     },
   }

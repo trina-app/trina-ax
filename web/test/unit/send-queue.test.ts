@@ -1,7 +1,7 @@
 // Messages sent while an answer runs (lib/sendQueue.ts rules, store/sendQueue.ts runner) against a fake REST server.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Attachment, type TurnStarted } from '@mycel/shared/api'
-import { combine, combinedClientId, nextStep, parseQueue, queueKey, restoredQueue, serializeQueue, QUEUE_ITEMS_MAX, type QueuedMessage } from '../../src/lib/sendQueue'
+import { combine, combinedClientId, nextStep, parseQueue, queueKey, restoredQueue, serializeQueue, QUEUE_CONTENT_MAX, QUEUE_ITEMS_MAX, type QueuedMessage } from '../../src/lib/sendQueue'
 import { useChats } from '../../src/store/chats'
 import { QueueFull, useSendQueue } from '../../src/store/sendQueue'
 import { CHAT, msg } from './fixtures'
@@ -193,6 +193,49 @@ describe('the runner', () => {
     running()
     for (let i = 0; i < QUEUE_ITEMS_MAX; i++) useSendQueue.getState().enqueue(me.id, CHAT, { content: `m${i}`, attachments: [], author: me })
     expect(() => useSendQueue.getState().enqueue(me.id, CHAT, { content: 'one more', attachments: [], author: me })).toThrow(QueueFull)
+  })
+
+  test('ten paused plus one typed now all go; what the runner stores always reads back', async () => {
+    const a = running()
+    for (let i = 0; i < QUEUE_ITEMS_MAX; i++) useSendQueue.getState().enqueue(me.id, CHAT, { content: `m${i}`, attachments: [], author: me })
+    done(a, 'stopped')
+    await tick(10)
+    expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('stopped')
+    // eleven in storage for a moment (the send is handed over right away): it must not read as an empty queue
+    const eleven = { items: Array.from({ length: QUEUE_ITEMS_MAX + 1 }, (_, i) => item(`x${i}`)), paused: null, after: null }
+    expect(parseQueue(serializeQueue(eleven))?.items).toHaveLength(QUEUE_ITEMS_MAX + 1)
+    route = (_m, _p, body) => json(started(a.id, body.content), 202)
+    useSendQueue.getState().sendNow(CHAT, { content: 'and this', attachments: [], author: me })
+    await tick(10)
+    expect(sends().map((c) => c.body.content)).toEqual([[...Array.from({ length: QUEUE_ITEMS_MAX }, (_, i) => `m${i}`), 'and this'].join('\n\n')])
+    expect(useSendQueue.getState().queues[CHAT]).toBeUndefined()
+  })
+
+  test('a message longer than the send limit stays readable and goes like any message (the server refuses it)', async () => {
+    const a = running()
+    const long = 'x'.repeat(QUEUE_CONTENT_MAX + 10)
+    useSendQueue.getState().enqueue(me.id, CHAT, { content: long, attachments: [], author: me })
+    expect(parseQueue(stored.get(queueKey(me.id, CHAT))!)?.items[0]!.content).toHaveLength(long.length)
+    route = (m) => (m === 'POST' ? json({ error: { code: 'validation', message: 'Too long.' } }, 400) : json({ items: [] }))
+    done(a, 'done')
+    await tick(10)
+    expect(sends()).toHaveLength(1)
+    expect(useSendQueue.getState().queues[CHAT]).toBeUndefined()
+    expect(useChats.getState().threads[CHAT]!.messages.at(-1)!.local?.state).toBe('failed')
+  })
+
+  test('storage full: this window keeps the newest message and the older stored copy is not taken as the truth', async () => {
+    const a = running()
+    useSendQueue.getState().enqueue(me.id, CHAT, { content: 'first', attachments: [], author: me })
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { ...localStorage, setItem: () => { throw new Error('QuotaExceededError') } } })
+    useSendQueue.getState().enqueue(me.id, CHAT, { content: 'second', attachments: [], author: me })
+    expect(useSendQueue.getState().queues[CHAT]!.items.map((i) => i.content)).toEqual(['first', 'second'])
+    // the stored copy without "second" is gone, so neither a reload nor another window brings it back as the truth
+    expect(stored.has(queueKey(me.id, CHAT))).toBe(false)
+    route = (_m, _p, body) => json(started(a.id, body.content), 202)
+    done(a, 'done')
+    await tick(10)
+    expect(sends().map((c) => c.body.content)).toEqual(['first\n\nsecond'])
   })
 
   test('after a reload: still waits for its answer, or asks first when the chat moved on', async () => {

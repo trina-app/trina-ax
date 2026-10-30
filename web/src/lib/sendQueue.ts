@@ -102,15 +102,22 @@ const PREFIX = 'mycel.queue:'
 export const QUEUE_KEY_PREFIX = PREFIX
 export const queueKey = (userId: string, chatId: string) => `${PREFIX}${userId}:${chatId}`
 
+/**
+ * What a stored queue may hold. Never stricter than what the runner writes: a queue that fails to parse reads as
+ * empty, so its messages would sit unsent on screen and be gone after a reload. A message taken back after a 409 goes
+ * in front of those typed meanwhile, so a queue can briefly hold more than QUEUE_ITEMS_MAX; text longer than the
+ * send limit is kept and fails like any message when it is sent ("not sent").
+ */
+export const QUEUE_STORED_MAX = 50
 const Stored = z.object({
   v: z.literal(1),
   items: z.array(z.object({
     id: z.string().min(8).max(40),
-    content: z.string().max(QUEUE_CONTENT_MAX),
+    content: z.string(),
     attachments: z.array(Attachment).max(MESSAGE_ATTACHMENTS_MAX),
     author: z.object({ id: z.string().max(200), name: z.string().max(500) }),
     createdAt: z.string().max(40),
-  })).max(QUEUE_ITEMS_MAX),
+  })).max(QUEUE_STORED_MAX),
   paused: z.enum(['stopped', 'error', 'away']).nullable(),
   after: z.string().max(64).nullable(),
 })
