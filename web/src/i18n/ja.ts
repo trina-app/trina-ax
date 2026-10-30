@@ -293,6 +293,7 @@ export const ja: Record<MessageKey, string> = {
   'steps.done': "完了",
   'steps.failed': "失敗",
   'steps.paused': "ここで一旦停止",
+  'steps.stopped': "ここで停止しました",
   'steps.someFailed': "一部の手順に失敗しました",
   'steps.results': "{n, plural, one {#件の結果} other {#件の結果}}",
   'steps.subtaskToolUses': "{n, plural, one {ツール#回} other {ツール#回}}",

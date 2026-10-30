@@ -632,21 +632,31 @@ describe('per-answer limits', () => {
       expect(failed.paused).toBeUndefined()
       // 'error' for apps that do not know `paused`; ended when the turn ended
       expect(cut).toMatchObject({ status: 'error', paused: true })
+      expect(cut.stopped).toBeUndefined()
       expect(cut.endedAt).not.toBeNull()
       const stored = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
       expect(stored.items.find((m) => m.id === r.done.id)!.steps.find((x) => x.tool === 'grep')).toMatchObject({ status: 'error', paused: true })
     } finally { rt.turnTimeoutMs = saved }
   })
-  test('a step still running when the person stops the answer is not marked paused (only a limit pauses)', async () => {
+  test('a step still running when the person stops the answer is stopped, not paused or failed (like Claude Code\'s "Interrupted")', async () => {
     const chat = await newChat()
-    const slow = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ say: 'x' }, { toolStarted: 'grep', args: { pattern: 'invoice' } }, { sleep: 20000 }), clientMessageId: cm(), attachmentIds: [] } })
+    const missing = { tool: 'read', args: { file_path: 'users/alice/no-such-file.md' } }
+    const slow = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ say: 'x' }, missing, { toolStarted: 'grep', args: { pattern: 'invoice' } }, { sleep: 20000 }), clientMessageId: cm(), attachmentIds: [] } })
     await alice.next('message.step', (f) => f.data.messageId === slow.assistantMessage.id && f.data.step.tool === 'grep')
     await h.api('alice').call(API.stop, { params: { id: chat.id } })
     const stopped = await alice.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 20_000)
     expect(stopped.data.status).toBe('stopped')
     const cut = stopped.data.message.steps.find((x) => x.tool === 'grep')!
-    expect(cut.status).toBe('error')
+    // 'error' for apps that do not know `stopped` (backward compatible), never `paused` (only a limit pauses)
+    expect(cut).toMatchObject({ status: 'error', stopped: true })
     expect(cut.paused).toBeUndefined()
+    expect(cut.endedAt).not.toBeNull()
+    // a step that failed before the Stop stays a failure
+    const failed = stopped.data.message.steps.find((x) => x.tool === 'read')!
+    expect(failed.status).toBe('error')
+    expect(failed.stopped).toBeUndefined()
+    const stored = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
+    expect(stored.items.find((m) => m.id === slow.assistantMessage.id)!.steps.find((x) => x.tool === 'grep')).toMatchObject({ status: 'error', stopped: true })
   })
   test('a time limit with nothing done yet stays the timeout error (nothing to continue from)', async () => {
     const rt = h.rt() as unknown as { turnTimeoutMs: number }

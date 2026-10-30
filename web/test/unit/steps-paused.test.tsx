@@ -1,4 +1,5 @@
-// A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure.
+// A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure; one the
+// person's Stop cut off (Step.stopped) as stopped.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Locale, Step } from '@mycel/shared/api'
@@ -33,4 +34,19 @@ describe('a step the time limit paused', () => {
     expect(rows).toContain('aria-label="Failed"')
     expect(rows).not.toContain('aria-label="Paused here"')
   })
+})
+
+describe('a step the person\'s Stop cut off', () => {
+  const stopped = step({ id: 's3', status: 'error', stopped: true })
+  for (const locale of ['ko', 'en'] as const) {
+    test(`${locale}: stopped, not failed`, () => {
+      setLocale(locale)
+      const rows = renderToStaticMarkup(<Steps steps={[stopped]} streaming />)
+      expect(rows).toContain(`aria-label="${translate(locale, 'steps.stopped')}"`)
+      expect(rows).toContain('data-testid="step-stopped"')
+      expect(rows).not.toContain(`aria-label="${translate(locale, 'steps.failed')}"`)
+      expect(renderToStaticMarkup(<Steps steps={[stopped]} streaming={false} />)).not.toContain('data-testid="steps-failed"')
+      expect(renderToStaticMarkup(<Steps steps={[stopped, failed]} streaming={false} />)).toContain(`aria-label="${translate(locale, 'steps.someFailed')}"`)
+    })
+  }
 })

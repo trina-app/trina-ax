@@ -307,6 +307,7 @@ export const id: Record<MessageKey, string> = {
   'steps.done': 'Selesai',
   'steps.failed': 'Gagal',
   'steps.paused': 'Berhenti di sini',
+  'steps.stopped': 'Dihentikan di sini',
   'steps.someFailed': 'Ada langkah yang gagal',
   'steps.results': '{n} hasil',
   'steps.subtaskToolUses': '{n} kali pakai alat',

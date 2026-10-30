@@ -1,11 +1,12 @@
 // What the AI did while answering ("파일 검색 중", web search, browser, artifacts): a compact list under the answer.
 // While streaming the last few steps show; afterwards it folds into "작업 N단계" that opens on click.
 // Web search results are plain links (no favicons: an external image would load by itself).
-// A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure.
+// A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure; one the
+// person's Stop cut off (Step.stopped) shows as stopped, like Claude Code's "Interrupted".
 // A sub-task (Claude Code's Agent tool, docs/DECISIONS.md "Sub-agents") is one row like Claude Code's "Agent(...)": its
 // sub-agent's steps (Step.parentId) open under it, and while it works its latest step shows beneath it.
 import clsx from 'clsx'
-import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, FileSearch, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { localizeStep } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
@@ -51,6 +52,8 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
           <Info size={13} className="shrink-0 text-faint" aria-hidden />
         ) : step.paused ? (
           <CirclePause size={13} className="shrink-0 text-muted" aria-label={t('steps.paused')} data-testid="step-paused" />
+        ) : step.stopped ? (
+          <CircleStop size={13} className="shrink-0 text-muted" aria-label={t('steps.stopped')} data-testid="step-stopped" />
         ) : step.status === 'error' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
         <Icon size={13} className="shrink-0 text-faint" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{words.label}</span>
@@ -139,7 +142,7 @@ export default function Steps({ steps, streaming }: { steps: Step[]; streaming: 
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] text-faint hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
         {t('steps.summary', { n: top.length })}
-        {steps.some((s) => s.status === 'error' && !s.paused) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}
+        {steps.some((s) => s.status === 'error' && !s.paused && !s.stopped) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}
       </button>
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>

@@ -306,6 +306,7 @@ export const ko = {
   'steps.done': '완료',
   'steps.failed': '실패',
   'steps.paused': '여기서 멈춤',
+  'steps.stopped': '여기서 중지됨',
   'steps.someFailed': '실패한 단계가 있어요',
   'steps.results': '결과 {n}개',
   'steps.subtaskToolUses': '도구 {n}번',

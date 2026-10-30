@@ -3071,6 +3071,11 @@ only themselves. The owner chose the safest defaults for the open questions:
   failed" for it, and a scheduled run does not count it as a failed tool (the run is `problems` anyway).
 - Additive and optional: `status` stays `'error'`, so older apps and a rolled-back server still show it as not
   finished, as before. Stop by the person, errors and the tool-call limit are unchanged.
+- **Stop by the person (feat/small-batch-1030).** A step still running when the person presses Stop (or one the engine
+  then reported failed only because the stop ended its call) carries `Step.stopped: true` the same way and shows a
+  stop mark ("Stopped here"), like Claude Code's "Interrupted"; the folded list no longer says "some steps failed" for
+  it. `status` stays `'error'` (backward compatible, as with `paused`); a step that failed before the Stop stays a
+  failure. A time limit still gives `paused`, never `stopped`.
 
 ## Plugins, stage 1: company scope, HWP Preview as the first plugin (2026-10-30)
 

@@ -16,6 +16,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - web_fetch and the in-app browser look a web address up only after the person allowed it; the desktop browser cancels requests it blocks without looking the name up.
 - Connected services: the card before a change shows everything that is sent, where it goes first; "run without asking" is for team connections only, and runs in a scheduled task only if its card allowed it.
 - Codex web search uses its cached index (no live page loads), enforced by the model proxy.
+- Chat: a step that was still running when you pressed Stop shows as stopped (like Claude Code's "Interrupted"), not as a red failed step. Older apps still show it as not finished.
 - Admin > AI connections says that OpenRouter, Gemini and local models are connected in AI engines > API engine, with a link (the connections here are for Claude and Codex).
 - Codex (the team's AI connections) can search the web again, like Claude: it had no search tool at all with the team's own model provider. Cached results only, through the model proxy; never in confidential chats or approved template runs. The step shows the query.
 - "Ask the AI to fix it" no longer carries web addresses from the artifact's title or key.

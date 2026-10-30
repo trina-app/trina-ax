@@ -293,6 +293,7 @@ export const es: Record<MessageKey, string> = {
   'steps.done': "Completado",
   'steps.failed': "Falló",
   'steps.paused': "En pausa aquí",
+  'steps.stopped': "Detenido aquí",
   'steps.someFailed': "Algunos pasos fallaron",
   'steps.results': "{n, plural, one {# resultado} other {# resultados}}",
   'steps.subtaskToolUses': "{n, plural, one {# uso de herramienta} other {# usos de herramientas}}",

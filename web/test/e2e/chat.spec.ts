@@ -120,6 +120,25 @@ test('stop a running answer', async ({ page }) => {
   await expect(page.getByTestId('send')).toBeVisible()
 })
 
+test('stop: a step still running then shows as stopped, not as a failed step (like Claude Code\'s "Interrupted")', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'slow stop-cut read every application in the folder, slow slow slow slow slow slow slow slow slow')
+  await expect(page.getByTestId('stop')).toBeVisible()
+  await page.getByTestId('stop').click()
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'stopped')
+  const steps = lastAnswer(page).getByTestId('steps')
+  // folded: no "some steps failed" mark for the step the Stop cut off
+  await expect(steps.getByTestId('steps-failed')).toHaveCount(0)
+  await steps.getByRole('button', { name: /작업 \d+단계/ }).click()
+  const cut = steps.getByRole('listitem').filter({ hasText: 'read applications/21.pdf' })
+  await expect(cut.getByTestId('step-stopped')).toHaveAttribute('aria-label', '여기서 중지됨')
+  await expect(steps.getByLabel('실패', { exact: true })).toHaveCount(0)
+  // after a reload the stored answer shows the same
+  await page.reload()
+  await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
+})
+
 test('ask_user card: pick an option, the answer continues', async ({ page }) => {
   await reset(page)
   await signIn(page)

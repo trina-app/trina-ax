@@ -1252,6 +1252,8 @@ export class TurnExec {
     // a step the time limit cut off (also one the engine reported failed only because the stop ended its call) did not
     // fail: it shows as paused, and "continue" picks it up. Its status stays 'error' for apps without Step.paused.
     if (stopReason) for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.paused = true
+    // the same for a step the person's Stop cut off: stopped, like Claude Code's "Interrupted" (Step.stopped)
+    if (status === 'stopped') for (const s of this.steps) if (cut.has(s.id) && s.status === 'error') s.stopped = true
     const files = this.fileSummary()
     const db = this.rt.db
     try {
@@ -1270,7 +1272,7 @@ export class TurnExec {
       // '(connect)' rows are bridge connection checks (mcp/socket.ts), not tool calls.
       if (this.spec.clientKind === 'schedule') {
         const refused = (db.query("SELECT count(*) AS n FROM tool_events WHERE turn_id = ? AND ok = 0 AND tool <> '(connect)'").get(this.id) as { n: number }).n
-        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error' && !s.paused).length
+        const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error' && !s.paused && !s.stopped).length
         db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: refused + failedSteps, limited: !!stopReason }), this.id)
       }
       const core = this.registered ? this.activeCore : null

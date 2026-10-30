@@ -186,6 +186,9 @@ export const Step = z.object({
    * off, not failed, and "continue" picks the work up. status stays 'error' so apps without this field still show it
    * as not finished; absent on every other step */
   paused: z.literal(true).optional(),
+  /** the step was still running when the person stopped the answer (Stop, like Claude Code's "Interrupted"): it was cut
+   * off, not failed. status stays 'error' for apps without this field, as with `paused`; absent on every other step */
+  stopped: z.literal(true).optional(),
   startedAt: IsoTime,
   endedAt: IsoTime.nullable(),
   /** optional longer result summary (e.g. search result titles), shown when expanded */
