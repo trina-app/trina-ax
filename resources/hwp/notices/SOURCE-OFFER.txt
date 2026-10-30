@@ -1,16 +1,47 @@
-HWP preview bundle: rhwp 0.8.7, MIT
-Upstream source commit: 1a76570e833917d15817415a53c09ad61ab3203f
-https://github.com/edwardkim/rhwp/tree/1a76570e833917d15817415a53c09ad61ab3203f
-The unmodified upstream CLI releases are pinned by archive and executable SHA-256 in resources/hwp/manifest.json.
-Build/install recipe: scripts/hwp-bundle.ts; adapter: server/src/files/hwp-engine.ts.
-The application's corresponding source offer includes these recipes, adapter, worker, manifest, fixtures and notices at the exact application release commit, through its existing Source Code link. The renderer does not relicense the application or generated documents.
+HWP Preview plugin: where the source of this package comes from
 
-Bundled font: Noto Sans KR Regular, OFL-1.1, unchanged TTF, weight 400.
-Source: rhwp upstream commit above, ttfs/opensource/NotoSansKR-Regular.ttf.
-Internal family, PostScript name, weight and SHA-256 are checked at startup.
-No system, customer, proprietary, GUST or vaguely licensed optional font is shipped.
-The misnamed Noto Serif KR Regular WOFF2 (internally ExtraLight) is excluded.
+The package ships third-party software only, unchanged. Every licence in it is permissive and none of them requires a
+source offer; this file names the exact sources so that anyone can audit or rebuild them.
 
-Retained verbatim: rhwp MIT, upstream THIRD_PARTY_LICENSES.md and Noto OFL text.
-Upstream THIRD_PARTY_LICENSES.md still names npm 0.8.6; it is evidence, not a complete native SBOM.
-OPEN: upstream compiled metric-table provenance and exact native Skia feature/dependency inventory require upstream confirmation before public release clearance. The existing release notice manifest retains publicClear=false.
+rhwp 0.8.7 command-line program (MIT)
+  Source commit: 1a76570e833917d15817415a53c09ad61ab3203f (tag v0.8.7)
+  https://github.com/edwardkim/rhwp/tree/1a76570e833917d15817415a53c09ad61ab3203f
+  Executables: the upstream release archives rhwp-v0.8.7-{macos-aarch64,macos-x86_64,linux-aarch64,linux-x86_64}.tar.gz,
+  unchanged. Archive and executable SHA-256 per target are pinned in Trina AX resources/hwp/manifest.json, checked
+  when the package is built and refused at install if different.
+  Build: upstream workflow run https://github.com/edwardkim/rhwp/actions/runs/38127368761 (2026-10-11, workflow file
+  .github/workflows/release-binary.yml at 0d1c2ec1900fdc95b51364097dc6df15c78b9f7b, branch
+  release/repackage-v0.8.7-native-skia-20261011) checked out the source commit above and ran
+    cargo build --locked --release --bin rhwp --features native-skia --target <target>
+  with Rust 1.93.1 (rust-toolchain.toml), Cargo.lock SHA-256
+  f24e98940a42000cea09500bea090cc571773e761c3d068769227e82a0e2f024. Its provenance records list the same archive
+  SHA-256 as our pins. The build started by the tag push on 2026-10-06 failed; these archives were attached to the
+  v0.8.7 release on 2026-10-11.
+  Rust crates: crates.io at the versions in that Cargo.lock (list: rust-crates.txt); svg2pdf is vendored and patched in
+  vendor/svg2pdf of the rhwp tree (vendor/svg2pdf/RHWP_PATCHES.md).
+  Skia and its libraries: skia-bindings 0.153.3 builds https://github.com/rust-skia/skia/tree/m153-0.101.2 (commit
+  61e7ca4e99062cdd0ab69445d5963fb3365778f6) with the third-party revisions of its DEPS file, or downloads the same build
+  prebuilt from https://github.com/rust-skia/skia-binaries/releases/tag/0.153.3. Revisions and archive hashes:
+  native-libraries.txt.
+  Rust standard library 1.93.1: https://github.com/rust-lang/rust/tree/1.93.1/library
+
+Noto Sans KR Regular (OFL-1.1)
+  rhwp commit above, ttfs/opensource/NotoSansKR-Regular.ttf, unchanged: a weight-400 static instance of Google Fonts
+  ofl/notosanskr/NotoSansKR[wght].ttf (upstream assets/fonts/FONTS.md). Internal family, PostScript name, weight and
+  SHA-256 are checked at startup. No system, customer, proprietary, GUST or vaguely licensed optional font is shipped.
+  The misnamed Noto Serif KR Regular WOFF2 (internally ExtraLight) is excluded.
+
+Trina AX
+  The recipes and adapter are part of Trina AX's corresponding source (AGPL-3.0-only), offered through the
+  application's Source Code link at the exact release commit: scripts/hwp-bundle.ts (download and pin check),
+  scripts/plugins/build-hwp.ts (package), scripts/plugins/hwp-notices.ts (Rust notices), resources/hwp/ (pins, font,
+  notices), server/src/files/hwp-*.ts (adapter, preflight, limits, isolation). The renderer does not relicense the
+  application or the documents it renders.
+
+Open
+  rhwp compiles in font metric tables (src/renderer/font_metrics_generated.rs, font_metrics_overlays.rs): advance
+  widths for 595 font names, including proprietary fonts, taken from font files and from measurements of Hancom Office
+  output. No font program or glyph outline is included, and rhwp distributes the tables under MIT, but the upstream
+  file says that item-level source-font provenance is not verified. A per-entry lineage record and a statement from the
+  rhwp author are still to be obtained. Public release of the plugin is a separate decision recorded in Trina AX
+  resources/hwp/clearance.json.

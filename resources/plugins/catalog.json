@@ -26,7 +26,7 @@
       ],
       "availability": "pending_clearance",
       "recommendedFor": { "locales": ["ko"] },
-      "license": "MIT AND OFL-1.1"
+      "license": "MIT AND Apache-2.0 AND BSD-3-Clause AND OFL-1.1 AND LicenseRef-HWP-Notices"
     }
   ]
 }

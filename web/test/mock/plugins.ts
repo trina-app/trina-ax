@@ -32,7 +32,7 @@ export class MockPlugins {
         kinds: ['native-tool', 'preview'],
         permissions: [{ id: 'files.read.selected', required: true, granted: false }, { id: 'preview.render', required: true, granted: false }, { id: 'runtime.native.isolated', required: true, granted: false }, { id: 'model.send.preview-pixels', required: false, granted: false }],
         platforms: [{ os: 'darwin', arch: 'arm64' }, { os: 'darwin', arch: 'x64' }, { os: 'linux', arch: 'x64', libc: { family: 'glibc', minVersion: '2.39' } }, { os: 'linux', arch: 'arm64', libc: { family: 'glibc', minVersion: '2.39' } }],
-        availability: 'pending_clearance', unsupported: null, recommended: teamLocale === 'ko', installedVersion: null, updateAvailable: false, license: 'MIT AND OFL-1.1',
+        availability: 'pending_clearance', unsupported: null, recommended: teamLocale === 'ko', installedVersion: null, updateAvailable: false, license: 'MIT AND Apache-2.0 AND BSD-3-Clause AND OFL-1.1 AND LicenseRef-HWP-Notices',
       },
       {
         id: STARTER.id, name: STARTER.name[locale] ?? STARTER.name.en, description: STARTER.description[locale] ?? STARTER.description.en, publisher: { id: 'trina', name: 'Trina' }, version: STARTER.version,

@@ -10,10 +10,13 @@
 // The package holds third-party bytes only: the pinned rhwp executable (downloaded and checked against
 // resources/hwp/manifest.json by scripts/hwp-bundle.ts), the unchanged Noto Sans KR Regular font, and their notices and
 // source offer. The driver, preflight, limits and isolation stay in core (server/src/files/hwp-*.ts), so the package
-// licence is MIT AND OFL-1.1. Default server/office/desktop builds never include it (scripts/plugins/release-check.ts).
+// carries no AGPL code. The executable statically links Rust crates, the Rust standard library, Skia and Skia's
+// third-party C/C++ libraries; resources/hwp/notices/THIRD_PARTY_NOTICES.md lists them with exact versions and licences.
+// Default server/office/desktop builds never include it (scripts/plugins/release-check.ts).
 import fs from 'node:fs'
 import path from 'node:path'
 import hwpPins from '../../resources/hwp/manifest.json'
+import rustCrates from '../../resources/hwp/notices/rust-crates.json'
 import serverPkg from '../../server/package.json'
 import { PLUGIN_SCHEMA_VERSION, PluginCatalog } from '../../shared/src/plugins'
 import { buildPackage } from '../../server/src/plugins/package'
@@ -23,6 +26,49 @@ import { ensureTestKey } from './test-key'
 
 const REPO = path.resolve(import.meta.dir, '../..')
 export const HWP_PLUGIN_VERSION = '1.0.0'
+
+/** Package licence (also the catalog entry's). LicenseRef-HWP-Notices: the further licences that
+ * notices/THIRD_PARTY_NOTICES.md names and notices/ reproduces (BSD-2-Clause, MIT-0, Zlib, Unicode-3.0, ICU, NAIST-2003
+ * and ICU's data notices, MIT-Modern-Variant, IJG, libpng-2.0). */
+export const HWP_PLUGIN_LICENSE = 'MIT AND Apache-2.0 AND BSD-3-Clause AND OFL-1.1 AND LicenseRef-HWP-Notices'
+
+/** Package path → repository path of every notice file the package carries. */
+export const HWP_NOTICE_FILES: Record<string, string> = Object.fromEntries([
+  'THIRD_PARTY_NOTICES.md', 'SOURCE-OFFER.txt', 'rhwp-MIT.txt', 'rust-crates.txt', 'rust-std-1.93.1-COPYRIGHT-library.html',
+  'native-libraries.txt', 'NotoSans-OFL.txt',
+].map((f) => [`notices/${f}`, `resources/hwp/notices/${f}`]))
+
+const NATIVE = 'notices/native-libraries.txt'
+/** What the install prompt lists. Versions of the C/C++ parts mirror notices/native-libraries.txt (tested). */
+export const HWP_COMPONENTS: { name: string; version?: string; license: string; notice: string }[] = [
+  { name: 'rhwp', version: hwpPins.version, license: 'MIT', notice: 'notices/rhwp-MIT.txt' },
+  { name: `Rust crates linked into rhwp (${rustCrates.crates.length})`, license: rustCrates.licenses.join(' AND '), notice: 'notices/rust-crates.txt' },
+  { name: 'Rust standard library', version: '1.93.1', license: '(MIT OR Apache-2.0) AND Unicode-3.0', notice: 'notices/rust-std-1.93.1-COPYRIGHT-library.html' },
+  { name: 'Skia', version: 'm153', license: 'BSD-3-Clause', notice: NATIVE },
+  { name: 'ICU', version: '78.2', license: 'Unicode-3.0 AND ICU AND BSD-3-Clause AND NAIST-2003', notice: NATIVE },
+  { name: 'HarfBuzz', version: '13.1.0', license: 'MIT-Modern-Variant AND MIT', notice: NATIVE },
+  { name: 'libjpeg-turbo', version: '3.1.0', license: 'IJG AND BSD-3-Clause AND Zlib', notice: NATIVE },
+  { name: 'libpng', version: '1.6.56', license: 'libpng-2.0', notice: NATIVE },
+  { name: 'zlib (Chromium)', version: '1.3.0.1', license: 'Zlib AND BSD-3-Clause', notice: NATIVE },
+  { name: 'Expat', version: '2.7.4', license: 'MIT', notice: NATIVE },
+  { name: 'Wuffs', version: '0.3.3', license: 'Apache-2.0', notice: NATIVE },
+  { name: 'Noto Sans KR Regular', license: 'OFL-1.1', notice: 'notices/NotoSans-OFL.txt' },
+]
+
+const PACKAGE_NOTICE = `HWP Preview plugin for Trina AX
+
+This package contains third-party software only, unchanged:
+- rhwp ${hwpPins.version} command-line program (MIT), ${hwpPins.source}
+  It statically links Rust crates, the Rust standard library, Skia and Skia's libraries ICU, HarfBuzz, libjpeg-turbo,
+  libpng, zlib, Expat and Wuffs (BSD, MIT, Apache-2.0, Zlib, Unicode, IJG and libpng licences).
+- Noto Sans KR Regular (SIL Open Font License 1.1).
+
+This software is based in part on the work of the Independent JPEG Group.
+
+notices/THIRD_PARTY_NOTICES.md lists every component with its version and licence; the full licence texts are in
+notices/. notices/SOURCE-OFFER.txt says where the exact sources are.
+The HWP adapter, input checks and isolation are part of Trina AX core (AGPL-3.0-only).
+`
 
 const arg = (name: string) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : undefined }
 
@@ -44,11 +90,8 @@ export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string; ver
   const payload = new Map<string, Uint8Array>([
     ['bin/rhwp', read(`native/bin/hwp/rhwp-${o.target}`)],
     ...hwpPins.fonts.map((f) => [`fonts/${f.file}`, read(`resources/hwp/fonts/${f.file}`)] as [string, Uint8Array]),
-    ['notices/rhwp-MIT.txt', read('resources/hwp/notices/rhwp-MIT.txt')],
-    ['notices/NotoSans-OFL.txt', read('resources/hwp/notices/NotoSans-OFL.txt')],
-    ['notices/THIRD_PARTY_LICENSES.md', read('resources/hwp/notices/THIRD_PARTY_LICENSES.md')],
-    ['notices/SOURCE-OFFER.txt', read('resources/hwp/notices/SOURCE-OFFER.txt')],
-    ['NOTICE', Buffer.from(`HWP Preview plugin for Trina AX\n\nThis package contains third-party software only:\n- rhwp ${hwpPins.version} (MIT), ${hwpPins.source}\n- Noto Sans KR Regular (SIL Open Font License 1.1), unchanged\n\nSee notices/ for licences, the source offer and open notice findings (native Skia inventory, compiled font-metric provenance).\nThe HWP adapter, input checks and isolation are part of Trina AX core (AGPL-3.0-only).\n`)],
+    ...Object.entries(HWP_NOTICE_FILES).map(([to, from]) => [to, read(from)] as [string, Uint8Array]),
+    ['NOTICE', Buffer.from(PACKAGE_NOTICE)],
   ])
   const { bytes, manifest } = buildPackage({
     manifest: {
@@ -62,12 +105,9 @@ export async function buildHwpPlugin(o: { target: HwpTarget; keyPem: string; ver
       platforms: [platform],
       runtime: { driver: 'rhwp-v1', executable: 'bin/rhwp', fonts: hwpPins.fonts.map((f) => `fonts/${f.file}`) },
       contributes: { tools: [{ id: 'render-page', name: 'hwp_render', driver: 'rhwp-v1' }], previews: [{ extensions: ['hwp', 'hwpx'], tool: 'render-page', viewer: 'core-raster-v1' }] },
-      license: 'MIT AND OFL-1.1',
-      components: [
-        { name: 'rhwp', version: hwpPins.version, license: 'MIT', notice: 'notices/rhwp-MIT.txt' },
-        { name: 'Noto Sans KR Regular', license: 'OFL-1.1', notice: 'notices/NotoSans-OFL.txt' },
-      ],
-      notices: ['NOTICE', 'notices/THIRD_PARTY_LICENSES.md', 'notices/SOURCE-OFFER.txt'],
+      license: HWP_PLUGIN_LICENSE,
+      components: HWP_COMPONENTS,
+      notices: ['NOTICE', 'notices/THIRD_PARTY_NOTICES.md', 'notices/SOURCE-OFFER.txt'],
       source: { url: 'https://github.com/edwardkim/rhwp', revision: hwpPins.source.split('/').pop() },
     },
     payload, executables: new Set(['bin/rhwp']), keyPem: o.keyPem, gzip: true,
@@ -83,7 +123,7 @@ if (import.meta.main) {
   const keyPem = keyFile ? fs.readFileSync(keyFile, 'utf8') : testPem
   const isTest = publicKeyOfPem(keyPem) === publicKeyOfPem(testPem)
   if (!isTest && !clearedTargets().includes(target)) {
-    console.error(`HWP redistribution is not cleared for ${target} (resources/hwp/README.md: exact-version notices, native Skia inventory, font-metric provenance, platform qualification). Only test packages can be built.`)
+    console.error(`HWP redistribution is not cleared for ${target} (resources/hwp/README.md: compiled font-metric provenance, platform qualification, owner sign-off). Only test packages can be built.`)
     process.exit(1)
   }
   if (isTest && process.argv.includes('--cleared')) { console.error('a release package is never signed with the test key'); process.exit(1) }

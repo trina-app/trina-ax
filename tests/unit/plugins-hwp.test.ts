@@ -11,7 +11,7 @@ import { makeHandler } from '../../server/src/mcp/protocol'
 import { HWP_PLUGIN_ID } from '../../server/src/plugins/drivers'
 import { pluginsOf, type PluginManager } from '../../server/src/plugins/manager'
 import { componentC } from '../../server/src/team-files/component'
-import { buildHwpPlugin } from '../../scripts/plugins/build-hwp'
+import { buildHwpPlugin, HWP_PLUGIN_LICENSE } from '../../scripts/plugins/build-hwp'
 import type { HwpTarget } from '../../scripts/hwp-bundle'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { newKey, prodTrust } from '../lib/plugins'
@@ -80,7 +80,7 @@ describe('HWP availability follows the plugin state', () => {
 
   test('installed but off: still nothing', async () => {
     const r = await installHwp(v100, undefined, false)
-    expect(r).toMatchObject({ id: HWP_PLUGIN_ID, enabled: false, status: 'disabled', license: 'MIT AND OFL-1.1' })
+    expect(r).toMatchObject({ id: HWP_PLUGIN_ID, enabled: false, status: 'disabled', license: HWP_PLUGIN_LICENSE })
     expect(await listed()).toBe(false)
     expect(await preview()).toBe('503:disabled')
     await coreStillWorks()
