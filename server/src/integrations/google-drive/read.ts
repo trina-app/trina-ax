@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { DriveId, DriveListInput, DriveReadInput, DriveSearchInput } from '@mycel/shared'
-import { extractText, type Tools } from '../../files/extract'
+import { extractText, looksScanned, type Tools } from '../../files/extract'
 import { readMaxBytes } from '../../system/limits'
 import { GoogleDrive } from './oauth'
 import { DriveError } from './store'
@@ -44,7 +44,16 @@ const DOWNLOAD_EXT: Record<string, string> = {
   'application/vnd.oasis.opendocument.spreadsheet': 'ods',
   'application/hwp+zip': 'hwpx',
 }
-export async function readDrive(svc: GoogleDrive, user: string, a: z.output<typeof DriveReadInput>, tools: Tools, signal?: AbortSignal) {
+/** Drive images the model sees as images (files/vision.ts), by MIME type -> the extension the converter goes by */
+const IMAGE_MIME: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif',
+  'image/tiff': 'tiff', 'image/bmp': 'bmp',
+}
+export type DriveImage = (name: string, bytes: Uint8Array, signal?: AbortSignal) => Promise<{ jpeg?: Buffer; text: string }>
+/** A PDF's pages without a text layer: a Drive read gives text only (no OCR, docs/DECISIONS.md "AI sees images and PDF pages"). */
+const SCANNED_NOTE = 'Some pages have no text layer (scans or pictures), so their content is not in this text. To see them, ask the person to attach the file in the chat or add it to the team folder, then read it with pages.'
+
+export async function readDrive(svc: GoogleDrive, user: string, a: z.output<typeof DriveReadInput>, tools: Tools, signal?: AbortSignal, image?: DriveImage) {
   let id = a.fileId
   const visited = new Set<string>()
   for (let depth = 0; depth < 5; depth++) {
@@ -63,12 +72,21 @@ export async function readDrive(svc: GoogleDrive, user: string, a: z.output<type
     const max = Math.min(readMaxBytes(), 32 * 1024 * 1024, ex ? 10 * 1024 * 1024 : Infinity)
     if (item.size && Number(item.size) > max) throw new DriveError('too_large', 413)
     const r = await svc.api(user, `files/${id}${ex ? '/export' : ''}`, ex ? { mimeType: ex.mime } : { alt: 'media', supportsAllDrives: 'true' }, max, signal)
+    const imageExt = IMAGE_MIME[item.mimeType]
+    if (imageExt && image && !ex) {
+      let shown: { jpeg?: Buffer; text: string }
+      try { checkAbort(signal); shown = await image(`image.${imageExt}`, r.bytes, signal) }
+      catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
+      r.assertCurrent(); checkAbort(signal)
+      return { ...publicItem(item), text: shown.text.slice(0, a.maxChars), truncated: shown.text.length > a.maxChars, ...(shown.jpeg ? { image: shown.jpeg } : {}) }
+    }
     let text: string
     const ext = ex?.ext ?? DOWNLOAD_EXT[item.mimeType]
     try { checkAbort(signal); text = await extractText(ext ? `document.${ext}` : item.name, r.bytes, tools, signal) }
     catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
     r.assertCurrent(); checkAbort(signal)
-    return { ...publicItem(item), text: text.slice(0, a.maxChars), truncated: text.length > a.maxChars }
+    const scanned = ext === 'pdf' && looksScanned(text)
+    return { ...publicItem(item), text: text.slice(0, a.maxChars), truncated: text.length > a.maxChars, ...(scanned ? { note: SCANNED_NOTE } : {}) }
   }
   throw new DriveError('shortcut_loop')
 }

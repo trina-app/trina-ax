@@ -50,6 +50,34 @@ export function makeImagePdf(img: PdfImage): Uint8Array {
   ])
 }
 
+/** One page of makePagesPdf: text lines (a text layer) or one image and no text (a scanned page). */
+export type PdfPage = { lines: string[] } | { image: PdfImage }
+
+/** A PDF with several A4 pages; `rotate` sets every page's /Rotate (a page shown turned clockwise). */
+export function makePagesPdf(pages: PdfPage[], o: { rotate?: number } = {}): Uint8Array {
+  const esc = (s: string) => s.replace(/[\\()]/g, (c) => '\\' + c).replace(/[^\x20-\x7e]/g, '?')
+  const rotate = o.rotate ? ` /Rotate ${o.rotate}` : ''
+  const objs: (string | (string | Uint8Array)[])[] = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+  const kids: number[] = []
+  for (const p of pages) {
+    const n = objs.length + 1
+    kids.push(n)
+    if ('lines' in p) {
+      const stream = 'BT /F1 12 Tf 72 780 Td 16 TL\n' + p.lines.map((l) => `(${esc(l)}) Tj T*`).join('\n') + '\nET'
+      objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]${rotate} /Contents ${n + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`)
+      objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
+    } else {
+      const img = p.image
+      const draw = `q 480 0 0 ${Math.round((480 * img.height) / img.width)} 57 500 cm /Im1 Do Q`
+      objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]${rotate} /Contents ${n + 1} 0 R /Resources << /XObject << /Im1 ${n + 2} 0 R >> >> >>`)
+      objs.push(`<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`)
+      objs.push([`<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ${img.dict} /Length ${img.bytes.length} >>\nstream\n`, img.bytes, '\nendstream'])
+    }
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`
+  return writePdf(objs)
+}
+
 const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 
 /** A fax-style scan (CCITT group 4, 1 bit: what office scanners and fax-to-PDF write): a frame with a bar inside. */

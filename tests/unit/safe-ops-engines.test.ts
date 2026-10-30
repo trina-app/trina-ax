@@ -17,7 +17,7 @@ afterAll(async () => {
 })
 for (const engine of ['claude-code', 'codex'] as const)
   test(engine + ' fake engine receives the image through gate/bridge/socket', async () => {
-    const codec = spyOn(h.ctx.files, 'imagePreview').mockResolvedValue(Buffer.from([255, 216, 255, 217]))
+    const codec = spyOn(h.ctx.files, 'modelImage').mockResolvedValue(Buffer.from([255, 216, 255, 217]))
     const ws = await h.ws('alice')
     await ws.next('hello')
     try {

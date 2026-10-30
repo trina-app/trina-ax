@@ -1,6 +1,7 @@
 // Team settings: name, default language, update channel and window, retention periods, whether people may turn on
 // "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), whether
-// members may add their own external-service connections (Settings > External services), voice input (off, OpenRouter
+// members may add their own external-service connections (Settings > External services), whether AI reads send images
+// and PDF pages to the AI (server/src/files/vision.ts), voice input (off, OpenRouter
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"), and the team
 // logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), and for the owner the ownership transfer
 // (TransferOwner.tsx). The OpenRouter key is sealed in the
@@ -97,6 +98,7 @@ export default function TeamSettingsPage() {
                 </Field>
                 <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                 <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
                   onSaved={(r) => state.setData(r)} />
               </div>
@@ -252,6 +254,17 @@ export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean
     <div className="sm:col-span-2" data-testid="team-personal-integrations" data-on={value ? 'true' : 'false'}>
       <Switch checked={value} onChange={onChange} label={t('teamSettings.personalIntegrations')} />
       <p className="mt-1 text-xs text-faint">{t('teamSettings.personalIntegrationsHint')}</p>
+    </div>
+  )
+}
+
+/** "Send images and PDF pages to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no pixels. */
+export function AiVisionSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return (
+    <div className="sm:col-span-2" data-testid="team-ai-vision" data-on={value ? 'true' : 'false'}>
+      <Switch checked={value} onChange={onChange} label={t('teamSettings.aiVision')} />
+      <p className="mt-1 text-xs text-faint">{t('teamSettings.aiVisionHint')}</p>
     </div>
   )
 }

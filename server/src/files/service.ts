@@ -8,7 +8,7 @@ import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { ServerConfig } from '../config'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
-import { authorize, type FsCtx } from '../policy/authorize'
+import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
@@ -20,12 +20,15 @@ import { consumeSkillApproval, editedText, requireSkillApproval } from '../skill
 import { readMaxBytes } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import type { McpContent } from '../turns'
-import { normalizeImage, safeOpsEnabled, SAFE_INPUT_MAX, SAFE_OUTPUT_MAX } from '../safe-ops/runner'
-import { snapshot, recheck } from '../safe-ops/source'
 import { Quarantine } from '../safe-ops/quarantine'
-import { withWorkflow, recoverWorkflows } from '../safe-ops/workflow'
+import { recoverWorkflows } from '../safe-ops/workflow'
 import { recoverPublications } from '../safe-ops/publication'
 import { safeText, safeErrorText } from '../safe-ops/strings'
+import { which } from '../config'
+import { isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock, visionTools, type VisionBlock,
+  type VisionTools } from './vision'
+import { visionText } from './vision-text'
 
 void ENGINE_BUILTIN_ALLOWED
 
@@ -47,7 +50,10 @@ export class TurnFiles {
   readHashes = new Map<string, string>()
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  /** image blocks sent to the model in this turn (files/vision.ts VISION_TURN_IMAGES / VISION_TURN_BYTES) */
   imageBytes = 0
+  imageCount = 0
+  /** safe operations 1A: image versions a presentation used (safe-ops/publication.ts) */
   imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
   filesWritten = new Set<string>()
@@ -72,7 +78,7 @@ export interface ToolCtx {
    */
   confirmWidening?: (target: string, sources: string[], binding?: string) => Promise<string | null>
 }
-export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
+export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 'image/jpeg'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
 const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
@@ -163,37 +169,21 @@ export class FileService {
   }
 
   // ---------------- read ----------------
-  /** Fixed converter seam; production always uses the qualified runner. */
-  imagePreview(format: string, bytes: Uint8Array, signal?: AbortSignal) { return normalizeImage(format, bytes, signal) }
+  /** Converter seams (tests replace them): an image file -> the model's JPEG, a PDF page -> the model's JPEG. */
+  modelImage(name: string, bytes: Uint8Array, signal?: AbortSignal) { return modelImage(name, bytes, this.visionTools(), signal) }
+  pdfPageImage(bytes: Uint8Array, page: number, signal?: AbortSignal) { return pdfPageImage(bytes, page, this.visionTools(), signal) }
+  visionTools(): VisionTools { return visionTools({ nativeBin: this.cfg.nativeBin, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, which }) }
 
-  private async readImage(ctx: ToolCtx, a: {file_path: string}): Promise<ToolOutput> {
-    const source=snapshot(this,ctx,a.file_path,SAFE_INPUT_MAX)
-    const e=ext(source.path)
-    let pixels: Buffer | undefined
-    const turn=ctx.turnId ? this.db.query('SELECT engine FROM turns WHERE id=?').get(ctx.turnId) as {engine:string}|null : null
-    if(safeOpsEnabled() && (turn?.engine==='claude-code' || turn?.engine==='codex') && ctx.files.imageBytes+SAFE_OUTPUT_MAX<=4*SAFE_OUTPUT_MAX) {
-      try { pixels=await this.imagePreview(e,source.bytes,ctx.signal) }
-      catch(err) { ctx.signal?.throwIfAborted(); if(!(err instanceof ToolError) || err.code!=='safe_ops_unavailable') throw err }
-    }
-    let ocr=''
-    if(this.cfg.ocr && !pixels) {
-      try { ocr=await extractText(source.path,source.bytes,{pandoc:null,pdftotext:null,ocr:this.cfg.ocr,quarantine:this.quarantine},ctx.signal) }
-      catch { ctx.signal?.throwIfAborted() }
-    }
-    if(pixels && (pixels.length>SAFE_OUTPUT_MAX || pixels[0]!==0xff || pixels[1]!==0xd8)) throw new ToolError('Invalid image converter result')
-    const beforeDelivery=() => recheck(this,ctx,source)
-    beforeDelivery()
-    ctx.files.readHashes.set(source.path,source.hash)
-    ctx.files.readPaths.add(source.path)
-    ctx.files.imageSources.set(source.path,{hash:source.hash,identity:source.identity})
-    if(pixels) { this.quarantine.add(pixels, 'image'); ctx.files.imageBytes+=pixels.length }
-    const text=[safeText(this.db,ctx.user.id,pixels?'image':'fallback'),'Source: '+source.path,'SHA-256: '+source.hash,ocr.slice(0,16000)].join('\n')
-    const content: McpContent[]=[{type:'text',text},...(pixels?[{type:'image' as const,mimeType:'image/jpeg',data:pixels.toString('base64')}]:[])]
-    return {text,content,beforeDelivery,summary:'read '+source.path+' -> '+(pixels?'image':'OCR fallback')}
+  async read(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const e = ext(a.file_path)
+    if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
+    if (isVisionImage(a.file_path)) return this.readImage(ctx, a)
+    if (e === 'pdf') return this.readPdf(ctx, a)
+    return this.readText(ctx, a)
   }
 
-  async read(ctx: ToolCtx, a: { file_path: string; offset?: number; limit?: number }): Promise<ToolOutput> {
-    if(safeOpsEnabled() && ['png','jpg','jpeg','webp','heic','heif'].includes(ext(a.file_path))) return withWorkflow(this,ctx,() => this.readImage(ctx,a))
+  /** Text of a file (Office files converted), numbered lines. */
+  private async readText(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
@@ -201,14 +191,201 @@ export class FileService {
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
     ctx.files.readHashes.set(r.rel, sha256(bytes))
     ctx.files.readPaths.add(r.rel)
-    const lines = text.split(/\r?\n/)
-    if (lines.length && lines[lines.length - 1] === '') lines.pop()
-    const off = a.offset ?? 1, lim = a.limit ?? 2000
-    if (!lines.length) return { text: '(empty file)', summary: `read ${r.rel} -> empty` }
-    if (off > lines.length) throw new ToolError(`offset ${off} is past the end of the file (${lines.length} lines)`)
-    const slice = lines.slice(off - 1, off - 1 + lim).map((l, i) => `${String(off + i).padStart(6)}\t${l.length > 2000 ? l.slice(0, 2000) + '… (line cut)' : l}`)
-    const more = off - 1 + lim < lines.length ? `\n… (${lines.length} lines in total; use offset/limit to read more)` : ''
-    return { text: slice.join('\n') + more, summary: `read ${r.rel} -> ${slice.length} lines${isOffice(r.rel) ? ' (converted)' : ''}` }
+    return numberedLines(r.rel, text, a)
+  }
+
+  /**
+   * An image, as the model's JPEG (files/vision.ts), like Claude Code's Read. The bytes are bound to the authorized
+   * path, refused when quarantined, and access is checked again right before delivery (also at socket drain,
+   * mcp/socket.ts). No pixels when the team switched image viewing off (a Mac reads the text with Apple Vision then),
+   * for the text-only API engine, or for a connection without a chat turn: a short note says why.
+   */
+  private async readImage(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
+    const block = visionBlock(this.db, ctx.turnId)
+    if (block === 'off' && this.cfg.ocr) return this.readText(ctx, a)
+    if (block) return { text: visionText(this.db, ctx.user.id, block), summary: `read ${r.rel} -> image not shown (${block})` }
+    if (r.st!.size > VISION_INPUT_MAX) return { text: visionText(this.db, ctx.user.id, 'tooLarge'), isError: true, summary: `read ${r.rel} -> image too large` }
+    const full = this.imageBudget(ctx, 0)
+    if (full) return { text: full, summary: `read ${r.rel} -> image not shown (turn image limit)` }
+    const src = this.boundSource(ctx, r, VISION_INPUT_MAX)
+    let jpeg: Buffer
+    try { jpeg = await this.modelImage(src.rel, src.bytes, ctx.signal) } catch (e) {
+      ctx.signal?.throwIfAborted()
+      const note = this.visionFailure(ctx, e)
+      return { text: note, isError: true, summary: `read ${r.rel} -> image not shown (${(e as ToolError).code})` }
+    }
+    ctx.signal?.throwIfAborted()
+    const over = this.imageBudget(ctx, jpeg.length)
+    if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
+    const beforeDelivery = () => this.recheckSource(ctx, src)
+    beforeDelivery()
+    ctx.files.readHashes.set(src.rel, src.hash)
+    ctx.files.readPaths.add(src.rel)
+    ctx.files.imageBytes += jpeg.length
+    ctx.files.imageCount++
+    const text = `Image ${src.rel} (shown below).`
+    return { text, content: [{ type: 'text', text }, { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') }], beforeDelivery,
+      summary: `read ${src.rel} -> image ${jpeg.length}B` }
+  }
+
+  /**
+   * A PDF like Claude Code's Read: `pages` (at most PDF_PAGES_PER_READ; required over PDF_PAGES_WITHOUT_RANGE pages)
+   * gives each page's text layer as text, and pages without one (scans, pictures) as images; `as_images` shows the
+   * text pages as images too. offset/limit without `pages` give numbered lines of the text layer (the lines grep
+   * reports). No OCR: with image viewing off, a Mac server gives Apple Vision text for scanned pages instead, a Linux
+   * server a note (scanned pages are not searchable there either).
+   */
+  private async readPdf(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
+    const src = this.boundSource(ctx, r, readMaxBytes())
+    const tools = this.visionTools()
+    const block = visionBlock(this.db, ctx.turnId)
+    // macOS with image viewing off: Apple Vision text for scanned pages, as before this change
+    const ocrText = block === 'off' && !!this.cfg.ocr
+    const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
+    const record = () => { ctx.files.readHashes.set(src.rel, src.hash); ctx.files.readPaths.add(src.rel) }
+
+    if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined)) {
+      if (ocrText) {
+        const text = await extractText(src.rel, src.bytes, { pandoc: null, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
+        record()
+        return numberedLines(src.rel, text, a)
+      }
+      const layers = await pdfLayer(src.bytes, tools, ctx.signal)
+      record()
+      const out = numberedLines(src.rel, layerText(layers), a)
+      const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
+      if (scanned.length) out.text += `\n\n${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(scanned) })} ${block ? why(block) : visionText(this.db, ctx.user.id, 'scannedHint', { first: scanned[0]! })}`
+      return out
+    }
+
+    const layers = await pdfLayer(src.bytes, tools, ctx.signal)
+    const n = layers.length
+    let pages: number[]
+    if (a.pages !== undefined) pages = parsePages(a.pages, n)
+    else if (n > PDF_PAGES_WITHOUT_RANGE) {
+      throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
+    } else pages = Array.from({ length: n }, (_, i) => i + 1)
+
+    const content: McpContent[] = []
+    const text = (t: string) => {
+      const last = content[content.length - 1]
+      if (last?.type === 'text') last.text += '\n\n' + t
+      else content.push({ type: 'text', text: t })
+    }
+    text(`PDF ${src.rel}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
+    let chars = 0
+    let images = 0
+    const blocked: number[] = []
+    let noPixels = false
+    for (const p of pages) {
+      ctx.signal?.throwIfAborted()
+      const layer = layers[p - 1] ?? ''
+      const scanned = isScannedPage(layer)
+      if (!scanned) {
+        const room = PDF_TEXT_MAX - chars
+        const body = layer.replace(/\s+$/, '')
+        text(`--- Page ${p} ---\n${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? body.slice(0, room) + '\n… (page text cut; read fewer pages)' : body}`)
+        chars += Math.min(body.length, Math.max(0, room))
+      }
+      if (!scanned && !a.as_images) continue
+      const head = scanned ? `--- Page ${p} (no text layer: shown as an image) ---` : `--- Page ${p} as an image ---`
+      if (block) {
+        if (!scanned) noPixels = true
+        else if (ocrText) {
+          let t: string
+          try {
+            const png = await pdfPagePng(src.bytes, p, tools, ctx.signal)
+            t = (await extractText('page.png', png, { pandoc: null, pdftotext: null, ocr: this.cfg.ocr }, ctx.signal)).trim()
+          } catch (e) {
+            ctx.signal?.throwIfAborted()
+            t = e instanceof ToolError && e.code.startsWith('vision_') ? this.visionFailure(ctx, e) : `(${e instanceof ToolError ? e.message : 'the page could not be read'})`
+          }
+          text(`--- ${visionText(this.db, ctx.user.id, 'ocrPage', { page: p })} ---\n${t}`)
+        } else blocked.push(p)
+        continue
+      }
+      const full = this.imageBudget(ctx, 0)
+      if (full) { text(`--- Page ${p} ---\n${full}`); continue }
+      let jpeg: Buffer
+      try { jpeg = await this.pdfPageImage(src.bytes, p, ctx.signal) } catch (e) {
+        ctx.signal?.throwIfAborted()
+        text(`--- Page ${p} ---\n${this.visionFailure(ctx, e)}`)
+        continue
+      }
+      ctx.signal?.throwIfAborted()
+      const over = this.imageBudget(ctx, jpeg.length)
+      if (over) { text(`--- Page ${p} ---\n${over}`); continue }
+      text(head)
+      content.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })
+      ctx.files.imageBytes += jpeg.length
+      ctx.files.imageCount++
+      images++
+    }
+    if (blocked.length) text(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
+    else if (noPixels) text(why(block!))
+    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
+    beforeDelivery?.()
+    record()
+    const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
+    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+  }
+
+  /**
+   * An image from outside the team folder (a Google Drive file, tools/drive.ts) for this turn's model: the same
+   * switch, engine check, budget and converter as a read. `text` says what happened (or holds the Apple Vision text
+   * on a Mac with image viewing off); `jpeg` is set when the image goes to the model.
+   */
+  async imageForModel(ctx: ToolCtx, name: string, bytes: Uint8Array, signal?: AbortSignal): Promise<{ jpeg?: Buffer; text: string }> {
+    this.quarantine.assertBytes(bytes)
+    const block = visionBlock(this.db, ctx.turnId)
+    if (block === 'off' && this.cfg.ocr) return { text: await extractText(name, bytes, { pandoc: null, pdftotext: null, ocr: this.cfg.ocr }, signal) }
+    if (block) return { text: visionText(this.db, ctx.user.id, block) }
+    const full = this.imageBudget(ctx, 0)
+    if (full) return { text: full }
+    let jpeg: Buffer
+    try { jpeg = await this.modelImage(name, bytes, signal) } catch (e) {
+      signal?.throwIfAborted()
+      return { text: this.visionFailure(ctx, e) }
+    }
+    signal?.throwIfAborted()
+    const over = this.imageBudget(ctx, jpeg.length)
+    if (over) return { text: over }
+    ctx.files.imageBytes += jpeg.length
+    ctx.files.imageCount++
+    return { jpeg, text: 'The image is shown below.' }
+  }
+
+  /** The file's bytes, bound to the path that was authorized (same inode, size and times), not quarantined. */
+  private boundSource(ctx: ToolCtx, r: Authorized, cap: number): BoundSource {
+    const { bytes, st } = readRegular(r.abs, cap)
+    if (identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
+    this.quarantine.assertBytes(bytes)
+    return { rel: r.rel, bytes, hash: sha256(bytes), identity: identity(st) }
+  }
+
+  /** Right before delivery: the account, its access now and the file's identity, read again (synchronous). */
+  private recheckSource(ctx: ToolCtx, src: BoundSource) {
+    const user = this.principal(ctx.user.id)
+    const now = authorize(this.fx, this.rules(), user, src.rel, 'read')
+    if (!now.st || identity(now.st) !== src.identity) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
+  }
+
+  /** The note when this turn's images reached VISION_TURN_IMAGES / VISION_TURN_BYTES (with `next` more bytes). */
+  private imageBudget(ctx: ToolCtx, next: number): string | null {
+    if (ctx.files.imageCount < VISION_TURN_IMAGES && ctx.files.imageBytes + next <= VISION_TURN_BYTES) return null
+    return visionText(this.db, ctx.user.id, 'budget', { images: VISION_TURN_IMAGES, mb: VISION_TURN_BYTES / 1024 / 1024 })
+  }
+
+  /** A converter's refusal as the note the AI gets (other errors go on to the caller). */
+  private visionFailure(ctx: ToolCtx, e: unknown): string {
+    const code = e instanceof ToolError ? e.code : ''
+    const key = ({ vision_too_large: 'tooLarge', vision_unsupported: 'unsupported', vision_damaged: 'damaged', vision_heavy: 'heavy', vision_busy: 'busy', vision_unavailable: 'unavailable' } as const)[code as 'vision_busy']
+    if (!key) throw e
+    return visionText(this.db, ctx.user.id, key)
   }
 
   // ---------------- write / edit ----------------
@@ -340,6 +517,22 @@ export class FileService {
     fileEvent(this.db, { turnId: null, userId, path: r.rel, action: 'restore', size: bytes.length, sha256: sha256(bytes) })
     return r.rel
   }
+}
+
+type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean }
+interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
+const identity = (s: fs.Stats) => [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs, s.nlink].join(':')
+
+/** Text as numbered lines (cat -n), from `offset` (1-based), `limit` lines (default 2000), long lines cut. */
+function numberedLines(rel: string, text: string, a: { offset?: number; limit?: number }): ToolOutput {
+  const lines = text.split(/\r?\n/)
+  if (lines.length && lines[lines.length - 1] === '') lines.pop()
+  const off = a.offset ?? 1, lim = a.limit ?? 2000
+  if (!lines.length) return { text: '(empty file)', summary: `read ${rel} -> empty` }
+  if (off > lines.length) throw new ToolError(`offset ${off} is past the end of the file (${lines.length} lines)`)
+  const slice = lines.slice(off - 1, off - 1 + lim).map((l, i) => `${String(off + i).padStart(6)}\t${l.length > 2000 ? l.slice(0, 2000) + '… (line cut)' : l}`)
+  const more = off - 1 + lim < lines.length ? `\n… (${lines.length} lines in total; use offset/limit to read more)` : ''
+  return { text: slice.join('\n') + more, summary: `read ${rel} -> ${slice.length} lines${isOffice(rel) ? ' (converted)' : ''}` }
 }
 
 const short = (p: unknown) => (typeof p === 'string' ? p.slice(0, 200) : '')

@@ -23,6 +23,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   /** people may turn on "Allow all websites" in the desktop app's in-app browser; each team (the director) decides */
   browserAllowAll: true,
   personalIntegrations: true,
+  /** AI reads send images and PDF pages as images (files/vision.ts) */
+  aiVision: true,
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
    * through OpenRouter") */
   speechProvider: 'off',

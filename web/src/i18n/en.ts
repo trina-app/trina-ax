@@ -1639,6 +1639,8 @@ export const en: Record<MessageKey, string> = {
   'integrations.createdBy': 'Added by {name}',
   'teamSettings.personalIntegrations': 'Members can add their own connections',
   'teamSettings.personalIntegrationsHint': 'Lets members connect their own accounts in Settings > External services. Off: no new ones can be added, and existing personal connections are left out of chats. Team connections are not affected.',
+  'teamSettings.aiVision': 'Send images and PDF pages to the AI',
+  'teamSettings.aiVisionHint': 'When the AI reads a photo, screenshot or scanned PDF page, it sees the image itself, like Claude Code. Images go to the AI provider (Anthropic or OpenAI) like any other file content. Off: no images are sent; on a Mac server the AI gets recognized text instead, on a Linux server only a note. Scanned documents are not text-searchable on Linux servers.',
   'audit.act.integration.create': 'Added an external service connection',
   'audit.act.integration.update': 'Changed an external service connection',
   'audit.act.integration.delete': 'Deleted an external service connection',

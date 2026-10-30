@@ -476,6 +476,10 @@ export const TeamSettings = z.object({
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
+  /** "Send images and PDF pages to the AI" (default on): an AI read of a photo, screenshot or scanned PDF page gives
+   * the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads the text with Apple
+   * Vision instead, a Linux server says the image is not shown. */
+  aiVision: z.boolean(),
   /** voice input: 'off' (default) | 'openrouter' (needs the OpenRouter key, Admin > Team settings) | 'local' */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */

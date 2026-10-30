@@ -30,8 +30,10 @@ export const GrepInput = z.strictObject({
 })
 export const ReadInput = z.strictObject({
   file_path: relPath,
-  offset: z.number().int().min(1).optional().describe('1-based line to start from'),
+  offset: z.number().int().min(1).optional().describe('1-based line to start from (text files; for a PDF, lines of its text layer as grep reports them)'),
   limit: z.number().int().min(1).max(20000).optional().describe('Number of lines (default 2000)'),
+  pages: z.string().max(100).optional().describe('PDF only: pages to read, e.g. "3", "1-5" or "1-3,7". At most 20 pages per call; required for PDFs over 10 pages.'),
+  as_images: z.boolean().optional().describe('PDF only: also show the pages as images, even pages that have text (charts, tables, layout). Pages without a text layer are always shown as images.'),
 })
 export const WriteInput = z.strictObject({
   file_path: relPath,
@@ -121,8 +123,8 @@ export const TextOutput = z.object({ text: z.string() })
 export const FILE_TOOLS = {
   list: { input: ListInput, description: 'List a folder in the team drive. Only things you are allowed to see are shown. Folders end with "/".' },
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
-  grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Folders you cannot access are skipped.' },
-  read: { input: ReadInput, description: 'Read a file. Returns numbered lines (cat -n style). Word/Excel/PowerPoint/PDF files are converted to text. Use offset/limit for long files.' },
+  grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images and scanned PDF pages have no searchable text: read them to see them. Folders you cannot access are skipped.' },
+  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images.' },
   write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
   edit: { input: EditInput, description: 'Replace an exact string in a text file you have read in this turn. old_string must be unique unless replace_all is true. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
 } as const

@@ -186,7 +186,7 @@ await check('broker publishes a validated Korean PPTX and retains image provenan
       },
     })
     assert(image.result.content.some((c: any) => c.type === 'image' && c.mimeType === 'image/jpeg'))
-    assert(ctx.files.imageSources.has('users/alice/image.png'))
+    assert(ctx.files.readHashes.has('users/alice/image.png'))
   } finally {
     await app.close()
   }

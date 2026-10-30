@@ -33,7 +33,7 @@ for (const [who, source, allowed] of matrix)
   test('image matrix ' + who + ' ' + source, async () => {
     const turn = A.turn(who, A.chat(who)),
       ctx = A.toolCtx(who, turn)
-    const codec = spyOn(A.ctx.files, 'imagePreview').mockResolvedValue(Buffer.from([255, 216, 255, 217]))
+    const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(Buffer.from([255, 216, 255, 217]))
     try {
       const r = await makeHandler(
         A.ctx.files,
@@ -50,7 +50,7 @@ for (const [who, source, allowed] of matrix)
 test('membership removal during image conversion prevents delivery', async () => {
   const turn = A.turn('bob', A.chat('bob')),
     ctx = A.toolCtx('bob', turn)
-  const codec = spyOn(A.ctx.files, 'imagePreview').mockImplementation(async () => {
+  const codec = spyOn(A.ctx.files, 'modelImage').mockImplementation(async () => {
     A.ctx.db.query("DELETE FROM group_members WHERE user_id='bob'").run()
     return Buffer.from([255, 216, 255, 217])
   })

@@ -38,13 +38,13 @@ for (const engine of ['claude-code', 'codex'])
       turn = A.turn('alice', chat)
     A.ctx.db.query('UPDATE turns SET engine=? WHERE id=?').run(engine, turn)
     const ctx = A.toolCtx('alice', turn),
-      mock = spyOn(A.ctx.files, 'imagePreview').mockResolvedValue(jpeg)
+      mock = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(jpeg)
     try {
       const r = await call(ctx)
       expect(r.result.isError).toBeUndefined()
       expect(r.result.content[1]).toEqual({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })
       expect(ctx.files.readPaths.has('users/alice/image.png')).toBe(true)
-      expect(ctx.files.imageSources.get('users/alice/image.png')?.hash).toHaveLength(64)
+      expect(ctx.files.readHashes.get('users/alice/image.png')).toHaveLength(64)
       const wire = JSON.parse(JSON.stringify(r))
       expect(wire.beforeDelivery).toBeUndefined()
     } finally {
@@ -54,7 +54,7 @@ for (const engine of ['claude-code', 'codex'])
 test('revocation during conversion discards pixels and OCR', async () => {
   const turn = A.turn('alice', A.chat('alice')),
     ctx = A.toolCtx('alice', turn)
-  const mock = spyOn(A.ctx.files, 'imagePreview').mockImplementation(async () => {
+  const mock = spyOn(A.ctx.files, 'modelImage').mockImplementation(async () => {
     A.ctx.db.query("UPDATE users SET status='disabled' WHERE id='alice'").run()
     return jpeg
   })
@@ -78,7 +78,7 @@ test('cancellation refuses a result before disclosure', async () => {
     ctx = A.toolCtx('alice', turn),
     abort = new AbortController()
   ctx.signal = abort.signal
-  const mock = spyOn(A.ctx.files, 'imagePreview').mockImplementation(async () => {
+  const mock = spyOn(A.ctx.files, 'modelImage').mockImplementation(async () => {
     abort.abort()
     return jpeg
   })
@@ -109,17 +109,19 @@ test('unqualified converter fails closed; no direct-execution fallback', async (
   if (process.platform === 'linux') return
   await expect(normalizeImage('png', Buffer.from('synthetic'))).rejects.toThrow('unavailable')
 })
-test('flag off preserves the legacy image read limit and offset handling', async () => {
+test('flag off: image reads take the default vision path (no 1A workflow, no confidential mark)', async () => {
   delete process.env.MYCEL_SAFE_OPS_1A
-  const file = path.join(A.team, 'users/alice/legacy.png')
-  // OCR is disabled in this fixture: legacy read treats this synthetic input as text.
-  fs.writeFileSync(file, 'first\nsecond\n' + 'x'.repeat(8 * 1024 ** 2))
+  const chat = A.chat('alice'), turn = A.turn('alice', chat)
+  const before = (A.ctx.db.query('SELECT count(*) AS n FROM safe_ops_workflows').get() as { n: number }).n
+  const mock = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(jpeg)
   try {
-    const r = await call(A.toolCtx('alice'), 'read', {file_path:'users/alice/legacy.png',offset:2,limit:1})
+    const r = await call(A.toolCtx('alice', turn))
     expect(r.result.isError).toBeUndefined()
-    expect(r.result.content[0].text).toContain('second')
+    expect(r.result.content.some((c: any) => c.type === 'image')).toBe(true)
+    expect((A.ctx.db.query('SELECT count(*) AS n FROM safe_ops_workflows').get() as { n: number }).n).toBe(before)
+    expect(confidentialChat(A.ctx.db, chat)).toBe(false)
   } finally {
-    fs.rmSync(file)
+    mock.mockRestore()
     process.env.MYCEL_SAFE_OPS_1A = '1'
   }
 })
@@ -136,7 +138,7 @@ test('safe presentation refuses uploaded templates before conversion or placemen
 test('new strings are available in ko, en and id', () => {
   for (const locale of ['ko', 'en', 'id']) {
     A.ctx.db.query("UPDATE users SET locale=? WHERE id='alice'").run(locale)
-    expect(safeText(A.ctx.db, 'alice', 'image').length).toBeGreaterThan(10)
+    expect(safeText(A.ctx.db, 'alice', 'changed').length).toBeGreaterThan(10)
   }
 })
 test('produced PowerPoint is checked in a child; the server never calls the ZIP parser', async () => {

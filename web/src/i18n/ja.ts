@@ -1599,6 +1599,8 @@ export const ja: Record<MessageKey, string> = {
   'integrations.createdBy': "{name}が追加",
   'teamSettings.personalIntegrations': "メンバーによる個人接続の追加を許可",
   'teamSettings.personalIntegrationsHint': "メンバーが「設定 > 外部サービス」で自分のアカウントを接続できます。オフの場合、新しい接続は追加できず、既存の個人接続もチャットでは使用されません。チームの接続には影響しません。",
+  'teamSettings.aiVision': "画像と PDF のページを AI に送信",
+  'teamSettings.aiVisionHint': "AI が写真、スクリーンショット、スキャンした PDF のページを読むとき、Claude Code と同じように画像そのものを見ます。画像は他のファイル内容と同様に AI 提供元（Anthropic または OpenAI）へ送信されます。オフにすると画像は送信されず、Mac サーバーでは認識したテキストを、Linux サーバーでは案内のみを AI に渡します。Linux サーバーではスキャン文書をテキスト検索できません。",
   'audit.act.integration.create': "外部サービスの接続を追加",
   'audit.act.integration.update': "外部サービスの接続を変更",
   'audit.act.integration.delete': "外部サービスの接続を削除",

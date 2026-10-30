@@ -1599,6 +1599,8 @@ export const es: Record<MessageKey, string> = {
   'integrations.createdBy': "Añadida por {name}",
   'teamSettings.personalIntegrations': "Los miembros pueden añadir sus propias conexiones",
   'teamSettings.personalIntegrationsHint': "Permite conectar cuentas propias en Configuración > Servicios externos. Desactivado: no se pueden añadir nuevas conexiones y las personales existentes quedan fuera de los chats. No afecta a las conexiones del equipo.",
+  'teamSettings.aiVision': "Enviar imágenes y páginas PDF a la IA",
+  'teamSettings.aiVisionHint': "Cuando la IA lee una foto, una captura de pantalla o una página PDF escaneada, ve la imagen directamente, como en Claude Code. Las imágenes se envían al proveedor de IA (Anthropic u OpenAI) como cualquier otro contenido de archivos. Desactivado: no se envían imágenes; en un servidor Mac la IA recibe el texto reconocido y en un servidor Linux solo un aviso. En servidores Linux los documentos escaneados no se pueden buscar como texto.",
   'audit.act.integration.create': "Añadió una conexión a un servicio externo",
   'audit.act.integration.update': "Modificó una conexión a un servicio externo",
   'audit.act.integration.delete': "Eliminó una conexión a un servicio externo",

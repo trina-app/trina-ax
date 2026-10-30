@@ -186,7 +186,8 @@ async function tool(name: string, args: unknown, expectImage = false, inspectIma
     const image=content.find((c:any)=>c.type==='image' && c.mimeType==='image/jpeg' && typeof c.data==='string')
     return image ? 'IMAGE_BLOCK_OK:image/jpeg' : 'IMAGE_BLOCK_MISSING'
   }
-  if (inspectImages) return JSON.stringify({ text, images: content.filter((c: any) => c.type === 'image').map((c: any) => ({ mimeType: c.mimeType, magic: Buffer.from(c.data, 'base64').subarray(0, 8).toString('hex') })) })
+  // structuredContent next to an image makes Codex drop the image (openai/codex#10334): say whether it was there
+  if (inspectImages) return JSON.stringify({ text, structured: r.result?.structuredContent !== undefined, images: content.filter((c: any) => c.type === 'image').map((c: any) => ({ mimeType: c.mimeType, magic: Buffer.from(c.data, 'base64').subarray(0, 8).toString('hex') })) })
   return text
 }
 

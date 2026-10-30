@@ -1638,6 +1638,8 @@ export const ko = {
   'integrations.createdBy': '만든 사람 {name}',
   'teamSettings.personalIntegrations': '직원이 개인 연결을 추가할 수 있음',
   'teamSettings.personalIntegrationsHint': '직원이 설정 › 외부 서비스에서 자기 계정을 연결하는 기능이에요. 끄면 새로 추가할 수 없고, 이미 있는 개인 연결도 대화에서 빠져요. 팀 연결은 그대로예요.',
+  'teamSettings.aiVision': '이미지와 PDF 쪽을 AI에게 보내기',
+  'teamSettings.aiVisionHint': 'AI가 사진·화면 캡처·스캔한 PDF 쪽을 읽을 때 Claude Code처럼 이미지를 직접 봐요. 이미지는 다른 파일 내용처럼 AI 제공사(Anthropic·OpenAI)로 전송돼요. 끄면 이미지를 보내지 않고, Mac 서버는 글자 인식 결과를, Linux 서버는 안내만 전해요. Linux 서버에서는 스캔 문서를 글자로 검색할 수 없어요.',
   'audit.act.integration.create': '외부 서비스 연결 추가',
   'audit.act.integration.update': '외부 서비스 연결 변경',
   'audit.act.integration.delete': '외부 서비스 연결 삭제',

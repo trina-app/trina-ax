@@ -2,7 +2,9 @@
 // comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
 // worker (office-worker.ts, a bun child process), pdftotext (pdf).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
-// Scanned PDFs and images: mycel-ocr (native/ocr, Apple Vision, macOS) when it is built.
+// Scanned PDFs: mycel-ocr (native/ocr, Apple Vision) on macOS only, for the search index (grep text cache, semantic search)
+// and the read fallback when a team turned image viewing off. Linux has no OCR. An AI read of an image or a scanned page
+// gives the model the image instead (files/vision.ts).
 // Input bytes always come from an fd opened with O_NOFOLLOW and checked (nlink==1), and are fed to the
 // converters on stdin, so a converter never opens a path itself. Converters run isolated (tools/isolate.ts:
 // sandbox-exec on macOS, bwrap on Linux): no network, no reading of the team folder or server data.
@@ -21,13 +23,18 @@ export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', '
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
 export const ext = (name: string) => (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
 
-export interface Tools { pandoc: string | null; pdftotext: string | null; ocr?: string | null; quarantine?: { assertBytes(bytes: Uint8Array): void } }
+export interface Tools {
+  pandoc: string | null; pdftotext: string | null; ocr?: string | null; quarantine?: { assertBytes(bytes: Uint8Array): void }
+  /** a read for the AI (drive_read): never OCR. A PDF gives its text layer only (pdftotext, else PDFKit through
+   * `mycel-ocr --layer` on a Mac without poppler); an image is no text at all (the caller shows it as an image). */
+  textLayerOnly?: boolean
+}
 
-/** Images the OCR tool reads (read only; grep's text cache keeps to documents, an image folder would mean minutes). */
+/** Images the macOS OCR tool reads (only for a read when image viewing is off: grep's text cache keeps to documents, an
+ * image folder would mean minutes). */
 export const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'heic', 'heif', 'tif', 'tiff', 'bmp', 'gif', 'webp'] as const
-/** pages recognized per PDF: Linux's tesseract is slower per page than Apple Vision and must finish within the 240 s
- * below (spike S5, linux-runtime spec 3.7.1) */
-const OCR_PAGES_MAX = process.platform === 'linux' ? 50 : 100
+/** pages recognized per PDF (Apple Vision, about a second per page, within the 240 s below) */
+const OCR_PAGES_MAX = 100
 
 /** pdftotext's text of a scanned PDF: some page (pages end with a form feed) has next to no text. */
 export function looksScanned(text: string): boolean {
@@ -135,6 +142,10 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       return officeWorkerText(e, bytes, signal)
     case 'pdf': {
       if (!tools.pdftotext && !tools.ocr) throw new ToolError('pdftotext is not installed on the server')
+      if (tools.textLayerOnly) {
+        if (tools.pdftotext) return pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes, 20_000, signal)
+        return pipeThrough([tools.ocr!, '--layer'], bytes, 20_000, signal)
+      }
       if (tools.pdftotext) {
         const text = await pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes, 20_000, signal)
         // a scanned page (no text layer): OCR, which keeps the text layer of the other pages
@@ -143,7 +154,7 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       return ocr(tools.ocr!, bytes, true, signal)
     }
     default: {
-      if (tools.ocr && (IMAGE_EXT as readonly string[]).includes(e)) return ocr(tools.ocr, bytes, false, signal)
+      if (tools.ocr && !tools.textLayerOnly && (IMAGE_EXT as readonly string[]).includes(e)) return ocr(tools.ocr, bytes, false, signal)
       const head = bytes.subarray(0, 8000)
       if (head.includes(0)) throw new ToolError('this is a binary file; it cannot be shown as text')
       return decodeText(bytes)

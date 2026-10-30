@@ -105,20 +105,6 @@ export const SAFE_OPS_TEXT = {
     en: "Access or the source file changed before delivery. Read the file again.",
     id: "Akses atau berkas sumber berubah sebelum dikirim. Baca kembali berkas tersebut.",
   },
-  fallback: {
-    ja: "画像を直接送信できません。利用可能な場合は OCR テキストを表示します。",
-    es: "No se pueden enviar los píxeles de la imagen. A continuación se incluye el texto OCR, si está disponible.",
-    ko: "이미지를 직접 전달할 수 없습니다. 가능한 경우 OCR 텍스트를 제공합니다.",
-    en: "Image pixels are unavailable. OCR text, if available, follows.",
-    id: "Piksel gambar tidak tersedia. Teks OCR disertakan jika tersedia.",
-  },
-  image: {
-    ja: "画像を設定済みの AI 提供元に送信します。元ファイルと読み取り範囲を記録します。",
-    es: "Los píxeles de la imagen se envían al proveedor de modelos configurado. Se conservan el origen y el alcance de lectura.",
-    ko: "이미지를 설정된 AI 제공자에게 전달합니다. 원본과 읽기 범위를 기록합니다.",
-    en: "Image pixels are sent to the configured model provider. Source and read scope are retained.",
-    id: "Piksel gambar dikirim ke penyedia model yang dikonfigurasi. Sumber dan cakupan baca dicatat.",
-  },
   unavailable: {
     ja: "安全な画像・PowerPoint 変換には、検証済みの Linux 変換環境が必要です。ファイルは保存していません。",
     es: "La conversión segura de imágenes o PowerPoint requiere un conversor Linux verificado. No se guardó nada.",

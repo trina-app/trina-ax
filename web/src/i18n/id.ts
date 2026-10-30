@@ -1639,6 +1639,8 @@ export const id: Record<MessageKey, string> = {
   'integrations.createdBy': 'Ditambahkan oleh {name}',
   'teamSettings.personalIntegrations': 'Anggota dapat menambah koneksi pribadi',
   'teamSettings.personalIntegrationsHint': 'Anggota dapat menghubungkan akunnya sendiri di Pengaturan > Layanan eksternal. Nonaktif: koneksi baru tidak dapat ditambah, dan koneksi pribadi yang ada tidak dipakai di obrolan. Koneksi tim tidak terpengaruh.',
+  'teamSettings.aiVision': 'Kirim gambar dan halaman PDF ke AI',
+  'teamSettings.aiVisionHint': 'Saat AI membaca foto, tangkapan layar, atau halaman PDF hasil pindaian, AI melihat gambarnya langsung, seperti Claude Code. Gambar dikirim ke penyedia AI (Anthropic atau OpenAI) seperti isi berkas lainnya. Nonaktif: tidak ada gambar yang dikirim; di server Mac AI menerima teks hasil pengenalan, di server Linux hanya catatan. Dokumen hasil pindaian tidak dapat dicari sebagai teks di server Linux.',
   'audit.act.integration.create': 'Menambah koneksi layanan eksternal',
   'audit.act.integration.update': 'Mengubah koneksi layanan eksternal',
   'audit.act.integration.delete': 'Menghapus koneksi layanan eksternal',
