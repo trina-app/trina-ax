@@ -23,6 +23,8 @@ export const accessChanged = new Emitter<void>()
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
 export const notificationsChanged = new Emitter<void>()
+/** this window changed a scheduled task (resumed one from its card): the "paused for review" banner recounts */
+export const schedulesChanged = new Emitter<void>()
 /** a ChatGPT sign-in this person started (Admin / Settings > AI connections): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */

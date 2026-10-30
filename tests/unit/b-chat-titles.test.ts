@@ -12,6 +12,7 @@ import { HIDDEN } from '../../server/src/integrations/connections/hide'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { WORK } from '../lib/env'
 import { waitFor } from '../lib/wait'
+import { CONFIRMED } from '../lib/schedule-card'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -234,7 +235,7 @@ describe('set_title in real turns', () => {
   test('a scheduled run is not offered set_title and keeps its title', async () => {
     const rt = h.rt()
     const now = new Date()
-    const made = rt.schedules.create('alice', { title: 'Digest', prompt: fake({ echo: 'tools' }), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000))
+    const made = rt.schedules.create('alice', { title: 'Digest', prompt: fake({ echo: 'tools' }), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
     expect(rt.schedules.runDue(now)).toEqual([made.id])
     const chatId = rt.schedules.get('alice', made.id)!.last_chat_id!
     await waitFor(() => (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })

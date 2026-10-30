@@ -73,8 +73,9 @@ export function Notifications() {
       <h3 className="mb-3 text-sm font-semibold">{t('notifications.unread', { count: unread })}</h3>
       {!items.length && <p className="text-sm text-muted">{t('notifications.empty')}</p>}
       <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-3" data-testid="notification-item">
-        <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{t(item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
+        <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
           {item.link === 'chat' && item.chatId && <Link className="text-sm text-accent-text hover:underline" to={`/c/${encodeURIComponent(item.chatId)}`} onClick={() => void read(item)}>{t('schedules.lastRun')}</Link>}
+          {item.review && <Link className="text-sm text-accent-text hover:underline" to="/settings/schedules" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
           {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/drive" onClick={() => void read(item)}>{t('drive.title')}</Link>}
           {item.link === 'skills' && <Link className="text-sm text-accent-text hover:underline" to={skillsLink(item)} onClick={() => void read(item)}>{t('skills.title')}</Link>}
         </div>

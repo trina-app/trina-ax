@@ -5,6 +5,10 @@
 // card open without asking (tools/url-gate.ts). A run is unattended: its turn has
 // client_kind 'schedule', nothing in it waits for a person (ask_user and confirmation cards answer "no" at once,
 // turn.ts waitForPerson), and the message tells the AI so. Times are the team's time zone (ChatRuntime.timeZone).
+// A free-text task runs only after its owner confirmed it on the schedule card (confirmed_at; templates need no card):
+// one nobody confirmed — made before the card, or by an older build after a rollback — is paused for review instead of
+// run, cannot be resumed with the switch, and resumes when its owner confirms the same card again
+// (chat/schedule-review.ts, docs/DECISIONS.md "Scheduled tasks nobody confirmed").
 // The office Mac may be off at the time: a run that was missed happens once when the server is back, then the
 // schedule continues from now.
 import type { Database } from 'bun:sqlite'
@@ -21,6 +25,7 @@ import { storedRunOutcome } from './schedule-outcome'
 import type { ChatRuntime } from './runtime'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { rememberUrls } from '../tools/url-gate'
+import { audit } from '../admin/audit'
 
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable'
 
@@ -55,10 +60,20 @@ export interface ScheduleRow {
   allowed_urls: string | null
   /** JSON: ids of "allow" team connections the person let this schedule write to without asking */
   write_connections: string | null
+  /** when the person approved this task on its card; NULL: a template (needs none) or nobody confirmed it */
+  confirmed_at: string | null
+  /** when the server paused it because nobody confirmed it (the owner is told; cleared when they confirm it) */
+  review_since: string | null
 }
 
-/** What the person approved on a scheduled task's card (tools/schedules.ts). */
+/** What the person approved on a scheduled task's card (tools/schedules.ts, chat/schedule-review.ts). Its presence is
+ * the confirmation: a free-text task created without one never runs. */
 export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[] }
+
+/** A free-text task nobody confirmed on its card: it never runs and the switch cannot resume it (unknown = paused). */
+export function needsReview(s: Pick<ScheduleRow, 'template_id' | 'confirmed_at'>): boolean {
+  return !s.template_id && !s.confirmed_at
+}
 
 /** The JSON string list of a schedule column (a bad or missing value is an empty list). */
 export function scheduleList(v: string | null | undefined): string[] {
@@ -134,10 +149,19 @@ export class Schedules {
     const next = this.check(userId, input, now)
     const s = { repeat: input.repeat, time: input.time, weekday: input.weekday ?? null, day: input.day ?? null, date: input.date ?? null }
     const id = newId()
-    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
-      approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null)
+    this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+      approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null,
+      approval ? now.toISOString() : null)
     return this.get(userId, id)!
+  }
+
+  /** Nobody confirmed this free-text task: off, its pending occurrence dropped, marked for its owner's review (told in
+   * the inbox, notifications/service.ts). Audited. */
+  pauseForReview(s: ScheduleRow, now = new Date(), reason: 'run' | 'upgrade' = 'run'): void {
+    this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL,pending_due_at=NULL,retry_at=NULL,review_since=COALESCE(review_since,?) WHERE id=?').run(now.toISOString(), s.id)
+    audit(this.db, { actor: null, action: 'schedule.review_paused', target: s.id, detail: { userId: s.user_id, wasEnabled: !!s.enabled, reason } })
+    try { notificationsOf(this.rt.ctx).reconcile(s.user_id) } catch { this.rt.log.warn('schedule notification deferred') }
   }
 
   /** Disabled one-time tasks cannot replay a consumed occurrence or move a past due time. */
@@ -151,6 +175,8 @@ export class Schedules {
     const s = this.get(userId, id)
     if (!s) return null
     if (!!s.enabled === enabled) return s
+    // nobody confirmed it: only its card resumes it (chat/schedule-review.ts)
+    if (enabled && needsReview(s)) throw new HttpError('conflict', tr('scheduleReview', locale), { params: { reason: 'schedule_review' } })
     const reason = enabled ? this.resumeBlockedReason(s, now) : null
     if (reason) throw new HttpError('conflict', tr(reason === 'completed' ? 'scheduleCompleted' : 'scheduleExpired', locale), { params: { reason: `schedule_${reason}` } })
     const next = enabled ? nextRun(s, now, this.rt.timeZone) : null
@@ -184,6 +210,8 @@ export class Schedules {
       ORDER BY COALESCE(pending_due_at,next_run_at),id`).all(now.toISOString(), now.toISOString()) as ScheduleRow[]
     const started: string[] = []
     for (const s of due) {
+      // a free-text task nobody confirmed never runs (made before the card, or by an older build): paused for review
+      if (needsReview(s)) { this.pauseForReview(s, now); continue }
       const originalDue = s.pending_due_at ?? s.next_run_at!
       // Durable before admission: crash here leaves this exact occurrence pending for the next process.
       this.db.query('UPDATE schedules SET pending_due_at=COALESCE(pending_due_at,?) WHERE id=?').run(originalDue, s.id)

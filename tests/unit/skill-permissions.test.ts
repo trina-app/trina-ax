@@ -16,6 +16,7 @@ import { checkSkill, invokedSkill, listSkills, readSkill, skillInfo, skillIssues
 import { buildTurnPrompt, skillBlock, skillsSection, teamRules } from '../../server/src/chat/prompt'
 import { recordSkillUse } from '../../server/src/admin/skill-usage'
 import { popularSkills } from '../../server/src/skills/popular'
+import { CONFIRMED } from '../lib/schedule-card'
 
 setDefaultTimeout(60_000)
 
@@ -203,7 +204,7 @@ describe('turns through the chat runtime (HTTP, no WebSocket)', () => {
   test('a scheduled run uses the skills of the schedule owner', async () => {
     const rt = h.rt()
     const run = async (user: string, prompt: string) => {
-      const made = rt.schedules.create(user, { title: 'Skill run', prompt, repeat: 'once', date: '2099-01-01', time: '09:00' })
+      const made = rt.schedules.create(user, { title: 'Skill run', prompt, repeat: 'once', date: '2099-01-01', time: '09:00' }, undefined, CONFIRMED)
       const now = new Date()
       h.ctx.db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(now.getTime() - 1000).toISOString(), made.id)
       rt.schedules.runDue(now)

@@ -8,6 +8,7 @@ import { describeSchedule, nextRun, zonedToUtc } from '../../server/src/chat/sch
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { TEXT } from '../../server/src/chat/i18n'
+import { CONFIRMED } from '../lib/schedule-card'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -48,7 +49,7 @@ describe('runs through the chat runtime', () => {
   test('a due schedule starts a new chat of its person; the turn is unattended and knows it', async () => {
     const rt = h.rt()
     const now = new Date()
-    const made = rt.schedules.create('alice', { title: 'Morning digest', prompt: fake({ echo: 'message' }), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000))
+    const made = rt.schedules.create('alice', { title: 'Morning digest', prompt: fake({ echo: 'message' }), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
     expect(rt.schedules.runDue(now)).toEqual([made.id])
     const row = rt.schedules.get('alice', made.id)!
     expect(row.last_chat_id).toBeTruthy()
@@ -67,7 +68,7 @@ describe('runs through the chat runtime', () => {
   test('ask_user inside a scheduled run comes back "skipped" at once (nobody waits 20 s)', async () => {
     const rt = h.rt()
     const now = new Date()
-    const made = rt.schedules.create('alice', { title: 'Asker', prompt: fake({ tool: 'ask_user', args: { question: 'Which format?' }, sayResult: true }), repeat: 'once', date: '2099-01-01', time: '09:00' })
+    const made = rt.schedules.create('alice', { title: 'Asker', prompt: fake({ tool: 'ask_user', args: { question: 'Which format?' }, sayResult: true }), repeat: 'once', date: '2099-01-01', time: '09:00' }, undefined, CONFIRMED)
     h.ctx.db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(now.getTime() - 1000).toISOString(), made.id)
     const t0 = Date.now()
     rt.schedules.runDue(now)
@@ -84,7 +85,7 @@ describe('runs through the chat runtime', () => {
     const schedules = h.rt().schedules
     const before = new Date('2026-10-28T14:59:00Z') // Oct 28 23:59 in Seoul
     const due = new Date('2026-10-28T15:01:00Z') // Oct 29 00:01 in Seoul
-    const made = schedules.create('alice', { title: 'Boundary', prompt: 'test task', repeat: 'once', date: '2026-10-29', time: '00:01' }, before)
+    const made = schedules.create('alice', { title: 'Boundary', prompt: 'test task', repeat: 'once', date: '2026-10-29', time: '00:01' }, before, CONFIRMED)
     // Being overdue does not expire an enabled once: the runner still owes this occurrence.
     expect(schedules.resumeBlockedReason(made, due)).toBeNull()
     expect(schedules.setEnabled('alice', made.id, true, due)).toEqual(made)
@@ -103,7 +104,7 @@ describe('runs through the chat runtime', () => {
   test('recurring tasks resume; enabling an already pending task preserves its occurrence', () => {
     const schedules = h.rt().schedules
     const before = new Date('2026-03-07T00:00:00Z'), after = new Date('2026-03-09T00:00:00Z')
-    const made = schedules.create('alice', { title: 'Recurring', prompt: 'test task', repeat: 'daily', time: '09:00' }, before)
+    const made = schedules.create('alice', { title: 'Recurring', prompt: 'test task', repeat: 'daily', time: '09:00' }, before, CONFIRMED)
     schedules.setEnabled('alice', made.id, false, before)
     expect(schedules.setEnabled('alice', made.id, true, after)).toMatchObject({ enabled: 1, next_run_at: '2026-03-10T00:00:00.000Z' })
     h.ctx.db.query('UPDATE schedules SET pending_due_at=?, retry_at=? WHERE id=?').run(made.next_run_at, after.toISOString(), made.id)
@@ -119,7 +120,7 @@ describe('runs through the chat runtime', () => {
     // Asker already ran even though its configured date is still in the future.
     const completed = schedules.list('alice').find(row => row.title === 'Asker')!
     expect(completed.last_run_at).toBeTruthy()
-    const expired = schedules.create('alice', { title: 'Expired', prompt: 'test task', repeat: 'once', date: '2000-01-02', time: '09:00' }, new Date('2000-01-01T00:00:00Z'))
+    const expired = schedules.create('alice', { title: 'Expired', prompt: 'test task', repeat: 'once', date: '2000-01-02', time: '09:00' }, new Date('2000-01-01T00:00:00Z'), CONFIRMED)
     schedules.setEnabled('alice', expired.id, false)
     const listed = await h.api('alice').call(API.listSchedules)
     expect(listed.timeZone).toBe('Asia/Seoul')
@@ -140,7 +141,7 @@ describe('runs through the chat runtime', () => {
 
   test('the API lists only own schedules; pause, resume and delete', async () => {
     const rt = h.rt()
-    rt.schedules.create('bob', { title: 'Bob only', prompt: 'x x x', repeat: 'daily', time: '10:00' })
+    rt.schedules.create('bob', { title: 'Bob only', prompt: 'x x x', repeat: 'daily', time: '10:00' }, undefined, CONFIRMED)
     const mine = await h.api('alice').call(API.listSchedules)
     expect(mine.items.every((x) => x.title !== 'Bob only')).toBe(true)
     const one = mine.items.find((x) => x.title === 'Morning digest')!

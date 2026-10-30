@@ -13,6 +13,7 @@ import { setPlanForTests, Plan } from '../../server/src/system/limits'
 import { openDb } from '../../server/src/db'
 import { harness, withOwner, addMember, type Client, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
+import { CONFIRMED } from '../lib/schedule-card'
 
 const spec = (userId: string, i: number) => ({ turnId: `t-${userId}-${i}`, chatId: `c-${userId}-${i}`, userId, assistantId: `a-${i}`, userMessageId: `u-${i}`, windowId: null, clientKind: null, engine: 'claude-code', model: null, locale: 'en' })
 
@@ -46,7 +47,7 @@ describe('queue caps', () => {
   test('a scheduled run that meets a full queue waits a minute (no empty chat is left), audited', () => {
     const rt = getChatRuntime(h.ctx)
     const q = (rt as unknown as { queued: unknown[] }).queued
-    const s = rt.schedules.create('olga', { title: 'Digest', prompt: 'summarize', repeat: 'daily', time: '09:00' }, new Date(Date.now() - 2 * 86_400_000))
+    const s = rt.schedules.create('olga', { title: 'Digest', prompt: 'summarize', repeat: 'daily', time: '09:00' }, new Date(Date.now() - 2 * 86_400_000), CONFIRMED)
     for (let i = 0; i < QUEUE_PER_USER; i++) q.push(spec('olga', i))
     const now = new Date()
     const chatsBefore = (h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n

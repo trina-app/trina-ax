@@ -8,13 +8,13 @@ import clsx from 'clsx'
 import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
-import type { EngineId, Memory, Schedule, Session, Theme } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
+import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
+import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { installGuideShown, platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
-import { memoryChanged } from '../store/live'
+import { memoryChanged, schedulesChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
@@ -31,6 +31,7 @@ import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ScheduleItem } from '../components/settings/ScheduleItem'
+import AskCard from '../components/chat/AskCard'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
 
@@ -331,6 +332,45 @@ function Schedules() {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
+  // "다시 확인": a task nobody confirmed shows its schedule card here; resuming is answering it
+  const [review, setReview] = useState<{ id: string; card: ScheduleReviewCard } | null>(null)
+  const openReview = async (s: Schedule) => {
+    if (review?.id === s.id) { setReview(null); return }
+    const generation = life.current
+    try {
+      const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
+      if (generation === life.current) setReview({ id: s.id, card })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      if (generation === life.current) void load()
+    }
+  }
+  const answerReview = async (s: Schedule, requestId: string, answer: string | string[] | null) => {
+    const value = Array.isArray(answer) ? answer[0] ?? null : answer
+    // "Skip" leaves it paused, like "Keep it paused"
+    if (!value || value === 'keep') { setReview(null); return }
+    const generation = life.current
+    try {
+      const u = await api.call(API.confirmScheduleReview, { params: { id: s.id }, body: { requestId, answer: value } })
+      if (generation !== life.current) return
+      revision.current++
+      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
+      setReview(null)
+      schedulesChanged.emit()
+      if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
+    } catch (e) {
+      // the task or its connections changed since the card was shown: show the card as it is now
+      if (isApiError(e, 'conflict') && e.body.params?.reason === 'schedule_card_changed') {
+        toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+        try {
+          const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
+          if (generation === life.current) setReview({ id: s.id, card })
+        } catch { if (generation === life.current) { setReview(null); void load() } }
+        return
+      }
+      throw e
+    }
+  }
   const remove = async (s: Schedule) => {
     const generation = life.current
     if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
@@ -340,6 +380,7 @@ function Schedules() {
       if (generation !== life.current) return
       revision.current++
       setItems((cur) => cur?.filter((x) => x.id !== s.id) ?? null)
+      if (s.needsReview) schedulesChanged.emit()
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
@@ -353,7 +394,14 @@ function Schedules() {
       {items && items.length > 0 && (
         <>
           <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
-            {items.map((s) => <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} />)}
+            {items.map((s) => (
+              <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} onReview={() => void openReview(s)}
+                review={review?.id === s.id ? (
+                  <div className="mt-2" data-testid="schedule-review-card">
+                    <AskCard key={review.card.request.requestId} req={review.card} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} />
+                  </div>
+                ) : undefined} />
+            ))}
           </ul>
           {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
         </>

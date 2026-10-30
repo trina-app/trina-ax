@@ -577,7 +577,9 @@ export class ChatRuntime {
         (NOT EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
          OR NOT EXISTS(SELECT 1 FROM chats c WHERE c.id=t.chat_id AND c.deleted_at IS NULL)
          OR NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.message_id AND m.chat_id=t.chat_id)
-         OR NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.user_message_id AND m.chat_id=t.chat_id))`).all() as { id: string; message_id: string | null }[]
+         OR NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.user_message_id AND m.chat_id=t.chat_id)
+         -- a scheduled run of a free-text task nobody confirmed (queued before the upgrade): never runs (schedules.ts)
+         OR EXISTS(SELECT 1 FROM schedules s WHERE s.id=t.schedule_id AND s.template_id IS NULL AND s.confirmed_at IS NULL))`).all() as { id: string; message_id: string | null }[]
       for (const t of bad) {
         this.db.query("UPDATE turns SET status='stopped',ended_at=? WHERE id=?").run(now,t.id)
         if (t.message_id) this.db.query("UPDATE messages SET status='stopped',updated_at=? WHERE id=? AND status='streaming'").run(now,t.message_id)

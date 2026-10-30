@@ -2,7 +2,8 @@
 // office-network address. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
 // another window, timed out, turn ended). Ordinary form controls (radios / checkboxes / buttons) for keyboards
 // and screen readers. The AI's own questions can also be answered from the message box (lib/askAnswer.ts): what is
-// ticked here goes along with that answer when the question takes several.
+// ticked here goes along with that answer when the question takes several. The same card outside a turn (a scheduled
+// task's card shown again in Settings, "다시 확인") passes its own `onAnswer`.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
@@ -10,13 +11,16 @@ import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
+
+type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
 import { Button, inputCls } from '../ui'
 
-export default function AskCard({ req }: { req: OpenRequest }) {
+export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'request'>; onAnswer?: (requestId: string, body: AnswerBody) => Promise<void> }) {
   const t = useT()
   const locale = useLocale()
-  const answer = useChats((s) => s.answer)
+  const storeAnswer = useChats((s) => s.answer)
+  const answer = onAnswer ?? storeAnswer
   const [picked, setPicked] = useState<string[]>([])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -26,7 +30,7 @@ export default function AskCard({ req }: { req: OpenRequest }) {
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
 
-  const run = async (body: Parameters<typeof answer>[1]) => {
+  const run = async (body: AnswerBody) => {
     setBusy(true)
     setError(null)
     try {

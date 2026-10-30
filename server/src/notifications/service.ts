@@ -12,6 +12,10 @@ import { eventEnabled, getPreferences, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 
 export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
+/** Source of a "scheduled tasks paused for review" notice: the person and the time of the pause (stable while some of
+ * those tasks are confirmed or deleted; a turn or skip id never starts with it). */
+const REVIEW_SOURCE = 'schedule-review-'
+const reviewSource = (userId: string, since: string) => `${REVIEW_SOURCE}${userId}-${Date.parse(since) || 0}`
 const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
@@ -29,9 +33,10 @@ export class Notifications {
     try { this.ctx.services.realtime.publish(userId, { type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } }) }
     catch { this.ctx.log.warn('notification refresh signal failed') }
   }
-  private record(userId: string, event: NotificationEventType, sourceId: string, at: string) {
+  /** `always`: shown in the app whatever the person's setting for the event (OS push still follows it). */
+  private record(userId: string, event: NotificationEventType, sourceId: string, at: string, always = false) {
     if (!this.active(userId) || at < this.cutoff()) return
-    const enabled = eventEnabled(this.preferences(userId), event)
+    const enabled = always || eventEnabled(this.preferences(userId), event)
     const table = isSkillEvent(event) ? 'skill_notices' : 'notification_inbox'
     const r = this.ctx.db.query(`INSERT INTO ${table}(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING`)
       .run(newId(), userId, event, sourceId, at, enabled ? 0 : 1)
@@ -70,7 +75,14 @@ export class Notifications {
       ${userId ? 'AND s.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=s.user_id AND n.source_id=s.id AND n.event_type='schedule.failure')
       ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
     for (const row of skips) this.record(row.user_id, 'schedule.failure', row.id, row.created_at)
-    return Math.max(rows.length, skips.length)
+    // scheduled tasks nobody confirmed, paused for their owner's review (chat/schedules.ts): one notice per person and
+    // pause, shown in the app always (the task stopped running), pushed per the "scheduled task failed" setting
+    const reviews = db.query(`SELECT s.user_id, s.review_since FROM schedules s
+      WHERE s.review_since IS NOT NULL AND s.review_since >= ? AND s.template_id IS NULL AND s.confirmed_at IS NULL
+      AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL) ${userId ? 'AND s.user_id=?' : ''}
+      GROUP BY s.user_id, s.review_since ORDER BY s.review_since LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { user_id: string; review_since: string }[]
+    for (const row of reviews) this.record(row.user_id, 'schedule.failure', reviewSource(row.user_id, row.review_since), row.review_since, true)
+    return Math.max(rows.length, skips.length, reviews.length)
   }
   preferences(userId: string) { return getPreferences(this.ctx.db, userId) }
   setPreferences(userId: string, patch: Partial<NotificationPreferences>) {
@@ -91,6 +103,10 @@ export class Notifications {
     if (isSkillEvent(row.event_type)) {
       // The Skills screen checks access again when it opens the suggestion (?review= only when the viewer may review).
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
+    }
+    if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
+      // paused tasks to check again: the schedules list, never a chat
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
     }
     if (row.event_type !== 'connection.reconnect') {
       // Metadata only: the stored result code, never the turn's error text. No turn = an admission skip (failed).

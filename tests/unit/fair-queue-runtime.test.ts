@@ -4,6 +4,7 @@ import { getChatRuntime, type ChatRuntime } from '../../server/src/chat/runtime'
 import { TurnExec } from '../../server/src/chat/turn'
 import { newId } from '../../server/src/db'
 import { setSetting } from '../../server/src/admin/settings'
+import { CONFIRMED } from '../lib/schedule-card'
 
 let h: Harness, rt: ChatRuntime
 let starts: TurnExec[] = []
@@ -91,7 +92,7 @@ test('60 schedules and 60 manual requests share each user FIFO and capacity', as
   await setup('mixed', 60)
   const pause = spyOn(rt, 'schedule').mockImplementation(() => {})
   const people = ['olga', ...Array.from({ length: 59 }, (_, i) => `u${i + 1}`)]
-  for (const u of people) rt.schedules.create(u, { title: 'Once', prompt: 'synthetic scheduled task', repeat: 'once', date: '2026-10-27', time: '09:00' }, new Date('2026-10-26T00:00:00Z'))
+  for (const u of people) rt.schedules.create(u, { title: 'Once', prompt: 'synthetic scheduled task', repeat: 'once', date: '2026-10-27', time: '09:00' }, new Date('2026-10-26T00:00:00Z'), CONFIRMED)
   expect(rt.schedules.runDue(new Date('2026-10-27T09:00:00Z'))).toHaveLength(60)
   for (const u of people) send(u)
   expect(rt.queuedCount()).toBe(120)
@@ -147,7 +148,7 @@ test('schedule full/restart preserves original occurrence and admission transact
   const pause = spyOn(rt, 'schedule').mockImplementation(() => {})
   for (let i = 0; i < 3; i++) send('olga')
   const now = new Date('2026-10-27T09:01:00.000Z')
-  const s = rt.schedules.create('olga', { title: 'Synthetic', prompt: 'synthetic task', repeat: 'once', date: '2026-10-27', time: '09:00' }, new Date('2026-10-26T00:00:00Z'))
+  const s = rt.schedules.create('olga', { title: 'Synthetic', prompt: 'synthetic task', repeat: 'once', date: '2026-10-27', time: '09:00' }, new Date('2026-10-26T00:00:00Z'), CONFIRMED)
   const original = s.next_run_at
   const before = h.ctx.db.query('SELECT COUNT(*) n FROM chats').get()
   expect(rt.schedules.runDue(now)).toEqual([])
@@ -186,7 +187,7 @@ test('unconfirmed shutdown keeps a quarantined slot, inactive user cancels queue
   expect(starts.length).toBe(1)
   rt.stopChat(a.assistantMessage.chatId)
   expect(rt.runningCount()).toBe(1)
-  const s = rt.schedules.create('u1', { title: 'Pending', prompt: 'synthetic task', repeat: 'daily', time: '09:00' })
+  const s = rt.schedules.create('u1', { title: 'Pending', prompt: 'synthetic task', repeat: 'daily', time: '09:00' }, undefined, CONFIRMED)
   h.ctx.db.query('UPDATE schedules SET pending_due_at=next_run_at WHERE id=?').run(s.id)
   h.ctx.db.query("UPDATE users SET status='disabled' WHERE id='u1'").run()
   rt.stopUserTurns('u1')
@@ -201,7 +202,7 @@ test('unconfirmed shutdown keeps a quarantined slot, inactive user cancels queue
 
 test('schedule admission crash rolls back chat/messages/ticket and retries original due after restart', async () => {
   await setup('schedule-crash')
-  const s = rt.schedules.create('olga', { title: 'Once', prompt: 'synthetic task', repeat: 'once', date: '2026-10-27', time: '09:00' }, new Date('2026-10-26T00:00:00Z'))
+  const s = rt.schedules.create('olga', { title: 'Once', prompt: 'synthetic task', repeat: 'once', date: '2026-10-27', time: '09:00' }, new Date('2026-10-26T00:00:00Z'), CONFIRMED)
   const insert = spyOn(rt.store, 'insertMessage').mockImplementation(() => { throw new Error('injected commit failure') })
   expect(rt.schedules.runDue(new Date('2026-10-27T09:01:00Z'))).toEqual([])
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM chats').get()).toEqual({ n: 0 })

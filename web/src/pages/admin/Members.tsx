@@ -155,6 +155,8 @@ export default function Members() {
         </Loadable>
       </Card>
 
+      <ScheduleReviews />
+
       <Card title={t('members.invites')} desc={t('members.invitesDesc')}>
         <Loadable state={invites}>
           {(list) =>
@@ -240,6 +242,30 @@ export default function Members() {
       )}
       {secret && <Handover {...secret} onClose={() => setSecret(null)} />}
     </>
+  )
+}
+
+/** Scheduled tasks paused until their owners confirm them again (made without the schedule card). Metadata only: the
+ * title and the instruction are the person's own words; the owner checks them in Settings › Scheduled tasks. Shown
+ * only while some task waits. */
+function ScheduleReviews() {
+  const t = useT()
+  const locale = useLocale()
+  const state = useLoad(async () => (await api.call(API.listSchedulesAwaitingReview)).items)
+  if (!state.data?.length) return null
+  const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
+  return (
+    <Card title={t('members.scheduleReviews')} desc={t('members.scheduleReviewsDesc')}>
+      <ul className="divide-y divide-line rounded-xl border border-line text-sm" data-testid="admin-schedule-reviews">
+        {state.data.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5" data-testid="admin-schedule-review">
+            <span className="font-medium">{s.user.name}</span>
+            <span className="text-muted">{t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekday(s.weekday ?? 0) })}</span>
+            {s.reviewSince && <span className="text-xs text-faint">{t('members.scheduleReviewSince', { date: formatDateTime(s.reviewSince, locale) })}</span>}
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 

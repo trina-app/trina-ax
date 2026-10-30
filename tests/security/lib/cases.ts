@@ -141,6 +141,10 @@ export const SPECS: Record<string, Spec> = {
   listSchedules: { build: (c) => c.get('/api/schedules'), scope: 'self' },
   updateSchedule: { build: (c) => c.patch('/api/schedules/00000000-0000-7000-8000-000000000000', { enabled: false }), scope: 'self' },
   deleteSchedule: { build: (c) => c.del('/api/schedules/00000000-0000-7000-8000-000000000000'), scope: 'self' },
+  // nobody's task (each person's own waiting task is covered in tests/unit/schedule-review.test.ts, incl. 404 to others)
+  getScheduleReview: { build: (c) => c.get('/api/schedules/00000000-0000-7000-8000-000000000000/review'), scope: 'nobody' },
+  confirmScheduleReview: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/review', { requestId: 'schedule-review-x', answer: 'resume' }), scope: 'self' },
+  listSchedulesAwaitingReview: { build: (c) => c.get('/api/admin/schedule-reviews'), scope: 'byLevel' },
   listMemories: { build: (c) => c.get('/api/memories'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceMemory)) throw new Error(`${who} sees alice's memory`) } },
   deleteMemory: { build: (c, w) => c.del(`/api/memories/${w.ids.memory}`), scope: 'own-alice',

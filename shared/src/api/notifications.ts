@@ -15,6 +15,9 @@ export const InboxNotification = z.object({
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
+  /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
+   * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
+  review: z.boolean().optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
 export const NOTIFICATIONS = {

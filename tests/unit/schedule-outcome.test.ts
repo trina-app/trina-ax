@@ -9,6 +9,7 @@ import { notificationsOf } from '../../server/src/notifications/service'
 import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { CONFIRMED } from '../lib/schedule-card'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -42,7 +43,7 @@ describe('scheduled runs through the chat runtime', () => {
   /** create a one-time schedule, make it due now, run it and wait for the turn to end */
   async function run(user: string, title: string, prompt: string) {
     const rt = h.rt(), now = new Date()
-    const made = rt.schedules.create(user, { title, prompt, repeat: 'once', date: '2099-01-01', time: '09:00' })
+    const made = rt.schedules.create(user, { title, prompt, repeat: 'once', date: '2099-01-01', time: '09:00' }, undefined, CONFIRMED)
     h.ctx.db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(now.getTime() - 1000).toISOString(), made.id)
     expect(rt.schedules.runDue(now)).toEqual([made.id])
     const chatId = rt.schedules.get(user, made.id)!.last_chat_id!
