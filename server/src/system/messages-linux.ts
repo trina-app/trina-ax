@@ -86,6 +86,35 @@ export function hostedMessages(): Partial<MT> {
 
 /** Linux-only checks (system/ops.ts linuxChecks). */
 export const ML = {
+  safeOps: { ko: '안전한 PowerPoint(1A)', en: 'Safe PowerPoint (1A)', id: 'PowerPoint aman (1A)', ja: "安全なPowerPoint（1A）", es: "PowerPoint seguro (1A)" },
+  safeOpsReady: (memory: number, pids: number, cpus: number): T => ({
+    ko: `켜져 있고 준비됐어요. 서버와 AI 엔진의 자원 그룹 한도: 메모리 ${gib(memory)}, 작업 ${pids}개, CPU ${cpus}개. 1A 작업을 한 채팅은 1A를 끈 뒤에도 웹·커넥터 도구 없이 남아요.`,
+    en: `On and ready. Resource group of the server and the AI engines: ${gib(memory)} memory, ${pids} tasks, ${cpus} CPUs. Chats that ran a 1A job keep web and connector tools off even after 1A is turned off.`,
+    id: `Aktif dan siap. Grup sumber daya server dan mesin AI: memori ${gib(memory)}, ${pids} tugas, ${cpus} CPU. Chat yang menjalankan pekerjaan 1A tetap tanpa alat web dan konektor meski 1A dimatikan.`,
+    ja: `有効で準備ができています。サーバーとAIエンジンの資源グループ：メモリ${gib(memory)}、タスク${pids}個、CPU ${cpus}個。1Aの処理を行ったチャットは、1Aを無効にした後もウェブとコネクタのツールが使えないままです。`,
+    es: `Activado y listo. Grupo de recursos del servidor y los motores de IA: ${gib(memory)} de memoria, ${pids} tareas, ${cpus} CPU. Los chats que ejecutaron un trabajo 1A siguen sin herramientas web ni conectores aunque se desactive 1A.`,
+  }),
+  /** reason: ready.ts Readiness; detail: the technical cause (paths, cgroup files), shown as is */
+  safeOpsNotReady: (reason: 'unavailable' | 'programs' | 'group' | 'memory', detail: string, hosted: boolean): T => {
+    const what: Record<typeof reason, T> = {
+      group: { ko: '서버와 AI 엔진이 메모리·CPU 한도가 있는 자원 그룹에 들어 있지 않아요', en: 'the server and the AI engines are not inside a resource group with memory and CPU limits', id: 'server dan mesin AI tidak berada dalam grup sumber daya dengan batas memori dan CPU', ja: "サーバーとAIエンジンが、メモリとCPUの上限がある資源グループに入っていません", es: "el servidor y los motores de IA no están dentro de un grupo de recursos con límites de memoria y CPU" },
+      programs: { ko: '변환 프로그램(pandoc, mycel-safeops)이 관리자(root) 소유 사본으로 설치되어 있지 않아요', en: 'the converter programs (pandoc, mycel-safeops) are not installed as administrator-owned (root) copies', id: 'program konversi (pandoc, mycel-safeops) belum terpasang sebagai salinan milik administrator (root)', ja: "変換プログラム（pandoc、mycel-safeops）が管理者（root）所有のコピーとしてインストールされていません", es: "los programas de conversión (pandoc, mycel-safeops) no están instalados como copias propiedad del administrador (root)" },
+      memory: { ko: '자원 그룹의 여유 메모리가 지금 640 MiB보다 적어요(잠시 뒤 다시 확인해 주세요)', en: 'the resource group has less than 640 MiB of free memory right now (check again shortly)', id: 'grup sumber daya saat ini memiliki memori bebas kurang dari 640 MiB (periksa lagi sebentar lagi)', ja: "資源グループの空きメモリが現在640 MiB未満です（しばらくしてから再確認してください）", es: "el grupo de recursos tiene ahora menos de 640 MiB de memoria libre (vuelva a comprobarlo en breve)" },
+      unavailable: { ko: '이 서버에는 1A에 필요한 리눅스 격리 환경(위임된 변환기 그룹, bubblewrap)이 없어요', en: 'this server lacks the Linux isolation 1A needs (a delegated converter group, bubblewrap)', id: 'server ini tidak memiliki isolasi Linux yang dibutuhkan 1A (grup konverter yang didelegasikan, bubblewrap)', ja: "このサーバーには1Aに必要なLinuxの隔離環境（委任された変換グループ、bubblewrap）がありません", es: "este servidor no tiene el aislamiento de Linux que necesita 1A (un grupo de conversión delegado, bubblewrap)" },
+    }
+    const w = what[reason] ?? what.unavailable
+    if (hosted) return withSupport({ ko: `켜져 있지만 준비되지 않았어요: ${w.ko}.`, en: `On, but not ready: ${w.en}.`, id: `Aktif, tetapi belum siap: ${w.id}.`, ja: `有効ですが、準備ができていません：${w.ja}。`, es: `Activado, pero no está listo: ${w.es}.` })
+    const fix = reason === 'memory'
+      ? { ko: '', en: '', id: '', ja: '', es: '' }
+      : { ko: ' 서버에서 `sudo mycel-ctl safe-ops on`을 실행해 주세요(docs/SAFE-OPS-1A.md).', en: ' Run `sudo mycel-ctl safe-ops on` on the server (docs/SAFE-OPS-1A.md).', id: ' Jalankan `sudo mycel-ctl safe-ops on` di server (docs/SAFE-OPS-1A.md).', ja: " サーバーで`sudo mycel-ctl safe-ops on`を実行してください（docs/SAFE-OPS-1A.md）。", es: " Ejecute `sudo mycel-ctl safe-ops on` en el servidor (docs/SAFE-OPS-1A.md)." }
+    return {
+      ko: `켜져 있지만 준비되지 않았어요: ${w.ko}.${fix.ko} (${detail})`,
+      en: `On, but not ready: ${w.en}.${fix.en} (${detail})`,
+      id: `Aktif, tetapi belum siap: ${w.id}.${fix.id} (${detail})`,
+      ja: `有効ですが、準備ができていません：${w.ja}。${fix.ja}（${detail}）`,
+      es: `Activado, pero no está listo: ${w.es}.${fix.es} (${detail})`,
+    }
+  },
   kernel: { ko: '커널 격리', en: 'Kernel isolation', id: 'Isolasi kernel', ja: "カーネルによる隔離", es: "Aislamiento del kernel" },
   kernelOk: { ko: 'ptrace 제한·cgroup 위임·사용자 네임스페이스 모두 켜짐', en: 'ptrace restriction, cgroup delegation and user namespaces are all on', id: 'Pembatasan ptrace, delegasi cgroup, dan user namespace semuanya aktif', ja: "ptrace制限、cgroup委譲、ユーザー名前空間がすべて有効です", es: "La restricción de ptrace, la delegación de cgroup y los espacios de nombres de usuario están activos" },
   kernelMissing: (what: string[], hosted: boolean): T => hosted
@@ -116,6 +145,7 @@ export const ML = {
     : { ko: `${file}이(가) 올바르지 않아 이전 값을 그대로 씁니다(${err}). \`sudo mycel-ctl ${cmd}\`으로 다시 넣어 주세요.`, en: `${file} is not valid, so the previous values stay (${err}). Put it again with \`sudo mycel-ctl ${cmd}\`.`, id: `${file} tidak valid, jadi nilai sebelumnya tetap dipakai (${err}). Pasang lagi dengan \`sudo mycel-ctl ${cmd}\`.`, ja: `${file}が無効なため、以前の値を保持します（${err}）。\`sudo mycel-ctl ${cmd}\`で再配置してください。`, es: `${file} no es válido; se conservan los valores anteriores (${err}). Vuelva a instalarlo con \`sudo mycel-ctl ${cmd}\`.` },
   storagePlanMismatch: (diskGiB: number, planGiB: number): T => withSupport({ ko: `디스크 크기(${diskGiB.toFixed(0)} GB)가 요금제(${planGiB} GB)와 다릅니다.`, en: `The disk size (${diskGiB.toFixed(0)} GB) differs from the plan (${planGiB} GB).`, id: `Ukuran disk (${diskGiB.toFixed(0)} GB) berbeda dari paket (${planGiB} GB).`, ja: `ディスク容量（${diskGiB.toFixed(0)} GB）がプラン（${planGiB} GB）と異なります。`, es: `El tamaño del disco (${diskGiB.toFixed(0)} GB) difiere del plan (${planGiB} GB).` }),
 }
+const gib = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GiB`
 const gb = (n: number, locale: Locale = 'en') => `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }).format(n / 1024 ** 3)} GB`
 
 /** M with the entries for this host replaced (the Mac gets M itself). */

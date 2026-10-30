@@ -35,6 +35,12 @@ const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
 const EDITABLE: PreviewKind[] = ['markdown', 'text', 'csv', 'html', 'svg', 'xml']
 
+/** "Ask AI" and "add to chat" for the open file: team files only, not a missing one, and not a download-only file (the AI
+ * is refused that file's bytes, so the action could only fail). */
+export function chatActionsFor(file: { source: PreviewFile['source'] }, error: { kind: string } | null, downloadOnly: boolean): boolean {
+  return file.source === 'team' && error?.kind !== 'missing' && !downloadOnly
+}
+
 export default function FilePanel({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
@@ -43,6 +49,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const [blob, setBlob] = useState<Blob | null>(file.source === 'local' ? file.blob : null)
   // 'unsupported': the server could not convert the file (no converter, a damaged photo): the "cannot preview" panel
   const [error, setError] = useState<{ kind: 'missing' | 'large' | 'unsupported' | 'busy' | 'other'; text: string } | null>(null)
+  // a download-only (quarantined) file: the AI cannot read it either, so "Ask AI" and "add to chat" are left out and the
+  // notice says why (docs/SAFE-OPS-1A.md "Immutable publication and download-only quarantine")
+  const [downloadOnly, setDownloadOnly] = useState(false)
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
   // a HEIC photo needs the server's JPEG, so a local one (not uploaded yet) has no preview
@@ -100,6 +109,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     const ctrl = new AbortController()
     setBlob(null)
     setError(null)
+    setDownloadOnly(false)
     if (!kind || kind === 'hwp') return
     const limit = previewLimit(kind)
     const load = viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
@@ -108,7 +118,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       (e: unknown) => {
         if (!live) return
         // too many conversions now, or a wait over the server's limit: "busy, try again", not "cannot preview"
-        if (isApiError(e, 'unavailable') && e.body.params?.reason === 'quarantined') setError({ kind: 'unsupported', text: e.message })
+        if (isApiError(e, 'unavailable') && e.body.params?.reason === 'quarantined') {
+          setDownloadOnly(true)
+          setError({ kind: 'unsupported', text: e.message })
+        }
         else if (viaServer && isApiError(e, 'unavailable') && e.body.params?.reason === 'busy') setError({ kind: 'busy', text: t('preview.photoBusy') })
         else if (viaServer && isApiError(e, 'unavailable')) setError({ kind: 'unsupported', text: t('preview.photoUnavailable') })
         else if (e instanceof PreviewTooLargeError) setError({ kind: 'large', text: t('preview.tooLarge', { size: formatSize(e.size, locale) }) })
@@ -153,12 +166,12 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           {file.name}
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
-          {file.source === 'team' && error?.kind !== 'missing' && (
+          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
             <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-sm:py-1.5" data-testid="file-ask-ai">
               <Sparkles size={14} aria-hidden /> {t('files.askAiShort')}
             </button>
           )}
-          {file.source === 'team' && error?.kind !== 'missing' && chatAttach.target && (
+          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && chatAttach.target && (
             <IconButton label={t('files.addToChatNamed', { title: chatAttach.target.title })} onClick={() => chatAttach.addToChat([file.path])} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
@@ -209,6 +222,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           // notice and a download button, never an automatic download
           <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
             <p className="text-sm text-muted">{error?.kind === 'unsupported' ? error.text : t('preview.unsupported')}</p>
+            {downloadOnly && <p className="text-sm text-muted" data-testid="preview-download-only-ai">{t('files.askAiDownloadOnly')}</p>}
             <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">
               <Download size={16} aria-hidden /> {t('common.download')}
             </Button>

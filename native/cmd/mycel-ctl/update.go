@@ -436,6 +436,27 @@ func (u *updater) updateRoot(dir, v string) error {
 	if err != nil {
 		return err
 	}
+	// root/<rel> -> its source in the verified bundle: the bundle's root/ files, and root's own copies of the programs
+	// safe operations 1A run (safeops.go safeOpsCopies; the app's copies belong to the server account)
+	from := map[string]string{}
+	for _, rel := range diff {
+		from[rel] = filepath.Join(src, rel)
+	}
+	for _, c := range safeOpsCopies {
+		bsrc := filepath.Join(dir, filepath.FromSlash(c.Rel))
+		if _, err := os.Lstat(bsrc); err != nil {
+			continue // a bundle without it (tests, an older layout): the copy stays as it is
+		}
+		want, _, err := bundle.HashFile(bsrc)
+		if err != nil {
+			return err
+		}
+		rel := filepath.Join("safe-ops", c.Name)
+		if have, _, err := bundle.HashFile(u.e.root(rel)); err != nil || have != want {
+			diff = append(diff, rel)
+			from[rel] = bsrc
+		}
+	}
 	if len(diff) == 0 {
 		return nil
 	}
@@ -448,10 +469,10 @@ func (u *updater) updateRoot(dir, v string) error {
 	}
 	defer os.RemoveAll(stage)
 	for _, rel := range diff {
-		if err := copyFile(filepath.Join(src, rel), filepath.Join(stage, rel)); err != nil {
+		if err := copyFile(from[rel], filepath.Join(stage, rel)); err != nil {
 			return err
 		}
-		want, _, _ := bundle.HashFile(filepath.Join(src, rel))
+		want, _, _ := bundle.HashFile(from[rel])
 		got, _, err := bundle.HashFile(filepath.Join(stage, rel))
 		if err != nil || got != want {
 			u.res.Result = "verify_failed"
@@ -478,7 +499,7 @@ func (u *updater) updateRoot(dir, v string) error {
 	u.res.RootUpdated = true
 	systemd := u.in.Systemd && fileExists(systemdRunDir)
 	if units && systemd {
-		if _, _, err := renderUnits(u.in, u.e.root("systemd"), "/etc/systemd/system"); err != nil {
+		if _, _, err := renderUnits(u.in, u.e.root("systemd"), systemdUnitDir); err != nil {
 			return fmt.Errorf("units: %v", err)
 		}
 		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {

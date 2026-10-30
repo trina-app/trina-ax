@@ -13,24 +13,45 @@ must authorize the configured model provider to receive document contents **incl
 Metadata removal does not remove sensitive text in pixels. Medical deployments remain disabled
 pending their separate provider/retention/purpose and clinical-output review.
 
-Conversations used while enabled are persistently marked confidential. They retain only local
-file, memory and conversation tools: browser, connectors, web fetch and provider/CLI web search
-are disabled. Turning the flag off does not reopen egress in those conversations. Use a new
-conversation for this workflow; already delivered data cannot be recalled. Other API engines
+While the flag is on, every conversation is confidential: it retains only local file, memory and
+conversation tools; browser, connectors, web fetch and provider/CLI web search are disabled.
+A conversation in which a 1A workflow was admitted stays confidential for good, including after
+the flag is turned off; the mark is written at admission, before the workflow reads anything.
+Other conversations get their tools back when the flag is off (2026-10-30, DECISIONS "Safe
+operations 1A on a standard Linux install"). Use a new conversation for this workflow; already
+delivered data cannot be recalled. Other API engines
 retain text/OCR only. Actual pinned Claude/Codex release qualification remains a release gate;
 the automated integration tests exercise fake engines through the real MCP bridge and socket.
 
 ### Administrator rollout
 
-After the release gates below have been approved, the Linux systemd installation reads
-`/etc/default/<installation-id>` through `<installation-id>-server.service`. Set
-`MYCEL_SAFE_OPS_1A=1` in that root-managed file and restart that server service. An unset
-variable, `0`, or any value other than exactly `1` leaves new pixel/PPTX operations disabled.
-Qualification is still required on every converter job; the variable never bypasses it.
-Test a synthetic image and presentation on the target host before admitting confidential work.
-Remove the setting (or set it to `0`) and restart the service to disable the feature.
-Existing confidential conversations keep their egress restrictions. This procedure does not
-approve medical use or replace the real pinned CLI and host qualification gates.
+After the release gates below have been approved, on the Linux systemd installation run
+`sudo mycel-ctl safe-ops on` (`status` shows the state, `off` disables). It:
+
+1. checks the machine: at least 2304 MiB of memory (a hosted tenant's plan.json counts);
+2. puts root's own copies of `mycel-safeops` and `pandoc` into `<base>/root/safe-ops/` when they
+   are missing or from another version: from the installed version after checking its release
+   signature and each copy's hash (an unsigned development install needs
+   `sudo ./install-linux.sh update --from <kit>` instead);
+3. sets `MYCEL_SAFE_OPS_1A=1` in `/etc/default/<installation-id>` (other lines stay), which the
+   server unit reads; an unset variable, `0`, or any value other than exactly `1` leaves new
+   PPTX operations disabled;
+4. renders `<installation-id>.slice` with the bounded limits below and restarts the server and the
+   launcher in a fresh slice (running replies stop; it waits up to `--max-wait` seconds, default 120).
+
+The bounds while 1A is on: `MemoryMax = min(4096, machine − 512) MiB`, `MemoryHigh = MemoryMax − 768 MiB`,
+`MemorySwapMax=0`, `TasksMax=512`, `CPUQuota = min(4, CPUs) × 100%`. They cover the server, its
+converters and every engine turn together, so on a larger machine the team uses at most 4 GiB and
+four CPUs while 1A is on. With 1A off the slice has no limits. The installer and upgrades render the
+slice from the flag, so a flag set by hand gets its slice with the next upgrade; `safe-ops on` is
+still the supported way. Admin › System › Diagnostics shows "Safe PowerPoint (1A)": ready, or what
+is missing.
+
+Qualification is still required on every converter job; the switch never bypasses it. Test a
+synthetic image and presentation on the target host before admitting confidential work.
+`sudo mycel-ctl safe-ops off` disables the feature. Conversations that ran a 1A workflow keep their
+egress restrictions. This procedure does not approve medical use or replace the real pinned CLI
+and host qualification gates.
 
 ## Fixed operations and limits
 
@@ -64,7 +85,11 @@ separate `legacy` leaf. One safe operation is admitted at a time, with no retain
 Bubblewrap supplies private PID/network/user namespaces, no capabilities, read-only root and
 only private `/work`, `/proc`, null/urandom, staged read-only inputs and exact runtime dependency
 files. Executables, dependency files and their containing paths must be root-owned and not
-writable by other users. The helper applies required Landlock execution restrictions and the
+writable by other users. An install keeps root's own copies of `mycel-safeops` and `pandoc` in
+`<base>/root/safe-ops/` (the server unit's `MYCEL_SAFE_OPS_BIN`): the version folders belong to the
+server account. The installer, `mycel-ctl update` (a release that changes either program needs
+root) and `mycel-ctl safe-ops on` install them only from a verified release; a job refuses copies
+from another version than the running server's. The helper applies required Landlock execution restrictions and the
 engine seccomp profile (a deny-list, not a measured syscall allow-list). Private namespaces
 provide signal/network separation on Landlock ABI 1–5; ABI 6 scopes are used when available.
 No broad executable/runtime/home/team-directory binds, warm workers or shared writable caches.
@@ -86,8 +111,10 @@ with one workflow globally and no retained queue. SQLite admission also prevents
 processes from admitting workflows simultaneously. Limits are four workflows per user/turn,
 eight per user in a rolling hour, and 24 converter jobs, 600 reserved CPU-seconds (25 per job),
 and 512 MiB reserved input/output transfers per user/turn in that hour. A workflow has a 120 s
-wall deadline, including approval; retries consume quota. A null turn shares one user/hour
-bucket. This is bounded rejection admission, **not a fair queue or an I/O bandwidth controller**.
+wall deadline, including approval. The per-user and per-turn workflow counts include running
+workflows and those that started at least one converter job; a try refused before any conversion
+(not ready, a bad source or option) uses no slot, and converter work stays charged by the
+cumulative job/CPU/transfer budget. A null turn shares one user/hour bucket. This is bounded rejection admission, **not a fair queue or an I/O bandwidth controller**.
 The one-CPU job quota plus wall timeout bounds the whole job tree; the CPU accounting is a
 worst-case reservation, not measured usage. Inputs retained for a presentation are capped at
 32 MiB. No downstream indexing/preview worker is admitted for a generated artifact.
@@ -103,8 +130,8 @@ Every job also requires a finite common cgroup ancestor of the authenticated liv
 server and converter tree: at most 4 GiB memory, zero swap, 512 pids and four CPUs, with at
 least 640 MiB current memory headroom before admission. Missing engine membership or an
 unbounded common ancestor fails closed. The trusted turn registry supplies the engine PID;
-tool arguments cannot supply it. Administrators must place the launcher/engines and server
-under this bounded tenant ancestor and qualify it on the target host. This bounds their combined
+tool arguments cannot supply it. The systemd install runs the launcher and the server in
+`<installation-id>.slice`; `mycel-ctl safe-ops on` bounds it (above). Qualify it on the target host. This bounds their combined
 resource use; it is not a per-turn engine scheduler, measured host I/O rate or tenant fairness.
 The headroom check is an admission snapshot, not an exclusive reservation against other tenants;
 the common ancestor hard limit remains enforced by the kernel.

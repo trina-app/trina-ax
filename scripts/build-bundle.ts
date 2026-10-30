@@ -197,6 +197,11 @@ function* walkDirs(d: string): Generator<string> {
 
 /** native/bin/linux-<arch>/ programs: in the version folder's native/ (run by the server) */
 export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-safeops'] as const
+/** version-folder files root also keeps its own copy of, in <base>/root/safe-ops/ (safe operations 1A run only root-owned
+ * executables; the version folders belong to the server account). install-linux.sh and `mycel-ctl update`
+ * (native/cmd/mycel-ctl/safeops.go safeOpsCopies, the same list) install them; publish-server.ts counts a change to
+ * one of them as a root change (needsRoot). */
+export const LINUX_ROOT_COPIES = ['native/mycel-safeops', 'bin/pandoc'] as const
 /** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
 export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */

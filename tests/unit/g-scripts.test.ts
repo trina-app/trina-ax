@@ -217,8 +217,14 @@ describe('Linux root scripts: syntax and rules', () => {
     const dir = path.join(REPO, 'scripts', 'linux', 'systemd')
     const known = new Set(['BASE', 'ID', 'SRV', 'AGT', 'SRV_UID', 'AGT_UID', 'PORT', 'PROXY_PORT', 'TLS_PORT', 'PUBKEYS', 'ENGINE_ARGS', 'CA_BUNDLE', 'LANDLOCK', 'CGROUP', 'ALLOW_UNSIGNED_ENV'])
     const names = fs.readdirSync(dir).sort()
-    expect(names).toEqual(['firewall.service.in', 'firewall.timer.in', 'launcher.service.in', 'server.service.in', 'update.service.in', 'update.timer.in'])
-    for (const n of names) for (const m of fs.readFileSync(path.join(dir, n), 'utf8').matchAll(/@([A-Z_]+)@/g)) expect(known.has(m[1]!)).toBe(true)
+    expect(names).toEqual(['firewall.service.in', 'firewall.timer.in', 'launcher.service.in', 'server.service.in', 'slice.in', 'update.service.in', 'update.timer.in'])
+    // the service and timer templates use only the placeholders every released mycel-ctl knows: an older mycel-ctl renders
+    // them during `mycel-ctl update` and refuses an unknown one; only slice.in (which an older one skips) has SLICE_LIMITS
+    for (const n of names) for (const m of fs.readFileSync(path.join(dir, n), 'utf8').matchAll(/@([A-Z_]+)@/g)) expect(known.has(m[1]!) || (n === 'slice.in' && m[1] === 'SLICE_LIMITS')).toBe(true)
+    // 1A (QA 2026-10-30 B1): both units in one slice, the server runs root's copies of the 1A programs
+    for (const n of ['launcher.service.in', 'server.service.in']) expect(fs.readFileSync(path.join(dir, n), 'utf8')).toContain('\nSlice=@ID@.slice\n')
+    expect(fs.readFileSync(path.join(dir, 'server.service.in'), 'utf8')).toContain('MYCEL_SAFE_OPS_BIN=@BASE@/root/safe-ops')
+    expect(fs.readFileSync(path.join(dir, 'slice.in'), 'utf8')).toMatch(/\n\[Slice\]\n@SLICE_LIMITS@\n/)
     const l = fs.readFileSync(path.join(dir, 'launcher.service.in'), 'utf8')
     for (const k of ['--sandbox bwrap', '--dedicated-account', '--firewall-status @BASE@/run/firewall.json', '--cgroup @CGROUP@', '--landlock @LANDLOCK@', 'Delegate=memory pids cpu', 'NoNewPrivileges=yes', 'CapabilityBoundingSet=\n', 'KillMode=control-group'])
       expect(l).toContain(k)

@@ -66,7 +66,7 @@ export async function publishArtifact(
  if(bytes.length>32*1024**2 || c.files.bytesWritten+bytes.length>ctx.engineConfig.maxWriteBytesPerTurn || c.files.filesWritten.size>=ctx.engineConfig.maxFilesWrittenPerTurn)
    throw new ToolError('Safe workflow write limit.', 'safe_ops_workflow')
  assertStorageRoomForAI(bytes.length)
- if(db.query("SELECT 1 FROM safe_ops_publications WHERE cleanup!='clean' LIMIT 1").get()) throw new ToolError('Publication cleanup debt.', 'safe_ops_workflow')
+ if(db.query("SELECT 1 FROM safe_ops_publications WHERE cleanup!='clean' LIMIT 1").get()) throw new ToolError('Publication cleanup debt.', 'safe_ops_cleanup')
  c.user=ctx.files.principal(c.user.id)
  const out=authorize(files.fx,files.rules(),c.user,requested,'write',{mustExist:false,download:true})
  // Skill publication requires a different artifact-specific approval UI; not qualified in 1A.

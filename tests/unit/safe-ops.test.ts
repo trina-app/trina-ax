@@ -5,6 +5,7 @@ import { makeCApp, type CApp } from '../lib/c-app'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { confidentialChat, externalSearch } from '../../server/src/safe-ops/confidential'
 import { normalizeImage } from '../../server/src/safe-ops/runner'
+import { withWorkflow } from '../../server/src/safe-ops/workflow'
 import { snapshot, recheck } from '../../server/src/safe-ops/source'
 import { safeText } from '../../server/src/safe-ops/strings'
 import * as XLSX from 'xlsx'
@@ -91,9 +92,11 @@ test('cancellation refuses a result before disclosure', async () => {
   }
 })
 test('confidential conversations stay local after the feature is disabled', async () => {
+  // a 1A workflow was admitted here (DECISIONS 2026-10-30: only such conversations stay local after 1A is off)
   const chat = A.chat('alice'),
     turn = A.turn('alice', chat)
   expect(confidentialChat(A.ctx.db, chat)).toBe(true)
+  await withWorkflow(A.ctx.files, A.toolCtx('alice', turn), async () => {})
   delete process.env.MYCEL_SAFE_OPS_1A
   try {
     expect(confidentialChat(A.ctx.db, chat)).toBe(true)

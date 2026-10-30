@@ -177,12 +177,13 @@ func bootstrapArgv(in *Install) []string {
 }
 
 // serverEnv is the server unit's Environment= (spec 3.2.3, plus MYCEL_SANDBOX_HELPER for the converter cgroup, 3.8.2,
-// and MYCEL_ALLOW_UNSIGNED for development installs, 3.6.3). /etc/default/<id> is added by the caller.
+// MYCEL_SAFE_OPS_BIN for the root copies 1A jobs run, safeops.go, and MYCEL_ALLOW_UNSIGNED for development installs,
+// 3.6.3). /etc/default/<id> is added by the caller.
 func serverEnv(in *Install) []string {
 	b := in.Base
 	v := []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(b, "data"), "MYCEL_INSTALL_BASE=" + b, "MYCEL_LABEL=" + in.ID,
 		"MYCEL_WEB_DIST=" + filepath.Join(b, "app", "current", "web"), "MYCEL_PLAN_FILE=" + filepath.Join(b, "root", "plan.json"),
-		"MYCEL_SANDBOX_HELPER=" + filepath.Join(b, "root", "mycel-sandbox")}
+		"MYCEL_SANDBOX_HELPER=" + filepath.Join(b, "root", "mycel-sandbox"), "MYCEL_SAFE_OPS_BIN=" + filepath.Join(b, "root", "safe-ops")}
 	if in.AllowUnsigned {
 		v = append(v, "MYCEL_ALLOW_UNSIGNED=1")
 	}
@@ -204,7 +205,7 @@ func unitValues(in *Install) (map[string]string, error) {
 		"SRV_UID": strconv.Itoa(srv.uid), "AGT_UID": strconv.Itoa(agt.uid),
 		"PORT": strconv.Itoa(in.Port), "PROXY_PORT": strconv.Itoa(in.ProxyPort), "TLS_PORT": strconv.Itoa(in.TLSPort),
 		"PUBKEYS": strings.Join(in.pubkeyArgs(), " "), "ENGINE_ARGS": strings.Join(in.engineArgs(), " "),
-		"CA_BUNDLE": caBundle(), "LANDLOCK": in.landlockMode(), "CGROUP": in.cgroupMode(),
+		"CA_BUNDLE": caBundle(), "LANDLOCK": in.landlockMode(), "CGROUP": in.cgroupMode(), "SLICE_LIMITS": sliceLimitsText(in),
 		"ALLOW_UNSIGNED_ENV": map[bool]string{true: "MYCEL_ALLOW_UNSIGNED=1", false: ""}[in.AllowUnsigned],
 	}, nil
 }
@@ -230,8 +231,12 @@ func renderTemplate(text string, vals map[string]string) (string, error) {
 	return out, nil
 }
 
-// unitName maps a template file name (launcher.service.in) to the installed unit (<id>-launcher.service).
+// unitName maps a template file name (launcher.service.in) to the installed unit (<id>-launcher.service), and slice.in
+// to <id>.slice (the group of the server and the launcher, safeops.go).
 func unitName(id, tmpl string) (string, bool) {
+	if tmpl == "slice.in" {
+		return id + ".slice", true
+	}
 	n := strings.TrimSuffix(tmpl, ".in")
 	if n == tmpl || !(strings.HasSuffix(n, ".service") || strings.HasSuffix(n, ".timer")) {
 		return "", false

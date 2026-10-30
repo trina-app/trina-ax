@@ -110,8 +110,28 @@ try {
    // Read-back failure, injected only into this local test process.
    const read=fs.readFileSync
    const mock=spyOn(fs,'readFileSync').mockImplementation((p:any,...args:any[])=>String(p).endsWith('/memory.max')?'max\n':(read as any)(p,...args))
-   rejected=false;try{qualifiedEnvelope(state.conv.dir,engine.pid)}catch{rejected=true}finally{mock.mockRestore()};assert(rejected)
+   // an unbounded group is the install problem the administrator fixes (QA 2026-10-30 B1), not a generic refusal
+   let code='';try{qualifiedEnvelope(state.conv.dir,engine.pid)}catch(e:any){code=e.code}finally{mock.mockRestore()};assert(code==='safe_ops_not_ready_group',code)
   }finally{engine.kill('SIGKILL');await engine.exited}
+ })
+ await check('install layout: root-owned copies run; server-account copies are refused before any job or slot (QA 2026-10-30 B1)',async()=>{
+  const jobs=()=>(app.ctx.db.query('SELECT count(*) AS n FROM safe_ops_jobs').get() as {n:number}).n
+  const counted=(u:string)=>(app.ctx.db.query("SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND (state='running' OR jobs>0)").get(u) as {n:number}).n
+  const before=process.env.MYCEL_SAFE_OPS_BIN
+  try {
+   process.env.MYCEL_SAFE_OPS_BIN='/opt/safe1a-app' // what a standard install had: the server account's copies
+   const c=app.toolCtx('carol',app.turn('carol',app.chat('carol')));c.files.enginePid=process.pid
+   const n=jobs(),slots=counted('carol')
+   let code='';try{await withWorkflow(app.ctx.files,c,()=>normalizeImage('png',fs.readFileSync('/fixtures/synthetic.png')))}catch(e:any){code=e.code}
+   assert(code==='safe_ops_not_ready_programs',code)
+   assert(jobs()===n&&counted('carol')===slots,'a refused try reserved a job or used a slot')
+   process.env.MYCEL_SAFE_OPS_BIN='/opt/safe1a-root' // root/safe-ops as install-linux.sh and mycel-ctl put it
+   const c2=app.toolCtx('carol',app.turn('carol',app.chat('carol')));c2.files.enginePid=process.pid
+   const image=await withWorkflow(app.ctx.files,c2,()=>normalizeImage('png',fs.readFileSync('/fixtures/synthetic.png')))
+   assert(image[0]===255&&jobs()===n+1)
+  } finally {
+   if(before===undefined)delete process.env.MYCEL_SAFE_OPS_BIN;else process.env.MYCEL_SAFE_OPS_BIN=before
+  }
  })
  await check('actual converter cleanup failure retains debt and makes runner unhealthy',async()=>{
   assert(setupServerCgroups({mode:'prod'}).state==='delegated')

@@ -7,8 +7,9 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { converterCgroup } from '../system/cgroups'
-import { nativeBinDir, which } from '../config'
+import { which } from '../config'
 import { ToolError } from '../policy/errors'
+import { assertTrustedProgram, safeProgram, type SafeProgram } from './ready'
 
 export const SAFE_INPUT_MAX = 8 * 1024 ** 2
 export const SAFE_OUTPUT_MAX = 1024 ** 2
@@ -119,7 +120,7 @@ let active = false
 let unhealthy = false
 /** One admitted job, no unbounded queue or retained input buffers. Callers retry busy normally. */
 async function run(
-  bin: string,
+  program: { name: SafeProgram; bin: string; pandoc?: string | null },
   args: string[],
   input: Uint8Array,
   files: Record<string, Uint8Array>,
@@ -161,6 +162,10 @@ async function run(
     // The parent provides a hard aggregate cap; the new leaf provides independent OOM/cleanup scope.
     const parent = jobCgroup()
     checkWorkflowEnvelope(parent.dir)
+    // the programs before a job is reserved: a server that is not ready refuses without using the person's budget
+    assertTrustedProgram(parent.helper)
+    assertTrustedProgram(program.bin, program.name, program.pandoc)
+    const bin = program.bin
     const id=crypto.randomUUID()
     const jobDir=path.join(parent.dir,id)
     reservation=reserveJob(id,jobDir,path.join(os.tmpdir(),'ax-safe-'+id),input.byteLength+Object.values(files).reduce((n,b)=>n+b.byteLength,0)+maxOutput)
@@ -323,15 +328,20 @@ export async function normalizeImage(format: string, bytes: Uint8Array, signal?:
     throw new ToolError('Unsupported or oversized image.', 'safe_ops_image_limit')
   const codec = f === 'heic' ? (which('heif-dec') ?? which('heif-convert') ?? undefined) : undefined
   if (f === 'heic' && !codec) throw unavailable()
-  return run(path.join(nativeBinDir(), 'mycel-safeops'), [f], bytes, {}, SAFE_OUTPUT_MAX, signal, codec)
+  return run(safeOps(), [f], bytes, {}, SAFE_OUTPUT_MAX, signal, codec)
 }
 
 export function validatePptx(bytes: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
-  return run(path.join(nativeBinDir(), 'mycel-safeops'), ['pptx'], bytes, {}, 32 * 1024, signal)
+  return run(safeOps(), ['pptx'], bytes, {}, 32 * 1024, signal)
 }
 
+/** mycel-safeops for a job (root copy when installed, ready.ts) */
+const safeOps = () => ({ name: 'mycel-safeops' as const, bin: safeProgram('mycel-safeops')! })
+/** pandoc for a job: the root copy when installed, else the server's own (`pandoc`, cfg.pandoc) */
+const safePandoc = (pandoc: string) => ({ name: 'pandoc' as const, bin: safeProgram('pandoc', pandoc) ?? pandoc, pandoc })
+
 export function pptxAst(pandoc: string, text: string, signal?: AbortSignal): Promise<Buffer> {
-  return run(pandoc, ['--sandbox', '-f', 'markdown', '-t', 'json'], Buffer.from(text), {}, 2 * 1024 ** 2, signal)
+  return run(safePandoc(pandoc), ['--sandbox', '-f', 'markdown', '-t', 'json'], Buffer.from(text), {}, 2 * 1024 ** 2, signal)
 }
 
 export function renderPptx(
@@ -342,7 +352,7 @@ export function renderPptx(
   signal?: AbortSignal,
 ): Promise<Buffer> {
   return run(
-    pandoc,
+    safePandoc(pandoc),
     [
       '--fail-if-warnings',
       '--resource-path=/inputs',

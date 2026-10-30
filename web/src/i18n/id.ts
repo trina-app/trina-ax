@@ -284,6 +284,7 @@ export const id: Record<MessageKey, string> = {
   'picker.attached': 'Terlampir',
   'attach.moved': 'dipindah',
   'files.askAiShort': 'Tanya AI',
+  'files.askAiDownloadOnly': 'AI tidak dapat membaca berkas khusus unduhan, jadi Tanya AI tidak tersedia untuk berkas ini.',
   'files.addToChatNamed': 'Tambahkan ke “{title}”',
   'files.addedSome': '{n} ditambahkan; {failed} tidak bisa ditambahkan.',
 

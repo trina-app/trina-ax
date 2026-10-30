@@ -105,7 +105,7 @@ func execStart(unit string) []string {
 }
 
 func TestUnitName(t *testing.T) {
-	for in, want := range map[string]string{"launcher.service.in": "mycel-launcher.service", "firewall.timer.in": "mycel-firewall.timer"} {
+	for in, want := range map[string]string{"launcher.service.in": "mycel-launcher.service", "firewall.timer.in": "mycel-firewall.timer", "slice.in": "mycel.slice"} {
 		if got, ok := unitName("mycel", in); !ok || got != want {
 			t.Errorf("%s -> %s", in, got)
 		}
@@ -120,7 +120,7 @@ func TestUnitName(t *testing.T) {
 func TestUnitEnv(t *testing.T) {
 	in := testInstall(t, "/var/lib/mycel")
 	env := serverEnv(in)
-	for _, want := range []string{"MYCEL_INSTALL_BASE=/var/lib/mycel", "MYCEL_LABEL=mycel", "MYCEL_PLAN_FILE=/var/lib/mycel/root/plan.json", "MYCEL_SANDBOX_HELPER=/var/lib/mycel/root/mycel-sandbox", "HOME=/var/lib/mycel/data"} {
+	for _, want := range []string{"MYCEL_INSTALL_BASE=/var/lib/mycel", "MYCEL_LABEL=mycel", "MYCEL_PLAN_FILE=/var/lib/mycel/root/plan.json", "MYCEL_SANDBOX_HELPER=/var/lib/mycel/root/mycel-sandbox", "MYCEL_SAFE_OPS_BIN=/var/lib/mycel/root/safe-ops", "HOME=/var/lib/mycel/data"} {
 		if !strings.Contains(strings.Join(env, "\n"), want) {
 			t.Errorf("server env lacks %s", want)
 		}

@@ -24,6 +24,9 @@ Restart=always
 RestartSec=1
 KillMode=control-group
 TimeoutStopSec=10
+# one group with the other unit (@ID@.slice): 1A requires a bounded common ancestor of the server, its converters
+# and the engine turns; the slice has limits only while 1A is on (mycel-ctl safe-ops)
+Slice=@ID@.slice
 Delegate=memory pids cpu
 OOMPolicy=continue
 TasksMax=4096

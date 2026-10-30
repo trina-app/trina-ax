@@ -1,0 +1,9 @@
+# Team AX (@ID@): the server, its converters and every AI engine turn in one cgroup (docs/SAFE-OPS-1A.md "Workflow
+# admission and recovery"). While safe operations 1A are off it limits nothing. With MYCEL_SAFE_OPS_1A=1 in
+# /etc/default/@ID@ (`sudo mycel-ctl safe-ops on`) it gets the bounds 1A requires: memory at most 4 GiB with room for a
+# job, no swap, at most 512 tasks and 4 CPUs. Rendered by `mycel-ctl render-units` from <base>/root/systemd/.
+[Unit]
+Description=Team AX (@ID@): server, converters and AI engines
+
+[Slice]
+@SLICE_LIMITS@

@@ -19,8 +19,9 @@
 // 3. uploads the version's files, its release.json, then the head
 // 4. reads the head back through the feed exactly as UpdateManager.checkFeed does, and every bundle and kit URL must
 //    answer with the published bytes
-// needsRoot (auto): whether any root/ file (launcher, sandbox helper, units) differs from the releases at the heads of
-// both channels, compared through their manifest-linux-<arch>.json; unknown counts as "differs". Root releases are
+// needsRoot (auto): whether any root/ file (launcher, sandbox helper, units) or a program root keeps its own copy of
+// (build-bundle.ts LINUX_ROOT_COPIES: mycel-safeops, pandoc) differs from the releases at the heads of both channels,
+// compared through their manifest-linux-<arch>.json; unknown counts as "differs". Root releases are
 // applied by the root update timer (`mycel-ctl update`), the others by the server itself.
 // The release key: TEAMAX_RELEASE_KEY or ~/.config/<keyDir>/release-key.pem (keygen.ts); the Cloudflare token:
 // CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env (cloudflare.ts). Neither is printed.
@@ -38,12 +39,14 @@ import { silentLogger } from '../../server/src/log'
 import { readFileChunks, zstdDecompress } from '../../server/src/system/streams'
 import { extractTar, readTar } from '../../server/src/system/tar'
 import { bundleReaderLevel, compareVersions, ReleaseFeed, UpdateManager, verifyBundleDir } from '../../server/src/system/update'
-import { elfArch, kitName } from '../build-bundle'
+import { elfArch, kitName, LINUX_ROOT_COPIES } from '../build-bundle'
 import { RELEASE_VERSION_RE, type Channel } from './release-ci'
 import { checkSigningKey, hashFile, remoteHash, signDetached, verifyDetached } from './sign'
 
 export type LinuxArch = 'amd64' | 'arm64'
 type RootFiles = Record<string, { sha256: string; size: number; mode: number }>
+/** the files whose change needs root: root/, and the programs root keeps its own copy of for safe operations 1A */
+export const rootManaged = (k: string) => k.startsWith('root/') || (LINUX_ROOT_COPIES as readonly string[]).includes(k)
 
 const utf8 = (b: Uint8Array) => Buffer.from(b).toString('utf8')
 const same = (a: Uint8Array | null, b: Uint8Array | null) => !!a && !!b && Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0
@@ -145,7 +148,7 @@ export async function checkBuild(dir: string, version: string, arch: LinuxArch, 
     if (!fs.existsSync(ctl) || elfArch(ctl) !== arch) throw new Error(`${bundleName}: root/mycel-ctl is not a linux-${arch} program`)
     manifest = new Uint8Array(fs.readFileSync(path.join(tmp, 'manifest.json')))
     manifestSig = new Uint8Array(fs.readFileSync(path.join(tmp, 'manifest.sig')))
-    root = Object.fromEntries(Object.entries(m.files).filter(([k]) => k.startsWith('root/')))
+    root = Object.fromEntries(Object.entries(m.files).filter(([k]) => rootManaged(k)))
     readerLevel = bundleReaderLevel(tmp)
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
@@ -207,7 +210,7 @@ export async function rootChanged(store: FeedStore, keys: readonly string[], bui
       if (!m || !s || !verifyDetached(m, utf8(s), keys)) return true
       let prev: BundleManifest
       try { prev = BundleManifest.parse(JSON.parse(utf8(m))) } catch { return true }
-      if (!sameRoot(Object.fromEntries(Object.entries(prev.files).filter(([k]) => k.startsWith('root/'))), b.root)) return true
+      if (!sameRoot(Object.fromEntries(Object.entries(prev.files).filter(([k]) => rootManaged(k))), b.root)) return true
     }
   }
   return false

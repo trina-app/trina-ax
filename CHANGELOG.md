@@ -5,7 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-**Upgrade note:** migrations 214, 215 and 322 are additive (reader 1). Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
+**Upgrade note:** migrations 214, 215, 322 and 323 are additive (reader 1). This release changes root files (units, mycel-ctl, root's 1A program copies): `sudo mycel-ctl update` or the update timer installs it. Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
 
 - Sub-agents: like Claude Code's Agent tool, the AI can hand parts of a big request to up to 4 helper AIs at once. They work as the same person (same tools except asking the person, memories, schedules and the browser; the same access checks, cards and activity records) and their steps show under a "Sub-task" row. On by default; Admin > Team settings can turn it off. The model proxy now checks the tool names of every request, and the engine starts with `--restricted` and every unused built-in denied. Migration 214 (reader 1).
 - Scheduled tasks: when the AI creates one, a card shows the title, the schedule, the whole instruction and the web addresses in it; only those addresses open without asking in its runs, and a run's message no longer counts as typed by the person.
@@ -16,6 +16,10 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - "Ask the AI to fix it" no longer carries web addresses from the artifact's title or key.
 - Security: artifacts and HTML / SVG previews can no longer open WebRTC or WebTransport connections, including through nested frames, shadow roots or `document.write`; inside them, `document.write`/`open`, `setHTMLUnsafe`, `window.open` and nested iframes are turned off. In confidential chats (Safe operations 1A) they are shown without running scripts except in the desktop app, with a notice in ko/en/id/ja/es. Other chats work as before. See docs/DECISIONS.md "Artifact frames: no direct connections".
 - AI connections: a ChatGPT (Codex) connection now counts its use (tokens, requests, last used) in Admin > AI connections, so its monthly limit works; chatgpt.com sends its answer stream with no content type, and the model proxy read it as a plain reply. The server log no longer warns about Codex's background calls or about the Stop button (logged as the person's stop).
+- Safe operations 1A works on a standard Linux install: `sudo mycel-ctl safe-ops on|off|status` turns it on (root-owned copies of `mycel-safeops` and `pandoc` in `root/safe-ops/`, the flag, and limits on the new `<id>.slice` that now holds the server and the launcher: memory ≤ 4 GiB, no swap, 512 tasks, ≤ 4 CPUs, only while 1A is on) and restarts both units. A release that changes either program needs root. Refusals and Admin › System › Diagnostics say what is missing ("Safe PowerPoint (1A)"). Upgrade note: the release changes root files (units, mycel-ctl), so `sudo mycel-ctl update` or the update timer installs it.
+- Safe operations 1A: tries refused before converting anything no longer use the 8-per-hour / 4-per-reply slots; busy, cleanup, the hourly limit (with the minutes to wait), the per-reply limit and the budget are separate messages in five languages.
+- Safe operations 1A: after it is turned off, only chats that ran a 1A job stay without web fetch, connectors and the browser; other chats used while it was on get them back. Migration 323 (reader 1); chats it cannot rule out stay locked.
+- Files: a download-only (generated, quarantined) file no longer offers "Ask AI" or "add to chat"; the panel says the AI cannot read it.
 
 ## 0.2.11 — 2026-10-30
 

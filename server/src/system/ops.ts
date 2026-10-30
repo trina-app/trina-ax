@@ -13,6 +13,8 @@ import { allowedCredentialKinds, DEFAULT_PROXY_PORT, isManaged } from '../app-co
 import { teamCredentialSummary } from '../credentials/resolve'
 import { Vault } from '../credentials/vault'
 import { engineSandboxProfile, findCodexBin } from '../config'
+import { safeOpsReadiness } from '../safe-ops/ready'
+import { safeOpsEnabled } from '../safe-ops/runner'
 import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
@@ -493,6 +495,11 @@ export class OpsService {
     if (userns !== null && Number(userns) === 0) missing.push('user namespaces')
     if (missing.length) add('kernel_isolation', 'sandbox', t(ML.kernel), bad, t(ML.kernelMissing(missing, hosted)))
     else add('kernel_isolation', 'sandbox', t(ML.kernel), 'ok', t(ML.kernelOk))
+
+    // safe operations 1A (only when the flag is on): what is missing, in words the administrator can act on
+    const so = safeOpsReadiness(safeOpsEnabled())
+    if (so.state === 'ready') add('safe_ops', 'sandbox', t(ML.safeOps), 'ok', t(ML.safeOpsReady(so.memory, so.pids, so.cpus)))
+    else if (so.state === 'not_ready') add('safe_ops', 'sandbox', t(ML.safeOps), 'warn', t(ML.safeOpsNotReady(so.reason, so.detail, hosted)))
 
     const agentUid = this.ctx.config.engine.agentUid
     if (agentUid !== undefined) {

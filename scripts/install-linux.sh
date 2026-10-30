@@ -154,7 +154,7 @@ for p in "$PORT" "$TLS_PORT" "$PROXY_PORT"; do [[ "$p" =~ ^[0-9]{1,5}$ ]] && [ "
 DEPLOYMENT=self; [ "$HOSTED" = 1 ] && DEPLOYMENT=hosted
 [ "$HOSTED" = 1 ] && AUTO_UPDATE=0
 
-UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer")
+UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$ID.slice")
 UNIT_DIR=/etc/systemd/system
 have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
 stop_units() {
@@ -283,10 +283,10 @@ KROOT="$BUNDLE/root"
 [ -f "$BUNDLE/manifest.json" ] || die "$BUNDLE/manifest.json missing"
 for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account set-claude-token safe-fs.sh apparmor-bwrap.in \
          systemd/firewall.service.in systemd/firewall.timer.in systemd/launcher.service.in systemd/server.service.in \
-         systemd/update.service.in systemd/update.timer.in; do
+         systemd/update.service.in systemd/update.timer.in systemd/slice.in; do
   [ -f "$KROOT/$f" ] || die "$KROOT/$f missing (not a Linux kit? bun scripts/build-bundle.ts --os linux)"
 done
-for f in bin/bun server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
+for f in bin/bun bin/pandoc server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge native/mycel-safeops; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "the kit is not signed (use --allow-unsigned for development builds)"; fi
 
 # ---- 1) system checks (also `check`) ----
@@ -603,7 +603,17 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
 rootfile 644 safe-fs.sh
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"
-for t in firewall.service firewall.timer launcher.service server.service update.service update.timer; do rootfile 644 "systemd/$t.in"; done
+for t in firewall.service firewall.timer launcher.service server.service update.service update.timer slice; do rootfile 644 "systemd/$t.in"; done
+# root's own copies of the programs safe operations 1A run (docs/SAFE-OPS-1A.md; QA 2026-10-30 B1): a 1A job runs only
+# executables that root owns in folders only root can write, and the version folders belong to the server account (the
+# server's own updates write them). The server unit names this folder (MYCEL_SAFE_OPS_BIN); `mycel-ctl update` keeps it
+# current. With newer root programs kept (ROOT_KEEP), the copies of that newer version stay too.
+mk root root 755 "$BASE/root/safe-ops"
+if [ "$ROOT_KEEP" = 0 ] || [ ! -f "$BASE/root/safe-ops/mycel-safeops" ] || [ ! -f "$BASE/root/safe-ops/pandoc" ]; then
+  [ "$ROOT_KEEP" = 0 ] || warn "root/safe-ops is incomplete; it gets the programs of this kit ($VERSION): run \`sudo $BASE/root/mycel-ctl safe-ops status\` after the install"
+  put "$BUNDLE/native/mycel-safeops" root root 755 "$BASE/root/safe-ops/mycel-safeops"
+  put "$BUNDLE/bin/pandoc" root root 755 "$BASE/root/safe-ops/pandoc"
+fi
 if [ "$ROOT_KEEP" = 0 ]; then
   printf '%s\n' "$VERSION" > "$ITMP/root-version"
   install -o root -g root -m 644 "$ITMP/root-version" "$BASE/root/VERSION"
@@ -882,16 +892,19 @@ if [ "$HOSTED" = 0 ] && ! grep -qw landlock /sys/kernel/security/lsm 2>/dev/null
 fi
 mkdir -m 700 "$ITMP/units"
 RU=$("$BASE/root/mycel-ctl" render-units --base "$BASE" --out "$ITMP/units" 2>&1) || die "rendering the units failed: $(printf '%s' "$RU" | tail -n 3 | tr '\n' ' ')"
-for t in firewall.service firewall.timer launcher.service server.service update.service update.timer; do
-  [ -f "$ITMP/units/$ID-$t" ] || die "mycel-ctl render-units wrote no $ID-$t"
-  ! grep -q '@[A-Z_]*@' "$ITMP/units/$ID-$t" || die "$ID-$t has an unfilled placeholder"
+for u in "$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$ID.slice"; do
+  [ -f "$ITMP/units/$u" ] || die "mycel-ctl render-units wrote no $u"
+  ! grep -q '@[A-Z_]*@' "$ITMP/units/$u" || die "$u has an unfilled placeholder"
 done
 if [ "$SYSTEMD" = 1 ]; then
   if command -v systemd-analyze >/dev/null 2>&1; then
-    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer 2>&1) || die "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
+    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ./*.slice 2>&1) || die "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
   fi
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
   systemctl daemon-reload
+  # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now
+  # (daemon-reload alone does not change a running slice; the limits exist only while 1A is on, mycel-ctl safe-ops)
+  systemctl stop "$ID.slice" >/dev/null 2>&1 || true
 fi
 if [ -n "$PLAN" ]; then
   [ -f "$PLAN" ] || die "--plan: $PLAN not found"

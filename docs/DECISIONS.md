@@ -3542,3 +3542,64 @@ first); children may write, with read state per child; Codex later.
 - **Release gates.** The regression test on a Linux server (bwrap); one manual turn in office mode with a real login
   calling `isolation: "remote"` (then `LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS` may go on); memory of four children under the
   Linux turn limit; one real-model turn.
+
+## Safe operations 1A on a standard Linux install (fix/qa-1a-install, 2026-10-30)
+
+The first real-engine QA run on an installed Debian 13 server (plans/qa-real-2026-10-30) found that 1A could never make a
+PowerPoint on a standard install, and that its refusals and its confidential lock were hard to live with.
+
+- **One group for the server and the engines, bounded only while 1A is on.** Both units now always run in `<id>.slice`
+  (`Slice=` in their templates; a new `slice.in` template). The 1A envelope (server/src/safe-ops/envelope.ts) needs a
+  common ancestor with at most 4 GiB, 512 tasks, 4 CPUs, no swap and 640 MiB free; before, the common ancestor was
+  `system.slice`, unbounded, so every job was refused. The slice has limits only while `MYCEL_SAFE_OPS_1A=1` is in
+  `/etc/default/<id>`: always-on limits would cap every team, with or without 1A, at 4 GiB, 512 tasks (one turn may use
+  256) and 4 CPUs. With 1A on: `MemoryMax = min(4096, machine − 512) MiB`, `MemoryHigh = MemoryMax − 768 MiB` (the page
+  cache is reclaimed before it eats the 640 MiB a job needs free), `MemorySwapMax=0`, `TasksMax=512`,
+  `CPUQuota = min(4, CPUs) × 100%`; a hosted tenant's plan.json gives the memory and CPUs. Fewer than 2304 MiB: refused
+  with that number. Everything the server and its engines use counts against it while 1A is on (documented).
+- **`sudo mycel-ctl safe-ops on|off|status`** is the administrator's switch (docs/SAFE-OPS-1A.md "Administrator
+  rollout"): it checks the machine and the root copies below, writes the flag (keeping the file's other lines), renders
+  the units, and restarts both units in a fresh slice. systemd 257 (Debian 13) does not apply a slice unit's changed
+  limits on `daemon-reload` while the slice runs (checked on qa-test with a throwaway slice); stopping both units, then
+  the empty slice, then starting both does. The installer does the same after it installs units, and `render-units`,
+  `update` and the installer render the slice from `/etc/default/<id>`, so an install whose flag was set by hand gets
+  its bounded slice with the next upgrade. Off: flag and limits removed, units restarted.
+- **Root-owned copies of the 1A programs.** A 1A job runs only executables root owns in folders only root can write
+  (runner.ts `trustedFile`), but `app/versions/<v>/` belongs to the server account because the server's own updates
+  write it. Root now keeps `<base>/root/safe-ops/{mycel-safeops,pandoc}` (the server unit's `MYCEL_SAFE_OPS_BIN`),
+  copied only from a verified source: the installer from its kit, `mycel-ctl update` from the verified bundle (with the
+  root files), and `safe-ops on` from the installed version after checking its release signature and each copy's hash
+  against the signed manifest (a file swapped while it is read never lands). An unsigned development install cannot
+  prove its installed copy: there only the installer with `--from <kit>` puts them in. A release that changes
+  `native/mycel-safeops` or `bin/pandoc` now counts as a root change (`needsRoot`, publish-server.ts `rootManaged`), so
+  an app-only update can never leave the root copies behind; the server still compares them with its own copies and
+  refuses (naming both files) when they differ. The broker's own `mycel-safeops` calls (openat2, linkat) keep using the
+  app's copy: they run as the server account outside the sandbox, as before.
+- **Refusals say what is missing.** Distinct codes and five-language texts: no bounded group (`safe_ops_not_ready_group`,
+  "run `sudo mycel-ctl safe-ops on`"), programs not root-owned or from another version (`safe_ops_not_ready_programs`),
+  too little free memory right now (`safe_ops_group_memory`), the rest as before. Admin › System › Diagnostics shows
+  "Safe PowerPoint (1A)" while the flag is on: ready with the group's limits, or what is missing and the command. The
+  program and group checks run before a job is reserved.
+- **Hourly limits count work, not tries (QA B3).** The 8 per person per hour and 4 per reply count workflows that are
+  running or ran at least one converter job; a try refused before converting anything (not ready, a bad source, a
+  wrong option) uses no slot. Converter work itself stays charged by the cumulative budget (24 jobs, 600 CPU-s,
+  512 MiB per person and reply per hour). "Limit or incomplete cleanup" is now five refusals: busy (another workflow
+  runs), cleanup (debt; an administrator checks the server), the hourly limit with the minutes until a slot frees, the
+  per-reply limit, and the budget.
+- **The confidential lock stays only where 1A worked (QA D1; the founder left it to us).** While 1A is on, every
+  conversation is still local-only (a turn may start a 1A workflow at any moment; provider web search is fixed when the
+  engine starts). After 1A is turned off, only conversations in which a 1A workflow was admitted stay local-only for
+  good; the others get web fetch, connectors and the browser back. Why this keeps the design's guarantee: since
+  "AI sees images and PDF pages" (above), a 1A workflow is the only thing 1A adds to a conversation (sources read
+  through its broker, quarantined output); reading team files and images happens without 1A too and never locked a
+  conversation. The mark is written in the admission transaction, before the workflow reads anything (fail-closed); a
+  workflow refused at admission read nothing and marks nothing. Migration 323 (reader 1) adds
+  `safe_ops_chats.material` with default 1: existing rows unlock only when no workflow, publication or source record of
+  theirs exists and their owner has none whose turn is gone (retention keeps only each chat's last turn after 400 days);
+  rows an older build writes after a roll-back stay locked. Quarantine, download-only and immutable publication are
+  unchanged.
+- **The file panel leaves out "Ask AI" and "add to chat" for a download-only file** and says why (the AI is refused
+  those bytes, so the action could only fail).
+- **Building a kit from source on a clean Debian** no longer needs Node.js: see docs/INSTALL-LINUX.md 3a.
+- CI keeps the Linux kit again: the "Linux release bundle (L19)" job uploaded `TeamAX-server-*`, a name no build
+  makes any more; the glob is now product-name-free and the step fails when no kit matches.

@@ -13,7 +13,7 @@ Group=@SRV@
 ExecStart=@BASE@/root/mycel-bootstrap --app @BASE@/app --config @BASE@/config/server.json @PUBKEYS@
 Environment=PATH=/usr/bin:/bin HOME=@BASE@/data MYCEL_INSTALL_BASE=@BASE@ MYCEL_LABEL=@ID@ \
   MYCEL_WEB_DIST=@BASE@/app/current/web MYCEL_PLAN_FILE=@BASE@/root/plan.json \
-  MYCEL_SANDBOX_HELPER=@BASE@/root/mycel-sandbox @ALLOW_UNSIGNED_ENV@
+  MYCEL_SANDBOX_HELPER=@BASE@/root/mycel-sandbox MYCEL_SAFE_OPS_BIN=@BASE@/root/safe-ops @ALLOW_UNSIGNED_ENV@
 EnvironmentFile=-/etc/default/@ID@
 UMask=0027
 # no RestrictSUIDSGID: it makes openat2 fail with ENOSYS and the converters' bwrap 0.12 needs openat2 (spike S1)
@@ -21,6 +21,9 @@ Restart=always
 RestartSec=2
 KillMode=mixed
 TimeoutStopSec=30
+# one group with the other unit (@ID@.slice): 1A requires a bounded common ancestor of the server, its converters
+# and the engine turns; the slice has limits only while 1A is on (mycel-ctl safe-ops)
+Slice=@ID@.slice
 Delegate=memory pids cpu
 OOMPolicy=continue
 TasksMax=1024

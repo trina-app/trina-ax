@@ -23,7 +23,7 @@ import type { McpContent } from '../turns'
 import { Quarantine } from '../safe-ops/quarantine'
 import { recoverWorkflows } from '../safe-ops/workflow'
 import { recoverPublications } from '../safe-ops/publication'
-import { safeText, safeErrorText } from '../safe-ops/strings'
+import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
   PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
@@ -192,7 +192,7 @@ export class FileService {
         return { text: 'Access denied: ' + e.message, isError: true, summary: `${tool} ${short(p)} -> denied: ${e.message}` }
       }
       if (e?.name === 'ZodError') return { text: 'Invalid input: ' + e.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '), isError: true, summary: `${tool} -> invalid input` }
-      if (e instanceof ToolError) return { text: 'Error: ' + safeErrorText(this.db,ctx.user.id,e.code,e.message), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
+      if (e instanceof ToolError) return { text: 'Error: ' + toolErrorText(this.db,ctx.user.id,e), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
       return { text: 'Error: internal error', isError: true, summary: `${tool} ${short(p)} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }
     }
   }

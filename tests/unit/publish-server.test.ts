@@ -39,16 +39,18 @@ function fakeElf(arch: LinuxArch, extra = ''): Buffer {
 }
 
 /** An unsigned Linux build folder like `build-bundle.ts --os linux --out` leaves it (and the workflow's artifact holds). */
-async function unsignedBuild(dir: string, version: string, arch: LinuxArch, o: { root?: string; feed?: string; server?: string } = {}) {
+async function unsignedBuild(dir: string, version: string, arch: LinuxArch, o: { root?: string; feed?: string; server?: string; safeops?: string } = {}) {
   fs.rmSync(dir, { recursive: true, force: true })
   const app = path.join(dir, 'app', version)
-  for (const d of ['root/systemd', 'bin', 'server/src', 'server/migrations']) fs.mkdirSync(path.join(app, d), { recursive: true })
+  for (const d of ['root/systemd', 'bin', 'native', 'server/src', 'server/migrations']) fs.mkdirSync(path.join(app, d), { recursive: true })
+  // the 1A program root keeps its own copy of (build-bundle.ts LINUX_ROOT_COPIES)
+  fs.writeFileSync(path.join(app, 'native', 'mycel-safeops'), fakeElf(arch, `safeops ${o.safeops ?? ''}`), { mode: 0o755 })
   fs.writeFileSync(path.join(app, 'root', 'mycel-ctl'), fakeElf(arch, o.root ?? ''), { mode: 0o755 })
   fs.writeFileSync(path.join(app, 'root', 'systemd', 'server.service.in'), '[Service]\n', { mode: 0o644 })
   fs.writeFileSync(path.join(app, 'bin', 'bun'), '#!/bin/sh\n', { mode: 0o755 })
   fs.writeFileSync(path.join(app, 'server', 'src', 'main.js'), `// server ${version} ${o.server ?? ''}\n`, { mode: 0o644 })
   fs.writeFileSync(path.join(app, 'server', 'migrations', '001_a.sql'), '-- min_compatible_reader: 2\n', { mode: 0o644 })
-  for (const p of [app, ...['root', 'root/systemd', 'bin', 'server', 'server/src', 'server/migrations'].map((d) => path.join(app, d))]) fs.chmodSync(p, 0o755)
+  for (const p of [app, ...['root', 'root/systemd', 'bin', 'native', 'server', 'server/src', 'server/migrations'].map((d) => path.join(app, d))]) fs.chmodSync(p, 0o755)
   await writeManifest(app, version)
   fs.writeFileSync(path.join(dir, 'VERSION'), version + '\n')
   fs.writeFileSync(path.join(dir, 'product.env'), productEnv({ RELEASE_FEED: o.feed ?? RELEASE_CHANNEL.feed }))
@@ -56,7 +58,7 @@ async function unsignedBuild(dir: string, version: string, arch: LinuxArch, o: {
 }
 
 /** Both archs signed (release-ci.ts sign-linux) into one folder, as the publish job has them. */
-async function signedBuilds(name: string, version: string, o: { root?: string; feed?: string; server?: string; pem?: string } = {}) {
+async function signedBuilds(name: string, version: string, o: { root?: string; feed?: string; server?: string; safeops?: string; pem?: string } = {}) {
   const out = path.join(T, name, 'server')
   fs.mkdirSync(out, { recursive: true })
   for (const arch of ARCHS) {
@@ -168,6 +170,11 @@ describe('publish-server', () => {
     // forced either way
     const b034 = await signedBuilds('b034', '0.3.4', { root: 'new launcher', server: '0.3.4' })
     expect((await publishServer(opts(b034, f2, { channel: 'beta', version: '0.3.4', needsRoot: false }))).needsRoot).toBe(false)
+    // only a program root keeps its own copy of (safe operations 1A) changed: root must install it, the app cannot
+    const f3 = path.join(T, 'feed-e3')
+    await publishServer(opts(b030, f3, { channel: 'stable' }))
+    const safeops = await signedBuilds('b031-safeops', '0.3.1', { server: 'new app', safeops: 'new' })
+    expect((await publishServer(opts(safeops, f3, { channel: 'stable', version: '0.3.1' }))).needsRoot).toBe(true)
   })
 
   test('a head cut off before its signature (a stopped run) is recognised; a changed head is not', async () => {

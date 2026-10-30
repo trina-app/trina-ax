@@ -18,6 +18,13 @@ if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null 
  apparmor_parser -r /tmp/safe1a-fix.apparmor
  profile=1
 fi
+# the 1A programs as an install keeps them (root/safe-ops: root-owned) and as the app has them (the server account's)
+install -d -m 755 /opt/safe1a-root
+install -m 755 /test-native/mycel-safeops /opt/safe1a-root/mycel-safeops
+install -m 755 /usr/bin/pandoc /opt/safe1a-root/pandoc
+install -d -m 755 -o axserver -g axserver /opt/safe1a-app
+install -m 755 -o axserver -g axserver /test-native/mycel-safeops /opt/safe1a-app/mycel-safeops
+install -m 755 -o axserver -g axserver /usr/bin/pandoc /opt/safe1a-app/pandoc
 mkdir -p /tmp/safe-fix-mount/root/nested /tmp/safe-fix-mount/source
 printf synthetic > /tmp/safe-fix-mount/source/source
 mount --bind /tmp/safe-fix-mount/source /tmp/safe-fix-mount/root/nested

@@ -203,6 +203,26 @@ Voice input is off by default. In Admin › Team settings › Voice input, pick 
 to OpenRouter) or this server (whisper.cpp; on 2 vCPU a 2 s clip takes 10–38 s). On small servers, use OpenRouter. The
 server account can reach public https hosts (openrouter.ai), so the firewall needs no change.
 
+### 9a. 안전한 PowerPoint(1A, 선택)
+
+기밀 문서용 PowerPoint 만들기(`docs/SAFE-OPS-1A.md`)는 기본으로 꺼져 있다. 켜기·끄기·상태:
+
+```sh
+sudo mycel-ctl safe-ops on       # 확인 → root 소유 변환 프로그램 → MYCEL_SAFE_OPS_1A=1 → 자원 그룹 한도 → 재시작
+sudo mycel-ctl safe-ops status   # 준비됐는지, 아니면 무엇이 빠졌는지
+sudo mycel-ctl safe-ops off
+```
+
+- 서버와 AI 엔진은 늘 `mycel.slice` 한 그룹에서 돈다. 1A가 켜져 있는 동안만 이 그룹에 한도가 붙는다:
+  메모리 `min(4 GiB, 서버 메모리 − 512 MiB)`, 스왑 없음, 작업 512개, CPU 최대 4개. 큰 서버에서도 1A를 켠 동안에는 팀 전체가
+  이 안에서 돈다. 메모리가 2304 MiB보다 적은 서버는 켜지 않는다.
+- 1A 작업은 root 소유 실행 파일만 돌린다. 설치기와 `mycel-ctl update`가 `mycel-safeops`·`pandoc`의 root 소유 사본을
+  `/var/lib/mycel/root/safe-ops/`에 둔다(검증된 키트·묶음에서만). `--allow-unsigned`로 설치한 서버에 사본이 없으면 키트로
+  `sudo ./install-linux.sh update --from <키트>`를 실행한다.
+- 켜고 끌 때 서버와 실행기가 다시 시작된다(진행 중인 답은 멈춘다). 1A 작업을 한 채팅은 끈 뒤에도 웹·커넥터·브라우저 없이
+  남는다. 1A 작업을 하지 않은 채팅은 끄면 원래대로 돌아온다.
+- 관리자 › 시스템 › 진단의 "안전한 PowerPoint(1A)"가 준비 상태나 빠진 것과 고칠 명령을 보여 준다.
+
 ## 10. 저장 공간·백업과 복원
 
 - 관리자 › 시스템 › 저장 공간: 디스크 사용률과 항목별 크기(팀 파일, 파일 기록, 휴지통, 백업, 모델, 서버 데이터, 앱, 기타).
@@ -236,7 +256,7 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 ## 11. 문제 해결
 
 - 관리자 › 시스템 › 진단: 방화벽(nftables), 실행기, 샌드박스(bwrap·Landlock·seccomp), 커널 격리(ptrace_scope·cgroup·사용자
-  네임스페이스), 저장 공간, 백업, 업데이트. 고칠 명령을 함께 보여 준다.
+  네임스페이스), 안전한 PowerPoint(1A를 켰을 때), 저장 공간, 백업, 업데이트. 고칠 명령을 함께 보여 준다.
 - `sudo mycel-ctl status`, `journalctl -u mycel-server -u mycel-launcher -n 200`.
 - 자주 보는 실패:
   - 우분투 24.04에서 샌드박스 실패: AppArmor가 사용자 네임스페이스를 막음. 설치기가 bwrap 전용 프로필을 넣는다(`repair`로 다시).

@@ -88,8 +88,8 @@ func (tb *testBase) ctl(stdin string, args ...string) (int, string, string) {
 	e.stdout, e.stderr, e.stdin = &out, &errb, strings.NewReader(stdin)
 	e.nft, e.systemctl = filepath.Join(tb.fakeBin, "nft"), filepath.Join(tb.fakeBin, "systemctl")
 	full := append([]string{args[0], "--base", tb.base, "--nft", e.nft, "--systemctl", e.systemctl}, args[1:]...)
-	if args[0] == "firewall" {
-		full = append([]string{"firewall", args[1], "--base", tb.base, "--nft", e.nft, "--systemctl", e.systemctl}, args[2:]...)
+	if args[0] == "firewall" || args[0] == "safe-ops" {
+		full = append([]string{args[0], args[1], "--base", tb.base, "--nft", e.nft, "--systemctl", e.systemctl}, args[2:]...)
 	}
 	cmd, rest := full[0], full[1:]
 	var code int
@@ -103,6 +103,8 @@ func (tb *testBase) ctl(stdin string, args ...string) (int, string, string) {
 		code, err = cmdUpdate(e, rest)
 	case "status":
 		code, err = cmdStatus(e, rest)
+	case "safe-ops":
+		code, err = cmdSafeOps(e, rest)
 	}
 	if err != nil {
 		fmt.Fprintln(&errb, err)

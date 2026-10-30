@@ -76,6 +76,25 @@ Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest)
 
 For manual updates, download and verify the new kit as above, then use `sudo ./install-linux.sh update --from .`. A startup failure can roll the app back; it does **not** undo database migrations or file changes. Do not assume an older binary can read every future database. Restore from a verified pre-update backup when needed, using a compatible release.
 
+## Safe PowerPoint (safe operations 1A, optional)
+
+Confidential-document PowerPoint ([SAFE-OPS-1A](SAFE-OPS-1A.md)) is off by default:
+
+```sh
+sudo mycel-ctl safe-ops on       # checks, root-owned programs, MYCEL_SAFE_OPS_1A=1, group limits, restart
+sudo mycel-ctl safe-ops status   # ready, or what is missing
+sudo mycel-ctl safe-ops off
+```
+
+The server and the AI engines always run in one group, `mycel.slice`. Only while 1A is on does it get limits: memory
+`min(4 GiB, server memory − 512 MiB)`, no swap, 512 tasks, at most 4 CPUs; the whole team runs inside them while 1A is
+on, even on a larger server. Servers with less than 2304 MiB of memory are refused. 1A jobs run only root-owned
+programs: the installer and `mycel-ctl update` keep root-owned copies of `mycel-safeops` and `pandoc` in
+`/var/lib/mycel/root/safe-ops/`, from verified kits and bundles only (an `--allow-unsigned` install without them needs
+`sudo ./install-linux.sh update --from <kit>`). Turning 1A on or off restarts the server and the launcher. Chats that
+ran a 1A job keep web, connectors and the browser off afterwards; other chats get them back when 1A is off. Admin ›
+System › Diagnostics shows "Safe PowerPoint (1A)": ready, or what is missing and the command to fix it.
+
 ## Backup, restore, uninstall
 
 See [BACKUP-RESTORE.md](BACKUP-RESTORE.md) for DB-only restore, team files, encrypted archives, ownership and new-machine limits. Local backups are on the same disk and are not disaster recovery by themselves.

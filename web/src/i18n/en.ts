@@ -284,6 +284,7 @@ export const en: Record<MessageKey, string> = {
   'picker.attached': 'Attached',
   'attach.moved': 'moved',
   'files.askAiShort': 'Ask AI',
+  'files.askAiDownloadOnly': "The AI can't read download-only files, so Ask AI is not available for this file.",
   'files.addToChatNamed': 'Add to “{title}”',
   'files.addedSome': '{n} added; {failed} could not be added.',
 

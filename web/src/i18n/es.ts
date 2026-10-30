@@ -272,6 +272,7 @@ export const es: Record<MessageKey, string> = {
   'picker.attached': "Adjunto",
   'attach.moved': "movido",
   'files.askAiShort': "Preguntar a la IA",
+  'files.askAiDownloadOnly': "La IA no puede leer archivos solo de descarga, así que «Preguntar a la IA» no está disponible para este archivo.",
   'files.addToChatNamed': "Añadir a “{title}”",
   'files.addedSome': "Se añadieron {n}; no se pudieron añadir {failed}.",
   'voice.start': "Entrada de voz",

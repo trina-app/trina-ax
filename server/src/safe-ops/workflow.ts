@@ -6,10 +6,20 @@ import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { ToolError } from '../policy/errors'
 import { qualifiedEnvelope } from './envelope'
+import { markConfidentialTurn } from './confidential'
+import { SafeOpsError } from './strings'
 
 const scope = new AsyncLocalStorage<{db: Database; id: string; dataDir: string; enginePid: number|null}>()
-const refusal = () => new ToolError('Safe workflow limit or incomplete cleanup.', 'safe_ops_workflow')
+// Each refusal has its own code and words (QA 2026-10-30 B3; strings.ts SAFE_ERROR_KEYS).
+const refusal = () => new ToolError('Safe workflow cleanup is incomplete.', 'safe_ops_cleanup')
+const busy = () => new ToolError('Another safe workflow is running; try again shortly.', 'safe_ops_busy')
 export const WORKFLOW_LIMITS = { jobs:24, ioBytes:512*1024**2, cpuSeconds:600, wallMs:120_000, perTurn:4, perUserHour:8 }
+const HOUR = 3600000
+/** Workflows that count toward the per-user/turn limits: running ones, and finished ones that started at least one
+ * converter job. A try refused before any conversion (not ready, a bad source, a wrong option) is not work and does not
+ * use a slot (QA 2026-10-30 B3); converter work itself stays charged by reserveJob's cumulative budget. */
+const COUNTED = "(state='running' OR jobs>0)"
+const minutesUntil = (at: number, now: number) => Math.max(1, Math.ceil((at - now) / 60000))
 const alive = (pid: number) => { try { process.kill(pid,0); return true } catch(e:any) { return e.code !== 'ESRCH' } }
 
 /** Startup/admission reconciliation never reruns a converter. Debt stays charged until
@@ -43,12 +53,22 @@ export async function withWorkflow<T>(files: FileService, c: ToolCtx, run: () =>
   const db = files.db, id=crypto.randomUUID(), now=Date.now()
   recoverWorkflows(db)
   db.transaction(() => {
-    if (db.query("SELECT 1 FROM safe_ops_workflows WHERE state IN ('running','debt') LIMIT 1").get() ||
+    if (db.query("SELECT 1 FROM safe_ops_workflows WHERE state='debt' LIMIT 1").get() ||
         db.query("SELECT 1 FROM safe_ops_publications WHERE cleanup!='clean' LIMIT 1").get()) throw refusal()
-    const user = db.query('SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND created>?').get(c.user.id,now-3600000) as {n:number}
-    const turn = db.query('SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND turn_id IS ? AND created>?').get(c.user.id,c.turnId,now-3600000) as {n:number}
-    if (user.n>=WORKFLOW_LIMITS.perUserHour || turn.n>=WORKFLOW_LIMITS.perTurn) throw refusal()
+    if (db.query("SELECT 1 FROM safe_ops_workflows WHERE state='running' LIMIT 1").get()) throw busy()
+    const user = db.query(`SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND created>? AND ${COUNTED}`).get(c.user.id,now-HOUR) as {n:number}
+    if (user.n>=WORKFLOW_LIMITS.perUserHour) {
+      // the slot frees when the (n-limit)-th oldest counted workflow leaves the rolling hour
+      const free = db.query(`SELECT created FROM safe_ops_workflows WHERE user_id=? AND created>? AND ${COUNTED} ORDER BY created LIMIT 1 OFFSET ?`)
+        .get(c.user.id,now-HOUR,user.n-WORKFLOW_LIMITS.perUserHour) as {created:number}|null
+      throw new SafeOpsError('Safe workflow hourly limit reached.', 'safe_ops_hour_limit', {minutes:minutesUntil((free?.created??now)+HOUR,now)})
+    }
+    const turn = db.query(`SELECT count(*) AS n FROM safe_ops_workflows WHERE user_id=? AND turn_id IS ? AND created>? AND ${COUNTED}`).get(c.user.id,c.turnId,now-HOUR) as {n:number}
+    if (turn.n>=WORKFLOW_LIMITS.perTurn) throw new SafeOpsError('Safe workflow per-reply limit reached.', 'safe_ops_turn_limit')
     db.query("INSERT INTO safe_ops_workflows(id,user_id,turn_id,created,state,owner_pid) VALUES(?,?,?,?,'running',?)").run(id,c.user.id,c.turnId,now,process.pid)
+    // Admitted: from here on the workflow reads sources and produces quarantined output, so the conversation stays
+    // confidential after 1A is turned off (fail-closed: marked before anything is read; DECISIONS 2026-10-30).
+    markConfidentialTurn(db,c.turnId)
   }).immediate()
   const original=c.signal, timeout=new AbortController()
   const timer=setTimeout(()=>timeout.abort(),WORKFLOW_LIMITS.wallMs)
@@ -73,8 +93,11 @@ export function reserveJob(id: string, cgroup: string, fallbackStage: string, io
   const stage=path.join(s.dataDir,'safe-ops-jobs',id)
   s.db.transaction(()=>{
     const w=s.db.query('SELECT user_id,turn_id FROM safe_ops_workflows WHERE id=?').get(s.id) as {user_id:string;turn_id:string|null}
-    const sum=s.db.query('SELECT sum(jobs) AS jobs,sum(io_bytes) AS io,sum(reserved_cpu) AS cpu FROM safe_ops_workflows WHERE user_id=? AND turn_id IS ? AND created>?').get(w.user_id,w.turn_id,Date.now()-3600000) as {jobs:number;io:number;cpu:number}
-    if (sum.jobs+1>WORKFLOW_LIMITS.jobs || sum.io+ioBytes>WORKFLOW_LIMITS.ioBytes || sum.cpu+25>WORKFLOW_LIMITS.cpuSeconds) throw refusal()
+    const sum=s.db.query('SELECT sum(jobs) AS jobs,sum(io_bytes) AS io,sum(reserved_cpu) AS cpu FROM safe_ops_workflows WHERE user_id=? AND turn_id IS ? AND created>?').get(w.user_id,w.turn_id,Date.now()-HOUR) as {jobs:number;io:number;cpu:number}
+    if (sum.jobs+1>WORKFLOW_LIMITS.jobs || sum.io+ioBytes>WORKFLOW_LIMITS.ioBytes || sum.cpu+25>WORKFLOW_LIMITS.cpuSeconds) {
+      const first=s.db.query('SELECT min(created) AS at FROM safe_ops_workflows WHERE user_id=? AND turn_id IS ? AND created>? AND jobs>0').get(w.user_id,w.turn_id,Date.now()-HOUR) as {at:number|null}
+      throw new SafeOpsError('Safe conversion budget used up.', 'safe_ops_budget', {minutes:minutesUntil((first.at??Date.now())+HOUR,Date.now())})
+    }
     s.db.query('UPDATE safe_ops_workflows SET jobs=jobs+1,io_bytes=io_bytes+?,reserved_cpu=reserved_cpu+25,debt_bytes=debt_bytes+? WHERE id=?').run(ioBytes,128*1024**2,s.id)
     s.db.query("INSERT INTO safe_ops_jobs(id,workflow,cgroup,stage,state,reserved_bytes) VALUES(?,?,?,?,'running',?)").run(id,s.id,cgroup,stage,128*1024**2)
   }).immediate()
