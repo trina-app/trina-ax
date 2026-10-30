@@ -224,6 +224,32 @@ describe('PDF pages (Claude Code Read contract)', () => {
     expect(texts(notPdf)).toContain('only for PDF files')
   })
 
+  // grep searches the text cache (files/search.ts): on a Mac that is Apple Vision text for scanned pages and PDFKit text
+  // without poppler, which number lines differently from the text layer alone (review of feat/vision-read)
+  test.skipIf(!pageRenderer)('grep -> read: offset/limit give the line grep reports (also on a Mac without poppler)', async () => {
+    const office = A.ctx.files.office as unknown as { tools: { pdftotext: string | null } }
+    const saved = A.ctx.files.cfg.pdftotext
+    const h = handler('alice', A.turn('alice', A.chat('alice')))
+    try {
+      for (const poppler of A.ctx.files.cfg.ocr && saved ? [true, false] : [true]) {
+        if (!poppler) A.ctx.files.cfg.pdftotext = office.tools.pdftotext = null
+        for (const [file, word] of [['mixed.pdf', 'Page three'], ['eleven.pdf', 'page number 9 ']] as const) {
+          const rel = `${ALICE}/${file}`
+          fs.rmSync(A.ctx.files.office.cachePath(rel), { force: true })
+          await A.ctx.files.office.update(rel)
+          const hit = new RegExp(`${file}:(\\d+):.*${word}`).exec(texts(await h.call('grep', { pattern: word, path: ALICE, output_mode: 'content', '-n': true })))
+          expect(hit).not.toBeNull()
+          const line = await h.call('read', { file_path: rel, offset: Number(hit![1]), limit: 1 })
+          expect(line.result.isError).toBeUndefined()
+          expect(texts(line)).toContain(word)
+        }
+      }
+    } finally {
+      A.ctx.files.cfg.pdftotext = office.tools.pdftotext = saved
+      for (const f of ['mixed.pdf', 'eleven.pdf']) fs.rmSync(A.ctx.files.office.cachePath(`${ALICE}/${f}`), { force: true })
+    }
+  })
+
   test.skipIf(!pageRenderer)('line reads name the scanned pages to read as images', async () => {
     const r = await handler('alice', A.turn('alice', A.chat('alice'))).call('read', { file_path: `${ALICE}/mixed.pdf`, offset: 1 })
     expect(texts(r)).toContain('Pages without a text layer (scans or pictures): 2.')

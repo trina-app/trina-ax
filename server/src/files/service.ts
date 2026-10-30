@@ -233,9 +233,11 @@ export class FileService {
   /**
    * A PDF like Claude Code's Read: `pages` (at most PDF_PAGES_PER_READ; required over PDF_PAGES_WITHOUT_RANGE pages)
    * gives each page's text layer as text, and pages without one (scans, pictures) as images; `as_images` shows the
-   * text pages as images too. offset/limit without `pages` give numbered lines of the text layer (the lines grep
-   * reports). No OCR: with image viewing off, a Mac server gives Apple Vision text for scanned pages instead, a Linux
-   * server a note (scanned pages are not searchable there either).
+   * text pages as images too. offset/limit without `pages` give numbered lines of the text grep searched (the text
+   * cache, files/search.ts): the text layer on Linux; on a Mac the cache's own text (Apple Vision for scanned pages,
+   * PDFKit without poppler), so a line grep reports is the same line here. Otherwise no OCR: with image viewing off, a
+   * Mac server gives Apple Vision text for scanned pages instead, a Linux server a note (scanned pages are not
+   * searchable there either).
    */
   private async readPdf(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
@@ -249,14 +251,15 @@ export class FileService {
     const record = () => { ctx.files.readHashes.set(src.rel, src.hash); ctx.files.readPaths.add(src.rel) }
 
     if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined)) {
-      if (ocrText) {
-        const text = await extractText(src.rel, src.bytes, { pandoc: null, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
-        record()
-        return numberedLines(src.rel, text, a)
-      }
-      const layers = await pdfLayer(src.bytes, tools, ctx.signal)
+      // the same extraction as the grep text cache (OfficeCache: pdftotext, then Apple Vision when a page has no text
+      // layer; PDFKit's text without poppler): on a Mac the text layer alone numbers lines differently
+      const cached = this.cfg.ocr
+        ? await extractText(src.rel, src.bytes, { pandoc: null, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
+        : null
+      // the pages without a text layer, named for a read by pages (not when the Apple Vision text is the fallback)
+      const layers = ocrText ? [] : await pdfLayer(src.bytes, tools, ctx.signal)
       record()
-      const out = numberedLines(src.rel, layerText(layers), a)
+      const out = numberedLines(src.rel, cached ?? layerText(layers), a)
       const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
       if (scanned.length) out.text += `\n\n${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(scanned) })} ${block ? why(block) : visionText(this.db, ctx.user.id, 'scannedHint', { first: scanned[0]! })}`
       return out
