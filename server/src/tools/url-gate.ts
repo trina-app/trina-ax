@@ -13,8 +13,10 @@
 //     conversation", chat_allowed_sites): the same registrable domain (eTLD+1, Public Suffix List with its private
 //     section: news.example.co.kr and example.co.kr are one site, alice.github.io and bob.github.io are two), in this
 //     chat, for this person, outside the link budget. Never for an address with a long random-looking part (opaqueParts:
-//     it can carry data, so the card shows it highlighted every time), never in a confidential chat. Like Claude Code's
-//     "don't ask again for this domain", but for one conversation;
+//     it can carry data, so the card shows it highlighted every time) or a long name before the site (longSubdomain:
+//     names have no case to tell random labels by, and they reach the name servers on the way in the clear), never for
+//     one with a user name or password, never in a confidential chat. Like Claude Code's "don't ask again for this
+//     domain", but for one conversation;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
 //   and a card for every URL while the office's public exit address is unknown (tools/egress.ts).
@@ -187,6 +189,24 @@ export function siteOf(rawUrl: string): string | null {
   return d && d.includes('.') ? d : null
 }
 
+/** The part of a host name before its site that always asks, also on an allowed site: this many characters or more
+ * (dots and hyphens included). opaqueParts cannot tell random-looking labels there: names are lowercased (no mix of
+ * cases), and dots or hyphens cut data into short pieces (a1b2….c3d4….site.example). A name also goes out in the clear
+ * to the name servers on the way, before any page opens, so data in it reaches more than the site. Real sites rarely
+ * need this much (www, news, m.blog, docs, kr). */
+export const MAX_SITE_SUBDOMAIN = 20
+
+/** The part of the address's host name before its site (news.example.co.kr: "news") when it is MAX_SITE_SUBDOMAIN
+ * characters or longer, as a mark for the card; none when it is shorter or the address has no site. */
+export function longSubdomain(rawUrl: string, site: string | null): string[] {
+  if (!site) return []
+  let host: string
+  try { host = new URL(rawUrl).hostname.toLowerCase().replace(/\.+$/, '') } catch { return [] }
+  if (!host.endsWith('.' + site)) return []
+  const sub = host.slice(0, -(site.length + 1))
+  return sub.length >= MAX_SITE_SUBDOMAIN ? [sub] : []
+}
+
 /** A site as shown on a card: ASCII form, and the Unicode form next to it when they differ (예시.한국). */
 export function siteLabel(site: string): string {
   const u = domainToUnicode(site)
@@ -270,6 +290,13 @@ export const TEXT = {
     ja: 'アドレスに読み取りにくい長い文字列が含まれています（強調表示）。データを運べるため、内容を確認してください。',
     es: 'La dirección contiene cadenas largas difíciles de leer (resaltadas). Pueden llevar datos; compruebe qué son.',
   },
+  longName: {
+    ko: '사이트 이름 앞에 붙은 부분이 길어요(강조 표시). 이름에도 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
+    en: 'The part of the name before the site is long (highlighted). A name can carry data too; check what it is.',
+    id: 'Bagian nama sebelum situsnya panjang (disorot). Nama juga bisa membawa data; periksa isinya.',
+    ja: 'サイト名の前に付いた部分が長くなっています（強調表示）。名前にもデータを載せられるため、内容を確認してください。',
+    es: 'La parte del nombre antes del sitio es larga (resaltada). Un nombre también puede llevar datos; compruebe qué es.',
+  },
   site: {
     ko: '사이트를 허용하면 이 대화에서만 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.',
     en: 'If you allow the site, other addresses on {site} open without asking, in this conversation only. Addresses with long hard-to-read strings or a long query still ask.',
@@ -298,22 +325,28 @@ export type GateResult = 'seen' | 'site' | 'confirmed'
 export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
-  const query = new URL(url).search.slice(1)
-  const long = query.length > MAX_UNCONFIRMED_QUERY
+  const parsed = new URL(url)
+  const long = parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY
   // the office's public exit address is not known yet (tools/egress.ts): no URL opens without the person
   const noEgress = o.egressKnown === false
   // long random-looking parts of the address: a site allowance never covers them, the card marks them. Looked for in
   // the decoded address, so a Korean path (%ED%95%9C…) is words, not a random string; one that does not decode is
   // checked as written
   const readable = decodedUrl(url)
-  const marks = opaqueParts(readable.replace(/^https?:\/\//i, ''))
   const site = siteOf(url)
+  // a long name before the site (MAX_SITE_SUBDOMAIN): the same, listed first so the card highlights all of it
+  const longName = longSubdomain(url, site)
+  const opaque = opaqueParts(readable.replace(/^https?:\/\//i, '')).filter((m) => !longName.some((n) => n.includes(m)))
+  const marks = [...longName, ...opaque]
+  // a user name or password in the address (the in-app browser takes one; web_fetch refuses it before this) is data
+  // for the site: never covered by a site allowance
+  const userinfo = !!(parsed.username || parsed.password)
   let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
   if (!long && !noEgress) {
     const from = originOf(db, chatId, url, person)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
     // ①b: a site the person allowed in this conversation, outside the link budget
-    if (site && !marks.length && allowedSites(db, chatId, o.userId).has(site)) return 'site'
+    if (site && !marks.length && !userinfo && allowedSites(db, chatId, o.userId).has(site)) return 'site'
     if (from?.origin === 'learned') {
       if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from.row)) return 'seen'
       why = 'budget'
@@ -328,10 +361,14 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)
   const shown = url.length > 2000 ? url.slice(0, 2000) + '…' : url
   const lines = [TEXT[why][L].replace('{turn}', String(LINK_BUDGET.turn)).replace('{chat}', String(LINK_BUDGET.chat)).replace('{url}', () => shown)]
-  if (marks.length) lines.push(TEXT.opaque[L])
+  if (longName.length) lines.push(TEXT.longName[L])
+  if (opaque.length) lines.push(TEXT.opaque[L])
   // "allow this site in this conversation": only where an allowance could ever apply (not for a long query or while the
-  // exit address is unknown, never in a confidential chat or without a chat and person to keep it for)
-  const offerSite = !!(site && person.choose && !long && !noEgress && siteScope(db, chatId, o.userId))
+  // exit address is unknown, never in a confidential chat or without a chat and person to keep it for), and never on
+  // the card of an address that looks like it carries data (a marked part, a user name or password): that is the card
+  // an AI's first try to send something out raises, and one click there would trust the whole site for the rest of the
+  // chat. The next plain address of the site offers it.
+  const offerSite = !!(site && person.choose && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
   if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
   const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
   const question = lines.join('\n\n')

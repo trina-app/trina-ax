@@ -3695,13 +3695,34 @@ asks once per domain ("Yes, and don't ask again for this domain").
   (browser tools); private IP literals are refused before any card. An address with a long random-looking part
   (`opaqueParts` on the decoded address, so a Korean path is words) is never covered: it gets the card every time
   with that part highlighted (the plain address card now shows the address in a marked detail block when it has one).
+  That card offers no site choice (review of feat/exfil-followups): it is the card an AI's first try to send data out
+  raises, and one click there would trust the whole site for the rest of the chat; the next plain address of the site
+  offers it.
   A query over 200 characters and every address while the office's exit address is unknown still ask, without the
   site choice. A confidential chat (Safe operations 1A) never offers it and ignores allowances made before.
+- **A long name before the site** (review of feat/exfil-followups). `opaqueParts` cannot see data in a host name:
+  names are lowercased (no mix of cases to tell a random label by), and dots or hyphens cut data into short pieces
+  (`a1b2c3d4e5.f6a7b8c9d0.<site>`, letters only `qwhsjdkeuqpzmxnvbalskdjf.<site>`). A name also goes out in the
+  clear to the name servers on the way, before any page opens, so data in it reaches more than the site. So an address
+  whose part before the site is 20 characters or longer (`MAX_SITE_SUBDOMAIN`, dots and hyphens included) is never
+  covered: its card highlights that part, with its own line ("사이트 이름 앞에 붙은 부분이 길어요"). Real sites rarely
+  need that much (www, news, m.blog, docs, us-east-1.docs). An address with a user name or password is never covered
+  either (the in-app browser takes one; web_fetch refuses it before the card).
 - **Cost of the random-string rule.** Addresses with long ids (a git commit, a document id) on an allowed site still
   ask each time. Accepted: that is what such a part looks like when it carries data.
+- **What it does not stop.** Allowing a site trusts whoever runs it: within these rules the AI can still send it
+  readable text (words in a path, a short name before the site, many requests). The random-string and name rules stop
+  bulk encodings, not a determined AI. That is the trust the person gives by picking the site (the card names it), as
+  with Claude Code's domain allow; a confidential chat never has it.
+- **The list.** `tldts` carries the Public Suffix List (MPL-2.0) compiled into the package and releases with its
+  updates (about weekly; 7.0.30 is from 2026-05-02). A new suffix the pinned copy lacks only makes a site wider than it
+  should be (a hosting platform's customers counted as one site), never opens anything the person did not pick; bump it
+  with the other dependencies. Chosen over a vendored snapshot: the same pinned bytes and lockfile hash, plus the
+  wildcard / exception / private-section rules and their tests upstream.
 - Tests: `tests/unit/site-allow.test.ts` (suffix table with co.kr, go.kr, github.io, s3, blogspot, kawasaki.jp
   wildcards, IDN, IP, single label, trailing dot; card options; scope by chat and person; random-looking parts, long
-  query, unknown exit address; outside the budget; confidential chat; DNS stub: no lookup before the decision, office
-  answer refused after it, private literal before any card; a sub-agent opening the site without a card),
-  `p0-exfil-server.test.ts` (adjusted to the choice card), `web/test/e2e/exfil-followups.spec.ts`.
+  names before the site however cut, user name or password, long query, unknown exit address; outside the budget;
+  confidential chat; DNS stub: no lookup before the decision, office answer refused after it, private literal before
+  any card; a sub-agent opening the site without a card), `p0-exfil-server.test.ts` (adjusted to the choice card),
+  `web/test/e2e/exfil-followups.spec.ts`.
 

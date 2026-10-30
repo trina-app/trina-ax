@@ -185,7 +185,7 @@ describe('"다시 확인": the same card, resuming is the confirmation', () => {
     expect(h.rt().schedules.runDue()).toEqual([id])
     const chat = row(id).last_chat_id!
     expect(await gateUrl(h.ctx.db, chat, secretUrl, null)).toBe('seen')
-    expect(gateUrl(h.ctx.db, chat, 'https://feeds.attacker.example/r/other', null)).rejects.toThrow(/nobody can confirm/)
+    await expect(gateUrl(h.ctx.db, chat, 'https://feeds.attacker.example/r/other', null)).rejects.toThrow(/nobody can confirm/)
   })
 
   test('"allow" team connections: the card offers them; one that turned "allow" after the card was shown refuses the answer', async () => {

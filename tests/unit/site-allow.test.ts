@@ -114,14 +114,14 @@ describe('the card and the allowance', () => {
     const chat2 = await chatOf()
     expect(await gate(chat2, 'https://once.example/a', person('allow'))).toBe('confirmed')
     expect(sites(chat2)).toEqual([])
-    expect(gate(chat2, 'https://once.example/b', null)).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat2, 'https://once.example/b', null)).rejects.toThrow(/nobody can confirm/)
   })
 
   test('github.io and other private suffixes: one person\'s pages are not another\'s site', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://alice.github.io/notes', person('site'))
     expect(await gate(chat, 'https://docs.alice.github.io/x', null)).toBe('site')
-    expect(gate(chat, 'https://mallory.github.io/x', null)).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat, 'https://mallory.github.io/x', null)).rejects.toThrow(/nobody can confirm/)
   })
 
   test('IDN: allowed from the Unicode address, it covers the punycode one (and the card names both)', async () => {
@@ -148,15 +148,15 @@ describe('the card and the allowance', () => {
     const chat = await chatOf()
     await gate(chat, 'https://scoped.example/a', person('site'))
     const other = await chatOf()
-    expect(gate(other, 'https://scoped.example/b', null)).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(other, 'https://scoped.example/b', null)).rejects.toThrow(/nobody can confirm/)
     // another person (never in alice's chat in practice): not theirs, and they cannot add one there
-    expect(gate(chat, 'https://scoped.example/b', null, { user: 'bob' })).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat, 'https://scoped.example/b', null, { user: 'bob' })).rejects.toThrow(/nobody can confirm/)
     const asked: Asked[] = []
     await gate(chat, 'https://bobs.example/a', person('site', asked), { user: 'bob' }).catch(() => {})
     expect(asked[0]!.options).toBeUndefined()
     expect(sites(chat)).toEqual([{ user_id: 'alice', site: 'scoped.example' }])
     // without a person id nothing is allowed by site
-    expect(gate(chat, 'https://scoped.example/c', null, { user: null })).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat, 'https://scoped.example/c', null, { user: null })).rejects.toThrow(/nobody can confirm/)
   })
 
   test('a long random-looking part still asks, highlighted; a long query and an unknown exit address still ask', async () => {
@@ -181,6 +181,49 @@ describe('the card and the allowance', () => {
     expect(await gate(chat, 'https://leaky.example/plain', null)).toBe('site')
   })
 
+  test('a long name before the site still asks, highlighted, however it is cut (names have no case); a user name or password is never covered', async () => {
+    const chat = await chatOf()
+    await gate(chat, 'https://names.example/start', person('site'))
+    // short names before the site, as real sites have them, are the site
+    for (const u of ['https://www.names.example/a', 'https://m.blog.names.example/a', 'https://us-east-1.docs.names.example/', 'https://names.example./b'])
+      expect(await gate(chat, u, null)).toBe('site')
+    // data in the name: letters only (no digits, no case to tell it by), or cut into short labels / pieces
+    for (const name of ['qwhsjdkeuqpzmxnvbalskdjf', 'a1b2c3d4e5.f6a7b8c9d0', 'a1b2c3d4-e5f6a7b8-c9d0', 'c2fsyxj5ltk4nzy1ndmy']) {
+      const asked: Asked[] = []
+      await expect(gate(chat, `https://${name}.names.example/`, person(null, asked))).rejects.toThrow(/did not allow/)
+      expect(asked).toHaveLength(1)
+      expect(asked[0]!.question).toContain('The part of the name before the site is long (highlighted)')
+      expect(asked[0]!.question).not.toContain('long strings that are hard to read')
+      expect(asked[0]!.extra!.details![0]).toMatchObject({ text: `https://${name}.names.example/`, marks: [name] })
+      // no site choice on such a card (an AI's first try to send data out raises it): open once or not
+      expect(asked[0]!.options).toBeUndefined()
+    }
+    // a random-looking path part as well: both lines, the name first
+    const both: Asked[] = []
+    await expect(gate(chat, 'https://qwhsjdkeuqpzmxnvbalskdjf.names.example/r/c2fsyxj5ltk4nzy1ndmy', person(null, both))).rejects.toThrow(/did not allow/)
+    expect(both[0]!.extra!.details![0]!.marks).toEqual(['qwhsjdkeuqpzmxnvbalskdjf', 'c2fsyxj5ltk4nzy1ndmy'])
+    expect(both[0]!.question).toContain('long strings that are hard to read')
+    // a user name or password (the in-app browser takes one; web_fetch refuses it before the gate)
+    const asked: Asked[] = []
+    await expect(gate(chat, 'https://hunter2@names.example/a', person(null, asked))).rejects.toThrow(/did not allow/)
+    await expect(gate(chat, 'https://u:hunter2@www.names.example/a', person(null, asked))).rejects.toThrow(/did not allow/)
+    expect(asked).toHaveLength(2)
+    expect(asked.map((a) => a.options)).toEqual([undefined, undefined])
+  })
+
+  test('a card whose address looks like it carries data never offers the site; picking "open" there opens that address only', async () => {
+    const chat = await chatOf()
+    const asked: Asked[] = []
+    expect(await gate(chat, 'https://fresh.example/r/c2fsyxj5ltk4nzy1ndmy', person('allow', asked))).toBe('confirmed')
+    expect(asked[0]!.options).toBeUndefined()
+    expect(asked[0]!.question).not.toContain('If you allow the site')
+    expect(sites(chat)).toEqual([])
+    // the next plain address of the site offers it
+    expect(await gate(chat, 'https://fresh.example/about', person('site', asked))).toBe('confirmed')
+    expect(asked[1]!.options!.map((o) => o.value)).toEqual(['allow', 'site', 'deny'])
+    expect(sites(chat)).toEqual([{ user_id: 'alice', site: 'fresh.example' }])
+  })
+
   test('outside the link budget: learned links of an allowed site spend none of it', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://wiki.example/start', person('site'))
@@ -195,7 +238,7 @@ describe('the card and the allowance', () => {
     const chat = await chatOf()
     await gate(chat, 'https://before.example/a', person('site'))
     h.ctx.db.query('INSERT OR IGNORE INTO safe_ops_chats (chat_id) VALUES (?)').run(chat)
-    expect(gate(chat, 'https://before.example/b', null)).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat, 'https://before.example/b', null)).rejects.toThrow(/nobody can confirm/)
     const asked: Asked[] = []
     await gate(chat, 'https://new.example/a', person('allow', asked))
     expect(asked[0]!.options).toBeUndefined()

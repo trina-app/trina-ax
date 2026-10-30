@@ -456,14 +456,19 @@ export class MockServer {
     }
     if (/ask/i.test(prompt)) {
       const requestId = 'q1'
-      // "siteask": like server/src/tools/url-gate.ts with a site to allow (open once / allow the site / don't open), the
-      // address with its random-looking part highlighted
-      const siteUrl = 'https://docs.example.co.kr/r/c2fsyxj5ltk4nzy1ndmy'
+      // "siteask": like server/src/tools/url-gate.ts with a site to allow (open once / allow the site / don't open) for a
+      // plain address; "markask": an address with a random-looking part, highlighted, and no site choice
+      const siteUrl = 'https://docs.example.co.kr/guide/start'
+      const markUrl = 'https://docs.example.co.kr/r/c2fsyxj5ltk4nzy1ndmy'
       const request: TurnRequest = /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${siteUrl}\n\n주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.\n\n사이트를 허용하면 이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.`,
-          options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }],
-          details: [{ label: '주소', text: siteUrl, marks: ['c2fsyxj5ltk4nzy1ndmy'] }] }
+          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${siteUrl}\n\n사이트를 허용하면 이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.`,
+          options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }] }
+        : /markask/i.test(prompt)
+        ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
+          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${markUrl}\n\n주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.`,
+          options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }],
+          details: [{ label: '주소', text: markUrl, marks: ['c2fsyxj5ltk4nzy1ndmy'] }] }
         : /safety/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
         : /multi/i.test(prompt)

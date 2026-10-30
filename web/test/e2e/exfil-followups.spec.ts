@@ -14,7 +14,7 @@ async function waitingTask(page: Page) {
   expect(r.ok()).toBeTruthy()
 }
 
-test('the address card: open once, allow this site in this conversation, or don\'t open; the random-looking part is marked', async ({ page }) => {
+test('the address card: open once, allow this site in this conversation, or don\'t open', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -22,7 +22,7 @@ test('the address card: open once, allow this site in this conversation, or don\
   const card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
   await expect(card).toContainText('이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요')
-  await expect(card.getByTestId('ask-detail-mark')).toHaveText('c2fsyxj5ltk4nzy1ndmy')
+  await expect(card.getByTestId('ask-detail-mark')).toHaveCount(0)
   await expect(card.getByRole('radio')).toHaveCount(3)
   await expect(card.getByLabel('열기', { exact: true })).toBeVisible()
   await expect(card.getByLabel('열지 않기')).toBeVisible()
@@ -30,6 +30,23 @@ test('the address card: open once, allow this site in this conversation, or don\
   await card.getByRole('button', { name: '답하기' }).click()
   await expect(card).toHaveCount(0)
   await expect(page.getByTestId('assistant-message').first()).toContainText('You chose "site"')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('an address with a random-looking part: the part is marked, and the card offers no site', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await ask(page, 'markask ask please')
+  const card = page.getByTestId('ask-card')
+  await expect(card).toHaveAttribute('data-origin', 'server')
+  await expect(card.getByTestId('ask-detail-mark')).toHaveText('c2fsyxj5ltk4nzy1ndmy')
+  await expect(card).not.toContainText('이 사이트 허용')
+  await expect(card.getByRole('radio')).toHaveCount(2)
+  await card.getByLabel('열지 않기').check()
+  await card.getByRole('button', { name: '답하기' }).click()
+  await expect(card).toHaveCount(0)
+  await expect(page.getByTestId('assistant-message').first()).toContainText('You chose "deny"')
   expect(realErrors(errors)).toEqual([])
 })
 
