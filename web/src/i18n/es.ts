@@ -342,6 +342,8 @@ export const es: Record<MessageKey, string> = {
   'artifact.compileError': "No se pudo compilar el código: {message}",
   'artifact.noDefaultExport': "El componente debe ser la exportación predeterminada.",
   'artifact.navigationBlocked': "El artefacto intentó abrir otra página, por lo que se detuvo.",
+  'artifact.staticNotice': "Se muestra sin ejecutar sus scripts: en los chats confidenciales, los artefactos y las vistas previas de páginas web solo se ejecutan en la aplicación de escritorio.",
+  'artifact.needsScripts': "Este artefacto necesita ejecutar scripts para mostrarse y, en los chats confidenciales, solo se ejecutan en la aplicación de escritorio. La pestaña Código muestra su contenido.",
   'preview.panel': "Vista previa del archivo",
   'preview.notFound': "No se encuentra el archivo o no tiene acceso a él.",
   'preview.tooLarge': "Este archivo es demasiado grande para la vista previa ({size}). Descárguelo para abrirlo.",

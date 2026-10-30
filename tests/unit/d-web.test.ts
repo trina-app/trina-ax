@@ -188,4 +188,34 @@ describe('web app serving', () => {
   test('the meta CSP the web app writes into frames is the same policy as the receiver header', () => {
     expect(artifactCsp('https://acme.localhost')).toBe(sandboxPolicy(['https://acme.localhost/vendor/']))
   })
+  test('the receiver takes away direct connections before it writes anything (docs/DECISIONS.md "Artifact frames")', async () => {
+    const script = SANDBOX_RECEIVER.slice(SANDBOX_RECEIVER.indexOf('<script>') + 8, SANDBOX_RECEIVER.lastIndexOf('</script>'))
+    expect(() => new Function(script)).not.toThrow() // valid script
+    const at = (s: string) => {
+      const i = script.indexOf(s)
+      expect(i, s).toBeGreaterThan(-1)
+      return i
+    }
+    // WebRTC / WebTransport by pattern (not a fixed list), camera and microphone
+    expect(script).toContain('/^(webkit|moz)?RTC|^WebTransport/')
+    const order = [
+      at('getOwnPropertyNames(W)'),
+      at('lock(navigator, "mediaDevices"'),
+      at('new MutationObserver'), // nested frames removed as they appear …
+      at('lock(Element.prototype, "attachShadow"'), // … in every shadow root, none clonable
+      at('lock(docs[i], "write"'), // no HTML parser after the first write
+      at('lock(Element.prototype, "setHTMLUnsafe"'),
+      at('lock(Document, "parseHTMLUnsafe"'),
+      at('lock(W, "open"'), // no window.open (WebKit: a javascript: URL into this frame is a fresh window)
+      at('watch(D)'),
+      at('call(write, D, d.html.replace(/shadowrootmode/gi'), // the one write: declarative shadow roots off
+    ]
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    // the watcher keeps its own copies of the built-ins (a page that changes prototypes cannot blind it)
+    for (const s of ['Element.prototype.querySelectorAll', 'Node.prototype.removeChild', 'MutationObserver.prototype.observe', 'getter(MutationRecord.prototype, "addedNodes")']) expect(at(s)).toBeLessThan(order[8]!)
+    expect(script).toContain('FRAMES.iframe = FRAMES.frame = FRAMES.object = FRAMES.embed = FRAMES.fencedframe = FRAMES.portal = 1')
+    expect(script).not.toMatch(/clonable\s*=/)
+    const r = await get('/sandbox/frame?v=2026')
+    expect(r.headers.get('x-dns-prefetch-control')).toBe('off')
+  })
 })

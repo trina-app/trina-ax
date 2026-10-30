@@ -358,6 +358,8 @@ export const ko = {
   'artifact.compileError': '코드를 변환하지 못했어요: {message}',
   'artifact.noDefaultExport': '컴포넌트를 default export 해야 해요.',
   'artifact.navigationBlocked': '아티팩트가 다른 페이지로 이동하려 해서 멈췄어요.',
+  'artifact.staticNotice': '스크립트를 실행하지 않고 보여 드려요. 기밀 채팅의 아티팩트와 웹 페이지 미리보기는 데스크톱 앱에서만 실행돼요.',
+  'artifact.needsScripts': '이 아티팩트는 스크립트를 실행해야 보이는데, 기밀 채팅에서는 데스크톱 앱에서만 실행돼요. 내용은 코드 탭에서 볼 수 있어요.',
 
   'preview.panel': '파일 미리보기',
   'preview.notFound': '파일을 찾을 수 없거나 볼 권한이 없어요.',

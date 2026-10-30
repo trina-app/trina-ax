@@ -9,7 +9,10 @@
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
-// POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice).
+// POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice),
+// POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
+// confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
+// answer writes exactly this).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
@@ -169,6 +172,8 @@ export class MockServer {
     this.chats = []
     this.messages = []
     this.artifacts = []
+    this.allConfidential = false
+    this.nextArtifact = null
     this.projects = []
     this.memories = []
     this.budgets = []
@@ -267,6 +272,10 @@ export class MockServer {
   // ---------------- access (simplified policy) ----------------
   /** folders taken away from everyone by POST /__test/revoke (an admin's rule change) */
   revoked = new Set<string>()
+  /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
+  allConfidential = false
+  /** POST /__test/artifact: what the next "artifact" answer writes */
+  nextArtifact: { type: 'html' | 'svg' | 'react' | 'mermaid'; content: string } | null = null
   access(path: string, user: User): 'none' | 'read' | 'write' {
     if (path === '' ) return 'write'
     if ([...this.revoked].some((r) => path === r || path.startsWith(r + '/'))) return 'none'
@@ -340,6 +349,7 @@ export class MockServer {
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
+        ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
@@ -491,7 +501,7 @@ export class MockServer {
     if (/artifact|react/i.test(prompt)) {
       const react = /react/i.test(prompt)
       const key = react ? 'counter' : 'hello-page'
-      const content = react && /d3/i.test(prompt)
+      let content = react && /d3/i.test(prompt)
         ? 'import * as d3 from "d3"\nexport default function App() {\n  return <p>{d3.sum([1, 2])}</p>\n}\n'
         : react
         ? 'import { useState } from "react"\nimport { Plus } from "lucide-react"\nexport default function App() {\n  const [n, setN] = useState(0)\n  return <button className="rounded bg-emerald-600 px-3 py-2 text-white" onClick={() => setN(n + 1)}><Plus size={14} /> count {n}</button>\n}\n'
@@ -500,7 +510,10 @@ export class MockServer {
           : /wander/i.test(prompt)
             ? `<h1>Wanderer</h1><script>setTimeout(function () { location.href = ${JSON.stringify(/home/i.test(prompt) ? "/" : "https://example.com/")} }, 1500)</script>`
           : '<h1 id="t">Hello artifact</h1><script>document.getElementById("t").textContent += " (ran)"; fetch("https://example.com/x").catch(()=>{})</script>'
-      const type = react ? ('react' as const) : ('html' as const)
+      const injected = this.nextArtifact
+      this.nextArtifact = null
+      const type = injected?.type ?? (react ? ('react' as const) : ('html' as const))
+      if (injected) content = injected.content
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key, type, title: react ? 'Counter' : 'Hello page', status: 'writing', content: content.slice(0, 20), artifact: null } })
       await sleep(120)
       const prev = this.artifacts.filter((a) => a.chatId === chatId && a.key === key)
@@ -715,6 +728,11 @@ export class MockServer {
       if (c.body.model !== undefined) chat.model = c.body.model ?? null
       // like the server when the person's "block" usage limit is used up (refused before anything is queued)
       if (String(c.body.content).includes('over my limit')) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 10월 22일 오전 12:00부터 다시 쓸 수 있어요.')
+      // like a chat used while Safe operations 1A is on: it stays confidential (server/src/safe-ops/confidential.ts)
+      if ((this.allConfidential || /confidential/i.test(String(c.body.content))) && !chat.confidential) {
+        chat.confidential = true
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
       const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const atts = (c.body.attachmentIds as string[]).map((id) => this.attachments.get(id)).filter(Boolean).map((a) => { const { data: _d, ...rest } = a!; return rest })
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments: atts, author: { id: c.user.id, name: c.user.name } })
@@ -1674,6 +1692,8 @@ export class MockServer {
       this.queuePositions.set(chatId, position)
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
+    else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/artifact') this.nextArtifact = { type: (['html', 'svg', 'react', 'mermaid'] as const).find((t) => t === body.type) ?? 'html', content: String(body.content) }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))

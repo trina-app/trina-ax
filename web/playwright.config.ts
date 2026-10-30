@@ -21,7 +21,12 @@ export default defineConfig({
     viewport: { width: 1360, height: 860 },
     locale: 'ko-KR',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR' } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR' } },
+    // Safari / the iPhone app's engine, for what differs there: the artifact frame's connection rules (WebKit grants
+    // no clipboard permissions, so none are asked for)
+    { name: 'webkit', testMatch: /sandbox-exfil\.spec\.ts/, use: { ...devices['Desktop Safari'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR', permissions: [] } },
+  ],
   webServer: {
     command: `bun test/mock/serve.ts`,
     url: `http://127.0.0.1:${PORT}/api/health`,

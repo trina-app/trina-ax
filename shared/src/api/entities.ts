@@ -134,6 +134,9 @@ export const Chat = z.object({
   /** soft delete; purged 7 days later */
   deletedAt: IsoTime.nullable(),
   runState: ChatRunState,
+  /** Safe operations 1A (docs/SAFE-OPS-1A.md): a confidential conversation. Egress tools are off on the server, and
+   * the web app shows its artifacts and HTML / SVG previews without scripts outside the desktop app. Absent = no. */
+  confidential: z.literal(true).optional(),
 })
 export type Chat = z.infer<typeof Chat>
 

@@ -7,7 +7,8 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Download, FolderInput, Loader
 import { useEffect, useMemo, useState } from 'react'
 import type { ArtifactType } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../lib/api'
-import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
+import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
+import { useFrameScripts } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
@@ -16,8 +17,8 @@ import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { TYPE_LABEL } from './artifactLabels'
 import FolderPicker from './FolderPicker'
-import { CodeBlock, Markdown } from './Markdown'
-import SandboxFrame from './SandboxFrame'
+import { CodeBlock, Markdown, MermaidBlock } from './Markdown'
+import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import { CopyButton, IconButton, Spinner } from './ui'
 
 let compiler: Promise<CompileFn> | null = null
@@ -37,6 +38,8 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const [asked, setAsked] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [pickFolder, setPickFolder] = useState(false)
+  // a confidential chat outside the desktop app: shown without scripts (lib/artifacts.ts frameRunsScripts)
+  const scripts = useFrameScripts(chatId)
 
   useEffect(() => {
     setPicked(versionId ?? null)
@@ -190,7 +193,9 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         ) : frameDoc && !frameDoc.ok ? (
           // the error and "ask the AI to fix it" are in the bar above
           <p className="p-6 text-sm text-muted">{t('artifact.buildFailed')}</p>
-        ) : frameDoc ? (
+        ) : scripts === false && artifact && type ? (
+          <StaticArtifact key={artifact.id} type={type} content={artifact.content} title={title} />
+        ) : frameDoc && scripts ? (
           <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} />
         ) : (
           <Spinner className="p-6" />
@@ -199,4 +204,23 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
       <FolderPicker open={pickFolder} title={t('artifact.saveToTeam')} confirmLabel={t('artifact.saveHere')} onPick={saveTo} onClose={() => setPickFolder(false)} />
     </aside>
   )
+}
+
+/** An artifact in a confidential chat outside the desktop app: nothing of it runs (lib/artifacts.ts frameRunsScripts). */
+function StaticArtifact({ type, content, title }: { type: ArtifactType; content: string; title: string }) {
+  const t = useT()
+  if (type === 'mermaid')
+    return (
+      <div className="p-6">
+        <MermaidBlock code={content} />
+      </div>
+    )
+  const html = staticSource(type, content)
+  if (html === null)
+    return (
+      <p className="p-6 text-sm text-muted" data-testid="static-notice">
+        {t('artifact.needsScripts')}
+      </p>
+    )
+  return <StaticFrame html={html} title={title} gutter={type === 'html'} />
 }

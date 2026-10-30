@@ -9,9 +9,10 @@ import clsx from 'clsx'
 import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api, API, fetchFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
+import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
 import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
@@ -20,7 +21,7 @@ import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { CodeBlock, Markdown } from './Markdown'
-import SandboxFrame from './SandboxFrame'
+import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import { toast } from '../store/ui'
 import { Button, confirmDialog, IconButton } from './ui'
 
@@ -283,6 +284,9 @@ function MediaView({ kind, blob, name }: { kind: 'image' | 'audio' | 'video'; bl
 function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: string }) {
   const t = useT()
   const [text, setText] = useState<string | null>(null)
+  // HTML / SVG next to a confidential chat (or with every chat confidential) run no scripts outside the desktop app
+  const chatId = /^\/c\/([^/?#]+)/.exec(useLocation().pathname)?.[1] ?? null
+  const scripts = useFrameScripts(kind === 'html' || kind === 'svg' ? chatId : null)
   useEffect(() => {
     let live = true
     blob.slice(0, MAX_TEXT).arrayBuffer().then((b) => live && setText(decodePreviewText(new Uint8Array(b), blob.size > MAX_TEXT)))
@@ -299,8 +303,11 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
         {cut}
       </div>
     )
-  if (kind === 'html') return <SandboxFrame html={wrapHtml(text, location.origin, { gutter: true })} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
-  if (kind === 'svg') return <SandboxFrame html={wrapHtml(`<div style="display:grid;place-items:center;min-height:100vh">${text}</div>`, location.origin)} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+  if ((kind === 'html' || kind === 'svg') && scripts === null) return null
+  const page = kind === 'svg' ? `<div style="display:grid;place-items:center;min-height:100vh">${text}</div>` : text
+  if ((kind === 'html' || kind === 'svg') && !scripts) return <StaticFrame html={page} title={name} gutter={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
+  if (kind === 'html') return <SandboxFrame html={wrapHtml(page, location.origin, { gutter: true })} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+  if (kind === 'svg') return <SandboxFrame html={wrapHtml(page, location.origin)} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
   if (kind === 'csv') {
     const rows = Papa.parse<string[]>(text, { skipEmptyLines: true, delimiter: name.toLowerCase().endsWith('.tsv') ? '\t' : '' }).data.slice(0, 2000)
     return (

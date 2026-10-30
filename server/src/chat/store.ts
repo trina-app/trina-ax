@@ -3,6 +3,7 @@ import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
 import { STEP_TEXT } from '@mycel/shared'
 import { newId } from '../db'
+import { isConfidentialChat } from '../safe-ops/confidential'
 
 export interface ChatRow {
   id: string; user_id: string; project_id: string | null; title: string; engine: string; model: string | null
@@ -106,6 +107,7 @@ export class ChatStore {
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
+      ...(isConfidentialChat(this.db, r.id) ? { confidential: true as const } : {}),
     }
   }
   touchChat(id: string, at = new Date().toISOString()) { this.db.query('UPDATE chats SET updated_at = ? WHERE id = ?').run(at, id) }

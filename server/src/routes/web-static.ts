@@ -84,22 +84,99 @@ export function frameCsp(host: string): string {
  * Everything the AI or a file wrote arrives only through postMessage, never through the URL. A "ping" from the parent
  * gets "ready" again: a parent that missed the first one (its listener came after a fast, cached load) showed an empty
  * frame for good.
+ *
+ * Before anything of the document runs, the receiver takes away what CSP does not cover (docs/DECISIONS.md "Artifact
+ * frames: no direct connections"): WebRTC, WebTransport and camera/microphone are removed from this realm, and the
+ * document cannot make a new realm where they would be back. A nested frame (srcdoc, javascript:, blob:, data:,
+ * about:blank) is a fresh window with every API restored, and CSP frame-src does not stop srcdoc or javascript: frames.
+ * So iframe/frame/object/embed elements are removed the moment they appear, in the document and in every shadow root;
+ * shadow roots are watched from the moment they exist and cannot be cloned (a clone would not be watched); declarative
+ * shadow roots, which the watcher could not see into, are off in the first write and every HTML parser the document
+ * could call later (document.write/open, setHTMLUnsafe, parseHTMLUnsafe) is turned off, as is window.open (WebKit
+ * loads a javascript: URL given to window.open(…, '_self') as a new document in a fresh window). The watcher uses
+ * only built-ins taken before the document runs, so a document that changes prototypes cannot blind it. Workers are
+ * blocked by worker-src 'none' (and have no WebRTC). Known escapes and the residual risks: tests/unit/d-web.test.ts,
+ * web/test/e2e/sandbox-exfil.spec.ts.
  */
-export const SANDBOX_RECEIVER = `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>
-(function () {
+const RECEIVER_SCRIPT = `(function () {
+  "use strict";
+  var W = window, D = document, O = Object, N = null, i;
+  var call = Function.prototype.call.bind(Function.prototype.call);
+  var lock = function (o, k, v) { try { O.defineProperty(o, k, { value: v, writable: false, configurable: false, enumerable: false }); } catch (e) {} };
+  var off = function (what) { return function () { throw new TypeError(what + " is turned off in artifacts"); }; };
+  var getter = function (P, k) { var d = O.getOwnPropertyDescriptor(P, k); return d && d.get; };
+  // 1. no direct connections from this realm
+  var names = O.getOwnPropertyNames(W);
+  for (i = 0; i < names.length; i++) if (/^(webkit|moz)?RTC|^WebTransport/.test(names[i])) lock(W, names[i], undefined);
+  lock(navigator, "mediaDevices", undefined);
+  // 2. no nested frames, in the document or any shadow root
+  var qsa = Element.prototype.querySelectorAll, dqsa = Document.prototype.querySelectorAll, fqsa = DocumentFragment.prototype.querySelectorAll;
+  var removeChild = Node.prototype.removeChild, observe = MutationObserver.prototype.observe, attach = Element.prototype.attachShadow;
+  var parentNode = getter(Node.prototype, "parentNode"), nodeType = getter(Node.prototype, "nodeType"), localName = getter(Element.prototype, "localName");
+  var shadowRoot = getter(Element.prototype, "shadowRoot"), addedNodes = getter(MutationRecord.prototype, "addedNodes");
+  var nlLength = getter(NodeList.prototype, "length"), nlItem = NodeList.prototype.item;
+  var FRAMES = O.create(N); FRAMES.iframe = FRAMES.frame = FRAMES.object = FRAMES.embed = FRAMES.fencedframe = FRAMES.portal = 1;
+  var OPTS = O.create(N); OPTS.childList = true; OPTS.subtree = true; O.freeze(OPTS);
+  var watch;
+  var kill = function (n) { try { var p = call(parentNode, n); if (p) call(removeChild, p, n); } catch (e) {} };
+  var scrub = function (n) {
+    try {
+      if (call(nodeType, n) !== 1) return;
+      if (FRAMES[call(localName, n)]) return kill(n);
+      var sr = call(shadowRoot, n), all = call(qsa, n, "*"), k, m, el;
+      if (sr) watch(sr);
+      for (k = 0, m = call(nlLength, all); k < m; k++) {
+        el = call(nlItem, all, k);
+        if (FRAMES[call(localName, el)]) kill(el);
+        else if ((sr = call(shadowRoot, el))) watch(sr);
+      }
+    } catch (e) {}
+  };
+  var mo = new MutationObserver(function (records) {
+    for (var a = 0; a < records.length; a++) {
+      var list = call(addedNodes, records[a]);
+      for (var b = 0, m = call(nlLength, list); b < m; b++) scrub(call(nlItem, list, b));
+    }
+  });
+  watch = function (root) {
+    call(observe, mo, root, OPTS);
+    var all = call(call(nodeType, root) === 9 ? dqsa : fqsa, root, "*");
+    for (var k = 0, m = call(nlLength, all); k < m; k++) scrub(call(nlItem, all, k));
+  };
+  lock(Element.prototype, "attachShadow", function attachShadow(init) {
+    var o = O.create(N), x = init == N ? N : O(init);
+    if (x) { o.mode = x.mode; o.delegatesFocus = !!x.delegatesFocus; if (x.slotAssignment !== undefined) o.slotAssignment = x.slotAssignment; o.serializable = !!x.serializable; }
+    var s = call(attach, this, x ? o : init);
+    try { watch(s); } catch (e) { kill(this); throw e; }
+    return s;
+  });
+  // 3. no declarative shadow roots, no HTML parsing after the first write
+  var open = D.open, write = D.write, close = D.close, docs = [Document.prototype, W.HTMLDocument && HTMLDocument.prototype, D];
+  for (i = 0; i < docs.length; i++) if (docs[i]) { lock(docs[i], "write", off("document.write")); lock(docs[i], "writeln", off("document.writeln")); lock(docs[i], "open", off("document.open")); }
+  if (Element.prototype.setHTMLUnsafe) lock(Element.prototype, "setHTMLUnsafe", off("setHTMLUnsafe"));
+  if (W.ShadowRoot && ShadowRoot.prototype.setHTMLUnsafe) lock(ShadowRoot.prototype, "setHTMLUnsafe", off("setHTMLUnsafe"));
+  if (Document.parseHTMLUnsafe) lock(Document, "parseHTMLUnsafe", off("parseHTMLUnsafe"));
+  // window.open: the sandbox gives no popups, so the only thing it can still do is load a document into this frame,
+  // and WebKit then runs a javascript: URL into a fresh window (the frame's own location / links do not)
+  lock(W, "open", off("window.open"));
+  watch(D);
+  // 4. take the one document from the parent
   var done = false;
-  window.addEventListener("message", function (e) {
+  W.addEventListener("message", function (e) {
     if (done || e.source !== window.parent) return;
     var d = e.data;
     if (d && d.source === "mycel-host" && d.type === "ping") { window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*"); return; }
     if (!d || d.source !== "mycel-host" || d.type !== "render" || typeof d.html !== "string") return;
     done = true;
-    document.open();
-    document.write(d.html);
-    document.close();
+    call(open, D);
+    call(write, D, d.html.replace(/shadowrootmode/gi, "$&_"));
+    call(close, D);
   });
   window.parent.postMessage({ source: "mycel-frame", type: "ready" }, "*");
-})();
+})();`
+
+export const SANDBOX_RECEIVER = `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>
+${RECEIVER_SCRIPT}
 </script></body></html>`
 
 function serveSandboxFrame(host: string | null): Response {
@@ -112,6 +189,9 @@ function serveSandboxFrame(host: string | null): Response {
       'cache-control': 'no-cache',
       'referrer-policy': 'no-referrer',
       'cross-origin-resource-policy': 'same-origin',
+      // no name lookups ahead of time for links in the frame (Chromium, WebKit, Firefox read it; it does not stop
+      // <link rel=preconnect> in WebKit, see docs/DECISIONS.md)
+      'x-dns-prefetch-control': 'off',
     },
   })
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { artifactCsp, artifactFailure, artifactFileName, buildArtifactDocument, findImports, SANDBOX, scriptJson, sucraseCompile, unsupportedImports, wrapHtml } from '../../src/lib/artifacts'
+import { artifactCsp, artifactFailure, artifactFileName, buildArtifactDocument, findImports, frameRunsScripts, SANDBOX, scriptJson, STATIC_CSP, staticShell, staticSource, sucraseCompile, unsupportedImports, wrapHtml } from '../../src/lib/artifacts'
 
 const O = 'https://acme.treesoop.com'
 const MSG = { unsupportedImports: (l: string) => `unsupported: ${l}`, compileError: (m: string) => `compile: ${m}`, noDefaultExport: 'no default' }
@@ -30,6 +30,34 @@ describe('artifact isolation (tab 5)', () => {
     expect(html.startsWith('<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"')).toBe(true)
     // the AI's head ends up inside our <body>, where meta CSP / base are ignored by the parser
     expect(html.indexOf('<body>')).toBeLessThan(theirs)
+  })
+  test('a second layer takes away WebRTC / WebTransport / camera before the bridge and anything the AI wrote', () => {
+    const html = wrapHtml('<h1>AI</h1><script>new RTCPeerConnection()</script>', O)
+    const strip = html.indexOf('/^(webkit|moz)?RTC|^WebTransport/.test(')
+    expect(strip).toBeGreaterThan(html.indexOf('Content-Security-Policy'))
+    expect(strip).toBeLessThan(html.indexOf('mycel-frame'))
+    expect(strip).toBeLessThan(html.indexOf('<h1>AI</h1>'))
+    expect(html).toContain('"mediaDevices"')
+    expect(html).toContain('<meta http-equiv="x-dns-prefetch-control" content="off">')
+  })
+  test('confidential chats run scripts only in the desktop app; other chats everywhere', () => {
+    expect(frameRunsScripts({ confidential: false, desktop: false })).toBe(true)
+    expect(frameRunsScripts({ confidential: false, desktop: true })).toBe(true)
+    expect(frameRunsScripts({ confidential: true, desktop: true })).toBe(true)
+    expect(frameRunsScripts({ confidential: true, desktop: false })).toBe(false)
+  })
+  test('a static view starts as an empty page with a policy of its own; React has no static view, Mermaid is drawn by the app', () => {
+    const shell = staticShell({ gutter: true })
+    expect(shell.startsWith(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${STATIC_CSP}">`)).toBe(true)
+    expect(shell).toContain('<body></body>')
+    expect(shell).not.toContain('<script')
+    expect(STATIC_CSP).toContain("default-src 'none'")
+    expect(STATIC_CSP).toContain('img-src data:;')
+    expect(STATIC_CSP).not.toContain('script-src')
+    expect(staticSource('html', '<p>x</p>')).toBe('<p>x</p>')
+    expect(staticSource('svg', '<svg></svg>')).toContain('<svg></svg>')
+    expect(staticSource('react', 'export default () => null')).toBeNull()
+    expect(staticSource('mermaid', 'graph TD; A-->B')).toBeNull()
   })
   test('scriptJson cannot close the inline script', () => {
     const s = scriptJson('</script><script>alert(1)</script> ')

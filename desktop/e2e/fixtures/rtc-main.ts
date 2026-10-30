@@ -49,6 +49,7 @@ const server = createServer((req, res) => {
     const srcdoc=document.createElement('iframe');srcdoc.srcdoc=${literal(html(report('srcdoc')))};document.body.append(srcdoc);
     const blob=document.createElement('iframe');blob.src=URL.createObjectURL(new Blob([${literal(html(report('blob')))}],{type:'text/html'}));document.body.append(blob);
     const data=document.createElement('iframe');data.src='data:text/html,'+encodeURIComponent(${literal(html(report('data')))});document.body.append(data);
+    const js=document.createElement('iframe');js.src='javascript:'+encodeURIComponent(JSON.stringify(${literal(html(report('javascript')))}));document.body.append(js);
     setTimeout(()=>{const f=document.createElement('iframe');f.src='http://localhost:${port}/child?key=late';document.body.append(f)},100);
   </script></body>`)
 })
@@ -72,7 +73,7 @@ void (async () => {
   }) as typeof dbg.sendCommand
   await guardAppView(win.webContents, () => [`http://127.0.0.1:${port}`, `http://localhost:${port}`])
   await win.loadURL(`http://127.0.0.1:${port}/`)
-  const expected = ['oopif','oopif-nested','late','late-nested','blank','srcdoc','blob','data','popup','top','dedicated','shared','service']
+  const expected = ['oopif','oopif-nested','late','late-nested','blank','srcdoc','blob','data','javascript','popup','top','dedicated','shared','service']
   const deadline = Date.now() + 15_000
   while (!expected.every(key => reports[key]) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50))
   const frames = win.webContents.mainFrame.framesInSubtree.map(f => ({ url: f.url, processId: f.processId }))

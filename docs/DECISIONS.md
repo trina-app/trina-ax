@@ -3388,3 +3388,73 @@ medical edition "allow all websites" off by default.
 - Tests: `tests/unit/p0-exfil-server.test.ts` (stubbed DNS: no lookup before or after a declined card, three parallel
   calls, 50 unattended names, schedule card and runs, auto_sent, "fix it", budget), `e-pane-dns-order.test.ts`,
   `proxy-codex.test.ts`, `c-integrations-tools.test.ts`, `web/test/e2e/safety-cards.spec.ts`.
+
+## Artifact frames: no direct connections (feat/exfil-client, 2026-10-30)
+
+Plan `plans/web-exfil-2026-10-30` (F3, channels 4–5) as amended by its review (M1, M2). Artifacts and HTML / SVG
+previews already ran in an opaque-origin frame whose CSP blocks every fetch; WebRTC is outside CSP, and the desktop
+app alone removed it.
+
+- **Receiver guard (M1).** `/sandbox/frame` (`SANDBOX_RECEIVER`) now, before anything of the document runs: removes
+  every `/^(webkit|moz)?RTC|^WebTransport/` global and `navigator.mediaDevices`; removes iframe / frame / object /
+  embed / fencedframe / portal elements the moment they appear, in the document and in every shadow root (a nested
+  frame — srcdoc, `javascript:`, blob:, data: — is a fresh realm with WebRTC back, and CSP `frame-src` stops neither
+  srcdoc nor `javascript:`); watches every shadow root from `attachShadow` on and drops `clonable` (a clone of a
+  closed root would not be watched); turns declarative shadow roots into a plain attribute in the one write and turns
+  off every later HTML parser (`document.write/writeln/open` on the prototypes, `setHTMLUnsafe`,
+  `Document.parseHTMLUnsafe`) and `window.open`. The watcher uses built-ins taken before the document runs. The
+  review's guard missed two kinds, both found while building this: `document.write` from a script *during* the first
+  parse (alone or finished by the markup after the script), and a clone of a clonable closed shadow root; both leaked
+  in Chromium and WebKit and are covered. A third, found in this independent review: WebKit loads a `javascript:` URL
+  passed to `window.open(…, '_self')` as a new document in a fresh window (the frame's own `location` and links do
+  not, and Chromium refuses it); the sandbox gives no real popups, so `window.open` is turned off outright. `head()`
+  repeats the removal as a second layer. Workers: `worker-src 'none'` (and no WebRTC in them). Desktop keeps its CDP
+  guard; its native test now has a `javascript:` frame too.
+- **What ordinary artifacts lose:** nested iframes (external ones were already blocked), `document.write` / `open`
+  at any time, `setHTMLUnsafe`, `window.open` (it could open no popup in the sandbox anyway), declarative and
+  clonable shadow roots. Inline scripts, `onclick=`, web components
+  (open and closed), canvas, React with the vendor libraries, Mermaid and Tailwind run as before (e2e in both
+  engines). None of the vendor libraries use the locked APIs. The review's CSP-hash design stays a later option (it
+  breaks `onclick=`).
+- **CSP, checked:** `webrtc 'block'` is ignored by Chromium and WebKit and logs a console error in every frame, so it
+  is not added. `prefetch-src` and `navigate-to` are shipped by no engine. `connect-src`, `frame-src`, `child-src`,
+  `worker-src`, `form-action 'none'` and `default-src 'none'` were already there and hold for every request CSP
+  governs (images, CSS, fonts, fetch, WebSocket, beacon, `ping`, prefetch / preload / modulepreload, speculation
+  rules, `attributionsrc`: no connection in either engine). Added: `X-DNS-Prefetch-Control: off` on the receiver and
+  the matching meta (no effect on `<link rel=preconnect>` in WebKit). Chromium's `Connection-Allowlist` would cover
+  what CSP misses but is an origin trial only.
+- **Host names still leave from scripted frames (new finding beyond the review).** The review tested Chromium with
+  Playwright's headless shell. Full Chromium (what Chrome and Edge run) calls `PreconnectSockets` in the
+  `NavigationRequest` constructor, before `CheckContentSecurityPolicy`, when the frame navigates itself
+  (`location`, a link click, `meta refresh`, `window.open(…, '_self')`, a download link): a DNS lookup and TLS SNI with
+  a name the script chose, about 140 bytes each; a synchronous loop sent 10 names in one render, Chromium's own
+  navigation throttle (about 200 per 10 s) is the only bound. The Navigation API cannot cancel it (no `navigate`
+  events in opaque-origin documents) and `location` cannot be wrapped. Chrome's gate is the "Preload pages" setting
+  (`NetworkPredictionOptions` policy). WebKit does the same for `<link rel=preconnect>` (also added by script) and
+  `target=_blank` clicks (review M2). The Electron desktop shell does neither (native test with the real receiver
+  and a local proxy); the headless shell neither.
+- **Confidential chats (M2, widened).** A chat marked by Safe operations 1A (`Chat.confidential`), or every chat and
+  every HTML / SVG file preview while 1A is on (`Me.server.allChatsConfidential`), runs artifact scripts only in the
+  desktop app. Elsewhere — Safari, the iPhone app, and now also Chrome, Edge, Firefox and the Android app — the page
+  is shown without scripts: parsed with `DOMParser`, cleaned (no scripts, `link`, `meta`, `base`, frames, plugins,
+  templates, event attributes, link addresses or targets, form actions, SMIL that sets them; inline `data:` images
+  and SVG `#id` references stay), and copied node by node into a frame with `sandbox="allow-same-origin"` (no
+  scripts) and its own CSP — never serialized and parsed again. A notice says why. React artifacts show a notice and
+  the Code tab; Mermaid is drawn by the app's own renderer. The review asked only for WebKit; the Chrome finding
+  means WebKit-only would leave confidential chats open in every Chrome. Chats that are not confidential behave as
+  before.
+- **Residual risks (to accept or decide):** in chats that are not confidential, an artifact can still send host names
+  (DNS / SNI) from Chrome / Edge (self-navigation) and Safari / the iPhone app (preconnect, `_blank`), zero-click
+  and without a hard count limit; WebRTC (raw UDP to any IP:port) is closed. Not observable on this Mac:
+  `<link rel=dns-prefetch>` (needs a fake resolver in a Linux container, review S4); not tested: Firefox, the real
+  WKWebView / Android WebView (QA). An HTML file written in a confidential chat and opened later from the file screen
+  after 1A is turned off runs scripts (files carry no label yet; F9).
+- **Tests.** `web/test/e2e/sandbox-exfil.spec.ts` (Chromium and WebKit projects): a UDP listener on 127.0.0.1 with a
+  control, the review's ten escapes (one is the analysis's own case) and 19 more: 24 of the 29 sent UDP from an
+  unguarded frame in at least one engine, the other five (blob:, about:blank, a `window.open` popup, `<object>`, a
+  worker) were already closed by the sandbox and CSP and stay as regression checks;
+  static views in a confidential chat send no name to a local proxy that forwards nothing, in WebKit and in full
+  Chromium (`--host-resolver-rules` so it resolves nothing either), with a proxy control; ordinary artifacts, React,
+  Mermaid, SVG, the desktop-app exception and file previews. `desktop/e2e/rtc-native.spec.ts`: `javascript:` frame;
+  no names from the Electron shell. Unit: receiver order (`tests/unit/d-web.test.ts`), head second layer and policy
+  (`web/test/unit/artifacts.test.ts`), the confidential flag (`tests/unit/safe-ops-confidential-flag.test.ts`).

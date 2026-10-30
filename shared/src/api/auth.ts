@@ -65,6 +65,9 @@ export const Me = z.object({
     }).optional(),
     /** the team's time zone (IANA, Admin > Settings): dates and schedules follow it */
     timeZone: z.string().optional(),
+    /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
+     * file preview (shown without scripts outside the desktop app). Absent = off. */
+    allChatsConfidential: z.literal(true).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),

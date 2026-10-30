@@ -342,6 +342,8 @@ export const ja: Record<MessageKey, string> = {
   'artifact.compileError': "コードをコンパイルできませんでした：{message}",
   'artifact.noDefaultExport': "コンポーネントはdefault exportにする必要があります。",
   'artifact.navigationBlocked': "アーティファクトが別のページを開こうとしたため、停止しました。",
+  'artifact.staticNotice': "スクリプトを実行せずに表示しています。機密のチャットでは、アーティファクトとWebページのプレビューはデスクトップアプリでのみ実行されます。",
+  'artifact.needsScripts': "このアーティファクトは表示にスクリプトの実行が必要ですが、機密のチャットではデスクトップアプリでのみ実行されます。内容は「コード」タブで確認できます。",
   'preview.panel': "ファイルのプレビュー",
   'preview.notFound': "ファイルが見つからないか、アクセス権がありません。",
   'preview.tooLarge': "このファイルは大きすぎてプレビューできません（{size}）。ダウンロードして開いてください。",

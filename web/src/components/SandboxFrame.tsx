@@ -11,9 +11,9 @@
 // document it wrote (document.close). A further load — or the "leaving" signal of the written document — means it
 // tried to navigate away: the frame is reset to about:blank and a notice is shown (a signal only; the app's frame-src
 // CSP is what blocks the navigation).
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
-import { SANDBOX, SANDBOX_FRAME_URL } from '../lib/artifacts'
+import { cleanStatic, SANDBOX, SANDBOX_FRAME_URL, staticShell } from '../lib/artifacts'
 import { useT } from '../i18n'
 
 /** Loads of a frame that stayed put: the receiver, then the document written over it. */
@@ -83,6 +83,58 @@ function Frame({ html, title, onError, className }: { html: string; title: strin
         // the receiver is up but its "ready" didn't arrive (or came before we listened): ask again
         else if (loads.current === 1 && !sent.current) ref.current?.contentWindow?.postMessage({ source: 'mycel-host', type: 'ping' }, '*')
       }}
+    />
+  )
+}
+
+/**
+ * A page shown without running anything (confidential chats outside the desktop app, lib/artifacts.ts
+ * frameRunsScripts): no allow-scripts, so nothing in it runs, whatever it contains. The page is parsed here (DOMParser
+ * runs nothing and loads nothing), cleaned (cleanStatic: no link hints, link targets or addresses, refresh, frames …)
+ * and its nodes are copied into an empty document with its own CSP; it is never turned back into markup and parsed
+ * again, so what is shown is exactly the cleaned tree. allow-same-origin only lets this component write into the frame.
+ */
+export function StaticFrame({ html, title, gutter, className }: { html: string; title: string; gutter?: boolean; className?: string }) {
+  const t = useT()
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <p className="flex shrink-0 items-start gap-2 border-b border-line bg-subtle px-3 py-2 text-xs text-muted" data-testid="static-notice">
+        <ShieldCheck size={14} className="mt-px shrink-0" aria-hidden />
+        {t('artifact.staticNotice')}
+      </p>
+      <StaticDocument key={html} html={html} title={title} gutter={gutter} className={className} />
+    </div>
+  )
+}
+
+function StaticDocument({ html, title, gutter, className }: { html: string; title: string; gutter?: boolean; className?: string }) {
+  const ref = useRef<HTMLIFrameElement>(null)
+  // per document: a frame that reloads (moved in the page) starts as the empty shell again
+  const filled = useRef(new WeakSet<Document>())
+  const fill = () => {
+    const doc = ref.current?.contentDocument
+    if (!doc || filled.current.has(doc)) return
+    filled.current.add(doc)
+    const page = cleanStatic(new DOMParser().parseFromString(html, 'text/html'))
+    for (const a of ['lang', 'dir', 'class', 'style']) {
+      const v = page.documentElement.getAttribute(a)
+      if (v !== null) doc.documentElement.setAttribute(a, v)
+    }
+    for (const n of Array.from(page.head.childNodes)) doc.head.appendChild(doc.importNode(n, true))
+    // a <frameset> page has no body left after cleaning: it shows empty
+    if (page.body) doc.body.replaceWith(doc.importNode(page.body, true))
+  }
+  return (
+    <iframe
+      ref={ref}
+      title={title}
+      sandbox="allow-same-origin"
+      srcDoc={staticShell({ gutter })}
+      referrerPolicy="no-referrer"
+      allow=""
+      data-testid="static-frame"
+      className={className ?? 'min-h-0 w-full flex-1 border-0 bg-white'}
+      onLoad={fill}
     />
   )
 }

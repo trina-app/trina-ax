@@ -359,6 +359,8 @@ export const id: Record<MessageKey, string> = {
   'artifact.compileError': 'Kode tidak bisa dikompilasi: {message}',
   'artifact.noDefaultExport': 'Komponen harus di-default-export.',
   'artifact.navigationBlocked': 'Artefak mencoba membuka halaman lain, jadi dihentikan.',
+  'artifact.staticNotice': 'Ditampilkan tanpa menjalankan skripnya: di chat rahasia, artefak dan pratinjau halaman web hanya berjalan di aplikasi desktop.',
+  'artifact.needsScripts': 'Artefak ini perlu menjalankan skrip agar bisa tampil, dan di chat rahasia skrip hanya berjalan di aplikasi desktop. Isinya bisa dilihat di tab Kode.',
 
   'preview.panel': 'Pratinjau file',
   'preview.notFound': 'File tidak ditemukan atau kamu tidak punya akses.',

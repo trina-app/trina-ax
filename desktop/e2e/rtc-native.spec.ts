@@ -15,10 +15,10 @@ test('native frame guard covers document start and lets all worker kinds start w
     const electron = createRequire(import.meta.url)('electron') as string
     const { stdout } = await exec(electron, [output], { env: { ...process.env, RTC_TEST_PROFILE: join(dir, 'profile') }, timeout: 30_000 })
     const result = JSON.parse(stdout.split('\n').find(line => line.startsWith('RTC_RESULT '))!.slice(11))
-    for (const key of ['oopif','oopif-nested','late','late-nested','blank','srcdoc','blob','data','dedicated','shared','service']) {
+    for (const key of ['oopif','oopif-nested','late','late-nested','blank','srcdoc','blob','data','javascript','dedicated','shared','service']) {
       expect(result.reports[key].rtc, key).toBe('undefined')
     }
-    for (const key of ['oopif','oopif-nested','late','late-nested','srcdoc','blob','data']) {
+    for (const key of ['oopif','oopif-nested','late','late-nested','srcdoc','blob','data','javascript']) {
       expect(result.reports[key].media, key).toBe('undefined')
       expect(result.reports[key].data, key).toBe('undefined')
     }
@@ -32,5 +32,22 @@ test('native frame guard covers document start and lets all worker kinds start w
     const top = result.frames[0].processId
     expect(result.frames.some((frame: any) => frame.url.includes('/child?') && frame.processId !== top)).toBe(true)
     console.log('native RTC coverage:', JSON.stringify(result))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('an artifact frame opens no connection to a host name it chose (why confidential chats run scripts only here)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-native-'))
+  try {
+    const output = join(dir, 'main.cjs')
+    await exec('bun', ['build', join(import.meta.dirname, 'fixtures/names-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
+    const electron = createRequire(import.meta.url)('electron') as string
+    const { stdout } = await exec(electron, [output], { env: { ...process.env, NAMES_TEST_PROFILE: join(dir, 'profile') }, timeout: 60_000 })
+    const result = JSON.parse(stdout.split('\n').find(line => line.startsWith('NAMES_RESULT '))!.slice(13)) as Record<string, string[]>
+    // the proxy does see this shell's connections …
+    expect(result.control).toEqual(['CONNECT control-c2vjcmv0.attacker.test:443'])
+    // … and none of these (from a scripted frame, WebKit connects for the first three; full Chromium, as in Chrome and
+    // Edge, for the self-navigations, the link click and the refresh)
+    for (const [label, names] of Object.entries(result)) if (label !== 'control') expect(names, label).toEqual([])
+    expect(Object.keys(result).length).toBe(8)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })

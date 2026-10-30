@@ -359,6 +359,8 @@ export const en: Record<MessageKey, string> = {
   'artifact.compileError': "Couldn't compile the code: {message}",
   'artifact.noDefaultExport': 'The component must be the default export.',
   'artifact.navigationBlocked': 'The artifact tried to open another page, so it was stopped.',
+  'artifact.staticNotice': 'Shown without running its scripts: in confidential chats, artifacts and web page previews run only in the desktop app.',
+  'artifact.needsScripts': 'This artifact has to run scripts to show anything, and in confidential chats they run only in the desktop app. The Code tab shows what it contains.',
 
   'preview.panel': 'File preview',
   'preview.notFound': "The file can't be found, or you don't have access to it.",

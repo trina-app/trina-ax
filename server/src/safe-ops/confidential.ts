@@ -21,6 +21,10 @@ export function confidentialChat(db: Database, chatId: string): boolean {
   }
   return !!db.query('SELECT 1 FROM safe_ops_chats WHERE chat_id=?').get(chatId)
 }
+/** The same answer as confidentialChat without marking anything: for showing the flag (Chat.confidential). */
+export function isConfidentialChat(db: Database, chatId: string): boolean {
+  return safeOpsEnabled() || !!db.query('SELECT 1 FROM safe_ops_chats WHERE chat_id=?').get(chatId)
+}
 export function confidentialTurn(db: Database, turnId: string | null): boolean {
   const t = turnId ? (db.query('SELECT chat_id FROM turns WHERE id=?').get(turnId) as { chat_id: string } | null) : null
   return t ? confidentialChat(db, t.chat_id) : safeOpsEnabled()
