@@ -36,6 +36,18 @@
 //   @fake {"claudeCall": true}               (Codex) call the proxy's Claude path with this turn's proxy token, say the status
 //   @fake {"exists": "rel/path"}             say whether the path exists in the chat folder (lstat)
 //   @fake {"readAbs": "/abs/path"}           try to read a file anywhere; says read=ok|blocked (never its content)
+//   @fake {"agents": [{...}, ...]}           (Claude) sub-agents like Claude Code's Agent tool: one main round of Agent
+//                                            calls, the children run AT THE SAME TIME, each {"id", "type", "description",
+//                                            "steps": [...], "fail": "API error text", "stats": {...}}. A step is
+//                                            {"tool", "args", "lateLine": ms} (a team tool call; lateLine: the stream line
+//                                            comes that long after the MCP call), {"say"} / {"thinking"} / {"refuse"}
+//                                            (child messages that must never reach the answer), {"sleep": ms}. Child lines
+//                                            carry parent_tool_use_id; task_started / task_progress / task_notification
+//                                            and the Agent result (AgentOutput, or a plain string when "fail") follow.
+//                                            Child calls do not count against --max-turns (like Claude Code).
+//   @fake {"init": {"tools": [...], "agents": [...]}}  what the init event reports (lockdown check tests)
+//   @fake {"echo": "agents" | "subagentPrompt" | "args"}  say the --agents file, the sub-agents' instructions, argv
+// Every team tool call carries Claude Code's _meta {"claudecode/toolUseId": <the tool_use id>}.
 // Like Claude Code it honours --max-turns: a tool call past that many ends the run with result subtype
 // "error_max_turns" (is_error, exit 1), keeping the session and the answer so far.
 // Without directives it answers "echo: <first line of the message>".
@@ -131,7 +143,10 @@ function rpc(method: string, params: unknown): Promise<any> {
 let answer = ''
 let toolN = 0
 if (codex) out({ type: 'thread.started', thread_id: sessionId })
-else out({ type: 'system', subtype: 'init', session_id: sessionId, model, tools: [] })
+else {
+  const init = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).find((d) => d.init)?.init
+  out({ type: 'system', subtype: 'init', session_id: sessionId, model, tools: init?.tools ?? [], ...(init?.agents ? { agents: init.agents } : {}) })
+}
 
 // consecutive says form one text block, like one Claude message part (a tool call closes it)
 let blockOpen = false
@@ -178,7 +193,7 @@ async function tool(name: string, args: unknown, expectImage = false, inspectIma
   const full = `mcp__team__${name}`
   if (codex) out({ type: 'item.started', item: { id, type: 'mcp_tool_call', server: 'team', tool: name, arguments: args, status: 'in_progress' } })
   else out({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: full, input: args }] } })
-  const r = br ? await rpc('tools/call', { name, arguments: args }) : { error: { message: 'no tools' } }
+  const r = br ? await rpc('tools/call', { name, arguments: args, ...(codex ? {} : { _meta: { 'claudecode/toolUseId': id, progressToken: toolN } }) }) : { error: { message: 'no tools' } }
   const content = r.result?.content ?? [{ type: 'text', text: JSON.stringify(r.error ?? r) }]
   const text = content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
   const isError = !!r.result?.isError || !!r.error
@@ -295,6 +310,56 @@ function secretsVisible(): string {
   return `envSecrets=${env.join(',') || 'none'} argvSecrets=${process.argv.some(looks) ? 'yes' : 'none'} fdVar=${process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR ?? 'none'} base=${process.env.ANTHROPIC_BASE_URL ?? 'none'}`
 }
 
+// ---------------- sub-agents (Claude Code's Agent tool) ----------------
+async function childTool(parent: string, step: any): Promise<{ ok: boolean }> {
+  await startBridge()
+  const id = `toolu_${++toolN}`
+  const line = () => out({ type: 'assistant', parent_tool_use_id: parent, message: { content: [{ type: 'tool_use', id, name: `mcp__team__${step.tool}`, input: step.args ?? {} }] } })
+  if (!step.lateLine) line()
+  const call = br ? rpc('tools/call', { name: step.tool, arguments: step.args ?? {}, _meta: { 'claudecode/toolUseId': id, progressToken: toolN } }) : Promise.resolve({ error: { message: 'no tools' } })
+  if (step.lateLine) { await Bun.sleep(Number(step.lateLine)); line() }
+  const r = await call
+  const content = r.result?.content ?? [{ type: 'text', text: JSON.stringify(r.error ?? r) }]
+  const isError = !!r.result?.isError || !!r.error
+  out({ type: 'user', parent_tool_use_id: parent, message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
+  return { ok: !isError }
+}
+async function runAgents(agents: any[]) {
+  if (maxTurns > 0 && turnsUsed >= maxTurns) { finish({ maxTurns: true }); return }
+  turnsUsed++ // the Agent calls are one round of the main session; the children's rounds are their own
+  closeBlock()
+  const t0 = Date.now()
+  out({ type: 'assistant', message: { content: agents.map((a) => ({ type: 'tool_use', id: a.id, name: 'Agent', input: { description: a.description ?? 'part', prompt: a.prompt ?? 'do it', ...(a.type ? { subagent_type: a.type } : {}) } })) } })
+  await Promise.all(agents.map(async (a) => {
+    out({ type: 'system', subtype: 'task_started', tool_use_id: a.id, description: a.description ?? 'part', subagent_type: a.type ?? 'general-purpose' })
+    out({ type: 'user', parent_tool_use_id: a.id, message: { content: [{ type: 'text', text: a.prompt ?? 'do it' }] } })
+    let uses = 0
+    for (const st of a.steps ?? []) {
+      if (stopped) return
+      if (st.tool) {
+        uses++
+        out({ type: 'system', subtype: 'task_progress', tool_use_id: a.id, usage: { total_tokens: 100 * uses, tool_uses: uses, duration_ms: Date.now() - t0 }, last_tool_name: `mcp__team__${st.tool}` })
+        await childTool(a.id, st)
+      } else if (st.say !== undefined) out({ type: 'assistant', parent_tool_use_id: a.id, message: { content: [{ type: 'text', text: String(st.say) }] } })
+      else if (st.thinking !== undefined) out({ type: 'assistant', parent_tool_use_id: a.id, message: { content: [{ type: 'thinking', thinking: String(st.thinking) }] } })
+      else if (st.refuse) out({ type: 'assistant', parent_tool_use_id: a.id, error: 'refusal', message: { stop_reason: 'refusal', content: [{ type: 'text', text: 'API Error: refused' }] } })
+      else if (st.apiError) out({ type: 'assistant', parent_tool_use_id: a.id, error: 'rate_limit', message: { content: [{ type: 'text', text: 'API Error: 429 rate limited' }] } })
+      else if (st.sleep) await Bun.sleep(Number(st.sleep))
+    }
+    if (stopped) return
+    const ms = Date.now() - t0
+    const stats = { totalToolUseCount: uses, totalDurationMs: ms, totalTokens: 100 * uses + 50, ...(a.stats ?? {}) }
+    if (a.fail) {
+      out({ type: 'system', subtype: 'task_notification', tool_use_id: a.id, status: 'failed', usage: { total_tokens: stats.totalTokens, tool_uses: uses, duration_ms: ms } })
+      out({ type: 'user', parent_tool_use_id: null, tool_use_result: `Error: Agent terminated early due to an API error: ${a.fail}`, message: { content: [{ type: 'tool_result', tool_use_id: a.id, is_error: true, content: `Agent terminated early due to an API error: ${a.fail}` }] } })
+    } else {
+      out({ type: 'system', subtype: 'task_notification', tool_use_id: a.id, status: 'completed', usage: { total_tokens: stats.totalTokens, tool_uses: uses, duration_ms: ms } })
+      out({ type: 'user', parent_tool_use_id: null, tool_use_result: { status: 'completed', agentType: a.type ?? 'general-purpose', content: [{ type: 'text', text: a.report ?? `report of ${a.id}` }], ...stats },
+        message: { content: [{ type: 'tool_result', tool_use_id: a.id, content: [{ type: 'text', text: `[Subagent hand-back] ${a.report ?? `report of ${a.id}`}` }] }] } })
+    }
+  }))
+}
+
 // ---------------- run the directives ----------------
 const directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
@@ -399,7 +464,12 @@ for (const d of directives) {
       c.on('close', () => res(b.split('\r\n')[0] || 'closed'))
     })
     await say(status)
-  } else if (d.echo === 'tools') {
+  } else if (d.agents) await runAgents(d.agents)
+  else if (d.init) { /* reported in the init event above */ }
+  else if (d.echo === 'agents') { const f = arg('--agents'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(no --agents)') }
+  else if (d.echo === 'subagentPrompt') { const f = arg('--append-subagent-system-prompt-file'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(none)') }
+  else if (d.echo === 'args') await say(JSON.stringify(argv))
+  else if (d.echo === 'tools') {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
     await say((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))

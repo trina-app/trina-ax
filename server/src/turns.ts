@@ -10,15 +10,18 @@ export interface Peer { pid: number; uid: number; gid: number; pgid: number; sid
 /** MCP content blocks our tools return. */
 export type McpContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 /** Tools of one turn besides the six file tools (set by the chat runtime before the engine starts). */
+/** Who made a tool call: the turn state of that agent (the main AI, or one of its sub-agents: its own read-before-write
+ * state, TurnFiles.forAgent). Without it, the main AI's. */
+export interface ToolCaller { files: TurnFiles }
 export interface TurnToolSet {
   list(): { name: string; description: string; inputSchema: Record<string, unknown> }[]
   has(name: string): boolean
-  call(name: string, args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary: string }>
+  call(name: string, args: unknown, caller?: ToolCaller): Promise<{ content: McpContent[]; isError?: boolean; summary: string }>
   /** after a file tool call (the runtime publishes files.changed) */
   afterFileTool?(name: string, isError: boolean, args: unknown): void
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
-  beforeFileTool?(name: string, args: unknown): Promise<string | { refusal: string; summary: string } | null>
+  beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>
 }
 export interface Turn {
   id: string; userId: string; chatId: string; tokenHash: string

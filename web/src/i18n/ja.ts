@@ -166,6 +166,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.ja,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.ja,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.ja,
+  'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.ja,
   'chat.untitled': "新しいチャット",
   'chat.title': "タイトル",
   'chat.rename': "名前を変更",

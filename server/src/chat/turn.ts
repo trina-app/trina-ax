@@ -7,7 +7,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { TEAM_TOOL_PREFIX, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -22,7 +22,9 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
-import { buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, skillBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, skillBlock, type PromptInput } from './prompt'
+import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
+import { getTeamSettings } from '../admin/settings'
 import { invokedSkill, listSkills, skillFolder } from './skills'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel } from './engines'
@@ -159,6 +161,10 @@ export class TurnExec {
   private lastCredential: string | null = null
   /** this turn's tools (step labels of per-person tools) */
   private toolSet: ChatToolSet | null = null
+  /** what this Claude attempt was started with (the init check, docs/DECISIONS.md "Sub-agents") */
+  private lockdown = { webSearch: true, subagents: false }
+  /** the sub-tasks of this answer (Claude Code's Agent calls), by the call's id: for the end audit row and the totals */
+  private subtasks = new Map<string, { type: string; description: string; stats: AgentStats; done: boolean }>()
   /** the stored secrets of the person's connections, hidden in the answer, the steps, the audit lines and the title
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
@@ -291,11 +297,23 @@ export class TurnExec {
     const atts = await this.attachmentsForTurn(userMsg)
     if (this.stopReason) return
 
+    // sub-agents (docs/DECISIONS.md "Sub-agents"): Claude only, while the team allows them, never in an approved
+    // template run (its scope is fixed); see LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS for confidential chats in office mode
+    const confidential = confidentialChat(rt.db, spec.chatId)
+    const webSearch = !this.templateScope && !confidential
+    const subagents = !!claude && !this.templateScope && getTeamSettings(rt.db).aiSubagents
+      && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
-      history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null,
+      history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents,
     })
+    // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
+    const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
+    const childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+    const subagentLaunch = () => subagents
+      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
+      : undefined
     // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
     const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
     // a fresh session (edit, regenerate, engine switch, Codex / API every turn, a lost or dropped session, another AI
@@ -378,9 +396,10 @@ export class TurnExec {
           // with our per-turn token on fd 3 Claude Code cannot tell the plan and starts on Sonnet: a subscription runs on
           // Opus unless someone chose (also makes the refusal retry's "other model" really another one)
           if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
-          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic' })
-        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000 })
-        const lr = buildClaudeLaunch({ webSearch: !this.templateScope && !confidentialChat(rt.db,spec.chatId),
+          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools: { agent: subagents, webSearch } })
+        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, tools: { agent: subagents, webSearch } })
+        this.lockdown = { webSearch, subagents }
+        const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
@@ -583,6 +602,7 @@ export class TurnExec {
     else if (ev.type === 'rate_limit' && ev.credentialId) this.credentialFailure ??= { id: ev.credentialId, reason: 'limited', retryAt: ev.retryAt }
     if (this.proxyError) return
     const L = this.spec.locale
+    if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
     else if (ev.type === 'budget') this.proxyError = { code: 'budget_exceeded', message: budgetBlock(this.rt.db, this.spec.userId, L)?.message ?? tr('errBudget', L) }
     else if (ev.type === 'credential') {
@@ -593,6 +613,16 @@ export class TurnExec {
     }
     // stop the engine at once: it must not retry or refresh by itself on a refused / limited connection
     if (ev.type !== 'auth') this.handle?.kill()
+  }
+
+  /** The engine started with (init check) or asked the model for (model proxy, M1) a tool outside the lockdown: the
+   * answer stops with the lockdown error at once, never retried (the same engine would do it again). */
+  private stopAtLockdown(reason: string, source: 'init' | 'proxy') {
+    if (this.proxyError?.params?.reason === 'lockdown') return
+    this.proxyError = engineError('lockdown', this.spec.locale)
+    this.rt.log.error('engine lockdown broken: answer stopped', { turn: this.id, source, reason })
+    audit(this.rt.db, { actor: this.spec.userId, action: 'engine.lockdown', target: this.spec.turnId, detail: { source, reason: reason.slice(0, 300) } })
+    try { this.handle?.kill() } catch {}
   }
 
   /** The Linux launcher ended the attempt at the turn's memory limit ("oom") or the chat folder's size limit
@@ -668,21 +698,31 @@ export class TurnExec {
         this.flushText()
         if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
         return
+      case 'init': {
+        // what the engine says it started with, against the lockdown (docs/DECISIONS.md "Sub-agents"; Claude only)
+        const problem = initProblem(e, this.lockdown)
+        if (problem) this.stopAtLockdown(problem, 'init')
+        return
+      }
       case 'tool_start': {
         this.closeThinking()
         this.flushText()
         this.attemptHadOutput = true
         this.producedOutput = true
-        const tool = e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
+        // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
+        this.files.noteToolUse(e.id, e.parentId ?? null)
+        const tool = CLAUDE_AGENT_TOOL_NAMES.includes(e.name) ? 'agent' : e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
+        if (tool === 'agent' && !e.parentId) return this.startSubtask(e.id, e.input)
         // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)
         const label = kind === 'web_search' ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) })
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
-        const step = this.addStep({ id: e.id, kind, tool, label, status: 'running' })
-        const waiting = this.pendingPatches.get(tool)?.shift()
+        // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
+        const step = this.addStep({ id: e.id, kind, tool, label, status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
         return
@@ -698,9 +738,13 @@ export class TurnExec {
         }
         this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again
+        if (tool === 'agent' && this.subtasks.has(e.id)) return this.endSubtask(e.id, e.ok, e.agent, patch)
         this.updateStep(e.id, patch)
         return
       }
+      case 'agent_progress':
+        this.subtaskProgress(e.id, e.stats)
+        return
       case 'usage':
         this.usage.i += e.inputTokens; this.usage.o += e.outputTokens; this.usage.c += e.costUsd ?? 0; this.usage.seen = true
         if (e.costUnknown) this.usage.unknown = true
@@ -714,6 +758,70 @@ export class TurnExec {
         return
       default:
     }
+  }
+
+  // ---------------- sub-tasks (docs/DECISIONS.md "Sub-agents") ----------------
+  /** The main AI started a sub-agent (Claude Code's Agent call): a "Sub-task: <its description>" step its steps go
+   * under, and an audit row. The prompt the AI wrote for it is not kept (the steps and the answer say what it did). */
+  private startSubtask(id: string, input: unknown) {
+    const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+    const type = typeof a.subagent_type === 'string' && a.subagent_type ? a.subagent_type.slice(0, 40) : 'general-purpose'
+    const description = typeof a.description === 'string' && a.description.trim() ? a.description : type
+    this.files.subagents = true
+    this.subtasks.set(id, { type, description, stats: {}, done: false })
+    this.addStep({ id, kind: 'tool', tool: 'agent', label: tr('subtask', this.spec.locale, { d: clip(description, 80) }), status: 'running', subtask: {} })
+    this.auditSubtask(id, subtaskSummary({ type, description }), true)
+  }
+
+  /** Claude Code's running totals of a sub-agent (task_progress): shown on its sub-task step while it works (S5). */
+  private subtaskProgress(id: string, stats: AgentStats) {
+    const t = this.subtasks.get(id)
+    if (!t || t.done) return
+    t.stats = { ...t.stats, ...stats }
+    this.updateStep(id, { subtask: subtaskOf(t.stats) })
+  }
+
+  /** The sub-agent handed back (or failed: its result is then a plain error text, M2): the step and the audit say so. */
+  private endSubtask(id: string, ok: boolean, stats: AgentStats | undefined, patch: Partial<Step>) {
+    const t = this.subtasks.get(id)!
+    t.done = true
+    if (stats) t.stats = { ...t.stats, ...stats }
+    this.updateStep(id, { ...patch, subtask: subtaskOf(t.stats) })
+    this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok, toolUses: t.stats.toolUses, ms: t.stats.ms } }), ok)
+  }
+
+  private auditSubtask(id: string, summary: string, ok: boolean) {
+    try {
+      this.rt.db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok, tool_use_id, parent_tool_use_id) VALUES (?,?,?,?,?,?,NULL)')
+        .run(this.id, this.spec.userId, 'agent', this.redact(summary).slice(0, 1000), ok ? 1 : 0, id.slice(0, 200))
+    } catch (e) { this.rt.log.warn('sub-task audit row failed', { err: e, turn: this.id }) }
+  }
+
+  /** The steps as saved with the answer: per sub-task its most recent SUBTASK_STEPS_KEPT steps, the number of the others
+   * on the sub-task step (review M6: the step list is saved whole every 0.3 s and has no other cap). */
+  private storedSteps(): Step[] {
+    if (!this.subtasks.size) return this.steps
+    const kept = new Map<string, number>()
+    const hidden = new Map<string, number>()
+    const out: Step[] = []
+    for (let i = this.steps.length - 1; i >= 0; i--) {
+      const s = this.steps[i]!
+      if (s.parentId) {
+        const n = kept.get(s.parentId) ?? 0
+        if (n >= SUBTASK_STEPS_KEPT) { hidden.set(s.parentId, (hidden.get(s.parentId) ?? 0) + 1); continue }
+        kept.set(s.parentId, n + 1)
+      }
+      out.push(s)
+    }
+    out.reverse()
+    return out.map((s) => (hidden.has(s.id) ? { ...s, subtask: { ...s.subtask, hidden: hidden.get(s.id)! } } : s))
+  }
+
+  /** What this answer's sub-agents did, for the turn row and the log (measured before any limit on it, M6). */
+  private subagentTotals() {
+    let toolUses = 0, tokens = 0
+    for (const t of this.subtasks.values()) { toolUses += t.stats.toolUses ?? 0; tokens += t.stats.tokens ?? 0 }
+    return { subagents: this.subtasks.size, toolUses, tokens }
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
@@ -746,6 +854,8 @@ export class TurnExec {
       startedAt: s.startedAt ?? new Date().toISOString(), endedAt: s.status === 'running' ? null : (s.endedAt ?? new Date().toISOString()),
       ...(s.tool ? { tool: s.tool.slice(0, 100) } : {}), ...(s.detail ? { detail: s.detail.slice(0, 4000) } : {}),
       ...(s.sources ? { sources: s.sources.slice(0, 50) } : {}), ...(s.images ? { images: s.images.slice(0, 20) } : {}),
+      // a sub-agent's step: the id of its sub-task step, through the same cap as step ids (review S8)
+      ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
     }
     const i = this.steps.findIndex((x) => x.id === step.id)
     if (i >= 0) this.steps[i] = step
@@ -929,7 +1039,7 @@ export class TurnExec {
    * and the refusal is audited. Returns the refusal for the tool, or null to go ahead (also when the target is not
    * under skills/, or the tool itself will refuse the call: the tool reports that).
    */
-  async confirmSkillWrite(tool: string, args: unknown): Promise<{ refusal: string; summary: string } | null> {
+  async confirmSkillWrite(tool: string, args: unknown, files: TurnFiles = this.files): Promise<{ refusal: string; summary: string } | null> {
     if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file') return null
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
     const target = tool === 'make_file' ? a.output : a.file_path
@@ -944,7 +1054,7 @@ export class TurnExec {
     let after: string | null = null
     if (r.exists) {
       // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
-      if (r.st!.isDirectory() || (tool !== 'make_file' && !this.files.readHashes.has(r.rel))) return null
+      if (r.st!.isDirectory() || (tool !== 'make_file' && !files.readHashes.has(r.rel))) return null
       try {
         const cur = readRegular(r.abs).bytes
         before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
@@ -1093,7 +1203,7 @@ export class TurnExec {
     this.dirty = false
     try {
       this.rt.db.query('UPDATE messages SET content = ?, steps = ?, updated_at = ? WHERE id = ?')
-        .run(this.content, JSON.stringify(this.steps), new Date().toISOString(), this.spec.assistantId)
+        .run(this.content, JSON.stringify(this.storedSteps()), new Date().toISOString(), this.spec.assistantId)
     } catch (e) { this.rt.log.error('saving the answer failed', { err: e, turn: this.id }); this.dirty = true }
   }
 
@@ -1114,6 +1224,8 @@ export class TurnExec {
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
+    // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
+    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms } }), false) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
     // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
     // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
@@ -1134,9 +1246,14 @@ export class TurnExec {
     try {
       this.afterTool()
       db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
-        this.content, JSON.stringify(this.steps), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
+        this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
+      if (this.subtasks.size) {
+        const n = this.subagentTotals()
+        db.query('UPDATE turns SET subagents = ?, subagent_tool_uses = ?, subagent_tokens = ? WHERE id = ?').run(n.subagents, n.toolUses, n.tokens, this.id)
+        this.rt.log.info('sub-agents of the answer', { turn: this.id, ...n })
+      }
       // A scheduled run's result goes in before its terminal status: the notification reconciler records any
       // terminal scheduled turn, and an inbox event cannot change once recorded (chat/schedule-outcome.ts).
       // '(connect)' rows are bridge connection checks (mcp/socket.ts), not tool calls.
@@ -1224,4 +1341,10 @@ export function searchSources(text: string, query: string): { title: string; url
   const m = /^\s*Links:[ \t]*(\[[\s\S]*?\])[ \t]*(?:\n|$)/.exec(text.slice(head.length))
   if (!m) return []
   try { return hitList(JSON.parse(m[1]!)) } catch { return [] }
+}
+
+const clip = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').trim(); return v.length > n ? v.slice(0, n - 1) + '…' : v }
+/** a sub-task step's numbers (whole milliseconds) */
+function subtaskOf(st: AgentStats): NonNullable<Step['subtask']> {
+  return { ...(st.toolUses !== undefined ? { toolUses: st.toolUses } : {}), ...(st.ms !== undefined ? { ms: Math.round(st.ms) } : {}) }
 }

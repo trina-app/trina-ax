@@ -46,13 +46,15 @@ export async function publishArtifact(
  // an explicit read before deriving a published artifact from any such result.
  // Taking a fresh snapshot now would falsely bind old model context to new bytes.
  for (const rel of c.files.readPaths) {
-   if (!c.files.readHashes.has(rel)) throw changed()
+   if (!c.files.allReads.has(rel)) throw changed()
  }
  // Model-authored text may derive from earlier reads in this turn, even without
- // explicit Markdown image/source references. Bind and recheck those versions too.
+ // explicit Markdown image/source references. Bind and recheck those versions too:
+ // every agent's reads (the main AI writes from its sub-agents' reports and they
+ // from its instructions), not only the calling agent's read-before-write state.
  sources=[...sources]
  let sourceBytes=sources.reduce((n,s)=>n+s.bytes.length,0)
- for(const [rel,expectedHash] of c.files.readHashes) {
+ for(const [rel,expectedHash] of c.files.allReads) {
    const explicit=sources.find(s=>s.path===rel)
    if(explicit) { if(explicit.hash!==expectedHash) throw changed(); continue }
    if(sources.length>=32) throw new ToolError('Safe source limit.', 'safe_ops_workflow')
@@ -81,7 +83,7 @@ export async function publishArtifact(
  const chat=c.turnId?(db.query('SELECT chat_id FROM turns WHERE id=?').get(c.turnId) as {chat_id:string}|null)?.chat_id:null
  if(chat) addSources(db,chat,[...c.files.readPaths].map(p=>sourceOf(db,files.rules(),p)))
  const provenance=JSON.stringify({sources:sources.map(({bytes,...s})=>({...s,scope:sourceOf(db,files.rules(),s.path)})),
-   readVersions:[...c.files.readHashes],imageVersions:[...c.files.imageSources],scope:chat?readScope(db,chat):null})
+   readVersions:[...c.files.allReads],imageVersions:[...c.files.imageSources],scope:chat?readScope(db,chat):null})
  const policy=policyGeneration(db), viewers=audience(ctx,target)
  const binding=JSON.stringify({id,hash,destination:target,audience:JSON.parse(viewers),policy})
  await waitForApproval(approve(target,sources.map(s=>s.path),binding),c.signal)

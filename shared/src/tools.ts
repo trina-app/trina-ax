@@ -147,3 +147,11 @@ export const OTHER_TOOLS = {
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */
 export const ENGINE_BUILTIN_ALLOWED = ['WebSearch'] as const
+
+/** Claude Code's sub-agent tool (docs/DECISIONS.md "Sub-agents"), offered next to WebSearch while the team allows it.
+ * Model requests and the stream name it Agent; the init event of Claude Code 2.1.305 lists it as Task. */
+export const CLAUDE_AGENT_TOOL = 'Agent'
+export const CLAUDE_AGENT_TOOL_NAMES: readonly string[] = ['Agent', 'Task']
+/** The only sub-agent definitions a turn has (server/src/engine/subagents.ts). Claude Code's own names, so a call
+ * without subagent_type runs ours (general-purpose). */
+export const SUBAGENT_TYPES = ['general-purpose', 'Explore'] as const

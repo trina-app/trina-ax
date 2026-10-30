@@ -22,10 +22,14 @@ import { handleCodex } from './codex-path'
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
-export function issueProxyToken(db: Database, turnId: string, userId: string, o: { ttlMs?: number; budgetUsd?: number; credentialId?: string; family?: Family } = {}) {
+/** What one Claude attempt's model requests may name as tools besides our mcp__team__ tools (checkToolNames). */
+export interface ToolPolicy { agent: boolean; webSearch: boolean }
+
+export function issueProxyToken(db: Database, turnId: string, userId: string, o: { ttlMs?: number; budgetUsd?: number; credentialId?: string; family?: Family; tools?: ToolPolicy } = {}) {
   const token = 'mpx_' + crypto.randomBytes(32).toString('base64url')
-  db.query('INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at, budget_usd, credential_id, family) VALUES (?,?,?,?,?,?,?)')
-    .run(h(token), turnId, userId, new Date(Date.now() + (o.ttlMs ?? 30 * 60_000)).toISOString(), o.budgetUsd ?? null, o.credentialId ?? null, o.family ?? null)
+  db.query('INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at, budget_usd, credential_id, family, tools) VALUES (?,?,?,?,?,?,?,?)')
+    .run(h(token), turnId, userId, new Date(Date.now() + (o.ttlMs ?? 30 * 60_000)).toISOString(), o.budgetUsd ?? null, o.credentialId ?? null, o.family ?? null,
+      o.tools ? JSON.stringify({ agent: !!o.tools.agent, webSearch: !!o.tools.webSearch }) : null)
   // the turn remembers the connection of its latest attempt (usage per connection: Admin > Usage)
   if (o.credentialId) db.query('UPDATE turns SET credential_id = ? WHERE id = ?').run(o.credentialId, turnId)
   return token
@@ -41,11 +45,40 @@ export type ProxyTurnEvent =
   | { type: 'budget' }
   | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
   | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
+  /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
+  | { type: 'lockdown'; reason: string }
 
 /** a proxy token row as the proxy reads it */
-export interface TokenRow { turn_id: string; user_id: string; revoked_at: string | null; expires_at: string; budget_usd: number | null; credential_id: string | null; family: Family | null }
+export interface TokenRow { turn_id: string; user_id: string; revoked_at: string | null; expires_at: string; budget_usd: number | null; credential_id: string | null; family: Family | null; tools: string | null }
 export const tokenRow = (db: Database, tok: string) =>
-  db.query('SELECT turn_id, user_id, revoked_at, expires_at, budget_usd, credential_id, family FROM proxy_tokens WHERE token_hash = ?').get(h(tok)) as TokenRow | null
+  db.query('SELECT turn_id, user_id, revoked_at, expires_at, budget_usd, credential_id, family, tools FROM proxy_tokens WHERE token_hash = ?').get(h(tok)) as TokenRow | null
+
+/** the token's tool policy; a token without one (issued before, or for something else) gets no Agent tool */
+export function toolPolicyOf(row: Pick<TokenRow, 'tools'>): ToolPolicy {
+  try { const v = row.tools ? JSON.parse(row.tools) : null; if (v && typeof v === 'object') return { agent: v.agent === true, webSearch: v.webSearch === true } } catch {}
+  return { agent: false, webSearch: true }
+}
+
+/**
+ * The tool names a Claude turn's model request may carry (plan review M1): our mcp__team__ tools, the Agent tool when
+ * the turn has sub-agents, WebSearch and its server tool (web_search_*) when the turn has search. A sub-agent's own tool
+ * list is decided inside Claude Code and shows nowhere else (not in the init event; deny rules only refuse calls), and
+ * its requests come here with the turn's token: this one check covers forks, agent definitions from disk or managed
+ * settings, the Glob / Grep exception and a changed Claude Code. null = fine, else why not.
+ */
+export function checkToolNames(body: unknown, policy: ToolPolicy): string | null {
+  const tools = (body as { tools?: unknown } | null)?.tools
+  if (!Array.isArray(tools)) return null
+  const bad: string[] = []
+  for (const t of tools as Record<string, unknown>[]) {
+    const type = t && typeof t === 'object' ? t.type : undefined
+    const name = t && typeof t === 'object' ? t.name : undefined
+    if (typeof type === 'string' && /^web_search_\d+$/.test(type)) { if (!policy.webSearch) bad.push(`${type}`); continue }
+    if (typeof name === 'string' && (name.startsWith('mcp__team__') || (name === 'Agent' && policy.agent) || (name === 'WebSearch' && policy.webSearch))) continue
+    bad.push(typeof name === 'string' ? name : String(type))
+  }
+  return bad.length ? `tools outside the lockdown: ${bad.slice(0, 10).map((b) => b.slice(0, 60)).join(', ')}` : null
+}
 
 export interface ProxyOpts {
   db: Database
@@ -211,6 +244,14 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       if (refused) {
         refusedAudit(row, refused)
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
+      }
+      // the lockdown of the turn's tools, for the main AI and every sub-agent alike: the answer stops (M1)
+      const outside = checkToolNames(parsed, toolPolicyOf(row))
+      if (outside) {
+        refusedAudit(row, outside)
+        o.log?.warn('model request refused: tools outside the lockdown', { turn: row.turn_id, reason: outside })
+        o.onTurnEvent?.(row.turn_id, { type: 'lockdown', reason: outside })
+        return apiError(403, 'permission_error', `refused by the team server: ${outside}`)
       }
       // 403, not 429: the SDK retries a 429 by itself (design tab 1 "예산 초과")
       if (overBudget(db, row.user_id, row.turn_id, row.budget_usd)) {

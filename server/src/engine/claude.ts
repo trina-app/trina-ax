@@ -2,8 +2,13 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ENGINE_BUILTIN_ALLOWED, FILE_TOOLS, TEAM_TOOL_PREFIX, type AuthMode, type LaunchRequest } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL, ENGINE_BUILTIN_ALLOWED, FILE_TOOLS, TEAM_TOOL_PREFIX, type AuthMode, type LaunchRequest } from '@mycel/shared'
 import { engineTimeZone } from '../system/time-zone'
+
+/** sub-agents running at the same time in one answer (Claude Code: 20; docs/DECISIONS.md "Sub-agents"). One answer's
+ * tool calls are handled one at a time (mcp/socket.ts) and share the turn's memory limit, so more would mostly add
+ * model cost. Claude Code refuses the fifth ("Concurrent subagent limit reached"); the AI is told the number. */
+export const MAX_CONCURRENT_SUBAGENTS = 4
 
 /** environment switches that close file mentions, attachments, CLAUDE.md, bundled skills, background tasks, telemetry */
 export const CLAUDE_LOCK_ENV: Record<string, string> = {
@@ -17,7 +22,33 @@ export const CLAUDE_LOCK_ENV: Record<string, string> = {
   // sits in into the model's context (seen in the lockdown run: the server's own checkout and its commit messages)
   CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: '1',
   DISABLE_AUTOUPDATER: '1',
+  // sub-agents (docs/DECISIONS.md "Sub-agents"), on every turn whether or not it has the Agent tool: only the two
+  // definitions the server passes (--agents; Claude Code's built-in Explore, Plan, claude-code-guide ... are off), no
+  // fork (a fork gets the main session's whole tool set, ask_user included), no grandchildren, every child on the
+  // turn's model (Claude cannot pick another one: the Agent tool then has no model input), at most 4 at a time.
+  // Background tasks stay off (above): a child runs in the foreground, inside this answer and its limits.
+  CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
+  CLAUDE_CODE_FORK_SUBAGENT: '0',
+  CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+  CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1',
+  CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(MAX_CONCURRENT_SUBAGENTS),
+  // a definition's `memory` field switches Read / Write / Edit on (review S6): one more layer under autoMemoryEnabled
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
 }
+/**
+ * Claude Code's built-in tools that are denied outright (--disallowedTools), on top of --tools naming only WebSearch
+ * (and Agent). A deny rule holds in every permission mode and in every sub-agent; it is the second layer under the
+ * tool list, for whatever a Claude Code change, a definition's `tools` (Glob / Grep come back to a child that lists
+ * them and not Bash) or a fork would bring back. Glob and Grep must be here with Bash: denying Bash alone makes them
+ * default tools again. Every name exists in the pinned 2.1.305 (plan review, 2026-10-30); Agent(fork) is the fork.
+ * Not here: WebSearch and Agent (offered per turn, denied below when not), EndConversation and SubagentHandback
+ * (cannot be removed).
+ */
+export const CLAUDE_BUILTIN_DENIED = ['Artifact', 'AskUserQuestion', 'Bash', 'CronCreate', 'CronDelete', 'CronList', 'Edit', 'EnterPlanMode',
+  'EnterWorktree', 'ExitPlanMode', 'ExitWorktree', 'Glob', 'Grep', 'ListAgents', 'ListMcpResourcesTool', 'LSP', 'Monitor', 'NotebookEdit',
+  'PowerShell', 'PushNotification', 'Read', 'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendFeedback',
+  'SendMessage', 'SendUserFile', 'ShareOnboardingGuide', 'Skill', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
+  'TodoWrite', 'ToolSearch', 'WaitForMcpServers', 'WebFetch', 'Workflow', 'Write', 'Agent(fork)']
 // Claude Code 2.1.304 ships built-in plugins that load even with --setting-sources "" (seen in the lockdown run):
 // cc-plugin-agents-md would feed AGENTS.md files into the context. They are switched off explicitly.
 export const CLAUDE_BUILTIN_PLUGINS_OFF = ['cc-plugin-agents-md@builtin', 'cc-plugin-plugin-authoring@builtin']
@@ -65,6 +96,10 @@ export const SUBSCRIPTION_DEFAULT_MODEL = 'opus'
 /** Claude Code gives up on an MCP tool call after this (ask_user / browser site confirmations wait up to 15 minutes). */
 export const MCP_TOOL_TIMEOUT_MS = 1_800_000
 
+/** The launcher fills {CHAT_DIR}, {TURN_DIR} ... into the files of a request: text that holds such a name (a team rule,
+ * a skill's description in the sub-agents' instructions) keeps it as written, not the chat folder's path. */
+export const launcherLiteral = (s: string) => s.replace(/\{(MCP_CONFIG|SYSTEM_PROMPT_FILE|TURN_DIR|CHAT_DIR|BRIDGE|TOOLS_SOCK)\}/g, '{\u200b$1}')
+
 export function buildClaudeLaunch(i: {
   turnId: string; chatDir: string; token: string; systemPrompt: string; message: string
   sessionId: string; resume: boolean; stash: Buffer | null; model?: string; maxTurns: number; timeoutMs: number; proxyToken?: string
@@ -77,17 +112,28 @@ export function buildClaudeLaunch(i: {
   extraTools?: string[]
   /** False for approved local-folder templates; normal chat keeps the existing built-in search. */
   webSearch?: boolean
+  /** Claude Code's Agent tool for this turn (docs/DECISIONS.md "Sub-agents"): the `--agents` definitions
+   * (chat/subagents.ts) and the instructions every sub-agent gets (prompt.ts buildSubagentPrompt); absent = none */
+  subagents?: { agents: Record<string, unknown>; prompt: string }
 }, conf: ClaudeConf): LaunchRequest {
+  const web = i.webSearch !== false
+  const sub = !!i.subagents
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events',
-    '--tools', (i.webSearch === false ? [] : ENGINE_BUILTIN_ALLOWED).join(','),
-    '--allowedTools', [...CLAUDE_ALLOWED_TOOLS.filter(t => i.webSearch !== false || t !== 'WebSearch'), ...(i.extraTools ?? []).map((t) => TEAM_TOOL_PREFIX + t)].join(','),
+    '--tools', [...(web ? ENGINE_BUILTIN_ALLOWED : []), ...(sub ? [CLAUDE_AGENT_TOOL] : [])].join(','),
+    '--allowedTools', [...CLAUDE_ALLOWED_TOOLS.filter(t => web || t !== 'WebSearch'), ...(i.extraTools ?? []).map((t) => TEAM_TOOL_PREFIX + t), ...(sub ? [CLAUDE_AGENT_TOOL] : [])].join(','),
+    '--disallowedTools', [...CLAUDE_BUILTIN_DENIED, ...(web ? [] : ['WebSearch']), ...(sub ? [] : [CLAUDE_AGENT_TOOL])].join(','),
     '--strict-mcp-config', '--mcp-config', '{MCP_CONFIG}',
     '--setting-sources', '',
     '--settings', JSON.stringify(CLAUDE_LOCK_SETTINGS),
+    // restricted mode (2.1.248+): no command-running tools or WebFetch, no user / project / local settings files, and
+    // the Agent tool's isolation "remote" (a cloud session, which a Mac's own login could open through the office
+    // tunnel) runs as a local child instead (plan review M4; read from the 2.1.305 code)
+    '--restricted',
     '--disable-slash-commands',
     '--permission-mode', 'dontAsk',
     '--append-system-prompt-file', '{SYSTEM_PROMPT_FILE}',
+    ...(sub ? ['--agents', '{TURN_DIR}/agents.json', '--append-subagent-system-prompt-file', '{TURN_DIR}/subagent.md'] : []),
     '--max-turns', String(i.maxTurns),
     ...(i.model ? ['--model', i.model] : []),
     ...(i.resume ? ['--resume', i.sessionId] : ['--session-id', i.sessionId]),
@@ -120,6 +166,8 @@ export function buildClaudeLaunch(i: {
   return {
     op: 'run', turnId: i.turnId, chatDir: i.chatDir, cmd: conf.bin, args, env, token: i.token, systemPrompt: i.systemPrompt,
     stdin: i.message, timeoutMs: i.timeoutMs, ...(modelToken ? { modelToken } : {}),
+    // written by the launcher into .turn (0600) before the engine starts, removed with it when the turn ends
+    ...(i.subagents ? { files: [{ rel: '.turn/agents.json', content: launcherLiteral(JSON.stringify(i.subagents.agents)) }, { rel: '.turn/subagent.md', content: launcherLiteral(i.subagents.prompt) }] } : {}),
     ...(i.resume && i.stash ? { sessionRestore: { dir: loc.restoreDir, name: `${i.sessionId}.jsonl`, b64: i.stash.toString('base64') } } : {}),
     sessionCollect: { dir: loc.collectDir, name: `${i.sessionId}.jsonl`, removeDir: true },
   }

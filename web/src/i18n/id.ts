@@ -176,6 +176,7 @@ export const id: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.id,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.id,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.id,
+  'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.id,
 
   'chat.untitled': 'Chat baru',
   'chat.title': 'Judul',

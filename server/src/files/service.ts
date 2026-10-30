@@ -44,10 +44,25 @@ function refuseLegacyText(rel: string, cur: Uint8Array) {
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
 }
 
+/** "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. */
+class ReadHashes extends Map<string, string> {
+  constructor(private readonly all: Map<string, string> | null) { super() }
+  override set(k: string, v: string) { this.all?.set(k, v); return super.set(k, v) }
+}
+
+/** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
+export const CALL_OWNER_WAIT_MS = 3000
+
 export class TurnFiles {
   /** Set only by TurnRegistry.bind after the trusted launcher starts the engine. */
   enginePid: number | null = null
-  readHashes = new Map<string, string>()
+  /** every hash any agent of this turn recorded (the main AI and its sub-agents): what safe operations bind a
+   * publication to, since the main AI writes from its sub-agents' reports and they from its instructions */
+  readonly allReads = new Map<string, string>()
+  /** the files this agent read (or wrote) in this turn and their hashes then: write / edit / make_file refuse an
+   * existing file that is not here and make a conflict copy when it changed since. Per agent (forAgent): siblings do
+   * not share it, so one sub-agent cannot overwrite what another wrote after it read the file (review M3) */
+  readHashes: Map<string, string> = new ReadHashes(this.allReads)
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
   /** image blocks sent to the model in this turn (files/vision.ts VISION_TURN_IMAGES / VISION_TURN_BYTES) */
@@ -60,6 +75,66 @@ export class TurnFiles {
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()
+
+  // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
+  /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
+  private owners = new Map<string, string | null>()
+  private ownerWaits = new Map<string, (() => void)[]>()
+  private agents = new Map<string, TurnFiles>()
+  /** the turn has started a sub-agent: calls then wait for their owner (before that every call is the main AI's) */
+  subagents = false
+
+  /** The engine's stream named a tool call: `agent` = the id of the Agent call whose sub-agent made it, or null. */
+  noteToolUse(toolUseId: string, agent: string | null) {
+    this.owners.set(toolUseId, agent)
+    const w = this.ownerWaits.get(toolUseId)
+    if (w) { this.ownerWaits.delete(toolUseId); for (const f of w) f() }
+  }
+
+  /**
+   * The state a sub-agent's calls use: its own read-before-write hashes, like Claude Code's per-agent file state (a
+   * child starts with none of the main AI's reads, and the main AI does not get the child's). Everything else is the
+   * turn's: the read scope, the image and write limits, the person's confirmations of skill saves.
+   */
+  forAgent(agent: string): TurnFiles {
+    let v = this.agents.get(agent)
+    if (!v) { v = this.view(); this.agents.set(agent, v) }
+    return v
+  }
+
+  /**
+   * Whose state a tool call uses: Claude Code puts the call's tool_use id in `_meta` ("claudecode/toolUseId"), and the
+   * stream says which agent made that call. The call may arrive before the stream line (another path): it waits up
+   * to `waitMs`. Without an id (Codex, the API engine), or before any sub-agent started, it is the main AI's. A call
+   * still unknown then gets a fresh state of its own: it may read and create files, but not overwrite one it did not
+   * read in that same call (fails closed, never the main AI's or a sibling's reads).
+   */
+  async forCall(toolUseId: unknown, o: { waitMs?: number; signal?: AbortSignal } = {}): Promise<{ files: TurnFiles; agent: string | null; known: boolean }> {
+    if (typeof toolUseId !== 'string' || !toolUseId) return { files: this, agent: null, known: false }
+    if (!this.owners.has(toolUseId) && this.subagents && !o.signal?.aborted) {
+      await new Promise<void>((resolve) => {
+        const done = () => { clearTimeout(t); o.signal?.removeEventListener('abort', done); resolve() }
+        const t = setTimeout(done, o.waitMs ?? CALL_OWNER_WAIT_MS)
+        o.signal?.addEventListener('abort', done, { once: true })
+        const w = this.ownerWaits.get(toolUseId) ?? []
+        w.push(done)
+        this.ownerWaits.set(toolUseId, w)
+      })
+      this.ownerWaits.delete(toolUseId)
+    }
+    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(), agent: null, known: false } : { files: this, agent: null, known: false }
+    const agent = this.owners.get(toolUseId) ?? null
+    return { files: agent ? this.forAgent(agent) : this, agent, known: true }
+  }
+
+  /** this turn's state with read-before-write hashes of its own */
+  private view(): TurnFiles {
+    const own = new ReadHashes(this.allReads)
+    return new Proxy(this, {
+      get: (t, k) => (k === 'readHashes' ? own : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' ? false : Reflect.set(t, k, v, t)),
+    })
+  }
 }
 
 export interface ToolCtx {

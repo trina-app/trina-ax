@@ -166,6 +166,7 @@ export const es: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.es,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.es,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.es,
+  'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.es,
   'chat.untitled': "Nuevo chat",
   'chat.title': "Título",
   'chat.rename': "Cambiar nombre",

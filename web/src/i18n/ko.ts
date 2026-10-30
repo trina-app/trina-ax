@@ -175,6 +175,7 @@ export const ko = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.ko,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.ko,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.ko,
+  'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.ko,
 
   'chat.untitled': '새 채팅',
   'chat.title': '제목',

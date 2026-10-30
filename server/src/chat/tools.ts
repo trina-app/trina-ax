@@ -14,6 +14,7 @@ import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/privat
 import { MEMORY_ITEM_MAX } from './prompt'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
+import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { recordSkillRead } from '../admin/skill-usage'
@@ -24,7 +25,8 @@ interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  call(args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }>
+  /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
+  call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }>
 }
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
@@ -77,14 +79,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
-    async call(name, args) {
+    async call(name, args, caller) {
+      const files = caller?.files ?? exec.files
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
       if (name === 'make_file') {
         // under skills/: the person confirms first (the file layer refuses the save otherwise)
-        const no = await exec.confirmSkillWrite(name, args)
+        const no = await exec.confirmSkillWrite(name, args, files)
         if (no) return { content: [{ type: 'text', text: no.refusal }], isError: true, summary: no.summary }
       }
       if (name === 'make_file' && args && typeof args === 'object') {
@@ -95,7 +98,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
       }
-      const out = await t.call(args)
+      const out = await t.call(args, files)
       exec.afterTool()
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
       return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
@@ -106,12 +109,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
     },
-    beforeFileTool: async (name, args) => {
+    beforeFileTool: async (name, args, caller) => {
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
-      const no = await exec.confirmSkillWrite(name, args)
+      const no = await exec.confirmSkillWrite(name, args, caller?.files)
       if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
       return typeof p === 'string' ? exec.confirmWidening(p) : null
@@ -141,13 +144,13 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
 }
 
-function toolContext(exec: TurnExec): TurnToolContext {
+function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
     files: {
       signal: exec.abort.signal,
-      user: exec.livePrincipal(), turnId: exec.spec.turnId, files: exec.files, person: turnPerson(exec),
+      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       confirmWidening: (target, sources, binding) => exec.confirmWidening(target, sources, binding),
     },
@@ -157,8 +160,8 @@ function toolContext(exec: TurnExec): TurnToolContext {
 function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
-    async call(args) {
-      const r = await t.call(args, toolContext(exec))
+    async call(args, files) {
+      const r = await t.call(args, toolContext(exec, files))
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }

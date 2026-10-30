@@ -16,8 +16,15 @@ const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
 })
 export const MCP_TOOL_NAMES = toolList.map((t) => t.name)
 
+/** Claude Code's id of the tool call (`_meta` of tools/call), or null */
+export function toolUseIdOf(params: unknown): string | null {
+  const meta = (params as { _meta?: unknown } | null)?._meta
+  const id = meta && typeof meta === 'object' ? (meta as Record<string, unknown>)['claudecode/toolUseId'] : undefined
+  return typeof id === 'string' && id.length > 0 && id.length <= 200 ? id : null
+}
+
 export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extra?: TurnToolSet) {
-  const audit = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok) VALUES (?,?,?,?,?)')
+  const insert = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok, tool_use_id, parent_tool_use_id) VALUES (?,?,?,?,?,?,?)')
   return async function handle(msg: any): Promise<any | null> {
     if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return null
     const reply = (result: unknown) => ({ jsonrpc: '2.0', id: msg.id, result })
@@ -33,6 +40,11 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
         if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})
+        // which agent made the call (docs/DECISIONS.md "Sub-agents"): the main AI or one of its sub-agents. Same person,
+        // same checks; a sub-agent has its own read-before-write state, and the audit row says which one it was
+        const toolUseId = toolUseIdOf(msg.params)
+        const call = await ctx.files.forCall(toolUseId, { signal: ctx.signal })
+        const audit = { run: (turnId: string | null, userId: string, tool: string, summary: string, ok: number) => insert.run(turnId, userId, tool, summary, ok, toolUseId, call.agent) }
         // the person as they are now (tab 2 "권한 회수": access that shrank applies from the next tool call): role and
         // groups are loaded again for every call, and a disabled or deleted account gets nothing
         const user = loadPrincipal(db, ctx.user.id)
@@ -41,20 +53,22 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
           return reply({ content: [{ type: 'text', text: 'Access denied: this account is disabled.' }], isError: true })
         }
         ctx.user = user
+        const callCtx: ToolCtx = call.files === ctx.files ? ctx : { ...ctx, files: call.files }
+        const caller = { files: call.files }
         if (extra?.has(name)) {
-          const out = await extra.call(name, msg.params?.arguments ?? {}).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
+          const out = await extra.call(name, msg.params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
           audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
           return reply({ content: out.content, ...(out.isError ? { isError: true } : {}) })
         }
         const registry = extra ? null : toolRegistry(files)
         // fail closed: a check that throws stops the save
-        const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, msg.params?.arguments ?? {}).catch(() => ({ refusal: 'The save could not be checked, so nothing was written. Try again.', summary: `${name} -> not written (the check failed)` })) : null
+        const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, msg.params?.arguments ?? {}, caller).catch(() => ({ refusal: 'The save could not be checked, so nothing was written. Try again.', summary: `${name} -> not written (the check failed)` })) : null
         if (refusal) {
           const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> not allowed by the user (wider audience)` } : refusal
           audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
           return reply({ content: [{ type: 'text', text: r.refusal }], isError: true })
         }
-        const out = registry?.has(name) ? await registry.call(name, msg.params?.arguments ?? {}, ctx) : await files.call(name, msg.params?.arguments ?? {}, ctx)
+        const out = registry?.has(name) ? await registry.call(name, msg.params?.arguments ?? {}, callCtx) : await files.call(name, msg.params?.arguments ?? {}, callCtx)
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
         try { extra?.afterFileTool?.(name, !!out.isError, msg.params?.arguments) } catch {}
         try { out.beforeDelivery?.() } catch {

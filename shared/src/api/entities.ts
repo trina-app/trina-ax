@@ -194,6 +194,12 @@ export const Step = z.object({
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
+  /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
+   * list (docs/DECISIONS.md "Sub-agents") */
+  parentId: z.string().max(100).optional(),
+  /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
+   * steps were not kept with the answer (`hidden`; the most recent ones are) */
+  subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),
 })
 export type Step = z.infer<typeof Step>
 
@@ -487,6 +493,10 @@ export const TeamSettings = z.object({
    * the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads the text with Apple
    * Vision instead, a Linux server says the image is not shown. */
   aiVision: z.boolean(),
+  /** "Let the AI split work into sub-tasks" (default on): Claude Code's Agent tool, like Claude Code. Sub-agents have the
+   * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
+   * same person's access. Off: the AI does everything itself (docs/DECISIONS.md "Sub-agents") */
+  aiSubagents: z.boolean(),
   /** voice input: 'off' (default) | 'openrouter' (needs the OpenRouter key, Admin > Team settings) | 'local' */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */

@@ -64,6 +64,7 @@ export const TEXT = {
   attachChanged: STEP_TEXT.attachChanged,
   attachMoved: STEP_TEXT.attachMoved,
   attachUnavailable: STEP_TEXT.attachUnavailable,
+  subtask: STEP_TEXT.subtask,
   rememberConfirm: t('AI가 다음 내용을 기억하려고 합니다. 기억할까요?\n\n{text}', 'The AI wants to remember this about you. OK?\n\n{text}', 'AI ingin mengingat hal ini tentang Anda. Boleh?\n\n{text}', "AIが自分について次の内容を記憶しようとしています。よろしいですか？\n\n{text}", "La IA quiere recordar esto sobre usted. ¿Está de acuerdo?\n\n{text}"),
   yes: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat', "記憶しない", "No recordar"),

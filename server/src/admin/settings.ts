@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   personalIntegrations: true,
   /** AI reads send images and PDF pages as images (files/vision.ts) */
   aiVision: true,
+  /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */
+  aiSubagents: true,
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
    * through OpenRouter") */
   speechProvider: 'off',
