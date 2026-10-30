@@ -34,8 +34,10 @@ export default {
     // publish-server.ts checks this line before it uploads: a Worker deployed before server/ was served says only "Office updates"
     if (key === '') return text(200, `Updates: ${DIR}/, server/, plugins/\n`)
     if (key === 'ip') {
-      // with Cloudflare's pseudo-IPv4 on, CF-Connecting-IP may be a made-up IPv4 address and the real one is here
-      const ip = req.headers.get('cf-connecting-ipv6') || req.headers.get('cf-connecting-ip') || ''
+      // with Cloudflare's pseudo-IPv4 ("overwrite headers") CF-Connecting-IP is a made-up 240.0.0.0/4 address and the
+      // real IPv6 one is in CF-Connecting-IPv6; only then is that header read (otherwise a caller could choose it)
+      const seen = req.headers.get('cf-connecting-ip') || ''
+      const ip = (!seen || /^(24\d|25[0-5])\./.test(seen) ? req.headers.get('cf-connecting-ipv6') : '') || seen
       if (!/^[0-9A-Fa-f.:]{2,45}$/.test(ip)) return text(404, 'Not found\n')
       return text(200, `${ip}\n`)
     }

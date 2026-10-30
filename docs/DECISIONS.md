@@ -3743,15 +3743,18 @@ refused. The founder left it to us; decision: keep the protection, make every in
   unknown, every address needs a person (`url-gate.ts` `noEgress`). Office installs learned it only from the relay's
   handshake (`AuthOk.seenIp`, the control connection's CF-Connecting-IP).
 - **How every install learns it now (`tools/egress.ts`).** At start and every 30 minutes (±10 %), the server asks the
-  release feed's new `GET /ip` (`scripts/release/worker.js`: the caller's `CF-Connecting-IPv6`, else `CF-Connecting-IP`,
-  as plain text, `no-store`), once over IPv4 and once over IPv6, the way web_fetch's own requests leave: the system
+  release feed's new `GET /ip` (`scripts/release/worker.js`: the caller's `CF-Connecting-IP`, or `CF-Connecting-IPv6`
+  when the first is Cloudflare's pseudo-IPv4 240.0.0.0/4, as plain text, `no-store`, no CORS), once over IPv4 and once over IPv6, the way web_fetch's own requests leave: the system
   resolver, the feed's address checked by web_fetch's rules, a raw socket pinned to it (`pinnedRequest`, no proxy from
   the environment), TLS to the feed's name. The answer must be one public address (64 bytes at most). Learned
   addresses join the relay's in the list web_fetch and connected services refuse on every hop (8 kept; an old one stays
   refused). The address itself is not logged. Production and office mode only (`main.ts`; dev learns it from its local
   relay, `bun test` never starts it).
 - **"Known"** = since this start, the relay reported an address, or the feed told the IPv4 one, or the IPv6 one while the
-  machine has no IPv4 (no IPv4 address of its own, or ENETUNREACH / EADDRNOTAVAIL / EAFNOSUPPORT). IPv6 alone is not
+  machine has no IPv4: no IPv4 address of its own, EAFNOSUPPORT, or ENETUNREACH / EADDRNOTAVAIL while the routing table
+  has no IPv4 default route (Linux `/proc/net/route`; elsewhere, or unreadable, these count as a failed round). A router's
+  or firewall's ICMP "network unreachable / prohibited" for the feed's IPv4 address — or a forged one — gives the same
+  ENETUNREACH while every other IPv4 site opens through the NAT'd address (review of this change). IPv6 alone is not
   enough on a machine with IPv4: that one is the NAT'd one. An answer of the other family than asked is refused but
   counts for neither. While IPv4 is not known the server asks again after 1, 2, 5, 10, then every 30 minutes.
 - **Fail-safe when unknown, as before.** No internet, the feed blocked, an older feed Worker (404), or
@@ -3761,18 +3764,27 @@ refused. The founder left it to us; decision: keep the protection, make every in
   asking at once. The card wording no longer names an office ("its own public address", 해요체).
 - **Unattended runs say why.** A scheduled run's person is marked `unattended`: the gate raises no card (it could only
   go unanswered) and tells the AI "nobody can confirm it here" — while the exit address is unknown, with the reason and
-  that writing the address into the task changes nothing (QA: the AI told the person to do exactly that).
+  that writing the address into the task changes nothing (QA: the AI told the person to do exactly that); for an address
+  with a long query (always a card), that reason instead of "did not appear in the conversation".
 - **Schedule cards say what a run will do here.** `scheduleCard(…, { urlsOpen })` (create and "다시 확인"): while the
   address is unknown the card says runs cannot open its addresses yet, and why, and its list is "addresses in the
   instruction"; the AI's result says so too. The addresses are still stored as the card showed them, so runs open them
   once the server knows its address. The review card's request id covers the task, not the wording, so a change of
-  state between showing and answering does not void the answer.
+  state between showing and answering does not void the answer. One address is said in the singular in English and
+  Spanish ("the address below"; before, "the 1 addresses"). Not done (follow-up): an address in the instruction with a
+  query over 200 characters always needs a person, so runs never open it, and the card does not single it out yet.
 - **Limits.** A server whose requests leave from more than one address (several uplinks, per-destination policy
   routing) learns the one its requests to the feed use, like the relay. A changed office address is refused from the
   next round on (≤ 30 minutes; the relay reconnects at once). The feed sees each server's address every 30 minutes (it
   sees it on update checks too); `MYCEL_EXIT_ADDRESS_CHECK=off` opts out. The answer is trusted like the relay's
   seenIp (our own infrastructure, over TLS to its name), not signed like updates: a wrong answer from a compromised
   feed would lose this one check only (private, local and on-link addresses stay refused, and the card rules apply).
+  DNS tricks or a captive portal cannot answer (the certificate must name the feed; Bun's own CA list); `HTTPS_PROXY`
+  is ignored like web_fetch ignores it. A TLS-intercepting proxy the operator made the server trust
+  (`NODE_EXTRA_CA_CERTS`) is learned as the address https leaves from, which is what pages fetched over https see; plain
+  http that bypasses such a proxy leaves from an address the server does not learn (the feed redirects http to https,
+  so it cannot be asked over http). Learned addresses add to the list, they never replace the relay's (the 8 most recent
+  distinct ones are kept).
 - **Deploy.** The feed Worker must be redeployed once (`bun scripts/release/hosting.ts setup`); until then `/ip` is 404
   and servers keep asking, as in 0.2.11. The change is one new path; every other path answers as before.
 - Also in this change (same QA): step labels in five languages for `hwp_render`, `search`, the schedule and Drive tools

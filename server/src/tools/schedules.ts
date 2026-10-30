@@ -64,10 +64,25 @@ export const TEXT = {
   } satisfies L5,
   urlsBlocked: {
     ko: '아래 주소 {n}개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 주소마다 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
-    en: 'On this server, runs cannot open the {n} addresses below yet: the team server does not know its own public address, so each address needs a person to confirm it, and nobody is there during a run. Once the server knows it, runs open them without asking. An address can carry data out, so check each one in full.',
+    en: 'On this server, runs cannot open the {n} addresses below yet: the team server does not know its own public address, so each address needs a person to confirm it, and nobody is there during a run. Once the server knows its public address, runs open them without asking. An address can carry data out, so check each one in full.',
     id: 'Di server ini, tugas belum bisa membuka {n} alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi setiap alamat perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
     ja: 'このサーバーでは、実行時に下の{n}件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、アドレスごとに人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
-    es: 'En este servidor, las ejecuciones aún no pueden abrir las {n} direcciones de abajo: el servidor del equipo no conoce su propia dirección pública, así que cada dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor la conozca, las abrirá sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
+    es: 'En este servidor, las ejecuciones aún no pueden abrir las {n} direcciones de abajo: el servidor del equipo no conoce su propia dirección pública, así que cada dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones las abrirán sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
+  } satisfies L5,
+  /** one address: English and Spanish say it in the singular; Korean, Indonesian and Japanese count it like the rest */
+  urlsOne: {
+    ko: '실행할 때마다 아래 주소 1개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'On each run it opens the address below without asking. An address can carry data out, so check it in full.',
+    id: 'Setiap kali berjalan, tugas ini membuka 1 alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
+    ja: '実行のたびに下の1件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'En cada ejecución abre sin preguntar la dirección de abajo. Una dirección puede sacar datos; revísela completa.',
+  } satisfies L5,
+  urlsBlockedOne: {
+    ko: '아래 주소 1개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 이 주소를 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'On this server, runs cannot open the address below yet: the team server does not know its own public address, so the address needs a person to confirm it, and nobody is there during a run. Once the server knows its public address, runs open it without asking. An address can carry data out, so check it in full.',
+    id: 'Di server ini, tugas belum bisa membuka 1 alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi alamat itu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
+    ja: 'このサーバーでは、実行時に下の1件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、このアドレスには人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'En este servidor, las ejecuciones aún no pueden abrir la dirección de abajo: el servidor del equipo no conoce su propia dirección pública, así que la dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
   } satisfies L5,
   opaque: {
     ko: '알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
@@ -123,7 +138,7 @@ export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'r
   const promptMarks = opaqueParts(input.prompt)
   // the title is the AI's: one line, so it cannot add lines that look like the server's own
   const lines = [fill(TEXT[mode === 'review' ? 'reviewQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L) })]
-  if (urls.length) lines.push(fill(TEXT[open ? 'urls' : 'urlsBlocked'][L], { n: String(urls.length) }))
+  if (urls.length) lines.push(fill(TEXT[urls.length === 1 ? (open ? 'urlsOne' : 'urlsBlockedOne') : open ? 'urls' : 'urlsBlocked'][L], { n: String(urls.length) }))
   if (promptMarks.length) lines.push(TEXT.opaque[L])
   if (connections.length) lines.push(fill(TEXT.connections[L], { names: connections.join(', ') }))
   const details = [{ label: TEXT.labelPrompt[L], text: input.prompt, ...(promptMarks.length ? { marks: promptMarks } : {}) }]

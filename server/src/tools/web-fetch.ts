@@ -167,7 +167,7 @@ export interface ResolveOptions {
   testAllow?: (ip: string) => boolean
   /** epoch ms: the name lookup gives up then (getaddrinfo itself can hang far longer than the fetch limit) */
   deadline?: number
-  /** the office's public exit addresses (relay-reported, tools/egress.ts): refused on every hop */
+  /** this server's public exit addresses (from the relay or the release feed, tools/egress.ts): refused on every hop */
   blockedIps?: () => readonly string[]
 }
 const sysLookup = (h: string) => dns.lookup(h, { all: true, verbatim: true })
@@ -197,7 +197,7 @@ function checkAddresses(host: string, addrs: { address: string; family: number }
   if (!addrs.length) throw new ToolError(`could not resolve ${host}`)
   const own = new Set((o.blockedIps?.() ?? []).map(normIp))
   for (const a of addrs) {
-    if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this office's own public address; the server cannot fetch it (it would reach the office's own router or devices)`)
+    if (own.has(normIp(a.address))) throw new ToolError(`${host} points to this server's own public address; the server cannot fetch it (it would loop back through the router or NAT in front of the server to its admin page or devices)`)
     if (testOk(a.address)) continue
     if (!isPublicAddress(a.address) || isLocalAddress(a.address)) throw new ToolError(`${host} points to a private, local or reserved address; only public internet sites can be fetched`)
   }

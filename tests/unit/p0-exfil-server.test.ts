@@ -195,7 +195,7 @@ describe('scheduled tasks (F1, review M4)', () => {
     expect(card.question).toContain('scheduled task')
     expect(card.question).toContain('Title: digest')
     expect(card.question).toMatch(/Schedule: once on \d{4}-\d{2}-\d{2} at 09:00/)
-    expect(card.question).toContain('opens the 1 addresses below without asking')
+    expect(card.question).toContain('On each run it opens the address below without asking')
     expect(card.options!.map((o) => o.value)).toEqual(['create', 'deny'])
     const [instruction, addresses] = card.extra!.details!
     expect(instruction!.text).toBe(prompt)

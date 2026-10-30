@@ -16,6 +16,7 @@
 // MYCEL_EXIT_ADDRESS_CHECK=off — every web_fetch address needs the person's confirmation (url-gate.ts), and an
 // unattended run opens none. Learned addresses are kept (up to 8): refusing an old one costs nothing.
 import dns from 'node:dns/promises'
+import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import { PRODUCT, RELEASE_CHANNEL } from '@mycel/shared'
@@ -100,10 +101,32 @@ export interface ProbeOptions {
   /** tests only: a local fake feed counts as public and may use any port and plain http */
   testAllow?: (ip: string) => boolean
   insecureTlsForTests?: boolean
+  /** does this machine have an IPv4 default route (tests; default ipv4DefaultRoute) */
+  defaultRoute4?: () => boolean | null
+  /** the request (tests; default web_fetch's pinnedRequest) */
+  request?: typeof pinnedRequest
 }
 
-/** connect errors that mean "no route of this family" (not a failure that could pass) */
+/** Connect errors that can mean "no route of this family on this machine". EAFNOSUPPORT: the kernel has no such family.
+ * ENETUNREACH and EADDRNOTAVAIL are also what a router's or firewall's ICMP "network unreachable / prohibited" answer to
+ * the feed's address (or a forged one) gives, while every other IPv4 site still opens and leaves through the NAT'd
+ * address nobody learned; so for IPv4 they count as "no route" only when the routing table has no IPv4 default route.
+ * Otherwise the round failed (fail-safe), not "this machine has no IPv4". */
 const NO_ROUTE = /could not connect \((ENETUNREACH|EADDRNOTAVAIL|EAFNOSUPPORT)\)/
+
+/** /proc/net/route text: is there an IPv4 default route (destination and mask 0, the route up)? */
+export function hasDefaultRoute4(table: string): boolean {
+  return table.split('\n').slice(1).some((l) => {
+    const f = l.trim().split(/\s+/)
+    return f.length >= 8 && f[1] === '00000000' && f[7] === '00000000' && (parseInt(f[3]!, 16) & 1) === 1
+  })
+}
+/** Does this machine have an IPv4 default route? Linux reads its main routing table; null = cannot tell (other systems,
+ * unreadable), which never counts as "no route". */
+export function ipv4DefaultRoute(): boolean | null {
+  if (process.platform !== 'linux') return null
+  try { return hasDefaultRoute4(fs.readFileSync('/proc/net/route', 'latin1')) } catch { return null }
+}
 
 /** Does this machine have an address of the family that can reach the internet (not loopback, not link-local)? */
 function hasFamily(fam: 4 | 6, ifaces: ReturnType<typeof os.networkInterfaces>): boolean {
@@ -143,10 +166,13 @@ export async function probeExitAddresses(o: ProbeOptions = {}): Promise<ProbeRes
     const t: Target = { url, host, ip: a.address, family: fam, port }
     let r: Awaited<ReturnType<typeof pinnedRequest>>
     try {
-      r = await pinnedRequest(t, { method: 'GET', headers: [['User-Agent', UA], ['Accept', 'text/plain'], ['Cache-Control', 'no-store']], deadline, maxBytes: 1024, insecureTlsForTests: o.insecureTlsForTests })
+      r = await (o.request ?? pinnedRequest)(t, { method: 'GET', headers: [['User-Agent', UA], ['Accept', 'text/plain'], ['Cache-Control', 'no-store']], deadline, maxBytes: 1024, insecureTlsForTests: o.insecureTlsForTests })
     } catch (e) {
-      const m = String((e as Error)?.message ?? e)
-      return NO_ROUTE.test(m) ? { noRoute: m } : { error: m.slice(0, 200) }
+      const m = String((e as Error)?.message ?? e).slice(0, 200)
+      const code = NO_ROUTE.exec(m)?.[1]
+      // IPv4 "no route" makes the IPv6 answer enough (egressOf): believed only from the machine itself (see NO_ROUTE)
+      if (code && (fam === 6 || code === 'EAFNOSUPPORT' || (o.defaultRoute4 ?? ipv4DefaultRoute)() === false)) return { noRoute: m }
+      return { error: m }
     }
     // an older feed Worker answers 404 here (scripts/release/hosting.ts setup deploys the new one)
     if (r.status !== 200) return { error: `the feed answered HTTP ${r.status}` }
@@ -214,11 +240,12 @@ export function startEgressLearning(ctx: { log: Logger; onClose(f: () => void): 
     } finally {
       failures = again ? failures + 1 : 0
       const wait = failures === 0 ? refresh : retry[Math.min(failures - 1, retry.length - 1)]!
-      timer = setTimeout(() => { e.first = null; void round() }, Math.round(wait * (0.9 + Math.random() * 0.2)))
+      timer = setTimeout(() => { e.first = null; round().catch(() => {}) }, Math.round(wait * (0.9 + Math.random() * 0.2)))
       timer.unref?.()
     }
   }
-  e.first = round()
+  // a round that threw (it should not) has still armed the next one; it never rejects web_fetch's wait
+  e.first = round().catch(() => {})
   const stop = () => { stopped = true; if (timer) clearTimeout(timer); timer = null }
   ctx.onClose(stop)
   return stop

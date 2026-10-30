@@ -145,7 +145,7 @@ describe('"다시 확인": the same card, resuming is the confirmation', () => {
     expect(r.question).toContain('made without its confirmation card')
     expect(r.question).toContain('Title: Morning digest')
     expect(r.question).toContain('Schedule: every day at 09:00')
-    expect(r.question).toContain('opens the 1 addresses below without asking')
+    expect(r.question).toContain('On each run it opens the address below without asking')
     expect(r.options!.map((o) => o.value)).toEqual(['resume', 'keep'])
     expect(r.details![0]).toMatchObject({ text: row(id).prompt, marks: ['c2fsyxj5ltk4nzy1ndmy'] })
     expect(r.details![1]!.text).toBe(secretUrl)

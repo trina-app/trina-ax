@@ -17,7 +17,8 @@ import { uuidv7 } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { createLogger } from '../../server/src/log'
-import { egressOf, egressSettled, EXIT_ADDRESS_URL, learnExitAddresses, noteEgressIp, probeExitAddresses, startEgressLearning, exitAddressCheckOff, type ProbeResult } from '../../server/src/tools/egress'
+import { egressOf, egressSettled, EXIT_ADDRESS_URL, hasDefaultRoute4, learnExitAddresses, noteEgressIp, probeExitAddresses, startEgressLearning, exitAddressCheckOff, type ProbeResult } from '../../server/src/tools/egress'
+import { ToolError } from '../../server/src/policy/errors'
 import { gateUrl, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
 import { scheduleCard, TEXT as SCHEDULE_TEXT } from '../../server/src/tools/schedules'
 import { toolRegistry } from '../../server/src/tools/registry'
@@ -91,6 +92,48 @@ describe('asking the feed (probeExitAddresses)', () => {
     if (feed6) expect('ip' in r.v6).toBe(true)
     expect(seen.some((s) => s.family === 'IPv4')).toBe(false)
     expect((await probe({ interfaces: V4ONLY })).v6).toEqual({ noRoute: 'no IPv6 address on this machine' })
+  })
+
+  test('"no IPv4 route" only from the machine itself: an unreachable answer while an IPv4 default route exists is a failed round', async () => {
+    // a router's or firewall's ICMP "network unreachable / prohibited" for the feed's IPv4 address (or a forged one)
+    // gives the same ENETUNREACH as a machine without IPv4 routing; believing it would make the IPv6 answer enough while
+    // every other IPv4 site leaves through the NAT'd address nobody learned
+    const fails = (code: string) => (async (t: { family: 4 | 6 }) => {
+      if (t.family === 4) throw new ToolError(`could not connect (${code})`)
+      return { status: 200, headers: {}, body: Buffer.from(`${PUBLIC6}\n`), truncated: false }
+    }) as never
+    // the request is a stub: nothing connects (also where this machine has no IPv6 loopback)
+    const both = async () => [{ address: '127.0.0.1', family: 4 }, { address: '::1', family: 6 }]
+    for (const code of ['ENETUNREACH', 'EADDRNOTAVAIL']) {
+      const withRoute = await probe({ lookup: both, request: fails(code), defaultRoute4: () => true })
+      expect(withRoute.v4).toEqual({ error: `could not connect (${code})` })
+      expect(withRoute.v6).toEqual({ ip: '2606:4700:3030:0000:0000:0000:6815:1001', family: 6 })
+      const a = {}
+      learnExitAddresses(a, withRoute)
+      expect(egressOf(a).known).toBe(false)
+      // cannot tell (not Linux, no /proc): the same, fail-safe
+      expect((await probe({ lookup: both, request: fails(code), defaultRoute4: () => null })).v4).toEqual({ error: `could not connect (${code})` })
+      // no IPv4 default route at all (an IPv6-only server with a Docker bridge): no route, IPv6 is enough
+      const noRoute = await probe({ lookup: both, request: fails(code), defaultRoute4: () => false })
+      expect(noRoute.v4).toEqual({ noRoute: `could not connect (${code})` })
+      const b = {}
+      learnExitAddresses(b, noRoute)
+      expect(egressOf(b).known).toBe(true)
+    }
+    // no IPv4 in the kernel: no route whatever the table says
+    expect((await probe({ lookup: both, request: fails('EAFNOSUPPORT'), defaultRoute4: () => true })).v4).toEqual({ noRoute: 'could not connect (EAFNOSUPPORT)' })
+  })
+
+  test('the IPv4 default route from /proc/net/route', () => {
+    const head = 'Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n'
+    const def = 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n'
+    const lan = 'eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n'
+    const docker = 'docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n'
+    expect(hasDefaultRoute4(head + def + lan)).toBe(true)
+    expect(hasDefaultRoute4(head + lan + docker)).toBe(false)
+    expect(hasDefaultRoute4(head)).toBe(false)
+    // a default route that is down does not count
+    expect(hasDefaultRoute4(head + def.replace('\t0003\t', '\t0002\t'))).toBe(false)
   })
 
   test('a feed name that does not resolve, or resolves to a private address, is not asked', async () => {
@@ -269,6 +312,11 @@ describe('while this server does not know its exit address (fail-safe, as before
     // with the address known, a scheduled run's address that was never seen: "nobody can confirm", not "declined"
     const u = await gateUrl(h.ctx.db, chat, 'https://other.example.org/x', person('allow', asked, { unattended: true }), { egressKnown: true }).catch((e: Error) => e.message)
     expect(u).toContain('did not appear in the conversation and nobody can confirm it here')
+    // a long query asks even for an address of the task: said as it is, not "did not appear"
+    const longUrl = `${TYPED}?q=${'a'.repeat(250)}`
+    const lq = await gateUrl(h.ctx.db, await chatWith(`please read ${longUrl}`), longUrl, person('allow', asked, { unattended: true }), { egressKnown: true }).catch((e: Error) => e.message)
+    expect(lq).toContain('has a long query part')
+    expect(lq).not.toContain('did not appear')
     expect(asked).toEqual([])
   })
 
@@ -277,7 +325,7 @@ describe('while this server does not know its exit address (fail-safe, as before
     const asked: Asked[] = []
     const r = await call('schedule_create', { title: 'digest', prompt, repeat: 'once', time: '09:00', date: day() }, turnIn(await chatWith('make a task')), person('create', asked))
     expect(r.isError).toBeFalsy()
-    expect(asked[0]!.question).toContain('runs cannot open the 1 addresses below yet')
+    expect(asked[0]!.question).toContain('runs cannot open the address below yet')
     expect(asked[0]!.question).not.toContain('On each run it opens')
     expect(asked[0]!.extra!.details![1]).toMatchObject({ label: 'Addresses in the instruction (runs cannot open them yet)', text: TYPED })
     expect(r.text).toContain('its runs cannot open the web addresses in the prompt until it does')
@@ -289,18 +337,24 @@ describe('while this server does not know its exit address (fail-safe, as before
     h.ctx.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, enabled, next_run_at) VALUES (?, 'alice', 'Old digest', ?, 'daily', '09:00', 0, ?)`).run(id, prompt, new Date(Date.now() + 86400_000).toISOString())
     const review = (await h.api('alice').call(API.getScheduleReview, { params: { id } })).request
     expect(review.question).toContain('made without its confirmation card')
-    expect(review.question).toContain('runs cannot open the 1 addresses below yet')
-    // five languages, each different from the promise
+    expect(review.question).toContain('runs cannot open the address below yet')
+    // five languages, each different from the promise; one address in the singular (English, Spanish), two counted
     const input = { title: 't', prompt, repeat: 'daily' as const, time: '09:00' }
+    const two = { ...input, prompt: `${prompt} Also read https://news.example.net/today.` }
     for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       const shut = scheduleCard(input, [], L, 'create', { urlsOpen: false })
       const open = scheduleCard(input, [], L, 'create')
-      expect(shut.question).toContain(SCHEDULE_TEXT.urlsBlocked[L].replace('{n}', '1'))
-      expect(shut.question).not.toContain(SCHEDULE_TEXT.urls[L].replace('{n}', '1'))
-      expect(open.question).toContain(SCHEDULE_TEXT.urls[L].replace('{n}', '1'))
+      expect(shut.question).toContain(SCHEDULE_TEXT.urlsBlockedOne[L])
+      expect(shut.question).not.toContain(SCHEDULE_TEXT.urlsOne[L])
+      expect(open.question).toContain(SCHEDULE_TEXT.urlsOne[L])
       expect(shut.extra.details![1]!.label).toBe(SCHEDULE_TEXT.labelUrlsBlocked[L])
       expect(shut.urls).toEqual(open.urls)
+      expect(scheduleCard(two, [], L, 'create', { urlsOpen: false }).question).toContain(SCHEDULE_TEXT.urlsBlocked[L].replace('{n}', '2'))
+      expect(scheduleCard(two, [], L, 'create').question).toContain(SCHEDULE_TEXT.urls[L].replace('{n}', '2'))
+      for (const k of ['urlsOne', 'urlsBlockedOne'] as const) expect(SCHEDULE_TEXT[k][L]).not.toContain('{n}')
     }
+    expect(SCHEDULE_TEXT.urlsOne.en).not.toMatch(/\b1 addresses|addresses below/)
+    expect(SCHEDULE_TEXT.urlsBlockedOne.es).not.toMatch(/las 1|direcciones de abajo/)
     expect(SCHEDULE_TEXT.urlsBlocked.ko).toContain('실행 때 열 수 없어요')
   })
 })
@@ -323,7 +377,8 @@ describe('once this server knows its exit address', () => {
     const chat = await chatWith(`see http://${PUBLIC4}/admin`)
     const r = await call('web_fetch', { url: `http://${PUBLIC4}/admin` }, turnIn(chat), person('allow'))
     expect(r.isError).toBe(true)
-    expect(r.text).toContain('own public address')
+    expect(r.text).toContain("this server's own public address")
+    expect(r.text).not.toMatch(/office/i)
   })
 
   test('the schedule card promises unattended opens again, and the link budget applies (no card for a typed address)', async () => {
@@ -331,7 +386,7 @@ describe('once this server knows its exit address', () => {
     const asked: Asked[] = []
     const r = await call('schedule_create', { title: 'digest 2', prompt, repeat: 'once', time: '09:00', date: day() }, turnIn(await chatWith('make a task')), person('create', asked))
     expect(r.isError).toBeFalsy()
-    expect(asked[0]!.question).toContain('opens the 1 addresses below without asking')
+    expect(asked[0]!.question).toContain('On each run it opens the address below without asking')
     expect(asked[0]!.extra!.details![1]!.label).toBe('Addresses opened without asking on each run')
     expect(r.text).not.toContain('cannot open')
     const chat = await chatWith(`please read ${TYPED}`)

@@ -362,7 +362,9 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
       ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed (${LINK_BUDGET.turn} per answer, ${LINK_BUDGET.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
         ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction (writing the address into a scheduled task does not change it); tell the user the server could not open web addresses this time'
-        : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
+        : why === 'longQuery'
+          ? `this address has a long query part (over ${MAX_UNCONFIRMED_QUERY} characters), which always needs a person to confirm it, even when it appeared in the conversation or the task, and nobody can confirm it here, so it was not opened`
+          : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
   }
   const L = person.locale
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)

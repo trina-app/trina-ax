@@ -19,6 +19,9 @@ describe('feed Worker /ip', () => {
     expect(r.headers.get('content-type')).toBe('text/plain; charset=utf-8')
     expect(await (await get('/ip', { 'cf-connecting-ip': '2606:4700::1' })).text()).toBe('2606:4700::1\n')
     expect(await (await get('/ip', { 'cf-connecting-ip': '240.16.0.1', 'cf-connecting-ipv6': '2001:4860::8888' })).text()).toBe('2001:4860::8888\n')
+    // without pseudo-IPv4 the address Cloudflare saw wins over an IPv6 header the caller may have sent itself
+    expect(await (await get('/ip', { 'cf-connecting-ip': '93.184.216.77', 'cf-connecting-ipv6': '2001:db8::1' })).text()).toBe('93.184.216.77\n')
+    expect(await (await get('/ip', { 'cf-connecting-ip': '255.1.2.3', 'cf-connecting-ipv6': '2001:4860::8888' })).text()).toBe('2001:4860::8888\n')
     expect(asked).toEqual([])
   })
 
