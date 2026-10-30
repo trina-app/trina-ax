@@ -327,6 +327,8 @@ const codexUp = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
   try { body = await req.json() } catch {}
   codexSeen.push({ path: u.pathname, headers: Object.fromEntries(req.headers), body })
   // Codex's standalone web search: one JSON object whose `output` the model gets
+  // (a query "refused-401": the search endpoint refuses the connection's credential, as a restricted API key would)
+  if (u.pathname.endsWith('/alpha/search') && body?.commands?.search_query?.[0]?.q === 'refused-401') return Response.json({ error: { message: 'missing scope' } }, { status: 401 })
   if (u.pathname.endsWith('/alpha/search')) return Response.json({ output: `results(${body?.commands?.search_query?.[0]?.q ?? ''})` })
   const prompt = body?.input?.[0]?.content?.[0]?.text ?? ''
   return respond(`answer(${prompt})`)
@@ -413,6 +415,20 @@ describe('managed Codex turns (fake Codex through the real launcher and the mode
     expect(l.done.content).toBe('search=off')
     expect(codexSeen).toEqual([])
     expect(l.done.steps.some((x) => x.kind === 'web_search')).toBe(false)
+  })
+  test('a search the model service refuses fails by itself: a failed step, the connection keeps working, no refresh', async () => {
+    codexSeen.length = 0
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ codexSearch: 'refused-401' }))
+    expect(r.done.status).toBe('done')
+    expect(r.done.content).toBe('search=403')
+    // Codex never finishes a failed search's item: it ends with the turn as failed, not as done
+    expect(r.done.steps.find((x) => x.kind === 'web_search')).toMatchObject({ status: 'error' })
+    expect(codexSeen.map((s) => s.path)).toEqual(['/backend-api/codex/alpha/search'])
+    const row = h.ctx.db.query('SELECT status, status_code, limited_until FROM engine_credentials WHERE id = ?').get(chatgptId) as any
+    expect(row).toMatchObject({ status: 'ok', status_code: null, limited_until: null })
+    const next = await ask(h, alice, 'alice', chat.id, fake({ codexModel: 'after' }))
+    expect(next.done.content).toBe('answer(after)')
   })
   test('S-16: a Codex turn can neither tunnel nor use the Claude path', async () => {
     const chat = await newChat()
