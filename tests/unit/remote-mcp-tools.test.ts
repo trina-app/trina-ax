@@ -160,3 +160,24 @@ test('upload_file audit row has actor, path and size but no content; widening is
   expect(fs.existsSync(path.join(f.h.ctx.config.teamRoot, 'shared/leak.pdf'))).toBe(false)
   expect((await f.tools.call(f.token, 'upload_file', { path: 'skills/x.zip', content_base64: b64(bytes) })).isError).toBe(true)
 })
+test('skills_list: restricted skills folders and personal skills follow the connected person', async () => {
+  const run = async (as: 'owner' | 'member') => {
+    const f = await setup('skills-' + as, 'mcp:read', as)
+    const team = f.h.ctx.config.teamRoot, put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(team, rel)), { recursive: true }); fs.writeFileSync(path.join(team, rel), text) }
+    const memberId = f.member.id
+    put('skills/finance/close.md', '---\nname: Month close\ndescription: RESTRICTED-SKILL-CANARY\n---\nsteps\n')
+    put(`users/${memberId}/skills/mine.md`, '---\nname: Mine\ndescription: MEMBER-PERSONAL-CANARY\n---\nsteps\n')
+    // skills/finance: nobody but owner and admins (everyone none overrides the everyone-read rule of skills/)
+    f.h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('mcp-skills-finance', 'skills/finance')").run()
+    f.h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('mcp-skills-finance-none', 'mcp-skills-finance', 'everyone', NULL, 'none')").run()
+    const out = await f.tools.call(f.token, 'skills_list', {})
+    expect(out.isError).toBeUndefined()
+    return { text: out.content[0]!.text, memberId }
+  }
+  const owner = await run('owner')
+  expect(owner.text).toContain('RESTRICTED-SKILL-CANARY')
+  expect(owner.text).not.toContain('MEMBER-PERSONAL-CANARY')
+  const member = await run('member')
+  expect(member.text).not.toContain('RESTRICTED-SKILL-CANARY')
+  expect(JSON.parse(member.text)).toContainEqual({ path: `users/${member.memberId}/skills/mine.md`, name: 'Mine', description: 'MEMBER-PERSONAL-CANARY', personal: true })
+})

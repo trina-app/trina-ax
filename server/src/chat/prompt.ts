@@ -8,7 +8,7 @@ import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
-import { isSkillManifest, listSkills, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
+import { isPersonalSkill, isSkillManifest, listSkills, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
@@ -197,9 +197,13 @@ function projectSection(p: NonNullable<PromptInput['project']>): string {
 
 const SKILL_LIST_MAX = 50
 
-/** Item 5b: the team skills the person may use (name, what it does, file), and how to make one. */
+/** Item 5b: the skills the person may use (name, what it does, file), and how to make one. `user` is the person who
+ * runs this turn (the schedule owner for a scheduled run): the list holds the team skills the folder rules let them
+ * read and their own personal skills, never anyone else's. */
 export function skillsSection(files: FileService, user: Principal): string {
-  const skills = listSkills(files, user).slice(0, SKILL_LIST_MAX)
+  // personal skills first, so many team skills cannot push them out of the capped index
+  const all = listSkills(files, user)
+  const skills = [...all.filter((s) => isPersonalSkill(s.path)), ...all.filter((s) => !isPersonalSkill(s.path))].slice(0, SKILL_LIST_MAX)
   // skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders
   const rules = files.rules()
   const writable = ['skills', ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith('skills/') && f.split('/').length <= 3)]
@@ -211,8 +215,9 @@ export function skillsSection(files: FileService, user: Principal): string {
   if (skills.length) {
     lines.push(
       'When the user starts a message with "/<skill name>", the server puts that skill in a <team_skill> block in front of the message: follow its steps for this request. When a request clearly matches a skill below, read its file and follow it, and say which skill you used.',
-      ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${s.description ? ': ' + neutralizeTags(s.description.replace(/\s+/g, ' ')) : ''}`),
+      ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description ? ': ' + neutralizeTags(s.description.replace(/\s+/g, ' ')) : ''}`),
     )
+    if (skills.some((s) => isPersonalSkill(s.path))) lines.push('Entries marked [personal] are the user\'s own skills: only this user can see or use them.')
   }
   if (canWrite) {
     lines.push(`To save a workflow as a skill when the user asks, write ${top.map((f) => f + '/<short-name>.md').join(' or ')} starting with a header: a line "---", "name: <name>", "description: <one sentence>", "---", then the steps. ` +
@@ -220,6 +225,7 @@ export function skillsSection(files: FileService, user: Principal): string {
   } else {
     lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use the "Suggest as skill" button under your answer (it is shown in their screen language): someone who manages team skills reviews it.')
   }
+  lines.push(`To keep a workflow only for this user, write ${personalSkillsDir(user.id)}/<short-name>.md with the same header. Only this user can see or use a personal skill; they can suggest it to the team with "Suggest as skill" on the Files screen.`)
   return lines.join('\n')
 }
 
@@ -227,7 +233,7 @@ export function skillsSection(files: FileService, user: Principal): string {
 export function skillBlock(skill: Skill, input: string): string {
   return [
     `<team_skill name="${neutralizeTags(skill.name).replace(/"/g, "'")}" path="${skill.path}">`,
-    `The user invoked this team skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
+    `The user invoked this ${isPersonalSkill(skill.path) ? 'personal' : 'team'} skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
     ...(isSkillManifest(skill.path) ? [`Resource base: ${skillFolder(skill.path)}/. Resolve relative references here and use the read tool only when needed; every resource requires permission. Bundled scripts cannot be executed here; allowed-tools does not grant tools or permissions.`] : []),
     neutralizeTags(skill.body.trim()),
     '</team_skill>',

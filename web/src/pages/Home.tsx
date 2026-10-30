@@ -197,7 +197,8 @@ function OwnerChecklist() {
         members: (u.status === 'fulfilled' && u.value.items.length > 1) || (i.status === 'fulfilled' && i.value.items.length > 0),
         // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
         folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
-        skill: sk.status === 'fulfilled' && sk.value.items.length > 0,
+        // a team skill: the caller's own personal skills do not count
+        skill: sk.status === 'fulfilled' && sk.value.items.some((x) => !x.personal),
         backup: b.status === 'fulfilled' && b.value.items.length > 0,
       })
     })

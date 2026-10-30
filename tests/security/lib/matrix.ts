@@ -23,9 +23,9 @@ export interface Case {
 }
 
 /** Which canaries each person may legitimately see somewhere (design tab 2 folder rules, tab 1 own-only data). */
-const ALICE_OWN = [C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
+const ALICE_OWN = [C.aliceSkill, C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
   C.aliceMemory, C.aliceQuestion, C.aliceAttName, C.aliceProjInstr, C.aliceUploadName, C.aliceTranscript]
-const FIN = [C.finFile, C.finFileOld, C.finTrashName, C.finName]
+const FIN = [C.finSkill, C.finFile, C.finFileOld, C.finTrashName, C.finName]
 // the AI connections' secrets are in no persona's VISIBLE list: any response that carries one fails, for everyone
 const ALL = [...ALICE_OWN, ...FIN, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
 export const VISIBLE: Record<Who, string[]> = {

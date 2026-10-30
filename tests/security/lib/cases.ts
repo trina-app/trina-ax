@@ -145,7 +145,14 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's memory`) } },
   clearMemories: { build: (c) => c.del('/api/memories'), scope: 'self' },
   // team skills (skills/**/*.md readable by the caller): the canary check covers every name in the list
-  listSkills: { build: (c) => c.get('/api/skills'), scope: 'self' },
+  // skills/finance (everyone none + finance read) and alice's personal skill: the canary table denies them to everyone
+  // else; this check also makes sure the people who may see them do
+  listSkills: { build: (c) => c.get('/api/skills'), scope: 'self',
+    check: (r, w, who) => {
+      if (r.status !== 200) return
+      if (['memberOut', 'owner', 'admin'].includes(who) && !r.text.includes(C.finSkill)) throw new Error(`${who} does not see the finance skill`)
+      if (who === 'memberIn' && !r.text.includes(C.aliceSkill)) throw new Error('alice does not see her personal skill')
+    } },
   listSkillIssues: { build: (c) => c.get('/api/skills/issues'), scope: 'self' },
   // team skills: suggestions are seen by their suggester and the managers of the target folder only (skills/suggestions.ts)
   skillsOverview: { build: (c) => c.get('/api/skills/overview'), scope: 'self' },

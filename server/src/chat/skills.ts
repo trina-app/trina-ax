@@ -1,5 +1,8 @@
-// Team skills: legacy Markdown files and Agent Skills folders with a SKILL.md entry point.
-// Folder rules still govern every read/write. Resources are read on demand through the ordinary file tools;
+// Skills: legacy Markdown files and Agent Skills folders with a SKILL.md entry point. Two roots hold them: skills/
+// (team skills; the folder rules of skills/ and its subfolders decide who can read each one) and users/<id>/skills/
+// (personal skills of that person; nobody else can read them, owner and admins included). Every listing is for one
+// principal: the person who runs the turn or calls the API (docs/DECISIONS.md "Skills: folder permissions and
+// personal skills"). Folder rules still govern every read/write. Resources are read on demand through the ordinary file tools;
 // discovering a manifest never executes scripts or grants tools named in its metadata.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,6 +16,7 @@ export interface SkillInfo { path: string; name: string; description: string }
 export interface Skill extends SkillInfo { body: string }
 
 const SKILLS_DIR = 'skills'
+const USERS_DIR = 'users'
 const MAX_DEPTH = 3
 const MAX_FILES = 200
 export const SKILL_BODY_MAX = 16_000
@@ -24,6 +28,21 @@ const LEGACY_DESCRIPTION_MAX = 300
 const DESCRIPTION_MAX = 1024
 
 export const isSkillManifest = (rel: string) => path.posix.basename(rel) === 'SKILL.md'
+/** The personal skills folder of one person. */
+export const personalSkillsDir = (userId: string) => `${USERS_DIR}/${userId}/${SKILLS_DIR}`
+
+/** The number of path segments of the skill root that holds `parts`: 1 for skills/..., 3 for users/<id>/skills/...,
+ * null for a path outside both roots. The root itself is not inside it. */
+function skillRootLength(parts: readonly string[]): number | null {
+  if (parts[0] === SKILLS_DIR) return 1
+  if (parts[0] === USERS_DIR && parts.length >= 3 && parts[1] && parts[2] === SKILLS_DIR) return 3
+  return null
+}
+/** A path under users/<id>/skills/ (a personal skill entry). */
+export const isPersonalSkill = (rel: string) => skillRootLength(rel.split('/')) === 3
+/** The metadata a listing shows (no body). `personal` is set only for a personal skill. */
+export const skillInfo = ({ path: p, name, description }: SkillInfo): SkillInfo & { personal?: true } =>
+  (isPersonalSkill(p) ? { path: p, name, description, personal: true } : { path: p, name, description })
 const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(text)
 
 /** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
@@ -116,7 +135,8 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) return no('header')
   if (rel !== undefined && isSkillManifest(rel)) {
     const parts = rel.split('/')
-    if (parts[0] !== SKILLS_DIR || parts.length < 3 || parts.length > MAX_DEPTH + 1) return no('location')
+    const root = skillRootLength(parts)
+    if (root === null || parts.length < root + 2 || parts.length > root + MAX_DEPTH) return no('location')
     const fields = standardFields(m[1]!)
     if (!fields) return no('header')
     const name = fields.get('name'), description = fields.get('description')
@@ -147,7 +167,8 @@ export function parseSkill(text: string, rel?: string): { name: string; descript
  * This checks names only, never reads a manifest that the caller cannot access. */
 function isSkillResource(root: string, rel: string): boolean {
   const parts = rel.split('/')
-  for (let n = 2; n < parts.length; n++) {
+  // a SKILL.md directly in a skill root does not make a package: start one folder below the root
+  for (let n = (skillRootLength(parts) ?? 1) + 1; n < parts.length; n++) {
     if (n === parts.length - 1 && isSkillManifest(rel)) continue
     try { fs.lstatSync(path.join(root, ...parts.slice(0, n), 'SKILL.md')); return true } catch (e: any) {
       if (e.code !== 'ENOENT') return true
@@ -163,20 +184,29 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
   return isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
 }
 
-/** Read exactly one authorized entry using the same link/size checks as the file tools. */
+/** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
+ * only for its owner (the folder rules give nobody else access; this check does not depend on them). */
 export function readSkill(files: FileService, user: Principal, inputPath: string): Skill | null {
   try {
     const r = authorize(files.fx, files.rules(), user, inputPath, 'read')
-    if (r.segs[0] !== SKILLS_DIR || r.segs.length > MAX_DEPTH + 1 || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
+    const root = skillRootLength(r.segs)
+    if (root === null || (root === 3 && r.segs[1] !== user.id)) return null
+    if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
     const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
     const skill = parseSkill(text, r.rel)
     return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX) } : null
   } catch { return null }
 }
 
-/** Visit the accessible entry candidates under skills/: legacy .md files and folder SKILL.md files, capped.
- * Never descend into a skill package. */
+/** Visit the accessible entry candidates under skills/ and under the caller's own users/<id>/skills/: legacy .md
+ * files and folder SKILL.md files, capped per root (team skills cannot push personal skills out). Never descend into
+ * a skill package. */
 function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string) => void) {
+  walkSkillRoot(files, user, SKILLS_DIR, visit)
+  walkSkillRoot(files, user, personalSkillsDir(user.id), visit)
+}
+
+function walkSkillRoot(files: FileService, user: Principal, rootRel: string, visit: (rel: string) => void) {
   let seen = 0
   const walk = (rel: string, depth: number) => {
     let names: string[]
@@ -201,17 +231,23 @@ function walkSkillEntries(files: FileService, user: Principal, visit: (rel: stri
       visit(child)
     }
   }
-  walk(SKILLS_DIR, 1)
+  walk(rootRel, 1)
 }
 
-/** Accessible legacy files and folder entry points, sorted. */
+const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
+
+/** Accessible legacy files and folder entry points of `user`, sorted: the team skills the folder rules let them
+ * read, and their own personal skills. A personal skill with the same name as a team skill replaces that team skill
+ * in this person's list only (other people still get the team skill). */
 export function listSkills(files: FileService, user: Principal): Skill[] {
   const out: Skill[] = []
   walkSkillEntries(files, user, (rel) => {
     const skill = readSkill(files, user, rel)
     if (skill) out.push(skill)
   })
-  return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+  const personal = new Set(out.filter((s) => isPersonalSkill(s.path)).map((s) => nameKey(s.name)))
+  return out.filter((s) => isPersonalSkill(s.path) || !personal.has(nameKey(s.name)))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
 }
 
 export interface SkillIssue { path: string; problem: SkillProblem }
@@ -235,7 +271,8 @@ export function skillIssues(files: FileService, user: Principal): SkillIssue[] {
   return out.sort((a, b) => a.path.localeCompare(b.path))
 }
 
-/** Longest explicit name wins, then file aliases. Folder skills never acquire a shared /SKILL alias. */
+/** Longest explicit name wins, then file aliases, then a personal skill before a team skill. Folder skills never
+ * acquire a shared /SKILL alias. */
 export function invokedSkill(skills: Skill[], content: string): { skill: Skill; input: string } | null {
   const t = content.trimStart()
   if (!t.startsWith('/')) return null
@@ -244,7 +281,8 @@ export function invokedSkill(skills: Skill[], content: string): { skill: Skill; 
   const candidates = skills.flatMap((s) => [
     { s, key: s.name, alias: false },
     { s, key: isSkillManifest(s.path) ? path.posix.basename(path.posix.dirname(s.path)) : path.posix.basename(s.path, '.md'), alias: true },
-  ]).sort((a, b) => b.key.length - a.key.length || Number(a.alias) - Number(b.alias) || a.s.path.localeCompare(b.s.path))
+  ]).sort((a, b) => b.key.length - a.key.length || Number(a.alias) - Number(b.alias)
+    || Number(isPersonalSkill(b.s.path)) - Number(isPersonalSkill(a.s.path)) || a.s.path.localeCompare(b.s.path))
   for (const { s, key } of candidates) {
     const head = rest.slice(0, key.length)
     const next = rest.charAt(key.length)

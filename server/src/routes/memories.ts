@@ -8,7 +8,7 @@ import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { listSkills, skillIssues } from '../chat/skills'
+import { listSkills, skillInfo, skillIssues } from '../chat/skills'
 import { popularSkills } from '../skills/popular'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
 import { installNotifications } from '../notifications/service'
@@ -67,7 +67,7 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkills, ({ auth }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      return { items: listSkills(ctx.files, p).map(({ path, name, description }) => ({ path, name, description })) }
+      return { items: listSkills(ctx.files, p).map(skillInfo) }
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {

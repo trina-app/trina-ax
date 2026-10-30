@@ -8,7 +8,8 @@
 //   pwchange   frank  member who still has to change the temporary password
 //   anon       nobody signed in
 //
-// Folders (design tab 2): shared/ everyone write · skills/ everyone read, admin write · groups/marketing marketing
+// Folders (design tab 2): shared/ everyone write · skills/ everyone read, admin write · skills/finance everyone none +
+// finance read (a restricted team skill) · users/alice/skills/ alice's personal skill · groups/marketing marketing
 // write · groups/marketing/salaries marketing none · groups/finance finance write · projects/falcon alice write +
 // finance read · projects/falcon/public everyone read · users/<id>/ only that person (owner and admin included).
 //
@@ -50,6 +51,8 @@ export const C = {
   falconPlan: 'SEC-FALCON-PLAN-1aa',        // projects/falcon (alice write, finance read)
   falconInstr: 'SEC-FALCON-INSTR-7c3',
   aliceSuggestion: 'SEC-ALICE-SKILLSUGGEST-3f8', // a skill alice suggested: alice + the managers of skills/ (owner, admin)
+  finSkill: 'SEC-FIN-SKILL-6a2',            // skills/finance/close.md description (finance read; owner and admin)
+  aliceSkill: 'SEC-ALICE-SKILL-4c7',        // users/alice/skills/mine.md description (alice's personal skill: alice only)
   // AI connections: their secrets reach nobody, ever (any response, any persona); alice's own connection's name is
   // seen by alice (Settings) and by the owner and admins (Admin > AI connections lists that it exists), not by members
   teamSecret: ('sk-ant-oat01-' + 'SECCANARYTEAMTOKEN0a1b2c3d4e5f60718293a4b5c6d'),
@@ -158,6 +161,10 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   await save(dana, 'shared/readme.md', 'shared readme\n')
   await save(alice, 'projects/atlas/atlas.md', 'atlas notes\n')
   await save(carol, 'skills/team-rules.md', 'team rules\n')
+  // skills: a team skill only the finance group reads, and a personal skill of alice
+  await owner.ok('POST', '/api/admin/folders', { path: 'skills/finance', create: true, rules: [rule('everyone', null, 'none'), rule('group', fin.id, 'read')] })
+  await save(carol, 'skills/finance/close.md', `---\nname: Month close\ndescription: ${C.finSkill}\n---\nclose the books\n`)
+  await save(alice, 'users/alice/skills/mine.md', `---\nname: Alice own\ndescription: ${C.aliceSkill}\n---\nmy steps\n`)
   // trash
   await save(bob, `${finFolder}/${C.finTrashName}.md`, 'x\n')
   const trashFin = (await bob.ok('DELETE', `/api/files?path=${encodeURIComponent(`${finFolder}/${C.finTrashName}.md`)}`)).trashId
@@ -230,7 +237,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   }
 }
 
-export const ALICE_PRIVATE = [C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
+export const ALICE_PRIVATE = [C.aliceSkill, C.aliceFile, C.aliceFileOld, C.aliceFileName, C.aliceTrashName, C.aliceChatTitle, C.aliceMsg, C.aliceAnswer, C.aliceArtifact,
   C.aliceMemory, C.aliceQuestion, C.aliceAttName, C.aliceProjInstr, C.aliceUploadName, C.aliceTranscript]
-export const FINANCE_ONLY = [C.finFile, C.finFileOld, C.finTrashName, C.finName]
+export const FINANCE_ONLY = [C.finSkill, C.finFile, C.finFileOld, C.finTrashName, C.finName]
 export const API_KEYS = Object.keys(API)

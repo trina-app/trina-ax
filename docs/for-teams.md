@@ -8,7 +8,7 @@ Trina fits teams that have company files, repeatable tasks and different access 
 
 Use the [example catalog](../examples/README.md): weekly report for leadership, follow-up for sales, brand brief for marketing, expense review for finance, onboarding guide for HR. Each gives fictional input paths, required access, a prompt and review criteria. Operations and support teams can adapt the meeting-summary skill to handovers.
 
-A skill is a reusable procedure. A skill manager creates `skills/<name>/SKILL.md` in Files, or reviews a member's suggestion for that folder. Select it from the chat skill menu. Registering it does not train the model.
+A skill is a reusable procedure. A skill manager creates `skills/<name>/SKILL.md` in Files, or reviews a member's suggestion for that folder. Select it from the chat skill menu. Registering it does not train the model. The folder rules decide who sees a team skill (for example, `skills/finance/` only for the finance group). You can also keep personal skills in `users/<you>/skills/`: only you see them, and you can suggest one to the team.
 
 ## Your first week
 

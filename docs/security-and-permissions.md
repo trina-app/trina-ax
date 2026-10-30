@@ -4,6 +4,8 @@
 
 The same question, “Summarize our onboarding policy,” can use an HR file only for a person permitted to read it. The server checks the asking person's access on file requests. A skill is an accessible instruction, not extra authority.
 
+Skills follow the same folder rules. A skill in a restricted folder such as `skills/finance/` is listed and usable only for the people who can read that folder. A personal skill in `users/<you>/skills/` is yours only: other members, owners and admins cannot see it. Scheduled tasks use the skills of the schedule owner.
+
 Owners configure the team and its AI connections. App admins have administrative actions and activity records, not a screen for reading everyone's private chats. Server/OS/storage operators can read stored files and chats. This includes Trina operators in hosted deployments.
 
 Prompts, relevant conversation history and selected file/tool content go to the chosen model provider. Standard connections route Claude to Anthropic and Codex to OpenAI. The experimental API engine can use another configured provider. External integrations receive their requests too. Self-hosting is not offline model processing, and AWS Seoul hosting describes the team server location, not a guarantee that provider processing stays in Korea. This project does not promise a particular provider retention or training policy; confirm the terms of the authorized account and service.

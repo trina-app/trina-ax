@@ -183,7 +183,7 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
       <p className="mb-3 text-xs text-muted">{t('rules.editHint')}</p>
       {isSkillsFolder(path) && (
         <p role="note" className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-folder-warning">
-          {t('skillMgr.folderHint')}
+          {t('skillMgr.folderHint')} {t('skillMgr.readHint')}
         </p>
       )}
       <table className="w-full text-sm">
