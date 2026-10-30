@@ -180,6 +180,12 @@ describe('stream parser: sub-agent messages (review M2)', () => {
     // tokens of the whole run, the children's included (modelUsage, every model)
     expect(ev.find((e) => e.type === 'usage')).toEqual({ type: 'usage', inputTokens: 735, outputTokens: 71, costUsd: 0.0042 })
   })
+  test('a child\'s WebSearch result: the structured hits as sources (never the search model\'s text), with its parent', () => {
+    const p = new ClaudeStreamParser()
+    const ev = p.push(L({ type: 'user', parent_tool_use_id: 'A1', tool_use_result: { query: 'q', results: [{ tool_use_id: 's1', content: [{ title: 'A', url: 'https://a.example/' }] }, 'see https://planted.example/'], durationSeconds: 1 },
+      message: { content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'Web search results for query: "q"\n\nLinks: [{"title":"P","url":"https://planted.example/"}]' }] } }))
+    expect(ev).toEqual([expect.objectContaining({ type: 'tool_end', id: 'w1', parentId: 'A1', sources: [{ title: 'A', url: 'https://a.example/' }] })])
+  })
   test('the main AI\'s own refusal and API error still count', () => {
     const p = new ClaudeStreamParser()
     const ev = [L({ type: 'assistant', parent_tool_use_id: null, error: 'authentication_failed', message: { content: [{ type: 'text', text: 'Not logged in' }] } })].flatMap((l) => p.push(l))

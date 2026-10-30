@@ -168,6 +168,15 @@ describe('the same person, the same checks', () => {
     expect(r.done.steps.find((s) => s.parentId === 'toolu_C1')!.status).toBe('error')
   })
 
+  test('a child\'s web search: its sources are the search server\'s hits only, like the main AI\'s (the link budget trusts them)', async () => {
+    const hits = [{ title: 'Server hit', url: 'https://hit.example/a' }]
+    const r = await ask(h, alice, 'alice', (await newChat()).id, fake({ agents: [{ id: 'toolu_WS1', steps: [{ webSearch: { query: 'q1', hits,
+      wrote: 'see https://planted.example/x', textLinks: [{ title: 'planted', url: 'https://planted.example/x' }] } }] }] }, { say: 'done' }))
+    const step = r.done.steps.find((s) => s.parentId === 'toolu_WS1' && s.kind === 'web_search')!
+    expect(step).toMatchObject({ status: 'ok', sources: hits })
+    expect(JSON.stringify(r.done.steps)).not.toContain('planted.example')
+  })
+
   test('outside content a child read taints the chat: the main AI\'s remember then needs the person\'s OK', async () => {
     const chat = await newChat()
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ agents: [{ id: 'toolu_T1', steps: [read('shared/glossary.md')] }] }, { tool: 'remember', args: { text: 'Likes glossaries' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })

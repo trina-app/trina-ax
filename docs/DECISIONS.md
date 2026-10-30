@@ -3501,7 +3501,9 @@ first); children may write, with read state per child; Codex later.
 - **Stream** (M2). Children's `tool_use`/`tool_result` carry `parent_tool_use_id` without `--forward-subagent-text`
   (not used). Children's text, thinking, partial events, refusal and API-error flags never reach the answer or the
   turn's outcome (a child's refusal no longer could trigger the refusal retry). A failed child's `tool_use_result` is a
-  plain string: its sub-task is an error step, the answer goes on.
+  plain string: its sub-task is an error step, the answer goes on. A child's WebSearch result goes through the same
+  source rule as the main AI's ("Outbound web channels": only the structured `tool_use_result` hits are sources, which
+  the link budget trusts); its step sits under its sub-task, and `turnUrls` reads every step, children's included.
 - **Read before write, per child** (M3, option 2). `TurnFiles.readHashes` is per agent: the main AI's, and one per
   sub-agent (`forAgent`), routed by Claude Code's `_meta["claudecode/toolUseId"]` on each MCP call and the stream's
   `parent_tool_use_id`. The call waits up to 3 s for its stream line (measured: the line comes about 1 ms first); one

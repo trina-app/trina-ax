@@ -46,6 +46,8 @@
 //                                            and the Agent result (AgentOutput, or a plain string when "fail") follow.
 //                                            Child calls do not count against --max-turns (like Claude Code).
 //                                            "lateAgentLine": ms (next to "agents"): the Agent line comes that late.
+//                                            A child step {"webSearch": {"query", "hits", "wrote", "textLinks"}}: a WebSearch
+//                                            with its structured result (tool_use_result) like Claude Code's.
 //   @fake {"init": {"tools": [...], "agents": [...]}}  what the init event reports (lockdown check tests)
 //   @fake {"echo": "agents" | "subagentPrompt" | "args"}  say the --agents file, the sub-agents' instructions, argv
 // Every team tool call carries Claude Code's _meta {"claudecode/toolUseId": <the tool_use id>}.
@@ -344,6 +346,14 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
         uses++
         out({ type: 'system', subtype: 'task_progress', tool_use_id: a.id, usage: { total_tokens: 100 * uses, tool_uses: uses, duration_ms: Date.now() - t0 }, last_tool_name: `mcp__team__${st.tool}` })
         await childTool(a.id, st)
+      } else if (st.webSearch) {
+        // Claude Code's WebSearch in a child: the server's hits only in the structured result (tool_use_result), the
+        // search model's own text as a string next to them; the result text may carry other links (never sources)
+        uses++
+        const id = `toolu_${++toolN}`, q = String(st.webSearch.query ?? 'q')
+        out({ type: 'assistant', parent_tool_use_id: a.id, message: { content: [{ type: 'tool_use', id, name: 'WebSearch', input: { query: q } }] } })
+        out({ type: 'user', parent_tool_use_id: a.id, tool_use_result: { query: q, results: [{ tool_use_id: 'srvtoolu_1', content: st.webSearch.hits ?? [] }, String(st.webSearch.wrote ?? '')], durationSeconds: 1 },
+          message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(st.webSearch.textLinks ?? st.webSearch.hits ?? [])}\n\n${st.webSearch.wrote ?? ''}` }] } })
       } else if (st.say !== undefined) out({ type: 'assistant', parent_tool_use_id: a.id, message: { content: [{ type: 'text', text: String(st.say) }] } })
       else if (st.thinking !== undefined) out({ type: 'assistant', parent_tool_use_id: a.id, message: { content: [{ type: 'thinking', thinking: String(st.thinking) }] } })
       else if (st.refuse) out({ type: 'assistant', parent_tool_use_id: a.id, error: 'refusal', message: { stop_reason: 'refusal', content: [{ type: 'text', text: 'API Error: refused' }] } })
