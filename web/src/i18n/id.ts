@@ -1721,6 +1721,7 @@ export const id: Record<MessageKey, string> = {
   "plugins.perm.model.send.preview-pixels": "Mengizinkan AI melihat gambar halaman saat diminta, yang berarti gambar dikirim ke penyedia AI yang diatur.",
   "plugins.perm.optional": "Opsional",
   "plugins.perm.new": "Baru",
+  "plugins.perm.off": "Tidak diizinkan",
   "plugins.prompt.title": "Pasang {name} untuk perusahaan Anda?",
   "plugins.prompt.updateTitle": "Perbarui {name} dari {from} ke {to}?",
   "plugins.prompt.does": "Plugin ini akan:",

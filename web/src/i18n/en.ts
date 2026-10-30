@@ -1721,6 +1721,7 @@ export const en: Record<MessageKey, string> = {
   "plugins.perm.model.send.preview-pixels": "Lets the AI look at page images when asked, which sends them to your configured AI provider.",
   "plugins.perm.optional": "Optional",
   "plugins.perm.new": "New",
+  "plugins.perm.off": "Not allowed",
   "plugins.prompt.title": "Install {name} for your company?",
   "plugins.prompt.updateTitle": "Update {name} from {from} to {to}?",
   "plugins.prompt.does": "This plugin will:",

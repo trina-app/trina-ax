@@ -1,7 +1,7 @@
 // Admin > Plugins (docs/PLUGINS.md): what the company has installed, the official list, and package files. Installing
 // always goes through the permission prompt: the server checks the package first (signature, files, platform) and the
 // admin approves exactly the digest and permissions shown. Stage 1 turns plugins on for the whole company only.
-import { AlertTriangle, Check, FileUp, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
@@ -36,22 +36,26 @@ function TrustBadge({ trust }: { trust: InstalledPlugin['trust'] }) {
   return <Badge tone={trust === 'official' ? 'ok' : 'warn'}>{t(`plugins.trust.${trust}`)}</Badge>
 }
 
-function Permissions({ items, choose }: { items: { id: PluginPermission; required: boolean; new?: boolean; granted?: boolean }[]; choose?: { chosen: Set<PluginPermission>; set: (p: PluginPermission, on: boolean) => void } }) {
+/** `showGrant`: an installed plugin — an optional permission the admin did not allow is shown as such. */
+function Permissions({ items, choose, showGrant }: { items: { id: PluginPermission; required: boolean; new?: boolean; granted?: boolean }[]; choose?: { chosen: Set<PluginPermission>; set: (p: PluginPermission, on: boolean) => void }; showGrant?: boolean }) {
   const t = useT()
   return (
     <ul className="space-y-1.5 text-sm" data-testid="plugin-permissions">
-      {items.map((p) => (
-        <li key={p.id} className="flex items-start gap-2">
-          {choose && !p.required
-            ? <input type="checkbox" className="mt-1" checked={choose.chosen.has(p.id)} onChange={(e) => choose.set(p.id, e.target.checked)} aria-label={t(`plugins.perm.${p.id}` as MessageKey)} data-testid={`plugin-optional-${p.id}`} />
-            : <Check size={14} className="mt-1 shrink-0 text-ok" aria-hidden />}
-          <span>
-            {t(`plugins.perm.${p.id}` as MessageKey)}
-            {!p.required && <Badge className="ml-1.5">{t('plugins.perm.optional')}</Badge>}
-            {p.new && <Badge tone="warn" className="ml-1.5">{t('plugins.perm.new')}</Badge>}
-          </span>
-        </li>
-      ))}
+      {items.map((p) => {
+        const off = showGrant && !p.required && !p.granted
+        return (
+          <li key={p.id} className={off ? 'flex items-start gap-2 text-muted' : 'flex items-start gap-2'}>
+            {choose && !p.required
+              ? <input type="checkbox" className="mt-1" checked={choose.chosen.has(p.id)} onChange={(e) => choose.set(p.id, e.target.checked)} aria-label={t(`plugins.perm.${p.id}` as MessageKey)} data-testid={`plugin-optional-${p.id}`} />
+              : off ? <Minus size={14} className="mt-1 shrink-0" aria-hidden /> : <Check size={14} className="mt-1 shrink-0 text-ok" aria-hidden />}
+            <span>
+              {t(`plugins.perm.${p.id}` as MessageKey)}
+              {!p.required && <Badge className="ml-1.5">{off ? t('plugins.perm.off') : t('plugins.perm.optional')}</Badge>}
+              {p.new && <Badge tone="warn" className="ml-1.5">{t('plugins.perm.new')}</Badge>}
+            </span>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -141,7 +145,7 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
         {t('plugins.publisher', { name: p.publisher.name })} · {p.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · {t('plugins.platforms', { list: platformText(t, p.platforms) })}
       </p>
       {p.unsupported && <p className="text-sm text-warn" data-testid="plugin-unsupported">{t(`plugins.unsupported.${p.unsupported}` as MessageKey)}</p>}
-      <Permissions items={p.permissions} />
+      <Permissions items={p.permissions} showGrant />
       {p.skills.length > 0 && <p className="text-xs text-muted">{t('plugins.skills', { list: p.skills.map((s) => s.split('/').slice(-2, -1)[0]).join(', ') })}</p>}
       <div className="flex flex-wrap gap-2 pt-1">
         {p.enabled

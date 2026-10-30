@@ -1681,6 +1681,7 @@ export const es: Record<MessageKey, string> = {
   "plugins.perm.model.send.preview-pixels": "Permite que la IA vea imágenes de páginas cuando se le pida, lo que las envía a su proveedor de IA configurado.",
   "plugins.perm.optional": "Opcional",
   "plugins.perm.new": "Nuevo",
+  "plugins.perm.off": "No permitido",
   "plugins.prompt.title": "¿Instalar {name} para su empresa?",
   "plugins.prompt.updateTitle": "¿Actualizar {name} de {from} a {to}?",
   "plugins.prompt.does": "Este complemento:",

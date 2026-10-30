@@ -1720,6 +1720,7 @@ export const ko = {
   "plugins.perm.model.send.preview-pixels": "AI에게 페이지 확인을 요청하면 미리보기 이미지를 설정된 AI 제공사로 보냅니다.",
   "plugins.perm.optional": "선택",
   "plugins.perm.new": "새 권한",
+  "plugins.perm.off": "허용 안 함",
   "plugins.prompt.title": "회사에 {name}을(를) 설치할까요?",
   "plugins.prompt.updateTitle": "{name}을(를) {from}에서 {to}(으)로 업데이트할까요?",
   "plugins.prompt.does": "이 플러그인은 다음을 합니다:",

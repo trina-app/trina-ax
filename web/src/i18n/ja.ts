@@ -1681,6 +1681,7 @@ export const ja: Record<MessageKey, string> = {
   "plugins.perm.model.send.preview-pixels": "依頼されたときにAIがページ画像を確認できるようにします。その画像は設定済みのAIプロバイダーに送信されます。",
   "plugins.perm.optional": "任意",
   "plugins.perm.new": "新規",
+  "plugins.perm.off": "許可しない",
   "plugins.prompt.title": "会社に{name}をインストールしますか？",
   "plugins.prompt.updateTitle": "{name}を{from}から{to}に更新しますか？",
   "plugins.prompt.does": "このプラグインが行うこと:",
