@@ -11,6 +11,8 @@
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice),
+// POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
+// "ask" is an address card that offers "allow this site in this conversation"),
 // POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this).
@@ -22,7 +24,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry,
+  MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -99,6 +101,8 @@ export class MockServer {
   artifacts: Artifact[] = []
   projects: Project[] = []
   memories: Memory[] = []
+  /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
+  schedules: (Schedule & { userId: string })[] = []
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
@@ -177,6 +181,7 @@ export class MockServer {
     this.nextArtifact = null
     this.projects = []
     this.memories = []
+    this.schedules = []
     this.budgets = []
     this.versions = []
     this.trash = []
@@ -451,7 +456,15 @@ export class MockServer {
     }
     if (/ask/i.test(prompt)) {
       const requestId = 'q1'
-      const request: TurnRequest = /safety/i.test(prompt)
+      // "siteask": like server/src/tools/url-gate.ts with a site to allow (open once / allow the site / don't open), the
+      // address with its random-looking part highlighted
+      const siteUrl = 'https://docs.example.co.kr/r/c2fsyxj5ltk4nzy1ndmy'
+      const request: TurnRequest = /siteask/i.test(prompt)
+        ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
+          question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${siteUrl}\n\n주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.\n\n사이트를 허용하면 이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.`,
+          options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }],
+          details: [{ label: '주소', text: siteUrl, marks: ['c2fsyxj5ltk4nzy1ndmy'] }] }
+        : /safety/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
         : /multi/i.test(prompt)
           ? { kind: 'ask_user', requestId, question: '보고서에 어느 분기를 넣을까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], multiple: true, allowText: true }
@@ -1440,7 +1453,38 @@ export class MockServer {
 
     // nothing connected, no scheduled tasks yet
     listConnected: () => ({ items: [] }),
-    listSchedules: () => ({ items: [], timeZone: 'Asia/Seoul' }),
+    listSchedules: (c) => ({ items: this.schedules.filter((x) => x.userId === c.user.id).map(({ userId: _, ...x }) => x), timeZone: 'Asia/Seoul' }),
+    updateSchedule: (c) => {
+      const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
+      if (c.body.enabled && x.needsReview) throw new Fail('conflict', 409, '이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요.', undefined, { reason: 'schedule_review' })
+      x.enabled = c.body.enabled
+      const { userId: _, ...out } = x
+      return out
+    },
+    deleteSchedule: (c) => { this.schedules = this.schedules.filter((y) => !(y.id === c.params.id && y.userId === c.user.id)); return undefined },
+    // like server/src/chat/schedule-review.ts: the schedule card again, with the whole instruction and its addresses
+    getScheduleReview: (c) => {
+      const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
+      if (!x.needsReview) throw new Fail('conflict', 409, undefined, undefined, { reason: 'schedule_not_waiting' })
+      const url = 'https://feeds.example.com/r/c2fsyxj5ltk4nzy1ndmy'
+      return { request: {
+        kind: 'ask_user' as const, origin: 'server' as const, requestId: `schedule-review-${x.id}`, allowText: false, multiple: false,
+        question: `이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요. 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인하고 다시 켤지 골라 주세요.\n\n제목: ${x.title}\n일정: 매일 09:00\n\n실행할 때마다 아래 주소 1개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.`,
+        options: [{ label: '다시 켜기', value: 'resume' }, { label: '계속 멈춰 두기', value: 'keep' }],
+        details: [{ label: '지시문', text: x.prompt, marks: ['c2fsyxj5ltk4nzy1ndmy'] }, { label: '실행 때 묻지 않고 여는 주소', text: url, marks: ['c2fsyxj5ltk4nzy1ndmy'] }],
+      } }
+    },
+    confirmScheduleReview: (c) => {
+      const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
+      if (c.body.answer !== 'resume' && c.body.answer !== 'keep') fail('validation', 400, '이 확인은 카드의 버튼으로만 답할 수 있어요.')
+      if (c.body.requestId !== `schedule-review-${x.id}`) throw new Fail('conflict', 409, '예약 작업이나 연결 서비스가 그 사이에 바뀌었어요. 카드를 다시 확인해 주세요.', undefined, { reason: 'schedule_card_changed' })
+      if (c.body.answer === 'resume') Object.assign(x, { needsReview: false, reviewSince: null, enabled: true, nextRunAt: new Date(Date.now() + 86400_000).toISOString() })
+      const { userId: _, ...out } = x
+      return out
+    },
+    listSchedulesAwaitingReview: () => ({ items: this.schedules.filter((x) => x.needsReview).map((x) => ({
+      id: x.id, user: { id: x.userId, name: this.users.find((u) => u.id === x.userId)?.name ?? x.userId }, repeat: x.repeat, time: x.time, weekday: x.weekday, day: x.day, date: x.date, reviewSince: x.reviewSince ?? null,
+    })) }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
     getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }),
@@ -1696,6 +1740,13 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
+    else if (p === '/__test/schedule-review') {
+      // a free-text task made before the schedule card: paused until its owner confirms it again
+      const owner = this.users.find((u) => u.role === 'owner')!
+      this.schedules.push({ userId: owner.id, id: uuidv7(), title: '아침 요약', prompt: '매일 아침 https://feeds.example.com/r/c2fsyxj5ltk4nzy1ndmy 를 읽고 users/olga/요약.md 에 정리해 줘.',
+        repeat: 'daily', time: '09:00', weekday: null, day: null, date: null, projectId: null, enabled: false, resumeBlockedReason: null, nextRunAt: null, lastRunAt: null,
+        lastChatId: null, needsReview: true, reviewSince: now() })
+    }
     else if (p === '/__test/log') return Response.json(this.log)
     else if (p === '/__test/engine-requests') return Response.json(this.engineRequests)
     else if (p === '/__test/member-choice') this.memberChoice = MemberEngineChoice.parse(body)

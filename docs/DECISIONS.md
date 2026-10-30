@@ -3344,7 +3344,8 @@ medical edition "allow all websites" off by default.
   that message has typed it (a new message, not auto_sent). The card shows the AI's title on one line. Only the addresses the card
   showed are stored (`schedules.allowed_urls`) and copied into each run's chat as allowed. Schedules made before this
   (and templates) carry none: their runs need a card for any address, which an unattended run cannot get — recreate
-  them in a chat. There is no AI tool that edits a schedule; the person cannot edit a prompt either (on / off only).
+  them in a chat. (Superseded for free-text tasks by "Scheduled tasks nobody confirmed" below: they are paused until
+  their owner confirms the same card again.) There is no AI tool that edits a schedule; the person cannot edit a prompt either (on / off only).
 - **"Ask the AI to fix it"** defangs the artifact's title and key like the error text (`fixPromptWords`), since that
   message is sent as the person's words.
 - **DNS after the card.** `web_fetch` runs only the checks that need no lookup before the card (`precheckTarget`:
@@ -3368,7 +3369,8 @@ medical edition "allow all websites" off by default.
   exact header (the search model must search first, so that block is the server's); anything else gives no sources,
   and those addresses need a card (review of feat/exfil-server, 2026-10-30).
 - **Link budget.** Search results and links of fetched pages ("learned") open without a card at most 8 per answer and
-  30 per chat (`LINK_BUDGET`, operators: `MYCEL_WEB_LINK_BUDGET="8,30"`); then each new one asks with the budget text.
+  30 per chat (`LINK_BUDGET`, operators: `MYCEL_WEB_LINK_BUDGET="8,30"`); then each new one asks with the budget text
+  (or the person allows the site for the conversation: "Allow a site for one conversation" below).
   Addresses the person typed or allowed are outside it; an address already counted opens again for free. Counted in
   `chat_seen_urls.free_turn_id` with `source` fetched / search / allowed (migration 322, reader 1; old rows count as
   fetched), synchronously so parallel calls cannot share the last places. A scheduled run is one answer (8). The
@@ -3627,3 +3629,79 @@ PowerPoint on a standard install, and that its refusals and its confidential loc
   conversation (it would run without its lock), and startup marks every conversation whose turns have a 1A record
   (after a roll-back to a build without the column, its `INSERT OR IGNORE` left an unlocked row unlocked).
   Sub-agents run inside their parent's turn, so their workflows mark the parent's conversation.
+
+## Scheduled tasks nobody confirmed (feat/exfil-followups, 2026-10-30)
+
+Review follow-up of "Outbound web channels" (founder: "handle it yourself", so the reviewer's recommendation). Tasks the
+AI made before the schedule card kept running unattended: no web addresses or connection writes any more, but still
+reading and writing files, and nobody had ever confirmed them.
+
+- **The rule (unknown = paused).** A free-text task runs only with a confirmation record: `schedules.confirmed_at`
+  (migration 216, reader 1), written when the person approves its card (`schedule_create`, or "다시 확인" below).
+  `Schedules.create` writes it only when given the card's approval (`ScheduleApproval`). Templates need no card (an
+  instruction the product fixes, folders the person picked in Settings) and stay as they are. A task without the record
+  (`needsReview`: no template, no `confirmed_at`) never runs: `runDue` pauses it instead (off, pending occurrence
+  dropped, `review_since`, audit `schedule.review_paused`), the switch refuses to resume it (409
+  `schedule_review`), and a run queued before the upgrade is stopped at queue recovery. This also catches a task an
+  older build makes after a rollback.
+- **On upgrade** (migration 216): tasks made since the card carry its record in `allowed_urls` / `write_connections`
+  (only the card writes them) and get `confirmed_at = created_at`. A card-approved task without addresses or
+  connections left no record and is paused too. Every other free-text task is paused with one `review_since` time and
+  an audit row each (`wasEnabled`, `reason: upgrade`). A one-time task that already ran is left alone.
+- **The owner is told.** One inbox notice per person and pause (`schedule.failure` with source
+  `schedule-review-<person>-<time>`, `review: true`; nothing about the task in it), shown in the app whatever the
+  "scheduled task failed" setting is (the task stopped), and pushed per that setting (the push table takes only the
+  three push events; the lock-screen text is the generic "needs your attention", Korean now "앱에서 확인해 주세요"). A
+  banner under the others says how many of the person's tasks wait, with a link to Settings › Scheduled tasks.
+- **"다시 확인".** The waiting task has "다시 확인" instead of "켜기"; it opens the same server card the AI's
+  `schedule_create` raises (`scheduleCard(…, 'review')`: title on one line, schedule, the whole instruction, the
+  addresses in it, long random-looking parts marked, the "allow" team connections) rendered by the chat's own
+  `AskCard`, with "다시 켜기" (or with / without those connections) and "계속 멈춰 두기". Resuming is the
+  confirmation: `confirmed_at`, `allowed_urls` = the card's addresses, `write_connections` = the picked connections,
+  on from the next due time, audit `schedule.reconfirmed`. The answer is bound to the card's content (requestId = hash
+  of the task, its addresses and the offered connections with their versions): a change in between is refused (409
+  `schedule_card_changed`) and the card is shown again. Only the card's own answers count. An expired one-time task
+  cannot be resumed (it says why). `GET/POST /api/schedules/:id/review`, own tasks only (404 otherwise).
+- **Admins** see waiting tasks in Admin › Members ("확인을 기다리는 예약 작업", `GET /api/admin/schedule-reviews`):
+  owner, schedule and since when, never the title or instruction (the person's own words, like their chats). Only the
+  owner can confirm.
+- Tests: `tests/unit/schedule-review.test.ts` (migration on existing rows, the run-time rule, switch refused, queue
+  recovery, the card in two languages, keep / stale / typed answer / other person, resume and its run's addresses,
+  connections changing under the card, expired, notices, admin list), the permission matrix, `web/test/e2e/
+  exfil-followups.spec.ts`. Tests that need a task to run create it with the card's approval (`tests/lib/
+  schedule-card.ts`).
+
+## Allow a site for one conversation (feat/exfil-followups, 2026-10-30)
+
+Review follow-up of the link budget: after 8 per answer / 30 per chat each new link asked one by one, where Claude Code
+asks once per domain ("Yes, and don't ask again for this domain").
+
+- **The choice.** An address card that is about where the address came from (not in the conversation, or over the link
+  budget) offers "열기" (this address), "이 대화에서 이 사이트 허용 (<site>)" and "열지 않기". After the second, later
+  addresses on the same site open without a card in that chat (`chat_allowed_sites`, migration 324, reader 1),
+  outside the link budget (they spend none of it). The site is the registrable domain (eTLD+1) by the Public Suffix
+  List with its private section, through `tldts` 7.0.30 (MIT, new server dependency; no network, the list is in the
+  package): news.example.co.kr and example.co.kr are one site, alice.github.io and bob.github.io two,
+  bucket.s3.amazonaws.com its own; a name that is itself a public suffix (co.kr, github.io), an IP address or a
+  single-label name has no site and gets the plain two-answer card. IDN: compared in the URL's ASCII (punycode) form,
+  shown with the Unicode form next to it.
+- **Never wider.** One chat, one person: the row has the chat and the person who picked it, and counts only for that
+  person in their own chat (another chat, another person, no person: none). Sub-agents of an answer use the turn's
+  person and chat, so they share it both ways (a card a child's call raises offers the same choice). Scheduled runs
+  start in a new chat, so they have none.
+- **What it does not change.** `gateUrl` decides from the text and the database; the name is looked up only after
+  it said yes, as before (an allowed site's names are looked up after the check, never before a card). A name that
+  resolves into the office network is still refused after the lookup (web_fetch) or gets the office-network card
+  (browser tools); private IP literals are refused before any card. An address with a long random-looking part
+  (`opaqueParts` on the decoded address, so a Korean path is words) is never covered: it gets the card every time
+  with that part highlighted (the plain address card now shows the address in a marked detail block when it has one).
+  A query over 200 characters and every address while the office's exit address is unknown still ask, without the
+  site choice. A confidential chat (Safe operations 1A) never offers it and ignores allowances made before.
+- **Cost of the random-string rule.** Addresses with long ids (a git commit, a document id) on an allowed site still
+  ask each time. Accepted: that is what such a part looks like when it carries data.
+- Tests: `tests/unit/site-allow.test.ts` (suffix table with co.kr, go.kr, github.io, s3, blogspot, kawasaki.jp
+  wildcards, IDN, IP, single label, trailing dot; card options; scope by chat and person; random-looking parts, long
+  query, unknown exit address; outside the budget; confidential chat; DNS stub: no lookup before the decision, office
+  answer refused after it, private literal before any card; a sub-agent opening the site without a card),
+  `p0-exfil-server.test.ts` (adjusted to the choice card), `web/test/e2e/exfil-followups.spec.ts`.
+
