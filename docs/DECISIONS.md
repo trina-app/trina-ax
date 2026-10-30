@@ -3488,6 +3488,10 @@ first); children may write, with read state per child; Codex later.
   `proxy_tokens.tools` holds the attempt's policy; a request with any other name is refused, audited
   (`proxy.refused`) and stops the answer with the `lockdown` error (`engine.lockdown` in the activity log). Office
   mode's CONNECT tunnel cannot see requests: there the init check and the regression test carry it.
+  Review round (2026-10-30): both checks take the exact names the turn's tool connection lists (`policy.team`), not
+  any `mcp__team__` prefix: our connection tools are named `my_<slug>__<tool>`, so a second MCP server named
+  `team__x` would give look-alike `mcp__team__x__<tool>` names. The init check also requires `mcp_servers` to be
+  exactly `team`.
 - **The Agent tool's inputs** (M4). `isolation: "worktree"` fails (no git root is visible in the sandbox, and the
   engine may only execute itself). `isolation: "remote"` would open a cloud session with a Mac's own login through the
   office tunnel; `--restricted` turns it into a local child (2.1.305 code: remote is used only when available and not
@@ -3501,7 +3505,9 @@ first); children may write, with read state per child; Codex later.
 - **Read before write, per child** (M3, option 2). `TurnFiles.readHashes` is per agent: the main AI's, and one per
   sub-agent (`forAgent`), routed by Claude Code's `_meta["claudecode/toolUseId"]` on each MCP call and the stream's
   `parent_tool_use_id`. The call waits up to 3 s for its stream line (measured: the line comes about 1 ms first); one
-  still unknown gets a fresh state of its own (fails closed). So a child cannot overwrite a file only its sibling or
+  still unknown gets a fresh state of its own (fails closed). Calls wait from the start of every attempt that offers
+  the Agent tool, not only after the server has read the first Agent line: before the review fix, a child call that
+  came ahead of a lagging stream passed as the main AI's (its read state, and audited without its sub-task). So a child cannot overwrite a file only its sibling or
   the main AI read, a sibling's later write becomes a conflict copy, and the main AI reads again before changing what
   a child wrote (Claude Code's subagents also start without the main session's file state). Read scope, write limits,
   image budget and skill approvals stay per turn; safe-ops provenance binds every agent's reads (`allReads`).
@@ -3516,7 +3522,8 @@ first); children may write, with read state per child; Codex later.
 - **Instructions.** Children get `--append-subagent-system-prompt-file`: our rules first (no shell, team paths, saving
   is fine when asked, report before the step limit, read yourself before changing), where they run, the person and
   folders, team rules, team skills, the project; never memories, history or browser rules. The main AI's prompt (and
-  the per-turn context of resumed sessions) says how many run at once and what a child has.
+  the per-turn context of resumed sessions) says how many run at once and what a child has; the Codex answer of the
+  "continue with Codex at the Claude limit" fallback does not get that rule (Codex has no Agent tool).
 - **Steps and audit.** A "Sub-task: <description>" step (`tool: 'agent'`, `Step.subtask` totals) with its children
   (`Step.parentId`), like Claude Code's `Agent(...)` line; no new `StepKind`, so older apps show a flat list.
   `tool_events.tool_use_id` / `parent_tool_use_id` tie every child call to its sub-task; the sub-task's start and end
@@ -3526,8 +3533,8 @@ first); children may write, with read state per child; Codex later.
   (children included; `usage` alone is the main session's).
 - **Not in this stage.** Codex sub-agents (`multi_agent` stays off; `lockdown-codex.ts` unchanged), forks, user
   definitions (`.claude/agents`), background children, a cap on children's tool calls.
-- **Tests.** `tests/engine/lockdown-claude-subagents.ts` (pinned Claude Code, scripted fake model, 35 checks, with and
-  without `--oauth`), `tests/unit/b-subagents.test.ts` (fake engine with concurrent children through the real
+- **Tests.** `tests/engine/lockdown-claude-subagents.ts` (pinned Claude Code, scripted fake model, 38 checks, with and
+  without `--oauth`; includes that the gate matched the main AI's and a child's call without waiting), `tests/unit/b-subagents.test.ts` (fake engine with concurrent children through the real
   launcher, gate and bridge), `tests/unit/subagents.test.ts`, web units and e2e.
 - **Release gates.** The regression test on a Linux server (bwrap); one manual turn in office mode with a real login
   calling `isolation: "remote"` (then `LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS` may go on); memory of four children under the

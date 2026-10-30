@@ -22,14 +22,16 @@ import { handleCodex } from './codex-path'
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
-/** What one Claude attempt's model requests may name as tools besides our mcp__team__ tools (checkToolNames). */
-export interface ToolPolicy { agent: boolean; webSearch: boolean }
+/** What one Claude attempt's model requests may name as tools (checkToolNames): `team` = the exact names (without
+ * mcp__team__) the turn's tool connection lists, so a tool of another MCP server whose name only starts like ours
+ * (a server named "team__x" gives mcp__team__x__<tool>) is refused too; absent (a token from before): any mcp__team__. */
+export interface ToolPolicy { agent: boolean; webSearch: boolean; team?: readonly string[] }
 
 export function issueProxyToken(db: Database, turnId: string, userId: string, o: { ttlMs?: number; budgetUsd?: number; credentialId?: string; family?: Family; tools?: ToolPolicy } = {}) {
   const token = 'mpx_' + crypto.randomBytes(32).toString('base64url')
   db.query('INSERT INTO proxy_tokens (token_hash, turn_id, user_id, expires_at, budget_usd, credential_id, family, tools) VALUES (?,?,?,?,?,?,?,?)')
     .run(h(token), turnId, userId, new Date(Date.now() + (o.ttlMs ?? 30 * 60_000)).toISOString(), o.budgetUsd ?? null, o.credentialId ?? null, o.family ?? null,
-      o.tools ? JSON.stringify({ agent: !!o.tools.agent, webSearch: !!o.tools.webSearch }) : null)
+      o.tools ? JSON.stringify({ agent: !!o.tools.agent, webSearch: !!o.tools.webSearch, ...(o.tools.team ? { team: [...o.tools.team] } : {}) }) : null)
   // the turn remembers the connection of its latest attempt (usage per connection: Admin > Usage)
   if (o.credentialId) db.query('UPDATE turns SET credential_id = ? WHERE id = ?').run(o.credentialId, turnId)
   return token
@@ -55,7 +57,14 @@ export const tokenRow = (db: Database, tok: string) =>
 
 /** the token's tool policy; a token without one (issued before, or for something else) gets no Agent tool */
 export function toolPolicyOf(row: Pick<TokenRow, 'tools'>): ToolPolicy {
-  try { const v = row.tools ? JSON.parse(row.tools) : null; if (v && typeof v === 'object') return { agent: v.agent === true, webSearch: v.webSearch === true } } catch {}
+  try {
+    const v = row.tools ? JSON.parse(row.tools) : null
+    if (v && typeof v === 'object') {
+      // a policy whose `team` is not a list of names allows no team tool (fails closed)
+      const team = v.team === undefined ? undefined : Array.isArray(v.team) ? v.team.filter((x: unknown): x is string => typeof x === 'string') : []
+      return { agent: v.agent === true, webSearch: v.webSearch === true, ...(team ? { team } : {}) }
+    }
+  } catch {}
   return { agent: false, webSearch: true }
 }
 
@@ -70,11 +79,13 @@ export function checkToolNames(body: unknown, policy: ToolPolicy): string | null
   const tools = (body as { tools?: unknown } | null)?.tools
   if (!Array.isArray(tools)) return null
   const bad: string[] = []
+  const team = policy.team ? new Set(policy.team) : null
+  const ours = (name: string) => name.startsWith('mcp__team__') && (!team || team.has(name.slice('mcp__team__'.length)))
   for (const t of tools as Record<string, unknown>[]) {
     const type = t && typeof t === 'object' ? t.type : undefined
     const name = t && typeof t === 'object' ? t.name : undefined
     if (typeof type === 'string' && /^web_search_\d+$/.test(type)) { if (!policy.webSearch) bad.push(`${type}`); continue }
-    if (typeof name === 'string' && (name.startsWith('mcp__team__') || (name === 'Agent' && policy.agent) || (name === 'WebSearch' && policy.webSearch))) continue
+    if (typeof name === 'string' && (ours(name) || (name === 'Agent' && policy.agent) || (name === 'WebSearch' && policy.webSearch))) continue
     bad.push(typeof name === 'string' ? name : String(type))
   }
   return bad.length ? `tools outside the lockdown: ${bad.slice(0, 10).map((b) => b.slice(0, 60)).join(', ')}` : null

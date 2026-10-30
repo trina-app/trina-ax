@@ -67,18 +67,25 @@ export function buildAgentDefinitions(o: { tools: string[]; webSearch: boolean; 
 /**
  * Claude Code's own report of what it started with (system/init) against the lockdown: besides our mcp__team__ tools
  * only WebSearch (when the turn has it) and the Agent tool (when the turn has sub-agents; 2.1.305 lists it as Task),
- * and no sub-agent definitions besides ours (a managed-settings or disk definition would show here). null = fine,
- * else why not. The children's own tools are not in this event: the model proxy checks every request (managed mode).
+ * no sub-agent definitions besides ours (a managed-settings or disk definition would show here), and no tool server
+ * besides ours. `team`: the exact names our tool connection lists this turn (without the prefix), so a tool of another
+ * server whose name only starts like ours (a server named "team__x") is caught too. null = fine, else why not. The
+ * children's own tools are not in this event: the model proxy checks every request (managed mode).
  */
-export function initProblem(init: { tools: string[]; agents: string[] }, o: { webSearch: boolean; subagents: boolean }): string | null {
-  const extra = init.tools.filter((t) => !t.startsWith(TEAM_TOOL_PREFIX)
+export function initProblem(init: { tools: string[]; agents: string[]; mcpServers?: string[] }, o: { webSearch: boolean; subagents: boolean; team?: ReadonlySet<string> }): string | null {
+  const extra = init.tools.filter((t) => !(t.startsWith(TEAM_TOOL_PREFIX) && (!o.team || o.team.has(t.slice(TEAM_TOOL_PREFIX.length))))
     && !(o.webSearch && (ENGINE_BUILTIN_ALLOWED as readonly string[]).includes(t))
     && !(o.subagents && CLAUDE_AGENT_TOOL_NAMES.includes(t)))
   if (extra.length) return `engine tools outside the lockdown: ${extra.slice(0, 10).join(', ').slice(0, 300)}`
   const agents = init.agents.filter((a) => !(o.subagents && (SUBAGENT_TYPES as readonly string[]).includes(a)))
   if (agents.length) return `sub-agent definitions besides ours: ${agents.slice(0, 10).join(', ').slice(0, 300)}`
+  const servers = (init.mcpServers ?? []).filter((n) => n !== TEAM_SERVER)
+  if (servers.length) return `tool servers besides ours: ${servers.slice(0, 10).join(', ').slice(0, 300)}`
   return null
 }
+
+/** the name of the turn's one MCP server (the launcher's mcp.json, native/cmd/mycel-launcher) */
+const TEAM_SERVER = 'team'
 
 /** Office mode with the Mac user's own Claude login (local-login): confidential chats get no Agent tool until the
  * manual check with a real login (plan review M4) has shown that `isolation: "remote"` cannot open a cloud session

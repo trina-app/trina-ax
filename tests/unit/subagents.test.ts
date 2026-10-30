@@ -128,6 +128,14 @@ describe('init lockdown check', () => {
     expect(initProblem({ tools: ['mcp__team__read', 'WebSearch'], agents: [] }, { webSearch: false, subagents: false })).toContain('WebSearch')
     expect(initProblem({ tools: ['mcp__team__read'], agents: ['Explore'] }, { webSearch: true, subagents: false })).toContain('Explore')
   })
+  test('only the names our tool connection lists, and no tool server besides ours (a server named "team__x")', () => {
+    const team = new Set(['read', 'write', 'my_notion__search'])
+    const o = { webSearch: true, subagents: true, team }
+    expect(initProblem({ tools: [...tools, 'mcp__team__my_notion__search'], agents: [], mcpServers: ['team'] }, o)).toBeNull()
+    expect(initProblem({ tools: [...tools, 'mcp__team__x__read'], agents: [] }, o)).toContain('mcp__team__x__read')
+    expect(initProblem({ tools, agents: [], mcpServers: ['team', 'team__x'] }, o)).toContain('team__x')
+    expect(initProblem({ tools, agents: [], mcpServers: ['claude_ai_Gmail'] }, { webSearch: true, subagents: true })).toContain('claude_ai_Gmail')
+  })
 })
 
 describe('stream parser: sub-agent messages (review M2)', () => {
@@ -153,7 +161,9 @@ describe('stream parser: sub-agent messages (review M2)', () => {
   test('child steps carry their parent; text, refusals and errors of children are dropped; totals from AgentOutput', () => {
     const p = new ClaudeStreamParser()
     const ev = lines.flatMap((l) => p.push(l))
-    expect(ev.find((e) => e.type === 'init')).toEqual({ type: 'init', tools: ['Task', 'mcp__team__read'], agents: ['Explore', 'general-purpose'] })
+    expect(ev.find((e) => e.type === 'init')).toEqual({ type: 'init', tools: ['Task', 'mcp__team__read'], agents: ['Explore', 'general-purpose'], mcpServers: [] })
+    expect(new ClaudeStreamParser().push(L({ type: 'system', subtype: 'init', tools: [], mcp_servers: [{ name: 'team', status: 'connected' }, { name: 'x' }, 7] }))
+      .find((e) => e.type === 'init')).toMatchObject({ mcpServers: ['team', 'x'] })
     expect(ev.filter((e) => e.type === 'text').map((e: any) => e.delta).join('')).toBe('Done.')
     expect(p.text).toBe('Done.')
     expect(JSON.stringify(ev)).not.toContain('LEAK')
@@ -193,6 +203,14 @@ describe('model proxy: tool names of every request (review M1)', () => {
   })
   test('a child request with built-in tools (a planted definition, the Glob / Grep exception, a fork) is refused', () => {
     for (const t of ['Glob', 'Grep', 'Read', 'Bash', 'Write', 'mcp__other__x', 'AskUserQuestion', 'mcp__team']) expect(checkToolNames(req('mcp__team__read', t), { agent: true, webSearch: true })).toContain(t)
+  })
+  test('with the turn\'s exact names: a tool of another server named like ours is refused', () => {
+    const policy = { agent: true, webSearch: true, team: ['read', 'my_notion__search'] }
+    expect(checkToolNames(req('Agent', 'mcp__team__read', 'mcp__team__my_notion__search'), policy)).toBeNull()
+    for (const t of ['mcp__team__x__read', 'mcp__team__write', 'mcp__team__', 'mcp__team__READ']) expect(checkToolNames(req('mcp__team__read', t), policy)).toContain(t)
+    expect(toolPolicyOf({ tools: '{"agent":false,"webSearch":true,"team":["read",3]}' })).toEqual({ agent: false, webSearch: true, team: ['read'] })
+    // a policy whose names are not a list allows no team tool
+    expect(checkToolNames(req('mcp__team__read'), toolPolicyOf({ tools: '{"agent":false,"webSearch":true,"team":"read"}' }))).toContain('mcp__team__read')
   })
   test('a token without a tool policy: no Agent tool', () => {
     expect(toolPolicyOf({ tools: null })).toEqual({ agent: false, webSearch: true })

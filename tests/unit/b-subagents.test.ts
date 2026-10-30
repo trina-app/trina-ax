@@ -213,6 +213,19 @@ describe('each sub-agent reads before it writes (review M3)', () => {
     expect(fs.readFileSync(path.join(h.team, file), 'utf8')).toBe('v1\n')
   })
 
+  test('a child call that comes before the server has read any Agent line still is not the main AI\'s', async () => {
+    // the turn offers sub-agents: from the start, a call waits for its stream line instead of passing as the main AI's
+    const file = `shared/sub-early-${Date.now()}.md`
+    fs.writeFileSync(path.join(h.team, file), 'v0\n')
+    const r = await ask(h, alice, 'alice', (await newChat()).id, fake(
+      read(file),
+      { agents: [{ id: 'toolu_E1', steps: [{ ...write(file, 'child\n'), lateLine: 300 }] }], lateAgentLine: 1200 },
+      { say: 'done' }))
+    const w = events(r.started.turnId).find((e) => e.tool === 'write')!
+    expect(w).toMatchObject({ ok: 0, parent_tool_use_id: 'toolu_E1' })
+    expect(fs.readFileSync(path.join(h.team, file), 'utf8')).toBe('v0\n')
+  })
+
   test('the main AI after its children: it reads again before changing what a child wrote', async () => {
     const file = `shared/sub-main-${Date.now()}.md`
     fs.writeFileSync(path.join(h.team, file), 'v0\n')

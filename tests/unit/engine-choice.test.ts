@@ -202,6 +202,11 @@ describe('Claude limit -> Codex fallback', () => {
       expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
       const next = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }))
       expect(next.done).toMatchObject({ engine: 'claude-code', content: 'resumed=false' })
+      // the Codex answer's instructions never offer Claude Code's Agent tool (sub-agents are Claude only)
+      const sys = await ask(h, alice, 'alice', (await h.api('alice').call(API.createChat, { body: {} })).id, fake({ claudeFail: 'rate limit exceeded' }, { echo: 'system' }))
+      expect(sys.done.engine).toBe('codex')
+      expect(sys.done.content).toContain('team assistant')
+      expect(sys.done.content).not.toContain('Agent tool')
       // other errors never switch
       const crash = await ask(h, alice, 'alice', chat.id, fake({ claudeFail: 'context window exceeded' }))
       expect(crash.done.engine).toBe('claude-code')

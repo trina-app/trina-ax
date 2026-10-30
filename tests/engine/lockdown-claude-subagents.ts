@@ -37,6 +37,7 @@ const child = (r: FakeRequest) => r.child ?? ''
 function reply(r: FakeRequest): FakeReply {
   if (r.kind === 'main') {
     const s = scenario(r)
+    if (s === 'owner' && r.round === 1) return { tools: [agent('CHILD-91 timing')] }
     if (r.round > 0) return { text: `MAIN DONE ${s}` }
     if (s === 'basic') return { tools: [agent('CHILD-11 read and try to escape'), agent('CHILD-12 list only', { subagent_type: 'Explore' })] }
     if (s === 'args') return { tools: [agent('CHILD-21 worktree', { isolation: 'worktree' }), agent('CHILD-22 remote', { isolation: 'remote' }), agent('CHILD-23 fork', { subagent_type: 'fork' }),
@@ -47,6 +48,7 @@ function reply(r: FakeRequest): FakeReply {
     if (s === 'rounds') return { tools: [agent('CHILD-61 many rounds')] }
     if (s === 'stop') return { tools: [agent('CHILD-71 slow')] }
     if (s === 'five') return { tools: [1, 2, 3, 4, 5].map((n) => agent(`CHILD-8${n} parallel`)) }
+    if (s === 'owner') return { tools: [{ name: T('list'), input: {} }] }
     return { text: 'unknown scenario' }
   }
   const c = child(r)
@@ -62,6 +64,7 @@ function reply(r: FakeRequest): FakeReply {
   if (c === 'CHILD-61') return r.round < 4 ? { tools: [{ name: T('list'), input: {} }] } : { text: 'report 61' }
   if (c === 'CHILD-71') return r.round === 0 ? { tools: [{ name: T('list'), input: {} }] } : { text: 'late', delayMs: 15_000 }
   if (/^CHILD-8\d$/.test(c)) return { text: `report ${c}`, delayMs: 1500 }
+  if (c === 'CHILD-91') return r.round === 0 ? { tools: [{ name: T('list'), input: {} }] } : { text: 'report 91' }
   return { text: `report ${c}` }
 }
 
@@ -125,6 +128,7 @@ try {
     check('basic: answer done', r.done.status === 'done' && r.done.content.includes('MAIN DONE basic'), r.done)
     check('init: main tools are Task, WebSearch and ours only', (init.tools ?? []).every((t: string) => t === 'Task' || t === 'WebSearch' || t.startsWith('mcp__team__')) && init.tools.includes('Task'), init.tools)
     check('init: our two definitions only (no disk trap)', JSON.stringify([...(init.agents ?? [])].sort()) === '["Explore","general-purpose"]', init.agents)
+    check('init: our tool server only (the server checks this too)', JSON.stringify((init.mcp_servers ?? []).map((m: any) => m?.name)) === '["team"]', init.mcp_servers)
     const c11 = childReqs(r.reqs, 'CHILD-11'), c12 = childReqs(r.reqs, 'CHILD-12')
     check('children ran (general-purpose, Explore)', c11.length >= 3 && c12.length >= 2, r.reqs.map((x) => `${x.kind}:${x.child}:${x.round}`))
     check('general-purpose child: no built-in file / shell tool, no Agent, nothing of the main AI only', noBuiltins(offered(c11)).length === 0 && offered(c11).includes(T('write')), offered(c11))
@@ -211,6 +215,18 @@ try {
     const started = new Set(r.reqs.filter((x) => x.kind === 'child').map((x) => x.child))
     const text = JSON.stringify(r.lines.filter((l) => l.type === 'user' && !l.parent_tool_use_id).flatMap((l) => l.message?.content ?? []))
     check('five: four children ran, the fifth was refused (concurrency limit)', started.size === 4 && /concurrent/i.test(text), { started: [...started], text: text.slice(0, 300) })
+  }
+  // ---- 7b. which agent made a call (M3): the gate matches each call to its stream line without waiting ----
+  {
+    const r = await run('owner')
+    const mains = r.reqs.filter((x) => x.kind === 'main'), kids = childReqs(r.reqs, 'CHILD-91')
+    const gap = (a?: FakeRequest, b?: FakeRequest) => (a && b ? b.at - a.at : -1)
+    const lists = r.ev.filter((e) => e.tool === 'list')
+    check('owner: the main AI\'s call is its own (no sub-task), the child\'s is its sub-task\'s; both carry their tool_use id', lists.length === 2 && lists.every((e) => e.ok === 1 && e.tool_use_id)
+      && lists.filter((e) => !e.parent_tool_use_id).length === 1 && lists.filter((e) => e.parent_tool_use_id).length === 1, lists)
+    // a call whose stream line had not come would wait up to 3 s (TurnFiles.forCall): the next model request shows it
+    check('owner: neither call waited for its stream line', gap(mains[0], mains[1]) >= 0 && gap(mains[0], mains[1]) < 2500 && gap(kids[0], kids[1]) >= 0 && gap(kids[0], kids[1]) < 2500,
+      { main: gap(mains[0], mains[1]), child: gap(kids[0], kids[1]) })
   }
   // ---- 8. Stop while a child waits for the model: the turn stops, the gate takes nothing more, no process stays ----
   {

@@ -21,7 +21,7 @@ export const EngineEvent = z.discriminatedUnion('type', [
   /** a sub-agent is still working (Claude Code system/task_progress): its totals so far; id = the Agent call's id */
   z.object({ type: z.literal('agent_progress'), id: z.string(), stats: AgentStats }),
   /** the engine's own report of what it was started with (Claude Code system/init): checked against the lockdown */
-  z.object({ type: z.literal('init'), tools: z.array(z.string()), agents: z.array(z.string()) }),
+  z.object({ type: z.literal('init'), tools: z.array(z.string()), agents: z.array(z.string()), mcpServers: z.array(z.string()).optional() }),
   z.object({ type: z.literal('session'), sessionId: z.string() }),
   /** costUnknown: the provider gave no cost and the model has no list price (never recorded as free); requestId: the
    * provider's id of the request (OpenRouter's generation id), for the log */

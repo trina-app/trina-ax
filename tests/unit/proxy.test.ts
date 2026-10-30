@@ -166,6 +166,10 @@ describe('model proxy: the lockdown of tool names', () => {
       expect((await call(p.url, { 'x-api-key': noAgent }, body('mcp__team__read', 'WebSearch'))).status).toBe(403)
       expect((await call(p.url, { 'x-api-key': bound(KEY_ID) }, body('mcp__team__read', 'Agent'))).status).toBe(403)
       expect((await call(p.url, { 'x-api-key': bound(KEY_ID) }, body('mcp__team__read', 'WebSearch'))).status).toBe(200)
+      // the turn's exact tool names: another server's tool that only starts like ours is refused
+      const exact = issueProxyToken(env.db, turnId, 'alice', { credentialId: KEY_ID, family: 'anthropic', tools: { agent: true, webSearch: true, team: ['read'] } })
+      expect((await call(p.url, { 'x-api-key': exact }, body('mcp__team__read', 'Agent'))).status).toBe(200)
+      expect((await call(p.url, { 'x-api-key': exact }, body('mcp__team__read', 'mcp__team__x__read'))).status).toBe(403)
     } finally { await p.stop() }
   })
 })

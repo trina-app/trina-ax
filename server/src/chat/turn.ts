@@ -162,7 +162,7 @@ export class TurnExec {
   /** this turn's tools (step labels of per-person tools) */
   private toolSet: ChatToolSet | null = null
   /** what this Claude attempt was started with (the init check, docs/DECISIONS.md "Sub-agents") */
-  private lockdown = { webSearch: true, subagents: false }
+  private lockdown: { webSearch: boolean; subagents: boolean; team?: ReadonlySet<string> } = { webSearch: true, subagents: false }
   /** the sub-tasks of this answer (Claude Code's Agent calls), by the call's id: for the end audit row and the totals */
   private subtasks = new Map<string, { type: string; description: string; stats: AgentStats; done: boolean }>()
   /** the stored secrets of the person's connections, hidden in the answer, the steps, the audit lines and the title
@@ -319,8 +319,9 @@ export class TurnExec {
     // a fresh session (edit, regenerate, engine switch, Codex / API every turn, a lost or dropped session, another AI
     // connection, a refusal retry) gets at most 40,000 characters of history; a resumed one keeps what it started with.
     // The attempt that answers sets it last.
-    const prompt = (fresh: boolean) => {
-      const input = promptInput(fresh)
+    // claudeAttempt: the prompt is for a Claude attempt (the Agent rule when it has sub-agents); the Codex fallback gets none
+    const prompt = (fresh: boolean, claudeAttempt = true) => {
+      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
       this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
       return buildTurnPrompt(rt.files, input)
     }
@@ -396,9 +397,12 @@ export class TurnExec {
           // with our per-turn token on fd 3 Claude Code cannot tell the plan and starts on Sonnet: a subscription runs on
           // Opus unless someone chose (also makes the refusal retry's "other model" really another one)
           if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
-          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools: { agent: subagents, webSearch } })
-        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, tools: { agent: subagents, webSearch } })
-        this.lockdown = { webSearch, subagents }
+          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools: { agent: subagents, webSearch, team: turnTools } })
+        } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, tools: { agent: subagents, webSearch, team: turnTools } })
+        this.lockdown = { webSearch, subagents, team: new Set(turnTools) }
+        // calls wait for the stream to say which agent made them from the start when sub-agents are possible: a child's
+        // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
+        this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
@@ -461,7 +465,7 @@ export class TurnExec {
     }
     // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
     // 429 path reported a limit, never for budgets, refusals or crashes
-    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true), message, extraTools })
+    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
   }
 
   /** The AI connection for this attempt (credentials/resolve.ts), or null with the turn's error set: none for this

@@ -326,9 +326,10 @@ func resolvePath(p string) string {
 }
 
 // reservedTurnFile: the turn files the launcher writes itself (the bridge's token, the MCP config, the system prompt):
-// a request's files may not replace them (writeNew removes what is there first; plan review S12)
+// a request's files may not replace them (writeNew removes what is there first; plan review S12). Compared without
+// case: macOS volumes are case-insensitive by default, where .Turn/TOKEN is the same file.
 func reservedTurnFile(rel string) bool {
-	switch filepath.Clean(rel) {
+	switch strings.ToLower(filepath.Clean(rel)) {
 	case filepath.Join(".turn", "token"), filepath.Join(".turn", "mcp.json"), filepath.Join(".turn", "system.md"), ".turn":
 		return true
 	}

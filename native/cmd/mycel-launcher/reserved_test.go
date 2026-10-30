@@ -4,7 +4,7 @@ import "testing"
 
 // A request's files may not replace the turn files the launcher writes itself (plan review S12).
 func TestReservedTurnFiles(t *testing.T) {
-	for _, rel := range []string{".turn/token", ".turn/mcp.json", ".turn/system.md", ".turn", "./.turn/token", ".turn/x/../token"} {
+	for _, rel := range []string{".turn/token", ".turn/mcp.json", ".turn/system.md", ".turn", "./.turn/token", ".turn/x/../token", ".Turn/TOKEN", ".TURN/Mcp.Json", ".turn/System.md"} {
 		if !reservedTurnFile(rel) {
 			t.Errorf("%s should be reserved", rel)
 		}

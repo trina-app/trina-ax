@@ -45,6 +45,7 @@
 //                                            carry parent_tool_use_id; task_started / task_progress / task_notification
 //                                            and the Agent result (AgentOutput, or a plain string when "fail") follow.
 //                                            Child calls do not count against --max-turns (like Claude Code).
+//                                            "lateAgentLine": ms (next to "agents"): the Agent line comes that late.
 //   @fake {"init": {"tools": [...], "agents": [...]}}  what the init event reports (lockdown check tests)
 //   @fake {"echo": "agents" | "subagentPrompt" | "args"}  say the --agents file, the sub-agents' instructions, argv
 // Every team tool call carries Claude Code's _meta {"claudecode/toolUseId": <the tool_use id>}.
@@ -324,12 +325,15 @@ async function childTool(parent: string, step: any): Promise<{ ok: boolean }> {
   out({ type: 'user', parent_tool_use_id: parent, message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
   return { ok: !isError }
 }
-async function runAgents(agents: any[]) {
+async function runAgents(agents: any[], lateAgentLine = 0) {
   if (maxTurns > 0 && turnsUsed >= maxTurns) { finish({ maxTurns: true }); return }
   turnsUsed++ // the Agent calls are one round of the main session; the children's rounds are their own
   closeBlock()
   const t0 = Date.now()
-  out({ type: 'assistant', message: { content: agents.map((a) => ({ type: 'tool_use', id: a.id, name: 'Agent', input: { description: a.description ?? 'part', prompt: a.prompt ?? 'do it', ...(a.type ? { subagent_type: a.type } : {}) } })) } })
+  const agentLine = () => out({ type: 'assistant', message: { content: agents.map((a) => ({ type: 'tool_use', id: a.id, name: 'Agent', input: { description: a.description ?? 'part', prompt: a.prompt ?? 'do it', ...(a.type ? { subagent_type: a.type } : {}) } })) } })
+  // lateAgentLine: the main AI's Agent line reaches the server that long after the children started (a slow stream)
+  if (lateAgentLine) setTimeout(agentLine, lateAgentLine)
+  else agentLine()
   await Promise.all(agents.map(async (a) => {
     out({ type: 'system', subtype: 'task_started', tool_use_id: a.id, description: a.description ?? 'part', subagent_type: a.type ?? 'general-purpose' })
     out({ type: 'user', parent_tool_use_id: a.id, message: { content: [{ type: 'text', text: a.prompt ?? 'do it' }] } })
@@ -464,7 +468,7 @@ for (const d of directives) {
       c.on('close', () => res(b.split('\r\n')[0] || 'closed'))
     })
     await say(status)
-  } else if (d.agents) await runAgents(d.agents)
+  } else if (d.agents) await runAgents(d.agents, Number(d.lateAgentLine ?? 0))
   else if (d.init) { /* reported in the init event above */ }
   else if (d.echo === 'agents') { const f = arg('--agents'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(no --agents)') }
   else if (d.echo === 'subagentPrompt') { const f = arg('--append-subagent-system-prompt-file'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(none)') }
