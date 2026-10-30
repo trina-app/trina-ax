@@ -359,7 +359,7 @@ func safeOpsStatus(e *env, in *Install) *SafeOpsStatus {
 	} else {
 		s.Problems = append(s.Problems, err.Error())
 	}
-	dir := filepath.Join(cgroupRoot, in.ID+".slice")
+	dir := filepath.Join(cgroupRoot, sliceUnit(in.ID))
 	for _, f := range []string{"memory.max", "memory.high", "memory.swap.max", "memory.current", "pids.max", "cpu.max"} {
 		if b, err := os.ReadFile(filepath.Join(dir, f)); err == nil {
 			s.Slice[f] = strings.TrimSpace(string(b))
@@ -375,14 +375,14 @@ func safeOpsStatus(e *env, in *Install) *SafeOpsStatus {
 	}
 	if s.On {
 		if !bounded {
-			s.Problems = append(s.Problems, in.ID+".slice has no memory, task and CPU limits")
+			s.Problems = append(s.Problems, sliceUnit(in.ID)+" has no memory, task and CPU limits")
 		}
 		if !units {
-			s.Problems = append(s.Problems, "the server and the launcher are not running in "+in.ID+".slice")
+			s.Problems = append(s.Problems, "the server and the launcher are not running in "+sliceUnit(in.ID))
 		}
 		if mx, err := strconv.ParseInt(s.Slice["memory.max"], 10, 64); err == nil {
 			if cur, err := strconv.ParseInt(s.Slice["memory.current"], 10, 64); err == nil && mx-cur < 640<<20 {
-				s.Notes = append(s.Notes, fmt.Sprintf("only %d MiB free in %s.slice now (a job needs 640 MiB)", (mx-cur)>>20, in.ID))
+				s.Notes = append(s.Notes, fmt.Sprintf("only %d MiB free in %s now (a job needs 640 MiB)", (mx-cur)>>20, sliceUnit(in.ID)))
 			}
 		}
 	}
@@ -430,10 +430,10 @@ func cmdSafeOps(e *env, args []string) (int, error) {
 				fmt.Fprintf(e.stdout, "  program %s: %s\n", p.Path, map[bool]string{true: "ok", false: p.Problem}[p.OK])
 			}
 			if s.Limits != nil {
-				fmt.Fprintf(e.stdout, "  %s.slice while on: MemoryMax=%dM MemoryHigh=%dM MemorySwapMax=0 TasksMax=%d CPUQuota=%d%%\n", in.ID, s.Limits.MemoryMaxMiB, s.Limits.MemoryHighMiB, s.Limits.Tasks, s.Limits.CPUs*100)
+				fmt.Fprintf(e.stdout, "  %s while on: MemoryMax=%dM MemoryHigh=%dM MemorySwapMax=0 TasksMax=%d CPUQuota=%d%%\n", sliceUnit(in.ID), s.Limits.MemoryMaxMiB, s.Limits.MemoryHighMiB, s.Limits.Tasks, s.Limits.CPUs*100)
 			}
 			if len(s.Slice) > 0 {
-				fmt.Fprintf(e.stdout, "  %s.slice now: memory.max=%s pids.max=%s cpu.max=%s memory.swap.max=%s\n", in.ID, s.Slice["memory.max"], s.Slice["pids.max"], s.Slice["cpu.max"], s.Slice["memory.swap.max"])
+				fmt.Fprintf(e.stdout, "  %s now: memory.max=%s pids.max=%s cpu.max=%s memory.swap.max=%s\n", sliceUnit(in.ID), s.Slice["memory.max"], s.Slice["pids.max"], s.Slice["cpu.max"], s.Slice["memory.swap.max"])
 			}
 			for _, p := range s.Problems {
 				fmt.Fprintln(e.stdout, "  problem: "+p)
@@ -477,7 +477,7 @@ func cmdSafeOps(e *env, args []string) (int, error) {
 			return 1, fmt.Errorf("daemon-reload: %v %s", err, o)
 		}
 		if *noRestart {
-			notes = append(notes, fmt.Sprintf("not restarted: stop %[1]s-server and %[1]s-launcher, then `systemctl stop %[1]s.slice`, then start both", in.ID))
+			notes = append(notes, fmt.Sprintf("not restarted: stop %[1]s-server and %[1]s-launcher, then `systemctl stop %[2]s`, then start both", in.ID, sliceUnit(in.ID)))
 		} else {
 			deadline := time.Now().Add(time.Duration(*maxWait) * time.Second)
 			for {
@@ -500,13 +500,13 @@ func cmdSafeOps(e *env, args []string) (int, error) {
 	return out(s, 0, nil)
 }
 
-// restartInSlice restarts the server and the launcher in a fresh <id>.slice: systemd applies a slice unit's changed
+// restartInSlice restarts the server and the launcher in a fresh slice (sliceUnit): systemd applies a slice unit's changed
 // limits only when it creates the slice's cgroup again (daemon-reload alone leaves the running slice as it was;
 // systemd 257, Debian 13), so both units stop, the empty slice stops, and both start again.
 func restartInSlice(e *env, in *Install) error {
 	for _, c := range [][]string{
 		{"stop", in.ID + "-server.service", in.ID + "-launcher.service"},
-		{"stop", in.ID + ".slice"},
+		{"stop", sliceUnit(in.ID)},
 		{"start", in.ID + "-launcher.service", in.ID + "-server.service"},
 	} {
 		if o, err := exec.Command(e.systemctl, c...).CombinedOutput(); err != nil {

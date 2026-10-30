@@ -154,7 +154,9 @@ for p in "$PORT" "$TLS_PORT" "$PROXY_PORT"; do [[ "$p" =~ ^[0-9]{1,5}$ ]] && [ "
 DEPLOYMENT=self; [ "$HOSTED" = 1 ] && DEPLOYMENT=hosted
 [ "$HOSTED" = 1 ] && AUTO_UPDATE=0
 
-UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$ID.slice")
+# the slice of the server and the launcher (mycel-ctl sliceUnit): "-" in a slice name means "inside", so it is written "_"
+SLICE="${ID//-/_}.slice"
+UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$SLICE")
 UNIT_DIR=/etc/systemd/system
 have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
 stop_units() {
@@ -892,7 +894,7 @@ if [ "$HOSTED" = 0 ] && ! grep -qw landlock /sys/kernel/security/lsm 2>/dev/null
 fi
 mkdir -m 700 "$ITMP/units"
 RU=$("$BASE/root/mycel-ctl" render-units --base "$BASE" --out "$ITMP/units" 2>&1) || die "rendering the units failed: $(printf '%s' "$RU" | tail -n 3 | tr '\n' ' ')"
-for u in "$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$ID.slice"; do
+for u in "$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$SLICE"; do
   [ -f "$ITMP/units/$u" ] || die "mycel-ctl render-units wrote no $u"
   ! grep -q '@[A-Z_]*@' "$ITMP/units/$u" || die "$u has an unfilled placeholder"
 done
@@ -904,7 +906,7 @@ if [ "$SYSTEMD" = 1 ]; then
   systemctl daemon-reload
   # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now
   # (daemon-reload alone does not change a running slice; the limits exist only while 1A is on, mycel-ctl safe-ops)
-  systemctl stop "$ID.slice" >/dev/null 2>&1 || true
+  systemctl stop "$SLICE" >/dev/null 2>&1 || true
 fi
 if [ -n "$PLAN" ]; then
   [ -f "$PLAN" ] || die "--plan: $PLAN not found"

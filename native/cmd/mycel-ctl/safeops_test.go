@@ -108,6 +108,26 @@ func TestSliceTemplate(t *testing.T) {
 	if n, ok := unitName("mycel", "slice.in"); !ok || n != "mycel.slice" {
 		t.Fatalf("slice unit name %s", n)
 	}
+	// a second install (--id mycel-test) gets its own top-level slice: "mycel-test.slice" would sit inside mycel.slice
+	rootUID = os.Getuid()
+	tdir, out := t.TempDir(), t.TempDir()
+	for _, n := range []string{"slice.in", "server.service.in", "launcher.service.in"} {
+		b, err := os.ReadFile(filepath.Join(tmpl, n))
+		must(t, err)
+		must(t, os.WriteFile(filepath.Join(tdir, n), b, 0o644))
+	}
+	in.ID = "mycel-test"
+	names, _, err := renderUnits(in, tdir, out)
+	must(t, err)
+	if strings.Join(names, " ") != "mycel-test-launcher.service mycel-test-server.service mycel_test.slice" {
+		t.Fatalf("units %v", names)
+	}
+	for _, n := range []string{"mycel-test-launcher.service", "mycel-test-server.service"} {
+		b, _ := os.ReadFile(filepath.Join(out, n))
+		if !strings.Contains(string(b), "\nSlice=mycel_test.slice\n") || strings.Contains(string(b), "Slice=mycel-test.slice") {
+			t.Fatalf("%s: %s", n, b)
+		}
+	}
 }
 
 var defaultSliceResources = sliceResources

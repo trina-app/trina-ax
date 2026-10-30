@@ -73,6 +73,8 @@ const installer = (cmd: string, ...args: string[]) => sh([path.join(REPO, 'scrip
 const kit = (n: number) => path.join(W, `rel${n}`)
 const V = (n: number) => `0.9.0-test.${n}`
 const unit = (u: string) => `${ID}-${u}`
+/** the install's slice: "-" is written "_" (a dash would put it inside mycel.slice; mycel-ctl sliceUnit) */
+const SLICE = `${ID.replaceAll('-', '_')}.slice`
 
 /** Another version of kit 1 without building again (a Linux build packs ~400 MB twice, minutes each): the version
  * folder copied, the version the server reports (a literal of the same length in the three entry files) replaced,
@@ -171,12 +173,16 @@ async function main() {
     ['/data', `${SRV}:${SRV} 700`], ['/team', `${SRV}:${SRV} 700`], ['/config', `${SRV}:${SRV} 700`], ['/secrets', `${SRV}:${SRV} 700`],
     ['/setup', `${SRV}:root 750`], ['/status', `${SRV}:root 750`], ['/agent', `${AGT}:${AGT} 700`], ['/agent/home', 'root:root 555'],
     ['/agent/codex-auth', `${AGT}:${AGT} 700`], ['/run', 'root:root 755'], ['/run/tools', `${SRV}:${AGT} 2750`], ['/run-launcher', `${AGT}:${SRV} 2750`],
-    ['/root', 'root:root 755'], ['/root/sandbox-etc', 'root:root 755'], ['/root/systemd', 'root:root 755'],
+    ['/root', 'root:root 755'], ['/root/sandbox-etc', 'root:root 755'], ['/root/systemd', 'root:root 755'], ['/root/safe-ops', 'root:root 755'],
   ]
   const bad = tree.filter(([p, want]) => statOf(BASE + p) !== want).map(([p, want]) => `${p || '/'}: ${statOf(BASE + p)} (want ${want})`)
   check('folders: owners and modes (spec 3.1.1)', bad.length === 0, bad.join('; '))
   const rootFiles = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl', 'mycel-account', 'set-claude-token'].map((f) => [f, statOf(`${BASE}/root/${f}`)])
   check('root programs: root:root 755', rootFiles.every(([, s]) => s === 'root:root 755'), JSON.stringify(rootFiles))
+  // safe operations 1A run only root-owned programs (QA 2026-10-30 B1): root's own copies of the app's mycel-safeops and pandoc
+  const copies = [['mycel-safeops', 'native/mycel-safeops'], ['pandoc', 'bin/pandoc']].map(([n, rel]) => [n, statOf(`${BASE}/root/safe-ops/${n}`),
+    sh(['cmp', '-s', `${BASE}/root/safe-ops/${n}`, `${BASE}/app/current/${rel}`]).code === 0])
+  check('root/safe-ops: root:root 755 copies of mycel-safeops and pandoc, same bytes as the version folder', copies.every(([, s, same]) => s === 'root:root 755' && same), JSON.stringify(copies))
   check('root/VERSION, install.json, firewall.conf.json: root 644', ['VERSION', 'install.json', 'firewall.conf.json', 'safe-fs.sh'].every((f) => statOf(`${BASE}/root/${f}`) === 'root:root 644'))
   const sbx = (f: string) => { try { return fs.readFileSync(`${BASE}/root/sandbox-etc/${f}`, 'utf8') } catch { return 'missing' } }
   const ag = uidOf(AGT), agg = Number(sh(['id', '-g', AGT]).out.trim())
@@ -207,6 +213,9 @@ async function main() {
   const su = show('server.service', ['User', 'NoNewPrivileges', 'ProtectSystem', 'Delegate', 'KillMode', 'Environment'])
   check('server unit: server account, hardening, bootstrap environment (spec 3.2.3)', su.User === SRV && su.NoNewPrivileges === 'yes' && su.ProtectSystem === 'strict' && su.Delegate === 'yes' && su.KillMode === 'mixed'
     && /MYCEL_SANDBOX_HELPER=\/var\/lib\/mycel-test\/root\/mycel-sandbox/.test(su.Environment ?? '') && /MYCEL_ALLOW_UNSIGNED=1/.test(su.Environment ?? ''), JSON.stringify(su))
+  const slices = ['launcher.service', 'server.service'].map((u) => sh(['systemctl', 'show', unit(u), '-pSlice']).out.trim())
+  check(`both units in ${SLICE} (the group 1A bounds), the server names root's 1A programs`, slices.every((x) => x === `Slice=${SLICE}`)
+    && new RegExp(`MYCEL_SAFE_OPS_BIN=${BASE}/root/safe-ops`).test(su.Environment ?? '') && fs.existsSync(`/etc/systemd/system/${SLICE}`), `${slices} ${su.Environment}`)
   const execStart = sh(['systemctl', 'show', unit('launcher.service'), '-pExecStart']).out
   check('launcher runs the sandbox: --sandbox bwrap, --dedicated-account, firewall status, plan file, both engines', ['--sandbox bwrap', '--dedicated-account', `--firewall-status ${BASE}/run/firewall.json`, '--landlock required', '--cgroup auto',
     `--allow-cmd ${BASE}/app/engines/claude/current/claude`, `--allow-cmd ${BASE}/app/engines/codex/current/codex`].every((k) => execStart.includes(k)), execStart.slice(0, 400))
@@ -214,8 +223,26 @@ async function main() {
   const rendered = sh([CTL, 'render-units', '--base', BASE, '--out', path.join(W, 'units-again')])
   const same = rendered.code === 0 && fs.readdirSync(path.join(W, 'units-again')).every((f) => fs.readFileSync(path.join(W, 'units-again', f), 'utf8') === fs.readFileSync(`/etc/systemd/system/${f}`, 'utf8'))
   check('mycel-ctl render-units gives the installed units byte for byte (one renderer for installer and update)', same, tail(rendered))
-  const va = sh(['systemd-analyze', 'verify', ...['firewall.service', 'firewall.timer', 'launcher.service', 'server.service', 'update.service', 'update.timer'].map((u) => `/etc/systemd/system/${unit(u)}`)])
+  const va = sh(['systemd-analyze', 'verify', ...['firewall.service', 'firewall.timer', 'launcher.service', 'server.service', 'update.service', 'update.timer'].map((u) => `/etc/systemd/system/${unit(u)}`), `/etc/systemd/system/${SLICE}`])
   check('systemd-analyze verify', va.code === 0, tail(va, 5))
+
+  // ---- safe operations 1A: off by default; `mycel-ctl safe-ops on` bounds the slice, `off` takes the limits away ----
+  const sl = (f: string) => { try { return fs.readFileSync(`/sys/fs/cgroup/${SLICE}/${f}`, 'utf8').trim() } catch { return 'missing' } }
+  const st0 = lastJson(sh([CTL, 'safe-ops', 'status', '--base', BASE, '--json']).out)
+  check('safe-ops status: off, programs ready, slice without limits', st0?.on === false && st0?.programs?.every((p: any) => p.ok) && sl('memory.max') === 'max', JSON.stringify(st0).slice(0, 400))
+  const soOn = sh([CTL, 'safe-ops', 'on', '--base', BASE, '--json', '--max-wait', '0'])
+  const st1 = lastJson(soOn.out)
+  const soH1 = await healthIs(V(1))
+  const memMax = Number(sl('memory.max'))
+  check('safe-ops on: flag, bounded slice (<= 4 GiB, no swap, 512 tasks, <= 4 CPUs) holding both units, server back', soOn.code === 0 && st1?.on === true && st1?.ready === true
+    && /^MYCEL_SAFE_OPS_1A=1$/m.test(fs.readFileSync(`/etc/default/${ID}`, 'utf8')) && memMax > 0 && memMax <= 4 * 1024 ** 3 && sl('memory.swap.max') === '0' && sl('pids.max') === '512'
+    && Number(sl('cpu.max').split(' ')[0]) / Number(sl('cpu.max').split(' ')[1]) <= 4
+    && fs.existsSync(`/sys/fs/cgroup/${SLICE}/${unit('server.service')}`) && fs.existsSync(`/sys/fs/cgroup/${SLICE}/${unit('launcher.service')}`) && soH1?.version === V(1),
+    `${tail(soOn, 6)} ${sl('memory.max')} ${sl('pids.max')} ${sl('cpu.max')}`)
+  const soOff = sh([CTL, 'safe-ops', 'off', '--base', BASE, '--json', '--max-wait', '0'])
+  const soH2 = await healthIs(V(1))
+  check('safe-ops off: flag gone, slice limits gone, server back', soOff.code === 0 && lastJson(soOff.out)?.on === false && !fs.existsSync(`/etc/default/${ID}`)
+    && sl('memory.max') === 'max' && sl('pids.max') === 'max' && soH2?.version === V(1), `${tail(soOff, 4)} ${sl('memory.max')}`)
 
   // ---- firewall (spec 3.4) ----
   const nft = sh(['nft', 'list', 'table', 'inet', ID])
@@ -391,7 +418,7 @@ socket.once('connect', () => {
   if (KEEP) { console.log(`--keep: ${ID} stays installed`); return }
   // ---- uninstall (keep data) -> reinstall -> purge ----
   const un = installer('uninstall')
-  const units = ['firewall.service', 'firewall.timer', 'launcher.service', 'server.service', 'update.service', 'update.timer'].filter((u) => fs.existsSync(`/etc/systemd/system/${unit(u)}`))
+  const units = [...['firewall.service', 'firewall.timer', 'launcher.service', 'server.service', 'update.service', 'update.timer'].map(unit), SLICE].filter((u) => fs.existsSync(`/etc/systemd/system/${u}`))
   check('uninstall: units, firewall table and programs gone, data kept (root-owned), accounts locked', un.code === 0 && units.length === 0 && sh(['nft', 'list', 'table', 'inet', ID]).code !== 0
     && !fs.existsSync(`${BASE}/app`) && !fs.existsSync(`${BASE}/root`) && !fs.existsSync(`${BASE}/agent`) && statOf(`${BASE}/data`) === 'root:root 700' && fs.existsSync(`${BASE}/data/app.db`)
     && /^L/.test(sh(['passwd', '-S', SRV]).out.trim().split(/\s+/)[1] ?? ''), `${tail(un)} units ${units}`)

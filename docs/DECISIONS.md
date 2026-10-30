@@ -3548,8 +3548,11 @@ first); children may write, with read state per child; Codex later.
 The first real-engine QA run on an installed Debian 13 server (plans/qa-real-2026-10-30) found that 1A could never make a
 PowerPoint on a standard install, and that its refusals and its confidential lock were hard to live with.
 
-- **One group for the server and the engines, bounded only while 1A is on.** Both units now always run in `<id>.slice`
-  (`Slice=` in their templates; a new `slice.in` template). The 1A envelope (server/src/safe-ops/envelope.ts) needs a
+- **One group for the server and the engines, bounded only while 1A is on.** Both units now always run in the install's
+  slice (`Slice=` in their templates; a new `slice.in` template): `mycel.slice`, with `-` in the id written `_`
+  (`mycel-test.slice` would be a child of `mycel.slice`, so a second install on the host would share the first one's
+  limits and be stopped with it). The service templates keep `Slice=@ID@.slice` and the renderer escapes it: an older
+  mycel-ctl renders the new templates during the first `mycel-ctl update` and refuses placeholders it does not know. The 1A envelope (server/src/safe-ops/envelope.ts) needs a
   common ancestor with at most 4 GiB, 512 tasks, 4 CPUs, no swap and 640 MiB free; before, the common ancestor was
   `system.slice`, unbounded, so every job was refused. The slice has limits only while `MYCEL_SAFE_OPS_1A=1` is in
   `/etc/default/<id>`: always-on limits would cap every team, with or without 1A, at 4 GiB, 512 tasks (one turn may use
@@ -3600,6 +3603,13 @@ PowerPoint on a standard install, and that its refusals and its confidential loc
   unchanged.
 - **The file panel leaves out "Ask AI" and "add to chat" for a download-only file** and says why (the AI is refused
   those bytes, so the action could only fail).
-- **Building a kit from source on a clean Debian** no longer needs Node.js: see docs/INSTALL-LINUX.md 3a.
+- **Building a kit from source (QA B7)** failed with `node: command not found` from `electron-winstaller`'s install
+  script. The cause was not a missing prerequisite: bun runs install scripts with its own stand-in for `node`
+  (`/tmp/bun-node-<revision>/node`, a link to the bun that made it), reuses that folder, and the QA's first build had
+  used a bun that was deleted afterwards, so the link dangled (seen on qa-test). The documented kit build now uses
+  `bun install --frozen-lockfile --ignore-scripts`: the server kit needs none of those scripts (Electron, the Windows
+  installer, onnxruntime's CUDA download; onnxruntime's and sharp's Linux files are in the packages), so no Node.js
+  and no stand-in are involved; checked by building and installing a kit that way on qa-test. A `preinstall` guard in
+  package.json does not help: bun did not run it before the failing dependency script (tried on qa-test).
 - CI keeps the Linux kit again: the "Linux release bundle (L19)" job uploaded `TeamAX-server-*`, a name no build
   makes any more; the glob is now product-name-free and the step fails when no kit matches.

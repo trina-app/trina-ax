@@ -77,7 +77,7 @@ curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.12"
 export PATH=$HOME/.bun/bin:/usr/local/go/bin:$PATH
 
 git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
-bun install --frozen-lockfile
+bun install --frozen-lockfile --ignore-scripts                    # 패키지 설치 스크립트 없이: Node.js가 필요 없다
 ARCHS=amd64 bash native/build.sh                                   # arm64면 ARCHS=arm64
 bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper   # 음성 받아쓰기(없으면 --no-whisper)
 bun run build:web                                                  # 웹 앱. 빠뜨리면 키트에 앱 화면이 없다
@@ -85,6 +85,10 @@ bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whis
 cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
 ```
 
+- `--ignore-scripts`: 서버 키트에는 패키지 설치 스크립트(Electron·Windows 설치 파일·CUDA 내려받기)가 필요 없다. 의미 검색의
+  onnxruntime·sharp 리눅스 파일은 패키지에 들어 있다. 이 옵션 없이 `bun install`이 `node: command not found`
+  (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
+  것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
 - 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
 - Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지와 PDF 페이지를 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
 

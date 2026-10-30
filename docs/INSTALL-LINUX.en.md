@@ -49,6 +49,26 @@ sudo ./install-linux.sh check --from .
 
 A checksum detects download corruption; it is not independent proof of authenticity. The bundle verifier checks the embedded release signature, and the installer checks again. Do not use `--allow-unsigned` for published releases. Inspect the release/source and trust path before running downloaded programs.
 
+### Build a kit from source (development)
+
+On a Linux machine of the server's architecture with git, curl, unzip, xz-utils, zstd, build-essential, cmake, Go
+(`native/go.mod`) and Bun 1.3.12; Node.js is not needed:
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile --ignore-scripts   # the server kit needs no package install scripts
+ARCHS=amd64 bash native/build.sh                  # ARCHS=arm64 on ARM
+bash scripts/linux/build-whisper.sh --arch amd64 --out dist/whisper
+bun run build:web
+bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.9-dev.1 --whisper-dir dist/whisper --out dist/linux
+cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --engine claude
+```
+
+Without `--ignore-scripts`, `bun install` runs install scripts with bun's stand-in for `node`
+(`/tmp/bun-node-*/node`); if that points to a bun that was deleted, it stops with `node: command not found`
+(`electron-winstaller` exited with 127). Use `--ignore-scripts` or delete that folder. A self-built kit is unsigned,
+hence `--allow-unsigned`.
+
 ## Install
 
 ```sh

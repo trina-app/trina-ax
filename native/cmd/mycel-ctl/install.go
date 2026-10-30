@@ -231,11 +231,16 @@ func renderTemplate(text string, vals map[string]string) (string, error) {
 	return out, nil
 }
 
+// sliceUnit is the slice of an install (safeops.go): <id>.slice with "-" written as "_". In a slice name "-" means
+// "inside": mycel-test.slice would be a child of mycel.slice, so a second install on the host (--id mycel-test) would
+// share the first one's limits, and stopping one slice would stop the other's units. Ids never contain "_".
+func sliceUnit(id string) string { return strings.ReplaceAll(id, "-", "_") + ".slice" }
+
 // unitName maps a template file name (launcher.service.in) to the installed unit (<id>-launcher.service), and slice.in
-// to <id>.slice (the group of the server and the launcher, safeops.go).
+// to the install's slice (sliceUnit).
 func unitName(id, tmpl string) (string, bool) {
 	if tmpl == "slice.in" {
-		return id + ".slice", true
+		return sliceUnit(id), true
 	}
 	n := strings.TrimSuffix(tmpl, ".in")
 	if n == tmpl || !(strings.HasSuffix(n, ".service") || strings.HasSuffix(n, ".timer")) {
@@ -270,6 +275,9 @@ func renderUnits(in *Install, templates, out string) ([]string, bool, error) {
 		if err != nil {
 			return nil, false, fmt.Errorf("%s: %v", ent.Name(), err)
 		}
+		// the service templates say Slice=@ID@.slice (placeholders every released renderer knows: an older mycel-ctl
+		// renders new templates during `mycel-ctl update`); the slice's real name escapes "-" (sliceUnit)
+		text = strings.ReplaceAll(text, "\nSlice="+in.ID+".slice\n", "\nSlice="+sliceUnit(in.ID)+"\n")
 		dest := filepath.Join(out, name)
 		if old, err := os.ReadFile(dest); err != nil || string(old) != text {
 			if err := writeRootFile(dest, []byte(text), 0o644); err != nil {

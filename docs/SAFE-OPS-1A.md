@@ -36,7 +36,8 @@ After the release gates below have been approved, on the Linux systemd installat
 3. sets `MYCEL_SAFE_OPS_1A=1` in `/etc/default/<installation-id>` (other lines stay), which the
    server unit reads; an unset variable, `0`, or any value other than exactly `1` leaves new
    PPTX operations disabled;
-4. renders `<installation-id>.slice` with the bounded limits below and restarts the server and the
+4. renders the install's slice (`mycel.slice`; a dash in the id is written `_`, since in a slice name
+   it means "inside") with the bounded limits below and restarts the server and the
    launcher in a fresh slice (running replies stop; it waits up to `--max-wait` seconds, default 120).
 
 The bounds while 1A is on: `MemoryMax = min(4096, machine − 512) MiB`, `MemoryHigh = MemoryMax − 768 MiB`,
@@ -130,8 +131,8 @@ Every job also requires a finite common cgroup ancestor of the authenticated liv
 server and converter tree: at most 4 GiB memory, zero swap, 512 pids and four CPUs, with at
 least 640 MiB current memory headroom before admission. Missing engine membership or an
 unbounded common ancestor fails closed. The trusted turn registry supplies the engine PID;
-tool arguments cannot supply it. The systemd install runs the launcher and the server in
-`<installation-id>.slice`; `mycel-ctl safe-ops on` bounds it (above). Qualify it on the target host. This bounds their combined
+tool arguments cannot supply it. The systemd install runs the launcher and the server in one
+slice (`mycel.slice`); `mycel-ctl safe-ops on` bounds it (above). Qualify it on the target host. This bounds their combined
 resource use; it is not a per-turn engine scheduler, measured host I/O rate or tenant fairness.
 The headroom check is an admission snapshot, not an exclusive reservation against other tenants;
 the common ancestor hard limit remains enforced by the kernel.
