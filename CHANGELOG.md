@@ -5,8 +5,9 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-**Upgrade note:** migrations 215 and 322 are additive (reader 1). Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
+**Upgrade note:** migrations 214, 215 and 322 are additive (reader 1). Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
 
+- Sub-agents: like Claude Code's Agent tool, the AI can hand parts of a big request to up to 4 helper AIs at once. They work as the same person (same tools except asking the person, memories, schedules and the browser; the same access checks, cards and activity records) and their steps show under a "Sub-task" row. On by default; Admin > Team settings can turn it off. The model proxy now checks the tool names of every request, and the engine starts with `--restricted` and every unused built-in denied. Migration 214 (reader 1).
 - Scheduled tasks: when the AI creates one, a card shows the title, the schedule, the whole instruction and the web addresses in it; only those addresses open without asking in its runs, and a run's message no longer counts as typed by the person.
 - Web pages and search results: the AI opens at most 8 of their links per answer and 30 per conversation without asking; then each new one asks.
 - web_fetch and the in-app browser look a web address up only after the person allowed it; the desktop browser cancels requests it blocks without looking the name up.

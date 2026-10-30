@@ -3458,3 +3458,77 @@ app alone removed it.
   Mermaid, SVG, the desktop-app exception and file previews. `desktop/e2e/rtc-native.spec.ts`: `javascript:` frame;
   no names from the Electron shell. Unit: receiver order (`tests/unit/d-web.test.ts`), head second layer and policy
   (`web/test/unit/artifacts.test.ts`), the confidential flag (`tests/unit/safe-ops-confidential-flag.test.ts`).
+
+## Sub-agents (feat/subagents, 2026-10-30)
+
+Founder: "Trina should feel almost the same as Claude Code"; per-person permissions, audit and team skills are the
+deliberate differences. Plan `plans/subagents-2026-10-30/SUBAGENTS-PLAN.md`, independent review "approve with changes"
+(M1–M6, applied). Decisions taken on the reviewers' recommendation ("handle it yourself"): on by default with an admin
+switch; at most 4 at once, no nesting, 50 rounds per child, no per-answer cap on children's tool calls yet (measure
+first); children may write, with read state per child; Codex later.
+
+- **What.** Claude turns get Claude Code's `Agent` tool. The server writes two definitions per turn (`--agents
+  {TURN_DIR}/agents.json`): `general-purpose` (every tool of the turn except the main AI's own) and `Explore`
+  (read-only: list, glob, grep, read, search, drive_*, hwp_render, web_fetch), with WebSearch when the turn has it.
+  Claude Code's own names, so a call without `subagent_type` runs ours. `model: inherit`, `maxTurns` 50,
+  `omitClaudeMd`; no permissionMode, mcpServers, hooks, skills, memory, isolation or background.
+- **The main AI's own tools** (like Claude Code's AskUserQuestion): `ask_user`, `set_title`, `remember`/`forget`,
+  schedules, `generate_video` and the desktop browser. A child writes what it cannot decide into its report. Every tool
+  that patches its step (`TurnExec.patchToolStep`) is in this set, so its per-tool FIFO stays right.
+- **Same person, same checks.** A child's calls use the turn's one tool connection (verified: one `(connect)` per
+  turn), the same gate, `loadPrincipal` per call, the same cards (wider audience, team skills, URL gate), the same
+  taint and read scope, the same confidential refusals. Approved template runs get no Agent tool.
+- **Lockdown, in layers.** `--tools WebSearch,Agent`; definitions that name our tools exactly (never a built-in: a
+  definition listing Glob or Grep without Bash gets them back); `--disallowedTools` with every Claude built-in we do
+  not offer plus `Agent(fork)` (Glob and Grep with Bash), on every turn; `--restricted`; built-in agents, fork and
+  grandchildren off, every child on the turn's model (`CLAUDE_CODE_SUBAGENT_MODEL_FORCE`), auto memory off. The init
+  event must list only our tools, WebSearch where allowed and `Task` (2.1.305's name for Agent), and only our two
+  definitions. **The model proxy checks the tool names of every request** (M1): a child's tool list is decided inside
+  Claude Code and shows only in its own requests (not in init; deny rules refuse calls but leave the tools offered).
+  `proxy_tokens.tools` holds the attempt's policy; a request with any other name is refused, audited
+  (`proxy.refused`) and stops the answer with the `lockdown` error (`engine.lockdown` in the activity log). Office
+  mode's CONNECT tunnel cannot see requests: there the init check and the regression test carry it.
+- **The Agent tool's inputs** (M4). `isolation: "worktree"` fails (no git root is visible in the sandbox, and the
+  engine may only execute itself). `isolation: "remote"` would open a cloud session with a Mac's own login through the
+  office tunnel; `--restricted` turns it into a local child (2.1.305 code: remote is used only when available and not
+  restricted). Until someone has checked that with a real office login, confidential chats in local-login mode get
+  no Agent tool (`LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS`). `effort` is left to the model (cost only); `model` is not an
+  input with the force switch on.
+- **Stream** (M2). Children's `tool_use`/`tool_result` carry `parent_tool_use_id` without `--forward-subagent-text`
+  (not used). Children's text, thinking, partial events, refusal and API-error flags never reach the answer or the
+  turn's outcome (a child's refusal no longer could trigger the refusal retry). A failed child's `tool_use_result` is a
+  plain string: its sub-task is an error step, the answer goes on.
+- **Read before write, per child** (M3, option 2). `TurnFiles.readHashes` is per agent: the main AI's, and one per
+  sub-agent (`forAgent`), routed by Claude Code's `_meta["claudecode/toolUseId"]` on each MCP call and the stream's
+  `parent_tool_use_id`. The call waits up to 3 s for its stream line (measured: the line comes about 1 ms first); one
+  still unknown gets a fresh state of its own (fails closed). So a child cannot overwrite a file only its sibling or
+  the main AI read, a sibling's later write becomes a conflict copy, and the main AI reads again before changing what
+  a child wrote (Claude Code's subagents also start without the main session's file state). Read scope, write limits,
+  image budget and skill approvals stay per turn; safe-ops provenance binds every agent's reads (`allReads`).
+- **Limits.** The 50-round limit counts the main AI's rounds (children's do not, verified); each child has 50 rounds
+  (at its limit Claude Code hands back no report, so the children's instructions ask for one first). The 20 active and
+  45 total minutes include children: they run inside the answer. A card one child raised pauses the active clock while
+  other children go on; the total time bounds that. Stop ends the engine's process group, children included.
+  "Continue" after a pause tells the AI that cut-off sub-agents sent no report.
+- **No per-answer cap on children's tool calls** (M6). Measured instead: `turns.subagents`, `subagent_tool_uses`,
+  `subagent_tokens` and a log line per answer. Each sub-task keeps its latest 30 steps with the saved answer
+  (`Step.subtask.hidden` counts the others).
+- **Instructions.** Children get `--append-subagent-system-prompt-file`: our rules first (no shell, team paths, saving
+  is fine when asked, report before the step limit, read yourself before changing), where they run, the person and
+  folders, team rules, team skills, the project; never memories, history or browser rules. The main AI's prompt (and
+  the per-turn context of resumed sessions) says how many run at once and what a child has.
+- **Steps and audit.** A "Sub-task: <description>" step (`tool: 'agent'`, `Step.subtask` totals) with its children
+  (`Step.parentId`), like Claude Code's `Agent(...)` line; no new `StepKind`, so older apps show a flat list.
+  `tool_events.tool_use_id` / `parent_tool_use_id` tie every child call to its sub-task; the sub-task's start and end
+  rows hold its type and description, never its prompt or report. Scheduled runs count a child's failed steps like
+  the main AI's.
+- **Usage.** Managed: the proxy counts children's requests. Local-login: tokens come from `result.modelUsage`
+  (children included; `usage` alone is the main session's).
+- **Not in this stage.** Codex sub-agents (`multi_agent` stays off; `lockdown-codex.ts` unchanged), forks, user
+  definitions (`.claude/agents`), background children, a cap on children's tool calls.
+- **Tests.** `tests/engine/lockdown-claude-subagents.ts` (pinned Claude Code, scripted fake model, 35 checks, with and
+  without `--oauth`), `tests/unit/b-subagents.test.ts` (fake engine with concurrent children through the real
+  launcher, gate and bridge), `tests/unit/subagents.test.ts`, web units and e2e.
+- **Release gates.** The regression test on a Linux server (bwrap); one manual turn in office mode with a real login
+  calling `isolation: "remote"` (then `LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS` may go on); memory of four children under the
+  Linux turn limit; one real-model turn.
