@@ -727,7 +727,7 @@ export const es: Record<MessageKey, string> = {
   'schedules.review': "Revisar de nuevo",
   'schedules.reviewHint': "Se creó sin su tarjeta de confirmación, así que está en pausa. Revísela de nuevo para comprobar la instrucción y sus direcciones y reanudarla.",
   'schedules.reviewDone': "La tarea programada se reanudó.",
-  'schedules.reviewBanner': "{n} tareas programadas creadas sin su tarjeta de confirmación están en pausa. Vuelven a ejecutarse solo cuando las revise.",
+  'schedules.reviewBanner': "{n, plural, one {# tarea programada creada sin su tarjeta de confirmación está en pausa. Vuelve a ejecutarse solo cuando la revise.} other {# tareas programadas creadas sin su tarjeta de confirmación están en pausa. Vuelven a ejecutarse solo cuando las revise.}}",
   'schedules.reviewOpen': "Abrir tareas programadas",
   'schedules.pause': "Pausar",
   'schedules.resume': "Reanudar",

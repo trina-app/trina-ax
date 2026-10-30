@@ -11,10 +11,10 @@ import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
-
-type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
 import { Button, inputCls } from '../ui'
+
+type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
 export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'request'>; onAnswer?: (requestId: string, body: AnswerBody) => Promise<void> }) {
   const t = useT()

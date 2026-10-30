@@ -750,7 +750,7 @@ export const ko = {
   'schedules.review': '다시 확인',
   'schedules.reviewHint': '확인 카드 없이 만들어진 예약 작업이라 멈춰 뒀어요. 다시 확인하면 지시문과 주소를 보고 다시 켤 수 있어요.',
   'schedules.reviewDone': '예약 작업을 다시 켰어요.',
-  'schedules.reviewBanner': '확인 카드 없이 만들어진 예약 작업 {n}개를 멈춰 뒀어요. 다시 확인해야 다시 실행돼요.',
+  'schedules.reviewBanner': '확인 카드 없이 만들어진 예약 작업 {n}개를 멈춰 뒀어요. 확인해야 다시 실행돼요.',
   'schedules.reviewOpen': '예약 작업 보기',
   'schedules.pause': '끄기',
   'schedules.resume': '켜기',

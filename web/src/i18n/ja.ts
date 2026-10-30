@@ -727,7 +727,7 @@ export const ja: Record<MessageKey, string> = {
   'schedules.review': "再確認",
   'schedules.reviewHint': "確認カードなしで作成されたため一時停止しています。再確認すると指示とアドレスを確かめて再開できます。",
   'schedules.reviewDone': "定期タスクを再開しました。",
-  'schedules.reviewBanner': "確認カードなしで作成された定期タスク{n}件を一時停止しています。再確認すると再び実行されます。",
+  'schedules.reviewBanner': "確認カードなしで作成された定期タスク{n, plural, one {#件} other {#件}}を一時停止しています。再確認すると再び実行されます。",
   'schedules.reviewOpen': "定期タスクを開く",
   'schedules.pause': "一時停止",
   'schedules.resume': "再開",

@@ -751,7 +751,7 @@ export const en: Record<MessageKey, string> = {
   'schedules.review': 'Check again',
   'schedules.reviewHint': 'Made without its confirmation card, so it is paused. Check it again to review its instruction and addresses and resume it.',
   'schedules.reviewDone': 'The scheduled task is on again.',
-  'schedules.reviewBanner': '{n} scheduled tasks made without their confirmation card are paused. They run again only after you check them.',
+  'schedules.reviewBanner': '{n, plural, one {# scheduled task made without its confirmation card is paused. It runs again only after you check it.} other {# scheduled tasks made without their confirmation card are paused. They run again only after you check them.}}',
   'schedules.reviewOpen': 'Open scheduled tasks',
   'schedules.pause': 'Pause',
   'schedules.resume': 'Resume',
