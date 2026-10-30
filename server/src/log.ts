@@ -6,6 +6,10 @@ import path from 'node:path'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 const RANK: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 }
 const SECRET_KEY = /pass(word)?|token|secret|cookie|authorization|api[-_]?key|sid$/i
+/** usage counts are not secrets: a number under a plural "…tokens" key (tokens, input_tokens, subagentTokens) is shown.
+ * A credential is never a number, and a key like "token" or "accessToken" stays redacted whatever it holds. */
+const COUNT_KEY = /tokens$/i
+const isCount = (k: string, x: unknown) => typeof x === 'number' && Number.isFinite(x) && COUNT_KEY.test(k)
 
 export interface Logger {
   debug(msg: string, fields?: Record<string, unknown>): void
@@ -33,7 +37,7 @@ export function redact(v: unknown, depth = 0): unknown {
   if (v instanceof Error) return { name: v.name, message: v.message, stack: v.stack?.split('\n').slice(0, 8).join('\n') }
   if (Array.isArray(v)) return v.slice(0, 50).map((x) => redact(x, depth + 1))
   const out: Record<string, unknown> = {}
-  for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = SECRET_KEY.test(k) ? '[redacted]' : redact(x, depth + 1)
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = SECRET_KEY.test(k) && !isCount(k, x) ? '[redacted]' : redact(x, depth + 1)
   return out
 }
 

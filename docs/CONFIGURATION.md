@@ -12,6 +12,7 @@ Use the installer and Admin settings first. `server.json` is operator-owned depl
 | `MYCEL_DATA_DIR`, `MYCEL_TEAM_ROOT` | Database/private runtime and team-file roots; preserve ownership and keep them separate |
 | `MYCEL_PUBLIC_ORIGINS` | Comma-separated browser origins for the actual installation; wrong host/port causes cookie/origin problems |
 | `MYCEL_LOG_LEVEL` | debug/info/warn/error; inspect logs locally and redact before sharing |
+| `MYCEL_EXIT_ADDRESS_CHECK` | `off` stops the server from asking the release feed (`https://updates.trina.app/ip`) for its own public address. Without that address (and without a relay that reports it) every web address the AI opens needs a person, and scheduled tasks open none |
 | `TEAM_AX_DEV_DIR`, `TEAM_AX_DEV_PORT` | Development supervisor directory and server port; not production installer settings |
 | `engine.authMode` | `local-login` uses the OS user's CLI login; `managed` uses configured AI connections behind the proxy |
 | `engine.credentialKinds` | Operator can narrow permitted connection kinds; team settings cannot grant forbidden kinds |

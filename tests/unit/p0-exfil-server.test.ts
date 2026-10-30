@@ -285,7 +285,8 @@ describe('scheduled tasks (F1, review M4)', () => {
     h.rt().schedules.runDue(new Date(Date.now() + 4 * 86400_000))
     const chat = (h.ctx.db.query('SELECT last_chat_id FROM schedules WHERE id = ?').get(s.id) as { last_chat_id: string }).last_chat_id
     const done = await alice.next('message.done', (f) => f.data.chatId === chat, 30_000)
-    expect(done.data.message.content).toContain('did not allow')
+    // nobody is watching a run: no card is raised, and the AI is told so (not "the user did not allow")
+    expect(done.data.message.content).toContain('nobody can confirm it here')
     expect(looked(host)).toBe(0)
     const ev = h.ctx.db.query("SELECT ok FROM tool_events WHERE tool = 'web_fetch' AND summary LIKE ?").get(`%${host}%`) as { ok: number }
     expect(ev.ok).toBe(0)

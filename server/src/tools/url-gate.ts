@@ -19,7 +19,7 @@
 //     domain", but for one conversation;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
-//   and a card for every URL while the office's public exit address is unknown (tools/egress.ts).
+//   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
 // host name can carry data to the attacker's name server even when the person declines.
 // Not done here (follow-up): the "32 characters in common with a file read in this chat" check of ③ and the admin
@@ -92,6 +92,8 @@ export interface TurnPerson {
   choose?(question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<string | null>
   /** URLs of web search results seen so far in this turn (not saved to the answer yet) */
   turnUrls(): Iterable<string>
+  /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
+  unattended?: boolean
 }
 
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
@@ -267,9 +269,11 @@ export const TEXT = {
     id: 'AI ingin membuka alamat yang tidak muncul di percakapan ini. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIがこの会話に出ていないアドレスを開こうとしています。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La IA quiere abrir una dirección que no apareció en esta conversación. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
   },
   noEgress: {
-    ko: '팀 서버가 아직 사무실의 공인 주소를 몰라서, AI가 여는 주소가 사무실 안의 공유기나 기기로 되돌아오는지 확인할 수 없어요. 주소 전체를 확인해 주세요.\n\n{url}',
-    en: 'The team server does not know the office\'s public address yet, so it cannot tell whether this address leads back into the office (router, devices). Check the whole address:\n\n{url}',
-    id: 'Server tim belum mengetahui alamat publik kantor, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke dalam kantor (router, perangkat). Periksa seluruh alamatnya:\n\n{url}', ja: "チームサーバーはまだオフィスの公開アドレスを把握していないため、このアドレスが社内（ルーターや機器）に戻るか判断できません。アドレス全体を確認してください：\n\n{url}", es: "El servidor del equipo aún no conoce la dirección pública de la oficina y no puede saber si esta dirección lleva de vuelta a la red interna (router, dispositivos). Revise la dirección completa:\n\n{url}",
+    ko: '팀 서버가 아직 자기 공인 주소를 몰라서, AI가 여는 주소가 서버가 있는 네트워크(공유기, 기기)로 되돌아오는지 확인할 수 없어요. 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The team server does not know its own public address yet, so it cannot tell whether this address leads back into the server\'s own network (router, devices). Check the whole address:\n\n{url}',
+    id: 'Server tim belum mengetahui alamat publiknya sendiri, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke jaringan server itu sendiri (router, perangkat). Periksa seluruh alamatnya:\n\n{url}',
+    ja: 'チームサーバーはまだ自分の公開アドレスを把握していないため、このアドレスがサーバー自身のネットワーク（ルーターや機器）に戻るか判断できません。アドレス全体を確認してください：\n\n{url}',
+    es: 'El servidor del equipo aún no conoce su propia dirección pública y no puede saber si esta dirección lleva de vuelta a su propia red (router, dispositivos). Revise la dirección completa:\n\n{url}',
   },
   longQuery: {
     ko: 'AI가 여는 주소 뒤에 긴 내용이 붙어 있어요. 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
@@ -327,7 +331,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const parsed = new URL(url)
   const long = parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY
-  // the office's public exit address is not known yet (tools/egress.ts): no URL opens without the person
+  // this server's own public exit address is not known yet (tools/egress.ts): no URL opens without the person
   const noEgress = o.egressKnown === false
   // long random-looking parts of the address: a site allowance never covers them, the card marks them. Looked for in
   // the decoded address, so a Korean path (%ED%95%9C…) is words, not a random string; one that does not decode is
@@ -352,10 +356,13 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
       why = 'budget'
     }
   }
-  if (!person) {
+  // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
+  if (!person || person.unattended) {
     throw new ToolError(why === 'budget'
       ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed (${LINK_BUDGET.turn} per answer, ${LINK_BUDGET.chat} per chat), and nobody can confirm it here, so it was not opened`
-      : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
+      : why === 'noEgress'
+        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction (writing the address into a scheduled task does not change it); tell the user the server could not open web addresses this time'
+        : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
   }
   const L = person.locale
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)

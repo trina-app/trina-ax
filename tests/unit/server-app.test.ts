@@ -346,6 +346,18 @@ describe('logging', () => {
     createLogger({ level: 'warn', sink: (l) => quiet.push(l) }).info('x')
     expect(quiet.length).toBe(0)
   })
+  test('token counts are shown (QA 0.2.12 B4: "sub-agents of the answer" said tokens: [redacted]); tokens themselves are not', () => {
+    const lines: string[] = []
+    const log = createLogger({ level: 'debug', sink: (l) => lines.push(l) })
+    log.info('sub-agents of the answer', { turn: 't1', subagents: 6, toolUses: 6, tokens: 32705 })
+    expect(JSON.parse(lines[0]!)).toMatchObject({ subagents: 6, toolUses: 6, tokens: 32705 })
+    log.info('usage', { input_tokens: 10, usage: { output_tokens: 3, cache_read_input_tokens: 0 } })
+    expect(JSON.parse(lines[1]!)).toMatchObject({ input_tokens: 10, usage: { output_tokens: 3, cache_read_input_tokens: 0 } })
+    // a credential is never a number: every other value under a token-like key stays redacted, and a singular key
+    // ("token", "accessToken") whatever it holds
+    log.info('x', { tokens: 'sk-ant-oat01-abc', refreshTokens: ['r1'], tokensObj: 1, token: 123456, accessToken: 'eyJ', idTokens: { a: 'b' }, Tokens: Number.NaN })
+    expect(JSON.parse(lines[2]!)).toMatchObject({ tokens: '[redacted]', refreshTokens: '[redacted]', tokensObj: '[redacted]', token: '[redacted]', accessToken: '[redacted]', idTokens: '[redacted]', Tokens: '[redacted]' })
+  })
   test('daily files in the log dir', () => {
     const d = path.join(BASE, 'logs')
     fs.rmSync(d, { recursive: true, force: true })

@@ -9,7 +9,10 @@
 //   server/<version>/<file>.json and .sig  release.json, the bundles' file lists, signatures  never cached
 //   server/<version>/<file>                update archives and install kits                   immutable
 //   plugins/<id>/<version>/<file>          official plugin packages (docs/PLUGINS.md)          immutable
-// with Range for resumed downloads. Nothing is listed; every other path is 404. The signatures and the hashes in the
+//   ip                                     the caller's own address as Cloudflare saw it       never cached
+// with Range for resumed downloads. Nothing is listed; every other path is 404. `ip` is how a team server learns its
+// public exit address (server/src/tools/egress.ts: web_fetch refuses it, so a page cannot send the AI back through the
+// server's own router); it answers only what the caller already knows, and keeps nothing. The signatures and the hashes in the
 // manifests are what the installations trust, not this server (scripts/release/publish.ts, publish-server.ts); a plugin
 // package is trusted only by the digests pinned in the official list inside the signed release.
 const DIR = 'office'
@@ -30,6 +33,12 @@ export default {
     try { key = decodeURIComponent(url.pathname).replace(/^\/+/, '') } catch { return text(404, 'Not found\n') }
     // publish-server.ts checks this line before it uploads: a Worker deployed before server/ was served says only "Office updates"
     if (key === '') return text(200, `Updates: ${DIR}/, server/, plugins/\n`)
+    if (key === 'ip') {
+      // with Cloudflare's pseudo-IPv4 on, CF-Connecting-IP may be a made-up IPv4 address and the real one is here
+      const ip = req.headers.get('cf-connecting-ipv6') || req.headers.get('cf-connecting-ip') || ''
+      if (!/^[0-9A-Fa-f.:]{2,45}$/.test(ip)) return text(404, 'Not found\n')
+      return text(200, `${ip}\n`)
+    }
     if (!KEY.test(key)) return text(404, 'Not found\n')
     const obj = await env.BUCKET.get(key, { range: req.headers, onlyIf: req.headers })
     if (obj === null) return text(404, 'Not found\n')

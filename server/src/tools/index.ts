@@ -12,7 +12,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
 import { deckSummary, PPTX_FORMAT_HINT } from './pptx-check'
 import { toolRegistry } from './registry'
-import { egressOf } from './egress'
+import { egressOf, egressSettled } from './egress'
 import { registerHiggsfield } from './higgsfield'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
@@ -127,6 +127,8 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
       const blockedIps = () => egressOf(ctx).ips
       precheckTarget(a.url, { ...o.fetch, blockedIps })
       const chatId = t.turnId ? (ctx.db.query('SELECT chat_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+      // right after a start the server may still be learning its exit address (tools/egress.ts): a moment, not a card
+      await egressSettled(ctx)
       const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown: egressOf(ctx).known, turnId: t.turnId, userId: t.user.id })
       const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext })
       ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })

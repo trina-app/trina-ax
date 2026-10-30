@@ -26,6 +26,8 @@ export interface CodexPathDeps {
   refused: (row: TokenRow | null, reason: string, extra?: Record<string, unknown>) => void
   admit: (req: Request) => Promise<TokenRow | Response>
   log?: { warn(msg: string, f?: Record<string, unknown>): void }
+  /** the engine hung up while the answer streamed (model-proxy.ts: logged when its turn was stopped) */
+  onStreamCancel?: () => void
 }
 
 /** request headers that reach the upstream (Codex 0.163's own headers, C8); everything else is dropped, the engine's
@@ -290,7 +292,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
           scan(value)
         } catch (e) { done(); ctl.error(e) }
       },
-      cancel() { done(); abort.abort(); reader.cancel().catch(() => {}) },
+      cancel() { done(); abort.abort(); reader.cancel().catch(() => {}); d.onStreamCancel?.() },
     }, { highWaterMark: 0 })
     return new Response(stream, { status: up.status, headers: outHeaders })
   }

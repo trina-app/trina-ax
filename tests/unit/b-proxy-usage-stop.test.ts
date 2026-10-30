@@ -7,6 +7,8 @@
 //       error, the upstream request is cancelled, the log says it was the person's stop (never "the model service
 //       could not be reached"), and nothing is counted or marked against the AI connection
 //       (sub-agents: each child's request, sent with the turn's token at the same time, is the same stop)
+//   B3 (0.2.12 pre-release QA) the Stop button while the answer already streams: one info line, like the stop of a
+//       request still waiting (a Codex answer stopped mid-stream left none)
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -24,6 +26,7 @@ const enc = new TextEncoder()
 
 // ---------------- fake model services ----------------
 let hold = false
+let holdStream = false
 let holding = 0
 let aborted = 0
 const ev = (o: { type: string; [k: string]: unknown }) => `event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`
@@ -38,6 +41,20 @@ const up = Bun.serve({
       holding++
       await new Promise<void>((r) => req.signal.addEventListener('abort', () => { aborted++; r() }))
       return new Response(null, { status: 499 })
+    }
+    if (holdStream) {
+      // the answer has begun (head and first events sent), then nothing until the engine hangs up
+      holding++
+      const codex = u.pathname === '/backend-api/codex/responses'
+      const first = codex
+        ? ev({ type: 'response.created', response: { id: 'resp_1', status: 'in_progress', model: 'gpt-5.4', output: [], usage: null } }) + ev({ type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, content_index: 0, delta: 'streaming' })
+        : ev({ type: 'message_start', message: { model: 'claude-sonnet-4-5', usage: { input_tokens: 10, output_tokens: 1 } } }) + ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'streaming' } })
+      return new Response(new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(first))
+          req.signal.addEventListener('abort', () => { aborted++; try { c.close() } catch {} })
+        },
+      }), { headers: codex ? {} : { 'content-type': 'text/event-stream' } })
     }
     if (u.pathname === '/backend-api/codex/responses') {
       // as chatgpt.com answers: named events, usage only in response.completed, no content-type; the end a moment later
@@ -160,4 +177,30 @@ describe('B5 with sub-agents: Stop while two children wait for the model', () =>
       expect(getRow(h.ctx.db, K)).toMatchObject({ status: 'ok', status_code: null, limited_until: null })
     } finally { hold = false }
   })
+})
+
+describe('B3: Stop while the answer streams', () => {
+  for (const engine of ['claude-code', 'codex'] as const) {
+    test(`${engine}: one info line for the person's stop, no warning`, async () => {
+      lines.length = 0; holding = 0; aborted = 0; holdStream = true
+      try {
+        const chat = await newChat(engine)
+        const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ modelAny: 'stream' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+        // the answer's head and first events went out: the request is mid-stream (Claude's first words reach the
+        // person; Codex, like `codex exec --json`, shows its message only when the item is complete)
+        expect(await waitFor(() => holding === 1, { timeoutMs: 20_000 })).toBe(true)
+        if (engine === 'claude-code') await alice.next('message.delta', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+        else await Bun.sleep(300)
+        expect((await h.api('alice').call(API.stop, { params: { id: chat.id } })).stopped).toBe(true)
+        const done = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+        expect(done.data.status).toBe('stopped')
+        const path = engine === 'codex' ? '/codex/chatgpt/responses' : '/v1/messages'
+        expect(await waitFor(() => proxyLines().some((l) => l.msg === 'model proxy: request ended by a stop'), { timeoutMs: 5000 })).toBe(true)
+        await Bun.sleep(200)
+        expect(proxyLines().map(({ level, msg, path: p, turn, by }) => ({ level, msg, path: p, turn, by }))).toEqual([
+          { level: 'info', msg: 'model proxy: request ended by a stop', path, turn: r.turnId, by: 'person' }])
+        expect(h.ctx.db.query('SELECT status, error FROM turns WHERE id = ?').get(r.turnId)).toEqual({ status: 'stopped', error: null })
+      } finally { holdStream = false }
+    })
+  }
 })

@@ -18,12 +18,17 @@ import { eventEnabled } from '../../server/src/notifications/preferences'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { gateUrl } from '../../server/src/tools/url-gate'
+import { noteEgressIp } from '../../server/src/tools/egress'
 import { WORK } from '../lib/env'
 
 setDefaultTimeout(60_000)
 
 let h: Harness
-beforeAll(async () => { h = await startHarness({ name: 'schedule-review', askUserTimeoutMs: 3000 }) })
+beforeAll(async () => {
+  h = await startHarness({ name: 'schedule-review', askUserTimeoutMs: 3000 })
+  // this server knows its exit address (tools/egress.ts), so the card can promise unattended opens
+  noteEgressIp(h.ctx, '198.51.100.7')
+})
 afterAll(async () => { await h?.close() })
 
 const secretUrl = 'https://feeds.attacker.example/r/c2fsyxj5ltk4nzy1ndmy'

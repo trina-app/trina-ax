@@ -19,6 +19,8 @@ These are install requirements, not a capacity benchmark. One installation is on
 
 Linux servers run no OCR. When the AI reads a photo or a scanned PDF page it sees the image itself (Admin > Team settings, "Send images and PDF pages to the AI", on by default), and scanned documents and photos are not text-searchable, as with Claude Code's own search. The installer no longer installs tesseract.
 
+The server learns its own public address from the release feed (`https://updates.trina.app/ip`, once over IPv4 and once over IPv6, at start and every 30 minutes) and refuses web addresses the AI opens that lead back to it (through the router or NAT in front of the server). While it does not know it (no internet, or that outbound connection blocked), every web address the AI opens needs a person and scheduled tasks open none. `MYCEL_EXIT_ADDRESS_CHECK=off` in `/etc/default/mycel` stops the check (the server then keeps asking).
+
 HWP/HWPX text extraction is available. Visual previews are the optional HWP Preview plugin: installing it from the official list in Admin > Plugins makes the server download the pinned build over https from the release feed (the address updates come from), so that outbound connection must be open. Default release kits do not include the rhwp executable. Debian 12 does not support visual previews and Admin > Plugins says so (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md).
 
 ## Download, verify, check

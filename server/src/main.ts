@@ -19,6 +19,7 @@ import { reloadManagedFiles } from './system/managed'
 import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
 import { guardOfficeClaudeJson } from './engine/claude-json-guard'
 import { setupServerCgroups } from './system/cgroups'
+import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -144,6 +145,12 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   // network path exists before the first turn (the codex-login CLI tunnels through the proxy). A failure is logged
   // and retried on first use.
   if (cfg.mode === 'prod') void ctx.core().catch(() => {})
+  // this server's public exit address, for web_fetch's hairpin rule (tools/egress.ts): learned from the release feed on
+  // every installed kind (production, office); dev learns it from its local relay. Never under `bun test`.
+  if ((cfg.mode === 'prod' || cfg.office) && process.env.NODE_ENV !== 'test') {
+    if (exitAddressCheckOff()) log.info('exit address check is off (MYCEL_EXIT_ADDRESS_CHECK): unless a relay reports it, every web address the AI opens needs a person')
+    else startEgressLearning(ctx)
+  }
   if (cfg.setupToken) {
     // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
     if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)

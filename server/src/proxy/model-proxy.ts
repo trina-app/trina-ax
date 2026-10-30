@@ -118,6 +118,8 @@ export interface ProxyOpts {
 
 /** Turn.stop(): 'stopped' = the person (the Stop button, the chat deleted), 'timeout' = a time limit, 'shutdown' */
 export type TurnStopReason = 'stopped' | 'timeout' | 'shutdown'
+/** the `by` of the log line of a request a stop ended */
+const stopBy = (why: TurnStopReason) => (why === 'stopped' ? 'person' : why === 'timeout' ? 'time_limit' : 'shutdown')
 
 /** answers the proxy gives on purpose (Codex's background calls, ./codex-path.ts): not logged as failures */
 const EXPECTED = new WeakSet<Response>()
@@ -265,6 +267,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         return handleCodex(req, url, {
           db, broker: o.broker, codexModels: o.codexModels ?? (() => []), onTurnEvent: o.onTurnEvent, refused: refusedAudit, log: o.log,
           admit: (r) => admit(r, clientPort, 'openai', url.pathname),
+          onStreamCancel: () => streamEndedByStop(req, url.pathname.slice(0, 120)),
         })
       }
       if (!url.pathname.startsWith('/v1/')) return apiError(404, 'not_found_error', 'not found')
@@ -390,7 +393,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
               ctl.error(e)
             }
           },
-          cancel() { done(); abort.abort(); reader.cancel().catch(() => {}) },
+          cancel() { done(); abort.abort(); reader.cancel().catch(() => {}); streamEndedByStop(req, url.pathname.slice(0, 120)) },
         }, { highWaterMark: 0 })
         return new Response(stream, { status: up.status, headers: outHeaders })
       }
@@ -449,12 +452,22 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     let why: TurnStopReason | null = null
     try { why = t ? o.stopReason?.(t.turnId) ?? null : null } catch {}
     if (why) {
-      o.log?.info?.('model proxy: request ended by a stop', { path, turn: t!.turnId, by: why === 'stopped' ? 'person' : why === 'timeout' ? 'time_limit' : 'shutdown' })
+      o.log?.info?.('model proxy: request ended by a stop', { path, turn: t!.turnId, by: stopBy(why) })
       return true
     }
     if (!hungUp) return false
     o.log?.warn('model proxy: the engine hung up before its answer', { path, ...(t ? { turn: t.turnId } : {}) })
     return true
+  }
+  /** The engine hung up while an answer streamed (the stream was cancelled): the same info line when its turn was
+   * stopped (QA 2026-10-30 B3: a Codex answer stopped mid-stream left no line at all). Nothing otherwise: Codex hangs
+   * up by itself after response.completed, and an engine that stops reading for another reason is not this request's
+   * failure. */
+  function streamEndedByStop(req: Request, path: string): void {
+    const t = turnOf.get(req)
+    let why: TurnStopReason | null = null
+    try { why = t ? o.stopReason?.(t.turnId) ?? null : null } catch {}
+    if (why) o.log?.info?.('model proxy: request ended by a stop', { path, turn: t!.turnId, by: stopBy(why) })
   }
   const onConnect = o.connect ? codexConnectHandler({ db, ...o.connect }) : null
   const sockets = new Set<net.Socket>()

@@ -141,6 +141,8 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       return (await choose(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)) === 'allow'
     },
     *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
+    // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined"
+    unattended: exec.spec.clientKind === 'schedule',
   }
 }
 

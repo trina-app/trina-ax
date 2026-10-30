@@ -23,6 +23,15 @@ export const FILE_STEP_VERB: Record<string, T> = {
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre"),
   artifact: t('아티팩트', 'Artifact', 'Artefak', "アーティファクト", "Artefacto"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
+  hwp_render: t('한글 문서 쪽 보기', 'View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"),
+  search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
+  schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
+  schedule_list: t('예약 작업 보기', 'List scheduled tasks', 'Lihat tugas terjadwal', "定期タスクを一覧表示", "Listar tareas programadas"),
+  schedule_delete: t('예약 작업 지우기', 'Delete scheduled task', 'Hapus tugas terjadwal', "定期タスクを削除", "Eliminar tarea programada"),
+  drive_search: t('Google Drive 검색', 'Search Google Drive', 'Cari di Google Drive', "Google ドライブを検索", "Buscar en Google Drive"),
+  drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive"),
+  drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive"),
+  generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video"),
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
@@ -101,6 +110,13 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
+    case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
+    case 'search': case 'drive_search': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
+    case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`
+    case 'schedule_delete': return `${verb} · ${clip(a.id, 40)}`
+    case 'drive_list': return a.folderId && a.folderId !== 'root' ? `${verb} · ${clip(a.folderId, 60)}` : verb!
+    case 'drive_read': return `${verb} · ${clip(a.fileId, 60)}`
+    case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)

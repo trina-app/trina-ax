@@ -15,6 +15,7 @@ import { ToolError } from '../policy/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { describeSchedule, needsReview, ScheduleInput, zonedParts, type ScheduleInput as ScheduleInputT, type ScheduleRow } from '../chat/schedules'
 import { usable } from '../integrations/connections/store'
+import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
 import { extractUrls, opaqueParts, type ConfirmExtra } from './url-gate'
 
@@ -61,6 +62,13 @@ export const TEXT = {
     ja: '実行のたびに下の{n}件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
     es: 'En cada ejecución abre sin preguntar las {n} direcciones de abajo. Una dirección puede sacar datos; revise cada una completa.',
   } satisfies L5,
+  urlsBlocked: {
+    ko: '아래 주소 {n}개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 주소마다 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'On this server, runs cannot open the {n} addresses below yet: the team server does not know its own public address, so each address needs a person to confirm it, and nobody is there during a run. Once the server knows it, runs open them without asking. An address can carry data out, so check each one in full.',
+    id: 'Di server ini, tugas belum bisa membuka {n} alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi setiap alamat perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
+    ja: 'このサーバーでは、実行時に下の{n}件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、アドレスごとに人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'En este servidor, las ejecuciones aún no pueden abrir las {n} direcciones de abajo: el servidor del equipo no conoce su propia dirección pública, así que cada dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor la conozca, las abrirá sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
+  } satisfies L5,
   opaque: {
     ko: '알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
     en: 'It contains long strings that are hard to read (highlighted). They can carry data; check what they are.',
@@ -79,6 +87,10 @@ export const TEXT = {
   labelUrls: {
     ko: '실행 때 묻지 않고 여는 주소', en: 'Addresses opened without asking on each run', id: 'Alamat yang dibuka tanpa bertanya setiap kali berjalan',
     ja: '実行時に確認なしで開くアドレス', es: 'Direcciones que abre sin preguntar en cada ejecución',
+  } satisfies L5,
+  labelUrlsBlocked: {
+    ko: '지시문의 주소(지금은 실행 때 열 수 없음)', en: 'Addresses in the instruction (runs cannot open them yet)', id: 'Alamat dalam instruksi (belum bisa dibuka saat berjalan)',
+    ja: '指示内のアドレス（実行時はまだ開けません）', es: 'Direcciones de la instrucción (las ejecuciones aún no pueden abrirlas)',
   } satisfies L5,
   create: { ko: '만들기', en: 'Create', id: 'Buat', ja: '作成する', es: 'Crear' } satisfies L5,
   createWrite: { ko: '만들기(연결 서비스에 보내기 허용)', en: 'Create, may send to those services', id: 'Buat, boleh mengirim ke layanan itu', ja: '作成する（そのサービスへの送信を許可）', es: 'Crear y permitir enviar a esos servicios' } satisfies L5,
@@ -102,17 +114,20 @@ export function scheduleWhen(s: Pick<ScheduleInputT, 'repeat' | 'time' | 'weekda
 }
 
 /** The schedule card: what the run will do, unattended, and what it may open or send without asking. 'create': the
- * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts). */
-export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: 'create' | 'review' = 'create'): { question: string; urls: string[]; extra: ConfirmExtra } {
+ * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts).
+ * `urlsOpen`: can a run open addresses without a person on this server now? Not while it does not know its own exit
+ * address (tools/egress.ts egressOf): then every address needs a person, and the card says so instead of promising. */
+export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: 'create' | 'review' = 'create', o: { urlsOpen?: boolean } = {}): { question: string; urls: string[]; extra: ConfirmExtra } {
+  const open = o.urlsOpen !== false
   const urls = [...new Set(extractUrls(input.prompt))]
   const promptMarks = opaqueParts(input.prompt)
   // the title is the AI's: one line, so it cannot add lines that look like the server's own
   const lines = [fill(TEXT[mode === 'review' ? 'reviewQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L) })]
-  if (urls.length) lines.push(fill(TEXT.urls[L], { n: String(urls.length) }))
+  if (urls.length) lines.push(fill(TEXT[open ? 'urls' : 'urlsBlocked'][L], { n: String(urls.length) }))
   if (promptMarks.length) lines.push(TEXT.opaque[L])
   if (connections.length) lines.push(fill(TEXT.connections[L], { names: connections.join(', ') }))
   const details = [{ label: TEXT.labelPrompt[L], text: input.prompt, ...(promptMarks.length ? { marks: promptMarks } : {}) }]
-  if (urls.length) { const t = urls.join('\n'); const m = opaqueParts(t); details.push({ label: TEXT.labelUrls[L], text: t, ...(m.length ? { marks: m } : {}) }) }
+  if (urls.length) { const t = urls.join('\n'); const m = opaqueParts(t); details.push({ label: TEXT[open ? 'labelUrls' : 'labelUrlsBlocked'][L], text: t, ...(m.length ? { marks: m } : {}) }) }
   return { question: lines.join('\n\n'), urls, extra: { details } }
 }
 
@@ -158,14 +173,18 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       if (!person) throw new ToolError('a scheduled task runs with nobody watching, so the user confirms it on a card first; nobody can confirm it here, so it was not created. Ask the user to create it in a chat.')
       const L = person.locale
       const writable = writableConnections(ctx, t.user.id)
-      const card = scheduleCard(parsed.data, writable.map((r) => r.name), L)
+      // the card says what a run can open on this server (right after a start, once the exit address check has had a moment)
+      await egressSettled(ctx)
+      const urlsOpen = egressOf(ctx).known
+      const card = scheduleCard(parsed.data, writable.map((r) => r.name), L, 'create', { urlsOpen })
       const options = scheduleOptions(L, writable.length > 0)
       const answer = person.choose
         ? await person.choose(card.question, options, card.extra)
         : (await person.confirm(card.question, TEXT.create[L], TEXT.deny[L], card.extra)) ? 'create' : null
       if (answer !== 'create' && answer !== 'create_write') throw new ToolError('the user did not allow this scheduled task, so it was not created. Do not try again unless the user asks; tell the user it was not created.')
       const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: answer === 'create_write' ? writable.map((r) => r.id) : [] })
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Settings › Scheduled tasks.`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      const blocked = !urlsOpen && card.urls.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Settings › Scheduled tasks.${blocked}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({

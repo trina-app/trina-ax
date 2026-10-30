@@ -3726,3 +3726,62 @@ asks once per domain ("Yes, and don't ask again for this domain").
   any card; a sub-agent opening the site without a card), `p0-exfil-server.test.ts` (adjusted to the choice card),
   `web/test/e2e/exfil-followups.spec.ts`.
 
+
+## Exit address on every install (fix/pre-0212, 2026-10-30)
+
+The 0.2.12 pre-release QA (plans/qa-real-2026-10-30, B1) found that a server without a relay — qa-test, Linux behind a
+Cloudflare tunnel, as INSTALL-LINUX's public-address path; likely hosted servers too — never knew its public exit
+address. Every `web_fetch` then asked with an "office public address" card (also for addresses the person typed, so the
+link budget never applied), and the AI schedule card promised "opens without asking on each run" while every run was
+refused. The founder left it to us; decision: keep the protection, make every install learn the address.
+
+- **What the rule protects against.** web_fetch runs as the server account, outside the engine firewall. A page the AI
+  fetched sees the address our request came from and can link to it; a fetch of that address goes out and comes back
+  through the router or NAT in front of the server (hairpin NAT): an office router's admin page, a NAS or camera behind
+  a port forward, or what a cloud host answers on its own public address. Private, local and on-link addresses were
+  already refused by the address rules; the exit address is a public one, so it has to be known to be refused. While
+  unknown, every address needs a person (`url-gate.ts` `noEgress`). Office installs learned it only from the relay's
+  handshake (`AuthOk.seenIp`, the control connection's CF-Connecting-IP).
+- **How every install learns it now (`tools/egress.ts`).** At start and every 30 minutes (±10 %), the server asks the
+  release feed's new `GET /ip` (`scripts/release/worker.js`: the caller's `CF-Connecting-IPv6`, else `CF-Connecting-IP`,
+  as plain text, `no-store`), once over IPv4 and once over IPv6, the way web_fetch's own requests leave: the system
+  resolver, the feed's address checked by web_fetch's rules, a raw socket pinned to it (`pinnedRequest`, no proxy from
+  the environment), TLS to the feed's name. The answer must be one public address (64 bytes at most). Learned
+  addresses join the relay's in the list web_fetch and connected services refuse on every hop (8 kept; an old one stays
+  refused). The address itself is not logged. Production and office mode only (`main.ts`; dev learns it from its local
+  relay, `bun test` never starts it).
+- **"Known"** = since this start, the relay reported an address, or the feed told the IPv4 one, or the IPv6 one while the
+  machine has no IPv4 (no IPv4 address of its own, or ENETUNREACH / EADDRNOTAVAIL / EAFNOSUPPORT). IPv6 alone is not
+  enough on a machine with IPv4: that one is the NAT'd one. An answer of the other family than asked is refused but
+  counts for neither. While IPv4 is not known the server asks again after 1, 2, 5, 10, then every 30 minutes.
+- **Fail-safe when unknown, as before.** No internet, the feed blocked, an older feed Worker (404), or
+  `MYCEL_EXIT_ADDRESS_CHECK=off`: every web address asks, unattended runs open none. Hosted servers may reach the feed
+  already (HWP plugin downloads; the tenant chain blocks only private ranges), self-installs need outbound https to it
+  (INSTALL-LINUX). Right after a start, web_fetch and the schedule card wait for the first round (at most 6 s) instead of
+  asking at once. The card wording no longer names an office ("its own public address", 해요체).
+- **Unattended runs say why.** A scheduled run's person is marked `unattended`: the gate raises no card (it could only
+  go unanswered) and tells the AI "nobody can confirm it here" — while the exit address is unknown, with the reason and
+  that writing the address into the task changes nothing (QA: the AI told the person to do exactly that).
+- **Schedule cards say what a run will do here.** `scheduleCard(…, { urlsOpen })` (create and "다시 확인"): while the
+  address is unknown the card says runs cannot open its addresses yet, and why, and its list is "addresses in the
+  instruction"; the AI's result says so too. The addresses are still stored as the card showed them, so runs open them
+  once the server knows its address. The review card's request id covers the task, not the wording, so a change of
+  state between showing and answering does not void the answer.
+- **Limits.** A server whose requests leave from more than one address (several uplinks, per-destination policy
+  routing) learns the one its requests to the feed use, like the relay. A changed office address is refused from the
+  next round on (≤ 30 minutes; the relay reconnects at once). The feed sees each server's address every 30 minutes (it
+  sees it on update checks too); `MYCEL_EXIT_ADDRESS_CHECK=off` opts out. The answer is trusted like the relay's
+  seenIp (our own infrastructure, over TLS to its name), not signed like updates: a wrong answer from a compromised
+  feed would lose this one check only (private, local and on-link addresses stay refused, and the card rules apply).
+- **Deploy.** The feed Worker must be redeployed once (`bun scripts/release/hosting.ts setup`); until then `/ip` is 404
+  and servers keep asking, as in 0.2.11. The change is one new path; every other path answers as before.
+- Also in this change (same QA): step labels in five languages for `hwp_render`, `search`, the schedule and Drive tools
+  and `generate_video` (raw names before); a Stop that ends an answer while it streams logs the same info line as one
+  that ends a waiting request (Codex and Claude; before, nothing); the log shows token *counts* (a finite number under a
+  plural "…tokens" key) instead of `[redacted]` — the redactor matches "token" in key names, a credential is never a
+  number, and `token`, `accessToken` or any non-number stay redacted.
+- Tests: `tests/unit/egress-learn.test.ts` (a fake feed on loopback over IPv4 and IPv6, stubbed lookups and interfaces:
+  both families, 404, garbage, private and swapped answers, no IPv4, no route, the learner's rounds, back-off and log
+  lines, waiting for the first round, the gate and web_fetch before and after, unattended runs, both schedule cards in
+  five languages), `feed-worker-ip.test.ts`, `step-labels-tools.test.ts`, `b-proxy-usage-stop.test.ts` (B3),
+  `server-app.test.ts` (log counts).

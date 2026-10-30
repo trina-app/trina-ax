@@ -14,12 +14,14 @@ import { HttpError } from '../http/errors'
 import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { needsReview, nextRun, type ScheduleRow } from './schedules'
+import { egressOf } from '../tools/egress'
 import { scheduleCard, scheduleOptions, writableConnections } from '../tools/schedules'
 
 function build(ctx: AppContext, s: ScheduleRow, L: Locale) {
   const writable = writableConnections(ctx, s.user_id)
   const input = { title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? undefined, day: s.day ?? undefined, date: s.date ?? undefined }
-  const card = scheduleCard(input, writable.map((r) => r.name), L, 'review')
+  // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
+  const card = scheduleCard(input, writable.map((r) => r.name), L, 'review', { urlsOpen: egressOf(ctx).known })
   const options = scheduleOptions(L, writable.length > 0, 'review')
   // what the answer approves: the task as it is and the connections offered (not the wording, which follows the language)
   const requestId = 'schedule-review-' + crypto.createHash('sha256').update(JSON.stringify({
