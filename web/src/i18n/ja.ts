@@ -1333,6 +1333,8 @@ export const ja: Record<MessageKey, string> = {
   'notice.open': "開く",
   'admin.credentials': "AI接続",
   'credentials.desc': "チームのAIが回答に使うアカウントです。1つの接続をチーム全体で利用できます。",
+  'credentials.apiEngineHint': "OpenRouter、Gemini、ローカルモデルは「AIエンジン › APIエンジン」で接続します。",
+  'credentials.apiEngineHintLink': "AIエンジンへ",
   'credentials.add': "接続を追加",
   'credentials.group.claude': "Claude",
   'credentials.group.codex': "Codex",

@@ -1369,6 +1369,8 @@ export const ko = {
   'notice.open': '열기',
   'admin.credentials': 'AI 연결',
   'credentials.desc': '팀원의 AI가 답할 때 쓰는 계정이에요. 연결 하나로 팀 전체가 쓸 수 있어요.',
+  'credentials.apiEngineHint': 'OpenRouter·Gemini·로컬 모델은 AI 엔진 › API 엔진에서 연결해요.',
+  'credentials.apiEngineHintLink': 'AI 엔진으로 가기',
   'credentials.add': '연결 추가',
   'credentials.group.claude': 'Claude',
   'credentials.group.codex': 'Codex',

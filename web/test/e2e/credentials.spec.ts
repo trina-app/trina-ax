@@ -15,6 +15,9 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.goto('/admin/credentials')
   await expect(page.getByRole('heading', { name: 'AI 연결' }).first()).toBeVisible()
   await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
+  // other providers are the API engine's, not a Claude or Codex connection: the page says where they go
+  await expect(page.getByTestId('credentials-api-engine-hint')).toHaveText('OpenRouter·Gemini·로컬 모델은 AI 엔진 › API 엔진에서 연결해요. AI 엔진으로 가기')
+  await expect(page.getByTestId('credentials-api-engine-hint').getByRole('link', { name: 'AI 엔진으로 가기' })).toHaveAttribute('href', '/admin/engines')
 
   // Sharing is off until the owner reads and confirms the warning. Cancelling does not opt in.
   const sharing = page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')

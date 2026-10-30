@@ -1370,6 +1370,8 @@ export const id: Record<MessageKey, string> = {
   'notice.open': 'Buka',
   'admin.credentials': 'Koneksi AI',
   'credentials.desc': 'Akun yang dipakai AI tim untuk menjawab. Satu koneksi bisa dipakai seluruh tim.',
+  'credentials.apiEngineHint': 'OpenRouter, Gemini, dan model lokal dihubungkan di Mesin AI › Mesin API.',
+  'credentials.apiEngineHintLink': 'Ke Mesin AI',
   'credentials.add': 'Tambah koneksi',
   'credentials.group.claude': 'Claude',
   'credentials.group.codex': 'Codex',

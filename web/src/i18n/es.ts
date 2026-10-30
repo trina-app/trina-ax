@@ -1333,6 +1333,8 @@ export const es: Record<MessageKey, string> = {
   'notice.open': "Abrir",
   'admin.credentials': "Conexiones de IA",
   'credentials.desc': "Las cuentas con las que responde la IA de su equipo. Una conexión puede servir a todo el equipo.",
+  'credentials.apiEngineHint': "OpenRouter, Gemini y los modelos locales se conectan en Motores de IA › Motor API.",
+  'credentials.apiEngineHintLink': "Ir a Motores de IA",
   'credentials.add': "Añadir conexión",
   'credentials.group.claude': "Claude",
   'credentials.group.codex': "Codex",

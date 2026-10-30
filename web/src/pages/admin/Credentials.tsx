@@ -6,6 +6,7 @@
 // is a member's own list, when the team allows it.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Credential, CredentialAssignment, CredentialKind, CredentialLogin, CredentialsResponse, Group, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
@@ -84,6 +85,11 @@ export default function Credentials() {
             desc={t('credentials.desc')}
             actions={owner ? <Button size="sm" variant="primary" onClick={() => setAdding(true)} data-testid="credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}
           >
+            {/* the connections here are for Claude and Codex only; other providers are the API engine's (one key there) */}
+            <p className="mb-4 text-xs text-muted" data-testid="credentials-api-engine-hint">
+              {t('credentials.apiEngineHint')}{' '}
+              <Link to="/admin/engines" className="font-medium text-accent-text underline">{t('credentials.apiEngineHintLink')}</Link>
+            </p>
             {(['claude', 'codex'] as const).map((fam) => {
               const list = d.items.filter((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind))
               return (

@@ -1370,6 +1370,8 @@ export const en: Record<MessageKey, string> = {
   'notice.open': 'Open',
   'admin.credentials': 'AI connections',
   'credentials.desc': 'The accounts your team\'s AI answers with. One connection can serve the whole team.',
+  'credentials.apiEngineHint': 'OpenRouter, Gemini and local models are connected in AI engines › API engine.',
+  'credentials.apiEngineHintLink': 'Go to AI engines',
   'credentials.add': 'Add connection',
   'credentials.group.claude': 'Claude',
   'credentials.group.codex': 'Codex',
