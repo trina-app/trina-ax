@@ -201,7 +201,9 @@ const SKILL_LIST_MAX = 50
  * runs this turn (the schedule owner for a scheduled run): the list holds the team skills the folder rules let them
  * read and their own personal skills, never anyone else's. */
 export function skillsSection(files: FileService, user: Principal): string {
-  const skills = listSkills(files, user).slice(0, SKILL_LIST_MAX)
+  // personal skills first, so many team skills cannot push them out of the capped index
+  const all = listSkills(files, user)
+  const skills = [...all.filter((s) => isPersonalSkill(s.path)), ...all.filter((s) => !isPersonalSkill(s.path))].slice(0, SKILL_LIST_MAX)
   // skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders
   const rules = files.rules()
   const writable = ['skills', ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith('skills/') && f.split('/').length <= 3)]

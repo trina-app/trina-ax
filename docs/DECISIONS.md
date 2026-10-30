@@ -2935,7 +2935,7 @@ only themselves. The owner chose the safest defaults for the open questions:
 - Personal skill usage is not recorded in `turn_skill_usage`: Admin > Usage shows skill paths and names to
   admins. Popular skills count team skills only.
 - A file without a skill header in `users/<me>/skills/` is not a team rule. Team rules stay `skills/*.md`.
-- Each root (`skills/` and the personal folder) has its own entry cap, so team skills cannot push personal skills
-  out of the list.
+- Each root (`skills/` and the personal folder) has its own entry cap, and the prompt index (50 entries) puts
+  personal skills first, so team skills cannot push personal skills out.
 - The AI can write a personal skill in the person's own folder without the `skills/` confirmation card, because
   nobody else follows it. Its name and description go into that person's own prompt index only.

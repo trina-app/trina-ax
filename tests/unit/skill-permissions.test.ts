@@ -192,6 +192,14 @@ describe('turns through the chat runtime (HTTP, no WebSocket)', () => {
     expect(sys).not.toContain(MINE)
   })
 
+  test('a personal skill can be suggested to the team: the suggester and the managers of skills/ see it, nobody else', async () => {
+    const made = await h.api('alice').call(API.createSkillSuggestion, { body: { source: { kind: 'file', path: 'users/alice/skills/weekly.md' }, targetFolder: 'skills', name: 'Weekly mine', description: '', content: 'my own weekly steps' } })
+    for (const user of ['alice', 'carol', 'dana']) expect((await h.api(user).call(API.getSkillSuggestion, { params: { id: made.id } })).source.path).toBe('users/alice/skills/weekly.md')
+    for (const user of ['bob', 'erin']) expect((await h.req(user, `/api/skills/suggestions/${made.id}`)).status).toBe(404)
+    // a suggestion does not make the personal skill visible to anyone else
+    expect(JSON.stringify((await h.api('carol').call(API.listSkills)).items)).not.toContain(MINE)
+  })
+
   test('a scheduled run uses the skills of the schedule owner', async () => {
     const rt = h.rt()
     const run = async (user: string, prompt: string) => {
