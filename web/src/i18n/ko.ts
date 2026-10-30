@@ -236,8 +236,9 @@ export const ko = {
 
   'composer.label': '메시지',
   'composer.placeholder': '무엇이든 물어보세요',
-  "composer.answerPlaceholder": "AI의 질문에 대한 답을 입력하세요",
-  "composer.answering": "보내면 이 질문에 대한 답이 돼요: {question}",
+  "composer.answerPlaceholder": "AI의 질문에 답해 주세요",
+  "composer.answering": "보내면 이 질문의 답이 돼요: {question}",
+  "composer.answerTooLong": "답은 {n}자까지 보낼 수 있어요. 줄여서 다시 보내 주세요.",
   "composer.sendAnswer": "답 보내기",
   'skills.menu': '팀 스킬',
   'skills.hint': 'Enter로 고르기 · Esc로 닫기',

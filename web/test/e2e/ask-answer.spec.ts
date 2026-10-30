@@ -24,9 +24,11 @@ test('the message box answers the open question with the typed text; files attac
   await expect(card).toContainText('어느 분기를 볼까요?')
   const input = page.getByTestId('composer-input')
   // the box says that sending answers the question, and which one
-  await expect(input).toHaveAttribute('placeholder', 'AI의 질문에 대한 답을 입력하세요')
-  await expect(page.getByTestId('composer-answering')).toHaveText('보내면 이 질문에 대한 답이 돼요: 어느 분기를 볼까요?')
-  await expect(input).toHaveAccessibleDescription('보내면 이 질문에 대한 답이 돼요: 어느 분기를 볼까요?')
+  await expect(input).toHaveAttribute('placeholder', 'AI의 질문에 답해 주세요')
+  await expect(page.getByTestId('composer-answering')).toHaveText('보내면 이 질문의 답이 돼요: 어느 분기를 볼까요?')
+  // the typed answer goes to the AI: the same line as under the card's own text box
+  await expect(page.getByTestId('composer-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
+  await expect(input).toHaveAccessibleDescription('보내면 이 질문의 답이 돼요: 어느 분기를 볼까요? 비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
   await page.getByTestId('file-input').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('q3 numbers') })
   await expect(page.getByTestId('attachment-chip')).toContainText('notes.txt')
   await expect(page.getByTestId('send-answer')).toHaveCount(0)
@@ -44,6 +46,7 @@ test('the message box answers the open question with the typed text; files attac
   await expect(page.getByTestId('outbox')).toHaveCount(0)
   await expect(page.getByTestId('user-message')).toHaveCount(1)
   await expect(page.getByTestId('composer-answering')).toHaveCount(0)
+  await expect(page.getByTestId('composer-no-secrets')).toHaveCount(0)
   // the attached file was not part of the answer: it is still in the box for the next message
   await expect(page.getByTestId('attachment-chip')).toContainText('notes.txt')
   await expect(input).toHaveAttribute('placeholder', '무엇이든 물어보세요')
@@ -64,6 +67,25 @@ test('a question that takes several answers: what is ticked on the card goes alo
   expect((await answered).postDataJSON()).toEqual({ kind: 'ask_user', requestId: 'q1', answer: ['q3', '연간 합계도요'] })
   await expect(card).toHaveCount(0)
   await expect(lastAnswer(page)).toContainText('You chose ["q3","연간 합계도요"]')
+})
+
+test('an answer longer than an answer can be says so before sending and keeps the text', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'ask me with multi choice')
+  await expect(page.getByTestId('ask-card')).toBeVisible()
+  let answers = 0
+  page.on('request', (r) => {
+    if (isAnswer(r)) answers++
+  })
+  const input = page.getByTestId('composer-input')
+  const long = 'x'.repeat(1001)
+  await input.fill(long)
+  await page.getByTestId('send-answer').click()
+  await expect(page.getByRole('alert').filter({ hasText: '답은 1,000자까지 보낼 수 있어요.' })).toBeVisible()
+  await expect(input).toHaveValue(long)
+  await expect(page.getByTestId('ask-card')).toBeVisible()
+  expect(answers).toBe(0)
 })
 
 test('a server safety check is never answered from the box: the message waits and the box says to choose first', async ({ page }) => {

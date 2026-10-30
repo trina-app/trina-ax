@@ -239,6 +239,7 @@ export const en: Record<MessageKey, string> = {
   'composer.placeholder': 'Ask anything',
   "composer.answerPlaceholder": "Type your answer to the AI's question",
   "composer.answering": "Your message will answer: {question}",
+  "composer.answerTooLong": "Too long for an answer (character limit: {n}). Shorten it and send again.",
   "composer.sendAnswer": "Send answer",
   'skills.menu': 'Team skills',
   'skills.hint': 'Enter to choose · Esc to close',

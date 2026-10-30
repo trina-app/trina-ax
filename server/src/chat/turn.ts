@@ -997,12 +997,20 @@ export class TurnExec {
     })
   }
 
-  /** POST /api/turns/:id/answer. false = no such open request (already answered / expired). */
-  answer(requestId: string, kind: TurnRequest['kind'], value: unknown): boolean {
+  /** POST /api/turns/:id/answer. 'closed' = no such open request (already answered / expired); 'not_an_option' = a
+   * safety check of the server (origin 'server') answered with anything but one of its own options or no answer: those
+   * are decided by their buttons only, so typed text is refused whatever the app sends (before, it counted as "no").
+   * The option's value itself ('allow', 'save') is accepted from any client; the web app never types into these cards. */
+  answer(requestId: string, kind: TurnRequest['kind'], value: unknown): 'ok' | 'closed' | 'not_an_option' {
     const r = this.requests.get(requestId)
-    if (!r || r.request.kind !== kind) return false
+    if (!r || r.request.kind !== kind) return 'closed'
+    if (r.request.kind === 'ask_user' && r.request.origin === 'server' && value !== null) {
+      const options = new Set((r.request.options ?? []).map((o) => o.value))
+      const one = Array.isArray(value) && value.length === 1 ? value[0] : value
+      if (typeof one !== 'string' || !options.has(one)) return 'not_an_option'
+    }
     this.closeRequest(requestId, value, 'answered')
-    return true
+    return 'ok'
   }
 
   openRequests(): { request: TurnRequest; window: string | null }[] { return [...this.requests.values()].map((r) => ({ request: r.request, window: r.window })) }

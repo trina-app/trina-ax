@@ -227,6 +227,7 @@ export const es: Record<MessageKey, string> = {
   'composer.placeholder': "Pregunte lo que necesite",
   "composer.answerPlaceholder": "Escriba su respuesta a la pregunta de la IA",
   "composer.answering": "Su mensaje responderá: {question}",
+  "composer.answerTooLong": "Una respuesta puede tener hasta {n} caracteres. Acórtela y vuelva a enviarla.",
   "composer.sendAnswer": "Enviar respuesta",
   'skills.menu': "Habilidades del equipo",
   'skills.hint': "Enter para elegir · Esc para cerrar",

@@ -478,6 +478,24 @@ describe('memories', () => {
     expect((h.ctx.db.query("SELECT COUNT(*) n FROM memories WHERE text = 'Likes durian'").get() as { n: number }).n).toBe(0)
   })
 
+  test('a safety check of the server takes only its own options: typed text is refused and the card stays open', async () => {
+    const chat = await newChat()
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { tool: 'remember', args: { text: 'Owns the Q3 report' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+    const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
+    expect(card.data.request).toMatchObject({ kind: 'ask_user', origin: 'server' })
+    const post = (answer: unknown) => h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer }) })
+    for (const typed of ['네, 기억해 주세요', 'Yes', ['yes', 'no'], ['yes, please'], []]) {
+      const res = await post(typed)
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('validation')
+    }
+    expect((await h.api('alice').call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+    // its own button still decides
+    expect((await post('yes')).status).toBe(204)
+    const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    expect(JSON.parse(d.data.message.content)).toHaveProperty('id')
+  })
+
   test('too long memories are refused; REST delete one / clear all (own only)', async () => {
     const chat = await newChat()
     const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(301) }, sayResult: true }))

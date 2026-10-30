@@ -3036,21 +3036,30 @@ only themselves. The owner chose the safest defaults for the open questions:
   like Claude Code's AskUserQuestion (typing is the "Other" answer), sending from the message box **answers the open
   question** with the typed text through the same `POST /api/turns/:id/answer` as the card. The box says so: its
   placeholder asks for the answer, a line above the text names the question, and the button next to Stop is "Send
-  answer". The API and the contract are unchanged (web `lib/askAnswer.ts`; on the server only the tool description).
+  answer". Under that line, as under the card's own text box, "Don't give the AI passwords or verification codes"
+  (the typed answer goes to the AI). The send answers the question the line named, never one that opened meanwhile.
+  The contract is unchanged (web `lib/askAnswer.ts`; on the server the tool description and the check below; the
+  answer limits are named `ASK_ANSWER_MAX` / `ASK_ANSWER_ITEM_MAX`, same values).
 - Only the AI's own questions. The server's safety checks (`origin: 'server'`: an unseen address, saving where more
   people see it, remember after outside content, skills) and browser site confirmations are decided by their own
   buttons only, never by typed text: a message typed meanwhile waits as before, and the placeholder says to choose
-  above first.
+  above first. The server holds to this too: an answer to its own check must be one of the card's options (or no
+  answer); anything else is refused (400 `validation`, "This check takes only the buttons on its card.") and the card
+  stays open, where before a typed text was taken as a "no". A browser site confirmation already took only its own
+  three decisions. Not covered: a client that sends the option's value itself (`allow`, `yes`, `save`) as typed text;
+  the web app never sends typed text to these cards.
 - The answer is the text alone. Files attached meanwhile stay in the box for the next message (an answer carries no
-  attachments). A question with several answers (`multiple`) gets the options ticked on the card plus the text; a
+  attachments). Longer than an answer can be (10,000 characters, 1,000 on a question with several answers; a message
+  may have 200,000): the box says so before sending and keeps the text. A question with several answers (`multiple`) gets the options ticked on the card plus the text; a
   single-answer question gets the text, which replaces a pick (as typing in the card's own box does). A question
   without a text box (`allowText: false`) is still answered: the person can always use their own words, and the tool
   description now tells the AI so.
 - Several questions open at once (the AI asked more than one in parallel): each send answers the oldest one, the one
   shown first; the line above the text names it. One card holds one question.
 - Another window answered first, or the card timed out: the card and the answering line close in every window
-  (`turn.request.closed`) and the text stays in the box. A send that met a card closed meanwhile shows the server's
-  reason ("This question was already answered or has expired.") and keeps the text.
+  (`turn.request.closed`) and the text stays in the box. A send in the moment the card closed (this window had not
+  heard yet) goes like any message, waiting for the answer to finish; one the server no longer takes shows its reason
+  ("This question was already answered or has expired.") and keeps the text.
 
 ## A step the time limit cut off is paused, not failed (feat/chat-followups, 2026-10-30)
 

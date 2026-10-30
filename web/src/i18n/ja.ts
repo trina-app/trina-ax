@@ -227,6 +227,7 @@ export const ja: Record<MessageKey, string> = {
   'composer.placeholder': "何でも質問してください",
   "composer.answerPlaceholder": "AIの質問への回答を入力",
   "composer.answering": "送信するとこの質問への回答になります：{question}",
+  "composer.answerTooLong": "回答は{n}文字までです。短くしてから送信してください。",
   "composer.sendAnswer": "回答を送信",
   'skills.menu': "チームスキル",
   'skills.hint': "Enterで選択 · Escで閉じる",

@@ -312,7 +312,9 @@ export const chatsRoutes: RouteModule = {
       if (!t || t.user_id !== auth.user.id) fail('not_found')
       const exec = rt.execFor(params.id)
       const value = body.kind === 'ask_user' ? body.answer : body.decision
-      if (!exec || !exec.answer(body.requestId, body.kind, value)) fail('conflict', tr('requestClosed', c.get('locale')))
+      const done = exec ? exec.answer(body.requestId, body.kind, value) : 'closed'
+      if (done === 'closed') fail('conflict', tr('requestClosed', c.get('locale')))
+      if (done === 'not_an_option') fail('validation', tr('answerNotOption', c.get('locale')))
     })
 
     // ---------------- projects ----------------

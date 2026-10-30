@@ -479,17 +479,23 @@ export default function Composer({
           <>
             {skillMenu.menu}
             {answering && (
-              <p id={answeringId} className="flex items-center gap-1.5 px-5 pt-3 text-xs text-muted" data-testid="composer-answering">
-                <MessageCircleQuestion size={13} className="shrink-0 text-accent-text" aria-hidden />
-                <span className="min-w-0 truncate">{t('composer.answering', { question: answering.question.slice(0, 300) })}</span>
-              </p>
+              <div className="space-y-0.5 px-5 pt-3 text-xs">
+                <p id={answeringId} className="flex items-center gap-1.5 text-muted" data-testid="composer-answering">
+                  <MessageCircleQuestion size={13} className="shrink-0 text-accent-text" aria-hidden />
+                  <span className="min-w-0 truncate">{t('composer.answering', { question: answering.question.slice(0, 300) })}</span>
+                </p>
+                {/* like under the card's own text box (tab 5 "확인 카드"): the typed answer goes to the AI */}
+                <p id={`${answeringId}-secrets`} className="text-faint" data-testid="composer-no-secrets">
+                  {t('ask.noSecrets')}
+                </p>
+              </div>
             )}
             <textarea
               ref={taRef}
               rows={1}
               value={text}
               aria-label={t('composer.label')}
-              aria-describedby={answering ? answeringId : undefined}
+              aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : undefined}
               onChange={(e) => setText(e.target.value)}
               onPaste={(e) => {
                 const pasted = Array.from(e.clipboardData.files)

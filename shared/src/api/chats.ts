@@ -105,12 +105,15 @@ export const SelectBranchBody = z.object({ messageId: Uuid7 })
 export const StopResponse = z.object({ stopped: z.boolean(), turnId: Uuid7.nullable() })
 
 // ---------------- ask_user / browser site confirmation ----------------
+/** the longest answer to a question (one text), and the longest of each when it takes several */
+export const ASK_ANSWER_MAX = 10_000
+export const ASK_ANSWER_ITEM_MAX = 1000
 export const TurnAnswerBody = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('ask_user'),
     requestId: z.string().min(1).max(100),
     /** null = skipped */
-    answer: z.union([z.string().max(10_000), z.array(z.string().max(1000)).max(20)]).nullable(),
+    answer: z.union([z.string().max(ASK_ANSWER_MAX), z.array(z.string().max(ASK_ANSWER_ITEM_MAX)).max(20)]).nullable(),
   }),
   z.object({
     kind: z.literal('browser_site'),

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Link, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
+import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
@@ -195,12 +195,15 @@ function ChatView({ chatId }: { chatId: string }) {
 
   /** Sent from the message box while the AI waits for the answer to its question: the text answers it, like the card's
    * own box ("Other" in Claude Code). On a question with several answers the options ticked on the card go along. */
-  const onAnswer = async (text: string) => {
-    const q = composerQuestion(useChats.getState().requests, chatId)
+  const onAnswer = async (requestId: string, text: string) => {
+    // the question the box named, never another one that opened meanwhile
+    const q = useChats.getState().requests[requestId]
     // the card closed in the moment before (answered in another window, timed out): the text goes like any message
-    if (!q) return onSend(text, [])
+    if (q?.request.kind !== 'ask_user' || q.request.origin === 'server') return onSend(text, [])
+    const max = answerTooLong(q.request, text)
+    if (max) throw new Error(t('composer.answerTooLong', { n: max.toLocaleString(locale) }))
     stick.current = true
-    await useChats.getState().answer(q.request.requestId, { kind: 'ask_user', answer: composerAnswer(q.request, picksOf(q.request.requestId), text) })
+    await useChats.getState().answer(requestId, { kind: 'ask_user', answer: composerAnswer(q.request, picksOf(requestId), text) })
   }
 
   /** "이어서 하기" under an answer that paused at the per-answer limit: a plain message in this chat; the server tells
@@ -272,7 +275,7 @@ function ChatView({ chatId }: { chatId: string }) {
             ensureChat={async () => chatId}
             running={busy}
             onSend={onSend}
-            answering={question ? { question: question.request.question, onAnswer } : undefined}
+            answering={question ? { question: question.request.question, onAnswer: (text) => onAnswer(question.request.requestId, text) } : undefined}
             choiceWaiting={choosing}
             onStop={() => stop(chatId)}
             engine={{ engine: chat?.engine, model: chat?.model }}

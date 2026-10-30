@@ -2,7 +2,7 @@
 // answers, and the answer it gives.
 import { describe, expect, test } from 'bun:test'
 import type { TurnRequest } from '@mycel/shared/api'
-import { choiceWaiting, composerAnswer, composerQuestion, forgetPicks, picksOf, rememberPicks, type AskUserRequest } from '../../src/lib/askAnswer'
+import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, forgetPicks, picksOf, rememberPicks, type AskUserRequest } from '../../src/lib/askAnswer'
 import type { OpenRequest } from '../../src/store/chats'
 
 const CHAT = '0192f0a0-0000-7000-8000-00000000c001'
@@ -60,6 +60,16 @@ describe('the answer a message gives', () => {
     expect(composerAnswer(q, ['q4', 'q3'], 'and the yearly total')).toEqual(['q4', 'q3', 'and the yearly total'])
     expect(composerAnswer(q, [], 'only the total')).toEqual(['only the total'])
     expect(composerAnswer(q, ['gone'], 'x')).toEqual(['x'])
+  })
+
+  test('an answer longer than the API takes is caught before sending (a message may be much longer)', () => {
+    const one = question('q')
+    const several = question('q', { multiple: true })
+    expect(answerTooLong(one, 'x'.repeat(10_000))).toBeNull()
+    expect(answerTooLong(one, ` ${'x'.repeat(10_000)} \n`)).toBeNull()
+    expect(answerTooLong(one, 'x'.repeat(10_001))).toBe(10_000)
+    expect(answerTooLong(several, 'x'.repeat(1000))).toBeNull()
+    expect(answerTooLong(several, 'x'.repeat(1001))).toBe(1000)
   })
 
   test('what an open card has ticked is known until it closes', () => {

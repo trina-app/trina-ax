@@ -6,7 +6,7 @@
 // Never answered from the message box: the server's own safety checks (origin 'server': open an unseen address,
 // save where more people see it, ...) and browser site confirmations. A typed "yes" must not pass for a decision
 // that only their buttons make; messages typed meanwhile wait like during any answer.
-import type { TurnRequest } from '@mycel/shared/api'
+import { ASK_ANSWER_ITEM_MAX, ASK_ANSWER_MAX, type TurnRequest } from '@mycel/shared/api'
 import type { OpenRequest } from '../store/chats'
 
 export type AskUserRequest = Extract<TurnRequest, { kind: 'ask_user' }>
@@ -39,6 +39,13 @@ export function composerAnswer(request: AskUserRequest, picked: readonly string[
   if (!request.multiple) return own
   const valid = new Set((request.options ?? []).map((o) => o.value))
   return [...picked.filter((v) => valid.has(v)), own]
+}
+
+/** The most characters the typed text may have as an answer to this question (the API's limit), when it has more;
+ * null when it fits. A message may be much longer than an answer: this says so instead of a refused request. */
+export function answerTooLong(request: AskUserRequest, text: string): number | null {
+  const max = request.multiple ? ASK_ANSWER_ITEM_MAX : ASK_ANSWER_MAX
+  return text.trim().length > max ? max : null
 }
 
 // ---------------- what the open cards of this window have ticked ----------------
