@@ -14,13 +14,15 @@ import { PluginManager, pluginsOf } from '../../server/src/plugins/manager'
 import { PackageError, verifyPackage } from '../../server/src/plugins/package'
 import { listSkills } from '../../server/src/chat/skills'
 import { pinCatalog, formatCatalog } from '../../scripts/plugins/pin-catalog'
-import { PLUGIN_FEED_BASE } from '../../scripts/plugins/release-hwp'
+import { PLUGIN_FEED_BASE, uploadPlan } from '../../scripts/plugins/release-hwp'
+import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { catalogDir, manifestDigest, noKeyTrust, pinnedEntry, skillPack } from '../lib/plugins'
 
 setDefaultTimeout(60_000)
 const ID = 'app.trina.office-starter'
 const ORIGIN = 'https://feed.example'
+const RELEASE_FEED = RELEASE_CHANNEL.feed
 const sha256 = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex')
 const PUBLIC = async () => [{ address: '93.184.216.34', family: 4 }]
 const build = (version = '1.0.0') => skillPack({ version, keyPem: null }).bytes
@@ -119,6 +121,47 @@ describe('installing from the official list by download', () => {
     expect((await fromList()).body.error.params.reason).toBe('download')
     expect(f.calls).toEqual([])
     expect(app.ctx.db.query('SELECT COUNT(*) AS n FROM plugin_installs').get()).toEqual({ n: 0 })
+  })
+
+  test('an address off the feed is refused before any name is looked up; one download per plugin at a time', async () => {
+    const bytes = build()
+    const looked: string[] = []
+    const f = useList([pinnedEntry([pinFor(bytes, '1.0.0', { url: 'https://elsewhere.example/x.trinaplugin' })])], {}, { 'https://elsewhere.example/x.trinaplugin': bytes })
+    m.reconfigure({ download: { fetch: f.fetch, lookup: async (h) => { looked.push(h); return PUBLIC() }, origin: ORIGIN } })
+    expect((await fromList()).body.error.params).toMatchObject({ reason: 'download', detail: 'the package address is not on the release feed' })
+    expect(looked).toEqual([])
+    expect(f.calls).toEqual([])
+    // a second "Install" while the first download runs is refused, and the first one still completes
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    useList([pinnedEntry([pinFor(bytes)])], {}, {})
+    m.reconfigure({ download: { lookup: PUBLIC, origin: ORIGIN, fetch: (async () => { await gate; return new Response(new Uint8Array(bytes)) }) as unknown as typeof fetch } })
+    const first = fromList()
+    await new Promise((r) => setTimeout(r, 50))
+    expect((await fromList()).body.error.params).toMatchObject({ reason: 'download', detail: 'this plugin is already being downloaded' })
+    release()
+    const plan = (await first).body
+    expect(plan).toMatchObject({ id: ID, trust: 'official', verifiedBy: 'release' })
+    // finished: the next request downloads again
+    const again = await fromList()
+    expect(again.body).toMatchObject({ id: ID, trust: 'official' })
+    expect(app.ctx.db.query('SELECT COUNT(*) AS n FROM plugin_installs').get()).toEqual({ n: 0 })
+  })
+
+  test('the release script never replaces a file already on the feed with other bytes', async () => {
+    const a = build(), b = build('1.0.1')
+    const file = (n: string) => `dist/${n}.trinaplugin`
+    const base = `${RELEASE_FEED}/plugins/app.trina.hwp-preview/1.0.0/`
+    const served: Record<string, Uint8Array> = { [`${base}same.trinaplugin`]: a, [`${base}other.trinaplugin`]: b }
+    const f = (async (url: string) => {
+      const hit = served[url.replace(/\?.*$/, '')]
+      return hit ? new Response(new Uint8Array(hit)) : new Response('Not found\n', { status: 404 })
+    }) as unknown as typeof fetch
+    expect(await uploadPlan([{ file: file('same'), bytes: a }, { file: file('new'), bytes: a }], f)).toEqual([
+      { file: file('same'), key: 'plugins/app.trina.hwp-preview/1.0.0/same.trinaplugin', skip: true },
+      { file: file('new'), key: 'plugins/app.trina.hwp-preview/1.0.0/new.trinaplugin', skip: false },
+    ])
+    await expect(uploadPlan([{ file: file('new'), bytes: a }, { file: file('other'), bytes: a }], f)).rejects.toThrow(/already published with other bytes/)
   })
 
   test('a server the build cannot run on (glibc older than 2.39) says so and downloads nothing', async () => {

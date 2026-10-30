@@ -59,7 +59,10 @@ export interface PluginOptions {
   download?: { fetch?: typeof fetch; lookup?: Lookup; origin?: string }
 }
 
-const DOWNLOAD_TIMEOUT_MS = 5 * 60_000
+/** The whole download runs inside the admin's request: it must end (and say why) before the HTTP server drops an idle
+ * connection (main.ts idleTimeout 120 s) and before the relay gives up on the answer (100 s). 90 s is about 1.5 Mbit/s
+ * for the largest HWP build. */
+const DOWNLOAD_TIMEOUT_MS = 90_000
 
 interface Plan { token: string; actor: string; expires: number; file: string; archiveSha256: string; manifestSha256: string; source: 'file' | 'catalog' | 'import'; id: string; version: string }
 interface PackageRow { plugin_id: string; version: string; archive_sha256: string; manifest_sha256: string; manifest: string; signature: string | null; trust: 'official' | 'test' | 'unverified'; key_id: string | null; source: 'file' | 'catalog' | 'import'; store_dir: string; installed_by: string | null; installed_at: string }
@@ -79,6 +82,7 @@ export class PluginManager {
   private download: NonNullable<PluginOptions['download']> = {}
   private catalogCache: LoadedCatalog | null = null
   private plans = new Map<string, Plan>()
+  private downloading = new Set<string>()
   private engines = new Map<string, NativeHwpEngine>()
   private roots: { rel: string; key: string; plugin: string }[] | null = null
   private storeRefused = false
@@ -519,9 +523,12 @@ export class PluginManager {
    * before anything opens the bytes. */
   private async fetchPinned(d: NonNullable<CatalogPin['download']>): Promise<Buffer> {
     const origin = this.download.origin ?? new URL(RELEASE_CHANNEL.feed).origin
+    // the feed's origin first, so no other name is ever looked up
+    let at: string | null = null
+    try { at = new URL(d.url).origin } catch { /* refused below */ }
+    if (at !== origin) return refuse('download', 'conflict', 'the package address is not on the release feed')
     let url: URL
     try { url = await assertPublicHttps(d.url, { lookup: this.download.lookup }) } catch (e) { return refuse('download', 'conflict', (e as Error).message) }
-    if (url.origin !== origin) return refuse('download', 'conflict', 'the package address is not on the release feed')
     const max = Math.min(d.size, PLUGIN_DOWNLOAD_MAX)
     let r: Response
     try { r = await (this.download.fetch ?? fetch)(url.href, { redirect: 'error', signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) }) } catch (e) { return refuse('download', 'conflict', (e as Error).message) }
@@ -565,7 +572,10 @@ export class PluginManager {
     } else {
       const d = pins.find((p) => p.download)?.download
       if (!d) return refuse('not_available', 'conflict')
-      bytes = await this.fetchPinned(d)
+      // one download per plugin at a time (each holds up to the listed size in memory)
+      if (this.downloading.has(e.id)) return refuse('download', 'conflict', 'this plugin is already being downloaded')
+      this.downloading.add(e.id)
+      try { bytes = await this.fetchPinned(d) } finally { this.downloading.delete(e.id) }
     }
     const plan = this.inspect(actor, bytes, 'catalog', locale)
     if (plan.id !== e.id || plan.version !== e.version) { this.drop(plan.token); return refuse('tampered', 'validation', 'the package is not the catalog entry') }
