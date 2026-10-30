@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { HwpReason, type HwpPage } from '@mycel/shared/hwp'
 import { api, API, isApiError } from '../../lib/api'
 import { useT } from '../../i18n'
+import { isAdmin, useMe } from '../../store/session'
 import { Button } from '../ui'
 
 /** Shared web/Electron/WebView viewer. Only server-produced PNG pixels enter the page. */
 export default function HwpView({ path, download }: { path: string; download: () => void }) {
   const t = useT()
+  const me = useMe()
   const [page, setPage] = useState(1)
   const [revision, retry] = useState(0)
   const [shown, setShown] = useState<{ url: string; meta: HwpPage } | null>(null)
@@ -29,6 +31,8 @@ export default function HwpView({ path, download }: { path: string; download: ()
   }, [path, page, revision])
   if (reason) return <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
     <p className="text-sm text-muted" role="status">{reason === 'missing' ? t('preview.notFound') : t(`hwp.${reason}`)}</p>
+    {/* the HWP Preview plugin is off or missing: admins learn where to add it (docs/PLUGINS.md) */}
+    {reason === 'disabled' && isAdmin(me) && <a className="text-sm text-accent-text underline" href="/admin/plugins" data-testid="hwp-plugins-link">{t('hwp.disabledAdmin')}</a>}
     {reason !== 'missing' && <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">{t('common.download')}</Button>}
     <Button variant="secondary" onClick={() => retry(n => n + 1)}>{t('common.retry')}</Button>
   </div>

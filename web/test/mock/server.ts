@@ -30,6 +30,7 @@ import type { Credential, CredentialKind, CredentialLogin } from '@mycel/shared/
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationTool } from '@mycel/shared/api'
 import os from 'node:os'
 import path from 'node:path'
+import { MockPlugins } from './plugins'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
@@ -132,6 +133,7 @@ export class MockServer {
   /** External services (like server/src/integrations): personal and team connections. Keys and tokens are kept apart
    * and never go back out (only `hasSecret`). */
   integrations: MockIntegration[] = []
+  plugins = new MockPlugins()
   integrationSecrets = new Map<string, string>()
   integrationFlows = new Map<string, { flow: IntegrationFlow; integrationId: string; userId: string; polls: number }>()
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
@@ -188,6 +190,7 @@ export class MockServer {
     this.credSharedSubscriptions = false
     this.credLogins.clear()
     this.integrations = []
+    this.plugins.reset()
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
     this.settings = defaultSettings()
@@ -337,8 +340,8 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         features: this.cloud
-          ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false }
-          : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true },
+          ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
+          : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
       },
       passwordReset: this.resets.get(u.id) ?? null,
     }
@@ -1351,6 +1354,28 @@ export class MockServer {
       return f.flow
     },
     listTeamIntegrations: (c) => ({ items: this.integrations.filter((x) => x.scope === 'team').map((x) => this.integrationView(x, c.user)) }),
+
+    // Admin > Plugins (web/test/mock/plugins.ts)
+    listPlugins: (c) => this.plugins.list(c.user.locale ?? 'ko', this.settings.defaultLocale),
+    inspectPluginFile: (c) => {
+      const r = this.plugins.inspectFile(c.file!.name, c.user.id, c.user.locale ?? 'ko')
+      if ('reason' in r) throw new Fail('validation', 400, undefined, undefined, { reason: r.reason })
+      return r
+    },
+    inspectPluginSource: (c) => {
+      const r = c.body.source === 'catalog' ? this.plugins.inspectCatalog(c.body.id, c.user.id, c.user.locale ?? 'ko') : { reason: 'import_missing' }
+      if ('reason' in r) throw new Fail('conflict', 409, undefined, undefined, { reason: r.reason })
+      return r
+    },
+    installPlugin: (c) => {
+      const r = this.plugins.install(c.body.token, c.body.manifestSha256, c.body.enable, { id: c.user.id, name: c.user.name })
+      if ('reason' in r) throw new Fail(r.status === 410 ? 'gone' : 'conflict', r.status, undefined, undefined, { reason: r.reason })
+      return { status: 201, body: r }
+    },
+    enablePlugin: (c) => this.plugins.set(c.params.id, true) ?? fail('not_found', 404),
+    disablePlugin: (c) => this.plugins.set(c.params.id, false) ?? fail('not_found', 404),
+    rollbackPlugin: () => { throw new Fail('conflict', 409, undefined, undefined, { reason: 'no_rollback' }) },
+    uninstallPlugin: (c) => { if (!this.plugins.remove(c.params.id)) fail('not_found', 404); return undefined },
     createTeamIntegration: (c) => ({ status: 201, body: this.addIntegration(c.user, c.body, 'team') }),
 
     // nothing connected, no scheduled tasks yet

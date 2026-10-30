@@ -2,7 +2,7 @@
 // (diagnostics, update, backup / restore, export, connection) is the owner's; admins see the storage use there, and in
 // office mode the automatic update card (docs/OFFICE.md "자동 업데이트").
 import clsx from 'clsx'
-import { Activity, Cable, Cpu, FolderLock, Gauge, KeyRound, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Cable, Cpu, FolderLock, Gauge, KeyRound, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -15,6 +15,7 @@ const Folders = lazy(() => import('./Folders'))
 const Engines = lazy(() => import('./Engines'))
 const Credentials = lazy(() => import('./Credentials'))
 const Integrations = lazy(() => import('./Integrations'))
+const Plugins = lazy(() => import('./Plugins'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
@@ -27,6 +28,7 @@ const SECTIONS: { id: string; label: MessageKey; icon: typeof Users; ownerOnly?:
   { id: 'engines', label: 'admin.engines', icon: Cpu },
   { id: 'credentials', label: 'admin.credentials', icon: KeyRound },
   { id: 'integrations', label: 'admin.integrations', icon: Cable },
+  { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
   { id: 'usage', label: 'admin.usage', icon: Gauge },
   { id: 'audit', label: 'admin.audit', icon: ScrollText },
   { id: 'settings', label: 'admin.settings', icon: Settings2 },
@@ -62,6 +64,7 @@ export default function AdminLayout() {
             {section === 'engines' && <Engines />}
             {section === 'credentials' && <Credentials />}
             {section === 'integrations' && <Integrations />}
+            {section === 'plugins' && <Plugins />}
             {section === 'usage' && <Usage />}
             {section === 'audit' && <Audit />}
             {section === 'settings' && <TeamSettingsPage />}
