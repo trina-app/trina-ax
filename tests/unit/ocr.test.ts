@@ -23,8 +23,9 @@ const pdftotext = which('pdftotext')
 const W = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-ocr-'))
 afterAll(() => fs.rmSync(W, { recursive: true, force: true }))
 
-// macOS only: the fixtures are made with cupsfilter and sips, and the recognizer is Apple Vision (Linux's mycel-ocr,
-// tesseract + poppler: tests/unit/g-ocr-linux.test.ts and native/cmd/mycel-ocr). bun still runs a skipped describe's
+// macOS only: the fixtures are made with cupsfilter and sips, and the recognizer is Apple Vision (Linux has no OCR:
+// tests/unit/vision-ocr-boundary.test.ts). This OCR feeds the search index of scanned PDFs and the read fallback when a
+// team turned image viewing off; AI reads otherwise see images (tests/unit/vision-read.test.ts). bun still runs a skipped describe's
 // body to collect its tests, so the fixtures are made in beforeAll, which runs only when the tests do.
 describe.skipIf(process.platform !== 'darwin' || !bin || !fs.existsSync('/usr/sbin/cupsfilter'))('mycel-ocr (Apple Vision, in the converter sandbox)', () => {
   const run = (cmd: string, args: string[]) => { const p = Bun.spawnSync([cmd, ...args], { cwd: W }); if (p.exitCode !== 0) throw new Error(`${cmd}: ${p.stderr}`); return p.stdout }

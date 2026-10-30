@@ -30,7 +30,7 @@
 // Only on a Linux machine of the bundle's arch (onnxruntime-node's and sharp's Linux binaries must be the ones `bun
 // install` put there). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
 // with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
-// native/{mycel-gate,mycel-bridge,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
+// native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
 // so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
 // engines/codex-<v>.model_catalog.json, deps.txt, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
 // <version>-linux-<arch>.tar.zst (the version folder, for updates) and <kit>-<version>-linux-<arch>.tar.gz (the kit).
@@ -87,8 +87,9 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   else fs.copyFileSync(await bunFor(arch), bunOut)
   fs.chmodSync(bunOut, 0o755)
   fs.mkdirSync(path.join(dir, 'native'), { recursive: true })
-  // mycel-ocr (scanned PDFs, images) when this Mac built it (native/build.sh, swiftc): optional, the server works without it
-  for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-ocr']) {
+  // mycel-safeops: the image normalizer of AI reads (server/src/files/vision.ts). mycel-ocr (PDFKit pages, HEIC, scanned-PDF
+  // search) when this Mac built it (native/build.sh, swiftc): optional, the server works without it
+  for (const b of ['mycel-gate', 'mycel-bridge', 'mycel-safeops', 'mycel-ocr']) {
     if (b === 'mycel-ocr' && !fs.existsSync(path.join(nativeDir, b))) continue
     fs.copyFileSync(path.join(nativeDir, b), path.join(dir, 'native', b))
     fs.chmodSync(path.join(dir, 'native', b), 0o755)
@@ -195,7 +196,7 @@ function* walkDirs(d: string): Generator<string> {
 // ======================= Linux server bundle (linux-runtime spec 3.6.1) =======================
 
 /** native/bin/linux-<arch>/ programs: in the version folder's native/ (run by the server) */
-export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-ocr', 'mycel-safeops'] as const
+export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-safeops'] as const
 /** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
 export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */

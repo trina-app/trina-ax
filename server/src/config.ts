@@ -18,7 +18,8 @@ export interface ServerConfig {
   rg: string
   pandoc: string | null
   pdftotext: string | null
-  /** mycel-ocr (macOS, Apple Vision): scanned PDFs and images; null when not built */
+  /** mycel-ocr (macOS: PDFKit, ImageIO, Apple Vision): the search index's OCR of scanned PDFs, PDFKit pages and HEIC for AI
+   * reads; null on Linux (no OCR there) and when not built */
   ocr: string | null
   /** folder with mycel-gate / mycel-bridge / mycel-launcher for this platform */
   nativeBin: string
@@ -58,13 +59,10 @@ export function engineSandboxProfile(): string {
   return path.resolve(import.meta.dir, '..', '..', 'scripts', 'macos', 'engine.sb')
 }
 
-/** mycel-ocr next to the other native helpers (native/build.sh builds it on a Mac with swiftc). Linux: the Go
- * version (tesseract kor+eng + poppler, spec 3.7.1), only when those tools are installed. */
+/** mycel-ocr next to the other native helpers (native/build.sh builds it on a Mac with swiftc). macOS only: a Linux
+ * server runs no OCR at all (docs/DECISIONS.md "AI sees images and PDF pages"; the AI sees images and scanned pages,
+ * and those are not text-searchable there, as in Claude Code), even when tesseract happens to be installed. */
 export function ocrBin(): string | null {
-  if (process.platform === 'linux') {
-    const p = path.join(nativeBinDir(), 'mycel-ocr')
-    return fs.existsSync(p) && fs.existsSync('/usr/bin/tesseract') && fs.existsSync('/usr/bin/pdftoppm') ? p : null
-  }
   if (process.platform !== 'darwin') return null
   const p = path.join(nativeBinDir(), 'mycel-ocr')
   return fs.existsSync(p) ? p : null

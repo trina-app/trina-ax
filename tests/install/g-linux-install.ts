@@ -117,7 +117,7 @@ async function main() {
     // a reused kit gets this checkout's native programs (they change more often than the rest)
     const nb = path.join(REPO, 'native', 'bin', `linux-${ARCH}`), d1 = path.join(kit(1), 'app', V(1))
     for (const f of ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl']) fs.copyFileSync(path.join(nb, f), path.join(d1, 'root', f))
-    for (const f of ['mycel-gate', 'mycel-bridge', 'mycel-ocr']) fs.copyFileSync(path.join(nb, f), path.join(d1, 'native', f))
+    for (const f of ['mycel-gate', 'mycel-bridge', 'mycel-safeops']) fs.copyFileSync(path.join(nb, f), path.join(d1, 'native', f))
     for (const f of fs.readdirSync(path.join(REPO, 'scripts', 'linux', 'systemd'))) fs.copyFileSync(path.join(REPO, 'scripts', 'linux', 'systemd', f), path.join(d1, 'root', 'systemd', f))
     for (const [src, dst] of [['account.sh', 'mycel-account'], ['set-claude-token.sh', 'set-claude-token'], ['safe-fs.sh', 'safe-fs.sh'], ['apparmor-bwrap.in', 'apparmor-bwrap.in']])
       fs.copyFileSync(path.join(REPO, 'scripts', 'linux', src!), path.join(d1, 'root', dst!))

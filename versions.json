@@ -8,7 +8,6 @@
   "whisper.cpp": "1.9.5 (built in CI)",
   "bubblewrap": ">=0.8.0 (Debian 12 0.8.0, Debian 13 0.12.0, Ubuntu 24.04 0.9.0)",
   "nftables": ">=1.0.6",
-  "tesseract": "5.x + tesseract-ocr-kor/eng (Debian)",
   "linux-kernel": ">=6.1, 6.12+ for abstract-socket scoping",
   "onnxruntime-node": "1.30.0",
   "cloudflared": "2026.10.0 (office mode internet address; GitHub release, SHA-256 pinned in scripts/build-office.ts)",

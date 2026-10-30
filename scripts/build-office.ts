@@ -13,7 +13,7 @@
 //   app/VERSION, app/teamax (control command), app/versions.json, app/product.env (the product's names for the
 //   shell scripts: scripts/product-env.ts)
 //   app/bin/darwin-arm64/{bun,rg,pandoc,cloudflared}  app/bin/darwin-amd64/{…}   (the installer keeps this Mac's one)
-//   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-ocr}
+//   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-safeops,mycel-ocr}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
 //   app/scripts/macos/engine.sb, app/web/dist/
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
@@ -79,7 +79,7 @@ const ENTRIES: [string, string][] = [
   ['server/src/files/hwp-preflight.ts', 'hwp-preflight.js'],
 ]
 /** native helpers per architecture (native/build.sh) */
-const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-ocr']
+const NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-launcher', 'mycel-safeops', 'mycel-ocr']
 
 /** What the bundle folder must hold (paths relative to it; a trailing '/' = a folder that is not empty): what
  * office-install.sh reads and copies, and what the installed server runs. Checked after staging, before the zip is

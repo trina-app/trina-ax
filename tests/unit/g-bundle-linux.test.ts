@@ -40,7 +40,7 @@ describe('build-bundle.ts arguments', () => {
   })
   test('the version folder file list (spec 3.6.1)', () => {
     const files = linuxBundleFiles({ arch: 'amd64', codexVersion: '0.163.0', whisper: true, systemd: ['launcher.service.in'] })
-    for (const f of ['bin/bun', 'bin/rg', 'bin/pandoc', 'bin/typst', 'bin/whisper-cli', 'bin/whisper-cli-v2', 'native/mycel-gate', 'native/mycel-bridge', 'native/mycel-ocr',
+    for (const f of ['bin/bun', 'bin/rg', 'bin/pandoc', 'bin/typst', 'bin/whisper-cli', 'bin/whisper-cli-v2', 'native/mycel-gate', 'native/mycel-bridge', 'native/mycel-safeops',
       'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'root/mycel-bootstrap', 'root/mycel-launcher', 'root/mycel-sandbox', 'root/mycel-ctl',
       'root/mycel-account', 'root/set-claude-token', 'root/safe-fs.sh', 'root/apparmor-bwrap.in', 'root/systemd/launcher.service.in', 'engines.lock.json',
       'engines/codex-0.163.0.model_catalog.json', 'deps.txt']) expect(files).toContain(f)
@@ -150,7 +150,9 @@ test('deps.txt: lines scripts/install-linux.sh can read ("package" or "package>=
   const lines = fs.readFileSync(path.join(ROOT, 'scripts', 'linux', 'deps.txt'), 'utf8').split('\n').map((l) => l.replace(/#.*/, '').replace(/\s+/g, '')).filter(Boolean)
   expect(lines.length).toBeGreaterThan(5)
   for (const l of lines) expect(l).toMatch(/^([a-z0-9][a-z0-9.+-]*)(>=([0-9][0-9A-Za-z.+:~-]*))?$/)
-  for (const p of ['bubblewrap>=0.8.0', 'nftables>=1.0.6', 'tesseract-ocr-kor>=1:4.1.0']) expect(lines).toContain(p)
+  for (const p of ['bubblewrap>=0.8.0', 'nftables>=1.0.6', 'poppler-utils>=22.12.0']) expect(lines).toContain(p)
+  // no OCR on Linux (docs/DECISIONS.md "AI sees images and PDF pages"): the AI sees images and scanned pages instead
+  expect(lines.filter((l) => l.startsWith('tesseract'))).toEqual([])
 })
 
 /** A minimal zip: [name, data, deflate?] entries. */

@@ -1,7 +1,9 @@
 #!/bin/bash
-# Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap},
-# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl,mycel-ocr} (ee/cloud/README.md; linux-runtime
-# spec 3.3.4, 3.6.5, 3.7.1) and bin/darwin-<arch>/mycel-ocr (Swift, Apple Vision; only when built on a Mac with swiftc).
+# Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap,
+# mycel-safeops} (mycel-safeops: the image normalizer of AI reads, server/src/files/vision.ts, and the safe-ops 1A helper),
+# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl} (ee/cloud/README.md; linux-runtime spec 3.3.4,
+# 3.6.5) and bin/darwin-<arch>/mycel-ocr (Swift: PDFKit / ImageIO / Apple Vision; only when built on a Mac with swiftc).
+# Linux has no OCR (docs/DECISIONS.md "AI sees images and PDF pages"): the AI sees images and scanned pages instead.
 #   bash native/build.sh                     arm64 (this repo's default; dev on Apple silicon)
 #   ARCHS=amd64 bash native/build.sh         Intel
 #   ARCHS="arm64 amd64" bash native/build.sh both, plus bin/darwin-universal (lipo) for a universal release bundle
@@ -13,7 +15,7 @@ for arch in $ARCHS; do
   case "$arch" in arm64|amd64) ;; *) echo "native/build.sh: ARCHS takes arm64 and/or amd64, not $arch" >&2; exit 2 ;; esac
 done
 CMDS="mycel-bridge mycel-gate mycel-launcher mycel-bootstrap mycel-safeops"
-LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-ocr"
+LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl"
 for os in darwin linux; do
   for arch in $ARCHS; do
     out="bin/$os-$arch"; mkdir -p "$out"
@@ -24,7 +26,8 @@ for os in darwin linux; do
     echo "built $out"
   done
 done
-# OCR for scanned PDFs and images (read/grep): macOS 13+ (Korean text recognition), skipped without swiftc
+# macOS helper (mycel-ocr): PDF text layers and page images for AI reads, HEIC decoding, and Apple Vision OCR of scanned
+# PDFs for the search index; macOS 13+, skipped without swiftc
 OCR=0
 if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
   for arch in $ARCHS; do
@@ -34,7 +37,7 @@ if [[ "$(uname)" == Darwin ]] && command -v swiftc >/dev/null; then
   OCR=1
   echo "built mycel-ocr"
 else
-  echo "native/build.sh: no swiftc (or not macOS): mycel-ocr not built, scanned PDFs and images won't be read" >&2
+  echo "native/build.sh: no swiftc (or not macOS): mycel-ocr not built (no PDFKit pages, HEIC or scanned-PDF search on this Mac)" >&2
 fi
 # the universal Mac binaries need lipo (macOS only); a Linux CI build of both arches skips them
 if [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" amd64 "* ]] && command -v lipo >/dev/null; then

@@ -445,7 +445,7 @@ fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(out, null, 2) + "\n", { mode: 0o6
 fi
 
 # ---- 3) distribution packages ----
-PKGS=(bubblewrap nftables poppler-utils tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng ffmpeg libheif-examples ca-certificates curl gnupg file zstd util-linux)
+PKGS=(bubblewrap nftables poppler-utils ffmpeg libheif-examples ca-certificates curl gnupg file zstd util-linux)
 RESTRICT_USERNS=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)
 [ "$RESTRICT_USERNS" = 1 ] && PKGS+=(apparmor)
 if [ "$SKIP_APT" = 0 ]; then
