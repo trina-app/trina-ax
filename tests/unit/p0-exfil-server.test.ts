@@ -92,12 +92,13 @@ describe('web_fetch: the name is looked up only after the card (review M3)', () 
     const chat = await chatWith()
     const host = 'c2fsyxj5ltk4nzy1ndmy.x.attacker.example'
     let lookedUpWhenAsked = -1 as number
-    const declined = await fetchAs(turnIn(chat), `https://${host}/`, { ...person(false), async confirm() { lookedUpWhenAsked = looked(host); return false } })
+    // the card is a choice (open once / allow the site / don't open) where a site can be allowed, a yes/no otherwise
+    const declined = await fetchAs(turnIn(chat), `https://${host}/`, { ...person(false), async confirm() { lookedUpWhenAsked = looked(host); return false }, async choose() { lookedUpWhenAsked = looked(host); return null } })
     expect(declined.isError).toBe(true)
     expect(declined.text).toContain('did not allow')
     expect(lookedUpWhenAsked).toBe(0)
     expect(looked(host)).toBe(0)
-    const allowed = await fetchAs(turnIn(chat), `https://${host}/`, { ...person(true), async confirm() { lookedUpWhenAsked = looked(host); return true } })
+    const allowed = await fetchAs(turnIn(chat), `https://${host}/`, { ...person(true), async confirm() { lookedUpWhenAsked = looked(host); return true }, async choose() { lookedUpWhenAsked = looked(host); return 'allow' } })
     expect(lookedUpWhenAsked).toBe(0)
     expect(allowed.text).toContain(`could not resolve ${host}`)
     expect(looked(host)).toBe(1)

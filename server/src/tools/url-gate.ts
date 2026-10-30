@@ -9,6 +9,12 @@
 //     (about 9 bits a pick), and a search result can bring in an attacker's page without any card, so at most
 //     LINK_BUDGET.turn new ones per answer and LINK_BUDGET.chat per chat open without asking (docs/DECISIONS.md
 //     "Outbound web channels"); then each new one needs the person;
+//   ①b addresses on a site the person allowed for this conversation on an address card ("allow this site in this
+//     conversation", chat_allowed_sites): the same registrable domain (eTLD+1, Public Suffix List with its private
+//     section: news.example.co.kr and example.co.kr are one site, alice.github.io and bob.github.io are two), in this
+//     chat, for this person, outside the link budget. Never for an address with a long random-looking part (opaqueParts:
+//     it can carry data, so the card shows it highlighted every time), never in a confidential chat. Like Claude Code's
+//     "don't ask again for this domain", but for one conversation;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
 //   and a card for every URL while the office's public exit address is unknown (tools/egress.ts).
@@ -17,8 +23,11 @@
 // Not done here (follow-up): the "32 characters in common with a file read in this chat" check of ③ and the admin
 // allow-list of ④.
 import type { Database } from 'bun:sqlite'
+import { domainToUnicode } from 'node:url'
+import { getDomain } from 'tldts'
 import type { ConfirmDetail, Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
+import { isConfidentialChat } from '../safe-ops/confidential'
 
 /** ③: a query string this long always needs a person, wherever the URL came from */
 export const MAX_UNCONFIRMED_QUERY = 200
@@ -163,6 +172,53 @@ export function rememberUrls(db: Database, chatId: string, urls: Iterable<string
   })()
 }
 
+/**
+ * The site of an address for "allow this site in this conversation": its registrable domain (eTLD+1) by the Public
+ * Suffix List, private section included (tldts), in the address's ASCII (punycode) form: news.example.co.kr ->
+ * example.co.kr, x.alice.github.io -> alice.github.io. From the name alone, never DNS. null = nothing to allow: an IP
+ * address, a single-label name, or a name that is itself a public suffix (co.kr, github.io, s3.amazonaws.com).
+ */
+export function siteOf(rawUrl: string): string | null {
+  let host: string
+  try { host = new URL(rawUrl).hostname.toLowerCase() } catch { return null }
+  host = host.replace(/\.+$/, '')
+  if (!host || host.startsWith('[') || !host.includes('.') || /^[\d.]+$/.test(host)) return null
+  const d = getDomain(host, { allowPrivateDomains: true, detectIp: true, validateHostname: true, extractHostname: false })
+  return d && d.includes('.') ? d : null
+}
+
+/** A site as shown on a card: ASCII form, and the Unicode form next to it when they differ (예시.한국). */
+export function siteLabel(site: string): string {
+  const u = domainToUnicode(site)
+  return u && u !== site ? `${site} (${u})` : site
+}
+
+/** The address with its %-escapes decoded (as written when they do not decode as UTF-8), for finding random-looking
+ * parts and for showing them: control and direction characters it decodes to are shown as U+FFFD (the card's question
+ * has the address as written). */
+function decodedUrl(url: string): string {
+  let d: string
+  try { d = decodeURIComponent(url) } catch { return url }
+  return d.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '\ufffd')
+}
+
+/** A site allowance lives in one chat of its owner: never another chat, never another person. */
+function siteScope(db: Database, chatId: string | null, userId: string | null | undefined): chatId is string {
+  return !!chatId && !!userId && !!db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ?').get(chatId, userId) && !isConfidentialChat(db, chatId)
+}
+
+/** The sites the person allowed in this chat; none in a confidential chat, in another person's chat or without a person. */
+function allowedSites(db: Database, chatId: string | null, userId: string | null | undefined): Set<string> {
+  if (!siteScope(db, chatId, userId)) return new Set()
+  return new Set((db.query('SELECT site FROM chat_allowed_sites WHERE chat_id = ? AND user_id = ?').all(chatId, userId!) as { site: string }[]).map((r) => r.site))
+}
+
+/** Remember "allow this site in this conversation" (the person picked it on an address card of their own chat). */
+export function allowSite(db: Database, chatId: string, userId: string, site: string, turnId: string | null) {
+  if (!siteScope(db, chatId, userId)) return
+  db.query('INSERT OR IGNORE INTO chat_allowed_sites (chat_id, user_id, site, turn_id) VALUES (?, ?, ?, ?)').run(chatId, userId, site, turnId)
+}
+
 /** Long random-looking parts of a text (base32 / hex / base64 of something): an address can carry data in them. 20+
  * characters without separators that mix letters and digits (or both cases) with high character entropy. Shown
  * highlighted on cards; a hint, not a rule. */
@@ -186,17 +242,17 @@ function entropy(s: string): number {
 
 export const TEXT = {
   unseen: {
-    ko: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    ko: 'AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The AI wants to open an address that did not appear in this conversation. An address can carry data out, so check the whole address:\n\n{url}',
     id: 'AI ingin membuka alamat yang tidak muncul di percakapan ini. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIがこの会話に出ていないアドレスを開こうとしています。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La IA quiere abrir una dirección que no apareció en esta conversación. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
   },
   noEgress: {
-    ko: '팀 서버가 아직 사무실의 공인 주소를 몰라서, AI가 여는 주소가 사무실 안의 공유기나 기기로 되돌아오는지 확인할 수 없습니다. 주소 전체를 확인해 주세요.\n\n{url}',
+    ko: '팀 서버가 아직 사무실의 공인 주소를 몰라서, AI가 여는 주소가 사무실 안의 공유기나 기기로 되돌아오는지 확인할 수 없어요. 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The team server does not know the office\'s public address yet, so it cannot tell whether this address leads back into the office (router, devices). Check the whole address:\n\n{url}',
     id: 'Server tim belum mengetahui alamat publik kantor, jadi tidak bisa memastikan apakah alamat ini mengarah kembali ke dalam kantor (router, perangkat). Periksa seluruh alamatnya:\n\n{url}', ja: "チームサーバーはまだオフィスの公開アドレスを把握していないため、このアドレスが社内（ルーターや機器）に戻るか判断できません。アドレス全体を確認してください：\n\n{url}", es: "El servidor del equipo aún no conoce la dirección pública de la oficina y no puede saber si esta dirección lleva de vuelta a la red interna (router, dispositivos). Revise la dirección completa:\n\n{url}",
   },
   longQuery: {
-    ko: 'AI가 여는 주소 뒤에 긴 내용이 붙어 있습니다. 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    ko: 'AI가 여는 주소 뒤에 긴 내용이 붙어 있어요. 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n{url}',
     en: 'The address the AI wants to open carries a long query. An address can carry data out, so check the whole address:\n\n{url}',
     id: 'Alamat yang ingin dibuka AI membawa kueri panjang. Alamat bisa membawa data keluar, jadi periksa seluruh alamatnya:\n\n{url}', ja: "AIが開こうとしているアドレスには長いクエリが含まれます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください：\n\n{url}", es: "La dirección que la IA quiere abrir contiene una consulta larga. Una dirección puede transmitir datos al exterior; revise la dirección completa:\n\n{url}",
   },
@@ -207,27 +263,57 @@ export const TEXT = {
     ja: 'AIが確認なしで開けるウェブページや検索結果のアドレスの上限に達しました（回答ごとに{turn}件、会話ごとに{chat}件）。どのアドレスを開くかによってもデータが外部に送られる可能性があるため、アドレス全体を確認してください：\n\n{url}',
     es: 'La IA ya abrió sin preguntar todas las direcciones de páginas web y resultados de búsqueda que puede ({turn} por respuesta, {chat} por conversación). La dirección que elige también puede sacar datos; revise la dirección completa:\n\n{url}',
   },
+  opaque: {
+    ko: '주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
+    en: 'The address contains long strings that are hard to read (highlighted). They can carry data; check what they are.',
+    id: 'Alamat ini berisi string panjang yang sulit dibaca (disorot). String itu bisa membawa data; periksa isinya.',
+    ja: 'アドレスに読み取りにくい長い文字列が含まれています（強調表示）。データを運べるため、内容を確認してください。',
+    es: 'La dirección contiene cadenas largas difíciles de leer (resaltadas). Pueden llevar datos; compruebe qué son.',
+  },
+  site: {
+    ko: '사이트를 허용하면 이 대화에서만 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.',
+    en: 'If you allow the site, other addresses on {site} open without asking, in this conversation only. Addresses with long hard-to-read strings or a long query still ask.',
+    id: 'Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di percakapan ini. Alamat dengan string panjang yang sulit dibaca atau kueri panjang tetap ditanyakan.',
+    ja: 'サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列や長いクエリを含むアドレスは引き続き確認します。',
+    es: 'Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en esta conversación. Las direcciones con cadenas largas difíciles de leer o una consulta larga siguen preguntando.',
+  },
+  labelUrl: { ko: '주소', en: 'Address', id: 'Alamat', ja: 'アドレス', es: 'Dirección' },
   allow: { ko: '열기', en: 'Open', id: 'Buka', ja: "開く", es: "Abrir" },
+  allowSite: {
+    ko: '이 대화에서 이 사이트 허용 ({site})', en: 'Allow this site in this conversation ({site})', id: 'Izinkan situs ini di percakapan ini ({site})',
+    ja: 'この会話でこのサイトを許可（{site}）', es: 'Permitir este sitio en esta conversación ({site})',
+  },
   deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir" },
-} as const
+} satisfies Record<string, Record<Locale, string>>
 
-export type GateResult = 'seen' | 'confirmed'
+/** 'seen' and 'site' opened without a card (① and ①b), 'confirmed' after one. */
+export type GateResult = 'seen' | 'site' | 'confirmed'
 
 /**
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
- * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for.
+ * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for. `userId`: the
+ * person of the turn; the sites they allowed in this chat (①b) count only for them (none without it).
+ * Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null } = {}): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const query = new URL(url).search.slice(1)
   const long = query.length > MAX_UNCONFIRMED_QUERY
   // the office's public exit address is not known yet (tools/egress.ts): no URL opens without the person
   const noEgress = o.egressKnown === false
+  // long random-looking parts of the address: a site allowance never covers them, the card marks them. Looked for in
+  // the decoded address, so a Korean path (%ED%95%9C…) is words, not a random string; one that does not decode is
+  // checked as written
+  const readable = decodedUrl(url)
+  const marks = opaqueParts(readable.replace(/^https?:\/\//i, ''))
+  const site = siteOf(url)
   let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
   if (!long && !noEgress) {
     const from = originOf(db, chatId, url, person)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
+    // ①b: a site the person allowed in this conversation, outside the link budget
+    if (site && !marks.length && allowedSites(db, chatId, o.userId).has(site)) return 'site'
     if (from?.origin === 'learned') {
       if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from.row)) return 'seen'
       why = 'budget'
@@ -241,10 +327,25 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   const L = person.locale
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)
   const shown = url.length > 2000 ? url.slice(0, 2000) + '…' : url
-  const question = TEXT[why][L].replace('{turn}', String(LINK_BUDGET.turn)).replace('{chat}', String(LINK_BUDGET.chat)).replace('{url}', () => shown)
-  if (!(await person.confirm(question, TEXT.allow[L], TEXT.deny[L]))) {
+  const lines = [TEXT[why][L].replace('{turn}', String(LINK_BUDGET.turn)).replace('{chat}', String(LINK_BUDGET.chat)).replace('{url}', () => shown)]
+  if (marks.length) lines.push(TEXT.opaque[L])
+  // "allow this site in this conversation": only where an allowance could ever apply (not for a long query or while the
+  // exit address is unknown, never in a confidential chat or without a chat and person to keep it for)
+  const offerSite = !!(site && person.choose && !long && !noEgress && siteScope(db, chatId, o.userId))
+  if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
+  const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
+  const question = lines.join('\n\n')
+  const answer = offerSite
+    ? await person.choose!(question, [
+      { label: TEXT.allow[L], value: 'allow' },
+      { label: TEXT.allowSite[L].replace('{site}', () => siteLabel(site!)), value: 'site' },
+      { label: TEXT.deny[L], value: 'deny' },
+    ], extra)
+    : (await person.confirm(question, TEXT.allow[L], TEXT.deny[L], extra)) ? 'allow' : null
+  if (answer !== 'allow' && answer !== 'site') {
     throw new ToolError('the user did not allow opening this address. Do not try other addresses to get around this; tell the user what you could not do')
   }
   if (chatId && !long && !noEgress) rememberUrls(db, chatId, [url], 'allowed')
+  if (answer === 'site' && offerSite) allowSite(db, chatId!, o.userId!, site!, o.turnId ?? null)
   return 'confirmed'
 }

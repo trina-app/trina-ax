@@ -12,6 +12,7 @@
     "exceljs": "4.4.0",
     "hono": "4.13.13",
     "saxes": "6.0.0",
+    "tldts": "7.0.30",
     "web-push": "3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yaml": "2.8.1",

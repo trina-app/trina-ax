@@ -281,7 +281,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       /** null when the address may be opened; otherwise the refusal for the AI */
       const gate = async (href: string): Promise<string | null> => {
         try {
-          await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId })
+          await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
