@@ -599,6 +599,18 @@ describe('per-answer limits', () => {
       expect(h.ctx.db.query('SELECT status, stop_reason, error FROM turns WHERE id = ?').get(r.started.turnId)).toEqual({ status: 'done', stop_reason: 'time_limit', error: null })
     } finally { rt.turnTimeoutMs = saved }
   })
+  test('a time limit with nothing done yet stays the timeout error (nothing to continue from)', async () => {
+    const rt = h.rt() as unknown as { turnTimeoutMs: number }
+    const saved = rt.turnTimeoutMs
+    rt.turnTimeoutMs = 1500
+    try {
+      const chat = await newChat()
+      const r = await ask(h, alice, 'alice', chat.id, fake({ sleep: 20000 }), { ms: 20_000 })
+      expect(r.done).toMatchObject({ status: 'error', content: '', error: { code: 'busy', params: { reason: 'timeout' } } })
+      expect(r.done.stopReason).toBeUndefined()
+      expect((h.ctx.db.query('SELECT stop_reason FROM turns WHERE id = ?').get(r.started.turnId) as { stop_reason: string | null }).stop_reason).toBeNull()
+    } finally { rt.turnTimeoutMs = saved }
+  })
   test('the tool-call limit (--max-turns): done with tool_limit, usage counted, and "continue" resumes with a note', async () => {
     const rt = h.rt() as unknown as { maxEngineTurns: number }
     const saved = rt.maxEngineTurns

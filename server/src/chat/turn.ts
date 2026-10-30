@@ -104,6 +104,8 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
+  /** the engine wrote text or called a tool in this turn (any attempt): a time limit then pauses work to continue from */
+  private producedOutput = false
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
   principal: Principal | null = null
@@ -651,6 +653,7 @@ export class TurnExec {
         if (!e.delta) return
         this.closeThinking()
         this.attemptHadOutput = true
+        this.producedOutput = true
         this.appendText(e.delta)
         return
       case 'thinking':
@@ -661,6 +664,7 @@ export class TurnExec {
         this.closeThinking()
         this.flushText()
         this.attemptHadOutput = true
+        this.producedOutput = true
         const tool = e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
         // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
@@ -1089,8 +1093,12 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const s of this.steps) if (s.status === 'running') { s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
-    // stands and the person may continue; it is not an error (before 2026-10-30: errors 'timeout' / 'wall_timeout')
-    if (this.stopReason === 'timeout' && !this.error) this.limitReason = 'time_limit'
+    // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
+    // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".
+    if (this.stopReason === 'timeout' && !this.error) {
+      if (this.producedOutput) this.limitReason = 'time_limit'
+      else this.error = this.timeoutSource === 'wall' ? engineError('wall_timeout', this.spec.locale) : engineError('timeout', this.spec.locale)
+    }
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status

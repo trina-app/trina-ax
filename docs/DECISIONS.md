@@ -2990,6 +2990,8 @@ only themselves. The owner chose the safest defaults for the open questions:
   on every other answer). Engines report the tool limit with a new `limit` EngineEvent (Claude: result subtype
   `error_max_turns`, or `terminal_reason: "max_turns"`; API engine: its round cap); the time limits are the server's
   own stop. The screen tells a pause apart from an error (`status: 'error'`) and from Stop (`status: 'stopped'`).
+  A time limit reached before the engine wrote anything or called a tool (it never started, or said nothing in all
+  that time) has nothing to continue from: it stays the `timeout` / `wall_timeout` error with "retry".
 - The chat shows "작업이 길어서 여기서 멈췄어요" with the reason and, on the newest answer, **이어서 하기**. It sends a
   plain message ("이어서 해 주세요.") in the same chat through the normal send and its checks, so usage and budgets
   count as for any message. The server puts a `<continuation>` note (server-written, neutralized in quoted text like
