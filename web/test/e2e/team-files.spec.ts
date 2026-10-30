@@ -1,5 +1,6 @@
 // "Add from team files": the composer's attach menu, the picker (recent files, folders, breadcrumbs, name search,
 // multi-select with the message limit), team-file chips, sending, and "Ask AI about this" from the file screen.
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -153,6 +154,42 @@ test('"Ask AI about this" on the file screen starts a new chat with the file att
   await expect(chip).toHaveAttribute('title', /marketing\/notes\.txt/)
   // the chat made to hold the attachment is not in Recents until something is sent
   await expect(chatLinks).toHaveCount(before)
+})
+
+test('a download-only (generated) file: "Ask AI" and "add to chat" are off with the reason, in the list and the picker', async ({ page }) => {
+  await reset(page)
+  await page.request.post('/__test/download-only', { data: { path: 'marketing/deck.pptx' } })
+  await signIn(page)
+  // a chat to add to, so "add to chat" is in the menu
+  await page.getByTestId('composer-input').fill('hello')
+  await page.getByTestId('send').click()
+  await expect(page).toHaveURL(/\/c\//)
+  const chatUrl = page.url()
+  await page.goto('/files?path=marketing')
+  const row = page.getByTestId('file-row').filter({ hasText: 'deck.pptx' })
+  await expect(row.getByTestId('file-download-only')).toHaveText('다운로드 전용')
+  await expect(row.locator('button[draggable="true"]')).toHaveCount(0)
+  await row.hover()
+  await row.getByTestId('file-menu').click()
+  await expect(page.getByTestId('chat-with-file')).toBeDisabled()
+  await expect(page.getByTestId('add-to-chat')).toBeDisabled()
+  await expect(page.getByTestId('file-ai-off-reason')).toHaveText("다운로드 전용 파일은 AI가 읽을 수 없어서 'AI에게 묻기'를 쓸 수 없어요.")
+  await expect(page.getByTestId('chat-with-file')).toHaveAccessibleDescription("다운로드 전용 파일은 AI가 읽을 수 없어서 'AI에게 묻기'를 쓸 수 없어요.")
+  // download is still there
+  await expect(page.getByRole('menuitem', { name: '내려받기' })).toBeEnabled()
+  // the open menu with its reason line passes axe (WCAG 2.2 AA, as in a11y.spec.ts)
+  const axe = await new AxeBuilder({ page }).include('[role="menu"]').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+  expect(axe.violations.map((v) => v.id)).toEqual([])
+  // the attach picker: the file is shown, cannot be picked, and says why
+  await page.goto(chatUrl)
+  await openPicker(page)
+  const dialog = page.getByRole('dialog')
+  // listed in its folder (name search and recent files leave download-only files out, like the server)
+  await dialog.getByTestId('picker-folder').filter({ hasText: 'marketing' }).click()
+  const hit = dialog.getByTestId('picker-list').getByTestId('picker-file').filter({ hasText: 'deck.pptx' })
+  await expect(hit.getByTestId('picker-download-only')).toContainText('다운로드 전용')
+  await expect(hit.locator('input')).toBeDisabled()
+  await expect(hit.locator('input')).toHaveAccessibleDescription(/첨부할 수 없어요/)
 })
 
 test.describe('phone', () => {

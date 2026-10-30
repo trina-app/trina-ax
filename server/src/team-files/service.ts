@@ -64,7 +64,8 @@ export class TeamFiles {
   principal(userId: string): Principal { return this.ctx.files.principal(userId) }
 
   // ---------------- entries ----------------
-  entry(user: Principal, rules: RuleSet, segs: string[], st?: fs.Stats): FileEntry {
+  /** `mark`: look up FileEntry.downloadOnly (a listing that pages its entries marks only the page it returns) */
+  entry(user: Principal, rules: RuleSet, segs: string[], st?: fs.Stats, mark = true): FileEntry {
     const abs = path.join(this.root, ...segs)
     const s = st ?? fs.lstatSync(abs)
     const folder = s.isDirectory()
@@ -76,7 +77,13 @@ export class TeamFiles {
       mtime: s.mtime.toISOString(),
       mime: folder ? null : mimeOf(segs[segs.length - 1] ?? ''),
       access: rules.access(user, segs),
+      ...(mark && !folder && this.downloadOnly(abs) ? { downloadOnly: true as const } : {}),
     }
+  }
+  /** the same test the AI's read and the previews use (policy/authorize.ts: Quarantine.hasFile); a file that cannot be
+   * checked now is listed without the mark (the read still refuses it) */
+  private downloadOnly(abs: string): boolean {
+    try { return this.ctx.files.quarantine.hasFile(abs) } catch { return false }
   }
   private userRefs(ids: (string | null)[]): Map<string, UserRef> {
     const want = [...new Set(ids.filter((x): x is string => !!x))]
@@ -103,12 +110,13 @@ export class TeamFiles {
       let st: fs.Stats
       try { st = fs.lstatSync(path.join(r.abs, e.name)) } catch { continue }
       if (st.isDirectory()) { if (rules.canList(user, c)) out.push(this.entry(user, rules, c, st)) }
-      else if (st.isFile() && st.nlink === 1 && atLeast(rules.access(user, c), 'read')) out.push(this.entry(user, rules, c, st))
+      else if (st.isFile() && st.nlink === 1 && atLeast(rules.access(user, c), 'read')) out.push(this.entry(user, rules, c, st, false))
     }
     const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
     out.sort((a, b) => (a.type === b.type ? coll.compare(a.name, b.name) : a.type === 'folder' ? -1 : 1))
     const start = decodeCursor(cursor)
-    const items = out.slice(start, start + limit)
+    // download-only is looked up for the returned page only (a big folder is listed whole, then paged)
+    const items = out.slice(start, start + limit).map((e) => (e.type === 'file' && this.downloadOnly(path.join(this.root, e.path)) ? { ...e, downloadOnly: true as const } : e))
     return { path: r.rel, access: rules.access(user, r.segs), entries: items, nextCursor: start + limit < out.length ? encodeCursor(start + limit) : null }
   }
 

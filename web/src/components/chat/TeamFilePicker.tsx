@@ -4,7 +4,7 @@
 // Picked files are attached as references by the composer (POST /api/attachments/team-file).
 import clsx from 'clsx'
 import { ChevronRight, File, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, Folder, Home, Presentation, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
@@ -55,6 +55,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
   const [error, setError] = useState<string | null>(null)
   const [rev, setRev] = useState(0)
   const [picked, setPicked] = useState<Map<string, FileEntry>>(new Map())
+  const rowId = useId()
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fine = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: fine)').matches
@@ -137,10 +138,12 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
   const fileRow = (f: FileEntry, showPath: boolean) => {
     const already = attached.has(f.path)
     const on = already || picked.has(f.path)
-    const off = !on && full
+    // a download-only (quarantined) file: the AI cannot read it, so it cannot be attached; the row says why
+    const locked = !on && !!f.downloadOnly
+    const off = (!on && full) || locked
     return (
       <li key={f.path}>
-        <label className={clsx('flex cursor-pointer items-center gap-3 border-b border-line px-3 py-2.5 text-sm last:border-0 hover:bg-hover sm:py-2', picked.has(f.path) && 'bg-accent-soft', (off || already) && 'cursor-not-allowed', off && 'opacity-60')} title={shown(f.path)} data-testid="picker-file">
+        <label className={clsx('flex cursor-pointer items-center gap-3 border-b border-line px-3 py-2.5 text-sm last:border-0 hover:bg-hover sm:py-2', picked.has(f.path) && 'bg-accent-soft', (off || already) && 'cursor-not-allowed', off && 'opacity-60')} title={locked ? t('picker.downloadOnly') : shown(f.path)} data-testid="picker-file">
           <input
             type="checkbox"
             className="h-4 w-4 shrink-0 accent-[var(--c-accent)]"
@@ -148,6 +151,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
             disabled={off || already}
             onChange={() => toggle(f)}
             aria-label={t('picker.select', { name: f.name })}
+            aria-describedby={locked ? `${rowId}-${encodeURIComponent(f.path)}` : undefined}
             data-picker-item
           />
           <FileKindIcon name={f.name} />
@@ -157,6 +161,8 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
           </span>
           {already ? (
             <span className="shrink-0 text-xs text-accent-text" data-testid="picker-attached">{t('picker.attached')}</span>
+          ) : locked ? (
+            <span id={`${rowId}-${encodeURIComponent(f.path)}`} className="shrink-0 text-xs text-muted" data-testid="picker-download-only">{t('files.downloadOnly')}<span className="sr-only">: {t('picker.downloadOnly')}</span></span>
           ) : (
             f.size !== null && <span className="shrink-0 text-xs text-faint tabular-nums">{formatSize(f.size, locale)}</span>
           )}

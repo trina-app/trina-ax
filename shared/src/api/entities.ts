@@ -341,6 +341,10 @@ export const FileEntry = z.object({
   mime: z.string().nullable(),
   /** the caller's access (folders shown only for navigation have 'none' and are greyed out) */
   access: Access,
+  /** a download-only file (generated output Safe operations 1A quarantined, docs/SAFE-OPS-1A.md): it can be downloaded,
+   * but the AI cannot read it and in-app previews are off, so "Ask AI" and "add to chat" are not offered. Absent on
+   * every other entry (and from servers before this field) */
+  downloadOnly: z.literal(true).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 

@@ -9,7 +9,7 @@
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
+// Test-only controls: POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -217,6 +217,7 @@ export class MockServer {
     this.queuePositions.clear()
     this.queueRevision = 0
     this.revoked.clear()
+    this.downloadOnly.clear()
     this.connection = defaultConnection()
     if (!this.setupNeeded) this.seed()
     for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
@@ -296,8 +297,11 @@ export class MockServer {
   }
 
   entry(path: string, n: FileNode, user: User): FileEntry {
-    return { name: path.slice(path.lastIndexOf('/') + 1), path, type: n.type, size: n.type === 'file' ? n.data!.byteLength : null, mtime: n.mtime, mime: n.type === 'file' ? mimeOf(path) : null, access: this.access(path, user) }
+    return { name: path.slice(path.lastIndexOf('/') + 1), path, type: n.type, size: n.type === 'file' ? n.data!.byteLength : null, mtime: n.mtime, mime: n.type === 'file' ? mimeOf(path) : null, access: this.access(path, user),
+      ...(n.type === 'file' && this.downloadOnly.has(path) ? { downloadOnly: true as const } : {}) }
   }
+  /** POST /__test/download-only {path}: a file Safe operations 1A generated (quarantined: FileEntry.downloadOnly) */
+  downloadOnly = new Set<string>()
 
   // ---------------- team skills (like server/src/skills/*) ----------------
   skillChange(c: SkillChange) {
@@ -981,13 +985,14 @@ export class MockServer {
       const q = String(c.query.q ?? '').toLowerCase()
       const base = String(c.query.path ?? '')
       const items = [...this.files.entries()]
-        .filter(([p, n]) => n.type === 'file' && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
+        // like the server (policy/authorize.ts visiblePath): download-only files are not search hits
+        .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && (!base || p.startsWith(base + '/')) && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(q) && this.access(p, c.user) !== 'none' && !(p.startsWith('users/') && !p.startsWith(`users/${c.user.id}/`)))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 50)), truncated: false }
     },
     recentFiles: (c) => {
       const items = [...this.files.entries()]
-        .filter(([p, n]) => n.type === 'file' && this.access(p, c.user) !== 'none' && !p.startsWith('users/'))
+        .filter(([p, n]) => n.type === 'file' && !this.downloadOnly.has(p) && this.access(p, c.user) !== 'none' && !p.startsWith('users/'))
         .sort((a, b) => b[1].mtime.localeCompare(a[1].mtime))
         .map(([p, n]) => this.entry(p, n, c.user))
       return { items: items.slice(0, Number(c.query.limit ?? 20)), truncated: false }
@@ -1765,6 +1770,10 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/download-only') {
+      this.putFile(String(body.path), 'PK generated deck')
+      this.downloadOnly.add(String(body.path))
+    }
     else if (p === '/__test/artifact') this.nextArtifact = { type: (['html', 'svg', 'react', 'mermaid'] as const).find((t) => t === body.type) ?? 'html', content: String(body.content) }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice

@@ -194,7 +194,8 @@ SIGKILL on a locked OS thread; an orphan cannot continue a held operation after 
 Generated PPTX and normalized JPEG bytes are quarantined by hash. Published paths and observed
 inodes are also protected; byte-identical copies/uploads and renamed extensions remain blocked.
 There is **no automatic indexing, text extraction, AI read, thumbnail or in-app preview** of these
-files. The file panel explains download-only status in ko/en/id/ja/es. Authorized downloads retain the
+files. The file panel and the Files list explain download-only status in ko/en/id/ja/es and offer no "Ask AI" or
+"add to chat" for them (the listing API marks them, `FileEntry.downloadOnly`). Authorized downloads retain the
 existing attachment and CSP protections. Normalized image blocks may go directly to the configured
 model provider via the guarded MCP route; they never go through legacy OCR. Downloading a file
 for an external Office/image application remains the user's action; validation does not certify

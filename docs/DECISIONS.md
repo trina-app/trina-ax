@@ -3622,6 +3622,13 @@ PowerPoint on a standard install, and that its refusals and its confidential loc
   unchanged.
 - **The file panel leaves out "Ask AI" and "add to chat" for a download-only file** and says why (the AI is refused
   those bytes, so the action could only fail).
+  - The Files list did not know (feat/small-batch-1030): `FileEntry.downloadOnly: true` (optional, absent otherwise
+    and from older servers) is set by `TeamFiles.entry` with the read's own test (`Quarantine.hasFile`; a file that
+    cannot be checked is listed without it, and the read still refuses it). The row shows "Download only", cannot
+    be dragged into a chat, and its menu keeps "Ask AI" and "add to chat" turned off with the reason
+    (`aria-describedby`); download stays. The attach picker shows such a file in its folder, not pickable, with the
+    reason; its name search and recent files already left download-only files out (`visiblePath`). Tests:
+    `files-download-only.test.ts`, `web/test/e2e/team-files.spec.ts`.
 - **Building a kit from source (QA B7)** failed with `node: command not found` from `electron-winstaller`'s install
   script. The cause was not a missing prerequisite: bun runs install scripts with its own stand-in for `node`
   (`/tmp/bun-node-<revision>/node`, a link to the bun that made it), reuses that folder, and the QA's first build had

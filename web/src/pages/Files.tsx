@@ -5,7 +5,7 @@
 // move / share / trash for all of them from the bar that replaces the breadcrumbs (lib/bulkFiles.ts).
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
@@ -696,6 +696,7 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
   const Icon = ICONS[iconKind(e.name, folder)]
   const dim = e.access === 'none'
   const writable = e.access === 'write'
+  const menuId = useId()
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'center' })
   }, [selected])
@@ -706,6 +707,9 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
     return () => document.removeEventListener('mousedown', h)
   }, [menu])
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover disabled:opacity-40'
+  // a download-only (quarantined) file: the AI cannot read it, so "Ask AI" and "add to chat" could only fail; they stay
+  // in the menu, turned off, with the reason (like the file panel)
+  const aiOff = !folder && !!e.downloadOnly
   return (
     <tr ref={ref} className={clsx('group border-b border-line last:border-0', (selected || checked) && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
       <td className="w-0 py-1 pr-0 pl-1">
@@ -720,9 +724,9 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
           className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline"
           title={dim ? t('files.navigationOnly') : undefined}
           // a file can be dragged into a chat's message box (attached as a team file)
-          draggable={!folder}
+          draggable={!folder && !aiOff}
           onDragStart={(ev) => {
-            if (folder) return
+            if (folder || aiOff) return
             ev.dataTransfer.setData(TEAM_FILE_DRAG_TYPE, e.path)
             ev.dataTransfer.setData('text/plain', e.path)
             ev.dataTransfer.effectAllowed = 'copy'
@@ -734,6 +738,7 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
           </span>
           {dim && <span className="sr-only">({t('files.navigationOnly')})</span>}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
+          {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
           {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}
         </button>
       </td>
@@ -759,14 +764,15 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
                 <Download size={14} aria-hidden /> {t('common.download')}
               </button>
             )}
-            <button role="menuitem" type="button" className={item} onClick={onChat} data-testid="chat-with-file">
+            <button role="menuitem" type="button" className={item} onClick={onChat} disabled={aiOff} aria-describedby={aiOff ? `${menuId}-ai-off` : undefined} data-testid="chat-with-file">
               {folder ? <MessageSquarePlus size={14} aria-hidden /> : <Sparkles size={14} aria-hidden />} {t(folder ? 'files.chatWith' : 'files.askAi')}
             </button>
             {!folder && onAddToChat && (
-              <button role="menuitem" type="button" className={item} onClick={onAddToChat} data-testid="add-to-chat">
+              <button role="menuitem" type="button" className={item} onClick={onAddToChat} disabled={aiOff} aria-describedby={aiOff ? `${menuId}-ai-off` : undefined} data-testid="add-to-chat">
                 <Paperclip size={14} aria-hidden /> <span className="min-w-0 truncate">{t('files.addToChatNamed', { title: chatTitle })}</span>
               </button>
             )}
+            {aiOff && <p id={`${menuId}-ai-off`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
             {!folder && (
               <button role="menuitem" type="button" className={item} onClick={onHistory}>
                 <History size={14} aria-hidden /> {t('files.history')}

@@ -273,6 +273,8 @@ export const ja: Record<MessageKey, string> = {
   'attach.moved': "移動されています",
   'files.askAiShort': "AIに質問",
   'files.askAiDownloadOnly': "ダウンロード専用のファイルはAIが読めないため、「AIに質問」は使えません。",
+  'files.downloadOnly': "ダウンロード専用",
+  'picker.downloadOnly': "ダウンロード専用のファイルはAIが読めないため、添付できません。",
   'files.addToChatNamed': "“{title}”に追加",
   'files.addedSome': "{n}個追加しました。{failed}個は追加できませんでした。",
   'voice.start': "音声入力",

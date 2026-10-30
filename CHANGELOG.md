@@ -27,6 +27,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Safe operations 1A: tries refused before converting anything no longer use the 8-per-hour / 4-per-reply slots; busy, cleanup, the hourly limit (with the minutes to wait), the per-reply limit and the budget are separate messages in five languages.
 - Safe operations 1A: after it is turned off, only chats that ran a 1A job stay without web fetch, connectors and the browser; other chats used while it was on get them back. Migration 323 (reader 1); chats it cannot rule out stay locked.
 - Files: a download-only (generated, quarantined) file no longer offers "Ask AI" or "add to chat"; the panel says the AI cannot read it.
+- Files: the Files list does the same: a download-only file shows "Download only", and its menu keeps "Ask AI" and "add to chat" off with the reason (the folder listing API marks such files with `downloadOnly`, an optional field); the attach picker shows it as not attachable.
 - Steps under an answer: HWP page views, scheduled tasks, search by meaning, Google Drive and video steps have names in all five languages instead of the tool's name.
 - Server log: stopping an answer while it streams (Codex or Claude) writes one info line, like stopping one that waits; the sub-agent line shows the token count instead of `[redacted]`.
 

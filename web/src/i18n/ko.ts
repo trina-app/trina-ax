@@ -284,6 +284,8 @@ export const ko = {
   'attach.moved': '옮겨짐',
   'files.askAiShort': 'AI에게 묻기',
   'files.askAiDownloadOnly': "다운로드 전용 파일은 AI가 읽을 수 없어서 'AI에게 묻기'를 쓸 수 없어요.",
+  'files.downloadOnly': '다운로드 전용',
+  'picker.downloadOnly': '다운로드 전용 파일은 AI가 읽을 수 없어서 첨부할 수 없어요.',
   'files.addToChatNamed': '“{title}” 채팅에 추가',
   'files.addedSome': '{n}개를 추가했고 {failed}개는 추가하지 못했어요.',
 
