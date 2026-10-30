@@ -23,7 +23,7 @@ test('a long conversation: the newest answer notes that only the recent part is 
   await expect(page.getByTestId('assistant-message')).toHaveCount(2)
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
   const note = lastAnswer(page).getByTestId('memory-note')
-  await expect(note).toHaveText('대화가 길어 앞부분 일부만 기억하고 있어요. 중요한 내용은 다시 알려 주거나, 요약해서 새 채팅에서 이어 가세요.')
+  await expect(note).toHaveText('대화가 길어서 AI가 최근 내용만 기억하고 있어요. 중요한 내용은 다시 알려 주거나, 요약해서 새 채팅에서 이어 가세요.')
   await expect(note).toHaveAttribute('role', 'note')
   // small and calm: not an alert, not an error
   await expect(lastAnswer(page).getByRole('alert')).toHaveCount(0)

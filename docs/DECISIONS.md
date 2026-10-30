@@ -3019,7 +3019,7 @@ only themselves. The owner chose the safest defaults for the open questions:
   otherwise). A resumed Claude session keeps whatever its start had, so a resumed turn takes the flag of the answer
   its session ended at. The attempt that answers sets it last (a resume that fails and falls back to history counts);
   the Codex fallback builds its prompt only when it runs.
-- The newest answer shows a small note, "대화가 길어 앞부분 일부만 기억하고 있어요", with a tip (repeat what matters,
+- The newest answer shows a small note, "대화가 길어서 AI가 최근 내용만 기억하고 있어요", with a tip (repeat what matters,
   or continue in a new chat with a summary). It is a note, not an alert, and only on the newest answer: it describes
   what the AI has now.
 - Not covered: Claude Code's own automatic compaction inside a resumed session (it keeps a summary and we do not see

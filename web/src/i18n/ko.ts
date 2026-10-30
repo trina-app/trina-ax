@@ -198,7 +198,7 @@ export const ko = {
   "chat.limit.time_limit": "한 번의 답변에 쓸 수 있는 시간을 다 썼어요. 이어서 하면 멈춘 곳부터 계속해요.",
   "chat.limit.continue": "이어서 하기",
   "chat.limit.message": "이어서 해 주세요.",
-  "chat.memory.note": "대화가 길어 앞부분 일부만 기억하고 있어요.",
+  "chat.memory.note": "대화가 길어서 AI가 최근 내용만 기억하고 있어요.",
   "chat.memory.tip": "중요한 내용은 다시 알려 주거나, 요약해서 새 채팅에서 이어 가세요.",
   'chat.send': '보내기',
   'chat.sending': '보내는 중…',
