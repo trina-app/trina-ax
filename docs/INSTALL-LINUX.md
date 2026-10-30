@@ -107,7 +107,7 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 - systemd 유닛: `mycel-firewall.timer`, `mycel-launcher.service`, `mycel-server.service`, `mycel-update.timer`.
 - 마지막 줄이 `installed …`이면 성공. 실패하면 이유를 출력하고 1로 끝난다.
 
-자주 쓰는 옵션: `--id ID`(한 서버에 시험 설치를 하나 더), `--port N`(기본 47820), `--proxy-port N`(기본 47821),
+자주 쓰는 옵션: `--id ID`(한 서버에 시험 설치를 하나 더. systemd 자체 그룹 이름인 `system`·`user`·`machine`·`capsule`은 쓸 수 없다), `--port N`(기본 47820), `--proxy-port N`(기본 47821),
 `--tls-port N`(사무실 안 직접 연결, 기본 끔), `--no-auto-update`, `--plan FILE`(요금제 파일, 아래 9장).
 
 공개 주소와 연동(7장 "공개 주소"):
@@ -281,3 +281,5 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 sudo ./install-linux.sh uninstall              # 앱·실행기·유닛 삭제, 데이터(data/ team/ config/ secrets/)는 남김
 sudo ./install-linux.sh uninstall --purge      # 전부 삭제, 계정도 삭제
 ```
+
+제거하면 `/etc/default/<id>`의 `MYCEL_SAFE_OPS_1A` 줄도 지운다(다시 설치하면 1A는 꺼진 채로 시작한다). 그 파일의 다른 줄은 남는다.

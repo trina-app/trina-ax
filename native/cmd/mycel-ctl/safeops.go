@@ -180,18 +180,25 @@ type SafeOpsProgram struct {
 }
 
 // rootCopyProblem: the copy must be a regular root-owned executable nobody else can write, in root/safe-ops/ (root
-// 755), with the bytes the version folder's manifest lists (want: sha256, "" = not checked).
+// 755), with the bytes the version folder's manifest lists (want: sha256, "" = not checked). The server account runs
+// and hashes it (ready.ts), so the folder and the file must be readable and searchable by others (a root umask of 077
+// would otherwise leave a copy only root can use, which this check would call fine).
 func rootCopyProblem(e *env, name, want string) string {
-	if err := rootOwnedDir(e.root("safe-ops")); err != nil {
+	dir := e.root("safe-ops")
+	if err := rootOwnedDir(dir); err != nil {
 		return err.Error()
+	}
+	var dst syscall.Stat_t
+	if err := syscall.Lstat(dir, &dst); err != nil || dst.Mode&0o005 != 0o005 {
+		return dir + " must be readable and searchable by the server account (755)"
 	}
 	p := e.root("safe-ops", name)
 	var st syscall.Stat_t
 	if err := syscall.Lstat(p, &st); err != nil {
 		return p + " is missing"
 	}
-	if st.Mode&syscall.S_IFMT != syscall.S_IFREG || int(st.Uid) != rootUID || st.Mode&0o022 != 0 || st.Mode&0o111 == 0 {
-		return p + " must be a root-owned executable that group and others cannot write"
+	if st.Mode&syscall.S_IFMT != syscall.S_IFREG || int(st.Uid) != rootUID || st.Mode&0o022 != 0 || st.Mode&0o005 != 0o005 {
+		return p + " must be a root-owned executable (755) that group and others cannot write"
 	}
 	if want != "" {
 		if got, _, err := bundle.HashFile(p); err != nil || got != want {
@@ -246,14 +253,28 @@ func readSmall(p string, max int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, max))
 }
 
-// installRootCopy copies src (any owner) into root/safe-ops/<name>: first into a root-only temp file, whose hash must
-// then equal want (so a file swapped while it is read never lands), then renamed into place 0755.
-func installRootCopy(e *env, src, name, want string) error {
+// ensureSafeOpsDir makes root/safe-ops/ a root-owned folder with mode 755 whatever the caller's umask (`sudo` keeps
+// the administrator's: 077 would leave a folder the server account cannot enter).
+func ensureSafeOpsDir(e *env) (string, error) {
 	dir := e.root("safe-ops")
 	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-		return err
+		return "", err
 	}
 	if err := rootOwnedDir(dir); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// installRootCopy copies src (any owner) into root/safe-ops/<name>: first into a root-only temp file, whose size and
+// hash must then equal the manifest's (so a file swapped while it is read never lands, and a huge or endless file in
+// the server account's folder cannot fill the disk as root), then renamed into place 0755.
+func installRootCopy(e *env, src, name, want string, size int64) error {
+	dir, err := ensureSafeOpsDir(e)
+	if err != nil {
 		return err
 	}
 	in, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
@@ -269,9 +290,12 @@ func installRootCopy(e *env, src, name, want string) error {
 	if err != nil {
 		return err
 	}
-	_, cerr := io.Copy(out, in)
+	n, cerr := io.Copy(out, io.LimitReader(in, size+1))
 	if err := out.Close(); cerr == nil {
 		cerr = err
+	}
+	if cerr == nil && n != size {
+		cerr = fmt.Errorf("%s is not the size its release lists", src)
 	}
 	if cerr == nil {
 		if got, _, err := bundle.HashFile(tmp); err != nil || got != want {
@@ -310,7 +334,7 @@ func ensureSafeOpsCopies(e *env, in *Install) ([]SafeOpsProgram, []string, error
 			if !signed {
 				return nil, nil, fmt.Errorf("%s; this install accepts unsigned releases, so mycel-ctl cannot verify the installed copy: run `sudo ./install-linux.sh update --from <kit>` with the kit of %s", prob, v)
 			}
-			if err := installRootCopy(e, filepath.Join(e.base, "app", "versions", v, c.Rel), c.Name, f.Sha256); err != nil {
+			if err := installRootCopy(e, filepath.Join(e.base, "app", "versions", v, c.Rel), c.Name, f.Sha256, f.Size); err != nil {
 				return nil, nil, fmt.Errorf("copying %s: %v", c.Rel, err)
 			}
 			notes = append(notes, fmt.Sprintf("installed root/safe-ops/%s from the verified version %s", c.Name, v))
@@ -358,6 +382,9 @@ func safeOpsStatus(e *env, in *Install) *SafeOpsStatus {
 		s.Limits = &l
 	} else {
 		s.Problems = append(s.Problems, err.Error())
+	}
+	if !ownSlice(in.ID) {
+		s.Problems = append(s.Problems, fmt.Sprintf("the install id %q is one of systemd's own slices, so the install has no slice of its own; 1A needs an install with another --id", in.ID))
 	}
 	dir := filepath.Join(cgroupRoot, sliceUnit(in.ID))
 	for _, f := range []string{"memory.max", "memory.high", "memory.swap.max", "memory.current", "pids.max", "cpu.max"} {
@@ -457,6 +484,9 @@ func cmdSafeOps(e *env, args []string) (int, error) {
 		if !systemd {
 			return 1, fmt.Errorf("safe operations 1A need the systemd install (the bounded group is a systemd slice)")
 		}
+		if !ownSlice(in.ID) {
+			return 1, fmt.Errorf("the install id %q is one of systemd's own slices: 1A needs an install with another --id", in.ID)
+		}
 		if _, err := computeSliceLimits(sliceResources(in)); err != nil {
 			return 1, err
 		}
@@ -504,11 +534,12 @@ func cmdSafeOps(e *env, args []string) (int, error) {
 // limits only when it creates the slice's cgroup again (daemon-reload alone leaves the running slice as it was;
 // systemd 257, Debian 13), so both units stop, the empty slice stops, and both start again.
 func restartInSlice(e *env, in *Install) error {
-	for _, c := range [][]string{
-		{"stop", in.ID + "-server.service", in.ID + "-launcher.service"},
-		{"stop", sliceUnit(in.ID)},
-		{"start", in.ID + "-launcher.service", in.ID + "-server.service"},
-	} {
+	steps := [][]string{{"stop", in.ID + "-server.service", in.ID + "-launcher.service"}}
+	if ownSlice(in.ID) { // never system.slice (ownSlice)
+		steps = append(steps, []string{"stop", sliceUnit(in.ID)})
+	}
+	steps = append(steps, []string{"start", in.ID + "-launcher.service", in.ID + "-server.service"})
+	for _, c := range steps {
 		if o, err := exec.Command(e.systemctl, c...).CombinedOutput(); err != nil {
 			return fmt.Errorf("systemctl %s: %v %s", strings.Join(c, " "), err, strings.TrimSpace(string(o)))
 		}

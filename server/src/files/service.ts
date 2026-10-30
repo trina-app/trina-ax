@@ -23,6 +23,7 @@ import type { McpContent } from '../turns'
 import { Quarantine } from '../safe-ops/quarantine'
 import { recoverWorkflows } from '../safe-ops/workflow'
 import { recoverPublications } from '../safe-ops/publication'
+import { relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
@@ -167,6 +168,7 @@ export class FileService {
     this.quarantine = new Quarantine(db, cfg.teamRoot)
     recoverWorkflows(db)
     recoverPublications(db, cfg.teamRoot)
+    relockWorkedChats(db)
     this.fx = { quarantine: this.quarantine, root: cfg.teamRoot, caseInsensitive: detectCaseInsensitive(cfg.teamRoot) }
     this.office = new OfficeCache(path.join(cfg.dataDir, 'textcache'), this.fx, { pandoc: cfg.pandoc, pdftotext: cfg.pdftotext, ocr: cfg.ocr, quarantine: this.quarantine })
   }

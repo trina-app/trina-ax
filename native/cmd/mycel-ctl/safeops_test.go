@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"mycel/native/internal/bundle"
@@ -235,10 +237,19 @@ func TestSafeOpsOnOff(t *testing.T) {
 func TestSafeOpsCopiesRefused(t *testing.T) {
 	// a version folder changed by the server account: its bytes no longer match the signed manifest
 	tb, _, _ := safeOpsBase(t, false)
-	must(t, os.WriteFile(filepath.Join(tb.base, "app/versions/0.1.0/bin/pandoc"), []byte("pandoc 3.9"+"evil"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/versions/0.1.0/bin/pandoc"), []byte("pandoc 6.6"), 0o755))
 	code, _, errs := tb.ctl("", "safe-ops", "on")
 	if code != 1 || !strings.Contains(errs, "changed while it was copied") {
 		t.Fatalf("tampered copy: %d %s", code, errs)
+	}
+	// a longer file (a sparse terabyte, say) is cut at the listed size, never copied whole as root
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/versions/0.1.0/bin/pandoc"), []byte("pandoc 3.9"+strings.Repeat("x", 1<<20)), 0o755))
+	code, _, errs = tb.ctl("", "safe-ops", "on")
+	if code != 1 || !strings.Contains(errs, "is not the size its release lists") {
+		t.Fatalf("oversized copy: %d %s", code, errs)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(tb.base, "root/safe-ops")); len(ents) > 1 {
+		t.Fatalf("temp files left in root/safe-ops: %v", ents)
 	}
 	if _, err := os.Stat(filepath.Join(tb.base, "root/safe-ops/pandoc")); err == nil {
 		t.Fatal("tampered pandoc installed")
@@ -297,4 +308,89 @@ func TestUpdateInstallsSafeOpsCopies(t *testing.T) {
 			t.Fatalf("root/safe-ops/%s: %q %v", n, b, err)
 		}
 	}
+}
+
+// an administrator's umask 077 under sudo: root/safe-ops and the copies stay usable by the server account (755), and a
+// copy the server account could not run is a problem, not "ok"
+func TestSafeOpsCopiesUnderStrictUmask(t *testing.T) {
+	tb, _, _ := safeOpsBase(t, false)
+	old := syscall.Umask(0o077)
+	t.Cleanup(func() { syscall.Umask(old) })
+	if code, out, errs := tb.ctl("", "safe-ops", "on"); code != 0 {
+		t.Fatalf("on: %d %s %s", code, out, errs)
+	}
+	for _, p := range []string{"root/safe-ops", "root/safe-ops/mycel-safeops", "root/safe-ops/pandoc"} {
+		if st, err := os.Stat(filepath.Join(tb.base, p)); err != nil || st.Mode().Perm() != 0o755 {
+			t.Fatalf("%s: %v %v", p, st.Mode(), err)
+		}
+	}
+	in, err := loadInstall(tb.env())
+	must(t, err)
+	must(t, os.Chmod(filepath.Join(tb.base, "root/safe-ops/pandoc"), 0o700))
+	if s := safeOpsStatus(tb.env(), in); !strings.Contains(strings.Join(s.Problems, ";"), "pandoc must be a root-owned executable (755)") {
+		t.Fatalf("0700 copy: %+v", s.Problems)
+	}
+	must(t, os.Chmod(filepath.Join(tb.base, "root/safe-ops/pandoc"), 0o755))
+	must(t, os.Chmod(filepath.Join(tb.base, "root/safe-ops"), 0o700))
+	if s := safeOpsStatus(tb.env(), in); !strings.Contains(strings.Join(s.Problems, ";"), "readable and searchable by the server account") {
+		t.Fatalf("0700 folder: %+v", s.Problems)
+	}
+	// the next `on` (or `mycel-ctl update`) repairs the folder's mode
+	if code, out, errs := tb.ctl("", "safe-ops", "on"); code != 0 {
+		t.Fatalf("on again: %d %s %s", code, out, errs)
+	}
+	if st, _ := os.Stat(filepath.Join(tb.base, "root/safe-ops")); st.Mode().Perm() != 0o755 {
+		t.Fatalf("folder mode %v", st.Mode())
+	}
+}
+
+// an install id that is one of systemd's own slices (system, user, machine, capsule) never gets a slice unit, a Slice=
+// line or a `systemctl stop` of that slice: stopping system.slice would stop every service of the machine
+func TestSystemSliceIDs(t *testing.T) {
+	for _, id := range []string{"system", "user", "machine", "capsule"} {
+		if _, ok := unitName(id, "slice.in"); ok {
+			t.Fatalf("%s: slice unit rendered", id)
+		}
+	}
+	if !ownSlice("mycel") || !ownSlice("system-test") {
+		t.Fatal("ordinary ids have their own slice")
+	}
+	rootUID = os.Getuid()
+	t.Cleanup(func() { rootUID = 0 })
+	in := testInstall(t, "/var/lib/system")
+	in.ID = "system"
+	tmpl := filepath.Join("..", "..", "..", "scripts", "linux", "systemd")
+	tdir, out := t.TempDir(), t.TempDir()
+	for _, n := range []string{"slice.in", "server.service.in", "launcher.service.in"} {
+		b, err := os.ReadFile(filepath.Join(tmpl, n))
+		must(t, err)
+		must(t, os.WriteFile(filepath.Join(tdir, n), b, 0o644))
+	}
+	names, _, err := renderUnits(in, tdir, out)
+	must(t, err)
+	if strings.Join(names, " ") != "system-launcher.service system-server.service" {
+		t.Fatalf("units %v", names)
+	}
+	for _, n := range names {
+		if b, _ := os.ReadFile(filepath.Join(out, n)); strings.Contains(string(b), "\nSlice=") {
+			t.Fatalf("%s names a slice:\n%s", n, b)
+		}
+	}
+	tb, _, _ := safeOpsBase(t, false)
+	e := tb.env()
+	inst, err := loadInstall(e)
+	must(t, err)
+	inst.ID = "system"
+	must(t, restartInSlice(e, inst))
+	if calls, _ := os.ReadFile(tb.sysCalls); strings.Contains(string(calls), ".slice") {
+		t.Fatalf("systemctl calls %s", calls)
+	}
+}
+
+// env: an environment on this test base with the fakes (for calling the helpers directly)
+func (tb *testBase) env() *env {
+	e := newEnv()
+	e.base, e.nft, e.systemctl = tb.base, filepath.Join(tb.fakeBin, "nft"), filepath.Join(tb.fakeBin, "systemctl")
+	e.stdout, e.stderr = io.Discard, io.Discard
+	return e
 }

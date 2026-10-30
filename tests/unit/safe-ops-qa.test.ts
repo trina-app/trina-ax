@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { makeHandler } from '../../server/src/mcp/protocol'
-import { confidentialChat } from '../../server/src/safe-ops/confidential'
+import { confidentialChat, isConfidentialChat, relockWorkedChats } from '../../server/src/safe-ops/confidential'
 import { withWorkflow, reserveJob, WORKFLOW_LIMITS } from '../../server/src/safe-ops/workflow'
 import { SAFE_OPS_TEXT, SAFE_ERROR_KEYS, SafeOpsError, safeText, toolErrorText } from '../../server/src/safe-ops/strings'
 import { safeOpsReadiness, safeProgram, untrusted } from '../../server/src/safe-ops/ready'
@@ -112,6 +112,35 @@ describe('D1: the confidential lock stays only where 1A worked', () => {
     const external = safeText(A.ctx.db, 'alice', 'external')
     expect(JSON.stringify((await call(workedTurn)).result)).toContain(external)
     expect(JSON.stringify((await call(plainTurn)).result)).not.toContain(external)
+  })
+
+  test('the web app\'s flag (Chat.confidential) gives the server\'s answer: an unlocked row is not confidential', () => {
+    const open = A.chat('alice'), locked = A.chat('alice')
+    A.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 0), (?, 1)').run(open, locked)
+    expect([isConfidentialChat(A.ctx.db, open), confidentialChat(A.ctx.db, open)]).toEqual([false, false])
+    expect([isConfidentialChat(A.ctx.db, locked), confidentialChat(A.ctx.db, locked)]).toEqual([true, true])
+  })
+
+  test('rolled forward after a roll-back: a conversation whose turn ran a workflow under the older build is locked again at startup', () => {
+    // migration 323 unlocked it; the older build then ran a workflow there without marking (its INSERT OR IGNORE kept 0)
+    const chat = A.chat('alice'), turn = A.turn('alice', chat)
+    const other = A.chat('alice')
+    A.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 0), (?, 0)').run(chat, other)
+    A.ctx.db.query("INSERT INTO safe_ops_workflows (id, user_id, turn_id, created, owner_pid, state) VALUES (?, 'alice', ?, ?, 1, 'done')").run(crypto.randomUUID(), turn, Date.now())
+    expect(confidentialChat(A.ctx.db, chat)).toBe(false)
+    relockWorkedChats(A.ctx.db)
+    expect(confidentialChat(A.ctx.db, chat)).toBe(true)
+    expect(confidentialChat(A.ctx.db, other)).toBe(false)
+    relockWorkedChats(A.ctx.db) // idempotent
+    expect((A.ctx.db.query('SELECT count(*) AS n FROM safe_ops_chats WHERE chat_id=?').get(chat) as { n: number }).n).toBe(1)
+  })
+
+  test('a turn id that names no conversation refuses the workflow before it runs (it would run without its lock)', async () => {
+    const before = (A.ctx.db.query('SELECT count(*) AS n FROM safe_ops_workflows').get() as { n: number }).n
+    let ran = false
+    expect(await code(withWorkflow(A.ctx.files, A.toolCtx('alice', 'no-such-turn'), async () => { ran = true }))).toBe('safe_ops_unavailable')
+    expect(ran).toBe(false)
+    expect((A.ctx.db.query('SELECT count(*) AS n FROM safe_ops_workflows').get() as { n: number }).n).toBe(before)
   })
 
   test('migration 323: old rows unlock only when nothing ties 1A work to them (fail-closed otherwise)', () => {

@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { safeOpsEnabled } from './runner'
+import { ToolError } from '../policy/errors'
 const LOCAL_TOOLS = new Set([
   'list',
   'glob',
@@ -25,14 +26,25 @@ export function confidentialChat(db: Database, chatId: string): boolean {
   return !!db.query('SELECT 1 FROM safe_ops_chats WHERE chat_id=? AND material!=0').get(chatId)
 }
 /** Mark the conversation of this turn confidential for good: called inside the workflow admission transaction, before
- * the workflow reads a source or runs a converter. A turn-less call (no conversation) has nothing to mark. */
+ * the workflow reads a source or runs a converter. A turn-less call (no conversation) has nothing to mark; a turn id
+ * that names no conversation refuses the workflow (fail-closed: it would run without its lock). */
 export function markConfidentialTurn(db: Database, turnId: string | null) {
   if (!turnId) return
-  db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT t.chat_id, 1 FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id=? ON CONFLICT(chat_id) DO UPDATE SET material=1').run(turnId)
+  const r = db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT t.chat_id, 1 FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id=? ON CONFLICT(chat_id) DO UPDATE SET material=1').run(turnId)
+  if (!r.changes) throw new ToolError('No conversation for this safe workflow.', 'safe_ops_unavailable')
 }
-/** The same answer as confidentialChat without marking anything: for showing the flag (Chat.confidential). */
+/** Startup: every conversation with a 1A record tied to one of its turns is marked (material=1). A build before
+ * migration 323 (after a roll-back) ran workflows without marking, and its INSERT OR IGNORE left an unlocked row
+ * unlocked; rolled forward again, those conversations are locked here before any turn runs. */
+export function relockWorkedChats(db: Database) {
+  db.query(`INSERT INTO safe_ops_chats(chat_id, material)
+    SELECT DISTINCT t.chat_id, 1 FROM turns t JOIN chats c ON c.id = t.chat_id
+    WHERE t.id IN (SELECT turn_id FROM safe_ops_workflows UNION SELECT turn_id FROM safe_ops_publications UNION SELECT turn_id FROM safe_ops_sources)
+    ON CONFLICT(chat_id) DO UPDATE SET material=1 WHERE material=0`).run()
+}
+/** The same answer as confidentialChat: for showing the flag (Chat.confidential; it marks nothing either). */
 export function isConfidentialChat(db: Database, chatId: string): boolean {
-  return safeOpsEnabled() || !!db.query('SELECT 1 FROM safe_ops_chats WHERE chat_id=?').get(chatId)
+  return confidentialChat(db, chatId)
 }
 export function confidentialTurn(db: Database, turnId: string | null): boolean {
   const t = turnId ? (db.query('SELECT chat_id FROM turns WHERE id=?').get(turnId) as { chat_id: string } | null) : null

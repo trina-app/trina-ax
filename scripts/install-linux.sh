@@ -154,9 +154,12 @@ for p in "$PORT" "$TLS_PORT" "$PROXY_PORT"; do [[ "$p" =~ ^[0-9]{1,5}$ ]] && [ "
 DEPLOYMENT=self; [ "$HOSTED" = 1 ] && DEPLOYMENT=hosted
 [ "$HOSTED" = 1 ] && AUTO_UPDATE=0
 
-# the slice of the server and the launcher (mycel-ctl sliceUnit): "-" in a slice name means "inside", so it is written "_"
-SLICE="${ID//-/_}.slice"
-UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$SLICE")
+# the slice of the server and the launcher (mycel-ctl sliceUnit): "-" in a slice name means "inside", so it is written "_".
+# An id that is one of systemd's own slices gets none (mycel-ctl ownSlice): writing or stopping system.slice would stop
+# every service of the machine. A new install refuses such an id; an older one keeps its units in system.slice, without 1A.
+case "$ID" in system|user|machine|capsule) SLICE="" ;; *) SLICE="${ID//-/_}.slice" ;; esac
+[ -n "$SLICE" ] || [ "$CMD" != install ] || die "--id $ID is the name of one of systemd's own slices; choose another id"
+UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" ${SLICE:+"$SLICE"})
 UNIT_DIR=/etc/systemd/system
 have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
 stop_units() {
@@ -218,6 +221,14 @@ if [ "$CMD" = uninstall ]; then
     rm -f "/etc/apparmor.d/$ID-bwrap"
   fi
   rm -f "/etc/sysctl.d/60-$ID.conf" "/etc/systemd/journald.conf.d/$ID.conf"
+  # safe operations 1A's switch (`mycel-ctl safe-ops on`): a later install of this id starts with 1A off. The file's
+  # other lines (the administrator's, mycel-enroll's) stay; a file left empty goes.
+  DEF="/etc/default/$ID"
+  if [ -f "$DEF" ] && [ ! -L "$DEF" ] && grep -q '^[[:space:]]*MYCEL_SAFE_OPS_1A[[:space:]]*=' "$DEF"; then
+    grep -v '^[[:space:]]*MYCEL_SAFE_OPS_1A[[:space:]]*=' "$DEF" > "$DEF.mycel-tmp" || true
+    if grep -q '[^[:space:]]' "$DEF.mycel-tmp"; then cat "$DEF.mycel-tmp" > "$DEF"; rm -f "$DEF.mycel-tmp"; else rm -f "$DEF" "$DEF.mycel-tmp"; fi
+    say "turned safe operations 1A off in $DEF"
+  fi
   CTL_LINK=/usr/local/sbin/mycel-ctl; [ "$ID" = mycel ] || CTL_LINK="/usr/local/sbin/$ID-ctl"
   [ -L "$CTL_LINK" ] && case "$(readlink "$CTL_LINK")" in "$BASE"/*) rm -f "$CTL_LINK" ;; esac
   for f in /etc/cron.deny /etc/at.deny; do
@@ -894,19 +905,19 @@ if [ "$HOSTED" = 0 ] && ! grep -qw landlock /sys/kernel/security/lsm 2>/dev/null
 fi
 mkdir -m 700 "$ITMP/units"
 RU=$("$BASE/root/mycel-ctl" render-units --base "$BASE" --out "$ITMP/units" 2>&1) || die "rendering the units failed: $(printf '%s' "$RU" | tail -n 3 | tr '\n' ' ')"
-for u in "$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" "$SLICE"; do
+for u in "${UNITS[@]}"; do
   [ -f "$ITMP/units/$u" ] || die "mycel-ctl render-units wrote no $u"
   ! grep -q '@[A-Z_]*@' "$ITMP/units/$u" || die "$u has an unfilled placeholder"
 done
 if [ "$SYSTEMD" = 1 ]; then
   if command -v systemd-analyze >/dev/null 2>&1; then
-    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ./*.slice 2>&1) || die "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
+    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || die "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
   fi
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
   systemctl daemon-reload
   # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now
   # (daemon-reload alone does not change a running slice; the limits exist only while 1A is on, mycel-ctl safe-ops)
-  systemctl stop "$SLICE" >/dev/null 2>&1 || true
+  [ -z "$SLICE" ] || systemctl stop "$SLICE" >/dev/null 2>&1 || true
 fi
 if [ -n "$PLAN" ]; then
   [ -f "$PLAN" ] || die "--plan: $PLAN not found"

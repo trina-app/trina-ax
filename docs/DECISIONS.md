@@ -3613,3 +3613,17 @@ PowerPoint on a standard install, and that its refusals and its confidential loc
   package.json does not help: bun did not run it before the failing dependency script (tried on qa-test).
 - CI keeps the Linux kit again: the "Linux release bundle (L19)" job uploaded `TeamAX-server-*`, a name no build
   makes any more; the glob is now product-name-free and the step fails when no kit matches.
+- **Review fixes (ready/qa-1a-install).** An install id that is one of systemd's own slices (`system`, `user`,
+  `machine`, `capsule`) would have had `/etc/systemd/system/system.slice` written and `systemctl stop system.slice` run
+  by the installer and `safe-ops on`, stopping every service of the machine: such an id gets no slice and no `Slice=`
+  line (its units stay in system.slice, 1A unavailable), and a new install refuses it. `root/safe-ops/` and its copies
+  are set to 755 whatever the umask (`sudo` keeps the administrator's; 077 made a folder the server account could not
+  enter while `status` said ok), and `status` checks that the server account can reach and read them. Root's copy from
+  the server account's version folder stops at the size the signed manifest lists (a sparse terabyte there would
+  otherwise be written out as root). Uninstall removes the `MYCEL_SAFE_OPS_1A` line, so a reinstall starts with 1A
+  off. The converter's own cleanup failure (runner.ts) had kept the old code and so read "this reply reached a limit,
+  send a new message": it is `safe_ops_cleanup` now. The web app's flag (`isConfidentialChat`, feat/exfil-client)
+  follows `material` like the server's lock. Fail-closed additions: workflow admission refuses a turn id that names no
+  conversation (it would run without its lock), and startup marks every conversation whose turns have a 1A record
+  (after a roll-back to a build without the column, its `INSERT OR IGNORE` left an unlocked row unlocked).
+  Sub-agents run inside their parent's turn, so their workflows mark the parent's conversation.

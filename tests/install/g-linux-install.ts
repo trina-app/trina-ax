@@ -154,6 +154,11 @@ async function main() {
   check('installer refuses a script as an engine (ELF only)', badEngine.code !== 0 && /not a Linux/.test(badEngine.err) && !fs.existsSync(BASE), badEngine.err.trim())
   const unsigned = installer('install', '--from', kit(1), '--engine', `claude=${engine}`)
   check('installer refuses an unsigned kit without --allow-unsigned', unsigned.code !== 0 && /not signed|does not verify/.test(unsigned.err) && !fs.existsSync(BASE), unsigned.err.trim())
+  // an id that is one of systemd's own slices: its slice would be system.slice, which the installer stops (review)
+  const sysId = sh([path.join(REPO, 'scripts', 'install-linux.sh'), 'install', '--id', 'system', '--server-user', SRV, '--agent-user', AGT, '--port', String(PORT), '--proxy-port', String(PROXY),
+    '--from', kit(1), '--allow-unsigned', '--engine', `claude=${engine}`])
+  check('installer refuses an id that names one of systemd\'s own slices (system.slice is never written or stopped)', sysId.code !== 0 && /systemd's own slices/.test(sysId.err)
+    && !fs.existsSync('/var/lib/system') && !fs.existsSync('/etc/systemd/system/system.slice'), sysId.err.trim())
 
   // ---- install ----
   const inst = installer('install', '--from', kit(1), '--allow-unsigned', '--engine', `claude=${engine}`, '--engine', `codex=${codexFake}`)

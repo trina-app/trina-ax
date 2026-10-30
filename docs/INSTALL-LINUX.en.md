@@ -76,7 +76,7 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 sudo mycel-ctl status
 ```
 
-The installer creates `axserver` and `axagent`, installs into `/var/lib/mycel`, configures sandbox/firewall and systemd units (`mycel-server`, `mycel-launcher`, firewall and update timers). It downloads pinned engine binaries. Default app port: 47820, loopback. `--id`, `--port`, `--proxy-port` and `--no-auto-update` are advanced options; preserve the same install identity when maintaining it.
+The installer creates `axserver` and `axagent`, installs into `/var/lib/mycel`, configures sandbox/firewall and systemd units (`mycel-server`, `mycel-launcher`, firewall and update timers). It downloads pinned engine binaries. Default app port: 47820, loopback. `--id`, `--port`, `--proxy-port` and `--no-auto-update` are advanced options; preserve the same install identity when maintaining it. `--id` cannot be `system`, `user`, `machine` or `capsule` (systemd's own slices).
 
 ## First run
 
@@ -123,7 +123,7 @@ See [BACKUP-RESTORE.md](BACKUP-RESTORE.md) for DB-only restore, team files, encr
 sudo ./install-linux.sh uninstall
 ```
 
-This removes services/app components while retaining data. Only after verifying an off-host recovery copy, `uninstall --purge` also removes data/accounts. Confirm the installer identity and path before removal; never use demo cleanup on a production directory.
+This removes services/app components while retaining data, and the `MYCEL_SAFE_OPS_1A` line of `/etc/default/<id>` (a reinstall starts with 1A off; the file's other lines stay). Only after verifying an off-host recovery copy, `uninstall --purge` also removes data/accounts. Confirm the installer identity and path before removal; never use demo cleanup on a production directory.
 
 ## Troubleshooting and FAQ
 

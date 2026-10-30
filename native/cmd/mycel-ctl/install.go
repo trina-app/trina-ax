@@ -236,11 +236,19 @@ func renderTemplate(text string, vals map[string]string) (string, error) {
 // share the first one's limits, and stopping one slice would stop the other's units. Ids never contain "_".
 func sliceUnit(id string) string { return strings.ReplaceAll(id, "-", "_") + ".slice" }
 
+// systemSlices are systemd's own top-level slices. An install whose id is one of them gets no slice of its own: writing
+// /etc/systemd/system/system.slice or stopping it would stop every service of the machine (sshd too). Its units stay in
+// system.slice and safe operations 1A are not available; install-linux.sh refuses such an id for a new install.
+var systemSlices = map[string]bool{"system": true, "user": true, "machine": true, "capsule": true}
+
+// ownSlice: the install has its own slice (sliceUnit), i.e. its id is not one of systemd's own slices.
+func ownSlice(id string) bool { return !systemSlices[id] }
+
 // unitName maps a template file name (launcher.service.in) to the installed unit (<id>-launcher.service), and slice.in
-// to the install's slice (sliceUnit).
+// to the install's slice (sliceUnit; none for an id that is one of systemd's own slices).
 func unitName(id, tmpl string) (string, bool) {
 	if tmpl == "slice.in" {
-		return sliceUnit(id), true
+		return sliceUnit(id), ownSlice(id)
 	}
 	n := strings.TrimSuffix(tmpl, ".in")
 	if n == tmpl || !(strings.HasSuffix(n, ".service") || strings.HasSuffix(n, ".timer")) {
@@ -276,8 +284,13 @@ func renderUnits(in *Install, templates, out string) ([]string, bool, error) {
 			return nil, false, fmt.Errorf("%s: %v", ent.Name(), err)
 		}
 		// the service templates say Slice=@ID@.slice (placeholders every released renderer knows: an older mycel-ctl
-		// renders new templates during `mycel-ctl update`); the slice's real name escapes "-" (sliceUnit)
-		text = strings.ReplaceAll(text, "\nSlice="+in.ID+".slice\n", "\nSlice="+sliceUnit(in.ID)+"\n")
+		// renders new templates during `mycel-ctl update`); the slice's real name escapes "-" (sliceUnit), and an id that
+		// names one of systemd's own slices keeps its units in system.slice (ownSlice)
+		own := "\nSlice=" + sliceUnit(in.ID) + "\n"
+		if !ownSlice(in.ID) {
+			own = "\n"
+		}
+		text = strings.ReplaceAll(text, "\nSlice="+in.ID+".slice\n", own)
 		dest := filepath.Join(out, name)
 		if old, err := os.ReadFile(dest); err != nil || string(old) != text {
 			if err := writeRootFile(dest, []byte(text), 0o644); err != nil {

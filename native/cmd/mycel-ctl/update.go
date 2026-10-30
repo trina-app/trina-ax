@@ -486,6 +486,12 @@ func (u *updater) updateRoot(dir, v string) error {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err
 		}
+		if filepath.Dir(rel) == "safe-ops" {
+			// the server account runs these: root/safe-ops is 755 whatever the umask of a `sudo mycel-ctl update`
+			if _, err := ensureSafeOpsDir(u.e); err != nil {
+				return err
+			}
+		}
 		if err := os.Rename(filepath.Join(stage, rel), dest); err != nil {
 			return err
 		}

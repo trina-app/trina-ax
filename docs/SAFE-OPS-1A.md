@@ -31,13 +31,15 @@ After the release gates below have been approved, on the Linux systemd installat
 1. checks the machine: at least 2304 MiB of memory (a hosted tenant's plan.json counts);
 2. puts root's own copies of `mycel-safeops` and `pandoc` into `<base>/root/safe-ops/` when they
    are missing or from another version: from the installed version after checking its release
-   signature and each copy's hash (an unsigned development install needs
-   `sudo ./install-linux.sh update --from <kit>` instead);
+   signature and each copy's size and hash (an unsigned development install needs
+   `sudo ./install-linux.sh update --from <kit>` instead); the folder and the copies are root-owned
+   mode 755 whatever the administrator's umask;
 3. sets `MYCEL_SAFE_OPS_1A=1` in `/etc/default/<installation-id>` (other lines stay), which the
    server unit reads; an unset variable, `0`, or any value other than exactly `1` leaves new
    PPTX operations disabled;
 4. renders the install's slice (`mycel.slice`; a dash in the id is written `_`, since in a slice name
-   it means "inside") with the bounded limits below and restarts the server and the
+   it means "inside"; an install whose id is one of systemd's own slices, `system`, `user`, `machine`
+   or `capsule`, has none and cannot use 1A) with the bounded limits below and restarts the server and the
    launcher in a fresh slice (running replies stop; it waits up to `--max-wait` seconds, default 120).
 
 The bounds while 1A is on: `MemoryMax = min(4096, machine − 512) MiB`, `MemoryHigh = MemoryMax − 768 MiB`,

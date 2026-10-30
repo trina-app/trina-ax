@@ -129,7 +129,7 @@ async function run(
   codec?: string,
 ): Promise<Buffer> {
   signal?.throwIfAborted()
-  if (unhealthy) throw new ToolError('Safe converter cleanup is incomplete.', 'safe_ops_workflow')
+  if (unhealthy) throw new ToolError('Safe converter cleanup is incomplete.', 'safe_ops_cleanup')
   if (active) throw new ToolError('The safe converter is busy; try again.', 'safe_ops_busy')
   if (
     input.byteLength > 32 * 1024 ** 2 ||
@@ -318,7 +318,7 @@ async function run(
     } catch { clean=false; unhealthy=true }
     reservation?.finish(clean)
     active=false
-    if (!clean) throw new ToolError('Safe converter cleanup is incomplete.', 'safe_ops_workflow')
+    if (!clean) throw new ToolError('Safe converter cleanup is incomplete.', 'safe_ops_cleanup')
   }
 }
 
