@@ -53,7 +53,8 @@ export function confidentialTurn(db: Database, turnId: string | null): boolean {
 export function localTool(name: string) {
   return LOCAL_TOOLS.has(name)
 }
-/** Provider-side server search is an egress channel as well as a CLI built-in. */
+/** Provider-side server search is an egress channel as well as a CLI built-in: a web_search / web_fetch tool or item,
+ * and Codex's standalone search (the `web` namespace of its `web.run` tool, and calls of it). */
 export function externalSearch(body: unknown): boolean {
   const todo = [body]
   let n = 0
@@ -68,6 +69,7 @@ export function externalSearch(body: unknown): boolean {
     }
     const o = v as Record<string, unknown>
     if (typeof o.type === 'string' && /^web_(search|fetch)/.test(o.type)) return true
+    if ((o.type === 'namespace' && o.name === 'web') || (o.type === 'function_call' && o.namespace === 'web')) return true
     for (const x of Object.values(o)) if (x && typeof x === 'object') todo.push(x)
     if (todo.length > 100_000) return true
   }

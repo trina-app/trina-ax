@@ -3378,6 +3378,7 @@ medical edition "allow all websites" off by default.
 - **Codex search.** `web_search="cached"` (Codex's default) instead of `live`; the model proxy writes
   `external_web_access: false` into every `web_search` tool (top level and `additional_tools`) and refuses
   `web_search_preview`, which ignores it; only a `namespace` entry is a mere container. The CONNECT tunnel (agent-own) cannot see bodies and relies on the CLI flag.
+  Managed Codex had no search at all until "Codex web search (cached) through the model proxy" below.
 - **Connected-service writes.** The card shows every character that is sent (`AskUserRequest.details`: scrollable,
   with its size, recipient-like fields such as to / channel / repo / url first, `api_request`'s full address); a write
   over 100,000 characters, address included, is refused rather than shown cut. "Run without asking" is for team connections only: a
@@ -3797,3 +3798,47 @@ refused. The founder left it to us; decision: keep the protection, make every in
   lines, waiting for the first round, the gate and web_fetch before and after, unattended runs, both schedule cards in
   five languages), `feed-worker-ip.test.ts`, `step-labels-tools.test.ts`, `b-proxy-usage-stop.test.ts` (B3),
   `server-app.test.ts` (log counts).
+
+## Codex web search (cached) through the model proxy (feat/small-batch-1030, 2026-10-30)
+
+QA 2026-10-30 B2: managed Codex (the team's AI connections) had no web search tool at all, so "Codex web search uses
+its cached index" had nothing to apply to; asked to search, Codex guessed an address and used web_fetch. Founder:
+Trina should feel like Claude Code, which has WebSearch.
+
+- **Why.** Read from the pinned Codex 0.163.0 (and 0.164.0) with a recording fake upstream (no internet): with a
+  custom model provider ("teamax", not "OpenAI": the name switches other OpenAI-only behaviour on, such as zstd
+  request bodies) Codex offers no web search unless the provider says
+  `supports_standalone_web_search`. The features list, the catalog's `supports_search_tool` (tool search, not web
+  search) and `web_search="cached"` were not the cause. Codex 0.163 does not send the hosted `web_search` tool at
+  all (nor with the built-in provider): with the flag the model gets a `web` namespace with one function, `run`
+  (search_query, image_query, open,
+  click, find, screenshot, finance, weather, sports, time), and **Codex runs each call itself** as
+  `POST <base_url>/alpha/search` with the conversation, the call's commands and
+  `settings: { allowed_callers: ["direct"], external_web_access: false }` (true only with `web_search="live"`). The
+  answer is `{ "output": "<text for the model>" }`. `web_search="disabled"` removes the tool even with the flag.
+- **Launch.** `engine/codex.ts` adds `-c model_providers.teamax.supports_standalone_web_search=true` to a managed
+  turn whose search is on: the same rule as Claude's WebSearch (`!templateScope && !confidentialChat`: never in an
+  approved template run or a confidential chat). Agent-own and dev turns use the built-in provider, which already has
+  it, and are not changed.
+- **Proxy.** `/codex/<chatgpt|openai>/alpha/search` goes to the same upstream with the connection's real credential
+  (the same headers, refresh, 429 and budget handling as `/responses`). `checkSearchRequest`: a catalog model, only
+  the keys, commands and settings this Codex sends (anything else 403, audited), inline content only, and
+  `settings.external_web_access` written false whatever the engine sent. Refused in a confidential conversation and
+  for a turn started without search (the Codex proxy token now carries the turn's tool policy; a token from before has
+  search, as before). `externalSearch` also sees the `web` namespace and calls of it, so a `/responses` request that
+  offers or replays the tool is refused in those turns too. One search counts as one request and one web search call
+  (priced like the web_search tool for an API key; tokens when the answer gives them).
+- **What "cached" means here.** OpenAI answers from its own index and loads no page live for the call, including
+  `open` / `click` of an address (a page it has not indexed is not fetched). The team server cannot see OpenAI's
+  side: this is the same trust as the hosted tool's cached mode, and queries go to the model provider like Claude's
+  WebSearch queries go to Anthropic. Search results are not "learned" addresses: Codex's answer is text, not
+  structured hits, so a web_fetch of a result asks with the address card (Claude's structured hits open within the
+  link budget).
+- **Steps.** Codex starts the search item without its query and names it at the end; the step label is set then
+  ("Web search: <query>").
+- Not verified here: the real `chatgpt.com/backend-api/codex/alpha/search` and `api.openai.com/v1/alpha/search`
+  (tests never call OpenAI). Release gate: one real Codex search turn on an installed server (ChatGPT sign-in, and an
+  API key if one is used). If the API-key upstream lacks the endpoint, Codex reports the search failed and goes on.
+- Tests: `proxy-codex.test.ts` (forwarding, cached forced, refusals, confidential and no-search tokens),
+  `codex-prod.test.ts` (fake Codex through the real launcher and proxy), `template-engine-lock.test.ts`,
+  `engine.test.ts`, `safe-ops.test.ts`.

@@ -20,4 +20,15 @@ test('templates disable built-in web search while normal CLI launch defaults rem
   expect(buildCodexLaunch(common,codex).args).toContain('web_search="cached"')
   expect(buildCodexLaunch(common,codex).args).not.toContain('web_search="live"')
   expect(buildCodexLaunch({ ...common, webSearch: false },codex).args).toContain('web_search="disabled"')
+  // managed (the team's AI connections): Codex 0.163 offers a custom provider its web search only when the provider
+  // says it has the standalone one (QA 2026-10-30 B2); never for a template run or a confidential chat
+  const managed = { ...codex, auth: 'managed' as const }
+  const m = { port: 9, mode: 'chatgpt' as const, codexVersion: '0.163.0', authJson: '{}' }
+  const flag = 'model_providers.teamax.supports_standalone_web_search=true'
+  expect(buildCodexLaunch({ ...common, managed: m }, managed).args).toContain(flag)
+  expect(buildCodexLaunch({ ...common, managed: m }, managed).args).toContain('web_search="cached"')
+  expect(buildCodexLaunch({ ...common, managed: m, webSearch: false }, managed).args).not.toContain(flag)
+  expect(buildCodexLaunch({ ...common, managed: m, webSearch: false }, managed).args).toContain('web_search="disabled"')
+  // the built-in provider (dev, agent-own) has it already and is not touched
+  expect(buildCodexLaunch(common, codex).args.some((a) => a.includes('supports_standalone_web_search'))).toBe(false)
 })

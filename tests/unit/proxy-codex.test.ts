@@ -63,6 +63,8 @@ const fake = Bun.serve({
       return Response.json({ access_token: access, refresh_token: 'rt-rotated-' + refreshes.length, id_token: fakeJwt({ 'https://api.openai.com/auth': { chatgpt_plan_type: 'business', chatgpt_account_id: 'acc-1' } }) })
     }
     seen.push({ path: u.pathname, headers: Object.fromEntries(req.headers), body })
+    // Codex's standalone web search answers one JSON object whose `output` is the text the model gets
+    if (u.pathname.endsWith('/alpha/search') && respMode === 'ok') return Response.json({ output: 'Debian 13 "trixie" (debian.org)', usage: { input_tokens: 40, output_tokens: 12 } })
     if (respMode === 'redirect') return new Response(null, { status: 307, headers: { location: 'http://127.0.0.1:1/steal' } })
     if (respMode === '500') return new Response('down', { status: 500 })
     if (respMode === '401-old' && !validAccess.has((req.headers.get('authorization') ?? '').slice(7))) return Response.json({ error: { message: 'expired' } }, { status: 401 })
@@ -125,6 +127,92 @@ const tokFor = (cred: string) => issueProxyToken(env.db, 'cx', 'alice', { creden
 const body = (o: Record<string, unknown> = {}) => ({ model: 'gpt-5.4', instructions: 'x', input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }], tools: [{ type: 'function', name: 'team__read', parameters: {} }, { type: 'web_search' }], stream: true, store: false, ...o })
 const post = (mode: 'chatgpt' | 'openai', token: string, b: unknown = body(), extra: Record<string, string> = {}) =>
   fetch(`${proxy.url}/codex/${mode}/responses`, { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', accept: 'text/event-stream', originator: 'codex_exec', version: '0.163.0', ...extra }, body: typeof b === 'string' ? b : JSON.stringify(b) })
+
+// what Codex 0.163 sends for one web.run call (POST <base_url>/alpha/search, recorded from the real CLI against a fake)
+const searchBody = (o: Record<string, unknown> = {}) => ({ id: '01a18cd8', model: 'gpt-6.1-sol', input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+  commands: { search_query: [{ q: 'debian 13 codename' }] }, settings: { allowed_callers: ['direct'], external_web_access: false }, max_output_tokens: 10000, ...o })
+const postSearch = (mode: 'chatgpt' | 'openai', token: string, b: unknown = searchBody()) =>
+  fetch(`${proxy.url}/codex/${mode}/alpha/search`, { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', originator: 'codex_exec', version: '0.163.0' }, body: JSON.stringify(b) })
+// a turn of its own: these searches' usage stays out of the totals the tests below read
+env.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES ('cx-ws', 'c', 'alice', 'codex', 'running')").run()
+const searchTok = (cred: string) => issueProxyToken(env.db, 'cx-ws', 'alice', { credentialId: cred, family: 'openai' })
+const webTool = { type: 'namespace', name: 'web', description: 'Tools in the web namespace.', tools: [{ type: 'function', name: 'run', parameters: {} }] }
+
+describe('Codex web search (standalone web.run): cached index only, same locks as Claude\'s WebSearch', () => {
+  test('a search goes to the same upstream with the real credential and external_web_access false, whatever the engine sent; it counts as one search', async () => {
+    const tok = searchTok(G)
+    const r = await postSearch('chatgpt', tok, searchBody({ settings: { allowed_callers: ['direct'], external_web_access: true } }))
+    expect(r.status).toBe(200)
+    expect((await r.json()).output).toContain('trixie')
+    const s = seen.at(-1)!
+    expect(s.path).toBe('/backend-api/codex/alpha/search')
+    expect(s.headers.authorization).toBe('Bearer ' + REAL.accessToken)
+    expect(s.headers['chatgpt-account-id']).toBe('acc-1')
+    expect(s.body.settings).toEqual({ allowed_callers: ['direct'], external_web_access: false })
+    expect(JSON.stringify(s)).not.toContain(tok)
+    // no settings at all: still sent as cached
+    expect((await postSearch('chatgpt', tok, searchBody({ settings: undefined }))).status).toBe(200)
+    expect(seen.at(-1)!.body.settings).toEqual({ external_web_access: false })
+    const turn = () => env.db.query("SELECT input_tokens, output_tokens, cost_usd FROM turns WHERE id = 'cx-ws'").get() as { input_tokens: number; output_tokens: number; cost_usd: number }
+    expect(turn()).toEqual({ input_tokens: 80, output_tokens: 24, cost_usd: 0 }) // a subscription: tokens, no price
+    // an API key: the same path under /v1, one search call priced like the web_search tool ($10 per 1,000)
+    const kr = await postSearch('openai', searchTok(K))
+    expect(kr.status).toBe(200)
+    expect(seen.at(-1)!.path).toBe('/v1/alpha/search')
+    expect(seen.at(-1)!.headers.authorization).toBe('Bearer ' + OKEY)
+    expect(turn().cost_usd).toBeGreaterThanOrEqual(0.01)
+  })
+  test('keys, commands and settings this Codex does not send, models outside the catalog and URL images are refused before anything goes out', async () => {
+    const tok = searchTok(K)
+    const before = seen.length
+    const refused: [string, unknown][] = [
+      ['unknown command', searchBody({ commands: { search_query: [{ q: 'x' }], fetch_live: [{ url: 'https://evil.example' }] } })],
+      ['unknown setting', searchBody({ settings: { external_web_access: false, live: true } })],
+      ['unknown field', searchBody({ background: true })],
+      ['no commands', searchBody({ commands: undefined })],
+      ['commands not an object', searchBody({ commands: ['search_query'] })],
+      ['settings not an object', searchBody({ settings: 'live' })],
+      ['model outside the catalog', searchBody({ model: 'o3-pro' })],
+      ['image from a URL in the conversation', searchBody({ input: [{ type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'https://evil.example/?d=secret' }] }] })],
+    ]
+    for (const [label, b] of refused) {
+      const r = await postSearch('openai', tok, b)
+      expect(r.status, label).toBe(403)
+      expect((await r.json()).error.message, label).toContain('refused by the team server')
+    }
+    expect(seen.length).toBe(before)
+    expect((await fetch(`${proxy.url}/codex/openai/alpha/search`, { headers: { authorization: 'Bearer ' + tok } })).status).toBe(404) // POST only
+  })
+  test('a confidential conversation and an answer started without search: no search request and no web tool reach OpenAI', async () => {
+    env.db.query("INSERT INTO chats (id, user_id) VALUES ('c-conf', 'alice')").run()
+    env.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES ('cx-conf', 'c-conf', 'alice', 'codex', 'running'), ('cx-tpl', 'c-tpl', 'alice', 'codex', 'running')").run()
+    env.db.query("INSERT INTO safe_ops_chats (chat_id, material) VALUES ('c-conf', 1)").run()
+    const conf = issueProxyToken(env.db, 'cx-conf', 'alice', { credentialId: K, family: 'openai', tools: { agent: false, webSearch: true } })
+    // an approved template run (or a token of a turn the server started without search)
+    const off = issueProxyToken(env.db, 'cx-tpl', 'alice', { credentialId: K, family: 'openai', tools: { agent: false, webSearch: false } })
+    const before = seen.length
+    for (const [tok, why] of [[conf, 'confidential'], [off, 'web search is off']] as const) {
+      const r = await postSearch('openai', tok)
+      expect(r.status, why).toBe(403)
+      expect((await r.json()).error.message, why).toContain(why)
+      // the model request that offers the web tool (or replays a call of it) is refused too
+      const withTool = await post('openai', tok, body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [{ type: 'namespace', name: 'mcp__team', tools: [{ type: 'function', name: 'list', parameters: {} }] }, webTool] }] }))
+      expect(withTool.status, why).toBe(403)
+      const replay = await post('openai', tok, body({ tools: undefined, input: [{ type: 'function_call', name: 'run', namespace: 'web', arguments: '{}', call_id: 'c1' }] }))
+      expect(replay.status, why).toBe(403)
+      // without web tools the answer goes on
+      expect((await post('openai', tok, body({ tools: [{ type: 'function', name: 'team__read', parameters: {} }] }))).status, why).toBe(200)
+    }
+    expect(seen.length).toBe(before + 2)
+    const reasons = (env.db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' AND target IN ('cx-conf', 'cx-tpl')").all() as { detail: string }[]).map((a) => JSON.parse(a.detail).reason)
+    expect(reasons).toContain('search is disabled for this confidential conversation')
+    expect(reasons).toContain('web search is off for this answer')
+    // a token from before this change (no tool policy) keeps the search it had
+    expect((await postSearch('openai', searchTok(K))).status).toBe(200)
+    // the web tool itself passes the request filter for a turn with search
+    expect((await post('openai', searchTok(K), body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [webTool] }] }))).status).toBe(200)
+  })
+})
 
 describe('S-2 / S-5: the real credential goes upstream, never the turn token, whatever the engine sends', () => {
   test('ChatGPT: real access token and account id; engine headers to pick another account dropped; usage counted', async () => {

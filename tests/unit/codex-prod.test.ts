@@ -326,6 +326,8 @@ const codexUp = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
   let body: any = null
   try { body = await req.json() } catch {}
   codexSeen.push({ path: u.pathname, headers: Object.fromEntries(req.headers), body })
+  // Codex's standalone web search: one JSON object whose `output` the model gets
+  if (u.pathname.endsWith('/alpha/search')) return Response.json({ output: `results(${body?.commands?.search_query?.[0]?.q ?? ''})` })
   const prompt = body?.input?.[0]?.content?.[0]?.text ?? ''
   return respond(`answer(${prompt})`)
 } })
@@ -388,6 +390,29 @@ describe('managed Codex turns (fake Codex through the real launcher and the mode
     expect(JSON.stringify(s0)).not.toContain('teamax-')
     const t = h.ctx.db.query('SELECT input_tokens, output_tokens, cost_usd, usage_source, credential_id FROM turns WHERE id = ?').get(r.started.turnId) as any
     expect(t).toMatchObject({ input_tokens: 1000, output_tokens: 50, cost_usd: 0, usage_source: 'proxy', credential_id: chatgptId })
+  })
+  test('web search (QA 2026-10-30 B2): Codex gets its own search, cached only, through the proxy; never in a confidential chat', async () => {
+    codexSeen.length = 0
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ codexSearch: 'debian 13 codename' }))
+    expect(r.done.status).toBe('done')
+    expect(r.done.content).toBe('search=200:results(debian 13 codename)')
+    const s0 = codexSeen[0]!
+    expect(s0.path).toBe('/backend-api/codex/alpha/search')
+    expect(s0.headers.authorization).toBe('Bearer ' + REAL.accessToken)
+    expect(s0.body.settings.external_web_access).toBe(false)
+    expect(JSON.stringify(s0)).not.toContain('mpx_')
+    // the step names the query once the search is done (Codex starts the item without it)
+    const step = r.done.steps.find((x) => x.kind === 'web_search')!
+    expect(step).toMatchObject({ status: 'ok', label: 'Web search: debian 13 codename' })
+    // a confidential chat (Safe operations 1A worked there): the engine starts without search, nothing goes out
+    codexSeen.length = 0
+    const locked = await newChat()
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(locked.id)
+    const l = await ask(h, alice, 'alice', locked.id, fake({ codexSearch: 'debian 13 codename' }))
+    expect(l.done.content).toBe('search=off')
+    expect(codexSeen).toEqual([])
+    expect(l.done.steps.some((x) => x.kind === 'web_search')).toBe(false)
   })
   test('S-16: a Codex turn can neither tunnel nor use the Claude path', async () => {
     const chat = await newChat()

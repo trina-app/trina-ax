@@ -28,6 +28,11 @@
 //                                            with the auth.json token (+ ChatGPT-Account-ID), stream, say the text deltas;
 //                                            an HTTP error ends the turn like Codex ("unexpected status <n> ..."). Like
 //                                            Codex 0.163 it stops reading at response.completed and hangs up.
+//   @fake {"codexSearch": "query"}           (Codex, managed) a web search like Codex 0.163's standalone one (web.run):
+//                                            only when the launch offers it (supports_standalone_web_search + web_search
+//                                            "cached"), else says "search=off". The web_search item starts without its
+//                                            query, POST <provider base_url>/alpha/search, the item ends with the query;
+//                                            says "search=<status>:<output>"
 //   @fake {"codexBackground": true}          (Codex, ChatGPT sign-in) the GETs Codex 0.163 sends to chatgpt_base_url on
 //                                            every turn (accounts/check twice, settings/user once); says their statuses
 //   @fake {"dumpHome": true}                 (Codex) say every file under CODEX_HOME, HOME and the chat folder (S-1)
@@ -321,6 +326,32 @@ async function callCodexModel(prompt: string) {
     }
   }
 }
+/** Codex 0.163's standalone web search (one web.run call), as recorded from the real CLI against a fake answer */
+async function codexSearch(query: string): Promise<string> {
+  const cached = argv.includes('web_search="cached"')
+  if (!cached || !argv.includes('model_providers.teamax.supports_standalone_web_search=true')) return 'off'
+  const base = (argv.find((a) => a.startsWith('model_providers.teamax.base_url=')) ?? '').split('=').slice(1).join('=').replace(/^"|"$/g, '')
+  let auth: any = {}
+  try { auth = JSON.parse(fs.readFileSync(path.join(process.env.CODEX_HOME ?? '', 'auth.json'), 'utf8')) } catch {}
+  const headers: Record<string, string> = { 'content-type': 'application/json', originator: 'codex_exec', 'user-agent': 'codex_exec/0.0.0-fake' }
+  if (auth.auth_mode === 'chatgpt') { headers.authorization = 'Bearer ' + auth.tokens.access_token; headers['chatgpt-account-id'] = auth.tokens.account_id }
+  else headers.authorization = 'Bearer ' + (auth.OPENAI_API_KEY ?? '')
+  const id = `call_${++toolN}`
+  closeBlock()
+  out({ type: 'item.started', item: { id, type: 'web_search', query: '', action: { type: 'other' } } })
+  let r: Response
+  try {
+    r = await fetch(base.replace(/\/$/, '') + '/alpha/search', { method: 'POST', headers, body: JSON.stringify({ id: sessionId, model, input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: message.slice(0, 200) }] }],
+      commands: { search_query: [{ q: query }] }, settings: { allowed_callers: ['direct'], external_web_access: !cached }, max_output_tokens: 10000 }) })
+  } catch (e) { return `error ${(e as Error).message}` }
+  const text = await r.text()
+  // a failed search never completes its item (Codex gives the model "aborted")
+  if (!r.ok) return `${r.status}`
+  out({ type: 'item.completed', item: { id, type: 'web_search', query, action: { type: 'search', query } } })
+  let output = ''
+  try { output = String(JSON.parse(text).output ?? '') } catch {}
+  return `${r.status}:${output}`
+}
 /** the background GETs of Codex 0.163 with a ChatGPT sign-in (backend-client: workspace routing, commit attribution) */
 async function codexBackground(): Promise<string> {
   const base = (argv.find((a) => a.startsWith('chatgpt_base_url=')) ?? '').split('=').slice(1).join('=').replace(/^"|"$/g, '').replace(/\/$/, '')
@@ -452,6 +483,7 @@ for (const d of directives) {
       credStore: argv.includes('cli_auth_credentials_store="file"') }))
   } else if (d.codexModel !== undefined) await callCodexModel(String(d.codexModel))
   else if (d.codexBackground) await say(`background=${await codexBackground()}`)
+  else if (d.codexSearch !== undefined) await say(`search=${await codexSearch(String(d.codexSearch))}`)
   else if (d.modelAny !== undefined) { if (codex) await callCodexModel(String(d.modelAny)); else await callModel(String(d.modelAny)) }
   else if (d.dumpHome) {
     const seen: string[] = []

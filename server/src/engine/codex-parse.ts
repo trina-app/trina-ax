@@ -30,7 +30,8 @@ export class CodexEventParser {
           break
         case 'web_search':
           if (ev.type === 'item.started') out.push({ type: 'tool_start', id: it.id, name: 'web_search', summary: String(it.query ?? '').slice(0, 200), input: { query: it.query ?? '' } })
-          else out.push({ type: 'tool_end', id: it.id, ok: true })
+          // Codex's standalone search (web.run) starts without its query and names it only when it is done
+          else out.push({ type: 'tool_end', id: it.id, ok: true, ...(typeof it.query === 'string' && it.query ? { summary: it.query.slice(0, 200) } : {}) })
           break
         case 'command_execution': case 'file_change': case 'collab_tool_call':
           // must never happen with the locked profile; surfaced so tests and audit see it

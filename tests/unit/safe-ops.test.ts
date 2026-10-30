@@ -104,6 +104,10 @@ test('confidential conversations stay local after the feature is disabled', asyn
       true,
     )
     expect(externalSearch({ input: [{ tools: [{ type: 'namespace', tools: [{ type: 'web_search' }] }] }] })).toBe(true)
+    // Codex's standalone search: its `web` namespace (web.run) and a call of it
+    expect(externalSearch({ input: [{ type: 'additional_tools', tools: [{ type: 'namespace', name: 'web', tools: [{ type: 'function', name: 'run' }] }] }] })).toBe(true)
+    expect(externalSearch({ input: [{ type: 'function_call', name: 'run', namespace: 'web', arguments: '{}' }] })).toBe(true)
+    expect(externalSearch({ input: [{ type: 'additional_tools', tools: [{ type: 'namespace', name: 'mcp__team', tools: [{ type: 'function', name: 'read' }] }] }] })).toBe(false)
   } finally {
     process.env.MYCEL_SAFE_OPS_1A = '1'
   }

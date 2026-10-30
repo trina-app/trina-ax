@@ -527,6 +527,9 @@ export class TurnExec {
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
         prepareCodexTurn(codex, chatDir)
+        // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
+        // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
+        const webSearch = !this.templateScope && !confidentialChat(rt.db, spec.chatId)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -535,14 +538,14 @@ export class TurnExec {
           revokeProxyTokens(rt.db, spec.turnId)
           const c = this.pickCredential('codex', exclude)
           if (!c) break
-          const t = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'openai' })
+          const t = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'openai', tools: { agent: false, webSearch } })
           const row = getRow(rt.db, c.credentialId)
           const meta = row ? metaOf(row) : {}
           const kind = c.kind === 'chatgpt' ? 'chatgpt' as const : 'openai-api-key' as const
           m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
-        const lr = buildCodexLaunch({ webSearch: !this.templateScope && !confidentialChat(this.rt.db,spec.chatId), turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
@@ -741,6 +744,8 @@ export class TurnExec {
           // holds (searchSources). Sources open later without a card within the link budget (tools/url-gate.ts)
           const sources = e.sources ? hitList(e.sources) : e.output ? searchSources(e.output, this.searchQueries.get(e.id) ?? '') : []
           if (sources.length) patch.sources = sources
+          // a search that names its query only at its end (Codex's standalone search: a summary and no result text)
+          if (e.summary && e.output === undefined && !this.searchQueries.get(e.id)) patch.label = tr('webSearch', this.spec.locale, { q: queryOf({ query: e.summary }) })
         }
         this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again

@@ -81,6 +81,13 @@ describe('codex --json -> EngineEvent', () => {
     expect(p.text).toBe('done')
     expect(ev.find((e) => e.type === 'usage')).toMatchObject({ inputTokens: 100, outputTokens: 12 })
   })
+  test('codex standalone web search (web.run): the query comes only with the end, as its summary', () => {
+    // as Codex 0.163 writes them (recorded from the real CLI against a fake search answer)
+    const ev = [L({ type: 'item.started', item: { id: 'call_1', type: 'web_search', query: '', action: { type: 'other' } } }),
+      L({ type: 'item.completed', item: { id: 'call_1', type: 'web_search', query: 'debian 13 codename', action: { type: 'search', query: 'debian 13 codename' } } })].flatMap((l) => new CodexEventParser().push(l))
+    expect(ev[0]).toMatchObject({ type: 'tool_start', id: 'call_1', name: 'web_search', summary: '' })
+    expect(ev[1]).toEqual({ type: 'tool_end', id: 'call_1', ok: true, summary: 'debian 13 codename' })
+  })
 })
 
 describe('locked engine invocations', () => {

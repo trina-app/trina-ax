@@ -181,6 +181,10 @@ export function codexArgs(conf: CodexConf, o: { extraTools?: string[]; model?: s
     // any address, outside the team server's address rules (docs/DECISIONS.md "Outbound web channels"); the model
     // proxy holds every web_search tool to external_web_access=false as well (proxy/codex-path.ts)
     '-c', `web_search="${o.webSearch === false ? 'disabled' : 'cached'}"`,
+    // Codex 0.163 gives a custom provider no web search at all unless it says it has the standalone one (QA
+    // 2026-10-30 B2): the model then gets the `web.run` function, which Codex runs itself as POST <base_url>/alpha/search
+    // with settings.external_web_access false in "cached" mode; the model proxy holds every such call to it as well
+    ...(o.managed && o.webSearch !== false ? ['-c', 'model_providers.teamax.supports_standalone_web_search=true'] : []),
     '-c', `model_catalog_json=${JSON.stringify(conf.catalog)}`,
     '-c', `model=${JSON.stringify(o.model ?? conf.model)}`,
     ...CODEX_DISABLED_FEATURES.flatMap((f) => ['-c', `features.${f}=false`]),

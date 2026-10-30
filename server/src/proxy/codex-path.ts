@@ -5,6 +5,8 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // background ChatGPT calls (chatgpt_base_url) and the token refresh address point here too. This handler:
 //   POST /codex/chatgpt/responses   ChatGPT sign-in  -> <chatgpt>/responses (Authorization + ChatGPT-Account-ID)
 //   POST /codex/openai/responses    OpenAI API key   -> <openai>/responses (Authorization)
+//   POST /codex/<mode>/alpha/search Codex's own web search (the `web.run` tool, which Codex runs itself) -> the same
+//                                    upstream's /alpha/search, held to the cached index (checkSearchRequest)
 //   GET  /codex/backend/wham/config/bundle -> {} (a remote config bundle could change the lockdown: never passed)
 //   other /codex/backend/*, /codex/*/models  -> 404 (never sent upstream; the two that Codex 0.163 sends on every
 //                                    ChatGPT turn, BACKGROUND_404 below, are expected and not logged as failures)
@@ -16,7 +18,7 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // engine then gets 403 (never 401, which would make Codex try to refresh). Long 429s mark this connection only.
 import type { Database } from 'bun:sqlite'
 import type { CredentialBroker } from '../credentials/broker'
-import { overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, type ProxyTurnEvent, type TokenRow } from './model-proxy'
+import { overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, toolPolicyOf, type ProxyTurnEvent, type TokenRow } from './model-proxy'
 
 export interface CodexPathDeps {
   db: Database
@@ -105,6 +107,34 @@ export function checkResponsesRequest(body: unknown, models: string[]): string |
   return null
 }
 
+/** what Codex 0.163's `web.run` tool may ask for (its commands are the tool's parameters; Codex drops other keys) */
+const SEARCH_COMMANDS = new Set(['search_query', 'image_query', 'open', 'click', 'find', 'screenshot', 'finance', 'weather', 'sports', 'time', 'response_length'])
+const SEARCH_KEYS = new Set(['id', 'model', 'input', 'commands', 'settings', 'max_output_tokens'])
+const SEARCH_SETTINGS = new Set(['allowed_callers', 'external_web_access'])
+
+/**
+ * Codex's standalone web search (POST <base_url>/alpha/search: the conversation, the tool's commands and settings).
+ * Cached results only: `settings.external_web_access` goes out false whatever the engine sent, as for the web_search
+ * tool, so OpenAI answers from its index and no page is loaded live for it (docs/DECISIONS.md "Codex web search").
+ * Keys, commands and settings this version does not send are refused rather than passed on. null = forward (the body
+ * is changed in place); else why the request is refused.
+ */
+export function checkSearchRequest(body: unknown, models: string[]): string | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'the body must be a JSON object'
+  const b = body as Record<string, unknown>
+  if (typeof b.model !== 'string' || !models.includes(b.model)) return 'model is not in the locked catalog'
+  for (const k of Object.keys(b)) if (!SEARCH_KEYS.has(k)) return `search field ${k.slice(0, 40)} is not allowed`
+  const c = b.commands
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return 'search commands must be an object'
+  for (const k of Object.keys(c)) if (!SEARCH_COMMANDS.has(k)) return `search command ${k.slice(0, 40)} is not allowed`
+  const st = b.settings ?? {}
+  if (typeof st !== 'object' || Array.isArray(st) || st === null) return 'search settings must be an object'
+  for (const k of Object.keys(st)) if (!SEARCH_SETTINGS.has(k)) return `search setting ${k.slice(0, 40)} is not allowed`
+  b.settings = { ...st, external_web_access: false }
+  if (b.input !== undefined) { const r = checkContent(b.input, 0); if (r) return r }
+  return null
+}
+
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Promise<Response> {
@@ -119,9 +149,11 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     d.refused(null, 'engine refresh attempt')
     return json(400, { error: 'invalid_grant', error_description: 'the team server refreshes this sign-in' })
   }
-  const m = /^\/codex\/(chatgpt|openai)\/responses$/.exec(p)
+  const m = /^\/codex\/(chatgpt|openai)\/(responses|alpha\/search)$/.exec(p)
   if (!m || req.method !== 'POST') return apiError(404, 'not_found_error', 'not found')
   const mode = m[1] as 'chatgpt' | 'openai'
+  const endpoint = m[2] as 'responses' | 'alpha/search'
+  const search = endpoint === 'alpha/search'
   const admitted = await d.admit(req)
   if (admitted instanceof Response) return admitted
   const row = admitted
@@ -132,7 +164,13 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   if (raw.byteLength > MAX_BODY) return apiError(413, 'invalid_request_error', 'body too large')
   let parsed: unknown = null
   try { parsed = JSON.parse(new TextDecoder().decode(raw)) } catch {}
-  const refused = (confidentialTurn(d.db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null) ?? checkResponsesRequest(parsed, d.codexModels())
+  // web search (the search call itself, or a request that offers or replays the web tool): never in a confidential
+  // conversation, and only for a turn started with it (approved templates and confidential chats start without;
+  // toolPolicyOf: a token from before has it). The body is scanned only when one of the two applies.
+  const noSearch = confidentialTurn(d.db, row.turn_id) ? 'search is disabled for this confidential conversation'
+    : !toolPolicyOf(row).webSearch ? 'web search is off for this answer' : null
+  const refused = (noSearch && (search || externalSearch(parsed)) ? noSearch : null)
+    ?? (search ? checkSearchRequest(parsed, d.codexModels()) : checkResponsesRequest(parsed, d.codexModels()))
   if (refused) {
     d.refused(row, refused)
     return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
@@ -167,7 +205,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     } else if (c.inject.type === 'openai-bearer') headers.set('authorization', 'Bearer ' + c.inject.key)
     else return null
     try {
-      return await fetch(`${c.upstream.replace(/\/$/, '')}/responses`, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
+      return await fetch(`${c.upstream.replace(/\/$/, '')}/${endpoint}`, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
     } catch { return null }
   }
 
@@ -300,7 +338,9 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   if (up.status < 300) try {
     let j: { usage?: Record<string, unknown>; model?: unknown; output?: unknown } | null = null
     try { j = JSON.parse(text) } catch { scan(text + '\n') } // events under another content-type: still counted
-    if (j?.usage) broker.record(credId, row.turn_id, typeof j.model === 'string' ? j.model : model, { ...j.usage, web_search_calls: Array.isArray(j.output) ? j.output.filter((o: { type?: string }) => o?.type === 'web_search_call').length : 0 })
+    // a search answer is one web search call (with the tokens of its own model, when it says them)
+    if (search && j) broker.record(credId, row.turn_id, typeof j.model === 'string' ? j.model : model, { ...(j.usage ?? {}), web_search_calls: 1 })
+    else if (j?.usage) broker.record(credId, row.turn_id, typeof j.model === 'string' ? j.model : model, { ...j.usage, web_search_calls: Array.isArray(j.output) ? j.output.filter((o: { type?: string }) => o?.type === 'web_search_call').length : 0 })
   } catch {}
   return new Response(text, { status: up.status, headers: outHeaders })
 }
