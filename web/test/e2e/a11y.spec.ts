@@ -144,6 +144,36 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
+// Chat continuity: an answer paused at the per-answer limit with the long-conversation note, and a message waiting
+// to send (paused after Stop, with its edit / don't-send / "Send now" controls).
+for (const scheme of ['light', 'dark'] as const) {
+  test(`paused answers, the memory note and waiting messages have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await signIn(page)
+    const input = page.getByTestId('composer-input')
+    const last = page.getByTestId('assistant-message').last()
+    await input.fill('meeting notes '.repeat(3000))
+    await page.getByTestId('send').click()
+    await expect(last).toHaveAttribute('data-status', 'done')
+    await input.fill('cap-tools sort them by the rules we agreed')
+    await page.getByTestId('send').click()
+    await expect(page.getByTestId('assistant-message')).toHaveCount(2)
+    await expect(last.getByTestId('answer-paused')).toBeVisible()
+    await expect(last.getByTestId('memory-note')).toBeVisible()
+    await audit(page, 'paused answer + memory note')
+    await input.fill('slow answer please, slow slow slow slow slow slow slow slow slow slow')
+    await page.getByTestId('send').click()
+    await expect(last).toHaveAttribute('data-status', 'streaming')
+    await input.fill('and then the next step')
+    await expect(page.getByTestId('send-later')).toBeVisible()
+    await input.press('Enter')
+    await page.getByTestId('stop').click()
+    await expect(page.getByTestId('outbox')).toHaveAttribute('data-paused', 'stopped')
+    await audit(page, 'waiting message (paused)')
+  })
+}
+
 // Phone width (PWA): labels that collapse to icons must keep their accessible names, dimmed rows their contrast.
 test('no serious accessibility problems at phone width', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

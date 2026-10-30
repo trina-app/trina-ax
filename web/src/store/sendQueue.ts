@@ -168,7 +168,6 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       set({ userId: null, queues: {}, editing: {} })
     },
   }
-
 })
 
 /** What every chat with waiting messages does now (nextStep); runs after each change of either store. */
