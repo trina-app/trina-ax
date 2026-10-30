@@ -4,7 +4,7 @@
 
 Decide data sensitivity, server ownership, authorized provider connections, client needs, outbound network policy and who restores backups. Selected context leaves for the provider; hosted operators can access stored data. [Security boundaries](security-and-permissions.md).
 
-When the AI reads a photo, screenshot or scanned PDF page, it sees the image, and the image goes to the provider like any other file content. Admins can turn this off in Team settings ("Send images and PDF pages to the AI", on by default). Linux servers run no OCR: scanned documents and photos are not text-searchable there.
+When the AI reads a photo, screenshot or scanned PDF page, it sees the image, and the image goes to the provider like any other file content. Admins can turn this off in Team settings ("Send images and PDF pages to the AI", on by default); the switch also covers HWP page images and the in-app browser's screenshots. Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 
 | Mode | Guide | Operational boundary |
 |---|---|---|

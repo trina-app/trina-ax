@@ -3254,6 +3254,17 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
 - Not behind the switch or the budget (as before this change): `hwp_render` page images and the in-app browser's
   screenshots still reach the model with image viewing off. On a Mac the API engine and the remote MCP connector used
   to get Apple Vision text of images and scanned pages; they now get the note (with image viewing off they keep it).
+- **Follow-ups from the review (feat/small-batch-1030).** Both points above are closed:
+  - On a Mac, every "no pixels" case (image viewing off, the API engine, a connection without a chat turn such as
+    the remote MCP connector) reads images and scanned pages with Apple Vision again, for team-folder reads and
+    Drive photos alike; a Linux server gives the note.
+  - `hwp_render` page images and the in-app browser's screenshots go through `FileService.toolImage`: the same switch,
+    engine check and per-turn budget (40 images / 10 MB, counted with the PNG's own bytes) as a read. Blocked before
+    rendering, `hwp_render` draws nothing and returns the note and that `read` gives the text; past the budget it
+    returns the page facts and the note. A screenshot in the browser result is replaced by the note (once per call,
+    with "read_page gives the page as text"); one the AI chose to show the person is still saved under the step.
+  - Tests: `vision-read.test.ts`, `vision-ocr-boundary.test.ts` (Mac), `vision-drive.test.ts`, `plugins-hwp.test.ts`,
+    `b-browser.test.ts`.
 
 ## Official plugins: trusted by digest pinned in the signed release (2026-10-30)
 

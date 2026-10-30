@@ -88,6 +88,20 @@ export const VISION_TEXT = {
     ja: 'pages で読み取ると画像として表示されます（例: pages: "{first}"）。',
     es: 'Léelas con pages para verlas como imágenes (por ejemplo pages: "{first}").',
   },
+  hwpInstead: {
+    ko: '문서의 글자는 read로 읽을 수 있어요.',
+    en: 'The document\'s text can be read with read.',
+    id: 'Teks dokumen dapat dibaca dengan read.',
+    ja: '文書のテキストは read で読み取れます。',
+    es: 'El texto del documento se puede leer con read.',
+  },
+  browserInstead: {
+    ko: '페이지의 글자는 read_page로 볼 수 있어요.',
+    en: 'read_page gives the page as text.',
+    id: 'read_page memberikan halaman sebagai teks.',
+    ja: 'read_page でページをテキストとして取得できます。',
+    es: 'read_page devuelve la página como texto.',
+  },
   ocrPage: {
     ko: '{page}쪽(스캔, 글자 인식 결과):',
     en: 'Page {page} (scanned; recognized text):',

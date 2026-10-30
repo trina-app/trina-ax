@@ -121,4 +121,16 @@ describe.skipIf(process.platform !== 'darwin' || !ocrBin() || !canRead)('macOS: 
       expect(pdf.text.split('Page 2 (scanned')[1]!.replace(/\s/g, '')).toContain('진료예약안내')
     } finally { A.ctx.db.query("DELETE FROM settings WHERE key = 'aiVision'").run() }
   })
+  test('the API engine and a connection without a chat turn (the remote MCP connector) get Apple Vision text too', async () => {
+    const turn = A.turn('alice', A.chat('alice'))
+    A.ctx.db.query("UPDATE turns SET engine = 'api' WHERE id = ?").run(turn)
+    for (const ctx of [A.toolCtx('alice', turn), A.toolCtx('alice', null)]) {
+      const img = await A.ctx.files.call('read', { file_path: 'users/alice/page.png' }, ctx)
+      expect(img.content).toBeUndefined()
+      expect(img.text.replace(/\s/g, '')).toContain('진료예약안내')
+      const pdf = await A.ctx.files.call('read', { file_path: 'users/alice/mixed.pdf' }, ctx)
+      expect((pdf.content ?? []).filter((c: any) => c.type === 'image')).toEqual([])
+      expect(pdf.text).toContain('Page 2 (scanned; recognized text):')
+    }
+  })
 })

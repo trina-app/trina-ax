@@ -44,15 +44,20 @@ test('a Drive photo is an image block next to the JSON text (never inside it), c
   } finally { codec.mockRestore() }
 })
 
-test('no pixels for the API engine or with the switch off; no OCR either way on Linux', async () => {
+test('no pixels for the API engine or with the switch off; no OCR either way on Linux (a Mac reads the text with Apple Vision)', async () => {
   const codec = spyOn(a.ctx.files, 'modelImage').mockResolvedValue(jpeg)
+  const ocr = a.ctx.files.cfg.ocr
   try {
+    if (ocr) {
+      const mac = await read('photo', 'api').result
+      expect(mac.images).toBeUndefined()
+      expect(mac.text).not.toContain('reads text only')
+    }
+    a.ctx.files.cfg.ocr = null
     const api = await read('photo', 'api').result
     expect(api.images).toBeUndefined()
     expect(api.text).toContain('reads text only')
     a.ctx.db.query("INSERT INTO settings (key, value) VALUES ('aiVision', 'false')").run()
-    const ocr = a.ctx.files.cfg.ocr
-    a.ctx.files.cfg.ocr = null
     try {
       const off = await read('photo').result
       expect(off.images).toBeUndefined()

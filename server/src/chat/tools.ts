@@ -17,6 +17,7 @@ import type { TurnExec } from './turn'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
+import { visionText } from '../files/vision-text'
 import { recordSkillRead } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
@@ -327,10 +328,16 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool: name, args, signal: exec.abort.signal })
       const content: McpContent[] = []
       const shared: { path: string; alt?: string }[] = []
+      // a screenshot reaches the model like an image read: the team's "Send images and PDF pages to the AI" switch, an
+      // engine that takes images and the per-turn image budget (FileService.toolImage); else a note in its place.
+      // One the AI chose to show the person is shown either way (the chat, not the model)
+      const notes = new Set<string>()
       for (const c of r.content) {
         if (c.type === 'text') content.push({ type: 'text', text: c.text })
         else {
-          content.push({ type: 'image', data: c.data, mimeType: c.mime })
+          const note = rt.files.toolImage({ user: { id: spec.userId }, turnId: spec.turnId, files: exec.files }, Buffer.byteLength(c.data, 'base64'))
+          if (!note) content.push({ type: 'image', data: c.data, mimeType: c.mime })
+          else if (!notes.has(note)) { notes.add(note); content.push({ type: 'text', text: `${note} ${visionText(rt.db, spec.userId, 'browserInstead')}` }) }
           if (c.shareToChat) { const p = saveScreenshot(exec, c.data, c.mime); if (p) shared.push({ path: p, alt: 'screenshot' }) }
         }
       }

@@ -274,14 +274,14 @@ export class FileService {
   /**
    * An image, as the model's JPEG (files/vision.ts), like Claude Code's Read. The bytes are bound to the authorized
    * path, refused when quarantined, and access is checked again right before delivery (also at socket drain,
-   * mcp/socket.ts). No pixels when the team switched image viewing off (a Mac reads the text with Apple Vision then),
-   * for the text-only API engine, or for a connection without a chat turn: a short note says why.
+   * mcp/socket.ts). No pixels when the team switched image viewing off, for the text-only API engine, or for a
+   * connection without a chat turn: a Mac reads the text with Apple Vision then, a Linux server gives a short note.
    */
   private async readImage(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const block = visionBlock(this.db, ctx.turnId)
-    if (block === 'off' && this.cfg.ocr) return this.readText(ctx, a)
+    if (block && this.cfg.ocr) return this.readText(ctx, a)
     if (block) return { text: visionText(this.db, ctx.user.id, block), summary: `read ${r.rel} -> image not shown (${block})` }
     if (r.st!.size > VISION_INPUT_MAX) return { text: visionText(this.db, ctx.user.id, 'tooLarge'), isError: true, summary: `read ${r.rel} -> image too large` }
     const full = this.imageBudget(ctx, 0)
@@ -312,9 +312,9 @@ export class FileService {
    * gives each page's text layer as text, and pages without one (scans, pictures) as images; `as_images` shows the
    * text pages as images too. offset/limit without `pages` give numbered lines of the text grep searched (the text
    * cache, files/search.ts): the text layer on Linux; on a Mac the cache's own text (Apple Vision for scanned pages,
-   * PDFKit without poppler), so a line grep reports is the same line here. Otherwise no OCR: with image viewing off, a
-   * Mac server gives Apple Vision text for scanned pages instead, a Linux server a note (scanned pages are not
-   * searchable there either).
+   * PDFKit without poppler), so a line grep reports is the same line here. Otherwise no OCR: when no pixels may go
+   * (image viewing off, the API engine, a connection without a chat turn), a Mac server gives Apple Vision text for
+   * scanned pages instead, a Linux server a note (scanned pages are not searchable there either).
    */
   private async readPdf(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
     const r = authorize(this.fx, this.rules(), ctx.user, a.file_path, 'read')
@@ -322,8 +322,9 @@ export class FileService {
     const src = this.boundSource(ctx, r, readMaxBytes())
     const tools = this.visionTools()
     const block = visionBlock(this.db, ctx.turnId)
-    // macOS with image viewing off: Apple Vision text for scanned pages, as before this change
-    const ocrText = block === 'off' && !!this.cfg.ocr
+    // macOS when no pixels may go (image viewing off, the API engine, a connection): Apple Vision text for scanned
+    // pages, as before image reads
+    const ocrText = !!block && !!this.cfg.ocr
     const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
     const record = () => { ctx.files.readHashes.set(src.rel, src.hash); ctx.files.readPaths.add(src.rel) }
 
@@ -426,12 +427,12 @@ export class FileService {
   /**
    * An image from outside the team folder (a Google Drive file, tools/drive.ts) for this turn's model: the same
    * switch, engine check, budget and converter as a read. `text` says what happened (or holds the Apple Vision text
-   * on a Mac with image viewing off); `jpeg` is set when the image goes to the model.
+   * on a Mac when no pixels may go); `jpeg` is set when the image goes to the model.
    */
   async imageForModel(ctx: ToolCtx, name: string, bytes: Uint8Array, signal?: AbortSignal): Promise<{ jpeg?: Buffer; text: string }> {
     this.quarantine.assertBytes(bytes)
     const block = visionBlock(this.db, ctx.turnId)
-    if (block === 'off' && this.cfg.ocr) return { text: await extractText(name, bytes, { pandoc: null, pdftotext: null, ocr: this.cfg.ocr }, signal) }
+    if (block && this.cfg.ocr) return { text: await extractText(name, bytes, { pandoc: null, pdftotext: null, ocr: this.cfg.ocr }, signal) }
     if (block) return { text: visionText(this.db, ctx.user.id, block) }
     const full = this.imageBudget(ctx, 0)
     if (full) return { text: full }
@@ -463,8 +464,23 @@ export class FileService {
     if (!now.st || identity(now.st) !== src.identity) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
   }
 
+  /**
+   * A tool's own image for this turn's model (an HWP page render, a browser screenshot): the same switch, engine check
+   * and per-turn budget as a read. Before the image is made: null, or the note the AI gets instead (`bytes` omitted).
+   * With its size: null and counted in the turn's budget, or the note when it would pass the budget.
+   */
+  toolImage(ctx: Pick<ToolCtx, 'turnId' | 'files'> & { user: { id: string } }, bytes?: number): string | null {
+    const block = visionBlock(this.db, ctx.turnId)
+    if (block) return visionText(this.db, ctx.user.id, block)
+    const over = this.imageBudget(ctx, bytes ?? 0)
+    if (over || bytes === undefined) return over
+    ctx.files.imageBytes += bytes
+    ctx.files.imageCount++
+    return null
+  }
+
   /** The note when this turn's images reached VISION_TURN_IMAGES / VISION_TURN_BYTES (with `next` more bytes). */
-  private imageBudget(ctx: ToolCtx, next: number): string | null {
+  private imageBudget(ctx: Pick<ToolCtx, 'files'> & { user: { id: string } }, next: number): string | null {
     if (ctx.files.imageCount < VISION_TURN_IMAGES && ctx.files.imageBytes + next <= VISION_TURN_BYTES) return null
     return visionText(this.db, ctx.user.id, 'budget', { images: VISION_TURN_IMAGES, mb: VISION_TURN_BYTES / 1024 / 1024 })
   }

@@ -8,6 +8,7 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/private-net'
 import { urlsOf } from '../../server/src/realtime/browser-tools'
+import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -119,6 +120,42 @@ describe('browser tools', () => {
       expect(fs.readFileSync(path.join(h.team, p)).toString('base64')).toBe(PNG)
       expect(d.data.message.files).toBeNull() // not a "changed file" of the turn
     } finally { stop() }
+  })
+
+  test('screenshots follow "Send images and PDF pages to the AI" and count toward the turn\'s image budget, like a read', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'shot' }, { type: 'image', mime: 'image/png', data: PNG, shareToChat: c.args.save_to_disk === true }] }))
+    const ask = async (...ds: unknown[]) => {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await send(fake(...ds))(chat.id)
+      return (await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)).data.message
+    }
+    const shot = (save = false) => ({ tool: 'computer', args: { action: 'screenshot', ...(save ? { save_to_disk: true } : {}) }, inspectImages: true, sayResult: true })
+    try {
+      const on = JSON.parse((await ask(shot())).content)
+      expect(on.images).toEqual([{ mimeType: 'image/png', magic: '89504e470d0a1a0a' }])
+      // the switch off: no pixels for the model, a note (and that read_page gives the text); a screenshot the AI
+      // chose to show the person is still shown under the step
+      h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('aiVision', 'false') ON CONFLICT(key) DO UPDATE SET value = 'false'").run()
+      try {
+        const m = await ask(shot(true))
+        const off = JSON.parse(m.content)
+        expect(off.images).toEqual([])
+        expect(off.text).toContain('does not send images to the AI')
+        expect(off.text).toContain('read_page gives the page as text.')
+        expect(m.steps.find((s) => s.tool === 'computer')!.images?.length).toBe(1)
+      } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'aiVision'").run() }
+    } finally { stop() }
+    // the per-turn budget (40 images): screenshots past it get the note in their place, once per call. A batch result
+    // holds at most 20 images: the first two batches use the budget up, the third gets the note
+    const stopMany = serve(desk, (c) => ({ callId: c.callId, ok: true, content: Array.from({ length: 20 }, () => ({ type: 'image', mime: 'image/png', data: PNG })) }))
+    try {
+      const batch = (say: boolean) => ({ tool: 'browser_batch', args: { actions: [{ name: 'computer', input: { action: 'screenshot' } }] }, inspectImages: true, sayResult: say })
+      const [first, third] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
+      expect(first.images).toHaveLength(20)
+      expect(VISION_TURN_IMAGES).toBe(40)
+      expect(third.images).toEqual([])
+      expect(third.text.match(/image limit/g)).toHaveLength(1)
+    } finally { stopMany() }
   })
 
   test('long-poll fallback: a polling window gets the call and posts the result', async () => {

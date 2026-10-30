@@ -15,6 +15,7 @@ import { buildHwpPlugin, HWP_PLUGIN_LICENSE } from '../../scripts/plugins/build-
 import type { HwpTarget } from '../../scripts/hwp-bundle'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { newKey, prodTrust } from '../lib/plugins'
+import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
 
 setDefaultTimeout(60_000)
 const key = newKey()
@@ -106,6 +107,43 @@ describe('HWP availability follows the plugin state', () => {
     expect(out.result.isError ?? false).toBe(false)
     expect(out.result.content[1]).toMatchObject({ type: 'image', mimeType: 'image/png' })
     await coreStillWorks()
+  })
+
+  test('the page image follows "Send images and PDF pages to the AI", the engine and the per-turn image budget, like a read', async () => {
+    const call = async (t: ReturnType<CApp['toolCtx']>) => (await makeHandler(app.ctx.files, app.ctx.db, t)({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'hwp_render', arguments: { source: SRC, page: 1, format: 'png' } } })).result
+    const imgs = (r: { content: { type: string }[] }) => r.content.filter((c) => c.type === 'image')
+    const text = (r: { content: { type: string; text?: string }[] }) => r.content.map((c) => c.text ?? '').join('\n')
+    const locale = (app.ctx.db.query("SELECT locale FROM users WHERE id = 'alice'").get() as { locale: string }).locale
+    app.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
+    try {
+      // counted in the turn's budget like a read
+      const t = app.toolCtx('alice', app.turn('alice', app.chat('alice')))
+      expect(imgs(await call(t))).toHaveLength(1)
+      expect(t.files.imageCount).toBe(1)
+      expect(t.files.imageBytes).toBeGreaterThan(0)
+      // the budget used up: the page facts and a note, no image
+      t.files.imageCount = VISION_TURN_IMAGES
+      const full = await call(t)
+      expect(imgs(full)).toEqual([])
+      expect(text(full)).toContain('image limit')
+      expect(text(full)).toContain('read')
+      // the switch off: nothing drawn, a note that says how to turn it on and that read gives the text
+      app.ctx.db.query("INSERT INTO settings (key, value) VALUES ('aiVision', 'false') ON CONFLICT(key) DO UPDATE SET value = 'false'").run()
+      try {
+        const off = await call(app.toolCtx('alice', app.turn('alice', app.chat('alice'))))
+        expect(off.isError ?? false).toBe(false)
+        expect(imgs(off)).toEqual([])
+        expect(text(off)).toContain('does not send images to the AI')
+        expect(text(off)).toContain("The document's text can be read with read.")
+      } finally { app.ctx.db.query("DELETE FROM settings WHERE key = 'aiVision'").run() }
+      // the API engine (text only) and a connection without a chat turn
+      const apiTurn = app.turn('alice', app.chat('alice'))
+      app.ctx.db.query("UPDATE turns SET engine = 'api' WHERE id = ?").run(apiTurn)
+      expect(text(await call(app.toolCtx('alice', apiTurn)))).toContain('reads text only')
+      expect(text(await call(app.toolCtx('alice', null)))).toContain('carries text only')
+      app.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+      expect(text(await call(app.toolCtx('alice', apiTurn)))).toContain('문서의 글자는 read로 읽을 수 있어요.')
+    } finally { app.ctx.db.query("UPDATE users SET locale = ? WHERE id = 'alice'").run(locale) }
   })
 
   test('without the page-image permission the preview works but the AI tool is not offered', async () => {

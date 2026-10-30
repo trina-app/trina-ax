@@ -434,9 +434,11 @@ describe('no pixels: team switch off, the API engine, a connection without a tur
     } finally { A.ctx.files.cfg.ocr = ocr; codec.mockRestore(); page.mockRestore(); setVision(true) }
   })
 
-  test('the API engine (text only) and a connection without a chat turn get a short note', async () => {
+  test('the API engine (text only) and a connection without a chat turn get a short note (Linux; a Mac reads the text with Apple Vision)', async () => {
     const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(fakeJpeg)
+    const ocr = A.ctx.files.cfg.ocr
     try {
+      A.ctx.files.cfg.ocr = null
       const turn = A.turn('alice', A.chat('alice'))
       A.ctx.db.query("UPDATE turns SET engine='api' WHERE id=?").run(turn)
       const api = await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` })
@@ -450,7 +452,7 @@ describe('no pixels: team switch off, the API engine, a connection without a tur
       expect(remote.content).toBeUndefined()
       expect(remote.text).toContain('carries text only')
       expect(codec).not.toHaveBeenCalled()
-    } finally { codec.mockRestore() }
+    } finally { A.ctx.files.cfg.ocr = ocr; codec.mockRestore() }
   })
 
   test('the setting is ON by default and an admin can turn it off through the API', async () => {
