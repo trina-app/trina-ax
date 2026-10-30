@@ -3851,10 +3851,24 @@ Trina should feel like Claude Code, which has WebSearch.
   search, as before). `externalSearch` also sees the `web` namespace and calls of it, so a `/responses` request that
   offers or replays the tool is refused in those turns too. One search counts as one request and one web search call
   (priced like the web_search tool for an API key; tokens when the answer gives them).
-- **What "cached" means here.** OpenAI answers from its own index and loads no page live for the call, including
-  `open` / `click` of an address (a page it has not indexed is not fetched). The team server cannot see OpenAI's
-  side: this is the same trust as the hosted tool's cached mode, and queries go to the model provider like Claude's
-  WebSearch queries go to Anthropic. Search results are not "learned" addresses: Codex's answer is text, not
+- **What "cached" means here.** OpenAI answers from its own index and loads no page live for the call. The team
+  server cannot see OpenAI's side: this is the same trust as the hosted tool's cached mode, and queries go to the model
+  provider like Claude's WebSearch queries go to Anthropic.
+- **No addresses through the search (review of feat/small-batch-1030).** The real Codex 0.164, run against a fake
+  provider on 127.0.0.1, drops keys and settings the model adds (typed commands) but forwards `open` / `find` /
+  `screenshot` / `click` with whatever `ref_id` the model wrote, including `https://<anything>`. What OpenAI's side
+  does with an address it has not indexed (a later crawl, say) cannot be seen from here, so the proxy does not rely on
+  it: a `ref_id` must be a reference to the search's own results (`turn0search0`, `turn0fetch3`: letters, digits, `_`,
+  `-`); an address or a host is answered by the proxy itself (200, nothing upstream, `proxy.refused` audited) with a
+  note telling the model to use `web_fetch`, which goes through the address card. This is Claude Code's split as well:
+  WebSearch opens no page, WebFetch does. Commands hold Codex's shape (lists of at most 20 flat entries whose fields are
+  text, numbers or lists of text; `response_length` a word): anything nested is 403. The step shows what was asked
+  ("Web search: <query or address>").
+- **A failed search fails alone.** A 401 or 429 from `/alpha/search` (a restricted API key without that scope, a
+  search-only limit, `usage_not_included`) goes back to Codex as that search's failure and never marks the connection
+  invalid / limited or starts a ChatGPT refresh; the model requests (`/responses`) keep deciding the connection's
+  state. Codex never finishes the item of a failed search (the model gets "aborted"): the parser closes such a step as
+  failed when the turn ends, instead of letting it look done. Search results are not "learned" addresses: Codex's answer is text, not
   structured hits, so a web_fetch of a result asks with the address card (Claude's structured hits open within the
   link budget).
 - **Steps.** Codex starts the search item without its query and names it at the end; the step label is set then
@@ -3862,6 +3876,7 @@ Trina should feel like Claude Code, which has WebSearch.
 - Not verified here: the real `chatgpt.com/backend-api/codex/alpha/search` and `api.openai.com/v1/alpha/search`
   (tests never call OpenAI). Release gate: one real Codex search turn on an installed server (ChatGPT sign-in, and an
   API key if one is used). If the API-key upstream lacks the endpoint, Codex reports the search failed and goes on.
-- Tests: `proxy-codex.test.ts` (forwarding, cached forced, refusals, confidential and no-search tokens),
+- Tests: `proxy-codex.test.ts` (forwarding, cached forced, refusals, confidential and no-search tokens, addresses
+  answered locally, command shape, a refused / limited search leaving the connection alone),
   `codex-prod.test.ts` (fake Codex through the real launcher and proxy), `template-engine-lock.test.ts`,
   `engine.test.ts`, `safe-ops.test.ts`.

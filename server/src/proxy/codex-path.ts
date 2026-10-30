@@ -6,7 +6,9 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 //   POST /codex/chatgpt/responses   ChatGPT sign-in  -> <chatgpt>/responses (Authorization + ChatGPT-Account-ID)
 //   POST /codex/openai/responses    OpenAI API key   -> <openai>/responses (Authorization)
 //   POST /codex/<mode>/alpha/search Codex's own web search (the `web.run` tool, which Codex runs itself) -> the same
-//                                    upstream's /alpha/search, held to the cached index (checkSearchRequest)
+//                                    upstream's /alpha/search, held to the cached index (checkSearchRequest); a page
+//                                    named by an address is answered here, never sent (searchOpensAddress); a 401 / 429
+//                                    of a search fails that search only and leaves the connection's state alone
 //   GET  /codex/backend/wham/config/bundle -> {} (a remote config bundle could change the lockdown: never passed)
 //   other /codex/backend/*, /codex/*/models  -> 404 (never sent upstream; the two that Codex 0.163 sends on every
 //                                    ChatGPT turn, BACKGROUND_404 below, are expected and not logged as failures)
@@ -111,6 +113,55 @@ export function checkResponsesRequest(body: unknown, models: string[]): string |
 const SEARCH_COMMANDS = new Set(['search_query', 'image_query', 'open', 'click', 'find', 'screenshot', 'finance', 'weather', 'sports', 'time', 'response_length'])
 const SEARCH_KEYS = new Set(['id', 'model', 'input', 'commands', 'settings', 'max_output_tokens'])
 const SEARCH_SETTINGS = new Set(['allowed_callers', 'external_web_access'])
+/** a command takes at most this many entries (Codex sends the model's list as it is) */
+const SEARCH_ENTRIES_MAX = 20
+
+/**
+ * The shape of each command as Codex 0.163–0.165 sends it (typed: a list of flat objects whose fields are text,
+ * numbers or lists of text; `response_length` is a word). Codex itself drops keys the model adds; the proxy holds the
+ * same shape, so no nested setting or second command list rides along in a field.
+ */
+function checkSearchCommands(c: Record<string, unknown>): string | null {
+  for (const [k, v] of Object.entries(c)) {
+    if (v === null) continue
+    if (k === 'response_length') { if (typeof v !== 'string') return 'search command response_length must be text'; continue }
+    if (!Array.isArray(v)) return `search command ${k} must be a list`
+    if (v.length > SEARCH_ENTRIES_MAX) return `search command ${k} has more than ${SEARCH_ENTRIES_MAX} entries`
+    for (const e of v) {
+      if (!e || typeof e !== 'object' || Array.isArray(e)) return `search command ${k} takes objects`
+      for (const [f, x] of Object.entries(e)) {
+        const flat = x === null || typeof x !== 'object' || (Array.isArray(x) && x.every((y) => typeof y === 'string'))
+        if (!flat) return `search command ${k}.${f.slice(0, 40)} is not allowed`
+      }
+    }
+  }
+  return null
+}
+
+/** a reference to one of the search's own results (turn0search0, turn0fetch3, turn1view0): never an address or a host */
+const SEARCH_REF = /^[A-Za-z0-9_-]{1,100}$/
+
+/**
+ * open / click / find / screenshot name a page by `ref_id`, which Codex lets be "a reference id or URL". An address
+ * there is not passed on (docs/DECISIONS.md "Codex web search"): the address would leave the team server inside the
+ * search request, and what OpenAI's side does with an address it has not indexed cannot be seen from here. Addresses
+ * are opened with web_fetch, under the address rules (the card), as with Claude, whose WebSearch opens no page. null =
+ * every page named is a result reference; else the refusal's reason.
+ */
+export function searchOpensAddress(body: unknown): string | null {
+  const c = (body as { commands?: unknown } | null)?.commands
+  if (!c || typeof c !== 'object') return null
+  for (const [k, v] of Object.entries(c as Record<string, unknown>)) {
+    if (!Array.isArray(v)) continue
+    for (const e of v) {
+      const ref = (e as { ref_id?: unknown } | null)?.ref_id
+      if (ref !== undefined && ref !== null && (typeof ref !== 'string' || !SEARCH_REF.test(ref))) return `search command ${k} names an address, not a search result`
+    }
+  }
+  return null
+}
+/** what the model gets for such a call (Codex hands the `output` to it as the tool's result) */
+export const SEARCH_ADDRESS_NOTE = 'The team server did not run this: open, click, find and screenshot here take only a reference to a result of this search (such as turn0search0), not a web address. To read a page at an address, use the web_fetch tool.'
 
 /**
  * Codex's standalone web search (POST <base_url>/alpha/search: the conversation, the tool's commands and settings).
@@ -127,6 +178,8 @@ export function checkSearchRequest(body: unknown, models: string[]): string | nu
   const c = b.commands
   if (!c || typeof c !== 'object' || Array.isArray(c)) return 'search commands must be an object'
   for (const k of Object.keys(c)) if (!SEARCH_COMMANDS.has(k)) return `search command ${k.slice(0, 40)} is not allowed`
+  const cr = checkSearchCommands(c as Record<string, unknown>)
+  if (cr) return cr
   const st = b.settings ?? {}
   if (typeof st !== 'object' || Array.isArray(st) || st === null) return 'search settings must be an object'
   for (const k of Object.keys(st)) if (!SEARCH_SETTINGS.has(k)) return `search setting ${k.slice(0, 40)} is not allowed`
@@ -175,6 +228,13 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     d.refused(row, refused)
     return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
   }
+  // a page named by its address: nothing goes upstream, and the model is told what to use instead (a 403 would give
+  // it only "aborted", and it would try again)
+  const address = search ? searchOpensAddress(parsed) : null
+  if (address) {
+    d.refused(row, address)
+    return json(200, { output: SEARCH_ADDRESS_NOTE })
+  }
   if (overBudget(d.db, row.user_id, row.turn_id, row.budget_usd)) {
     d.onTurnEvent?.(row.turn_id, { type: 'budget' })
     return apiError(403, 'permission_error', 'budget_exceeded')
@@ -214,6 +274,15 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   if (up.status >= 300 && up.status < 400) {
     await up.body?.cancel().catch(() => {})
     return apiError(502, 'api_error', 'the model service answered with a redirect; it is not followed')
+  }
+  // a refused or limited search says nothing certain about the connection (an endpoint or a scope it lacks, a limit of
+  // search alone): it fails by itself, Codex gives the model "aborted" and goes on, and the model requests keep
+  // deciding the connection's state (refresh, invalid, limited). Never a refresh per search either.
+  if (search && (up.status === 401 || up.status === 429)) {
+    const status = up.status
+    await up.body?.cancel().catch(() => {})
+    d.log?.warn('model proxy: web search refused by the model service', { turn: row.turn_id, status })
+    return apiError(status === 401 ? 403 : 429, status === 401 ? 'permission_error' : 'rate_limit_error', `the model service answered ${status} to this web search`)
   }
   if (up.status === 401) {
     await up.body?.cancel().catch(() => {})

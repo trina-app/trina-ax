@@ -8,6 +8,9 @@ export class CodexEventParser {
   /** every item type seen (the lockdown test asserts no command_execution / collab / file_change items) */
   itemTypes = new Map<string, number>()
   items: any[] = []
+  /** web searches started and not finished: Codex never finishes the item of a failed search (the model gets
+   * "aborted"), so the end of the turn closes them as failed rather than leaving them to look done */
+  private openSearches = new Set<string>()
   push(line: string): EngineEvent[] {
     let ev: any
     try { ev = JSON.parse(line) } catch { return [] }
@@ -29,9 +32,9 @@ export class CodexEventParser {
           }
           break
         case 'web_search':
-          if (ev.type === 'item.started') out.push({ type: 'tool_start', id: it.id, name: 'web_search', summary: String(it.query ?? '').slice(0, 200), input: { query: it.query ?? '' } })
+          if (ev.type === 'item.started') { this.openSearches.add(it.id); out.push({ type: 'tool_start', id: it.id, name: 'web_search', summary: String(it.query ?? '').slice(0, 200), input: { query: it.query ?? '' } }) }
           // Codex's standalone search (web.run) starts without its query and names it only when it is done
-          else out.push({ type: 'tool_end', id: it.id, ok: true, ...(typeof it.query === 'string' && it.query ? { summary: it.query.slice(0, 200) } : {}) })
+          else { this.openSearches.delete(it.id); out.push({ type: 'tool_end', id: it.id, ok: true, ...(typeof it.query === 'string' && it.query ? { summary: it.query.slice(0, 200) } : {}) }) }
           break
         case 'command_execution': case 'file_change': case 'collab_tool_call':
           // must never happen with the locked profile; surfaced so tests and audit see it
@@ -41,9 +44,12 @@ export class CodexEventParser {
         case 'error': break // configuration warnings
       }
     } else if (ev.type === 'turn.completed') {
+      for (const id of this.openSearches) out.push({ type: 'tool_end', id, ok: false })
+      this.openSearches.clear()
       const u = ev.usage ?? {}
       out.push({ type: 'usage', inputTokens: u.input_tokens ?? 0, outputTokens: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0) })
     } else if (ev.type === 'turn.failed' || ev.type === 'error') {
+      if (ev.type === 'turn.failed') { for (const id of this.openSearches) out.push({ type: 'tool_end', id, ok: false }); this.openSearches.clear() }
       const msg = String(ev.error?.message ?? ev.message ?? 'codex error')
       out.push({ type: 'error', code: classifyError(msg), message: msg })
     }
