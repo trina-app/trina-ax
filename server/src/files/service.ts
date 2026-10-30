@@ -25,9 +25,9 @@ import { recoverWorkflows } from '../safe-ops/workflow'
 import { recoverPublications } from '../safe-ops/publication'
 import { safeText, safeErrorText } from '../safe-ops/strings'
 import { which } from '../config'
-import { isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
-  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock, visionTools, type VisionBlock,
-  type VisionTools } from './vision'
+import { imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, parsePages, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
+  visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 
 void ENGINE_BUILTIN_ALLOWED
@@ -274,7 +274,10 @@ export class FileService {
     } else pages = Array.from({ length: n }, (_, i) => i + 1)
 
     const content: McpContent[] = []
+    // the result as the engine measures it (READ_OUTPUT_TOKENS): page images that would not fit wait for another call
+    let tokens = 0
     const text = (t: string) => {
+      tokens += textTokens(t) + 1
       const last = content[content.length - 1]
       if (last?.type === 'text') last.text += '\n\n' + t
       else content.push({ type: 'text', text: t })
@@ -283,6 +286,7 @@ export class FileService {
     let chars = 0
     let images = 0
     const blocked: number[] = []
+    const later: number[] = []
     let noPixels = false
     for (const p of pages) {
       ctx.signal?.throwIfAborted()
@@ -311,6 +315,8 @@ export class FileService {
         } else blocked.push(p)
         continue
       }
+      // once one page image did not fit, the later ones wait too (no conversion for them)
+      if (later.length) { later.push(p); continue }
       const full = this.imageBudget(ctx, 0)
       if (full) { text(`--- Page ${p} ---\n${full}`); continue }
       let jpeg: Buffer
@@ -320,14 +326,17 @@ export class FileService {
         continue
       }
       ctx.signal?.throwIfAborted()
+      if (tokens + textTokens(head) + imageTokens(jpeg) > READ_OUTPUT_TOKENS) { later.push(p); continue }
       const over = this.imageBudget(ctx, jpeg.length)
       if (over) { text(`--- Page ${p} ---\n${over}`); continue }
       text(head)
+      tokens += imageTokens(jpeg)
       content.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })
       ctx.files.imageBytes += jpeg.length
       ctx.files.imageCount++
       images++
     }
+    if (later.length) text(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${a.as_images ? ', as_images: true' : ''}.`)
     if (blocked.length) text(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
     else if (noPixels) text(why(block!))
     const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined

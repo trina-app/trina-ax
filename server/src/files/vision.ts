@@ -36,6 +36,27 @@ export const VISION_TURN_BYTES = 10 * 1024 ** 2
 /** PDF pages per read call, and the most pages a read may give without `pages` (Claude Code's Read contract) */
 export const PDF_PAGES_PER_READ = 20
 export const PDF_PAGES_WITHOUT_RANGE = 10
+/** One tool result as the engine takes it. Claude Code cuts an MCP result over MAX_MCP_OUTPUT_TOKENS (25,000 by default):
+ * it leaves out the images past the limit and tells the AI the output was truncated. A PDF read stops adding page images
+ * below that and names the pages to read in another call (review of feat/vision-read). */
+export const READ_OUTPUT_TOKENS = 24_000
+/** an image block: about width x height / 750 tokens (Anthropic's estimate), from the JPEG's frame header */
+export function imageTokens(jpeg: Uint8Array): number {
+  for (let p = 2; p + 9 < jpeg.length;) {
+    if (jpeg[p] !== 0xff) break
+    const m = jpeg[p + 1]!
+    if (m >= 0xc0 && m <= 0xc3) return Math.ceil((((jpeg[p + 5]! << 8) | jpeg[p + 6]!) * ((jpeg[p + 7]! << 8) | jpeg[p + 8]!)) / 750)
+    p += 2 + ((jpeg[p + 2]! << 8) | jpeg[p + 3]!)
+  }
+  return Math.ceil((VISION_SIDE_MAX * VISION_SIDE_MAX) / 750)
+}
+/** text: about 4 characters a token in English; Korean, Japanese and other non-ASCII text counted a token a character */
+export function textTokens(s: string): number {
+  let other = 0
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) > 0x7f) other++
+  return Math.ceil((s.length - other) / 4) + other
+}
+
 /** a page with fewer non-space characters than this has no usable text layer (a scan): the same test as extract.ts */
 export const SCANNED_PAGE_CHARS = 20
 /** text of a pages read (all pages together) */

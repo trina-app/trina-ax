@@ -14,7 +14,7 @@ import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { heicTools } from '../../server/src/files/heic-preview'
-import { PDF_PAGES_PER_READ, VISION_SIDE_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, parsePages, visionTools } from '../../server/src/files/vision'
+import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_SIDE_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, parsePages, visionTools } from '../../server/src/files/vision'
 import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
 
@@ -248,6 +248,31 @@ describe('PDF pages (Claude Code Read contract)', () => {
       A.ctx.files.cfg.pdftotext = office.tools.pdftotext = saved
       for (const f of ['mixed.pdf', 'eleven.pdf']) fs.rmSync(A.ctx.files.office.cachePath(`${ALICE}/${f}`), { force: true })
     }
+  })
+
+  // Claude Code cuts an MCP result over 25,000 tokens (MAX_MCP_OUTPUT_TOKENS): 20 page images (about 2,300 tokens each
+  // for an A4 page) would lose some and tell the AI the output was truncated (review of feat/vision-read)
+  test.skipIf(!pageRenderer)('page images that would pass the tool output limit wait for the next call, which reads them', async () => {
+    put(`${ALICE}/twenty-scans.pdf`, makePagesPdf(Array.from({ length: 20 }, () => ({ image: CCITT_SCAN }))))
+    // an A4 page drawn at 1568 px: 1109 x 1568 (2,319 tokens)
+    const a4 = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x06, 0x20, 0x04, 0x55]), Buffer.alloc(14), Buffer.from([0xff, 0xd9])])
+    expect(imageTokens(a4)).toBe(2319)
+    const page = spyOn(A.ctx.files, 'pdfPageImage').mockResolvedValue(a4)
+    try {
+      const h = handler('alice', A.turn('alice', A.chat('alice')))
+      const first = await h.call('read', { file_path: `${ALICE}/twenty-scans.pdf`, pages: '1-20' })
+      expect(first.result.isError).toBeUndefined()
+      expect(images(first)).toHaveLength(10)
+      expect(page.mock.calls.length).toBe(11) // the 11th did not fit; no conversion after it
+      expect(texts(first)).toContain('Not shown in this read: the images of pages 11-20')
+      expect(texts(first)).toContain('pages: "11-20"')
+      const measured = (first.result.content as any[]).reduce((n, c) => n + (c.type === 'image' ? imageTokens(Buffer.from(c.data, 'base64')) : textTokens(c.text)), 0)
+      expect(measured).toBeLessThanOrEqual(READ_OUTPUT_TOKENS)
+      expect(h.ctx.files.imageCount).toBe(10)
+      const rest = await h.call('read', { file_path: `${ALICE}/twenty-scans.pdf`, pages: '11-20' })
+      expect(images(rest)).toHaveLength(10)
+      expect(texts(rest)).not.toContain('Not shown in this read')
+    } finally { page.mockRestore() }
   })
 
   test.skipIf(!pageRenderer)('line reads name the scanned pages to read as images', async () => {

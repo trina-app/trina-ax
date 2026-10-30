@@ -3149,6 +3149,10 @@ Linux. Just let Claude see the images, so Claude reads the text itself." Measure
   PDFs: the text layer on Linux; on a Mac the search index's own extraction (Apple Vision for pages without a text
   layer, PDFKit's text without poppler, as before this change), because the text layer alone numbers lines differently
   there (found in review). The result names the scanned pages to read with `pages`.
+  One result stays under 24,000 tokens as the engine counts them (an image about width × height / 750): Claude Code cuts
+  an MCP result over `MAX_MCP_OUTPUT_TOKENS` (25,000 by default), leaving out the images past it and telling the AI the
+  output was truncated, so page images that would pass it are left for another call and named with the `pages` to
+  send (about ten A4 scans per call; found in review against Claude Code 2.1.312).
 - **Default on, decoupled from 1A.** No `MYCEL_SAFE_OPS_1A`, no confidential mark, no 1A workflow admission. The flag
   still gates 1A's PPTX safe operations, artifact quarantine and its confidential lock; with the flag on, image reads
   take this path too (1A's eight workflows per user-hour and single global converter slot do not fit interactive reads).
