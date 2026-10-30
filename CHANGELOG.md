@@ -3,8 +3,14 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## Unreleased
+## 0.2.10 — 2026-10-30
 
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.10).
+
+**Upgrade note:** migrations 318–320 raise the schema reader level to 4. After the update, 0.2.9 cannot open the database. Roll back only from a backup that you made before the update.
+
+- Settings > Apps: a guide shows how to install Trina as an app (PWA) on phones and computers (#9).
+- Skills: a skill in a skills/ subfolder is visible only to people who can read that folder. Personal skills live in users/<me>/skills/ and only the owner sees them; they come first in the prompt skill index (#10).
 - Chat: when a long conversation reaches the AI only in part (a fresh session gets 40,000 characters of history), the newest answer says so in a small note. Migration 213 (reader 1).
 - Chat: an answer that reaches the per-answer limit (tool calls or time) pauses with "이어서 하기" instead of ending as an error; the AI is told where it stopped. Migration 212 (reader 1).
 - Chat: messages typed while an answer runs wait under the conversation (edit or remove them) and are sent together when the answer is done; Stop keeps them, paused, with "Send now".
