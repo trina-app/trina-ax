@@ -510,3 +510,23 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
   expect(deletes).toBe(2)
   expect(listReads).toBe(1)
 })
+
+// "Let the AI split work into sub-tasks" (server/src/chat/subagents.ts): on by default; the switch saves only it
+test('settings: the team turns sub-agents off', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const sw = page.getByTestId('team-ai-subagents')
+  await expect(sw).toHaveAttribute('data-on', 'true')
+  await expect(sw).toContainText('AI가 일을 나눠 맡기기')
+  const saved = page.waitForRequest((r) => r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH')
+  await sw.getByText('AI가 일을 나눠 맡기기').click()
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  expect((await saved).postDataJSON()).toEqual({ aiSubagents: false })
+  await expect(page.getByText('저장했어요.')).toBeVisible()
+  await page.reload()
+  await expect(page.getByTestId('team-ai-subagents')).toHaveAttribute('data-on', 'false')
+  expect(realErrors(errors)).toEqual([])
+})

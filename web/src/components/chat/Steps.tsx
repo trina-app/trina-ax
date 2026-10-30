@@ -2,8 +2,10 @@
 // While streaming the last few steps show; afterwards it folds into "작업 N단계" that opens on click.
 // Web search results are plain links (no favicons: an external image would load by itself).
 // A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure.
+// A sub-task (Claude Code's Agent tool, docs/DECISIONS.md "Sub-agents") is one row like Claude Code's "Agent(...)": its
+// sub-agent's steps (Step.parentId) open under it, and while it works its latest step shows beneath it.
 import clsx from 'clsx'
-import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, FileSearch, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Wrench } from 'lucide-react'
+import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, FileSearch, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { localizeStep } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
@@ -11,20 +13,39 @@ import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
 import { TeamImage } from '../Markdown'
 
+type TFunction = ReturnType<typeof useT>
 const ICON = { tool: Wrench, thinking: Brain, web_search: Globe, browser: Monitor, artifact: Shapes, ask_user: MessageCircleQuestion } as const
 const FILE_TOOLS = new Set(['read', 'grep', 'glob', 'list', 'write', 'edit'])
 
-function StepRow({ step, live }: { step: Step; live: boolean }) {
+/** "12 tool uses · 1m 20s" of a sub-task (either part may be unknown yet) */
+export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
+  if (!sub) return ''
+  const parts: string[] = []
+  if (sub.toolUses !== undefined) parts.push(t('steps.subtaskToolUses', { n: sub.toolUses }))
+  if (sub.ms !== undefined) {
+    const s = Math.round(sub.ms / 1000)
+    parts.push(s < 60 ? t('steps.secs', { s }) : t('steps.minSecs', { m: Math.floor(s / 60), s: s % 60 }))
+  }
+  return parts.join(' · ')
+}
+
+function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: Step[] }) {
   const t = useT()
   // the label was written in the language the answer ran in: redraw its words in the language on screen
   const words = localizeStep(step, useLocale())
   const [open, setOpen] = useState(false)
-  const Icon = step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind]
-  const expandable = !!(step.detail || step.sources?.length || step.images?.length)
+  const subtask = step.tool === 'agent'
+  const Icon = subtask ? Workflow : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
+  const hidden = step.subtask?.hidden ?? 0
+  const expandable = !!(step.detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = step.status === 'running' && live
+  const stats = subtask ? subtaskStats(step.subtask, t) : ''
+  // while a sub-agent works, its latest step shows under its row (like Claude Code)
+  const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   return (
-    <li className="text-[13px] text-muted">
-      <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
+    <li className="text-[13px] text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
+      <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} aria-label={subtask && expandable ? `${words.label} · ${t('steps.subtaskShow')}` : undefined}
+        onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
         {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.tool === 'attachment' ? (
           // what happened to an attached team file (changed, moved, unavailable): a note, not a success or a failure
           <Info size={13} className="shrink-0 text-faint" aria-hidden />
@@ -34,9 +55,21 @@ function StepRow({ step, live }: { step: Step; live: boolean }) {
         <Icon size={13} className="shrink-0 text-faint" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{words.label}</span>
         {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
+        {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
         {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
       </button>
-      {open && (
+      {latest && (
+        <ul className="ml-6 border-l border-line pl-3" data-testid="subtask-latest">
+          <StepRow key={latest.id} step={latest} live={live} />
+        </ul>
+      )}
+      {open && subtask && (
+        <ul className="mt-1 mb-2 ml-6 space-y-0.5 border-l border-line pl-3" data-testid="subtask-steps">
+          {hidden > 0 && <li className="px-1 text-xs text-faint">{t('steps.subtaskHidden', { n: hidden })}</li>}
+          {kids.map((k) => <StepRow key={k.id} step={k} live={live} />)}
+        </ul>
+      )}
+      {open && !subtask && (
         <div className="mt-1 mb-2 ml-6 space-y-1.5 border-l border-line pl-3">
           {words.detail && <p className="text-xs whitespace-pre-wrap text-muted">{words.detail}</p>}
           {step.sources && (
@@ -71,19 +104,32 @@ const hostOf = (u: string) => {
   }
 }
 
+/** The answer's own steps, and each sub-task's steps by its id. A step whose sub-task is not in the list stays on top. */
+export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step[]> } {
+  const subtasks = new Set(steps.filter((s) => s.tool === 'agent').map((s) => s.id))
+  const kids = new Map<string, Step[]>()
+  const top: Step[] = []
+  for (const s of steps) {
+    if (s.parentId && subtasks.has(s.parentId)) kids.set(s.parentId, [...(kids.get(s.parentId) ?? []), s])
+    else top.push(s)
+  }
+  return { top, kids }
+}
+
 export default function Steps({ steps, streaming }: { steps: Step[]; streaming: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   if (!steps.length) return null
+  const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded
   const shown = steps.flatMap((s) => (s.kind === 'browser' ? s.images ?? [] : []))
   if (streaming) {
-    const tail = steps.slice(-4)
+    const tail = top.slice(-4)
     return (
       <ul className="mb-3 space-y-0.5" aria-label={t('steps.label')} data-testid="steps">
-        {steps.length > tail.length && <li className="px-1 text-xs text-faint">{t('steps.earlier', { n: steps.length - tail.length })}</li>}
+        {top.length > tail.length && <li className="px-1 text-xs text-faint">{t('steps.earlier', { n: top.length - tail.length })}</li>}
         {tail.map((s) => (
-          <StepRow key={s.id} step={s} live />
+          <StepRow key={s.id} step={s} live kids={kids.get(s.id)} />
         ))}
       </ul>
     )
@@ -92,13 +138,13 @@ export default function Steps({ steps, streaming }: { steps: Step[]; streaming: 
     <div className="mb-3" data-testid="steps">
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] text-faint hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
-        {t('steps.summary', { n: steps.length })}
+        {t('steps.summary', { n: top.length })}
         {steps.some((s) => s.status === 'error' && !s.paused) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}
       </button>
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>
-          {steps.map((s) => (
-            <StepRow key={s.id} step={s} live={false} />
+          {top.map((s) => (
+            <StepRow key={s.id} step={s} live={false} kids={kids.get(s.id)} />
           ))}
         </ul>
       )}

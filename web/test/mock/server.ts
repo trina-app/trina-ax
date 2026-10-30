@@ -5,7 +5,8 @@
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
-// at the time limit a step still running ends paused), "multi" with "ask" (a question with several answers);
+// at the time limit a step still running ends paused), "multi" with "ask" (a question with several answers),
+// "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
@@ -434,6 +435,19 @@ export class MockServer {
       const s2 = step({ id: 's2', kind: 'web_search', tool: 'WebSearch', label: 'Web search "team ax"', status: 'ok', endedAt: now(), sources: [{ title: 'Example result', url: 'https://example.com/a' }, { title: 'Poisoned result', url: 'javascript:top.document.title="pwned-search"' }] })
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
+    }
+    if (/sub-agent/i.test(prompt)) {
+      // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const a1 = step({ id: 'A1', kind: 'tool', tool: 'agent', label: '하위 작업: 계약서 비교', subtask: {} })
+      put(a1)
+      put(step({ id: 'c1', kind: 'tool', tool: 'read', label: '파일 읽기 · shared/contract-1.md', parentId: 'A1', status: 'ok', endedAt: now() }))
+      put({ ...a1, subtask: { toolUses: 1, ms: 1200 } })
+      put(step({ id: 'c2', kind: 'tool', tool: 'grep', label: '내용 검색 "수수료" · shared/', parentId: 'A1' }))
+      put({ ...a1, subtask: { toolUses: 2, ms: 2400 } })
+      await sleep(1500)
+      put(step({ id: 'c2', kind: 'tool', tool: 'grep', label: '내용 검색 "수수료" · shared/', parentId: 'A1', status: 'ok', endedAt: now() }))
+      put({ ...a1, status: 'ok', endedAt: now(), subtask: { toolUses: 2, ms: 80_400, hidden: 3 } })
     }
     if (/ask/i.test(prompt)) {
       const requestId = 'q1'

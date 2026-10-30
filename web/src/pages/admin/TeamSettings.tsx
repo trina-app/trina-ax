@@ -99,6 +99,7 @@ export default function TeamSettingsPage() {
                 <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                 <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
                 <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
+                <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
                   onSaved={(r) => state.setData(r)} />
               </div>
@@ -265,6 +266,17 @@ export function AiVisionSwitch({ value, onChange }: { value: boolean; onChange: 
     <div className="sm:col-span-2" data-testid="team-ai-vision" data-on={value ? 'true' : 'false'}>
       <Switch checked={value} onChange={onChange} label={t('teamSettings.aiVision')} />
       <p className="mt-1 text-xs text-faint">{t('teamSettings.aiVisionHint')}</p>
+    </div>
+  )
+}
+
+/** "Let the AI split work into sub-tasks" (default on; server/src/chat/subagents.ts). Off: no Agent tool. */
+export function AiSubagentsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return (
+    <div className="sm:col-span-2" data-testid="team-ai-subagents" data-on={value ? 'true' : 'false'}>
+      <Switch checked={value} onChange={onChange} label={t('teamSettings.aiSubagents')} />
+      <p className="mt-1 text-xs text-faint">{t('teamSettings.aiSubagentsHint')}</p>
     </div>
   )
 }
