@@ -507,6 +507,12 @@ export class MockServer {
     assistant.status = this.stopped.has(turnId) ? 'stopped' : /error/i.test(prompt) ? 'error' : 'done'
     // like server/src/chat/turn.ts at a per-answer limit: 'done', not an error, with the reason
     if (assistant.status === 'done' && capped) assistant.stopReason = capped
+    // like a fresh engine session (Codex every turn, an edit): history before this message past 40,000 characters
+    // reaches the AI only in part (server/src/chat/prompt.ts historyWindow)
+    let earlier = 0
+    const asked = this.messages.find((m) => m.id === assistant.parentId)
+    for (let cur = asked ? this.messages.find((m) => m.id === asked.parentId) : undefined; cur; cur = this.messages.find((m) => m.id === cur!.parentId)) earlier += cur.content.length + 'Assistant: '.length
+    if (assistant.status !== 'error' && earlier > 40_000) assistant.historyTrimmed = true
     if (assistant.status === 'error') {
       assistant.error = { code: 'engine_unavailable', message: ERROR_MESSAGES.engine_unavailable.ko }
       // Stored chat-error fixtures, delivered through both message.done and listMessages.

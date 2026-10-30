@@ -188,6 +188,8 @@ export const ja: Record<MessageKey, string> = {
   "chat.limit.time_limit": "1回の回答で使える時間を使い切りました。続けると、止まったところから再開します。",
   "chat.limit.continue": "続ける",
   "chat.limit.message": "続けてください。",
+  "chat.memory.note": "会話が長いため、AIは最近の部分だけを覚えています。",
+  "chat.memory.tip": "大事な内容はもう一度伝えるか、要約して新しいチャットで続けてください。",
   'chat.send': "送信",
   'chat.sending': "送信中…",
   'chat.notSent': "送信できませんでした。",

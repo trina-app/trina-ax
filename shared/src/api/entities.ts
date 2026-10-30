@@ -233,6 +233,9 @@ export const Message = z.object({
   branch: z.object({ index: z.number().int().nonnegative(), count: z.number().int().positive(), siblingIds: z.array(Uuid7) }),
   /** answers only: the answer paused at a per-answer limit (TurnStopReason); absent or null: it ended normally */
   stopReason: TurnStopReason.nullable().optional(),
+  /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
+   * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
+  historyTrimmed: z.boolean().optional(),
 })
 export type Message = z.infer<typeof Message>
 

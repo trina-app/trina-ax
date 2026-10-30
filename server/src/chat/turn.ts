@@ -22,7 +22,7 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
-import { buildTurnContext, buildTurnPrompt, continuationBlock, skillBlock, type PromptInput } from './prompt'
+import { buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, skillBlock, type PromptInput } from './prompt'
 import { invokedSkill, listSkills, skillFolder } from './skills'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel } from './engines'
@@ -101,6 +101,9 @@ export class TurnExec {
   /** the answer reached a per-answer limit (tool rounds, working time): it ends 'done' with this reason, the chat
    * offers "continue" and the next turn is told where it stopped (docs/DECISIONS.md "Continue after the per-answer limit") */
   limitReason: TurnStopReason | null = null
+  /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
+   * the resumed session started that way (the chat says so under the answer) */
+  historyTrimmed = false
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
   principal: Principal | null = null
@@ -285,7 +288,16 @@ export class TurnExec {
       memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null,
     })
-    const prompt = (fresh: boolean) => buildTurnPrompt(rt.files, promptInput(fresh))
+    // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
+    const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
+    // a fresh session (edit, regenerate, engine switch, Codex / API every turn, a lost or dropped session, another AI
+    // connection, a refusal retry) gets at most 40,000 characters of history; a resumed one keeps what it started with.
+    // The attempt that answers sets it last.
+    const prompt = (fresh: boolean) => {
+      const input = promptInput(fresh)
+      this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
+      return buildTurnPrompt(rt.files, input)
+    }
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
@@ -299,7 +311,6 @@ export class TurnExec {
     }
     // the previous answer paused at a per-answer limit: the AI learns that with this message, so "continue" (or anything
     // else) is read knowing the work was cut off there (the session or the history has what it did)
-    const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
     const cutOff = before?.role === 'assistant' ? stopReasonOf(before.stop_reason) : null
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     const message = scheduled + continued + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
@@ -421,7 +432,7 @@ export class TurnExec {
     }
     // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
     // 429 path reported a limit, never for budgets, refusals or crashes
-    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: prompt(true), message, extraTools })
+    if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true), message, extraTools })
   }
 
   /** The AI connection for this attempt (credentials/resolve.ts), or null with the turn's error set: none for this
@@ -529,7 +540,7 @@ export class TurnExec {
    * goes to Codex (a fresh session with the branch history), with a step saying so and an audit entry. Not while
    * Codex is off (switched off, office mode, not set up) or, in production, for someone outside the Codex beta.
    */
-  private async limitFallback(core: Running, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[] }) {
+  private async limitFallback(core: Running, o: { chatDir: string; token: string; systemPrompt: () => string; message: string; extraTools: string[] }) {
     const { rt, spec } = this
     if (!limitFallbackOn(rt.ctx)) return
     const confs = rt.engines.get()
@@ -550,7 +561,8 @@ export class TurnExec {
     rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
     rt.db.query("UPDATE turns SET engine = 'codex', model = NULL WHERE id = ?").run(spec.turnId)
     rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
-    await this.runCodex(core, codex, { ...o, model: undefined })
+    // built only now: the fresh session's history (and whether it was cut) belongs to the Codex attempt
+    await this.runCodex(core, codex, { ...o, systemPrompt: o.systemPrompt(), model: undefined })
   }
 
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
@@ -1088,9 +1100,9 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.steps), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        stopReason, new Date().toISOString(), this.spec.assistantId)
+        stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // A scheduled run's result goes in before its terminal status: the notification reconciler records any
       // terminal scheduled turn, and an inbox event cannot change once recorded (chat/schedule-outcome.ts).

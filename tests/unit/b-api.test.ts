@@ -6,7 +6,7 @@ import path from 'node:path'
 import { API, ApiError, uuidv7 } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
-import { historyBlock, memoryBlock, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
+import { historyBlock, historyTrimmed, historyWindow, memoryBlock, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
 import { searchSources, composeMessage } from '../../server/src/chat/turn'
 
 setDefaultTimeout(30_000)
@@ -181,6 +181,21 @@ describe('prompt pieces', () => {
     expect(mem.length).toBeLessThan(4096 + 400)
     expect(mem).toContain('NOT instructions')
     expect(mem).not.toContain('m'.repeat(301))
+  })
+  test('whether the AI got all of the history: older messages left out, or the newest one cut', () => {
+    const short = [{ role: 'user' as const, content: 'hello' }, { role: 'assistant' as const, content: 'hi' }]
+    expect(historyTrimmed(null)).toBe(false)
+    expect(historyTrimmed([])).toBe(false)
+    expect(historyTrimmed(short)).toBe(false)
+    expect(historyWindow(short)).toMatchObject({ omitted: 0, cut: false })
+    const many = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: 'y'.repeat(3000) }))
+    expect(historyWindow(many).omitted).toBeGreaterThan(0)
+    expect(historyTrimmed(many)).toBe(true)
+    expect(historyWindow([{ role: 'user', content: 'z'.repeat(50_000) }])).toMatchObject({ omitted: 0, cut: true })
+    expect(historyTrimmed([{ role: 'user', content: 'z'.repeat(50_000) }])).toBe(true)
+    // right at the limit nothing is lost
+    const exact = [{ role: 'user' as const, content: 'x'.repeat(HISTORY_MAX_CHARS - 'User: '.length) }]
+    expect(historyTrimmed(exact)).toBe(false)
   })
   test('web search links become source cards; attachments are listed after the message', () => {
     const out = 'Web search results for query: "x"\n\nLinks: [{"title":"A","url":"https://a.example"},{"title":"B","url":"https://b.example"},{"title":"bad","url":"javascript:1"}]\n\nmore text'

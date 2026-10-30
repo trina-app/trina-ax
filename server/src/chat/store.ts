@@ -17,11 +17,13 @@ export interface MessageRow {
   model: string | null; files: string | null; client_message_id: string | null; created_at: string; updated_at: string | null
   /** migration 212: the answer paused at a per-answer limit (TurnStopReason), else null */
   stop_reason: string | null
+  /** migration 213: 1 when the AI got only the recent part of the conversation for this answer */
+  history_trimmed: number
 }
 export interface ProjectRow { id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source'
-export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason'
+export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
@@ -158,6 +160,7 @@ export class ChatStore {
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
       // only when it paused at a limit: every other message keeps its earlier shape
       ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
+      ...(r.role === 'assistant' && r.history_trimmed === 1 ? { historyTrimmed: true } : {}),
     }
   }
   turnUsage(turnId: string): Usage | null {

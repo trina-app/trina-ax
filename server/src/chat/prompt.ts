@@ -91,23 +91,40 @@ export function memoryBlock(memories: { id: string; text: string }[]): string {
   ].join('\n')
 }
 
-/** Recent messages of the branch, newest kept, at most 40,000 characters; older ones are counted, not summarized. */
-export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[]): string {
-  if (!history.length) return ''
+/**
+ * The part of a branch's history a fresh engine session gets: newest kept, at most 40,000 characters. `omitted`: the
+ * older messages left out; `cut`: the newest one alone was longer and only its end was kept.
+ */
+export function historyWindow(history: { role: 'user' | 'assistant'; content: string }[]): { parts: string[]; omitted: number; cut: boolean } {
   const parts: string[] = []
   let used = 0
+  let cut = false
   let i = history.length - 1
   for (; i >= 0; i--) {
     const h = history[i]!
     const s = `${h.role === 'user' ? 'User' : 'Assistant'}: ${neutralizeTags(h.content)}`
     if (used + s.length > HISTORY_MAX_CHARS) {
-      if (!parts.length) { parts.unshift(s.slice(s.length - HISTORY_MAX_CHARS)); used = HISTORY_MAX_CHARS; i-- }
+      if (!parts.length) { parts.unshift(s.slice(s.length - HISTORY_MAX_CHARS)); used = HISTORY_MAX_CHARS; cut = true; i-- }
       break
     }
     parts.unshift(s)
     used += s.length + 2
   }
-  const omitted = i + 1
+  return { parts, omitted: i + 1, cut }
+}
+
+/** The AI gets only part of this history (the chat shows "remembers only the recent part", docs/DECISIONS.md
+ * "Long conversations: say when the AI got only the recent part"). */
+export function historyTrimmed(history: { role: 'user' | 'assistant'; content: string }[] | null): boolean {
+  if (!history?.length) return false
+  const w = historyWindow(history)
+  return w.omitted > 0 || w.cut
+}
+
+/** Recent messages of the branch, newest kept, at most 40,000 characters; older ones are counted, not summarized. */
+export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[]): string {
+  if (!history.length) return ''
+  const { parts, omitted } = historyWindow(history)
   return [
     '<previous_conversation>',
     'The conversation so far in this chat (your earlier session is not available; continue from here).',

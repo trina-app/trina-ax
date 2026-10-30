@@ -188,6 +188,8 @@ export const es: Record<MessageKey, string> = {
   "chat.limit.time_limit": "Usó todo el tiempo que permite una respuesta. Continúe para retomar desde donde se detuvo.",
   "chat.limit.continue": "Continuar",
   "chat.limit.message": "Continúe, por favor.",
+  "chat.memory.note": "La conversación es larga, así que la IA solo recuerda la parte más reciente.",
+  "chat.memory.tip": "Repita lo importante o continúe en un chat nuevo con un breve resumen.",
   'chat.send': "Enviar",
   'chat.sending': "Enviando…",
   'chat.notSent': "No se envió.",

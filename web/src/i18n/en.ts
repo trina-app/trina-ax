@@ -199,6 +199,8 @@ export const en: Record<MessageKey, string> = {
   "chat.limit.time_limit": "It used all the time one answer may take. Continue to pick up where it stopped.",
   "chat.limit.continue": "Continue",
   "chat.limit.message": "Please continue.",
+  "chat.memory.note": "This conversation is long, so the AI remembers only the most recent part.",
+  "chat.memory.tip": "Repeat anything important, or continue in a new chat with a short summary.",
   'chat.send': 'Send',
   'chat.sending': 'Sending…',
   'chat.notSent': 'Not sent.',

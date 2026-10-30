@@ -537,6 +537,39 @@ describe('codex', () => {
   })
 })
 
+describe('long conversations', () => {
+  // docs/DECISIONS.md "Long conversations: say when the AI got only the recent part"
+  const long = 'L'.repeat(41_000)
+  test('Codex gets the history every turn: past 40,000 characters the answer says the AI got only the recent part', async () => {
+    const chat = await newChat('alice', { engine: 'codex' })
+    const one = await ask(h, alice, 'alice', chat.id, `${long}\n` + fake({ say: 'read it' }))
+    expect(one.done.historyTrimmed).toBeUndefined()
+    const two = await ask(h, alice, 'alice', chat.id, fake({ echo: 'system' }))
+    expect(two.done.content).toMatch(/\(1 earlier messages omitted\)/)
+    expect(two.done.historyTrimmed).toBe(true)
+    expect((await h.api('alice').call(API.listMessages, { params: { id: chat.id } })).items.at(-1)).toMatchObject({ id: two.done.id, historyTrimmed: true })
+    const short = await newChat('alice', { engine: 'codex' })
+    await ask(h, alice, 'alice', short.id, 'hello\n' + fake({ say: 'hi' }))
+    expect((await ask(h, alice, 'alice', short.id, fake({ say: 'again' }))).done.historyTrimmed).toBeUndefined()
+  })
+  test('Claude: a resumed session is not cut; an edit starts fresh with the cut history, and resuming from it keeps the note', async () => {
+    const chat = await newChat()
+    await ask(h, alice, 'alice', chat.id, `${long}\n` + fake({ say: 'read it' }))
+    const two = await ask(h, alice, 'alice', chat.id, 'second\n' + fake({ echo: 'resume' }))
+    expect(two.done.content).toBe('resumed=true')
+    expect(two.done.historyTrimmed).toBeUndefined()
+    // edit the second message: a new branch, a fresh session with the history before it (41,000 + characters)
+    const edited = await h.api('alice').call(API.editMessage, { params: { id: chat.id, messageId: two.started.userMessage!.id }, body: { content: 'second, edited\n' + fake({ echo: 'resume' }), clientMessageId: cm(), attachmentIds: [] } })
+    const e = await alice.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 20_000)
+    expect(e.data.message.content).toBe('resumed=false')
+    expect(e.data.message.historyTrimmed).toBe(true)
+    // the session that started without the early part goes on: still only the recent part
+    const three = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }))
+    expect(three.done.content).toBe('resumed=true')
+    expect(three.done.historyTrimmed).toBe(true)
+  })
+})
+
 describe('per-answer limits', () => {
   // docs/DECISIONS.md "Continue after the per-answer limit": the answer so far stands ('done' with stopReason), it is
   // not an error and not a stop by the person; the next message tells the AI where it stopped

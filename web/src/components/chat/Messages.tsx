@@ -1,9 +1,9 @@
 // One message of the visible branch. User messages: bubble, attachments (image thumbnails), edit, "‹ 2/3 ›",
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
-// file summary, end state (error / stopped / paused at the per-answer limit with "continue"), copy, regenerate, branch
-// switch.
+// file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
+// conversation reached the AI only in part, copy, regenerate, branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, History, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
@@ -342,6 +342,15 @@ export function AssistantMessage({
               </Button>
             )}
           </div>
+        )}
+        {m.historyTrimmed && isLast && (m.status === 'done' || m.status === 'stopped') && (
+          // the newest answer only: it says what the AI has now, not a warning about the past (no summary yet)
+          <p role="note" className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-muted" data-testid="memory-note">
+            <History size={13} className="mt-0.5 shrink-0" aria-hidden />
+            <span>
+              {t('chat.memory.note')} <span className="text-faint">{t('chat.memory.tip')}</span>
+            </span>
+          </p>
         )}
         {!streaming && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" data-testid="answer-actions">

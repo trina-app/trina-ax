@@ -3000,3 +3000,21 @@ only themselves. The owner chose the safest defaults for the open questions:
   `problems` (someone should continue it), not `succeeded`. Messages waiting to send still go when an answer pauses.
 - Older rows keep their stored errors (the `timeout` / `wall_timeout` texts stay for them). Older builds ignore the new
   column and show a paused answer as done.
+
+## Long conversations: say when the AI got only the recent part (feat/chat-continuity, 2026-10-30)
+
+- A fresh engine session gets the branch history in `<previous_conversation>`, newest first, at most 40,000
+  characters (unchanged, no summary yet). Fresh sessions are every Codex and API-engine turn and, for Claude, an edit,
+  a regenerate, an engine switch, a lost or dropped session (over 20 MB, access shrank, an attachment that went away),
+  another AI connection, a refusal retry, and the Codex fallback at a Claude limit. All of them build the prompt in one
+  place (`TurnExec.execute`, `promptInput(true)`); `historyWindow` (shared with `historyBlock`) says whether older
+  messages were left out or the newest one was cut.
+- The answer records it (`messages.history_trimmed`, migration 213, reader 1; `Message.historyTrimmed`, absent
+  otherwise). A resumed Claude session keeps whatever its start had, so a resumed turn takes the flag of the answer
+  its session ended at. The attempt that answers sets it last (a resume that fails and falls back to history counts);
+  the Codex fallback builds its prompt only when it runs.
+- The newest answer shows a small note, "대화가 길어 앞부분 일부만 기억하고 있어요", with a tip (repeat what matters,
+  or continue in a new chat with a summary). It is a note, not an alert, and only on the newest answer: it describes
+  what the AI has now.
+- Not covered: Claude Code's own automatic compaction inside a resumed session (it keeps a summary and we do not see
+  it), and the 4 KB memory block (memories, not the conversation). Summarizing the cut part is later work (row 34 ①).
