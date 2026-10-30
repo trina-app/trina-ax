@@ -537,31 +537,78 @@ describe('codex', () => {
   })
 })
 
-describe('time limit', () => {
-  test('the total wall-time limit keeps its own explanation after storage', async () => {
+describe('per-answer limits', () => {
+  // docs/DECISIONS.md "Continue after the per-answer limit": the answer so far stands ('done' with stopReason), it is
+  // not an error and not a stop by the person; the next message tells the AI where it stopped
+  test('the total wall-time limit pauses the answer (time_limit), kept after storage', async () => {
     const rt = h.rt() as unknown as { wallTimeoutMs: number }
     const saved = rt.wallTimeoutMs
     rt.wallTimeoutMs = 1500
     try {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'working' }, { sleep: 20000 }), { ms: 20_000 })
-      expect(r.done.error).toEqual({ code: 'busy', message: CHAT_ERROR_MESSAGES.wall_timeout.en, params: { reason: 'wall_timeout' } })
+      expect(r.done).toMatchObject({ status: 'done', error: null, stopReason: 'time_limit', content: 'working' })
       const saved = await h.api('alice').call(API.listMessages, { params: { id: chat.id } })
-      expect(saved.items.find(m => m.id === r.done.id)?.error).toEqual(r.done.error)
+      expect(saved.items.find(m => m.id === r.done.id)).toMatchObject({ status: 'done', error: null, stopReason: 'time_limit' })
     } finally { rt.wallTimeoutMs = saved }
   })
-  test('a turn over the limit is stopped with a timeout error', async () => {
+  test('the active time limit pauses the answer (time_limit): status done, the turn row says why', async () => {
     const rt = h.rt() as unknown as { turnTimeoutMs: number }
     const saved = rt.turnTimeoutMs
     rt.turnTimeoutMs = 1500
     try {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'working' }, { sleep: 20000 }), { ms: 20_000 })
-      expect(r.done.status).toBe('error')
-      expect(r.done.error?.code).toBe('busy')
-      expect(r.done.error?.params).toEqual({ reason: 'timeout' })
+      expect(r.done.status).toBe('done')
+      expect(r.done.error).toBeNull()
+      expect(r.done.stopReason).toBe('time_limit')
       expect(r.done.content).toBe('working')
+      expect(h.ctx.db.query('SELECT status, stop_reason, error FROM turns WHERE id = ?').get(r.started.turnId)).toEqual({ status: 'done', stop_reason: 'time_limit', error: null })
     } finally { rt.turnTimeoutMs = saved }
+  })
+  test('the tool-call limit (--max-turns): done with tool_limit, usage counted, and "continue" resumes with a note', async () => {
+    const rt = h.rt() as unknown as { maxEngineTurns: number }
+    const saved = rt.maxEngineTurns
+    rt.maxEngineTurns = 2
+    try {
+      const chat = await newChat()
+      const read = { tool: 'read', args: { file_path: 'users/alice/todo.md' } }
+      const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'Starting the long task.' }, read, read, read, { say: 'never said' }))
+      expect(r.done).toMatchObject({ status: 'done', error: null, stopReason: 'tool_limit', content: 'Starting the long task.' })
+      expect(r.done.steps.filter((x) => x.tool === 'read')).toHaveLength(2)
+      expect(r.done.usage).toEqual({ inputTokens: 100, outputTokens: 20, costUsd: 0.001 })
+      expect(h.ctx.db.query('SELECT status, stop_reason, input_tokens FROM turns WHERE id = ?').get(r.started.turnId)).toEqual({ status: 'done', stop_reason: 'tool_limit', input_tokens: 100 })
+      // "continue": the same session goes on, and the AI is told its previous answer was cut off at the limit
+      const next = await ask(h, alice, 'alice', chat.id, 'Please continue.\n' + fake({ echo: 'resume' }, { echo: 'message' }))
+      expect(next.done.content).toStartWith('resumed=true')
+      expect(next.done.content).toContain('<continuation>')
+      expect(next.done.content).toContain('reached the per-answer limit on tool calls')
+      expect(next.done.stopReason).toBeUndefined()
+      // only the message right after a paused answer carries the note
+      const third = await ask(h, alice, 'alice', chat.id, fake({ echo: 'message' }))
+      expect(third.done.content).not.toContain('<continuation>')
+    } finally { rt.maxEngineTurns = saved }
+  })
+  test('after a time-limit pause the note names the time limit; a stop by the person is still "stopped"', async () => {
+    const rt = h.rt() as unknown as { turnTimeoutMs: number }
+    const saved = rt.turnTimeoutMs
+    rt.turnTimeoutMs = 1500
+    let chatId = ''
+    try {
+      const chat = await newChat()
+      chatId = chat.id
+      const r = await ask(h, alice, 'alice', chat.id, fake({ say: 'half' }, { sleep: 20000 }), { ms: 20_000 })
+      expect(r.done.stopReason).toBe('time_limit')
+    } finally { rt.turnTimeoutMs = saved }
+    const next = await ask(h, alice, 'alice', chatId, fake({ echo: 'message' }))
+    expect(next.done.content).toContain('reached the per-answer time limit')
+    const slow = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ say: 'x' }, { sleep: 20000 }), clientMessageId: cm(), attachmentIds: [] } })
+    await alice.next('message.delta', (f) => f.data.messageId === slow.assistantMessage.id)
+    await h.api('alice').call(API.stop, { params: { id: chatId } })
+    const stopped = await alice.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 20_000)
+    expect(stopped.data.status).toBe('stopped')
+    expect(stopped.data.message.stopReason).toBeUndefined()
+    expect((h.ctx.db.query('SELECT stop_reason FROM turns WHERE id = ?').get(slow.turnId) as { stop_reason: string | null }).stop_reason).toBeNull()
   })
 })
 

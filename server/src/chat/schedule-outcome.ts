@@ -8,12 +8,13 @@ export type { ScheduleRunOutcome }
 
 /**
  * failed   = the turn did not end 'done' (error, stopped, interrupted) or it gave no answer text;
- * problems = the answer finished, but at least one tool call was refused or failed (tool_events ok=0 or a step error);
+ * problems = the answer finished, but at least one tool call was refused or failed (tool_events ok=0 or a step error),
+ *            or it paused at a per-answer limit before the task was done (`limited`: someone should continue it);
  * succeeded otherwise.
  */
-export function scheduleRunOutcome(o: { status: string; content: string; failedTools: number }): ScheduleRunOutcome {
+export function scheduleRunOutcome(o: { status: string; content: string; failedTools: number; limited?: boolean }): ScheduleRunOutcome {
   if (o.status !== 'done' || !o.content.trim()) return 'failed'
-  return o.failedTools > 0 ? 'problems' : 'succeeded'
+  return o.failedTools > 0 || o.limited ? 'problems' : 'succeeded'
 }
 
 /** The stored result, or for rows without one (older builds, interrupted recovery) the result implied by the status. */

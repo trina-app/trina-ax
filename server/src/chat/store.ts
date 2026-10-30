@@ -1,6 +1,6 @@
 // Chats, messages (a tree), projects, memories: rows <-> API shapes (shared/src/api/entities.ts).
 import type { Database } from 'bun:sqlite'
-import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Memory, Message, MessageStatus, Project, Step, Usage, UserRef } from '@mycel/shared/api'
+import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
 import { STEP_TEXT } from '@mycel/shared'
 import { newId } from '../db'
 
@@ -15,11 +15,13 @@ export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
   attachments: string; steps: string; status: MessageStatus; error: string | null; turn_id: string | null; engine: string | null
   model: string | null; files: string | null; client_message_id: string | null; created_at: string; updated_at: string | null
+  /** migration 212: the answer paused at a per-answer limit (TurnStopReason), else null */
+  stop_reason: string | null
 }
 export interface ProjectRow { id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source'
-export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at'
+export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
@@ -154,6 +156,8 @@ export class ChatStore {
       status: r.status, error: parseError(r.error), turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' || r.engine === 'api' ? r.engine : null) as EngineId | null,
       model: r.model, files: json<FileChangeSummary | null>(r.files, null), usage, createdAt: iso(r.created_at),
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
+      // only when it paused at a limit: every other message keeps its earlier shape
+      ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
     }
   }
   turnUsage(turnId: string): Usage | null {
@@ -184,6 +188,9 @@ export class ChatStore {
     return { id: r.id, text: r.text, sourceChatId: r.source_chat_id, createdAt: iso(r.created_at) }
   }
 }
+
+/** messages.stop_reason / turns.stop_reason: a known per-answer limit, else null */
+export const stopReasonOf = (v: string | null | undefined): TurnStopReason | null => (v === 'tool_limit' || v === 'time_limit' ? v : null)
 
 function isStep(s: unknown): s is Step {
   // stage-1 rows stored a list of tool names; only full step objects are shown

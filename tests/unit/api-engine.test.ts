@@ -59,6 +59,16 @@ describe('agent loop', () => {
       { role: 'tool', tool_call_id: 'c1', content: 'a.md' },
     ])
   })
+  test('the round limit ends with a limit event (not an error, no English text in the answer)', async () => {
+    const f = (async () => new Response(sse({ text: ['Working. '], calls: [{ id: `c${crypto.randomUUID()}`, name: 'list', args: '{"path":"shared"}' }] }))) as unknown as typeof fetch
+    const rpc = async (m: any) => (m.method === 'tools/list' ? { result: { tools: [{ name: 'list', description: 'List', inputSchema: { type: 'object' } }] } } : { result: { content: [{ type: 'text', text: 'a.md' }] } })
+    const events: EngineEvent[] = []
+    await runApiAgent({ conf, systemPrompt: 's', message: 'm', rpc, emit: (e) => events.push(e), signal: new AbortController().signal, fetchFn: f, maxSteps: 3 })
+    expect(events.filter((e) => e.type === 'tool_start')).toHaveLength(3)
+    expect(events.filter((e) => e.type === 'error')).toEqual([])
+    expect(events.slice(-2)).toEqual([{ type: 'limit', kind: 'turns' }, { type: 'done' }])
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Working. Working. Working. ')
+  })
   const runErr = async (f: typeof fetch, o: { headersTimeoutMs?: number; c?: ApiEngineConf } = {}) => {
     const events: EngineEvent[] = []
     await runApiAgent({ conf: o.c ?? conf, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => events.push(e), signal: new AbortController().signal, fetchFn: f, headersTimeoutMs: o.headersTimeoutMs })

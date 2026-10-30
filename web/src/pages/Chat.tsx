@@ -88,8 +88,10 @@ function ChatView({ chatId }: { chatId: string }) {
     if (running && !wasRunning.current) announce(t('chat.answering'))
     if (!running && wasRunning.current) {
       // how the answer ended: a failed or stopped answer is not "complete"
-      const ended = messages.find((m) => m.id === wasRunning.current)?.status
-      announce(t(ended === 'error' ? 'chat.answerFailed' : ended === 'stopped' ? 'chat.stopped' : 'chat.answerDone'))
+      const endedMessage = messages.find((m) => m.id === wasRunning.current)
+      const ended = endedMessage?.status
+      // an answer that paused at the per-answer limit says so (and that it can continue), not "complete"
+      announce(endedMessage?.stopReason && ended === 'done' ? t('chat.limit.title') : t(ended === 'error' ? 'chat.answerFailed' : ended === 'stopped' ? 'chat.stopped' : 'chat.answerDone'))
     }
     wasRunning.current = running?.id ?? null
   }, [running, messages, announce, t])
@@ -186,6 +188,13 @@ function ChatView({ chatId }: { chatId: string }) {
     await send({ chatId, content: text, attachments, author })
   }
 
+  /** "이어서 하기" under an answer that paused at the per-answer limit: a plain message in this chat; the server tells
+   * the AI where it stopped (server/src/chat/prompt.ts continuationBlock) and usage counts as for any message */
+  const onContinue = () => {
+    composer.current?.focus()
+    onSend(t('chat.limit.message'), []).catch(fail)
+  }
+
   const onEngine = async (e: EngineChoice) => {
     try {
       const c = await api.call(API.updateChat, { params: { id: chatId }, body: { engine: e.engine, model: e.model ?? null } })
@@ -233,7 +242,7 @@ function ChatView({ chatId }: { chatId: string }) {
             if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
             const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
             const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} />
+            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt ? undefined : onContinue} />
           })}
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>

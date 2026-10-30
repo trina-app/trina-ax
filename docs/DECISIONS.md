@@ -2978,3 +2978,25 @@ only themselves. The owner chose the safest defaults for the open questions:
   (the server answers a repeated id with the first result). A 409 (an answer started elsewhere meanwhile) puts them
   back to waiting and reloads the chat; any other failure shows on the sent message as "not sent [send again]".
 - Limit: per device. A message queued on the phone is not shown on the desktop, and goes when the phone app runs again.
+
+## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)
+
+- The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`), 30 rounds (API engine), 20 active minutes
+  and 45 minutes in total. What changed is how a turn ends at them. Before, Claude's `error_max_turns` result was read
+  as a crash ("the AI engine stopped unexpectedly"), the API engine appended an English "(Stopped after 30 tool
+  rounds.)" to the answer, and the time limits were errors (`timeout`, `wall_timeout`).
+- Each is now a **pause**: the answer and the turn end `done` with `stopReason` `tool_limit` or `time_limit`
+  (`messages.stop_reason`, `turns.stop_reason`, migration 212, reader 1; `Message.stopReason` in the contract, absent
+  on every other answer). Engines report the tool limit with a new `limit` EngineEvent (Claude: result subtype
+  `error_max_turns`, or `terminal_reason: "max_turns"`; API engine: its round cap); the time limits are the server's
+  own stop. The screen tells a pause apart from an error (`status: 'error'`) and from Stop (`status: 'stopped'`).
+- The chat shows "작업이 길어서 여기서 멈췄어요" with the reason and, on the newest answer, **이어서 하기**. It sends a
+  plain message ("이어서 해 주세요.") in the same chat through the normal send and its checks, so usage and budgets
+  count as for any message. The server puts a `<continuation>` note (server-written, neutralized in quoted text like
+  the other blocks) in front of whatever message follows a paused answer: the AI learns its work was cut off at the
+  limit and is asked to pick up without redoing finished steps. A Claude session goes on with `--resume` (a paused
+  turn's session is kept like any other); fresh sessions have the paused answer in their history.
+- Usage counts normally (Claude still reports usage with `error_max_turns`). A scheduled run that paused is
+  `problems` (someone should continue it), not `succeeded`. Messages waiting to send still go when an answer pauses.
+- Older rows keep their stored errors (the `timeout` / `wall_timeout` texts stay for them). Older builds ignore the new
+  column and show a paused answer as done.

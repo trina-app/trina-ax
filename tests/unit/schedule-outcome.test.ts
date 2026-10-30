@@ -17,6 +17,8 @@ describe('outcome rules', () => {
   test('failed = not done or no answer; problems = done with a refused/failed tool; succeeded otherwise', () => {
     expect(scheduleRunOutcome({ status: 'done', content: 'Summary', failedTools: 0 })).toBe('succeeded')
     expect(scheduleRunOutcome({ status: 'done', content: 'Summary', failedTools: 1 })).toBe('problems')
+    // paused at a per-answer limit before the task was done: someone should continue it
+    expect(scheduleRunOutcome({ status: 'done', content: 'Half of it', failedTools: 0, limited: true })).toBe('problems')
     expect(scheduleRunOutcome({ status: 'done', content: '  \n', failedTools: 0 })).toBe('failed')
     for (const status of ['error', 'stopped', 'interrupted']) expect(scheduleRunOutcome({ status, content: 'x', failedTools: 0 })).toBe('failed')
   })

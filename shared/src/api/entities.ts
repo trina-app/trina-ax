@@ -200,6 +200,11 @@ export type FileChangeSummary = z.infer<typeof FileChangeSummary>
 
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
+/** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
+ * Claude Code --max-turns 50 / the API engine's 30 rounds) or of working time (`time_limit`, 20 active minutes or the
+ * total time). Its status stays 'done': not an error, not a stop by the person; the screen offers "continue". */
+export const TurnStopReason = z.enum(['tool_limit', 'time_limit'])
+export type TurnStopReason = z.infer<typeof TurnStopReason>
 export const Usage = z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative() })
 export type Usage = z.infer<typeof Usage>
 
@@ -226,6 +231,8 @@ export const Message = z.object({
   usage: Usage.nullable(),
   createdAt: IsoTime,
   branch: z.object({ index: z.number().int().nonnegative(), count: z.number().int().positive(), siblingIds: z.array(Uuid7) }),
+  /** answers only: the answer paused at a per-answer limit (TurnStopReason); absent or null: it ended normally */
+  stopReason: TurnStopReason.nullable().optional(),
 })
 export type Message = z.infer<typeof Message>
 

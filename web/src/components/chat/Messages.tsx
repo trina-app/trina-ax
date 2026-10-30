@@ -1,8 +1,9 @@
 // One message of the visible branch. User messages: bubble, attachments (image thumbnails), edit, "‹ 2/3 ›",
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
-// file summary, end state (error / stopped), copy, regenerate, branch switch.
+// file summary, end state (error / stopped / paused at the per-answer limit with "continue"), copy, regenerate, branch
+// switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
@@ -245,6 +246,7 @@ export function AssistantMessage({
   retryWith,
   onSelectBranch,
   onAskOwnFolder,
+  onContinue,
 }: {
   m: ViewMessage
   chatId: string
@@ -252,6 +254,8 @@ export function AssistantMessage({
   busy: boolean
   switchedFrom: EngineId | null
   onRegenerate: (m: ViewMessage, with_?: EnginePick) => void
+  /** "continue" after an answer that paused at the per-answer limit (the newest answer only) */
+  onContinue?: () => void
   /** people who may pick the engine: "retry with another model" next to "retry" on a failed answer */
   retryWith?: { engines: EngineId[]; models: Partial<Record<EngineId, { id: string; label: string }[]>> }
   onSelectBranch: (id: string) => void
@@ -324,6 +328,20 @@ export function AssistantMessage({
           <p className="mt-2 flex items-center gap-1.5 text-xs text-faint">
             <Square size={11} className="fill-current" aria-hidden /> {t('chat.stopped')}
           </p>
+        )}
+        {m.status === 'done' && m.stopReason && (
+          // not an error and not a stop by the person: the answer so far stands, the work can go on from here
+          <div role="status" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2 text-sm" data-testid="answer-paused" data-reason={m.stopReason}>
+            <CirclePause size={16} className="mt-1.5 shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">
+              <span className="font-medium text-ink">{t('chat.limit.title')}</span> <span className="text-muted">{t(m.stopReason === 'time_limit' ? 'chat.limit.time_limit' : 'chat.limit.tool_limit')}</span>
+            </span>
+            {isLast && onContinue && (
+              <Button size="sm" variant="primary" className="ml-auto" disabled={busy} onClick={onContinue} data-testid="continue">
+                <Play size={13} aria-hidden /> {t('chat.limit.continue')}
+              </Button>
+            )}
+          </div>
         )}
         {!streaming && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" data-testid="answer-actions">

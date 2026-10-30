@@ -5,6 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Chat: an answer that reaches the per-answer limit (tool calls or time) pauses with "이어서 하기" instead of ending as an error; the AI is told where it stopped. Migration 212 (reader 1).
 - Chat: messages typed while an answer runs wait under the conversation (edit or remove them) and are sent together when the answer is done; Stop keeps them, paused, with "Send now".
 - Third safe-ops review: retain direct search for empty quarantine ledgers with a durable first-publication guard; bind Office search caches to source/text hashes. Migration 320 requires reader 4. Existing quarantined tenants retain immutable input admission.
 

@@ -18,6 +18,8 @@ describe('rules', () => {
     expect(nextStep([])).toBe('send')
     expect(nextStep([q, msg({ role: 'assistant', status: 'streaming' })])).toBe('wait')
     expect(nextStep([q, msg({ role: 'assistant', status: 'done' })])).toBe('send')
+    // an answer that paused at the per-answer limit is a finished answer: what waits goes (the AI is told it paused)
+    expect(nextStep([q, msg({ role: 'assistant', status: 'done', stopReason: 'tool_limit' })])).toBe('send')
     expect(nextStep([q, msg({ role: 'assistant', status: 'stopped' })])).toEqual({ pause: 'stopped' })
     expect(nextStep([q, msg({ role: 'assistant', status: 'error' })])).toEqual({ pause: 'error' })
     const sending = { ...msg({ role: 'user', content: 'x' }), local: { clientMessageId: 'c-12345678', state: 'sending' as const } }

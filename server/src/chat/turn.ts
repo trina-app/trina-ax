@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { TEAM_TOOL_PREFIX, type EngineEvent } from '@mycel/shared'
-import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest } from '@mycel/shared/api'
+import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser } from '../engine/claude-parse'
@@ -22,7 +22,7 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
-import { buildTurnContext, buildTurnPrompt, skillBlock, type PromptInput } from './prompt'
+import { buildTurnContext, buildTurnPrompt, continuationBlock, skillBlock, type PromptInput } from './prompt'
 import { invokedSkill, listSkills, skillFolder } from './skills'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel } from './engines'
@@ -33,7 +33,7 @@ import { scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
 import type { ChatRuntime } from './runtime'
-import { blankTeamAttachment, type MessageRow } from './store'
+import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
@@ -98,6 +98,9 @@ export class TurnExec {
   steps: Step[] = []
   readonly abort = new AbortController()
   stopReason: 'stopped' | 'timeout' | 'shutdown' | null = null
+  /** the answer reached a per-answer limit (tool rounds, working time): it ends 'done' with this reason, the chat
+   * offers "continue" and the next turn is told where it stopped (docs/DECISIONS.md "Continue after the per-answer limit") */
+  limitReason: TurnStopReason | null = null
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
   principal: Principal | null = null
@@ -294,7 +297,12 @@ export class TurnExec {
       const s = rt.db.query('SELECT * FROM schedules WHERE last_chat_id = ?').get(spec.chatId) as ScheduleRow | null
       scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task') + '\n\n'
     }
-    const message = scheduled + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
+    // the previous answer paused at a per-answer limit: the AI learns that with this message, so "continue" (or anything
+    // else) is read knowing the work was cut off there (the session or the history has what it did)
+    const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
+    const cutOff = before?.role === 'assistant' ? stopReasonOf(before.stop_reason) : null
+    const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
+    const message = scheduled + continued + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message
     const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
@@ -672,6 +680,9 @@ export class TurnExec {
         return
       case 'error':
         errors.push(e)
+        return
+      case 'limit':
+        this.limitReason = 'tool_limit'
         return
       default:
     }
@@ -1065,26 +1076,29 @@ export class TurnExec {
     this.proxyUnsubscribe?.()
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     for (const s of this.steps) if (s.status === 'running') { s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
-    if (this.stopReason === 'timeout' && !this.error) this.error = this.timeoutSource === 'wall'
-      ? engineError('wall_timeout', this.spec.locale)
-      : engineError('timeout', this.spec.locale)
+    // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
+    // stands and the person may continue; it is not an error (before 2026-10-30: errors 'timeout' / 'wall_timeout')
+    if (this.stopReason === 'timeout' && !this.error) this.limitReason = 'time_limit'
     if (this.stopReason === 'shutdown') this.error = engineError('interrupted', this.spec.locale)
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
+    const stopReason = status === 'done' ? this.limitReason : null
+    if (stopReason) this.rt.log.info('turn paused at its limit', { turn: this.id, reason: stopReason, source: this.timeoutSource ?? 'engine' })
     const files = this.fileSummary()
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.steps), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        new Date().toISOString(), this.spec.assistantId)
+        stopReason, new Date().toISOString(), this.spec.assistantId)
+      if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // A scheduled run's result goes in before its terminal status: the notification reconciler records any
       // terminal scheduled turn, and an inbox event cannot change once recorded (chat/schedule-outcome.ts).
       // '(connect)' rows are bridge connection checks (mcp/socket.ts), not tool calls.
       if (this.spec.clientKind === 'schedule') {
         const refused = (db.query("SELECT count(*) AS n FROM tool_events WHERE turn_id = ? AND ok = 0 AND tool <> '(connect)'").get(this.id) as { n: number }).n
         const failedSteps = this.steps.filter((s) => s.kind !== 'thinking' && s.status === 'error').length
-        db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: refused + failedSteps }), this.id)
+        db.query('UPDATE turns SET run_outcome = ? WHERE id = ?').run(scheduleRunOutcome({ status: turnStatus, content: this.content, failedTools: refused + failedSteps, limited: !!stopReason }), this.id)
       }
       const core = this.registered ? this.activeCore : null
       if (core) core.turns.revoke(this.id, turnStatus, this.error?.message)

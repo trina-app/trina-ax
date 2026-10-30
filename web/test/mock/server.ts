@@ -3,7 +3,8 @@
 // protocol of ws.ts (hello / seq / resume / reset), and the built web app served by the real serveWeb() of
 // server/src/routes/web.ts (same CSP and cache headers as production).
 //
-// The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search";
+// The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
+// "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
@@ -485,8 +486,11 @@ export class MockServer {
       const { content: _c, ...summary } = a
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key, type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
+    const capped = /cap-tools/i.test(prompt) ? 'tool_limit' as const : /cap-time/i.test(prompt) ? 'time_limit' as const : null
     const text = /error/i.test(prompt)
       ? ''
+      : capped
+        ? 'Sorting the applications into the table.\n\n- Read 20 of 40 so far\n- Scored each one against the job description\n- Saved the first half to the shared sheet\n\nThe rest are still in the folder; this answer stopped before reaching them.'
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
@@ -501,6 +505,8 @@ export class MockServer {
       await sleep(slow ? 150 : 15)
     }
     assistant.status = this.stopped.has(turnId) ? 'stopped' : /error/i.test(prompt) ? 'error' : 'done'
+    // like server/src/chat/turn.ts at a per-answer limit: 'done', not an error, with the reason
+    if (assistant.status === 'done' && capped) assistant.stopReason = capped
     if (assistant.status === 'error') {
       assistant.error = { code: 'engine_unavailable', message: ERROR_MESSAGES.engine_unavailable.ko }
       // Stored chat-error fixtures, delivered through both message.done and listMessages.

@@ -27,6 +27,8 @@ export class ClaudeStreamParser {
   init: any = null
   result: any = null
   refused = false
+  /** the run ended at --max-turns (the per-answer limit of tool rounds): a 'limit' event, not an error */
+  maxTurns = false
   text = ''
   push(line: string): EngineEvent[] {
     let ev: any
@@ -65,7 +67,10 @@ export class ClaudeStreamParser {
       const u = ev.usage ?? {}
       out.push({ type: 'usage', inputTokens: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), outputTokens: u.output_tokens ?? 0, costUsd: ev.total_cost_usd })
       if (ev.stop_reason === 'refusal' || ev.terminal_reason === 'refusal') this.refused = true
+      // Claude Code ends a run that reached --max-turns with result subtype "error_max_turns" (is_error true; newer
+      // versions also say terminal_reason "max_turns"): the answer so far stands and the person may continue
       if (this.refused) out.push({ type: 'error', code: 'refused', message: 'the model declined this request' })
+      else if (ev.subtype === 'error_max_turns' || ev.terminal_reason === 'max_turns') { this.maxTurns = true; out.push({ type: 'limit', kind: 'turns' }) }
       else if (ev.is_error) out.push({ type: 'error', code: classifyError(String(ev.result ?? ev.subtype ?? '') + ' ' + String(ev.terminal_reason ?? '')), message: String(ev.result ?? ev.subtype ?? 'engine error') })
       if (!this.text && typeof ev.result === 'string' && !ev.is_error) { this.text = ev.result; out.push({ type: 'text', delta: ev.result }) }
     }

@@ -50,6 +50,22 @@ describe('claude stream-json -> EngineEvent', () => {
     expect(a.find((e) => e.type === 'error')).toMatchObject({ code: 'rate_limit' })
     expect(b.find((e) => e.type === 'error')).toMatchObject({ code: 'context' })
   })
+  test('the --max-turns end is a per-answer limit, not an error; usage still counts', () => {
+    for (const result of [
+      { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 51, usage: { input_tokens: 7, output_tokens: 3 }, total_cost_usd: 0.02, session_id: 's1' },
+      { type: 'result', subtype: 'error_during_execution', terminal_reason: 'max_turns', is_error: true, usage: {} },
+    ]) {
+      const p = new ClaudeStreamParser()
+      const ev = p.push(L(result))
+      expect(p.maxTurns).toBe(true)
+      expect(ev.filter((e) => e.type === 'error')).toEqual([])
+      expect(ev).toContainEqual({ type: 'limit', kind: 'turns' })
+      expect(ev.find((e) => e.type === 'usage')).toBeTruthy()
+    }
+    const other = new ClaudeStreamParser()
+    expect(other.push(L({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'boom', usage: {} })).find((e) => e.type === 'error')).toMatchObject({ code: 'crash' })
+    expect(other.maxTurns).toBe(false)
+  })
 })
 
 describe('codex --json -> EngineEvent', () => {

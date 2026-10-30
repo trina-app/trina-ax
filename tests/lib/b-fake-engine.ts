@@ -34,6 +34,8 @@
 //   @fake {"claudeCall": true}               (Codex) call the proxy's Claude path with this turn's proxy token, say the status
 //   @fake {"exists": "rel/path"}             say whether the path exists in the chat folder (lstat)
 //   @fake {"readAbs": "/abs/path"}           try to read a file anywhere; says read=ok|blocked (never its content)
+// Like Claude Code it honours --max-turns: a tool call past that many ends the run with result subtype
+// "error_max_turns" (is_error, exit 1), keeping the session and the answer so far.
 // Without directives it answers "echo: <first line of the message>".
 import fs from 'node:fs'
 import path from 'node:path'
@@ -64,6 +66,8 @@ let resumed = false
 let history: { role: string; text: string }[] = []
 let sessionFile = ''
 const model = codex ? JSON.parse(argv.find((a) => a.startsWith('model='))?.slice(6) ?? '""') : arg('--model') ?? ''
+const maxTurns = codex ? 0 : Number(arg('--max-turns') ?? 0)
+let turnsUsed = 0
 
 if (codex) {
   const m = /^<instructions>\n([\s\S]*?)\n<\/instructions>\n\n([\s\S]*)$/.exec(stdin)
@@ -164,6 +168,8 @@ async function saySplit(text: string) {
 
 async function tool(name: string, args: unknown, expectImage = false, inspectImages = false): Promise<string> {
   if (stopped) return ''
+  if (maxTurns > 0 && turnsUsed >= maxTurns) { finish({ maxTurns: true }); return '' }
+  turnsUsed++
   closeBlock()
   await startBridge()
   const id = `toolu_${++toolN}`
@@ -184,7 +190,7 @@ async function tool(name: string, args: unknown, expectImage = false, inspectIma
   return text
 }
 
-function finish(o: { error?: string; refused?: boolean } = {}) {
+function finish(o: { error?: string; refused?: boolean; maxTurns?: boolean } = {}) {
   if (stopped) return
   closeBlock()
   if (sessionFile) {
@@ -197,12 +203,13 @@ function finish(o: { error?: string; refused?: boolean } = {}) {
     else out({ type: 'turn.completed', usage: { input_tokens: 100, output_tokens: 20 } })
   } else {
     if (o.refused) out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'refusal' } } })
-    out({ type: 'result', subtype: o.error ? 'error_during_execution' : 'success', is_error: !!o.error, result: o.error ?? answer, session_id: sessionId,
+    if (o.maxTurns) out({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: turnsUsed + 1, session_id: sessionId, usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001 })
+    else out({ type: 'result', subtype: o.error ? 'error_during_execution' : 'success', is_error: !!o.error, result: o.error ?? answer, session_id: sessionId,
       stop_reason: o.refused ? 'refusal' : 'end_turn', usage: { input_tokens: 100, output_tokens: 20 }, total_cost_usd: 0.001 })
   }
   stopped = true
   try { br?.kill() } catch {}
-  const code = o.error ? 1 : 0
+  const code = o.error || o.maxTurns ? 1 : 0
   if (pendingWrites === 0) process.exit(code)
   onDrained = () => process.exit(code)
   setTimeout(() => process.exit(code), 10_000).unref?.() // a reader that never drains the pipe: give up like before

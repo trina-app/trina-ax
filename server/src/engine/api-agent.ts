@@ -196,7 +196,8 @@ function toolContent(out: string, links: string[]): string {
 
 /**
  * Run one turn: system prompt + the message, the turn's tools offered as functions, tool calls answered through `rpc`
- * (the MCP handler), until the model answers without tools (or 30 rounds). Events go to `emit` like a parsed engine's.
+ * (the MCP handler), until the model answers without tools (or 30 rounds: then a 'limit' event). Events go to `emit`
+ * like a parsed engine's.
  * A failed tool call (error result, bad arguments, or a handler that throws) goes back to the model as the tool's
  * answer and the loop goes on, so the model can correct the call (QA B-API-1). Team-file links in the answer must
  * come from a tool result, the instructions or the message (engine/api-links.ts); `publicOrigins` are this server's
@@ -247,6 +248,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
       if (o.signal.aborted) return
     }
   }
-  o.emit({ type: 'text', delta: '\n\n(Stopped after 30 tool rounds.)' })
+  // the per-answer limit of tool rounds: the turn records it (stopReason 'tool_limit') and the chat offers "continue"
+  o.emit({ type: 'limit', kind: 'turns' })
   o.emit({ type: 'done' })
 }

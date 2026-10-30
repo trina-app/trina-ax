@@ -15,6 +15,9 @@ export const EngineEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional() }),
   /** status: the provider's HTTP status, when there was one */
   z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string(), status: z.number().int().optional() }),
+  /** the engine stopped at the per-answer limit of tool rounds (Claude Code --max-turns, the API engine's rounds):
+   * not an error, the answer so far stands and the person may continue (server/src/chat/turn.ts stopReason) */
+  z.object({ type: z.literal('limit'), kind: z.literal('turns') }),
   z.object({ type: z.literal('done') }),
 ])
 export type EngineEvent = z.infer<typeof EngineEvent>

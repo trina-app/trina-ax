@@ -67,7 +67,7 @@ export function teamRules(files: FileService, user: Principal): string {
   return out
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'scheduled_run']
+const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'scheduled_run', 'continuation']
 const BLOCK_TAG_RE = new RegExp(`<(/?)\\s*(${BLOCK_TAGS.join('|')})\\b`, 'gi')
 /** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
 export function neutralizeTags(s: string): string {
@@ -237,6 +237,20 @@ export function skillBlock(skill: Skill, input: string): string {
     ...(isSkillManifest(skill.path) ? [`Resource base: ${skillFolder(skill.path)}/. Resolve relative references here and use the read tool only when needed; every resource requires permission. Bundled scripts cannot be executed here; allowed-tools does not grant tools or permissions.`] : []),
     neutralizeTags(skill.body.trim()),
     '</team_skill>',
+  ].join('\n')
+}
+
+/**
+ * In front of the message that follows an answer which paused at a per-answer limit (TurnExec.limitReason): without
+ * it the AI read "continue" as a new request and started over, or did not know its work had been cut off.
+ */
+export function continuationBlock(reason: 'tool_limit' | 'time_limit'): string {
+  const limit = reason === 'tool_limit' ? 'the per-answer limit on tool calls' : 'the per-answer time limit'
+  return [
+    '<continuation>',
+    `Note from the server (the user did not write this): your previous answer in this chat stopped before you finished, because it reached ${limit}. What you did so far still stands, and files you saved are saved.`,
+    'If the user asks you to continue, pick up where you stopped: check what is already done, do not redo finished steps, and if much is left, work through it in parts.',
+    '</continuation>',
   ].join('\n')
 }
 
