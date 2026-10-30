@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- The AI sees images and PDF pages like Claude Code: `read` shows photos and screenshots as images, PDFs read by `pages` (scanned pages as page images), on by default and decoupled from safe ops 1A (no confidential lock); admins can turn it off. Linux servers no longer run OCR (tesseract removed): scanned documents and photos are not text-searchable there; macOS keeps Apple Vision for the search index of scanned PDFs.
+
 ## 0.2.10 — 2026-10-30
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.10).

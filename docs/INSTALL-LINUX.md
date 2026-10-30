@@ -86,7 +86,7 @@ cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --eng
 ```
 
 - 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
-- `mycel-ocr`(Apple Vision)는 macOS 전용이다. Linux 설치기는 poppler와 tesseract-ocr를 설치하며 파일 종류와 설치 도구에 따라 추출 결과가 달라진다.
+- Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 쪽을 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지와 PDF 쪽을 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
 
 소스 빌드 버전은 예시입니다. 소스의 버전에서 고유한 개발 버전을 정하세요. 공식 릴리스 설치·업데이트에는 서명 확인을 우회하지 마세요.
 
@@ -97,7 +97,7 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 ```
 
 - 계정 `axserver`(서버)·`axagent`(AI 엔진)을 시스템 계정으로 만든다. 모든 파일은 `/var/lib/mycel` 아래.
-- 필요한 패키지(bubblewrap, nftables, poppler-utils, tesseract-ocr(kor, eng), ffmpeg …)를 apt로 설치한다(`--skip-apt`로 끔).
+- 필요한 패키지(bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples …)를 apt로 설치한다(`--skip-apt`로 끔). tesseract는 더 이상 설치하지 않는다(이미 있어도 쓰지 않음).
 - 엔진 바이너리는 공식 주소에서 받아 고정된 SHA-256과 비교한다(번들에 넣지 않음).
 - 방화벽(nftables)을 먼저 넣고, 실패하면 설치를 멈춘다: AI 엔진 계정은 `127.0.0.1:<모델 프록시 포트>` 말고는 아무 데도 못 나간다.
 - systemd 유닛: `mycel-firewall.timer`, `mycel-launcher.service`, `mycel-server.service`, `mycel-update.timer`.

@@ -55,6 +55,7 @@ In managed installations, eligible personal connections take priority, followed 
 - Server operators can read stored files and chats, including Trina operators for hosting. App administrators do not get a browser for everyone's private conversations.
 - Removing folder access does not erase earlier answers. Wider-sharing confirmation is not universal data-loss prevention.
 - No security certification, perfect answers, guaranteed savings or automatic legal/financial/HR decisions. Review outputs and deployment boundaries.
+- The AI sees photos and scanned PDF pages as images (an admin can turn this off), but Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 - HWP/HWPX text extraction is available. Experimental [visual previews](resources/hwp/README.md) are included in this source but **off by default**, and their native runtime is excluded from default release bundles. Debian 12 does **not** support visual previews; text extraction and original downloads remain available. Complex layouts and conversions have limits.
 
 ## Clients, releases and help

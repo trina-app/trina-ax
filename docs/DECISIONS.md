@@ -785,6 +785,8 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 스캔 PDF·사진 글자 읽기 (OCR, feat/ocr, 2026-10-21)
 
+> 2026-10-30 변경: AI의 read는 사진과 스캔 쪽을 이미지로 본다. Apple Vision OCR은 맥의 검색 색인(스캔 PDF)과 이미지 보기를 끈 팀의 대체 경로에만 남고, 리눅스 OCR은 없앴다. 아래 "AI sees images and PDF pages (feat/vision-read)"를 본다.
+
 - **`native/ocr/main.swift` → `mycel-ocr`**: 애플 Vision 글자 인식(한국어+영어, 기기 안, 네트워크 없음), macOS 13 이상. `native/build.sh`가 swiftc가 있는 맥에서 Go 도우미 옆에 만든다(arm64·x86_64·universal). 사무실 모드 번들은 필수로, 운영 번들은 있으면 넣는다. 리눅스·빌드 안 된 서버는 OCR 없이 전과 같다.
 - **PDF**: pdftotext 결과에 글자가 거의 없는 쪽(20자 미만)이 있으면 OCR로 다시 읽는다. 도구는 글자 층이 있는 쪽은 그대로(PDFKit), 없는 쪽만 그려서 인식한다(섞인 PDF도 됨). pdftotext가 없는 맥(사무실 모드에 poppler 없음)에서도 PDF를 읽는다. 최대 100쪽, 쪽당 약 1초.
 - **사진**(png·jpg·heic·tiff·webp 등): read에서만 인식한다. grep 글자 캐시에는 넣지 않는다(사진 폴더 하나에 몇 분). 투명 배경 이미지는 흰 바탕에 그려서 인식(아니면 빈 결과).
@@ -1358,6 +1360,8 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **`mycel-sandbox exec`의 `--landlock` 기본값은 `required`(실패 시 닫힘)이고, `--exec-allow` 경로가 없으면 best-effort만 건너뛰고 나머지는 종료 70이다.** 모든 거부는 종료 70 + 표준 에러 `mycel-sandbox: …`. 동적 링크 엔진(Claude Code)은 `--exec-allow`에 ELF 로더의 실제 경로가 필요하고 정적 엔진(Codex·다리)은 아니다(실측으로 확인).
 
 ### OCR (L13, fork C)
+
+> 2026-10-30: 리눅스 OCR(tesseract, Go `mycel-ocr`)은 없앴다. "AI sees images and PDF pages (feat/vision-read)"를 본다.
 - **HEIC는 ffmpeg 대신 libheif의 `heif-dec`로 PNG로 바꾼다.** 데비안 13 ffmpeg 7.1 CLI는 휴대폰 타일 HEIC에서 첫 타일만 꺼내 글자를 조용히 잃는다(실측). `install-linux.sh`의 apt 목록에 `libheif-examples`를 더한다.
 - **pdftoppm은 144dpi로 그리되 긴 변이 4000px를 넘는 쪽만 `-scale-to 4000`을 쓴다**(`-scale-to`가 `-r`을 덮어쓰기 때문, Swift판과 같은 의미). PDF 인식은 200초 안에서 멈추고 `[… N more pages not read]`를 붙인다(서버가 240초에 죽이면 읽은 쪽까지 모두 잃기 때문). 투명 PNG는 tesseract가 흰 바탕으로 합성하므로 따로 처리하지 않는다.
 - **스파이크 S5**: 데비안 13 tesseract 5.5 `kor+eng`, 2코어에서 10쪽 한국어 스캔 PDF가 25초(쪽당 2.5초), 글자 정확도 표본 ~97%. 60초 기준 안이라 `-r 144`·리눅스 `OCR_PAGES_MAX 50`을 유지한다.
@@ -3129,3 +3133,63 @@ Placement: Trina AX only (`trina-app/trina-ax`), following the 10/29 decision to
   font_metric_lineage_manifest.json` at the pinned commit) records source font, licence and provenance as unknown for
   599 of them. Notices cannot fix that: it needs a statement from the rhwp author and an owner decision.
   `availability` stays `pending_clearance` and `clearance.json` stays absent until the owner decides.
+
+## AI sees images and PDF pages (feat/vision-read, 2026-10-30)
+
+Founder: "What really matters is that using Trina feels almost the same as using Claude Code." "Don't run OCR on
+Linux. Just let Claude see the images, so Claude reads the text itself." Measured before the change: tesseract matched
+3–16% of screenshot text and 0 of 11 phone-receipt amounts; Claude vision read all 11 with the tables intact.
+
+- **`read` shows images.** PNG, JPEG, GIF, WebP, HEIC/HEIF, TIFF and BMP become one MCP image block (JPEG), like
+  Claude Code's Read. The read scope and hash are recorded as for text (`readPaths`, `readHashes`).
+- **PDFs follow Claude Code's Read contract.** `pages` ("3", "1-5", "1-3,7"), at most 20 per call and required over 10
+  pages, with an error that says what to send. Pages with a text layer come back as text; pages with fewer than 20
+  non-space characters (scans, pictures) as page images; `as_images` also shows text pages (charts, tables, layout).
+  `offset`/`limit` without `pages` give numbered lines of the text layer, the lines grep reports, so grep → read keeps
+  working on long PDFs; the result names the scanned pages to read with `pages`.
+- **Default on, decoupled from 1A.** No `MYCEL_SAFE_OPS_1A`, no confidential mark, no 1A workflow admission. The flag
+  still gates 1A's PPTX safe operations, artifact quarantine and its confidential lock; with the flag on, image reads
+  take this path too (1A's eight workflows per user-hour and single global converter slot do not fit interactive reads).
+- **Why pixels need no confidential lock when OCR text never needed one.** The recipient and the data are the same:
+  the configured provider already received the OCR text of these images and scans, every other file's content, HWP
+  page renders (`hwp_render`) and browser screenshots, with no lock. A picture of a page tells the provider nothing a
+  faithful transcription would not. 1A's lock belongs to that opt-in confidential-document workflow (administrator-
+  approved pixels together with generated PowerPoint) and never applied to the same content arriving as OCR text.
+  Egress controls (wider-audience confirmation, the URL gate, connector policy) apply to what the model learned from
+  an image exactly as to what it learned from text. Teams that do not want images at the provider turn the switch off.
+- **Isolation that still applies to decoding untrusted files.** Every decoder runs in the converter isolation
+  (`tools/isolate.ts`: bwrap with no network, a read-only system and only a private work folder, inside the converter
+  cgroup with rlimits on Linux; sandbox-exec on macOS), input on stdin, 30 s, 1 GiB resident memory and an output cap,
+  at most three conversions at once with a bounded queue. The normalizer (`mycel-safeops vision`) uses Go's memory-safe
+  decoders, checks the declared size before decoding (50 MP, 32 MiB), and writes a new baseline JPEG from pixels only:
+  long side 1568 px (Anthropic's recommended size), at most 1 MiB, EXIF orientation applied, transparency on white,
+  no EXIF/GPS/XMP/ICC/comment copied. HEIC is decoded by heif-dec or macOS ImageIO in the same isolation, then
+  normalized. PDF pages are drawn by pdftoppm (Linux) or PDFKit (macOS) and normalized. The read binds the bytes to the
+  authorized path (inode, size, times), refuses quarantined bytes, and re-checks the account, access and file identity
+  synchronously before delivery and again at socket drain. This is the tier that already parses untrusted files
+  (pdftotext, pandoc, the office worker, formerly tesseract), not the 1A qualified runner (Landlock, seccomp, per-job
+  cgroup leaf and engine envelope stay 1A-only).
+- **Per-turn budget: 40 images or 10 MB.** Images stay in the conversation and every request carries them again; the
+  model proxy and the providers take at most 32 MB per request. Past the budget a read says so instead of sending.
+  An engine session that grows over 20 MB is not stashed (`SESSION_STASH_MAX`, as before): the next turn starts from
+  the text history and reads an image again when it needs it.
+- **Engines.** Claude Code takes MCP image blocks natively. Codex gets the same content and never `structuredContent`
+  (openai/codex#10334 drops the image then); its locked catalog keeps `input_modalities` text + image, and `view_image`
+  stays off because it would read files outside the folder rules. The OpenAI-compatible API engine and the remote MCP
+  connector carry text only: a short note says the image cannot be shown there.
+- **Admin switch** "Send images and PDF pages to the AI" (`aiVision`, default on). Off: no pixels leave; a Mac server
+  reads images and scanned pages with Apple Vision as before, a Linux server returns a note.
+- **No OCR on Linux.** tesseract leaves `deps.txt`, the installer and the test images; the Go `mycel-ocr` is removed
+  (not kept disabled); `ocrBin()` is null on Linux even when tesseract is installed. Scanned PDFs and images are not
+  text-searchable on Linux servers, like Claude Code's own Grep. `drive_read` no longer runs OCR on either platform:
+  Drive photos become image blocks, Drive PDFs give their text layer and a note about pages without one.
+- **macOS keeps Apple Vision only for the search index** (grep text cache and semantic index) of scanned PDFs; photos
+  stay out of the index. `mycel-ocr` gains `--layer` (text layers, a Mac without poppler) and `--page P --px N` (page
+  PNG) for reads; neither recognizes text.
+- **Usage**: no new accounting. Provider-reported input tokens include image tokens (about width × height / 750, at
+  most about 3,300 for one 1568 × 1568 image) and flow into the existing usage and budgets.
+- Normalized JPEGs are never written to disk, so they are not quarantined: registering them would also move every
+  tenant off the empty-ledger search path. This supersedes "Images remain OCR/text-only through team read" in the
+  2026-10-29 Codex entry.
+- Release gates: real Claude Code and Codex image turns on an installed Linux server (fake engines cover the real
+  launcher, gate, bridge and socket); provider-side behaviour for very long image conversations.

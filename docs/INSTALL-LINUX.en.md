@@ -17,6 +17,8 @@ Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be avai
 
 These are install requirements, not a capacity benchmark. One installation is one team.
 
+Linux servers run no OCR. When the AI reads a photo or a scanned PDF page it sees the image itself (Admin > Team settings, "Send images and PDF pages to the AI", on by default), and scanned documents and photos are not text-searchable, as with Claude Code's own search. The installer no longer installs tesseract.
+
 HWP/HWPX text extraction is available. Experimental visual previews are in this source but off by default, and their runtime is excluded from default release bundles. Debian 12 does not support visual previews (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits and release gate](../resources/hwp/README.md).
 
 ## Download, verify, check

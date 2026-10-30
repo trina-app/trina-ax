@@ -1,5 +1,12 @@
 # Safe operations 1A
 
+> **2026-10-30 (feat/vision-read):** AI reads of images and PDF pages no longer use this flag. They are a default-on
+> path with its own converter isolation, per-turn budget, delivery re-check and admin switch ("Send images and PDF
+> pages to the AI"), and they never mark a conversation confidential ([DECISIONS](DECISIONS.md), "AI sees images and
+> PDF pages"). The flag still gates the bundled-layout PowerPoint workflow, its quarantine and its confidential lock.
+> The qualified image converter below now serves only the images embedded in that PowerPoint; the "Image read"
+> limits describe it, not `read`. Linux has no OCR fallback any more.
+
 This is a fixed-operation, Linux-only rollout behind `MYCEL_SAFE_OPS_1A=1` (default off).
 There is no new shell, script, Python or general execution tool. The administrator enabling it
 must authorize the configured model provider to receive document contents **including pixels**.
@@ -32,8 +39,8 @@ approve medical use or replace the real pinned CLI and host qualification gates.
   JPEG EXIF orientation is applied; metadata/GPS is not copied. HEIC uses the existing libheif
   executable inside the same sandbox; a 64 MiB intermediate and all job limits apply even
   before its decoded dimension check. Animated/multiple-image exports are refused.
-- At most 4 MiB image blocks per turn. OCR remains available when the qualified pixel converter
-  is unavailable. A corrupt/over-limit qualified decode fails instead of retrying a weaker decoder.
+- (Before feat/vision-read: at most 4 MiB image blocks per turn, with OCR as the fallback.) A corrupt/over-limit
+  qualified decode fails instead of retrying a weaker decoder.
 - PPTX: bundled reference only, Markdown at most 100,000 characters, 20 images, 30 slides,
   32 MiB generated archive. Layout names are explicit in `expected_layouts`; slide level is
   selected by the existing `deckShape` contract. `expected_slides` and `expected_notes` reuse
