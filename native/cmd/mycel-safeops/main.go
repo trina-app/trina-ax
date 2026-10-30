@@ -1,4 +1,6 @@
-// Fixed helper, launched only inside the qualified converter sandbox.
+// Fixed helper. The 1A modes (png, jpeg, webp, heic, pptx and the broker operations) run only inside the qualified
+// converter sandbox; `vision` (the image the AI sees on read, server/src/files/vision.ts) runs in the ordinary
+// converter isolation (server/src/tools/isolate.ts). No mode takes a path, command or model-chosen argument.
 package main
 
 import (
@@ -57,6 +59,10 @@ func main() {
 		os.Exit(2)
 	}
 	mode := os.Args[1]
+	if mode == "vision" {
+		vision()
+		return
+	}
 	limit := int64(safeops.InputMax)
 	if mode == "pptx" {
 		limit = 32 << 20
@@ -99,6 +105,24 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "safe operation refused")
+		os.Exit(3)
+	}
+	if _, err = os.Stdout.Write(out); err != nil {
+		os.Exit(1)
+	}
+}
+
+// vision: stdin (at most safeops.VisionInputMax bytes) -> one normalized JPEG on stdout. A refusal exits 3 with one
+// fixed reason line on stderr ("vision: pixel limit" ...), never text taken from the input.
+func vision() {
+	b, err := safeops.ReadBounded(os.Stdin, safeops.VisionInputMax)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, safeops.ErrVisionBytes)
+		os.Exit(3)
+	}
+	out, err := safeops.Vision(b)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(3)
 	}
 	if _, err = os.Stdout.Write(out); err != nil {
