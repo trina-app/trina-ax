@@ -83,10 +83,13 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
 }
 
-/** Addresses written out in what the person typed in this chat (user messages the server did not send for them). */
+/** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
+ * scheduled turn's message counts as sent for them also without the mark: an older build run on this database (a
+ * rollback) writes its runs unmarked. */
 function typedUrls(db: Database, chatId: string): Set<string> {
   const seen = new Set<string>()
-  for (const r of db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0").all(chatId) as { content: string }[]) {
+  for (const r of db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0
+    AND id NOT IN (SELECT user_message_id FROM turns WHERE chat_id = ? AND client_kind = 'schedule' AND user_message_id IS NOT NULL)`).all(chatId, chatId) as { content: string }[]) {
     for (const u of extractUrls(r.content)) seen.add(u)
   }
   return seen

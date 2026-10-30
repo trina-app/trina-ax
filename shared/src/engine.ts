@@ -7,8 +7,11 @@ export const EngineEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('thinking'), delta: z.string() }),
   /** input: the tool input as the engine sent it (server-side only: step labels, audit; never sent to clients raw) */
   z.object({ type: z.literal('tool_start'), id: z.string(), name: z.string(), summary: z.string(), input: z.unknown().optional() }),
-  /** output: the tool result text (capped), e.g. WebSearch links for the search card */
-  z.object({ type: z.literal('tool_end'), id: z.string(), ok: z.boolean(), summary: z.string().optional(), output: z.string().optional() }),
+  /** output: the tool result text (capped), e.g. WebSearch links for the search card. sources: a web search's hits as
+   * the engine's structured result gives them (Claude Code's tool_use_result): the search server's own, never text a
+   * model wrote (server/src/chat/turn.ts searchSources) */
+  z.object({ type: z.literal('tool_end'), id: z.string(), ok: z.boolean(), summary: z.string().optional(), output: z.string().optional(),
+    sources: z.array(z.object({ title: z.string(), url: z.string() })).optional() }),
   z.object({ type: z.literal('session'), sessionId: z.string() }),
   /** costUnknown: the provider gave no cost and the model has no list price (never recorded as free); requestId: the
    * provider's id of the request (OpenRouter's generation id), for the log */

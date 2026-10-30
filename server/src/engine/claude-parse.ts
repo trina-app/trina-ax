@@ -20,6 +20,31 @@ export function toolResultText(c: unknown): string {
   return ''
 }
 
+/** A list of search hits as sources: http(s) addresses only, each once, title and address clipped, at most 50. */
+export function hitList(list: unknown): { title: string; url: string }[] {
+  const out: { title: string; url: string }[] = []
+  const seen = new Set<string>()
+  if (!Array.isArray(list)) return out
+  for (const x of list as { title?: unknown; url?: unknown }[]) {
+    if (out.length >= 50) break
+    if (typeof x?.url === 'string' && /^https?:\/\//i.test(x.url) && !seen.has(x.url)) { seen.add(x.url); out.push({ title: String(x.title ?? x.url).slice(0, 300), url: x.url.slice(0, 2000) }) }
+  }
+  return out
+}
+
+/**
+ * The hits of a Claude Code WebSearch call from its structured result (stream-json `tool_use_result`, the tool's Output
+ * object: { query, results: (string | { tool_use_id, content: { title, url }[] })[] }). The objects are the search
+ * server's web_search_tool_result blocks; the strings are what the search model wrote, which the AI steers through its
+ * query, so they are never sources. undefined: not a web search result (the caller falls back to the text).
+ */
+export function webSearchHits(r: unknown): { title: string; url: string }[] | undefined {
+  if (!r || typeof r !== 'object' || typeof (r as { query?: unknown }).query !== 'string' || !Array.isArray((r as { results?: unknown }).results)) return undefined
+  const hits: unknown[] = []
+  for (const x of (r as { results: unknown[] }).results) if (x && typeof x === 'object' && Array.isArray((x as { content?: unknown }).content)) hits.push(...(x as { content: unknown[] }).content)
+  return hitList(hits)
+}
+
 export class ClaudeStreamParser {
   private sawDeltas = false
   private textOpen = false
@@ -57,9 +82,12 @@ export class ClaudeStreamParser {
       if (apiError) out.push({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) })
       if (ev.error === 'refusal') this.refused = true
     } else if (ev.type === 'user') {
-      for (const b of ev.message?.content ?? []) if (b.type === 'tool_result') {
+      const results = Array.isArray(ev.message?.content) ? ev.message.content.filter((b: any) => b?.type === 'tool_result') : []
+      // the structured result belongs to the message's one tool result (Claude Code sends each result on its own)
+      const hits = results.length === 1 ? webSearchHits(ev.tool_use_result) : undefined
+      for (const b of results) {
         const text = toolResultText(b.content)
-        out.push({ type: 'tool_end', id: b.tool_use_id, ok: !b.is_error, summary: text.slice(0, 200) || undefined, output: text.slice(0, TOOL_OUTPUT_MAX) })
+        out.push({ type: 'tool_end', id: b.tool_use_id, ok: !b.is_error, summary: text.slice(0, 200) || undefined, output: text.slice(0, TOOL_OUTPUT_MAX), ...(hits ? { sources: hits } : {}) })
       }
     } else if (ev.type === 'result') {
       this.result = ev

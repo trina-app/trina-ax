@@ -5,7 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-**Upgrade note:** migrations 214 and 322 are additive (reader 1). Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
+**Upgrade note:** migrations 215 and 322 are additive (reader 1). Personal connections set to "run without asking" ask again. Scheduled tasks made before this release open web addresses only after a person confirms, which an unattended run cannot do: recreate such a task in a chat.
 
 - Scheduled tasks: when the AI creates one, a card shows the title, the schedule, the whole instruction and the web addresses in it; only those addresses open without asking in its runs, and a run's message no longer counts as typed by the person.
 - Web pages and search results: the AI opens at most 8 of their links per answer and 30 per conversation without asking; then each new one asks.

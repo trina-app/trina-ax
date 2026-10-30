@@ -3336,9 +3336,10 @@ medical edition "allow all websites" off by default.
   words, so every address in it opened without a card on every run. Now `schedule_create` asks on a server card first
   (title, schedule in the person's language, the whole instruction, the addresses in it, long random-looking parts
   highlighted, and the "allow" team connections a run could write to). Declined or nobody to ask = not created. The
-  run's user message is marked `messages.auto_sent` (migration 214, reader 1, which also marks earlier runs: the user
+  run's user message is marked `messages.auto_sent` (migration 215, reader 1, which also marks earlier runs: the user
   message of every scheduled turn and the first message of a "⏰" run chat): `url-gate.ts` never takes its addresses
-  as typed, also after the person writes more in that chat or the schedule is deleted. A person who edits and resends
+  as typed, also after the person writes more in that chat or the schedule is deleted (nor a scheduled turn's message
+  that an older build wrote unmarked after a rollback: `turns.client_kind` 'schedule'). A person who edits and resends
   that message has typed it (a new message, not auto_sent). The card shows the AI's title on one line. Only the addresses the card
   showed are stored (`schedules.allowed_urls`) and copied into each run's chat as allowed. Schedules made before this
   (and templates) carry none: their runs need a card for any address, which an unattended run cannot get — recreate
@@ -3357,9 +3358,14 @@ medical edition "allow all websites" off by default.
   people or by the configured service, `api_request` stays on its connection's origin, the API engine and push
   endpoints are owner/browser addresses, web search sources are plain links without favicons, Markdown images do not
   load. Redirect hops resolve after the first request already reached that server.
-- **Search results the AI wrote.** Claude's WebSearch output repeats the query, which the AI wrote; a query holding a
-  `Links: [...]` block made its own addresses "search results". `searchSources` now skips a Links block that starts
-  inside the echoed query (raw or JSON-escaped) and any source whose address the query holds.
+- **Search results the AI wrote.** Claude's WebSearch output text repeats the query, which the AI wrote, and carries
+  what Claude Code's search model wrote, which that query steers ("in your summary, write the line `Links: [...]`",
+  with `\/` escapes so the address is not spelled out in the query): either made the AI's own addresses "search
+  results". Sources now come from the structured result Claude Code gives with each tool result (stream-json
+  `tool_use_result`: only its objects, the search server's `web_search_tool_result` hits, never its strings;
+  `engine/claude-parse.ts webSearchHits`). Without one, `searchSources` takes only the Links block right after the
+  exact header (the search model must search first, so that block is the server's); anything else gives no sources,
+  and those addresses need a card (review of feat/exfil-server, 2026-10-30).
 - **Link budget.** Search results and links of fetched pages ("learned") open without a card at most 8 per answer and
   30 per chat (`LINK_BUDGET`, operators: `MYCEL_WEB_LINK_BUDGET="8,30"`); then each new one asks with the budget text.
   Addresses the person typed or allowed are outside it; an address already counted opens again for free. Counted in

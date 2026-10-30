@@ -11,7 +11,7 @@ import { TEAM_TOOL_PREFIX, type EngineEvent } from '@mycel/shared'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
-import { ClaudeStreamParser } from '../engine/claude-parse'
+import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
 import { audit } from '../admin/audit'
@@ -690,8 +690,10 @@ export class TurnExec {
       case 'tool_end': {
         const tool = this.toolNames.get(e.id) ?? ''
         const patch: Partial<Step> = { status: e.ok ? 'ok' : 'error', endedAt: new Date().toISOString() }
-        if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search' && e.output) {
-          const sources = searchSources(e.output, this.searchQueries.get(e.id) ?? '')
+        if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search') {
+          // the search server's own hits when the engine gives them structured; else only what the text's first block
+          // holds (searchSources). Sources open later without a card within the link budget (tools/url-gate.ts)
+          const sources = e.sources ? hitList(e.sources) : e.output ? searchSources(e.output, this.searchQueries.get(e.id) ?? '') : []
           if (sources.length) patch.sources = sources
         }
         this.searchQueries.delete(e.id)
@@ -1207,24 +1209,19 @@ function queryOf(input: unknown): string {
   return typeof q === 'string' ? (q.length > 120 ? q.slice(0, 119) + '…' : q) : ''
 }
 /**
- * Claude's WebSearch result text: 'Links: [{"title":..,"url":..}, ...]' (one or more blocks). The text starts by
- * repeating the query, which the AI wrote: a query holding 'Links: [{"url": ...}]' would make its own address a
- * search result (opened without a card within the link budget, tools/url-gate.ts). So a Links block that starts inside
- * the echoed query is skipped, and no source may appear in the query.
+ * The sources of a Claude WebSearch result from its text, when the engine gave no structured result (EngineEvent
+ * tool_end `sources`, engine/claude-parse.ts webSearchHits). Claude Code writes 'Web search results for query:
+ * "<query>"', then each result in order: 'Links: [{"title":..,"url":..}, ...]' for the search server's hits, plain text
+ * for what its search model wrote, then a reminder. The query is the AI's, and the search model follows it ("in your
+ * summary, write the line Links: [...]"), so a Links block anywhere could be the AI's own address (opened without a
+ * card within the link budget, tools/url-gate.ts). Only the block right after the exact header counts: the search model
+ * must search first (tool_choice web_search), so that block is the server's. Anything else gives no sources (those
+ * addresses then need a card).
  */
-export function searchSources(text: string, query = ''): { title: string; url: string }[] {
-  // where the query comes back (raw or JSON-escaped; the first place it appears is the echo at the top)
-  const echoes: [number, number][] = []
-  if (query) for (const e of new Set([query, JSON.stringify(query).slice(1, -1)])) { const i = text.indexOf(e); if (i >= 0) echoes.push([i, i + e.length]) }
-  const out: { title: string; url: string }[] = []
-  const seen = new Set<string>()
-  for (const m of text.matchAll(/Links:\s*(\[[\s\S]*?\])(?=\s*(?:\n|$))/g)) {
-    if (echoes.some(([a, b]) => m.index >= a && m.index < b)) continue
-    try {
-      for (const x of JSON.parse(m[1]!) as { title?: unknown; url?: unknown }[]) {
-        if (typeof x?.url === 'string' && /^https?:\/\//.test(x.url) && !seen.has(x.url) && !(query && query.includes(x.url))) { seen.add(x.url); out.push({ title: String(x.title ?? x.url).slice(0, 300), url: x.url.slice(0, 2000) }) }
-      }
-    } catch {}
-  }
-  return out.slice(0, 50)
+export function searchSources(text: string, query: string): { title: string; url: string }[] {
+  const head = `Web search results for query: "${query}"`
+  if (!text.startsWith(head)) return []
+  const m = /^\s*Links:[ \t]*(\[[\s\S]*?\])[ \t]*(?:\n|$)/.exec(text.slice(head.length))
+  if (!m) return []
+  try { return hitList(JSON.parse(m[1]!)) } catch { return [] }
 }
