@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned toolchain and engine versions. The engine lockdown regression test must pass before any of these move.",
+  "_comment": "Pinned toolchain and engine versions. The engine lockdown regression tests must pass before any of these move (claude-code: tests/engine/lockdown-claude.ts and tests/engine/lockdown-claude-subagents.ts, the latter with and without --oauth).",
   "bun": "1.3.12",
   "go": "1.27.3",
   "ripgrep": "15.2.0",

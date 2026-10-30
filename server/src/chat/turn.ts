@@ -711,9 +711,11 @@ export class TurnExec {
         this.producedOutput = true
         // which agent made the call: the gate gives a sub-agent's calls that sub-agent's own state (TurnFiles.forCall)
         this.files.noteToolUse(e.id, e.parentId ?? null)
-        const tool = CLAUDE_AGENT_TOOL_NAMES.includes(e.name) ? 'agent' : e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
+        // the main AI's Agent call is a sub-task ('agent'); a sub-agent's own attempt (refused: no grandchildren) stays
+        // a plain step under its sub-task
+        const tool = CLAUDE_AGENT_TOOL_NAMES.includes(e.name) && !e.parentId ? 'agent' : e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
-        if (tool === 'agent' && !e.parentId) return this.startSubtask(e.id, e.input)
+        if (tool === 'agent') return this.startSubtask(e.id, e.input)
         // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)

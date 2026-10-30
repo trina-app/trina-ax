@@ -7,11 +7,10 @@
 //   round  the number of assistant messages already in the request (0 = the first request of that conversation)
 // A reply is text, tool calls (tool_use blocks), an HTTP error or a refusal. Used by tests/engine/lockdown-claude-subagents.ts.
 
-export type FakeReply =
-  | { text: string }
+export type FakeReply = ({ text: string }
   | { tools: { name: string; input: Record<string, unknown>; id?: string }[]; text?: string }
   | { status: number; error: string }
-  | { refusal: true }
+  | { refusal: true }) & { /** answer only after this long (a slow model; Stop tests) */ delayMs?: number }
 
 export interface FakeRequest {
   at: number
@@ -27,6 +26,8 @@ export interface FakeRequest {
   system: string
   firstUser: string
   lastUser: unknown
+  /** the whole request body as text (canary checks) */
+  raw: string
   headers: Record<string, string>
 }
 
@@ -60,10 +61,11 @@ export function startFakeAnthropic(script: FakeScript, o: { port?: number } = {}
         at: Date.now(), path: u.pathname, kind, child, round: messages.filter((m) => m?.role === 'assistant').length,
         model: String(body.model ?? ''), tools: tools.filter((t) => !t?.type || t.type === 'custom').map((t) => String(t.name)),
         serverTools: tools.filter((t) => t?.type && t.type !== 'custom').map((t) => `${t.type}:${t.name}`),
-        system, firstUser, lastUser: messages.at(-1)?.content, headers: Object.fromEntries(req.headers),
+        system, firstUser, lastUser: messages.at(-1)?.content, headers: Object.fromEntries(req.headers), raw: JSON.stringify(body),
       }
       seen.push(r)
       const reply: FakeReply = kind === 'other' ? { text: 'ok' } : script.reply(r)
+      if (reply.delayMs) await Bun.sleep(reply.delayMs)
       if ('status' in reply) return Response.json({ type: 'error', error: { type: reply.status === 429 ? 'rate_limit_error' : 'api_error', message: reply.error } }, { status: reply.status })
       const model = r.model || 'claude-sonnet-4-5'
       const usage = { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
