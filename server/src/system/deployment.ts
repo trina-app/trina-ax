@@ -45,13 +45,16 @@ export interface Features {
   /** diagnostics show machine-level items (the host volume's free space, firewall and launcher commands). Hosted: the
    * team's own items, with wording that points at the admin screens and support. */
   hostDiagnostics: boolean
+  /** install plugins from package files (an upload in Admin > Plugins, or <data>/plugins/import). Hosted: tenants take
+   * official catalog packages only; the operator manages the server runtime (docs/PLUGINS.md). */
+  pluginFileInstall: boolean
 }
 
 const TABLE: Record<RunKind, Features> = {
-  hosted: { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false },
-  selfhost: { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true },
-  office: { connectionChange: false, selfUpdate: true, officeUpdate: true, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true },
-  dev: { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true },
+  hosted: { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false },
+  selfhost: { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
+  office: { connectionChange: false, selfUpdate: true, officeUpdate: true, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
+  dev: { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
 }
 
 export function featuresOf(cfg: Cfg): Features { return { ...TABLE[runKindOf(cfg)] } }

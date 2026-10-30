@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 0,
+  "sequence": 1,
+  "entries": [
+    {
+      "id": "app.trina.hwp-preview",
+      "version": "1.0.0",
+      "publisher": { "id": "trina", "name": "Trina" },
+      "kinds": ["native-tool", "preview"],
+      "i18n": {
+        "en": { "name": "HWP Preview", "description": "Preview Hangul (HWP/HWPX) documents page by page in the file panel, and let the AI look at a page. Original files are not changed." },
+        "ko": { "name": "한글 문서 미리보기", "description": "한글(HWP/HWPX) 문서를 파일 화면에서 페이지별로 미리 보고, AI가 페이지를 볼 수 있게 합니다. 원본 파일은 바꾸지 않습니다." },
+        "id": { "name": "Pratinjau HWP", "description": "Pratinjau dokumen Hangul (HWP/HWPX) per halaman di panel berkas, dan biarkan AI melihat satu halaman. Berkas asli tidak diubah." },
+        "ja": { "name": "HWPプレビュー", "description": "ハングル文書（HWP/HWPX）をファイルパネルでページごとにプレビューし、AIがページを確認できるようにします。元のファイルは変更しません。" },
+        "es": { "name": "Vista previa de HWP", "description": "Vista previa página a página de documentos Hangul (HWP/HWPX) en el panel de archivos; la IA también puede ver una página. Los archivos originales no cambian." }
+      },
+      "permissions": {
+        "required": ["files.read.selected", "preview.render", "runtime.native.isolated"],
+        "optional": ["model.send.preview-pixels"]
+      },
+      "platforms": [
+        { "os": "darwin", "arch": "arm64" },
+        { "os": "darwin", "arch": "x64" },
+        { "os": "linux", "arch": "x64", "libc": { "family": "glibc", "minVersion": "2.39" } },
+        { "os": "linux", "arch": "arm64", "libc": { "family": "glibc", "minVersion": "2.39" } }
+      ],
+      "availability": "pending_clearance",
+      "recommendedFor": { "locales": ["ko"] },
+      "license": "MIT AND OFL-1.1"
+    }
+  ]
+}

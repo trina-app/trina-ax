@@ -10,6 +10,7 @@ import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
 import { TEAM_ICON_SPECS } from './team-icon-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
+import { PLUGIN_SPECS } from './plugin-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -67,6 +68,7 @@ export const SPECS: Record<string, Spec> = {
   ...INTEGRATION_SPECS,
   ...TEAM_ICON_SPECS,
   ...REMOTE_MCP_SPECS,
+  ...PLUGIN_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',

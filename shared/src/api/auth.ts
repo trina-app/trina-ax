@@ -60,6 +60,8 @@ export const Me = z.object({
     features: z.object({
       connectionChange: z.boolean(), selfUpdate: z.boolean(), officeUpdate: z.boolean(), connectedFolders: z.boolean(),
       apiEngineAnyUrl: z.boolean(), hostDiagnostics: z.boolean(),
+      /** Admin > Plugins takes package files (absent from older servers) */
+      pluginFileInstall: z.boolean().optional(),
     }).optional(),
     /** the team's time zone (IANA, Admin > Settings): dates and schedules follow it */
     timeZone: z.string().optional(),

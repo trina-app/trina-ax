@@ -1,5 +1,6 @@
 export * from './product'
 export * from './release-channel'
+export * from './plugin-trust'
 export * from './tools'
 export * from './engine'
 export * from './ids'

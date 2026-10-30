@@ -1,0 +1,100 @@
+// Opening a .trinaplugin: bounded archive read, strict manifest, signature against the plugin trust root, then the
+// file inventory (every payload byte listed, sizes and SHA-256 equal, nothing extra). Nothing is written to disk
+// here. buildPackage() is the writer used by the build scripts and tests.
+import crypto from 'node:crypto'
+import {
+  PLUGIN_MANIFEST_DOMAIN, PLUGIN_MANIFEST_FILE, PLUGIN_SIGNATURE_FILE, PluginManifest, SUPPORTED_PLUGIN_KINDS, type PluginFile,
+} from '@mycel/shared/plugins'
+import type { PluginRefusal, PluginTrust } from '@mycel/shared/api'
+import { ArchiveError, readArchive, writeArchive } from './archive'
+import { canonicalJson, JsonError, parseStrictJson } from './json'
+import { checkSignature, keyIdOf, publicKeyOfPem, signDetached, type TrustRoot } from './trust'
+
+export class PackageError extends Error {
+  name = 'PackageError'
+  constructor(readonly reason: PluginRefusal, message: string) { super(message) }
+}
+
+export interface VerifiedPackage {
+  manifest: PluginManifest
+  /** the signed byte form */
+  canonical: string
+  manifestSha256: string
+  archiveSha256: string
+  size: number
+  /** payload files (without the manifest and signature) */
+  files: Map<string, Buffer>
+  manifestText: string
+  sigText: string | null
+  trust: PluginTrust
+  keyId: string | null
+}
+
+const sha256 = (b: Uint8Array | string) => crypto.createHash('sha256').update(b).digest('hex')
+const MANIFEST_MAX = 256 * 1024
+
+export function verifyPackage(bytes: Uint8Array, root: TrustRoot): VerifiedPackage {
+  let entries: Map<string, Buffer>
+  try { entries = readArchive(bytes) } catch (e) {
+    throw new PackageError('archive', e instanceof ArchiveError ? e.message : 'unreadable archive')
+  }
+  const manifestBytes = entries.get(PLUGIN_MANIFEST_FILE)
+  if (!manifestBytes) throw new PackageError('manifest', `${PLUGIN_MANIFEST_FILE} is missing`)
+  if (manifestBytes.length > MANIFEST_MAX) throw new PackageError('manifest', 'manifest too large')
+  const manifestText = manifestBytes.toString('utf8')
+  let raw: unknown
+  try { raw = parseStrictJson(manifestText) } catch (e) { throw new PackageError('manifest', e instanceof JsonError ? e.message : 'invalid JSON') }
+  const parsed = PluginManifest.safeParse(raw)
+  if (!parsed.success) throw new PackageError('manifest', parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || 'manifest'}: ${i.message}`).join('; '))
+  const manifest = parsed.data
+  if (manifest.kinds.some((k) => !SUPPORTED_PLUGIN_KINDS.includes(k))) throw new PackageError('kind', 'this server cannot install this kind of plugin yet')
+
+  // the signed form is the document as written (strictly parsed), not a normalized copy
+  const canonical = canonicalJson(raw)
+  const sigBytes = entries.get(PLUGIN_SIGNATURE_FILE)
+  const sigText = sigBytes ? sigBytes.toString('utf8') : null
+  let check = checkSignature(root, PLUGIN_MANIFEST_DOMAIN, canonical, manifest.signature ? sigText : null, { publisher: manifest.publisher.id, id: manifest.id })
+  // the manifest names the key it was signed with; a signature by another (even trusted) key does not count
+  if (check.ok && check.keyId && manifest.signature?.keyId !== check.keyId) check = root.allowUnsigned ? { ok: true, trust: 'unverified', keyId: null } : { ok: false, reason: 'signature' }
+  if (!check.ok) throw new PackageError(check.reason, check.reason === 'untrusted' ? 'signed by a key this server does not trust for this plugin' : 'missing or invalid signature')
+
+  // inventory: exactly the listed files, byte for byte
+  const listed = new Map(manifest.files.map((f) => [f.path, f]))
+  const files = new Map<string, Buffer>()
+  for (const [p, data] of entries) {
+    if (p === PLUGIN_MANIFEST_FILE || p === PLUGIN_SIGNATURE_FILE) continue
+    const f = listed.get(p)
+    if (!f) throw new PackageError('tampered', `unlisted file ${p}`)
+    if (f.size !== data.length || f.sha256 !== sha256(data)) throw new PackageError('tampered', `file ${p} does not match the manifest`)
+    files.set(p, data)
+  }
+  for (const f of manifest.files) if (!files.has(f.path)) throw new PackageError('tampered', `listed file ${f.path} is missing`)
+
+  return {
+    manifest, canonical, manifestSha256: sha256(canonical), archiveSha256: sha256(bytes), size: bytes.length,
+    files, manifestText, sigText, trust: check.trust, keyId: check.keyId,
+  }
+}
+
+export type ManifestDraft = Omit<PluginManifest, 'files' | 'signature'>
+
+/** The inventory of a payload. */
+export function inventory(payload: Map<string, Uint8Array>, executables: ReadonlySet<string> = new Set()): PluginFile[] {
+  return [...payload.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([p, d]) => ({ path: p, sha256: sha256(d), size: d.length, ...(executables.has(p) ? { executable: true } : {}) }))
+}
+
+/** Build (and with a key, sign) a package. */
+export function buildPackage(o: { manifest: ManifestDraft; payload: Map<string, Uint8Array>; executables?: ReadonlySet<string>; keyPem?: string | null; gzip?: boolean }): { bytes: Buffer; manifest: PluginManifest } {
+  const executables = o.executables ?? new Set<string>()
+  const draft: PluginManifest = {
+    ...o.manifest,
+    files: inventory(o.payload, executables),
+    ...(o.keyPem ? { signature: { algorithm: 'Ed25519' as const, keyId: keyIdOf(publicKeyOfPem(o.keyPem)), file: PLUGIN_SIGNATURE_FILE } } : {}),
+  }
+  const manifest = PluginManifest.parse(draft)
+  const canonical = canonicalJson(manifest)
+  const all = new Map<string, Uint8Array>(o.payload)
+  all.set(PLUGIN_MANIFEST_FILE, Buffer.from(JSON.stringify(manifest, null, 2) + '\n'))
+  if (o.keyPem) all.set(PLUGIN_SIGNATURE_FILE, Buffer.from(signDetached(o.keyPem, PLUGIN_MANIFEST_DOMAIN, canonical)))
+  return { bytes: writeArchive(all, { gzip: o.gzip, executables: new Set(executables) }), manifest }
+}

@@ -19,12 +19,17 @@ import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
 import { registerIntegrationRoutes } from './integrations'
 import { registerIntegrations } from '../integrations/connections/tools'
+import { registerPluginRoutes } from './plugins'
+import { pluginsOf } from '../plugins/manager'
 
 export const filesRoutes: RouteModule = {
   name: 'files',
   owner: 'C',
   init(ctx) {
     componentC(ctx)
+    // plugins before the tools: hwp_render asks it whether the HWP plugin is usable; it also installs the team-folder
+    // write guard for skill-pack files. A broken plugin store never stops the server here.
+    try { pluginsOf(ctx) } catch (e) { ctx.log.error('plugin manager failed to start; plugins stay off', { err: e }) }
     registerCTools(ctx)
     // external-service connections: each person's tools are made at the start of their turn
     registerIntegrations(ctx)
@@ -32,6 +37,7 @@ export const filesRoutes: RouteModule = {
   register(kit, ctx) {
     registerDriveRoutes(kit, ctx)
     registerIntegrationRoutes(kit, ctx)
+    registerPluginRoutes(kit, ctx)
     const C = componentC(ctx)
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')

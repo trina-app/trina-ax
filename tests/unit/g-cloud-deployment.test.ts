@@ -44,7 +44,7 @@ describe('deployment switch (server.json / MYCEL_DEPLOYMENT)', () => {
     expect(loadAppConfig({ argv: ['--config', file({ mode: 'prod', update: { auto: true } })], env: {} }).update.auto).toBe(true)
   })
   test('the feature table', () => {
-    expect(featuresOf({ mode: 'prod', deployment: 'hosted' })).toEqual({ connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false })
+    expect(featuresOf({ mode: 'prod', deployment: 'hosted' })).toEqual({ connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false })
     expect(featuresOf({ mode: 'prod' })).toMatchObject({ connectionChange: true, selfUpdate: true, connectedFolders: true, apiEngineAnyUrl: true })
     expect(featuresOf({ mode: 'dev', office: true })).toMatchObject({ connectionChange: false, officeUpdate: true, connectedFolders: true })
     expect(hostKind({ mode: 'prod', deployment: 'hosted' }, 'linux')).toBe('hosted')

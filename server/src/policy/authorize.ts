@@ -9,7 +9,18 @@ import { parseInput, realpathCheck, walk } from './resolve'
 
 export type Op = 'read' | 'write' | 'list'
 
-export interface FsCtx { root: string; caseInsensitive: boolean; quarantine?: Quarantine }
+/** Team-folder paths a plugin manages (a skill pack's folder skills/<plugin id>/ and everything in it). Writes there
+ * (save, edit, upload, move, rename, delete, restore, mkdir) are refused for everyone, owner and admin included: the
+ * files are the verified package's copy, changed only by updating, rolling back or turning off the plugin
+ * (server/src/plugins/manager.ts). Its parent skills/ is a protected folder that is never moved or deleted. */
+export interface ManagedPaths {
+  /** the plugin managing this path (the managed folder or anything in it), or null */
+  managerOf(segs: readonly string[]): string | null
+  /** a plugin whose managed folder is this path or below it: moving or deleting a folder that holds one is refused */
+  heldBelow(segs: readonly string[]): string | null
+}
+
+export interface FsCtx { root: string; caseInsensitive: boolean; quarantine?: Quarantine; managed?: ManagedPaths }
 
 export interface Authorized {
   /** actual on-disk names (existing part + new names to create) */
@@ -41,6 +52,11 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
     throw new Denied(hiddenWrite(rules, user, full, segs, input))
   }
   if (w.problem) throw new Denied(w.problem)
+  // after the access check: only someone who may write here learns that a plugin manages it
+  if (op === 'write' && fx.managed) {
+    const by = fx.managed.managerOf(full)
+    if (by) throw new Denied(`managed by the plugin '${by}': change it with an update in Admin > Plugins, or copy it to another folder to edit the copy`)
+  }
 
   const exists = w.missing.length === 0
   if (!exists) {

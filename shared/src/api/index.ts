@@ -19,13 +19,14 @@ import { INTEGRATIONS } from './integrations'
 import { NOTIFICATIONS } from './notifications'
 import { PUSH } from './push'
 import { REMOTE_MCP } from './remote-mcp'
+import { PLUGINS } from './plugins'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -56,5 +57,6 @@ export * from './push'
 export * from './remote-mcp'
 export * from './system'
 export * from './office-update'
+export * from './plugins'
 export * from './ws'
 export * from './client'

@@ -1,4 +1,6 @@
 // Narrow native backend: preflight, info and one raster page. No editing, scripts, shells or arbitrary argv.
+// The renderer bytes (rhwp executable, Noto font, notices) come from the HWP Preview plugin package
+// (server/src/plugins); this driver, its preflight, limits, isolation and pins stay in core (docs/PLUGINS.md).
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -52,26 +54,50 @@ export function fontIdentity(b: Buffer) {
   return { family: values.get(16) ?? values.get(1), postscript: values.get(6), weight: b.readUInt16BE(os2 + 4) }
 }
 
+/** Where the renderer's bytes are: a plugin package's files, or (development, tests) the repo's local assets. */
+export interface HwpAssets {
+  /** the rhwp executable for this OS/CPU */
+  bin: string
+  /** folder holding the pinned font files */
+  fontsDir: string
+  /** the plugin package's manifest digest: part of the engine identity, so cached pages never outlive a package */
+  digest?: string
+}
+
+/** Development/test layout under a folder: native/bin/hwp/rhwp-<os>-<cpu> and resources/hwp/fonts. */
+export function localHwpAssets(base = root): HwpAssets {
+  return { bin: path.join(base, 'native/bin/hwp', `rhwp-${process.platform}-${process.arch}`), fontsDir: path.join(base, 'resources/hwp/fonts') }
+}
+
 export class NativeHwpEngine implements HwpEngine {
   readonly identity: string
   readonly ready: Promise<void>
   private bin: string
+  private pin?: string
   private fonts: { name: string; bytes: Buffer }[] = []
   private fontHash = sha256(JSON.stringify(manifest.fonts))
-  constructor(private readonly bundleRoot = root) {
+  private readonly assets: HwpAssets
+  constructor(assets: HwpAssets | string = localHwpAssets()) {
+    const a = typeof assets === 'string' ? localHwpAssets(assets) : assets
+    this.assets = a
     const target = `${process.platform}-${process.arch}` as keyof typeof manifest.targets
-    const pin = manifest.targets[target]
-    this.bin = path.join(bundleRoot, 'native/bin/hwp', `rhwp-${target}`)
-    this.identity = `rhwp-${manifest.version}:${pin?.binary}:${this.fontHash}:png-${L.edge}-v1`
+    this.pin = manifest.targets[target]?.binary
+    this.bin = a.bin
+    this.identity = `rhwp-${manifest.version}:${this.pin}:${this.fontHash}:png-${L.edge}-v1${a.digest ? `:pkg-${a.digest}` : ''}`
     // Startup verification; retain a handled promise so missing optional preview support never crashes the server.
-    this.ready = this.verify(pin?.binary)
+    this.ready = this.verify(this.pin)
     void this.ready.catch(() => {})
+  }
+  /** The executable must still be the pinned build right before each job (a replaced file is refused). */
+  private checkBinary() {
+    try { if (!this.pin || sha256(fs.readFileSync(this.bin)) !== this.pin) throw new HwpError('engine') } catch { throw new HwpError('engine') }
   }
   private async verify(hash?: string) {
     try {
-      if (!hash || sha256(fs.readFileSync(this.bin)) !== hash) throw new HwpError('engine')
+      if (!hash) throw new HwpError('engine')
+      this.checkBinary()
       for (const pin of manifest.fonts) {
-        const bytes = fs.readFileSync(path.join(this.bundleRoot, 'resources/hwp/fonts', pin.file))
+        const bytes = fs.readFileSync(path.join(this.assets.fontsDir, pin.file))
         const id = fontIdentity(bytes)
         if (sha256(bytes) !== pin.sha256 || id.family !== pin.family || id.weight !== pin.weight || id.postscript !== pin.postscript) throw new HwpError('engine')
         this.fonts.push({ name: pin.file, bytes })
@@ -84,6 +110,7 @@ export class NativeHwpEngine implements HwpEngine {
   async render(bytes: Buffer, ext: 'hwp' | 'hwpx', page: number, signal?: AbortSignal): Promise<RenderedPage> {
     await this.ready
     if (signal?.aborted) throw new HwpError('cancelled')
+    this.checkBinary()
     if (bytes.length > L.inputBytes || !Number.isInteger(page) || page < 1 || page > L.pages) throw new HwpError('limit')
     const work = makeWorkDir()
     const deadline = Date.now() + L.timeoutMs
@@ -135,10 +162,12 @@ export class NativeHwpEngine implements HwpEngine {
   }
 }
 
-let defaultEngine: NativeHwpEngine | undefined
-/** One verified immutable engine/font bundle per process; jobs still use fresh isolated processes. */
-export function nativeHwpEngine(): HwpEngine {
-  // Independent runtime gate: merely installing assets must not activate an uncleared renderer.
-  if (process.env.MYCEL_HWP_PREVIEW !== '1') return { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') } }
-  return defaultEngine ??= new NativeHwpEngine()
-}
+/** The engine when HWP preview is not usable here (no plugin, plugin off, release gate closed): every page refused. */
+export const disabledHwpEngine: HwpEngine = { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') } }
+
+/**
+ * The release gate, independent of the plugin: until the renderer's licence and platform review is finished, HWP
+ * preview also needs MYCEL_HWP_PREVIEW=1 (internal review servers only). Turning the plugin on in the admin screen
+ * alone never runs the uncleared renderer.
+ */
+export const hwpReleaseGateOpen = (env: Record<string, string | undefined> = process.env) => env.MYCEL_HWP_PREVIEW === '1'

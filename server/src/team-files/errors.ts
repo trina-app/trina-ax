@@ -34,6 +34,7 @@ export const MSG = {
   folderInTrash: { ko: '이 버전의 폴더가 휴지통에 있습니다. 휴지통에서 폴더를 먼저 되돌린 뒤 버전을 되돌리세요.', en: 'The folder of this version is in the trash. Restore the folder from the trash first, then the version.', id: 'Folder versi ini ada di tempat sampah. Pulihkan foldernya dulu, lalu versinya.', ja: "このバージョンのフォルダーはゴミ箱にあります。先にフォルダーをゴミ箱から復元し、その後バージョンを復元してください。", es: "La carpeta de esta versión está en la papelera. Restaure primero la carpeta y después la versión." },
   noPreview: { ko: '\uc774 \ud30c\uc77c\uc740 \ubbf8\ub9ac \ubcfc \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. \ub0b4\ub824\ubc1b\uc544 \uc5f4\uc5b4 \uc8fc\uc138\uc694.', en: 'This file cannot be previewed. Download it to open it.', id: 'Berkas ini tidak bisa dipratinjau. Unduh untuk membukanya.', ja: "このファイルはプレビューできません。ダウンロードして開いてください。", es: "Este archivo no admite vista previa. Descárguelo para abrirlo." },
   previewBusy: { ko: '\uc0ac\uc9c4 \ubbf8\ub9ac\ubcf4\uae30\ub97c \ub9cc\ub4dc\ub294 \uc0ac\ub78c\uc774 \ub9ce\uc2b5\ub2c8\ub2e4. \uc7a0\uc2dc \ub4a4\uc5d0 \ub2e4\uc2dc \uc2dc\ub3c4\ud558\uc138\uc694.', en: 'Many photo previews are being made now. Try again in a moment.', id: 'Banyak pratinjau foto sedang dibuat. Coba lagi sebentar lagi.', ja: "多数の写真のプレビューを作成中です。しばらくしてから再試行してください。", es: "Se están generando muchas vistas previas de fotos. Vuelva a intentarlo en un momento." },
+  pluginManaged: { ko: '플러그인이 관리하는 파일이라 여기서 바꿀 수 없습니다. 관리 > 플러그인에서 업데이트하거나, 다른 폴더로 복사해 사본을 고치세요.', en: 'A plugin manages this, so it cannot be changed here. Update the plugin in Admin > Plugins, or copy it to another folder and edit the copy.', id: 'Ini dikelola plugin sehingga tidak dapat diubah di sini. Perbarui plugin di Admin > Plugin, atau salin ke folder lain lalu ubah salinannya.', ja: "プラグインが管理しているため、ここでは変更できません。管理 > プラグインで更新するか、別のフォルダーにコピーしてコピーを編集してください。", es: "Lo administra un complemento, así que no se puede cambiar aquí. Actualice el complemento en Administración > Complementos, o cópielo a otra carpeta y edite la copia." },
   restoreTaken: { ko: '같은 이름이 있어 되돌릴 수 없습니다.', en: 'Cannot restore: the name is taken.', id: 'Tidak dapat dipulihkan: nama sudah dipakai.', ja: "同じ名前が使用されているため復元できません。", es: "No se puede restaurar: el nombre ya está en uso." },
 } satisfies Record<string, Msg>
 export type MsgKey = keyof typeof MSG
@@ -59,6 +60,8 @@ export function toHttp(e: unknown, locale: Locale, field = 'path'): unknown {
     const m = e.message
     if (m.startsWith('not found or no access')) return new HttpError('not_found')
     if (m.startsWith('read-only')) return httpError('forbidden', 'readOnly', locale)
+    // a skill pack's managed copy (server/src/plugins/manager.ts); the caller could write here, so naming it is fine
+    if (m.startsWith('managed by the plugin')) return httpError('forbidden', 'pluginManaged', locale, undefined, { reason: 'plugin_managed' })
     // the policy text names the existing sibling: it never goes into `fields` (only a fixed reason does), so even a
     // future change to the clash check cannot put a hidden name into an HTTP answer
     if (m.includes('already exists with almost the same name')) return httpError('conflict', 'nearDuplicate', locale, { [field]: 'an item with almost the same name already exists' })

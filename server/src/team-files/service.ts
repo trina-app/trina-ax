@@ -207,9 +207,11 @@ export class TeamFiles {
     return this.entry(user, rules, r.segs)
   }
 
-  /** root, users/, users/<id>/ and .system/ never move or go to the trash */
+  /** root, users/, users/<id>/ and .system/ never move or go to the trash; nor does a folder holding a skill pack's
+   * managed folder (server/src/plugins/manager.ts: turn the plugin off first) */
   private assertMovable(segs: string[]) {
     if (segs.length === 0 || (segs[0] === 'users' && segs.length <= 2) || segs[0] === PRODUCT.systemDir) fileError('forbidden', 'protectedFolder')
+    if (this.fx.managed?.heldBelow(segs)) fileError('forbidden', 'pluginManaged', undefined, { reason: 'plugin_managed' })
   }
   /** A folder may move / go to the trash only if the caller can write every rule folder inside it: otherwise
    * moving it under users/<me>/ (where rules don't apply) or deleting it would reach what they cannot see. */

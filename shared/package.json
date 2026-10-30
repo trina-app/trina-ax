@@ -17,6 +17,7 @@
     "./service-hosts": "./src/service-hosts.ts",
     "./text-encoding": "./src/text-encoding.ts",
     "./cloud-protocol": "./src/cloud-protocol/index.ts",
-    "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts"
+    "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts",
+    "./plugins": "./src/plugins.ts"
   }
 }
