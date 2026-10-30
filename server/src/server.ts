@@ -45,8 +45,9 @@ function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 
   const l = () => running.launcher as SocketLauncher | null
   return {
     ...o, db: running.db, peerCheck: proxyPeerCheck(running),
-    // a turn stopped a moment ago that already ended is no longer registered: its row says 'stopped'
-    stopReason: (turnId) => running.turns.get(turnId)?.stopReason
+    // the registry keeps the reason of a turn that ended a moment ago (also a time limit or shutdown); an older one's
+    // row still says 'stopped' when the person stopped it
+    stopReason: (turnId) => running.turns.stopReason(turnId)
       ?? ((running.db.query('SELECT status FROM turns WHERE id = ?').get(turnId) as { status: string } | null)?.status === 'stopped' ? 'stopped' : null),
     connect: {
       ...o.connect,

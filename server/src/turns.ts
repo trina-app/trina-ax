@@ -42,9 +42,15 @@ export interface Turn {
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
+/** how many ended turns keep their stop reason (TurnRegistry.stopReason) */
+const ENDED_STOPS = 256
+
 export class TurnRegistry {
   private byId = new Map<string, Turn>()
   private byHash = new Map<string, Turn>()
+  /** the stop reason of recently ended turns: a model request the stop cut off can reach the proxy's log just after
+   * revoke() (the engine's connection closes while the runtime records the end) */
+  private endedStops = new Map<string, NonNullable<Turn['stopReason']>>()
   constructor(private db: Database, private agentUid: number) {}
 
   /** New turn + token. With `existingId` (a queued turn row the chat runtime made), the row is marked running
@@ -64,6 +70,9 @@ export class TurnRegistry {
     return { turn, token }
   }
   get(id: string) { return this.byId.get(id) }
+  /** why Turn.stop stopped this turn (the person, a time limit, shutdown), also shortly after it ended; null = not
+   * stopped */
+  stopReason(id: string): NonNullable<Turn['stopReason']> | null { return this.byId.get(id)?.stopReason ?? this.endedStops.get(id) ?? null }
   /** Revoke access now; the runtime records the final status after actual termination. */
   invalidate(turnId: string, reason?: Turn['stopReason']) {
     const t = this.byId.get(turnId)
@@ -82,6 +91,10 @@ export class TurnRegistry {
   revoke(turnId: string, status: 'done' | 'error' | 'stopped' | 'interrupted' = 'done', err?: string) {
     const t = this.byId.get(turnId); if (!t) return
     t.revoked = true; this.byHash.delete(t.tokenHash); this.byId.delete(turnId)
+    if (t.stopReason) {
+      this.endedStops.set(turnId, t.stopReason)
+      if (this.endedStops.size > ENDED_STOPS) this.endedStops.delete(this.endedStops.keys().next().value!)
+    }
     t.abort.abort()
     t.waiters.splice(0).forEach((f) => f())
     this.db.query('UPDATE turns SET status = ?, ended_at = ?, error = ? WHERE id = ?').run(status, new Date().toISOString(), err ?? null, turnId)

@@ -445,7 +445,9 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   function endedByStop(req: Request, path: string, hungUp: boolean): boolean {
     const t = turnOf.get(req)
     if (!hungUp && !t?.revoked) return false
-    const why = t ? o.stopReason?.(t.turnId) ?? null : null
+    // outside the handler's try: a failing lookup (the database closing at shutdown) only loses the attribution
+    let why: TurnStopReason | null = null
+    try { why = t ? o.stopReason?.(t.turnId) ?? null : null } catch {}
     if (why) {
       o.log?.info?.('model proxy: request ended by a stop', { path, turn: t!.turnId, by: why === 'stopped' ? 'person' : why === 'timeout' ? 'time_limit' : 'shutdown' })
       return true

@@ -20,6 +20,8 @@ import { refreshIdle } from '../../server/src/credentials/chatgpt-tokens'
 import { CODEX_CLIENT_ID } from '../../server/src/credentials/openai-oauth'
 import { monthUsage } from '../../server/src/credentials/store'
 import { waitFor } from '../lib/wait'
+import { TurnRegistry } from '../../server/src/turns'
+import { openDb } from '../../server/src/db'
 
 const env = makeEnv('proxy-codex')
 type Seen = { path: string; headers: Record<string, string>; body: any }
@@ -97,10 +99,11 @@ const events: ProxyTurnEvent[] = []
 const logged: Record<string, unknown>[] = []
 const at = (level: string) => (msg: string, f: Record<string, unknown> = {}) => { logged.push({ level, msg, ...f }) }
 const stopped = new Map<string, 'stopped' | 'timeout' | 'shutdown'>()
+let stopLookupFails = false
 const broker = createBroker(t.cc)
 onUsage(t.cc, (_u, c) => afterCredentialUsage(t.cc, c)) // the monthly connection limits, as brokerOf() wires them
 const proxy = await startModelProxy({ db: env.db, broker, codexModels: () => ['gpt-5.4', 'gpt-6.1-sol'], onTurnEvent: (_t, ev) => events.push(ev),
-  log: { warn: at('warn'), info: at('info'), debug: at('debug') }, stopReason: (turnId) => stopped.get(turnId) ?? null })
+  log: { warn: at('warn'), info: at('info'), debug: at('debug') }, stopReason: (turnId) => { if (stopLookupFails) throw new Error('database closed'); return stopped.get(turnId) ?? null } })
 afterAll(async () => { await proxy.stop(); fake.stop(true) })
 
 let G = ''
@@ -502,5 +505,38 @@ describe('what is logged', () => {
       expect((await post('chatgpt', tok)).status).toBe(401) // a revoked token of a turn nobody stopped: a warning as before
       expect(logged).toEqual([{ level: 'warn', msg: 'model proxy: request not ok', status: 401, path: '/codex/chatgpt/responses', reason: 'authentication_error: invalid proxy token' }])
     } finally { stopped.delete('cx') }
+  })
+  test('a stop-reason lookup that fails (the database closing at shutdown) loses only the attribution: the usual answer and line', async () => {
+    // the lookup runs outside the request handler's try: a throw there answered 500 and logged nothing
+    freshChatgpt()
+    stopLookupFails = true
+    try {
+      respMode = 'hold'
+      await hangUp(tokFor(G))
+      expect(logged).toEqual([{ level: 'warn', msg: 'model proxy: the engine hung up before its answer', path: '/codex/chatgpt/responses', turn: 'cx' }])
+      respMode = 'ok'
+      const tok = tokFor(G)
+      env.db.query("UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = 'cx'").run(new Date().toISOString())
+      logged.length = 0
+      expect((await post('chatgpt', tok)).status).toBe(401)
+      expect(logged).toEqual([{ level: 'warn', msg: 'model proxy: request not ok', status: 401, path: '/codex/chatgpt/responses', reason: 'authentication_error: invalid proxy token' }])
+    } finally { stopLookupFails = false; respMode = 'ok' }
+  })
+  test('the turn registry keeps why a turn was stopped after it ended: a time limit or shutdown reaches the log just after', () => {
+    // the engine's connection closes while the runtime records the end; the turn row says 'error' / 'interrupted' then
+    const db = openDb(':memory:')
+    try {
+      db.query("INSERT INTO users(id,username,name,role) VALUES('u','u','U','member')").run()
+      const reg = new TurnRegistry(db, 0)
+      const [a, b, c, d] = [0, 1, 2, 3].map(() => reg.create('u', 'c', 'codex').turn.id) as [string, string, string, string]
+      reg.invalidate(a, 'timeout'); reg.invalidate(b, 'shutdown'); reg.invalidate(c, 'stopped')
+      expect([a, b, c, d].map((id) => reg.stopReason(id))).toEqual(['timeout', 'shutdown', 'stopped', null])
+      reg.revoke(a, 'error'); reg.revoke(b, 'interrupted'); reg.revoke(c, 'stopped'); reg.revoke(d, 'done')
+      expect(reg.get(a)).toBeUndefined()
+      expect([a, b, c, d].map((id) => reg.stopReason(id))).toEqual(['timeout', 'shutdown', 'stopped', null])
+      // the newest 256 only
+      for (let i = 0; i < 256; i++) { const id = reg.create('u', 'c', 'codex').turn.id; reg.invalidate(id, 'stopped'); reg.revoke(id, 'stopped') }
+      expect(reg.stopReason(a)).toBeNull()
+    } finally { db.close() }
   })
 })
