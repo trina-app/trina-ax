@@ -221,6 +221,7 @@ export const ko = {
   'chat.footer': 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 채팅은 나만 볼 수 있어요.',
   "outbox.label": "보낼 메시지",
   "outbox.placeholder": "다음 메시지를 입력하세요. 답이 끝나면 보내요",
+  "outbox.placeholderChoice": "먼저 위에서 골라 주세요. 지금 입력한 메시지는 답이 끝나면 보내요",
   "outbox.sendLater": "답이 끝나면 보내기",
   "outbox.waitingOne": "답이 끝나면 보낼게요.",
   "outbox.waitingMany": "답이 끝나면 {n}개를 한 메시지로 함께 보낼게요.",
@@ -235,6 +236,9 @@ export const ko = {
 
   'composer.label': '메시지',
   'composer.placeholder': '무엇이든 물어보세요',
+  "composer.answerPlaceholder": "AI의 질문에 대한 답을 입력하세요",
+  "composer.answering": "보내면 이 질문에 대한 답이 돼요: {question}",
+  "composer.sendAnswer": "답 보내기",
   'skills.menu': '팀 스킬',
   'skills.hint': 'Enter로 고르기 · Esc로 닫기',
   'skills.personal': '개인',

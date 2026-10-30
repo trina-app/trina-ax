@@ -1,11 +1,13 @@
 // ask_user: the AI asks back mid-answer (options and/or free text), and browser_site: the in-app browser wants an
 // office-network address. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
 // another window, timed out, turn ended). Ordinary form controls (radios / checkboxes / buttons) for keyboards
-// and screen readers.
+// and screen readers. The AI's own questions can also be answered from the message box (lib/askAnswer.ts): what is
+// ticked here goes along with that answer when the question takes several.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { errorText } from '../../lib/api'
+import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
 import type { SkillWritePreview } from '@mycel/shared/api'
@@ -21,6 +23,8 @@ export default function AskCard({ req }: { req: OpenRequest }) {
   const [error, setError] = useState<string | null>(null)
   const name = useId()
   const r = req.request
+  useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
+  useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
 
   const run = async (body: Parameters<typeof answer>[1]) => {
     setBusy(true)

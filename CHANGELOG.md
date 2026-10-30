@@ -6,6 +6,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 ## Unreleased
 
 - The AI sees images and PDF pages like Claude Code: `read` shows photos and screenshots as images, PDFs read by `pages` (scanned pages as page images), on by default and decoupled from safe ops 1A (no confidential lock); admins can turn it off. Linux servers no longer run OCR (tesseract removed): scanned documents and photos are not text-searchable there; macOS keeps Apple Vision for the search index of scanned PDFs.
+- Chat: while the AI waits for the answer to its question, sending from the message box answers it (the typed text, plus what is ticked on a several-answers card) instead of waiting until the answer is done; the box says so. The server's safety checks still take only their own buttons.
 - Chat: a step that was still running when an answer paused at its time limit shows as paused, not as a failed step.
 
 ## 0.2.10 — 2026-10-30

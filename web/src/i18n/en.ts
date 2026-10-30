@@ -222,6 +222,7 @@ export const en: Record<MessageKey, string> = {
   'chat.footer': 'AI can make mistakes. Check important information. Only you can see your chats.',
   "outbox.label": "Messages waiting to send",
   "outbox.placeholder": "Type your next message — it goes when the answer is done",
+  "outbox.placeholderChoice": "Choose above first — a message typed now goes when the answer is done",
   "outbox.sendLater": "Send when the answer is done",
   "outbox.waitingOne": "Sends when the answer is done.",
   "outbox.waitingMany": "{n, plural, one {# message goes} other {# messages go}} together as one when the answer is done.",
@@ -236,6 +237,9 @@ export const en: Record<MessageKey, string> = {
 
   'composer.label': 'Message',
   'composer.placeholder': 'Ask anything',
+  "composer.answerPlaceholder": "Type your answer to the AI's question",
+  "composer.answering": "Your message will answer: {question}",
+  "composer.sendAnswer": "Send answer",
   'skills.menu': 'Team skills',
   'skills.hint': 'Enter to choose · Esc to close',
   'skills.personal': 'Personal',

@@ -5,7 +5,7 @@
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
-// at the time limit a step still running ends paused);
+// at the time limit a step still running ends paused), "multi" with "ask" (a question with several answers);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
@@ -429,7 +429,9 @@ export class MockServer {
       const requestId = 'q1'
       const request: TurnRequest = /safety/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
-        : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
+        : /multi/i.test(prompt)
+          ? { kind: 'ask_user', requestId, question: '보고서에 어느 분기를 넣을까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], multiple: true, allowText: true }
+          : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
@@ -732,7 +734,8 @@ export class MockServer {
     },
     answerTurn: (c) => {
       const r = this.pendingAsk.get(c.params.id!)
-      if (!r) fail('not_found', 404)
+      // like server/src/routes/chats.ts: answered already (another window) or closed
+      if (!r) fail('conflict', 409, '이미 답했거나 시간이 지난 질문입니다.')
       this.pendingAsk.delete(c.params.id!)
       r!(c.body.kind === 'ask_user' ? c.body.answer : c.body.decision)
       return undefined

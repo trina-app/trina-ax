@@ -2,14 +2,16 @@
 // drop, paste, camera on phones) uploaded right away (chunked when large), voice input → transcription job → text,
 // engine / model choice, stop while an answer runs. The draft text is kept per chat across reloads.
 // While an answer runs the box stays usable: Enter (or the clock button next to Stop) hands the message to the chat,
-// which keeps it waiting and sends it when the answer is done (store/sendQueue.ts).
+// which keeps it waiting and sends it when the answer is done (store/sendQueue.ts). While the AI waits for an answer
+// to its question (an ask_user card), sending answers that question instead (lib/askAnswer.ts): text only, attached
+// files stay in the box for the next message.
 // The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
@@ -57,6 +59,8 @@ export default function Composer({
   ensureChat,
   running,
   onSend,
+  answering,
+  choiceWaiting,
   onStop,
   engine,
   onEngine,
@@ -72,6 +76,10 @@ export default function Composer({
   ensureChat: () => Promise<string>
   running: boolean
   onSend: (text: string, attachments: Attachment[]) => Promise<void>
+  /** the AI waits for the answer to its question in this chat: sending answers it with the text */
+  answering?: { question: string; onAnswer: (text: string) => Promise<void> }
+  /** a card in this chat waits for a choice only its own buttons make (a server safety check, a browser site) */
+  choiceWaiting?: boolean
   onStop: () => Promise<void>
   engine: EngineChoice
   /** only for people who may pick the engine (store/session canChooseEngine): without it there is no picker */
@@ -125,6 +133,7 @@ export default function Composer({
   const camRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const recorder = useRecorder()
+  const answeringId = useId()
 
   useImperativeHandle(ref, () => ({
     prepareDraft(request) {
@@ -280,13 +289,29 @@ export default function Composer({
 
   const uploading = files.some((f) => f.status === 'uploading')
   const ready = files.filter((f) => f.status === 'done')
-  // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done
-  const canSend = !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0)
+  // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done. An answer to
+  // the AI's question is the text alone (an upload in progress does not hold it up).
+  const canSend = answering
+    ? !sending && !transcribing && recorder.state === 'idle' && text.trim().length > 0
+    : !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0)
 
   const submit = async () => {
     if (!canSend) return
     setSending(true)
     setError(null)
+    if (answering) {
+      // a failure (the question was answered in another window or closed meanwhile) keeps the text and says why
+      try {
+        await answering.onAnswer(text)
+        setText('')
+        writeDraft(userId, draftId, '')
+      } catch (e) {
+        setError(errorText(e, locale, t('error.network')))
+      } finally {
+        setSending(false)
+      }
+      return
+    }
     const body = text
     const atts = ready.map((f) => f.attachment!)
     try {
@@ -453,11 +478,18 @@ export default function Composer({
         ) : (
           <>
             {skillMenu.menu}
+            {answering && (
+              <p id={answeringId} className="flex items-center gap-1.5 px-5 pt-3 text-xs text-muted" data-testid="composer-answering">
+                <MessageCircleQuestion size={13} className="shrink-0 text-accent-text" aria-hidden />
+                <span className="min-w-0 truncate">{t('composer.answering', { question: answering.question.slice(0, 300) })}</span>
+              </p>
+            )}
             <textarea
               ref={taRef}
               rows={1}
               value={text}
               aria-label={t('composer.label')}
+              aria-describedby={answering ? answeringId : undefined}
               onChange={(e) => setText(e.target.value)}
               onPaste={(e) => {
                 const pasted = Array.from(e.clipboardData.files)
@@ -475,9 +507,9 @@ export default function Composer({
                   void submit()
                 }
               }}
-              placeholder={transcribing ? t('voice.transcribing') : running ? t('outbox.placeholder') : t('composer.placeholder')}
+              placeholder={transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : t('composer.placeholder')}
               disabled={transcribing}
-              className="block max-h-[240px] w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[15px] outline-none placeholder:text-faint"
+              className={clsx('block max-h-[240px] w-full resize-none bg-transparent px-5 pb-2 text-[15px] outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-4')}
               data-testid="composer-input"
             />
             <div className="flex items-center justify-between gap-2 px-3 pb-3">
@@ -622,28 +654,38 @@ export default function Composer({
                     <MicOff size={18} />
                   </IconButton>
                 )}
-                {running && canSend && (
-                  // phones make a new line with Enter: this button is how a message waits for the answer there
-                  <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-ink transition hover:bg-accent-hover sm:h-9 sm:w-9" data-testid="send-later">
-                    <Clock size={17} aria-hidden />
-                  </button>
-                )}
+                {answering
+                  ? canSend && (
+                      // the AI's question: also how phones (Enter makes a new line there) answer from the box
+                      <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} title={t('composer.sendAnswer')} className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-ink transition hover:bg-accent-hover sm:h-9 sm:w-9" data-testid="send-answer">
+                        {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} />}
+                      </button>
+                    )
+                  : running &&
+                    canSend && (
+                      // phones make a new line with Enter: this button is how a message waits for the answer there
+                      <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-ink transition hover:bg-accent-hover sm:h-9 sm:w-9" data-testid="send-later">
+                        <Clock size={17} aria-hidden />
+                      </button>
+                    )}
                 {running ? (
                   <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="flex h-10 w-10 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40 sm:h-9 sm:w-9" data-testid="stop">
                     {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={submit}
-                    disabled={!canSend}
-                    aria-label={t('chat.send')}
-                    title={t('chat.send')}
-                    className={clsx('flex h-10 w-10 items-center justify-center rounded-full transition sm:h-9 sm:w-9', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-                    data-testid="send"
-                  >
-                    {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} />}
-                  </button>
+                  !answering && (
+                    <button
+                      type="button"
+                      onClick={submit}
+                      disabled={!canSend}
+                      aria-label={t('chat.send')}
+                      title={t('chat.send')}
+                      className={clsx('flex h-10 w-10 items-center justify-center rounded-full transition sm:h-9 sm:w-9', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+                      data-testid="send"
+                    >
+                      {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={18} />}
+                    </button>
+                  )
                 )}
               </div>
             </div>

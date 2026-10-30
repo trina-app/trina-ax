@@ -34,7 +34,7 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
 export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
-  ask_user: 'Ask the user a question and wait for the answer. Offer options when you can (the user may also type an answer if allowText). Returns {"answer": ...} or {"skipped": true} when the user does not answer in time.',
+  ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
 } as const
 

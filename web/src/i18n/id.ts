@@ -222,6 +222,7 @@ export const id: Record<MessageKey, string> = {
   'chat.footer': 'AI bisa salah. Cek lagi informasi penting. Chat kamu hanya bisa dilihat oleh kamu.',
   "outbox.label": "Pesan yang menunggu dikirim",
   "outbox.placeholder": "Ketik pesan berikutnya — dikirim setelah jawaban selesai",
+  "outbox.placeholderChoice": "Pilih di atas dulu — pesan yang diketik sekarang dikirim setelah jawaban selesai",
   "outbox.sendLater": "Kirim setelah jawaban selesai",
   "outbox.waitingOne": "Dikirim setelah jawaban selesai.",
   "outbox.waitingMany": "{n} pesan akan dikirim bersama sebagai satu pesan setelah jawaban selesai.",
@@ -236,6 +237,9 @@ export const id: Record<MessageKey, string> = {
 
   'composer.label': 'Pesan',
   'composer.placeholder': 'Tanya apa saja',
+  "composer.answerPlaceholder": "Ketik jawaban untuk pertanyaan AI",
+  "composer.answering": "Pesan Anda akan menjawab: {question}",
+  "composer.sendAnswer": "Kirim jawaban",
   'skills.menu': 'Skill tim',
   'skills.hint': 'Enter untuk memilih · Esc untuk menutup',
   'skills.personal': 'Pribadi',

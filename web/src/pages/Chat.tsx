@@ -1,12 +1,14 @@
 // The chat screen: the visible branch with streaming answers and the composer. Regenerate and edit make a new
 // branch (the AI's team-folder changes are not undone — the confirm dialog says so); "‹ 2/3 ›" switches branches.
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
-// (store/sendQueue.ts, components/chat/QueuedMessages.tsx).
+// (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
+// message box answers that question instead (lib/askAnswer.ts).
 import { FolderKanban, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
+import { choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
@@ -80,6 +82,9 @@ function ChatView({ chatId }: { chatId: string }) {
 
   const messages = thread.messages
   const running = runningMessage(messages)
+  // the AI's open question in this chat (the message box answers it), and cards only their own buttons answer
+  const question = useChats((s) => composerQuestion(s.requests, chatId))
+  const choosing = useChats((s) => choiceWaiting(s.requests, chatId))
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
 
   // screen readers: "answer in progress" → "answer done", never the streaming text itself
@@ -188,6 +193,16 @@ function ChatView({ chatId }: { chatId: string }) {
     await send({ chatId, content: text, attachments, author })
   }
 
+  /** Sent from the message box while the AI waits for the answer to its question: the text answers it, like the card's
+   * own box ("Other" in Claude Code). On a question with several answers the options ticked on the card go along. */
+  const onAnswer = async (text: string) => {
+    const q = composerQuestion(useChats.getState().requests, chatId)
+    // the card closed in the moment before (answered in another window, timed out): the text goes like any message
+    if (!q) return onSend(text, [])
+    stick.current = true
+    await useChats.getState().answer(q.request.requestId, { kind: 'ask_user', answer: composerAnswer(q.request, picksOf(q.request.requestId), text) })
+  }
+
   /** "이어서 하기" under an answer that paused at the per-answer limit: a plain message in this chat; the server tells
    * the AI where it stopped (server/src/chat/prompt.ts continuationBlock) and usage counts as for any message */
   const onContinue = () => {
@@ -257,6 +272,8 @@ function ChatView({ chatId }: { chatId: string }) {
             ensureChat={async () => chatId}
             running={busy}
             onSend={onSend}
+            answering={question ? { question: question.request.question, onAnswer } : undefined}
+            choiceWaiting={choosing}
             onStop={() => stop(chatId)}
             engine={{ engine: chat?.engine, model: chat?.model }}
             onEngine={choose ? onEngine : undefined}

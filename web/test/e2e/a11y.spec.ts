@@ -233,7 +233,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByTestId('composer-input').fill('please ask me something')
     await page.getByTestId('send').click()
     await expect(page.getByTestId('ask-card')).toBeVisible()
-    await audit(page, 'ask card')
+    await expect(page.getByTestId('composer-answering')).toBeVisible()
+    await page.getByTestId('composer-input').fill('3분기요')
+    await expect(page.getByTestId('send-answer')).toBeVisible()
+    await audit(page, 'ask card + the message box answering it')
   })
 }
 
