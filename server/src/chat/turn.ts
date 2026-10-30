@@ -355,6 +355,8 @@ export class TurnExec {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
+        // the attempt that answers says whether it reached the tool-call limit (not one that was switched or retried)
+        this.limitReason = null
         // where this attempt's text starts: a refused attempt's text is discarded from here (below)
         this.flushText()
         const textStart = this.content.length
