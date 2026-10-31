@@ -268,3 +268,51 @@ test('this repository: the server and office notice bundles carry the Public Suf
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+test('a staged font (Noto Sans CJK in the Linux bundle) gets the project notice and the OFL text, or the release fails', async () => {
+  const { writeReleaseNotices, verifyReleaseNotices, BUNDLED_FONTS } = await api(); const f = fixture()
+  try {
+    const cjk = BUNDLED_FONTS.find(b => b.id === 'noto-sans-cjk')!
+    expect(cjk).toMatchObject({ license: 'OFL-1.1', source: 'https://github.com/notofonts/noto-cjk' })
+    // no font staged: nothing to say
+    expect(writeReleaseNotices(f.options).bundledFonts).toEqual([])
+    fs.mkdirSync(path.join(f.artifact, 'fonts'), { recursive: true })
+    fs.writeFileSync(path.join(f.artifact, 'fonts/NotoSansCJK-Regular.ttc'), 'synthetic font')
+    // the font is there, the project's notice is not: no release
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_font_notice_missing')
+    const ofl = 'SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007\n'
+    f.put(`${cjk.dir}/NOTICE.txt`, 'Noto Sans CJK, a font.\n'); f.put(`${cjk.dir}/OFL-1.1.txt`, ofl)
+    // a notice without the source and the licence is refused, and so is a licence file that is not the OFL
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_font_notice_invalid')
+    const notice = 'Noto Sans CJK, OFL-1.1. Source: https://github.com/notofonts/noto-cjk\n'
+    f.put(`${cjk.dir}/NOTICE.txt`, notice); f.put(`${cjk.dir}/OFL-1.1.txt`, 'some other licence\n')
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_font_notice_invalid')
+    f.put(`${cjk.dir}/OFL-1.1.txt`, ofl)
+    const m = writeReleaseNotices({ ...f.options, target: 'linux' })
+    expect(m.bundledFonts).toEqual([{ id: 'noto-sans-cjk', name: 'Noto Sans CJK', license: 'OFL-1.1', source: 'https://github.com/notofonts/noto-cjk',
+      files: ['fonts/NotoSansCJK-Regular.ttc'], documents: ['licenses/noto-sans-cjk/NOTICE.txt', 'licenses/noto-sans-cjk/OFL-1.1.txt'] }])
+    expect(fs.readFileSync(path.join(f.artifact, 'licenses/noto-sans-cjk/NOTICE.txt'), 'utf8')).toBe(notice)
+    expect(m.documents.find(d => d.path === 'licenses/noto-sans-cjk/OFL-1.1.txt')).toMatchObject({ source: 'bundled-font', component: 'noto-sans-cjk' })
+    // the font itself is an inventoried artifact (hash and size)
+    expect(m.artifacts.find(a => a.path === 'fonts/NotoSansCJK-Regular.ttc')).toMatchObject({ sha256: sha('synthetic font'), bytes: 14 })
+    expect(() => verifyReleaseNotices(f.artifact)).not.toThrow()
+  } finally { f.close() }
+})
+
+test('this repository: the Noto Sans CJK notice names the pinned files and carries the OFL as the project publishes it', async () => {
+  const { BUNDLED_FONTS } = await api()
+  const { LINUX_FONTS } = await import('../../scripts/linux/downloads')
+  const repo = path.resolve(import.meta.dir, '../..')
+  const cjk = BUNDLED_FONTS.find(b => b.id === 'noto-sans-cjk')!
+  const notice = fs.readFileSync(path.join(repo, cjk.dir, 'NOTICE.txt'), 'utf8')
+  expect(cjk.staged.map(s => s.replace(/^fonts\//, '')).sort()).toEqual(Object.keys(LINUX_FONTS).sort())
+  for (const [name, d] of Object.entries(LINUX_FONTS)) {
+    expect(notice).toContain(name)
+    expect(notice).toContain(d.sha256)
+    expect(d.url).toContain('523d033d6cb47f4a80c58a35753646f5c3608a78')
+    expect(notice).toContain('523d033d6cb47f4a80c58a35753646f5c3608a78')
+  }
+  expect(notice).toContain('© 2014-2021 Adobe')
+  // the repository's LICENSE at that commit (the same bytes as the HWP plugin's Noto Sans KR licence)
+  expect(sha(fs.readFileSync(path.join(repo, cjk.dir, 'OFL-1.1.txt')))).toBe('6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2')
+})

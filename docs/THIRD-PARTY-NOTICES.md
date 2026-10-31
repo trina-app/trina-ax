@@ -14,6 +14,8 @@ Saram/chat-proto 12개 명시 파일과 ee/cloud는 [PUBLICATION](PUBLICATION.md
 
 서버의 `tldts@7.0.30`·`tldts-core@7.0.30`(MIT, 2026-10-30)은 Public Suffix List(MPL-2.0, https://publicsuffix.org/list/) 데이터를 코드에 담고 있다. 패키지 `LICENSE`(MIT)는 서버 묶음 고지에 자동 복사된다. PSL의 MPL-2.0 고지와 원본 위치는 패키지에 없어서 저장소의 `resources/notices/public-suffix-list/`(고지와 MPL-2.0 원문)에 두고, 고지 수집기(`scripts/release-notices.ts` `EMBEDDED_DATA`)가 tldts가 든 모든 서버·사무실 묶음의 `licenses/public-suffix-list/`에 자동으로 넣는다(2026-10-31). 파일이 없거나 고지에 원본 위치·라이선스가 없으면 빌드가 멈추고, `tests/unit/release-notices.test.ts`가 이 저장소로 확인한다.
 
+리눅스 서버 묶음의 `fonts/`에는 Noto Sans CJK 2.004 Regular·Bold(OFL-1.1, https://github.com/notofonts/noto-cjk 태그 Sans2.004의 `Sans/OTC/*.ttc`, 바꾸지 않음)가 들어간다(2026-11-01, AI가 만드는 PDF의 한글·일본어·중국어). 같은 파일이 Debian 13의 `fonts-noto-cjk`에도 있다(SHA-256 같음). 고지와 OFL 원문은 `resources/notices/noto-sans-cjk/`에 두고, 고지 수집기(`BUNDLED_FONTS`)가 글꼴이 든 묶음의 `licenses/noto-sans-cjk/`에 넣는다. 고지가 없으면 빌드가 멈춘다. HWP 미리보기 플러그인의 Noto Sans KR(한글만 든 부분 글꼴)은 그와 별개로 플러그인 꾸러미에만 들어간다.
+
 앱 웹 번들의 React/KaTeX/pdf.js/Office/viewer/vendor/폰트, 서버의 web-push와 semantic runtime, desktop의 Electron/Chromium 등은 최종 artifact에서 실제 포함 버전·전이 구성요소를 확정해야 한다. lockfile/단일 SPDX metadata만으로 모든 저작권 문구·복합 라이선스를 대체하지 않는다. JSZip의 선택형 허락, pako의 복합 허락, libvips의 별도 LGPL 및 linked library 고지도 구분한다.
 
 최종 release에는 파일/패키지·버전·출처 revision·SHA·허락 원문·저작권·수정 내역·선택한 제공 방식이 연결된 목록과 고지 묶음을 넣는다. 필요한 대응 소스·설치/재링크 자료를 보존하고 실제 zip/tar/app/image/web output에 포함되는지 검사한다.

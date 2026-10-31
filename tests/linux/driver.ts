@@ -232,12 +232,14 @@ if (SANDBOX) {
 // Codex path against fake providers, on Linux; docs/DECISIONS.md "AI 연결" CR-20)
 // (+ images and PDF pages the AI sees: the real normalizer and pdftoppm in bwrap and the converter cgroup, the access
 // matrix, and no OCR anywhere on Linux; docs/DECISIONS.md "AI sees images and PDF pages")
+// (+ PDFs the AI makes: Korean, Japanese and Chinese drawn with the bundle's fonts, typst in bwrap; 0.2.15 QA B1)
 const ut = Bun.spawnSync(['bun', 'test', 'unit/policy.test.ts', 'unit/files.test.ts', 'unit/engine.test.ts', 'unit/proxy.test.ts',
   'unit/a-credentials-store.test.ts', 'unit/a-credentials-resolve.test.ts', 'unit/proxy-credentials.test.ts', 'unit/proxy-codex.test.ts', 'unit/a-prices.test.ts',
-  'unit/vision-read.test.ts', 'unit/vision-ocr-boundary.test.ts', 'security/vision-matrix.test.ts'], { cwd: path.resolve(import.meta.dir, '..'), env: { ...process.env } })
+  'unit/vision-read.test.ts', 'unit/vision-ocr-boundary.test.ts', 'security/vision-matrix.test.ts', 'unit/make-file-pdf-fonts.test.ts', 'unit/vision-workdir.test.ts'],
+  { cwd: path.resolve(import.meta.dir, '..'), env: { ...process.env } })
 const utOut = ut.stdout.toString() + ut.stderr.toString()
 out.unit = (utOut.match(/(\d+) pass[\s\S]*?(\d+) fail/) ?? [])[0]
-check('unit tests (policy, files, engine, proxy, AI connections, AI image reads) on Linux', ut.exitCode === 0, utOut.split('\n').filter((l) => /fail|✗/.test(l)).slice(0, 10).join('\n'))
+check('unit tests (policy, files, engine, proxy, AI connections, AI image reads, CJK PDFs) on Linux', ut.exitCode === 0, utOut.split('\n').filter((l) => /fail|✗/.test(l)).slice(0, 10).join('\n'))
 
 out.checks = checks
 out.failed = checks.filter((c) => !c.ok).length

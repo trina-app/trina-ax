@@ -36,6 +36,14 @@ export interface ServerConfig {
  * to server/src (linux-runtime spec 3.6.1). Absent in a source checkout. */
 const BUNDLE_BIN = path.resolve(import.meta.dir, '..', '..', 'bin')
 
+/** The fonts the server ships for the PDFs the AI makes: app/<v>/fonts of a Linux bundle (Noto Sans CJK; scripts/build-bundle.ts
+ * LINUX_FONT_FILES), or MYCEL_FONT_DIR (tests, a source checkout on Linux). Its real path, or null: a source checkout or
+ * a Mac, where typst finds the system's fonts (Apple SD Gothic Neo on macOS). */
+export function bundledFontDir(): string | null {
+  const dir = process.env.MYCEL_FONT_DIR || path.resolve(import.meta.dir, '..', '..', 'fonts')
+  try { return fs.statSync(dir).isDirectory() ? fs.realpathSync(dir) : null } catch { return null }
+}
+
 export function which(name: string, extra: string[] = []): string | null {
   const dirs = [BUNDLE_BIN, ...extra, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(process.env.PATH ?? '').split(':')]
   for (const d of dirs) {

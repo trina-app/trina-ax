@@ -7,8 +7,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { assertLinuxHost, elfArch, kitName, LINUX_ROOT_NATIVE, LINUX_ROOT_SCRIPTS, linuxBundleFiles, parseBundleArgs, SERVER_KIT, whisperFiles } from '../../scripts/build-bundle'
-import { downloadFor, LINUX_DOWNLOADS, parseChecksums, unzipMember } from '../../scripts/linux/downloads'
+import { assertLinuxHost, elfArch, kitName, LINUX_FONT_FILES, LINUX_ROOT_COPIES, LINUX_ROOT_NATIVE, LINUX_ROOT_SCRIPTS, linuxBundleFiles, parseBundleArgs, SERVER_KIT, whisperFiles } from '../../scripts/build-bundle'
+import { downloadFor, LINUX_DOWNLOADS, LINUX_FONTS, parseChecksums, unzipMember } from '../../scripts/linux/downloads'
 import { catalogFromCache, checkEnginesLock, checkLockedCatalog, codexAsset, codexCatalogName, pinnedVersion } from '../../scripts/linux/lock-engines'
 import { ortPlatformDir } from '../../scripts/vendor-semantic'
 
@@ -83,6 +83,30 @@ describe('pinned downloads (scripts/linux/downloads.ts)', () => {
     const urls = Object.values(LINUX_DOWNLOADS).map((d) => d.url)
     const want: [string, string][] = [['bun', `bun-v${versions.bun}/`], ['ripgrep', `/${versions.ripgrep}/`], ['pandoc', `/${versions.pandoc}/`], ['typst', `/v${versions.typst}/`], ['whisper.cpp', `/v${versions['whisper.cpp']!.split(' ')[0]}.tar.gz`]]
     for (const [tool, part] of want) expect({ tool, found: urls.some((u) => u.includes(part)) }).toEqual({ tool, found: true })
+  })
+  test('fonts: Noto Sans CJK Regular and Bold, pinned to one upstream commit, in the version folder (not a root file)', () => {
+    expect(Object.keys(LINUX_FONTS).sort()).toEqual(['NotoSansCJK-Bold.ttc', 'NotoSansCJK-Regular.ttc'])
+    for (const [name, d] of Object.entries(LINUX_FONTS)) {
+      expect(d.url).toBe(`https://github.com/notofonts/noto-cjk/raw/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTC/${name}`)
+      expect(d.sha256).toMatch(/^[0-9a-f]{64}$/)
+      expect([d.arch, d.tool]).toEqual(['source', 'font'])
+    }
+    const files = linuxBundleFiles({ arch: 'arm64', codexVersion: '0.163.0', whisper: false, systemd: [] })
+    for (const f of LINUX_FONT_FILES) expect(files).toContain(`fonts/${f}`)
+    expect(files).toContain('licenses/noto-sans-cjk/NOTICE.txt')
+    expect(files).toContain('licenses/noto-sans-cjk/OFL-1.1.txt')
+    // an update of the version folder brings them; root never has to install anything for them (needsRoot)
+    expect(LINUX_ROOT_COPIES.some((c) => c.startsWith('fonts/'))).toBe(false)
+  })
+  test('the Linux test image fetches typst and the fonts with the same pins as the bundle', () => {
+    const docker = fs.readFileSync(path.join(ROOT, 'tests', 'linux', 'Dockerfile'), 'utf8')
+    for (const d of Object.values(LINUX_FONTS)) { expect(docker).toContain(d.sha256); expect(docker).toContain(d.url.slice(0, d.url.lastIndexOf('/'))) }
+    for (const arch of ['amd64', 'arm64'] as const) {
+      const t = LINUX_DOWNLOADS[downloadFor('typst', arch)]!
+      expect(docker).toContain(t.sha256)
+      expect(t.url).toContain(`/v${versions.typst}/`)
+    }
+    expect(docker).toContain(`releases/download/v${versions.typst}/typst-$T-unknown-linux-musl.tar.xz`)
   })
   test('amd64 bun is the baseline build (tenant CPUs are x86-64-v2, no AVX2 promise)', () => {
     expect(downloadFor('bun', 'amd64')).toBe('bun-linux-x64-baseline.zip')

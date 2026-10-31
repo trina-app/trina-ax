@@ -102,6 +102,7 @@ MALLORY=$(setpriv --reuid mallory --regid mallory --init-groups env -i PATH=/usr
 const c=require("net").createConnection("/run/mycel-launcher/launcher.sock",()=>c.write(JSON.stringify({op:"tcp-peer",clientPort:1,serverPort:2})+"\n"));let b="";c.on("data",d=>b+=d);c.on("close",()=>console.log(b.trim()));c.on("error",e=>console.log("error "+e.code))')
 echo "mallory->launcher: $MALLORY"; echo "launcher log: $(cat /tmp/launcher.log)"
 ( echo $BASHPID > $CG/server/cgroup.procs
-  exec $AS_SERVER MYCEL_WORK=/srv/mycel MYCEL_NATIVE_BIN=$BIN SERVER_SECRET=CANARY-SRVENV-5521 \
+  # MYCEL_TYPST_BIN / MYCEL_FONT_DIR (the image's typst and the bundle's fonts): make_file PDFs with Korean, Japanese, Chinese
+  exec $AS_SERVER MYCEL_WORK=/srv/mycel MYCEL_NATIVE_BIN=$BIN SERVER_SECRET=CANARY-SRVENV-5521 MYCEL_TYPST_BIN="$MYCEL_TYPST_BIN" MYCEL_FONT_DIR="$MYCEL_FONT_DIR" \
     AGENT_UID="$AG_UID" MALLORY_SAYS="$MALLORY" MYCEL_FAKE_ENGINE_DIR=/opt/fake-engine MYCEL_SANDBOX_HELPER=$BASE/root/mycel-sandbox \
     MYCEL_T1_BASE=$BASE MYCEL_T1_CGROUP=$CG PROBE_PROXY_PORT=$PROXY_PORT bun /opt/mycel/tests/linux/driver.ts )

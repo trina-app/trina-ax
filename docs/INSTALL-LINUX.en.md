@@ -23,6 +23,8 @@ The server learns its own public address from the release feed (`https://updates
 
 HWP/HWPX text extraction is available. Visual previews are the optional HWP Preview plugin: installing it from the official list in Admin > Plugins makes the server download the pinned build over https from the release feed (the address updates come from), so that outbound connection must be open. Default release kits do not include the rhwp executable. Debian 12 does not support visual previews and Admin > Plugins says so (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md).
 
+Korean, Japanese and Chinese in PDFs: the PDFs the AI makes are drawn with the Noto Sans CJK fonts in the kit (`app/<version>/fonts/`, OFL-1.1, notice in `licenses/noto-sans-cjk/`). A Linux server has no font for these characters, so up to 0.2.15 they came out as empty boxes. Nothing to install on the server: an installed server gets the fonts with its normal update (no root step, no apt). PDFs made before that need to be made again. The fonts add about 32 MB to the kit (40 MB unpacked).
+
 ## Download, verify, check
 
 Use a new download directory. Resolve the latest release once and use the same version for all files:

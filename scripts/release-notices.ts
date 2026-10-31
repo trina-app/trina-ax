@@ -14,6 +14,16 @@ export const EMBEDDED_DATA = [
   { id: 'public-suffix-list', name: 'Public Suffix List', package: 'tldts', license: 'MPL-2.0', source: 'https://publicsuffix.org/list/',
     dir: 'resources/notices/public-suffix-list', files: ['NOTICE.txt', 'MPL-2.0.txt'] },
 ] as const
+/**
+ * Font files a bundle ships unchanged (scripts/build-bundle.ts: app/<version>/fonts/ of the Linux server bundle, for the
+ * PDFs the AI makes). Whenever the artifact holds one of `staged`, the project's notice for the fonts (`dir`: what they
+ * are, their copyright, source and the full licence) is copied to `licenses/<id>/`; a release with a font and without
+ * the notice fails.
+ */
+export const BUNDLED_FONTS = [
+  { id: 'noto-sans-cjk', name: 'Noto Sans CJK', license: 'OFL-1.1', source: 'https://github.com/notofonts/noto-cjk',
+    staged: ['fonts/NotoSansCJK-Regular.ttc', 'fonts/NotoSansCJK-Bold.ttc'], dir: 'resources/notices/noto-sans-cjk', files: ['NOTICE.txt', 'OFL-1.1.txt'] },
+] as const
 /** what every server and office bundle must hold (the server always carries tldts) */
 export const RELEASE_NOTICE_FILES = ['LICENSE', 'licenses/manifest.json', 'licenses/README.txt',
   ...EMBEDDED_DATA[0].files.map((f) => `licenses/${EMBEDDED_DATA[0].id}/${f}` as const)] as const
@@ -34,11 +44,13 @@ const readmeName = (s: string) => /^readme(?:\.(?:md|txt|rst|markdown))?$/i.test
 const licensingContext = /licen[cs]e|copyright|permission|commercial|authori[sz]|许可证|授权|商业|라이선스|저작권/i
 
 export interface NoticeDocument {
-  path: string; sha256: string; bytes: number; source: 'project' | 'shared-cloud-protocol' | 'package' | 'embedded-data'
+  path: string; sha256: string; bytes: number; source: 'project' | 'shared-cloud-protocol' | 'package' | 'embedded-data' | 'bundled-font'
   sourcePath: string; component?: string
 }
 /** EMBEDDED_DATA found in this release: which packages carry it and the notice documents copied for it */
 export interface EmbeddedDataNotice { id: string; name: string; license: string; source: string; carriedBy: string[]; documents: string[] }
+/** BUNDLED_FONTS found in this release: the font files staged and the notice documents copied for them */
+export interface BundledFontNotice { id: string; name: string; license: string; source: string; files: string[]; documents: string[] }
 export interface NoticePackage {
   id: string; name: string; version: string; packageJsonSha256: string; declaredLicense: string | null
   workspace: boolean; documents: string[]; consumers: string[]
@@ -50,6 +62,7 @@ export interface ReleaseNoticeManifest {
   inputs: { path: string; sha256: string }[]
   packages: NoticePackage[]; documents: NoticeDocument[]
   embeddedData: EmbeddedDataNotice[]
+  bundledFonts: BundledFontNotice[]
   artifacts: { path: string; sha256: string; bytes: number; version: string | null }[]
   /** Exact document + manifest replicas served by the installed web root; no recursive self-hash. */
   webMirror: 'web/licenses' | 'web/dist/licenses' | null
@@ -176,7 +189,7 @@ function collect(o: ReleaseNoticeOptions): ReleaseNoticeManifest {
   fs.rmSync(path.join(artifact, 'licenses'), { recursive: true, force: true })
   const m: ReleaseNoticeManifest = {
     format: 1, publicClear: false, coverage: 'partial-review-evidence', selection: 'installed-declared-runtime-and-peer-closure-superset',
-    release: { version: o.version, target: o.target, arch: o.arch, kind: o.kind }, inputs: [], packages: [], documents: [], embeddedData: [], artifacts: [], goModules: [], pending: [], omitted: [], withheld: [],
+    release: { version: o.version, target: o.target, arch: o.arch, kind: o.kind }, inputs: [], packages: [], documents: [], embeddedData: [], bundledFonts: [], artifacts: [], goModules: [], pending: [], omitted: [], withheld: [],
     webMirror: o.includeWeb && ['bundle', 'office'].includes(o.kind) ? (o.kind === 'office' ? 'web/dist/licenses' : 'web/licenses') : null,
   }
   if (m.webMirror) {
@@ -286,6 +299,24 @@ function collect(o: ReleaseNoticeOptions): ReleaseNoticeManifest {
     const notice = fs.readFileSync(path.join(artifact, `licenses/${e.id}/${e.files[0]}`), 'utf8')
     if (!notice.includes(e.source) || !notice.includes(e.license)) fail('release_notice_embedded_notice_invalid')
     m.embeddedData.push({ id: e.id, name: e.name, license: e.license, source: e.source, carriedBy: carriers.map(p => p.id).sort(), documents })
+  }
+
+  // Fonts shipped as files (BUNDLED_FONTS): their notice and licence text, never optional once a font is staged.
+  for (const f of BUNDLED_FONTS) {
+    const files = f.staged.filter(name => fs.existsSync(destination(artifact, name)))
+    if (!files.length) continue
+    const documents: string[] = []
+    for (const name of f.files) {
+      const src = path.join(repo, f.dir, name)
+      if (!fs.existsSync(src)) fail('release_notice_font_notice_missing')
+      const file = `licenses/${f.id}/${name}`
+      copy(textFile(src, repo), file, 'bundled-font', `${f.dir}/${name}`, f.id); documents.push(file)
+    }
+    // the notice names the source and the licence, and the licence file is the OFL itself (OFL 1.1 condition 2)
+    const notice = fs.readFileSync(path.join(artifact, `licenses/${f.id}/${f.files[0]}`), 'utf8')
+    const licence = fs.readFileSync(path.join(artifact, `licenses/${f.id}/${f.files[1]}`), 'utf8')
+    if (!notice.includes(f.source) || !notice.includes(f.license) || !licence.includes('SIL OPEN FONT LICENSE Version 1.1')) fail('release_notice_font_notice_invalid')
+    m.bundledFonts.push({ id: f.id, name: f.name, license: f.license, source: f.source, files, documents })
   }
 
   // Track actual staged binaries without executing them or pretending npm notices cover embedded native code.

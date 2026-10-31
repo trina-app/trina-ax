@@ -5,6 +5,7 @@
   "ripgrep": "15.2.0",
   "pandoc": "3.9.0.2",
   "typst": "0.15.1",
+  "noto-sans-cjk": "2.004 (Linux bundle fonts/ for make_file PDFs: Sans OTC Regular + Bold, pinned in scripts/linux/downloads.ts)",
   "whisper.cpp": "1.9.5 (built in CI)",
   "bubblewrap": ">=0.8.0 (Debian 12 0.8.0, Debian 13 0.12.0, Ubuntu 24.04 0.9.0)",
   "nftables": ">=1.0.6",

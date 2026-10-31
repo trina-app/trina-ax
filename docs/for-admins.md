@@ -25,4 +25,6 @@ Before updating, read the [latest release](https://github.com/trina-app/trina-ax
 
 Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES. HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
 
+PDFs the AI makes on a Linux server draw Korean, Japanese and Chinese with the Noto Sans CJK fonts that come with each release; there is nothing to install. An office Mac uses its own fonts (Apple SD Gothic Neo).
+
 Plugins (HWP Preview and others), their permission prompt and how official packages are verified: [Plugins (Korean)](PLUGINS.md).

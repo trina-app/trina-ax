@@ -1,0 +1,22 @@
+Noto Sans CJK
+
+The Trina AX Linux server bundle ships two font files of Noto Sans CJK, unchanged, in app/<version>/fonts/:
+NotoSansCJK-Regular.ttc and NotoSansCJK-Bold.ttc (version 2.004). Each is an OpenType collection of the Korean,
+Japanese, Simplified Chinese, Traditional Chinese and Hong Kong faces of one weight. The server uses them to draw
+Korean, Japanese and Chinese text in the PDF files the AI makes (make_file, server/src/tools/make-file.ts); a PDF
+carries only the glyphs it uses.
+
+Copyright and trademark, as the fonts state them:
+
+  © 2014-2021 Adobe (http://www.adobe.com/).
+  Noto is a trademark of Google Inc.
+
+Licence: SIL Open Font License, Version 1.1 (OFL-1.1). The full text is in OFL-1.1.txt next to this file, as the
+project publishes it (LICENSE at the source below).
+
+Source: https://github.com/notofonts/noto-cjk, tag Sans2.004 (commit 523d033d6cb47f4a80c58a35753646f5c3608a78):
+
+  Sans/OTC/NotoSansCJK-Regular.ttc  SHA-256 b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+  Sans/OTC/NotoSansCJK-Bold.ttc     SHA-256 faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb
+
+These are the same files as in Debian's fonts-noto-cjk package (1:20240730+repack1-1, Debian 13).

@@ -2,7 +2,9 @@
 // - docx / pptx: pandoc --sandbox --fail-if-warnings (a missing or remote image is an error, not a silent hole),
 //   optional --reference-doc template from skills/
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
-//   remote images are never fetched); Korean-capable fonts first
+//   remote images are never fetched); Korean-capable fonts first. A Linux bundle brings its own (Noto Sans CJK in
+//   app/<v>/fonts, given to typst with --font-path and to the converter isolation read-only): a Linux server has no
+//   Korean, Japanese or Chinese font, and without one those characters came out as empty boxes. A Mac uses its own.
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
 //   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
 //   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
@@ -31,7 +33,7 @@ import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
-import { which } from '../config'
+import { bundledFontDir, which } from '../config'
 import { publishChanges } from '../team-files/changes'
 import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -72,8 +74,18 @@ function freshName(work: string, base: string, x: string): string {
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff'])
 export const PDF_FONTS = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic', 'Helvetica Neue', 'Arial', 'Libertinus Serif']
 
-export interface Converters { pandoc: string | null; typst: string | null }
-export const findConverters = (pandoc: string | null): Converters => ({ pandoc, typst: process.env.MYCEL_TYPST_BIN ?? which('typst') })
+export interface Converters {
+  pandoc: string | null
+  typst: string | null
+  /** a folder of fonts typst also uses (config.ts bundledFontDir); null: the system's fonts only */
+  fonts?: string | null
+}
+export const findConverters = (pandoc: string | null): Converters => ({ pandoc, typst: process.env.MYCEL_TYPST_BIN ?? which('typst'), fonts: bundledFontDir() })
+
+/** typst's command line for one PDF: the bundled fonts first (--font-path), then the system's; threads capped on Linux. */
+export function typstArgs(o: { work: string; doc: string; fonts?: string | null; jobs?: number | null }): string[] {
+  return ['compile', ...(o.jobs ? ['--jobs', String(o.jobs)] : []), ...(o.fonts ? ['--font-path', o.fonts] : []), '--root', o.work, o.doc, 'out.pdf']
+}
 
 /** The tool error when a converter is missing; the AI repeats it to the person. A Mac installs it with Homebrew; a
  * Linux server (self-hosted or the cloud) gets it with the release bundle (app/<version>/bin), so there a missing one
@@ -310,8 +322,9 @@ export class MakeFile {
     if (!body.ok) throw new ToolError(body.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
     const doc = freshName(work, 'doc', 'typ')
     fs.writeFileSync(path.join(work, doc), pre + body.bytes.toString('utf8'), { flag: 'wx', mode: 0o600 })
-    const jobs = typstJobs() // Linux bundle's typst: at most 2 threads (system/limits.ts)
-    const r = await runIsolated({ cmd: this.conv.typst, args: ['compile', ...(jobs ? ['--jobs', String(jobs)] : []), '--root', work, doc, 'out.pdf'], workDir: work, timeoutMs: 120_000 })
+    const fonts = this.conv.fonts ?? null
+    // Linux bundle's typst: at most 2 threads (system/limits.ts); the bundled fonts readable inside the isolation
+    const r = await runIsolated({ cmd: this.conv.typst, args: typstArgs({ work, doc, fonts, jobs: typstJobs() }), workDir: work, readPaths: fonts ? [fonts] : [], timeoutMs: 120_000 })
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 

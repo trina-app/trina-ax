@@ -6,7 +6,9 @@
 // Where the pins come from (`bun scripts/linux/downloads.ts --check` re-does this, prints a table and fails on any
 // difference): bun — the release's SHASUMS256.txt; ripgrep — the release's <asset>.sha256; pandoc and typst publish no
 // checksum file, so these are the hashes of the files fetched on 2026-10-22, also equal to GitHub's asset digests;
-// whisper.cpp — the GitHub source archive of the tag (built in CI, .github build-whisper job), hash as fetched.
+// whisper.cpp — the GitHub source archive of the tag (built in CI, .github build-whisper job), hash as fetched;
+// Noto Sans CJK (LINUX_FONTS, app/<version>/fonts/) — the files at the upstream tag's commit, hash as fetched (and equal
+// to Debian's package of the same files).
 //
 // amd64 ships bun's x64-baseline build: the plain x64 build needs AVX2 and the tenants' virtual CPUs are only
 // guaranteed x86-64-v2 (SSE4.2, spec 6.3); baseline runs on both.
@@ -24,7 +26,7 @@ export interface PinnedDownload {
   sha256: string
   /** 'source': not per architecture */
   arch: LinuxArch | 'source'
-  tool: LinuxTool | 'whisper.cpp'
+  tool: LinuxTool | 'whisper.cpp' | 'font'
   /** the program inside the archive (path ending), copied to bin/<tool> */
   member?: string
   /** how the pin was checked against the publisher: its checksum file, or first fetch (+ GitHub's asset digest) */
@@ -42,6 +44,16 @@ export const LINUX_DOWNLOADS: Record<string, PinnedDownload> = {
   'typst-0.15.1-aarch64-unknown-linux-musl.tar.xz': { url: 'https://github.com/typst/typst/releases/download/v0.15.1/typst-aarch64-unknown-linux-musl.tar.xz', sha256: '5aa8d74a3d906e60ea12a66ac2f37f8eef1b14cbad7182a745e393a10c23dcee', arch: 'arm64', tool: 'typst', member: 'typst-aarch64-unknown-linux-musl/typst', checksum: 'first-fetch' },
   'typst-0.15.1-x86_64-unknown-linux-musl.tar.xz': { url: 'https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz', sha256: 'a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c', arch: 'amd64', tool: 'typst', member: 'typst-x86_64-unknown-linux-musl/typst', checksum: 'first-fetch' },
   'whisper.cpp-1.9.5.tar.gz': { url: 'https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.5.tar.gz', sha256: 'ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720', arch: 'source', tool: 'whisper.cpp', checksum: 'first-fetch' },
+}
+
+/** The fonts in app/<version>/fonts/ of a Linux bundle: Korean, Japanese and Chinese for the PDFs the AI makes (make_file
+ * runs typst with --font-path there; a Linux server has no such font of its own, B1 of the 0.2.15 QA). Noto Sans CJK 2.004
+ * (OFL-1.1, notice in resources/notices/noto-sans-cjk/), Regular and Bold, each one collection of the KR, JP, SC, TC and
+ * HK faces. Pinned to the commit of the upstream tag Sans2.004; first-fetch hashes, which are also the checksums
+ * sources.debian.org lists for the same files of Debian 13's fonts-noto-cjk (1:20240730+repack1-1), checked 2026-11-01. */
+export const LINUX_FONTS: Record<string, PinnedDownload> = {
+  'NotoSansCJK-Regular.ttc': { url: 'https://github.com/notofonts/noto-cjk/raw/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTC/NotoSansCJK-Regular.ttc', sha256: 'b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a', arch: 'source', tool: 'font', checksum: 'first-fetch' },
+  'NotoSansCJK-Bold.ttc': { url: 'https://github.com/notofonts/noto-cjk/raw/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTC/NotoSansCJK-Bold.ttc', sha256: 'faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb', arch: 'source', tool: 'font', checksum: 'first-fetch' },
 }
 
 /** The pinned download of `tool` for `arch`. */
@@ -173,7 +185,7 @@ export async function githubDigests(url: string, fetchImpl: typeof fetch = fetch
 async function check(): Promise<boolean> {
   let ok = true
   const digestCache = new Map<string, Record<string, string>>()
-  for (const [name, d] of Object.entries(LINUX_DOWNLOADS)) {
+  for (const [name, d] of [...Object.entries(LINUX_DOWNLOADS), ...Object.entries(LINUX_FONTS)]) {
     const dir = path.join(REPO, 'dist', 'cache')
     const f = path.join(dir, name)
     if (!fs.existsSync(f)) {
@@ -184,7 +196,7 @@ async function check(): Promise<boolean> {
       fs.renameSync(`${f}.part`, f)
     }
     const got = sha256File(f)
-    const pub = await publishedSha256(name).catch((e) => `error: ${(e as Error).message}`)
+    const pub = d.checksum === 'first-fetch' ? null : await publishedSha256(name).catch((e) => `error: ${(e as Error).message}`)
     const rel = d.url.replace(/\/[^/]+$/, '/')
     if (!digestCache.has(rel)) digestCache.set(rel, await githubDigests(d.url).catch(() => ({})))
     const gh = digestCache.get(rel)![d.url.slice(d.url.lastIndexOf('/') + 1)] ?? null

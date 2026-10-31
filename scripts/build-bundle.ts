@@ -30,6 +30,7 @@
 // Only on a Linux machine of the bundle's arch (onnxruntime-node's and sharp's Linux binaries must be the ones `bun
 // install` put there). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
 // with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
+// fonts/ (Noto Sans CJK Regular and Bold for make_file PDFs, scripts/linux/downloads.ts LINUX_FONTS),
 // native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
 // so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
 // engines/codex-<v>.model_catalog.json, deps.txt, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
@@ -45,12 +46,12 @@ import { writeAtomic } from '../server/src/system/streams'
 import { tarStream, type TarEntryInput } from '../server/src/system/tar'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { RELEASE_CHANNEL } from '../shared/src/release-channel'
-import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, type LinuxArch } from './linux/downloads'
+import { cachedDownload, downloadFor, extractMember, LINUX_DOWNLOADS, LINUX_FONTS, type LinuxArch } from './linux/downloads'
 import { checkEnginesLock, checkLockedCatalog, codexCatalogName, pinnedVersion } from './linux/lock-engines'
 import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
-import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
+import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -216,6 +217,9 @@ export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
 const LINUX_ROOT_EXEC = new Set<string>([...LINUX_ROOT_NATIVE, 'mycel-account', 'set-claude-token'])
 /** the bundled tools in app/<v>/bin/ besides whisper (scripts/linux/downloads.ts) */
 export const LINUX_TOOLS = ['bun', 'rg', 'pandoc', 'typst'] as const
+/** app/<v>/fonts/: the fonts make_file PDFs are drawn with (server/src/config.ts bundledFontDir; scripts/linux/downloads.ts
+ * LINUX_FONTS). In the version folder, so every update brings them and no root step or distribution package is needed. */
+export const LINUX_FONT_FILES = Object.keys(LINUX_FONTS)
 /** the install kit's name: <kit>-<version>-linux-<arch>.tar.gz (the office zip's naming, PRODUCT.officeBundle) */
 export const SERVER_KIT = PRODUCT.officeBundle.replace(/-office$/, '-server')
 export const kitName = (version: string, arch: LinuxArch) => `${SERVER_KIT}-${version}-linux-${arch}`
@@ -272,6 +276,9 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
+    ...LINUX_FONT_FILES.map((f) => `fonts/${f}`),
+    // the fonts' notice (scripts/release-notices.ts BUNDLED_FONTS)
+    ...BUNDLED_FONTS.flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
     'server/src/hwp-preflight.js',
@@ -360,6 +367,12 @@ export async function buildLinuxBundle(o: {
   for (const b of LINUX_NATIVE) {
     fs.copyFileSync(path.join(nativeDir, b), path.join(dir, 'native', b))
     fs.chmodSync(path.join(dir, 'native', b), 0o755)
+  }
+  // fonts: Korean, Japanese and Chinese for make_file PDFs (a Linux server has none of its own; typst --font-path)
+  fs.mkdirSync(path.join(dir, 'fonts'), { recursive: true })
+  for (const f of LINUX_FONT_FILES) {
+    fs.copyFileSync(await cachedDownload(f, { table: LINUX_FONTS }), path.join(dir, 'fonts', f))
+    fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
   }
 
   // root-owned programs and the installer's helpers, inside the signed version folder (spec 3.6.1)

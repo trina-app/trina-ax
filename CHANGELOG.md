@@ -3,6 +3,13 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- PDFs the AI makes on a Linux server now show Korean, Japanese and Chinese. Before, these characters came out as empty boxes, because a Linux server has no font for them (only DejaVu) and typst fell back to its own font without them. The Linux server kit now carries the Noto Sans CJK fonts (2.004, Regular and Bold, OFL-1.1) in the version folder and make_file gives them to typst; headings and bold text are bold. Installed servers get the fonts with their normal update: no root step, no package to install. PDFs made before need to be made again. The kit grows by about 32 MB (40 MB unpacked). The fonts' notice and licence are in `licenses/noto-sans-cjk/`. Office Macs are unchanged: they use the Mac's own fonts. Word files were never affected.
+- Linux server updates: the root programs (mycel-ctl, the launcher, the sandbox helper, the bootstrap, mycel-safeops) no longer change with every release. They carried the commit they were built from, so every release so far needed the root update ("Administrator rights needed"), even when these programs had not changed. Now a release that does not change them needs no root step; the first release with this change still needs it once, since its programs are the first without the commit.
+- HWP preview: when the HWP Preview plugin is installed but turned off, an admin is now told to turn it on in Admin › Plugins (before: "Admins can add it"). In all five languages.
+- AI image reads: when a converter replaced its work folder, the AI is told the file could not be read (damaged), not that it was too heavy.
+
 ## 0.2.15 — 2026-11-01
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.15).
