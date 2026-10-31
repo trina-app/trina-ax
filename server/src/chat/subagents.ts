@@ -24,7 +24,7 @@ export const MAX_SUBAGENT_TURNS = 50
  * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI.
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell'])
 /** what the read-only Explore helper may use (of the tools the turn has) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 

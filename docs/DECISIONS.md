@@ -3962,3 +3962,71 @@ Trina should feel like Claude Code, which has WebSearch.
   input and the 50-file cap; conflict copy; wider-audience card once; a skills/ card per file; a sub-agent's own
   reads; confidential chats; the handler's per-file check, template refusal and Stop; one file under several
   spellings; label and instructions), `api-engine.test.ts` (Stop during a card with the API engine).
+
+## Dev environment (experiment) (feat/dev-env, 2026-10-31)
+
+Status: EXPERIMENT on branch `feat/dev-env`, time-boxed (1-2 weeks), never merged to main or released without the
+joint review (continue / switch to a "runner" design / put on hold). Input: Dion's 개발 환경 plan, our review (7 holes),
+the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archived work reused: `feat/code-sandbox-d1`
+(the setting pattern with a versioned warning and consent, the launcher-op style, the test shape).
+
+- **Off twice.** The server process needs `MYCEL_DEV_ENV=1`; without it every `/api/projects/:id/dev-env*` endpoint
+  answers 404 and no turn gets the tool. Then an owner or admin turns it on per project (team folders only, not
+  `users/`) after accepting warning version 1 (`dev_env.consent`, `dev_env.setting` in the audit log). A newer warning
+  turns every project off until accepted again.
+- **Folder permissions stay the only permission model.** Scope `writers` (everyone with write access to the folder)
+  or `selected` (people and groups); in both a person needs write access to the project folder, checked at the start
+  of the turn and again on every command. Readers can open preview links and see the activity, not run commands.
+- **The engine stays outside the box** (spike 5.3: a process left in the box can steal the turn's model token). The
+  engine keeps its lockdown (no Bash, `--restricted`). Commands go engine → our MCP tool `box_shell` → server →
+  `mycel-boxd` → `podman exec` in the project box. Not `CLAUDE_CODE_SHELL` as in the spike: the Bash tool stays
+  denied, the tool works the same for Claude Code, Codex and the API engine, and the server sees every command (audit,
+  change window, credential gate) without a new path from the engine sandbox to a podman socket.
+- **mycel-boxd** (new, `native/cmd/mycel-boxd`): a root helper, the only program that runs podman (rootless, as the
+  `mycel-devbox` account). Not the launcher, because the launcher runs as the engine account and the box needs root
+  for the idmapped mount and for the rules in the box's network namespace. Socket for the server's uid only. Box =
+  spike box: read-only root, `--cap-drop=ALL`, no-new-privileges, the box seccomp profile, 1 CPU (lower CPU weight
+  than the server), 1.5 GB without swap, 512 processes, /tmp 256 MB, a size-limited loop volume per box (4 GB) for
+  HOME, caches, `node_modules` and `.venv`. The folder is opened with `openat2(RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH)`
+  below `--team-root` and mounted from that descriptor (idmapped server account → box account, nosuid, nodev). Host
+  paths name the box id only. Rules (open: the spike's reject list plus the team server's addresses from
+  `MYCEL_DEV_ENV_DENY_ADDRS`; offline: loopback only) load before any command, or the box stops. One running box per
+  server (`--max-running 1`, spike 4.4). Idle stop after 30 minutes without a command or preview connection. A boxd
+  restart stops running boxes (fail closed).
+- **Hole 1, per-person credentials:** none in the box. No credential helper in this experiment; `git push`, `npm
+  publish` and the like fail, and the tool description tells the AI to say so. The command text goes to the box on
+  stdin, never in argv.
+- **Hole 2, poisoned shared code:** before a command that can use a login (`git push/pull/fetch/clone`, `npm publish`,
+  `ssh`, `gh`, ...) and after file changes by other people since this person's last command, the PERSON gets a server
+  card with those changes (who, what, "a process in the box"). Without that, the first command of a turn tells the AI
+  what others changed and which processes still run in the box (a dev server someone else's turn left). This is the
+  place a per-command credential helper plugs in later.
+- **Hole 3, preview:** its own listener (`MYCEL_DEV_PREVIEW_LISTEN`) behind a wildcard origin on another registrable
+  domain (`MYCEL_DEV_PREVIEW_ORIGIN=https://*.preview.example.net`; refused when it looks like the app's site). A random
+  host label per link (each link its own origin), a single-use token valid 5 minutes, then a session cookie for that
+  origin only (60 minutes). Every request checks again the folder read access and the setting. The gateway sends
+  `Host: localhost`, drops its own cookie and forwarding headers, and reaches the dev server through boxd's per-port
+  unix socket (0600, server uid; no host port). No WebSocket yet (Vite HMR falls back to reloads).
+- **Hole 4, file changes:** every command runs in a change window: a hash snapshot before (changes since the last
+  window = "in the background", for the person of the last command) and after (the command's, for its person). Skipped
+  at any depth: `node_modules`, `.git`, `.env*`, `dist`, `build`, `.next`, `.venv`, `__pycache__`, `.cache`, `.turbo`.
+  A file is hashed again when size, mtime, ctime or inode changed (the box can set mtime back, not ctime). Changes become
+  `file_events` (`detail.via = "dev_env"`), are published like other file changes, and the previous content (files up to
+  1 MiB, 256 MiB per project, by hash) becomes a file version. A Files save during a command that the command then
+  overwrites is kept as a conflict copy. Commands of one project run one at a time.
+- **Hole 5, resources:** the limits above, per project setting (`limits`), changed only by admins; a change of network
+  or limits stops the box (it starts with the new values at the next command). Team/Pro VMs only for hosted (spike 4.4);
+  not decided here because the experiment does not run on hosted.
+- **Hole 6, Claude Code licence:** no engine in the image (the Containerfile fails if `claude` or `codex` is in it), no
+  engine mount (a boxd test checks the podman arguments). The engine is the launcher's pinned download, as before.
+- **Hole 7, audit:** `dev_env.command` per command (person, turn, command text redacted, cwd, result, number of changed
+  files, conflicts), the file events, `dev_env.preview`, `dev_env.stop/restart`; `GET /api/projects/:id/dev-env/activity`.
+  Network destinations: boxd keeps a conntrack log of new connections per box (`netlog`); rejected destinations are
+  counted and logged by the rules. Not yet joined into the server's audit.
+- **Not in the experiment:** the web UI (API only), egress allowlist mode, credential helper, WebSocket preview, folder
+  size quota, hosted plans, macOS. Isolation and limits are tested only on the `dev-env-test` VM
+  (`docs/research/dev-env-test-vm-plan.md`, `scripts/dev-env/vm-tests.sh`), never on a shared or team server.
+- Tests: `tests/unit/dev-env.test.ts` (flag, consent, scope and write access, admin API and audit, tool offered and
+  refused, change window with versions and background changes, the credential card, the conflict copy, preview link
+  life and cookie handling), `native/cmd/mycel-boxd/plan_test.go` (request checks, podman arguments without an engine,
+  stdin-only command text, network rules, process list, conntrack lines).

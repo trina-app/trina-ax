@@ -21,6 +21,7 @@ import { visionText } from '../files/vision-text'
 import { recordSkillRead } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
+import { boxShellTool } from '../devenv/tool'
 
 interface Tool {
   name: string
@@ -68,6 +69,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   for (const t of exec.rt.ctx.services.turnTools ?? []) {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
     add(wrapRegistered(exec, t))
+  }
+  if (exec.devEnv) {
+    const person = turnPerson(exec)
+    add(boxShellTool({
+      ctx: exec.rt.ctx, project: exec.devEnv, userId: exec.spec.userId, turnId: exec.spec.turnId, signal: exec.abort.signal,
+      redact: (s) => exec.redact(s),
+      confirm: async (question, options, details) => (person.choose
+        ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
+        : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
+    }))
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
