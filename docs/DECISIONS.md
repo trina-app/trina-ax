@@ -3883,9 +3883,14 @@ Trina should feel like Claude Code, which has WebSearch.
   (`turn0search0`) names no query (QA 2026-10-30 N1): it reads "Opening a search result". An open the proxy answered
   itself (an address) ends in Codex as done; the step shows it as failed with the reason ("Refused: a search opens only
   its own results …", N2). The proxy tells the turn what each search request asked for and which addresses it
-  answered (ProxyTurnEvent `search`, before Codex has the answer); the turn pairs each ended item with one of those
-  (`chat/codex-search-step.ts`: a refusal by the address the item names, else the oldest request of the same kind), and
-  falls back to the item's own action (`open_page`, `find_in_page`) where no proxy is in the path.
+  answered (ProxyTurnEvent `search`, as it answers and before Codex has the answer; only for an answer Codex ends an
+  item with: a search refused for its shape, limited or failed upstream never completes its item, and its request
+  would otherwise pair with the next item); the turn pairs each item that ended as done with one of those
+  (`chat/codex-search-step.ts`: a refusal by the address the item names, only for refs that look like an address;
+  else the oldest request of the same kind, an item whose action is an open or a find counting as an open even when
+  it names its pattern; else the oldest one not refused, so none stays behind), and falls back to the item's own action (`open_page`, `find_in_page`) where no proxy is in
+  the path. Review 2026-10-31: before, a find of a result ("'trixie'") left its request behind, and the next open
+  without a query, a refused one included, took the wrong request (a refusal shown as done).
 - Not verified here: the real `chatgpt.com/backend-api/codex/alpha/search` and `api.openai.com/v1/alpha/search`
   (tests never call OpenAI). Release gate: one real Codex search turn on an installed server (ChatGPT sign-in, and an
   API key if one is used). If the API-key upstream lacks the endpoint, Codex reports the search failed and goes on.

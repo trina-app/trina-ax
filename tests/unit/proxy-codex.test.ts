@@ -289,6 +289,9 @@ describe('Codex web search (standalone web.run): cached index only, same locks a
       expect(state(K), mode).toMatchObject({ status: 'ok', status_code: null, limited_until: null })
     }
     expect(events.filter((e) => e.type === 'credential' || e.type === 'rate_limit')).toEqual([])
+    // Codex never completes the item of a failed search: the turn hears of none of them, so no ask waits for an item
+    // that never comes and pairs with the next search instead (chat/codex-search-step.ts)
+    expect(events.filter((e) => e.type === 'search')).toEqual([])
     // the same answers to a model request still mark the connection, as before
     respMode = '429-plan'
     expect((await post('openai', tokFor(K))).status).toBe(429)

@@ -758,7 +758,8 @@ export class TurnExec {
           if (sources.length) patch.sources = sources
           // Codex's standalone search: it names its query only at its end (a summary and no result text), an open of a
           // result names none, and one the model proxy answered itself (an address) ends as done (QA 2026-10-30 N1 / N2)
-          const ask = tool === 'web_search' ? takeSearchAsk(this.searchAsks, e.summary ?? '') : null
+          // a search that failed (Codex never completed its item; the turn's end closes it) had no answer to pair with
+          const ask = tool === 'web_search' && e.ok ? takeSearchAsk(this.searchAsks, e.summary ?? '', e.searchAction) : null
           if (!this.searchQueries.get(e.id)) {
             patch.label = e.summary && e.output === undefined ? tr('webSearch', this.spec.locale, { q: queryOf({ query: e.summary }) }) : tr(unnamedSearchKind(ask, e.searchAction), this.spec.locale)
           }

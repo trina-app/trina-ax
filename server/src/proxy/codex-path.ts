@@ -242,9 +242,14 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   // a page named by its address: nothing goes upstream, and the model is told what to use instead (a 403 would give
   // it only "aborted", and it would try again)
   const addresses = search ? searchAddresses(parsed) : []
-  // what this search asked for, to the turn before Codex has its answer (its step: QA 2026-10-30 N1 / N2)
-  if (search) d.onTurnEvent?.(row.turn_id, { type: 'search', commands: searchCommandsOf(parsed), ...(addresses.length ? { refused: addresses.map((a) => a.ref) } : {}) })
+  // what this search asked for, to the turn as its answer goes back (before Codex has it and ends the item; its step:
+  // QA 2026-10-30 N1 / N2). Only for an answer Codex ends an item with: a search that fails here or upstream never
+  // completes its item, and an ask without an item would pair with the next one (chat/codex-search-step.ts)
+  const told = (refused?: string[]) => {
+    if (search) d.onTurnEvent?.(row.turn_id, { type: 'search', commands: searchCommandsOf(parsed), ...(refused?.length ? { refused } : {}) })
+  }
   if (addresses.length) {
+    told(addresses.map((a) => a.ref))
     d.refused(row, addresses[0]!.reason)
     return json(200, { output: SEARCH_ADDRESS_NOTE })
   }
@@ -414,6 +419,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
       },
       cancel() { done(); abort.abort(); reader.cancel().catch(() => {}); d.onStreamCancel?.() },
     }, { highWaterMark: 0 })
+    told()
     return new Response(stream, { status: up.status, headers: outHeaders })
   }
   const text = await up.text()
@@ -424,5 +430,6 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     if (search && j) broker.record(credId, row.turn_id, typeof j.model === 'string' ? j.model : model, { ...(j.usage ?? {}), web_search_calls: 1 })
     else if (j?.usage) broker.record(credId, row.turn_id, typeof j.model === 'string' ? j.model : model, { ...j.usage, web_search_calls: Array.isArray(j.output) ? j.output.filter((o: { type?: string }) => o?.type === 'web_search_call').length : 0 })
   } catch {}
+  if (up.status < 300) told()
   return new Response(text, { status: up.status, headers: outHeaders })
 }

@@ -49,9 +49,11 @@ export type ProxyTurnEvent =
   | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
-  /** a Codex web search the proxy took (codex-path.ts): the commands it asked for (search_query, open, …) and, when the
-   * proxy answered it itself instead of sending it (an address, not a result reference), the addresses it named. Only
-   * for the step under the answer (chat/turn.ts): Codex's item names no query for an open and ends a refused one as done */
+  /** a Codex web search the proxy answered with something Codex ends its item on (codex-path.ts: the upstream's answer,
+   * or its own for an address; never a search that failed): the commands it asked for (search_query, open, …) and, when
+   * the proxy answered it itself instead of sending it (an address, not a result reference), the addresses it named.
+   * Only for the step under the answer (chat/turn.ts): Codex's item names no query for an open and ends a refused one
+   * as done */
   | { type: 'search'; commands: string[]; refused?: string[] }
 
 /** a proxy token row as the proxy reads it */
