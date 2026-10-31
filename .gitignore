@@ -12,3 +12,6 @@ tests/out/
 tests/.cache/
 dist/
 __pycache__/
+*.provisionprofile
+AuthKey_*.p8
+*.p12
