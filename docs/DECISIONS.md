@@ -4378,6 +4378,12 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
   - **Threads.** whisper.cpp gets 2 threads on a 2-core box (one core less than the budget elsewhere, at most 4;
     `whisperThreads`), and its CPU-seconds limit is the time limit times its threads (`cgexecPrefix(timeoutMs,
     threads)`; RLIMIT_CPU counts all threads, so `-t 2` would have been stopped at half its time).
+  - **No temperature fallback for a read's pieces** (`-nf`; review of the branch). whisper.cpp decodes odd sound again
+    at higher temperatures, which made some short clips take 5 times as long. Measured before adopting it (Debian 13,
+    2 CPUs, small, 2 threads): the QA's 5.6 s Korean clip 20.3 s instead of 72.5 s (both wrong, romanized); nine 30 s
+    pieces of its Korean / English recording 281 s instead of 288 s, Korean CER 32.5 % instead of 32.7 %, English WER
+    16.8 % instead of 15.0 % (one piece; the TTS numbers spelled out count as errors in both); a 6.8 s dictation the
+    same text in 20 s. Voice input keeps the fallback (a person waits for those words, and nothing plans its time).
   - **Small servers.** On 2 cores or fewer (`cpuBudget`: the plan's cores, else the machine's), "Turn video sound into
     text" starts off; the read says why ("이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가 … 켤 수 있어요."),
     frames still go, and the settings switch says the same. `GET /api/admin/speech-host` gives the page the cores, the

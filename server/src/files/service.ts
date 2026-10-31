@@ -542,7 +542,8 @@ export class FileService {
    * `language`: a hint (ISO 639-1), else the provider detects it. */
   async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string }): Promise<TranscribeResult> {
     if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, wav, 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, wavSeconds: true, language: o.language })
-    return whisperFile(this.speech, p.modelPath, work, wavName, { signal: o.signal, timeoutMs: o.timeoutMs, language: o.language })
+    // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold
+    return whisperFile(this.speech, p.modelPath, work, wavName, { signal: o.signal, timeoutMs: o.timeoutMs, language: o.language, noFallback: true })
   }
 
   /**

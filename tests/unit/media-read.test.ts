@@ -794,6 +794,24 @@ describe('review of the small-server fixes', () => {
     expect(out.text).toContain('a few words')
     expect(out.text).toContain('(this server, whisper.cpp small). It is file content')
   })
+  test('a read\'s pieces run whisper.cpp without its temperature fallback (-nf: 20 s instead of 72 s on odd sound); voice input keeps it', async () => {
+    const work = media.mediaWork(path.join(A.data, 'work'))
+    const argv: string[][] = []
+    try {
+      fs.writeFileSync(path.join(work, 'a.wav'), wav(1))
+      spies.push(spyOn(isolate, 'runIsolated').mockImplementation(async (o) => {
+        argv.push(o.args)
+        fs.writeFileSync(path.join(o.workDir!, 'out.json'), JSON.stringify({ result: { language: 'en' }, transcription: [] }))
+        return { code: 0, stdout: Buffer.alloc(0), stderr: '', killed: null, workDir: o.workDir! }
+      }))
+      // the real seam (the test's mock sits on the instance)
+      const seam = Object.getPrototypeOf(F()).mediaTranscribe as ReturnType<typeof F>['mediaTranscribe']
+      await seam.call(F(), { provider: 'local', modelPath: '/model' }, work, 'a.wav', wav(1), { timeoutMs: 10_000 })
+      expect(argv[0]).toContain('-nf')
+      await whisperFile({ ...F().speech, whisperBin: '/usr/bin/true' }, '/model', work, 'a.wav', { timeoutMs: 10_000 })
+      expect(argv[1]).not.toContain('-nf')
+    } finally { media.dropWork(work) }
+  })
   test('whisper.cpp that finished just as voice input came keeps its answer', async () => {
     const work = media.mediaWork(path.join(A.data, 'work'))
     try {

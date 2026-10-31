@@ -198,14 +198,16 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
 
 /** whisper.cpp (isolated) on `audio`, a file in the work folder `work` that the server made; `model` from ensureModel /
  * modelReady. Throws a JobFailure (localized, `reason` 'timeout', 'memory', 'exit N' …) when it fails; 'aborted' when it was killed because
- * `signal` fired. Its CPU limit counts all `cfg.threads` threads (system/cgroups.ts cgexecPrefix). */
+ * `signal` fired. Its CPU limit counts all `cfg.threads` threads (system/cgroups.ts cgexecPrefix). `noFallback`: -nf, no
+ * temperature fallback (a video read's pieces: measured on odd sound 20 s instead of 72 s for a 5.6 s clip, and on
+ * speech the same Korean CER and +1.8 points English WER over 4.5 minutes; voice input keeps the fallback). */
 export async function whisperFile(cfg: TranscribeConfig, model: string, work: string, audio: string,
-  o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void }): Promise<TranscribeResult> {
+  o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void; noFallback?: boolean }): Promise<TranscribeResult> {
   if (!cfg.whisperBin) throw MISSING_WHISPER()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'
   const r = await runIsolated({
     cmd: cfg.whisperBin, workDir: work, readPaths: [model], gpu: true, timeoutMs: o.timeoutMs, signal: o.signal, cpuThreads: cfg.threads,
-    args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-of', 'out', '-np', '-pp', '-t', String(cfg.threads)],
+    args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-of', 'out', '-np', '-pp', '-t', String(cfg.threads), ...(o.noFallback ? ['-nf'] : [])],
     onStderr: (s) => {
       const m = /progress\s*=\s*(\d+)%/g
       let last: RegExpExecArray | null = null, k: RegExpExecArray | null
