@@ -1,0 +1,55 @@
+-- what is mounted (sources other than overlay/tmpfs/proc/sys/dev)
+/ /
+/cache /cache
+/etc/hostname /containers/overlay-containers/a870f25fc0227b1d5d621bc950a6561d5c6cf5b97af827d9794511c9f1ed4373/userdata/hostname
+/etc/hosts /containers/overlay-containers/a870f25fc0227b1d5d621bc950a6561d5c6cf5b97af827d9794511c9f1ed4373/userdata/hosts
+/etc/resolv.conf /containers/overlay-containers/a870f25fc0227b1d5d621bc950a6561d5c6cf5b97af827d9794511c9f1ed4373/userdata/resolv.conf
+/opt/claude /scon/containers/01M688Z2BB07JKSY1RZW13X6WS/rootfs/srv/devbox/claude/2.1.305
+/opt/trina /scon/containers/01M688Z2BB07JKSY1RZW13X6WS/rootfs/opt/spike/in-box
+/run /
+/run/.containerenv /containers/overlay-containers/a870f25fc0227b1d5d621bc950a6561d5c6cf5b97af827d9794511c9f1ed4373/userdata/.containerenv
+/run/trina /scon/containers/01M688Z2BB07JKSY1RZW13X6WS/rootfs/srv/trina/proxy/web
+/tmp /
+/var/tmp /
+/work /scon/containers/01M688Z2BB07JKSY1RZW13X6WS/rootfs/srv/trina/teams/proj-web
+/work/.venv /venv
+/work/node_modules /node_modules
+-- files
+PASS other team folder by host path
+PASS server secrets by host path
+PASS Mac home mount (/Users, /mnt/mac)
+PASS podman socket / storage of the box account
+PASS host root through /proc/1/root
+PASS write the image (/usr/bin)
+PASS write /etc
+PASS other team folder in the box's own folder tree
+PASS find other folder's file anywhere
+-- kernel surface
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+NoNewPrivs:	1
+Seccomp:	2
+PASS new user namespace (unshare -Ur)
+PASS new mount namespace (unshare -m)
+PASS mount tmpfs
+PASS read the kernel log
+PASS io_uring_setup syscall -> Operation not permitted
+PASS bpf syscall -> Operation not permitted
+PASS keyctl syscall -> Operation not permitted
+PASS perf_event_open syscall -> Operation not permitted
+PASS userfaultfd syscall -> Operation not permitted
+PASS ptrace(PTRACE_ATTACH, 1) syscall -> Operation not permitted
+PASS socket AF_PACKET -> Function not implemented
+PASS socket AF_VSOCK -> Function not implemented
+PASS socket AF_ALG -> Function not implemented
+-- limits seen from inside
+pids.max=512 memory.max=1610612736 cpu.max=100000 100000
+df: Filesystem      Size  Used Avail Use% Mounted on
+df: /dev/vdb1        38G  6.8G   31G  19% /work
+df: /dev/loop0      4.0G  110M  3.9G   3% /cache
+df: tmpfs           256M  4.0K  256M   1% /tmp
+-- model proxy
+PASS proxy refuses an unknown token (401)
+PASS proxy refuses another box's valid token (401)
+env: OTHER_BOX_TOKEN=<set>

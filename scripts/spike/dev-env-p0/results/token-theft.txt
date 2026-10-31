@@ -1,0 +1,18 @@
+0
+d1e1ae9dc4969a332b92aabcb7912f88e5807edb9c8e191abb9b32bbf03d3b87
+engine pid 188
+environ: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3
+fd: total 0
+fd: lr-x------ 1 root root 64 Oct 31 06:21 0 -> /dev/null
+fd: l-wx------ 1 root root 64 Oct 31 06:21 1 -> pipe:[58323]
+fd: l-wx------ 1 root root 64 Oct 31 06:21 2 -> pipe:[58324]
+fd: lrwx------ 1 root root 64 Oct 31 06:21 4 -> anon_inode:[eventpoll]
+fd: lrwx------ 1 root root 64 Oct 31 06:21 5 -> anon_inode:[eventfd]
+fd: l-wx------ 1 root root 64 Oct 31 06:21 6 -> pipe:[58323]
+fd: l-wx------ 1 root root 64 Oct 31 06:21 7 -> pipe:[58324]
+fd3: cat: /proc/188/fd/3: No such file or directory
+
+mem: tokens found: []
+engine pid 2550
+environ: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3
+mem: refused: [Errno 13] Permission denied: '/proc/2550/mem'

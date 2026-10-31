@@ -1,0 +1,5 @@
+#!/bin/sh
+# Shell for an engine that runs OUTSIDE the box (P1 option "engine out, shell in"): Claude Code's Bash tool starts
+# this "bash"; it runs the real bash inside the box, in the same working folder. The engine's mount namespace uses
+# the box's paths (/work, /cache), so HOME (shell snapshots) and CLAUDE_CODE_TMPDIR (cwd file) are the same files.
+d="$PWD"; cd / && HOME=/home/devbox exec podman exec -i -w "$d" -e HOME=/cache/home "box-$TRINA_BOX" /bin/bash "$@"
