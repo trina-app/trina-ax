@@ -314,7 +314,7 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt</pre>
 <pre class="cmd">~/TeamAX/teamax desktop add ~/Downloads/Trina-AX-Setup-<x-k data-k="desktop-version">0.2.9</x-k>-win-x64.exe
 ~/TeamAX/teamax desktop add ~/Downloads/Trina-AX-<x-k data-k="desktop-version">0.2.9</x-k>-mac-universal.dmg
 ~/TeamAX/teamax desktop list</pre>
-  <div class="check"><span class="k">확인</span><span><code>데스크톱 앱을 올렸습니다 / desktop app added: Windows <x-k data-k="desktop-version">0.2.9</x-k> (… 109.0 MB, 서명 없음 / unsigned)</code>. 로그인한 팀원은 <span class="ui">설정</span> → <span class="ui">앱</span>에서 자기 컴퓨터용을 내려받고, 설치 중 경고(윈도우 <span class="ui">추가 정보 → 실행</span>, 맥 <span class="ui">시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기</span>)도 거기 적혀 있어요. 잘린 파일·다른 파일은 거절돼요. 서버 재시작은 필요 없어요.</span></div>
+  <div class="check"><span class="k">확인</span><span><code>데스크톱 앱을 올렸어요 / desktop app added: Windows <x-k data-k="desktop-version">0.2.9</x-k> (… 109.0 MB, 서명 없음 / unsigned)</code>. 로그인한 팀원은 <span class="ui">설정</span> → <span class="ui">앱</span>에서 자기 컴퓨터용을 내려받고, 설치 중 경고(윈도우 <span class="ui">추가 정보 → 실행</span>, 맥 <span class="ui">시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기</span>)도 거기 적혀 있어요. 잘린 파일·다른 파일은 거절돼요. 서버 재시작은 필요 없어요.</span></div>
 </section>
 
 <!-- ============================================================ 3 -->
@@ -423,7 +423,7 @@ bash ./TrinaAX-office-VERSION/office-install.sh
   ~/Downloads/new.example.net.tunnel-token
 rm ~/Downloads/new.example.net.tunnel-token
 ~/TeamAX/teamax card        # 새 카드 인쇄</pre>
-  <div class="check"><span class="k">확인</span><span><code>인터넷 주소가 답합니다</code>. 답이 없으면 이유(502: 포트, 530: 연결 없음)와 고칠 명령이 나와요.</span></div>
+  <div class="check"><span class="k">확인</span><span><code>인터넷 주소가 답해요</code>. 답이 없으면 이유(502: 포트, 530: 연결 없음)와 고칠 명령이 나와요.</span></div>
   <div class="two">
     <div class="note"><b>데스크마다 (로그인·앱은 주소마다 따로)</b><p>Edge <span class="ui">⋯</span> → <span class="ui">앱</span> → <span class="ui">앱 관리</span> → 옛 Trina AX <span class="ui">제거</span> → 새 주소를 열어 앱으로 설치 → 다시 로그인. 채팅·파일은 그대로예요. 옛 앱을 남겨 두면 오류만 보이는 “Trina AX”와 새 “Trina AX 1”이 함께 생겨요.</p></div>
     <div class="note"><b>정리</b><p>아직 안 쓴 초대·재설정 링크는 새로 만들어요(또는 주소 부분만 새 주소로). 옛 이름 지우기(설치 담당자 맥): <code>bun scripts/office/public-address.ts remove team.example.com --cert ~/.cloudflared/cert-example.pem</code>. 끄기: 맥 미니에서 <code>teamax public-address off</code>.</p></div>
@@ -437,7 +437,7 @@ rm ~/Downloads/new.example.net.tunnel-token
     <tr><th style="width:34%">증상</th><th>할 일</th></tr>
     <tr><td>인터넷 주소에서 Cloudflare 오류 <b>530·1033</b></td><td>터널에 연결된 맥 미니가 없어요: 꺼짐·로그아웃·인터넷 끊김. 맥 미니에서 <code>teamax public-address status</code>(<code>cloudflared running</code>), <code>teamax logs</code></td></tr>
     <tr><td>인터넷 주소에서 Cloudflare 오류 <b>502</b></td><td>터널이 맥 미니의 앱 포트가 아닌 곳을 가리켜요(설치 때 <code>--app-port</code>를 바꾼 경우). <code>teamax public-address status</code>가 알려 주는 대로 설치 담당자 맥에서 <code>set &lt;이름&gt; --port &lt;app port&gt;</code>. 서버가 멈췄으면 <code>teamax restart</code></td></tr>
-    <tr><td>첫 설정 “인터넷 주소에서 할 수 없습니다”</td><td>정상이에요. 맥 미니에서 <code>teamax setup-link</code>의 <code>http://localhost…</code> 링크로</td></tr>
+    <tr><td>첫 설정 “인터넷 주소에서 할 수 없어요”</td><td>정상이에요. 맥 미니에서 <code>teamax setup-link</code>의 <code>http://localhost…</code> 링크로</td></tr>
     <tr><td>“연결이 비공개로 설정되어 있지 않습니다”(사무실 주소)</td><td>인증서를 <b>신뢰할 수 있는 루트 인증 기관</b>에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지</td></tr>
     <tr><td>데스크에서 아예 안 열림</td><td>같은 네트워크인지, 맥 미니에서 <code>teamax status</code>, 방화벽에서 bun 허용, 주소가 바뀌지 않았는지(<code>teamax info</code>)</td></tr>
     <tr><td>403 “office network”</td><td>VPN·게스트 Wi-Fi 등 다른 네트워크에서 접속했어요. 사무실 네트워크에서</td></tr>

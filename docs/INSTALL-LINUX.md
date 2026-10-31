@@ -269,7 +269,7 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 - 자주 보는 실패:
   - 우분투 24.04에서 샌드박스 실패: AppArmor가 사용자 네임스페이스를 막음. 설치기가 bwrap 전용 프로필을 넣는다(`repair`로 다시).
   - 컨테이너 안 설치: `nesting=1`이 없으면 bwrap의 `/proc` 마운트가 실패한다. 호스트 설정이 필요하다.
-  - "방화벽 확인이 멈췄습니다": `systemctl status mycel-firewall.timer`. 다른 도구가 nftables를 비웠으면 `sudo mycel-ctl firewall apply`.
+  - "방화벽 확인이 멈췄어요": `systemctl status mycel-firewall.timer`. 다른 도구가 nftables를 비웠으면 `sudo mycel-ctl firewall apply`.
   - 커널이 오래됨(6.12 미만): 진단 "커널 격리"·"샌드박스"가 경고. 배포판 커널을 올린다.
 
 ## 12. 보안 모델(요약)

@@ -226,7 +226,7 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
      ```sh
      ~/TeamAX/teamax archive /Volumes/<디스크 이름>/teamax-$(date +%F).age
      ```
-     암호(8자 이상)를 두 번 묻습니다. 확인: `보관본을 만들었습니다 … 암호화됨`. 암호를 잊으면 열 수 없습니다.
+     암호(8자 이상)를 두 번 묻습니다. 확인: `보관본을 만들었어요 … 암호화됨`. 암호를 잊으면 열 수 없습니다.
 - **보관본 되돌리기**: `~/TeamAX/teamax restore-archive <파일> --replace`(지금 자료는 `*.before-restore-*`로 옆에 남음).
   되돌리면 **모든 로그인이 끝납니다**: 대표님과 데스크 모두 다시 로그인합니다. 보관본을 만든 뒤 로그아웃했거나 비밀번호를
   바꾼 로그인이 되살아나지 않게 하려는 것입니다. 아직 안 쓴 초대·재설정 링크도 없어지므로 관리자 → 멤버에서 새로 만드세요.
@@ -313,7 +313,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 인터넷 주소: Cloudflare 오류 **530 / 1033** | 터널에 연결된 맥 미니가 없음: 맥 미니가 꺼졌거나, 로그아웃했거나, 인터넷이 끊김(또는 토큰이 다른 터널 것). 맥 미니에서 `teamax public-address status`(`cloudflared running`), `teamax logs`(끝에 `tunnel.log`) |
 | 인터넷 주소: Cloudflare 오류 **502** | 터널은 연결됐지만 맥 미니의 앱 포트가 아닌 곳을 가리킴(설치 때 `--app-port`를 바꾼 경우) 또는 Trina AX 서버가 멈춤. `teamax public-address status`가 알려 주는 대로: 설치 담당자 맥에서 `public-address.ts set <이름> --port <app port>`; 서버가 멈췄으면 `teamax restart` |
 | 인터넷 주소: 403 "not open to your network" | 허용 목록(`TEAMAX_PUBLIC_ALLOW_FROM`·`TEAMAX_PUBLIC_COUNTRIES`, 9장)에 그 네트워크가 없음 |
-| 첫 설정 "인터넷 주소에서 할 수 없습니다" | 정상. 맥 미니에서 `teamax setup-link`의 `http://localhost…` 링크로 |
+| 첫 설정 "인터넷 주소에서 할 수 없어요" | 정상. 맥 미니에서 `teamax setup-link`의 `http://localhost…` 링크로 |
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
 | 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
 | 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
@@ -452,7 +452,7 @@ shown)`. 맥 미니를 `--app-port`로 다른 포트에 설치했다면 `--port 
 ~/TeamAX/teamax public-address set team.example.com ~/Downloads/team.example.com.tunnel-token
 rm ~/Downloads/team.example.com.tunnel-token
 ```
-확인: `인터넷 주소가 답합니다 / the internet address answers`. `teamax public-address status`: `answers`, 터널 id,
+확인: `인터넷 주소가 답해요 / the internet address answers`. `teamax public-address status`: `answers`, 터널 id,
 `cloudflared running`, `app port`. 서버가 새 이름을 쓰도록 한 번 다시 켜집니다(몇 초). 답이 없으면 명령이 실패(종료 코드 1)로
 끝나고 이유(502: 포트, 530: 연결 없음)와 고칠 명령을 보여 줍니다.
 

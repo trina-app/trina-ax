@@ -159,7 +159,6 @@ function templateMatch(template: string, label: string): Record<string, string> 
   return Object.fromEntries(names.map((n, i) => [n, hit[i + 1] ?? '']))
 }
 
-/** A whole-label template in any language -> the same template in `locale`. */
 /** The Korean wording before 0.2.16 (합니다체): steps saved with it still follow the language on screen. Matching only. */
 const LEGACY_KO: Partial<Record<StepTextKey, string>> = {
   refusedRetry: 'AI가 답하지 않아 다른 모델({model})로 다시 답합니다',
@@ -169,6 +168,7 @@ const LEGACY_KO: Partial<Record<StepTextKey, string>> = {
   credentialSwitchInvalid: 'AI 연결이 거절되어 다른 연결로 이어서 답합니다',
 }
 
+/** A whole-label template in any language (or its older Korean wording) -> the same template in `locale`. */
 function retemplate(keys: StepTextKey[], label: string, locale: Locale): string | null {
   for (const key of keys) for (const template of [...LOCALES.map((l) => STEP_TEXT[key][l]), LEGACY_KO[key]]) {
     const vars = template === undefined ? null : templateMatch(template, label)
