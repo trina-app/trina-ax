@@ -4046,3 +4046,24 @@ Trina should feel like Claude Code, which has WebSearch.
   page, the wake call once per 10 s, API 503, WebSocket 1013, a wake that starts the team server and the request that
   waited for it, an OAuth callback with its query, busy, unknown, feature off), `tests/unit/f2-relay-wake.test.ts`
   (wake client, settings, page loads, the time-jump detector and the relay client's reconnect).
+
+## Sleeping hosted teams: what the team server reports (feat/f2-sleep, 2026-10-31)
+
+- "Idle" (plan §1) is decided from facts the team server knows, never from the relay alone. `server/src/system/activity.ts`
+  keeps one clock per process: a signed-in request (session middleware; every chunk of an upload is one), an open
+  realtime connection (web, desktop, mobile), a running or queued answer and a queued or running background job count
+  as use. Requests that nobody signed in to make (health checks, probes, bots) do not count, so a bot that wakes a VM
+  does not keep it awake.
+- Due work = the next enabled schedule (pending occurrence or retry first) and the next push retry that has not
+  expired. The control plane wakes the VM 5 min before it; a team with due work in 15 min is not sleepable. Push
+  notifications are outbound from the team server, so a sleeping server sends none; they go out after the wake.
+- Fail closed: a failed read is "due now" or "one busy job". A stale `status.json` (3 min) or an older server is
+  "not sleepable". An older mycel-ctl refuses `--activity` (usage error); the control plane reads that as "not
+  sleepable" too.
+- Durations, not times, in `status.json` `activity` and in `idle-wait --activity`: the guest clock can be behind after
+  a resume until chrony steps it.
+- Nightly local backup: a VM that sleeps through its backup window runs the backup at the first wake after it
+  (`shouldRunDailyBackup` already catches up once the start time is past and the last backup is 20 h old). Changes
+  happen only while the VM is awake, so nothing is lost that a backup at the window would have had, except the data of
+  the last awake period until that wake. Accepted for the free plan (local backups only, on the same disk anyway).
+- Tests: `tests/unit/f2-sleep-activity.test.ts`, `native/cmd/mycel-ctl/tenant_test.go` (`idle-wait --activity`).
