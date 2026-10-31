@@ -16,6 +16,7 @@ import {
 } from '@mycel/shared/relay-protocol'
 import type { VirtualWebSocket } from '../services'
 import { RelayWebSocket } from './virtual-ws'
+import { TimeJumpWatch } from './time-jump'
 
 export interface RelayClientLog {
   debug(msg: string, f?: Record<string, unknown>): void
@@ -79,7 +80,9 @@ export class RelayClient {
   private stopped = false
   private st: RelayClientState = { state: 'connecting', detail: null, connectedSince: null, address: null, name: null, conns: 0, lastError: null }
   private ok: AuthOk | null = null
-  readonly stats = { connects: 0, drops: 0, streams: 0, httpErrors: 0 }
+  readonly stats = { connects: 0, drops: 0, streams: 0, httpErrors: 0, timeJumps: 0 }
+  /** F2: after a VM resume the control connections are half-open: reconnect them at once */
+  private jumps = new TimeJumpWatch({ onJump: (gap) => this.reconnectAll(gap) })
 
   constructor(o: RelayClientOptions) {
     this.o = o
@@ -100,12 +103,34 @@ export class RelayClient {
 
   start(): void {
     for (let i = 0; i < this.n; i++) this.connect(i)
+    this.jumps.start()
+  }
+
+  /** The process was frozen for gapMs (time-jump.ts): drop every connection and connect again now, no backoff. */
+  reconnectAll(gapMs: number): void {
+    if (this.stopped || this.st.state === 'replaced') return
+    this.stats.timeJumps++
+    this.o.log.info('relay: the clock jumped (resume after sleep?); reconnecting now', { gapMs })
+    for (let i = 0; i < this.n; i++) {
+      const slot = this.slots[i]
+      if (slot.timer) { clearTimeout(slot.timer); slot.timer = null }
+      slot.attempt = 0
+      const c = slot.conn
+      if (c) {
+        slot.conn = null
+        c.current = false
+        this.closeConn(c, ControlClose.NO_RESPONSE, 'resumed after a pause', true)
+      }
+      this.connect(i)
+    }
+    this.updateConnState()
   }
 
   /** Stop for good (server shutdown): GOAWAY(shutdown) and close every connection. */
   stop(): void {
     if (this.stopped) return
     this.stopped = true
+    this.jumps.stop()
     for (const s of this.slots) {
       if (s.timer) clearTimeout(s.timer)
       if (s.conn) this.closeConn(s.conn, 1001, 'server shutting down', true)
