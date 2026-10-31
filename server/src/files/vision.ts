@@ -16,7 +16,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { getTeamSettings } from '../admin/settings'
 import { ToolError } from '../policy/errors'
-import { runIsolated } from '../tools/isolate'
+import { runIsolated, type IsolatedResult } from '../tools/isolate'
 import { ext } from './extract'
 import { heicToJpeg, heicTools, isHeic, type HeicTools } from './heic-preview'
 
@@ -138,6 +138,9 @@ async function slot<T>(f: () => Promise<T>, signal?: AbortSignal): Promise<T> {
 export const visionStats = () => ({ running, waiting: waiting.length })
 
 // ---------------- images ----------------
+/** A converter stopped by the server: a limit (time, memory, output, disk) is "too heavy"; a converter that replaced
+ * its work folder ('workdir', tools/isolate.ts) is treated like a damaged file, as the other converters do. */
+const stoppedCode = (killed: NonNullable<IsolatedResult['killed']>) => (killed === 'workdir' ? 'vision_damaged' : 'vision_heavy')
 const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
 
 /** The normalizer's fixed refusal lines (stderr) -> error codes the read maps to a note. */
@@ -156,7 +159,7 @@ export async function normalizeForModel(bytes: Uint8Array, tools: VisionTools, s
   }), signal)
   signal?.throwIfAborted()
   if (r.killed === 'aborted') signal?.throwIfAborted()
-  if (r.killed) throw new ToolError(`image conversion stopped (${r.killed})`, 'vision_heavy')
+  if (r.killed) throw new ToolError(`image conversion stopped (${r.killed})`, stoppedCode(r.killed))
   if (r.code !== 0) {
     const line = r.stderr.trim().split('\n')[0] ?? ''
     throw new ToolError(`image conversion refused (${line.slice(0, 60) || 'exit ' + r.code})`, REFUSALS.find(([s]) => line === s)?.[1] ?? 'vision_damaged')
@@ -173,7 +176,7 @@ export async function modelImage(name: string, bytes: Uint8Array, tools: VisionT
   let decoded: Buffer | null
   try { decoded = await slot(() => heicToJpeg(bytes, tools.heic, signal), signal) } catch (e) {
     signal?.throwIfAborted()
-    throw new ToolError('the HEIC photo could not be decoded', e instanceof ToolError && /stopped/.test(e.message) ? 'vision_heavy' : 'vision_damaged')
+    throw new ToolError('the HEIC photo could not be decoded', e instanceof ToolError && /stopped \((?!workdir\))/.test(e.message) ? 'vision_heavy' : 'vision_damaged')
   }
   if (!decoded) throw new ToolError('no HEIC decoder on this server', 'vision_unavailable')
   return normalizeForModel(decoded, tools, signal)
@@ -212,7 +215,7 @@ export async function pdfPagePng(bytes: Uint8Array, page: number, tools: VisionT
   if (!cmd) throw new ToolError('no PDF page renderer (pdftoppm) on this server', 'vision_unavailable')
   const r = await slot(() => runIsolated({ cmd, args, stdin: bytes, timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB, maxStdout: 64 * 1024 ** 2, signal }), signal)
   if (r.killed === 'aborted') signal?.throwIfAborted()
-  if (r.killed) throw new ToolError(`${name}: stopped (${r.killed})`, 'vision_heavy')
+  if (r.killed) throw new ToolError(`${name}: stopped (${r.killed})`, stoppedCode(r.killed))
   const png = r.stdout
   if (r.code !== 0 || png.length < 8 || png.readUInt32BE(0) !== 0x89504e47) throw new ToolError(`${name} could not draw page ${page}`, 'vision_damaged')
   return png
