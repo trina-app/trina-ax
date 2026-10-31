@@ -30,6 +30,8 @@ export interface TeamRow {
   suspend_reason: SuspendReason | null
   suspended_at: string | null
   maintenance_until: string | null
+  /** F2: the control plane put the team's VM to sleep at this time; cleared when the team server connects */
+  sleeping_since: string | null
 }
 export interface KeyRow { id: string; team_id: string; public_key: string; created_at: string; revoked_at: string | null }
 export interface ClaimRow { code_hash: string; name: string; external_ref: string; created_at: string; expires_at: string; used_at: string | null; team_id: string | null }
@@ -95,12 +97,14 @@ CREATE TABLE IF NOT EXISTS ops_audit (
   id TEXT PRIMARY KEY, at TEXT NOT NULL, key_id TEXT NOT NULL, action TEXT NOT NULL, team_id TEXT, detail TEXT
 );
 CREATE INDEX IF NOT EXISTS ops_audit_at ON ops_audit(at);`,
+  // F2 sleep: the control plane hibernated the team's VM (POST /ops/v1/teams/{id}/sleep); NULL = awake
+  `ALTER TABLE teams ADD COLUMN sleeping_since TEXT;`,
 ]
 export const REGISTRY_SCHEMA_VERSION = MIGRATIONS.length
 
 /** operator audit records are kept this long (control-plane D33: operator access records 2 years) */
 const AUDIT_KEEP_MS = 2 * 366 * 24 * 3600_000
-const TEAM_COLS = 'id, name, region, status, created_at, last_heartbeat_at, last_connected_at, last_version, member_count, origin, external_ref, suspend_reason, suspended_at, maintenance_until'
+const TEAM_COLS = 'id, name, region, status, created_at, last_heartbeat_at, last_connected_at, last_version, member_count, origin, external_ref, suspend_reason, suspended_at, maintenance_until, sleeping_since'
 
 const iso = (ms: number) => new Date(ms).toISOString()
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
@@ -364,7 +368,8 @@ export class Registry {
 
   touchConnected(teamId: string, keyId: string): void {
     const at = iso(this.now())
-    this.db.prepare('UPDATE teams SET last_connected_at = ? WHERE id = ?').run(at, teamId)
+    // a connected team server is awake (F2): the sleep flag ends here
+    this.db.prepare('UPDATE teams SET last_connected_at = ?, sleeping_since = NULL WHERE id = ?').run(at, teamId)
     this.db.prepare('UPDATE team_keys SET last_seen_at = ? WHERE id = ?').run(at, keyId)
   }
 
@@ -420,6 +425,14 @@ export class Registry {
     const t = this.team(teamId)
     if (!t || t.status === 'released') throw new RegistryError('not_found', 'no such team', 404)
     this.db.prepare('UPDATE teams SET maintenance_until = ? WHERE id = ?').run(untilMs === null ? null : iso(untilMs), teamId)
+  }
+
+  /** F2 sleep flag: true = the VM sleeps from now (an existing time stays), false = awake. */
+  setSleeping(teamId: string, sleeping: boolean): void {
+    const t = this.team(teamId)
+    if (!t || t.status === 'released') throw new RegistryError('not_found', 'no such team', 404)
+    if (sleeping) this.db.prepare('UPDATE teams SET sleeping_since = COALESCE(sleeping_since, ?) WHERE id = ?').run(iso(this.now()), teamId)
+    else this.db.prepare('UPDATE teams SET sleeping_since = NULL WHERE id = ?').run(teamId)
   }
 
   /** Operator: reserve or block a name (hold_until null = forever). */

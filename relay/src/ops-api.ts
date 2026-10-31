@@ -15,7 +15,7 @@ import {
 import {
   MAX_HOLD_TTL_SEC, OPS_MAX_BODY, OPS_REPLAY_MAX, OPS_REPLAY_WINDOW_MS, OPS_SCOPES, OPS_SIG_MAX_SKEW_MS, TEAM_ORIGINS,
   opsScopeFor, opsSigningString, parseClaimRequest, parseCreateTeamRequest, parseHoldRequest, parseKeyRequest,
-  parseMaintenanceRequest, parseNoticeRequest, parseOpsAuthorizationHeader, parseRenameRequest, parseSuspendRequest,
+  parseMaintenanceRequest, parseNoticeRequest, parseOpsAuthorizationHeader, parseRenameRequest, parseSleepRequest, parseSuspendRequest,
   type OperatorKey, type OperatorTeamInfo, type OpsErrorCode, type OpsScope, type OpsStats, type Parsed, type TeamOrigin,
 } from '@mycel/shared/cloud-protocol/relay-ops'
 import { teamAddress } from './config.ts'
@@ -139,6 +139,7 @@ export class OpsApi {
       teamId: t.id, name: t.name, status: t.status, address: teamAddress(this.relay.cfg, t.name), lastHeartbeatAt: t.last_heartbeat_at,
       origin: t.origin, externalRef: t.external_ref, region: t.region, suspendReason: t.suspend_reason,
       maintenanceUntil: t.maintenance_until && Date.parse(t.maintenance_until) > this.now() ? t.maintenance_until : null,
+      sleepingSince: t.sleeping_since ?? null,
       online: live.online, conns: live.conns, lastConnectedAt: t.last_connected_at, lastVersion: t.last_version,
       memberCount: t.member_count === null || t.member_count === undefined ? null : Number(t.member_count), createdAt: t.created_at,
     }
@@ -281,6 +282,18 @@ export class OpsApi {
       changed()
       this.audit(keyId, 'teams.maintenance', id, b.untilMs === null ? 'off' : `until=${new Date(b.untilMs).toISOString()}`)
       return send(res, 204, null)
+    }
+    if (method === 'POST' && action === 'sleep') {
+      // F2: the control plane marks the team asleep just before it hibernates the VM (and awake again when a wake
+      // fails or is cancelled). Live connections stay: they drop when the VM sleeps; a connect clears the flag.
+      const b = take(parseSleepRequest(json))
+      const t = this.team(id)
+      if (!!t.sleeping_since !== b.sleeping) {
+        reg.setSleeping(id, b.sleeping)
+        changed()
+        this.audit(keyId, 'teams.sleep', id, b.sleeping ? 'on' : 'off')
+      }
+      return send(res, 200, this.info(reg.team(id)!))
     }
     if (method === 'POST' && action === 'notice') {
       const b = take(parseNoticeRequest(json))
