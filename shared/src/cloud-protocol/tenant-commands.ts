@@ -26,6 +26,22 @@ const PartUrls = z.array(HttpsUrl).min(1).max(10_000)
 export const UploadedPart = z.object({ n: z.number().int().min(1).max(10_000), etag: z.string().min(1).max(200) })
 export type UploadedPart = z.infer<typeof UploadedPart>
 
+/** idle-wait output; the fields after `running` come only with --activity (F2 sleep). */
+export const IdleWaitResult = z.object({
+  idle: z.boolean(),
+  running: z.number().int(),
+  sleepable: z.boolean().optional(),
+  /** seconds since the last signed-in request, open connection or running answer (null = unknown) */
+  idleForSec: z.number().int().nonnegative().nullable().optional(),
+  /** open realtime connections (web, desktop and mobile apps) */
+  connections: z.number().int().nonnegative().nullable().optional(),
+  /** seconds until the next enabled schedule is due (0 = due now), null = none */
+  nextScheduleInSec: z.number().int().nonnegative().nullable().optional(),
+})
+export type IdleWaitResult = z.infer<typeof IdleWaitResult>
+/** a team is not sleepable when a schedule is due within this many seconds (plan §1 "What idle means") */
+export const SLEEP_SCHEDULE_GUARD_SEC = 15 * 60
+
 /** What `status` reports (60 s, ax-hostd → control plane). No conversation, file name, person, mail, IP or token. */
 export const TenantStatus = z.strictObject({
   at: IsoTime,
@@ -130,7 +146,13 @@ export const TENANT_COMMANDS = {
   'set-server-config': { args: NoArgs, stdin: ServerConfigPatch, output: z.object({ ok: z.literal(true), restarted: z.boolean() }), timeoutSec: 120 },
   'relay-registration-set': { args: NoArgs, stdin: z.strictObject({ relayRegistration: RelayRegistrationFile }), output: Ok, timeoutSec: 120 },
   'relay-key-proof': { args: z.strictObject({ teamId: RelayTeamId }), stdin: null, output: z.object({ publicKey: Ed25519PublicKeyB64, sig: SignatureB64 }), timeoutSec: 15 },
-  'idle-wait': { args: z.strictObject({ max: z.number().int().min(0).max(3600) }), stdin: null, output: z.object({ idle: z.boolean(), running: z.number().int() }), timeoutSec: (a) => Number(a.max ?? 0) + 30 },
+  /** idle = no answer runs (reimage, resize and reboot wait on it). With `activity` (F2 sleep, a newer mycel-ctl) the
+   * output adds the facts the control plane's sleep policy needs: open web/desktop/mobile connections, seconds since
+   * the last signed-in request, open socket or running answer, and seconds to the next due schedule. Durations, not
+   * times: the guest clock can be behind after a resume. sleepable = no answer, no connection, no schedule in 15 min,
+   * and the server's status is fresh. An older mycel-ctl refuses --activity (usage error): the control plane reads
+   * that as "not sleepable". */
+  'idle-wait': { args: z.strictObject({ max: z.number().int().min(0).max(3600), activity: z.literal(true).optional() }), stdin: null, output: IdleWaitResult, timeoutSec: (a) => Number(a.max ?? 0) + 30 },
   'prepare-stop': { args: z.strictObject({ grace: z.number().int().min(0).max(3600) }), stdin: null, output: z.object({ stopped: z.boolean() }), timeoutSec: (a) => Number(a.grace ?? 0) + 60 },
   update: { args: z.strictObject({ version: Version }), stdin: null, output: UpdateResult, timeoutSec: 1800 },
   /** localId: a given local backup (the control plane walks an incremental chain back to its full archive) */

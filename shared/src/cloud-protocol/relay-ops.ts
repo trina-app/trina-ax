@@ -71,7 +71,7 @@ export function opsScopeFor(method: string, path: string): OpsScope | null {
   if (M === 'GET' && (p === '/teams' || p === '/stats' || /^\/teams\/[^/]+$/.test(p))) return 'teams:read'
   if ((M === 'POST' && p === '/holds') || (M === 'DELETE' && /^\/holds\/[^/]+$/.test(p))) return 'teams:write'
   if (M === 'POST' && p === '/teams') return 'teams:write'
-  if (M === 'POST' && /^\/teams\/[^/]+\/(suspend|unsuspend|maintenance)$/.test(p)) return 'teams:write'
+  if (M === 'POST' && /^\/teams\/[^/]+\/(suspend|unsuspend|maintenance|sleep)$/.test(p)) return 'teams:write'
   if ((M === 'PUT' && /^\/teams\/[^/]+\/key$/.test(p)) || ((M === 'PATCH' || M === 'DELETE') && /^\/teams\/[^/]+$/.test(p))) return 'teams:write'
   if (M === 'POST' && /^\/teams\/[^/]+\/notice$/.test(p)) return 'notice:write'
   if ((M === 'POST' && p === '/claims') || (M === 'DELETE' && /^\/claims\/[^/]+$/.test(p))) return 'claims:write'
@@ -108,6 +108,9 @@ export interface OperatorTeamInfo {
   region: string
   suspendReason: SuspendReason | null
   maintenanceUntil: string | null
+  /** F2: the control plane put the team's VM to sleep at this time (cleared when the team server connects). Absent
+   * from older relays. */
+  sleepingSince?: string | null
   /** the team server holds at least one live control connection to THIS relay process */
   online: boolean
   conns: number
@@ -119,6 +122,8 @@ export interface OperatorTeamInfo {
 export interface OpsTeamList { teams: OperatorTeamInfo[]; next: string | null }
 export interface OpsSuspendRequest { reason: SuspendReason }
 export interface OpsMaintenanceRequest { untilMs: number | null }
+/** F2 sleep: true = the VM is asleep (the relay drops the team's connections and wakes it on the next request) */
+export interface OpsSleepRequest { sleeping: boolean }
 export interface OpsKeyRequest { publicKey: string; newKeySig: string }
 export interface OpsRenameRequest { name: string }
 export interface OpsNoticeRequest { level: 'info' | 'warn'; code: string; message: string }
@@ -196,6 +201,54 @@ export function parseMaintenanceRequest(x: unknown, now: number = Date.now()): P
   if (x.untilMs === null) return { ok: true, value: { untilMs: null } }
   if (!Number.isInteger(x.untilMs) || (x.untilMs as number) > now + MAX_MAINTENANCE_MS) return bad('untilMs: a millisecond timestamp at most 24 h ahead, or null')
   return { ok: true, value: { untilMs: x.untilMs as number } }
+}
+
+export function parseSleepRequest(x: unknown): Parsed<OpsSleepRequest> {
+  if (!isObj(x)) return bad('body must be a JSON object')
+  const extra = onlyKeys(x, ['sleeping'])
+  if (extra) return bad(extra)
+  if (typeof x.sleeping !== 'boolean') return bad('sleeping must be true or false')
+  return { ok: true, value: { sleeping: x.sleeping } }
+}
+
+// ------------------------------------------------------------------ wake requests (relay -> control plane, F2)
+//
+// When a request arrives for a team whose VM sleeps, the relay asks the control plane to wake it:
+//   POST {cp}/relay/v1/wake   body OpsWakeRequest   -> OpsWakeResponse
+//   Authorization: MycelRelayWake key=<keyId>, ts=<ms>, sig=<base64>
+//   sig = Ed25519 over wakeSigningString(path, ts, body) by the relay's wake key; the control plane pins the public
+//   key (base64 SPKI). ts within ±60 s; the control plane refuses a signature again for 120 s (replay). Another domain
+//   string than opsSigningString, so a signature of one API is never valid on the other.
+
+export const WAKE_API_PATH = '/relay/v1/wake'
+export interface OpsWakeRequest { teamId: string; reason: 'http' | 'ws' }
+export interface OpsWakeResponse {
+  /** waking: a wake runs now; awake: the VM does not sleep (the team server should connect soon); unknown: no such
+   * hosted team or it cannot be woken (suspended, being deleted) */
+  state: 'waking' | 'awake' | 'unknown'
+  /** the client may ask again after this many seconds */
+  retryAfterSec: number
+}
+
+export function wakeSigningString(pathWithQuery: string, ts: number, body: string): string {
+  return `mycel-relay-wake-v1\nPOST\n${pathWithQuery}\n${ts}\n${createHash('sha256').update(body).digest('hex')}`
+}
+export function wakeAuthorizationHeader(keyId: string, ts: number, sig: string): string {
+  return `MycelRelayWake key=${keyId}, ts=${ts}, sig=${sig}`
+}
+export function parseWakeAuthorizationHeader(h: string | null | undefined): { keyId: string; ts: number; sig: string } | null {
+  if (!h) return null
+  const m = /^MycelRelayWake key=([A-Za-z0-9._-]{1,64}), ts=(\d{1,16}), sig=([A-Za-z0-9+/=]{1,200})$/.exec(h.trim())
+  return m ? { keyId: m[1]!, ts: Number(m[2]), sig: m[3]! } : null
+}
+export function parseWakeRequest(x: unknown): Parsed<OpsWakeRequest> {
+  if (!isObj(x)) return bad('body must be a JSON object')
+  const extra = onlyKeys(x, ['teamId', 'reason'])
+  if (extra) return bad(extra)
+  const teamId = str(x, 'teamId', 64)
+  if (!teamId || !/^[A-Za-z0-9_-]{1,64}$/.test(teamId)) return bad('teamId: 1-64 of A-Z a-z 0-9 _ -')
+  if (x.reason !== 'http' && x.reason !== 'ws') return bad("reason must be 'http' or 'ws'")
+  return { ok: true, value: { teamId, reason: x.reason } }
 }
 
 export function parseKeyRequest(x: unknown): Parsed<OpsKeyRequest> {

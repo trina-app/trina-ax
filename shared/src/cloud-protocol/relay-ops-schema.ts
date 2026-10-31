@@ -30,6 +30,9 @@ export const OpsCreateTeamRequestSchema = z.strictObject({
   externalRef: ExternalRef,
 })
 export const OpsSuspendRequestSchema = z.strictObject({ reason: z.enum(SUSPEND_REASONS) })
+export const OpsSleepRequestSchema = z.strictObject({ sleeping: z.boolean() })
+export const OpsWakeRequestSchema = z.strictObject({ teamId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/), reason: z.enum(['http', 'ws']) })
+export const OpsWakeResponseSchema = z.object({ state: z.enum(['waking', 'awake', 'unknown']), retryAfterSec: z.number().int().nonnegative() })
 export const OpsMaintenanceRequestSchema = z.strictObject({ untilMs: z.number().int().nullable() })
 export const OpsKeyRequestSchema = z.strictObject({ publicKey: z.string().max(200).regex(B64), newKeySig: z.string().max(200).regex(B64) })
 export const OpsRenameRequestSchema = z.strictObject({ name: Name })
@@ -47,6 +50,7 @@ export const OperatorTeamInfoSchema = z.object({
   region: z.string(),
   suspendReason: z.enum(SUSPEND_REASONS).nullable(),
   maintenanceUntil: IsoTime.nullable(),
+  sleepingSince: IsoTime.nullable().optional(),
   online: z.boolean(),
   conns: z.number().int().nonnegative(),
   lastConnectedAt: IsoTime.nullable(),

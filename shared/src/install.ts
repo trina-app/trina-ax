@@ -77,6 +77,13 @@ export const StatusFile = z.object({
   /** every diagnostics check's id and result, no texts (the hosted service's TenantStatus.checks via admin.js
    * cloud-status). Absent from older servers. */
   checks: z.array(z.object({ id: z.string().max(64), status: z.enum(['ok', 'warn', 'fail', 'unknown']) })).max(100).optional(),
+  /** F2 sleep (server/src/system/activity.ts): open realtime connections, seconds since the last use, seconds to the
+   * next due schedule (null = none). Absent from older servers. */
+  activity: z.object({
+    connections: z.number().int().nonnegative(),
+    idleForSec: z.number().int().nonnegative(),
+    nextScheduleInSec: z.number().int().nonnegative().nullable(),
+  }).optional(),
   /** the team's default language: the menubar app's own words follow it (English when missing) */
   locale: z.enum(['ko', 'en', 'id', 'ja', 'es']).optional(),
 })
