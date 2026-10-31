@@ -29,14 +29,15 @@ export default function HwpView({ path, download }: { path: string; download: ()
     })
     return () => { ctrl.abort(); if (url) URL.revokeObjectURL(url) }
   }, [path, page, revision])
-  // the preview is off: an admin is told to turn the plugin on when it is installed, otherwise where to add it
+  // the preview is off: an admin is told to turn the plugin on when it is installed and only turned off, otherwise
+  // where to add it (an installed package that cannot run here, status 'unsupported', is not fixed by turning it on)
   const admin = isAdmin(me)
   const [installedOff, setInstalledOff] = useState(false)
   useEffect(() => {
     if (reason !== 'disabled' || !admin) return
     const ctrl = new AbortController()
     api.call(API.listPlugins, { signal: ctrl.signal })
-      .then(d => { if (!ctrl.signal.aborted) setInstalledOff(d.installed.some(p => p.id === HWP_PLUGIN_ID && !p.enabled)) })
+      .then(d => { if (!ctrl.signal.aborted) setInstalledOff(d.installed.some(p => p.id === HWP_PLUGIN_ID && p.status === 'disabled')) })
       .catch(() => { /* the hint stays the general one */ })
     return () => ctrl.abort()
   }, [reason, admin])
