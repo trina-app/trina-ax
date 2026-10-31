@@ -14,6 +14,7 @@ import { isAdmin, useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { DevEnvSection } from './DevEnvSection'
 
 export function ProjectList() {
   const t = useT()
@@ -311,6 +312,7 @@ export function ProjectHome() {
           </ul>
         </section>
         <aside className="space-y-6">
+          <DevEnvSection project={p} />
           <section aria-labelledby="pj-instr">
             <h2 id="pj-instr" className="mb-2 text-sm font-semibold">
               {t('projects.instructions')}
