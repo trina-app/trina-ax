@@ -6,7 +6,7 @@
 #   - a per-turn token (Bearer or x-api-key) must exist, be unexpired, unrevoked and issued for THIS box
 #   - every request is logged (method, path, header names, model) to /srv/trina/proxy-log/<box>.log
 # It answers with a scripted Anthropic Messages stream: step N of the turn calls the Bash tool with commands[N]; after
-# the last command it answers with text. No model is called.
+# the last command it answers with text. A command "WRITE:<path>:<text>" asks for the Write tool instead. No model is called.
 #
 #   model-proxy.py SOCKET BOX                      serve
 #   model-proxy.py issue BOX TTL_S CMD [CMD...]    print a new turn token; the turn's Bash commands are CMD...
@@ -133,8 +133,14 @@ class H(http.server.BaseHTTPRequestHandler):
         if not body.get('tools') or step >= len(row['cmds']):
             block, stop = {'type': 'text', 'text': 'spike: done'}, 'end_turn'
         else:
-            block = {'type': 'tool_use', 'id': 'toolu_' + secrets.token_hex(8), 'name': 'Bash',
-                     'input': {'command': row['cmds'][step], 'description': f'spike step {step}'}}
+            cmd = row['cmds'][step]
+            if cmd.startswith('WRITE:'):  # WRITE:<absolute path>:<content> -> Claude Code's Write tool
+                _, fp, content = cmd.split(':', 2)
+                block = {'type': 'tool_use', 'id': 'toolu_' + secrets.token_hex(8), 'name': 'Write',
+                         'input': {'file_path': fp, 'content': content}}
+            else:
+                block = {'type': 'tool_use', 'id': 'toolu_' + secrets.token_hex(8), 'name': 'Bash',
+                         'input': {'command': cmd, 'description': f'spike step {step}'}}
             stop = 'tool_use'
             if msgs and isinstance(msgs[-1].get('content'), list):
                 for c in msgs[-1]['content']:

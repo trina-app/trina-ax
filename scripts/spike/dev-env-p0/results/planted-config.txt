@@ -1,0 +1,8 @@
+LOCK=0 planted=hooks: bash-result="content":"box-web" proxy_requests=2 turn_end="subtype":"success"
+  hook-ran: devbox-spike uid=1000(devbox) gid=1000(devbox) groups=1000(devbox) http://127.0.0.1:4100 
+LOCK=0 planted=env: bash-result= proxy_requests=0 turn_end="subtype":"api_retry"
+  hook-ran: 
+LOCK=1 planted=hooks: bash-result="content":"box-web" proxy_requests=2 turn_end="subtype":"success"
+  hook-ran: 
+LOCK=1 planted=env: bash-result="content":"box-web" proxy_requests=2 turn_end="subtype":"success"
+  hook-ran: 

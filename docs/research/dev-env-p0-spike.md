@@ -12,7 +12,8 @@ Input: Dion's 개발 환경 plan and our review (7 holes, 5 answers).
   real need was 635 MB (Next.js dev server under load). No out-of-memory kill in normal work.
 - **Do not run the AI engine inside the box.** A process that an earlier command left in the box can steal the
   next turn's model token in two ways (section 5.3). Run Claude Code outside the box, in the launcher's sandbox as
-  today, and send only its Bash commands into the box. We tested this and it works (section 3.3).
+  today, and send only its Bash commands into the box. We tested this and it works (section 3.3). It is safe only
+  with the launcher's settings lockdown: without it, a hook that the box plants in shared settings runs on the host.
 - **Mount the team folder with an idmapped mount.** A plain bind mount breaks normal tools (`sed -i`, `cp -p`) and
   depends on ACLs that a `chmod` by the server removes.
 - **Two limits are not solved by the box:** writes to the team folder have no size limit, and an "open" box can
@@ -90,10 +91,27 @@ namespace (a stand-in for the launcher's bwrap sandbox) with the box paths (`/wo
 - Bash commands run in the box (hostname `box-web`, box limits, box network).
 - The working folder carries over between commands (`cd src` in one call, `pwd` = `/work/src` in the next),
   because HOME (shell snapshots) and `CLAUDE_CODE_TMPDIR` (the cwd file) are the same files on both sides.
-- Read/Edit/Write of Claude Code act on the same folder from outside the box.
+- Claude Code's Write tool, from outside the box, made a file that the box sees at once (owner: box root) and that
+  the host stores as the server account (results/engine-outside-write.txt).
 - The token never enters the box. The thief and the MITM probe got nothing.
 
-In the spike the engine runs as `devbox` and calls podman itself. **P1 must not do this:** an engine with podman
+**But the engine reads files that the box can write.** HOME (`/cache/home`) and the folder (`/work/.claude/`) are
+shared. We planted Claude Code settings there from the box (`in-box/plant.sh`, results/planted-config.txt):
+
+| Planted by the box | Engine without lockdown | Engine with the launcher's lockdown (`LOCK=1`) |
+|---|---|---|
+| A `PreToolUse`/`SessionStart` hook in user and project settings | **The hook ran on the host**, outside the box, as the engine's account, with the engine's environment | did not run |
+| `env.ANTHROPIC_BASE_URL` in settings | **The engine sent its requests to the planted address** (the turn failed: no listener) | ignored; requests went to the proxy |
+
+The lockdown is what the launcher does today (`server/src/engine/claude.ts`): `--setting-sources ""`,
+`disableAllHooks`, and `CLAUDE_CONFIG_DIR` in a folder of the engine's own. With it, Bash still works and the
+working folder still carries over. So the engine-outside design is safe only together with this lockdown, and the
+engine's config folder must never be a folder that the box can write.
+
+In the spike the engine runs as `devbox` and goes through the same idmapped mount as the box. In P1 the engine runs
+as the engine account, so the launcher needs a second idmapped mount of the folder (server account → engine account)
+for the engine sandbox's `/work`; then both sides write as the server account. Also in the spike the engine calls
+podman itself. **P1 must not do this:** an engine with podman
 access can start new containers with any mount of that account. P1 needs a launcher operation "run bash in box X
 for turn T" that the engine calls instead (section 7).
 
@@ -224,7 +242,7 @@ are the only barrier. They must load before any workload, and the box must stop 
 
 ### 5.3 Token theft (engine in the box)
 
-| Attack by a process left in the box | ptrace_scope 0 (Debian default) | ptrace_scope 1 |
+| Attack by a process left in the box | ptrace_scope 0 (this VM; check the production default) | ptrace_scope 1 |
 |---|---|---|
 | Read the engine's environment | no token (fd 3 only) | no token |
 | Read the engine's fd 3 | refused / closed | refused |
@@ -232,7 +250,8 @@ are the only barrier. They must load before any workload, and the box must stop 
 | Replace the in-box forwarder on 127.0.0.1:4000 (MITM) | **token stolen** | **token stolen** |
 
 All processes in a box are the same user, so the box cannot protect one process from another. The fix is design,
-not a setting: the engine runs outside the box (section 3.3 B). With that design both attacks get nothing.
+not a setting: the engine runs outside the box (section 3.3 B). With that design both attacks get nothing, and the
+launcher's settings lockdown stops the planted-config attack (section 3.3).
 
 A stolen token is bound to the box (the proxy refused it on another box's socket) and is revoked at the end of the
 turn. It still lets code in the box use another member's model budget during that member's turn.
@@ -272,9 +291,11 @@ turn. It still lets code in the box use another member's model budget during tha
    process, `box-preview(box, port)`. The engine calls only `box-exec` for its own turn's box. Nothing else gets
    podman access.
 3. **Engine outside the box.** The turn runs as today in the launcher's bwrap/Landlock/seccomp sandbox, with the
-   project folder (idmapped) at `/work` and the box's `/cache` mounted, and `CLAUDE_CODE_SHELL` set to the
-   `box-exec` client. The token stays on fd 3 outside the box. The model proxy keeps its TCP peer check, because the
-   engine still runs in the launcher sandbox on the host.
+   project folder at `/work` (a second idmapped mount: server account → engine account), and `CLAUDE_CODE_SHELL` set
+   to the `box-exec` client. Keep the launcher's settings lockdown (`--setting-sources ""`, `disableAllHooks`,
+   `CLAUDE_CONFIG_DIR` and HOME in the engine's own folder). Share with the box only the folder for the cwd file
+   (`CLAUDE_CODE_TMPDIR`); never the engine's HOME or config folder. The token stays on fd 3 outside the box. The
+   model proxy keeps its TCP peer check, because the engine still runs in the launcher sandbox on the host.
 4. **Folder.** Idmapped bind mount (server account → box root). `node_modules`, `.venv` and caches in the box
    volume. Build outputs (`.next/`, `dist/`) stay in the folder but versioning skips them (hole 4). Add a folder size
    limit for dev-environment folders: an xfs project quota, a btrfs qgroup, or a watcher that stops the box at the
@@ -282,7 +303,8 @@ turn. It still lets code in the box use another member's model budget during tha
 5. **Box volume.** One size-limited file system per box (4 GB default; 6 GB for Next.js-size projects). A full
    volume stops only that box.
 6. **Network.** Default open mode with `box-open.nft` in the box namespace, plus the team server's public addresses
-   in the reject list (filled in at start from the host's addresses). Allowlist mode with the egress proxy for teams
+   in the reject list. Take them from the team's configured public hostname and IP, not from interface addresses: a
+   cloud NAT address is on no interface, and traffic to it comes back to the host. Allowlist mode with the egress proxy for teams
    that want it. Both proxies on per-box unix sockets, so the socket tells which box calls.
 7. **Limits.** 1 CPU (lower CPU weight than Trina), 1.5 GB, no swap, 512 processes, /tmp 256 MB. Stop a box after
    N minutes without a turn or preview request; pause is cheap but keeps memory, stop frees it and starts in 0.13 s.
@@ -294,7 +316,7 @@ turn. It still lets code in the box use another member's model budget during tha
 ## 8. Answers to the 7 holes
 
 1. **Secrets between members of one box.** Confirmed by test: every process in a box can read every other
-   process's memory (ptrace_scope 0) and can put itself between a tool and its socket. So no per-person secret may
+   process's memory (ptrace_scope 0 on this VM) and can put itself between a tool and its socket. So no per-person secret may
    be in the box, not even for one turn. Model tokens: keep the engine outside the box. Git push and other
    per-person credentials: a credential helper in the box that asks Trina per command through a per-box socket;
    Trina checks the person of the current turn and, for push, asks that person to confirm. The helper must not give
@@ -338,6 +360,8 @@ turn. It still lets code in the box use another member's model budget during tha
 - x86-64 and a real 4 GB team VM (numbers will be slower).
 - IPv6 rules; podman on Debian 12 and Ubuntu 24.04 (AppArmor user-namespace restriction).
 - Real model calls and long conversations (engine memory).
-- The real launcher integration (`box-exec` operation, bwrap with the box paths) and the real model proxy.
+- The real launcher integration (`box-exec` operation, bwrap with the box paths, the second idmapped mount) and the
+  real model proxy.
+- Claude Code's Edit tool and Read of files that the box changes during a turn (only Write and Bash were scripted).
 - Folder size limits (quota) and the file watcher for versions.
 - Many boxes at once on one host, and a box start after a host reboot (linger, rules).
