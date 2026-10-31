@@ -17,8 +17,9 @@ export const isDesktop = () => !!desktop()
 export type BrowserSettingsBridge = NonNullable<DesktopBridge['browserSettings']>
 export const browserSettingsBridge = (bridge: DesktopBridge | null = desktop()): BrowserSettingsBridge | null => bridge?.browserSettings ?? null
 
-/** Inside a Mac App Store build of the desktop app: the store updates it, so Settings > Apps offers no Mac installer
- * (lib/downloads.ts offeredDownloads). A desktop app from before the flag leaves it out: not a store build. */
+/** Inside a Mac App Store build of the desktop app: the store updates it, so Settings > Apps offers no installer, only
+ * the App Store line (lib/downloads.ts offeredDownloads). A desktop app from before the flag leaves it out: not a store
+ * build. */
 export const storeApp = (bridge: DesktopBridge | null = desktop()): boolean => bridge?.store === true
 
 // ---- pane state, shared by every component that shows it (one subscription to the desktop app)

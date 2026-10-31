@@ -335,7 +335,7 @@ describe('bridge senders', () => {
     expect(isOwnUiUrl(`${UI_ORIGIN.replace('app', 'evil')}/x`)).toBe(false)
   })
 
-  test('the team page hears whether this is a Mac App Store build (store: Settings > Apps then offers no Mac installer)', () => {
+  test('the team page hears whether this is a Mac App Store build (store: Settings > Apps then offers no installer)', () => {
     const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
     const info = main.slice(main.indexOf("ipcMain.on('bridge:info'"), main.indexOf("ipcMain.handle('bridge:browser-run'"))
     expect(info).toContain('fromApp(e) ?')

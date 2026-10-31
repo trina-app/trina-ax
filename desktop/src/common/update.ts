@@ -9,8 +9,8 @@
 // macOS: no automatic install (that needs an Apple-signed app); /downloads/index.json is read with the team page's
 // own cookies and a newer Mac item is announced once per version, with a link to Settings > Apps.
 // Mac App Store build (process.mas): nothing; the store updates it, and the store does not allow pointing to another
-// download (editions/trina/mac-app-store). Settings > Apps of such a build lists no Mac installer either (the bridge's
-// store flag, web/src/lib/downloads.ts offeredDownloads).
+// download (editions/trina/mac-app-store). Settings > Apps of such a build lists no installer either, for the Mac or
+// Windows (the bridge's store flag, web/src/lib/downloads.ts offeredDownloads).
 export const FIRST_CHECK_MS = 20_000
 export const CHECK_EVERY_MS = 4 * 3600_000
 

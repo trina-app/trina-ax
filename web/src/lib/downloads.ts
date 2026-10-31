@@ -1,6 +1,6 @@
 // Settings → Apps: the desktop installers the team server offers (/downloads/index.json, signed-in people only;
 // the owner adds them with `teamax desktop add`, server/src/office/desktop.ts) and what to click while installing.
-// Inside a Mac App Store build only the Windows ones (offeredDownloads).
+// Inside a Mac App Store build none at all (offeredDownloads).
 import type { MessageKey } from '../i18n'
 import type { Platform } from './pwa'
 
@@ -13,10 +13,11 @@ export function parseDownloads(raw: unknown): DownloadItem[] {
   return items.filter((i): i is DownloadItem => !!i && typeof i === 'object' && (i.platform === 'mac' || i.platform === 'windows') && typeof i.file === 'string' && i.file !== '' && typeof i.version === 'string')
 }
 
-/** Inside a Mac App Store build (lib/desktop.ts storeApp) no Mac installer is offered: the store updates the app, and a
- * store app may not offer installs or updates from outside the store (App Review Guideline 2.4.5). Windows ones stay. */
+/** Inside a Mac App Store build (lib/desktop.ts storeApp) no installer is offered, for the Mac or Windows: the store
+ * updates the app, and a store app may not offer installs or updates from outside the store (App Review Guideline
+ * 2.4.5), so Settings > Apps shows only the App Store line there. */
 export function offeredDownloads(items: DownloadItem[], store: boolean): DownloadItem[] {
-  return store ? items.filter((d) => d.platform !== 'mac') : items
+  return store ? [] : items
 }
 
 /** this computer's platform first, the server's order otherwise */

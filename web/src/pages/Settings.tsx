@@ -1,7 +1,7 @@
 // Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
 // app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
-// screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, no Mac installer inside a
-// Mac App Store build),
+// screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
+// Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
 // connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
 // member's own accounts (Integrations.tsx).
@@ -13,7 +13,7 @@ import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } f
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
-import { installGuideShown, platform } from '../lib/pwa'
+import { installGuideShown, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged, schedulesChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
@@ -512,10 +512,9 @@ function About() {
 
 function Apps() {
   const t = useT()
-  const locale = useLocale()
   const p = platform()
   const me = useMeStrict()
-  // a Mac App Store build: the store updates it, so no Mac installer here (lib/downloads.ts offeredDownloads)
+  // a Mac App Store build: the store updates it, so no installer here at all (lib/downloads.ts offeredDownloads)
   const store = storeApp()
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
@@ -537,37 +536,49 @@ function Apps() {
         </Section>
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
-        {store && <p className={clsx('text-sm text-muted', downloads !== 'none' && 'mb-3')}>{t('apps.macStore')}</p>}
-        {downloads === null && <Skeleton lines={2} />}
-        {/* the empty state asks for an installer (and tells the owner how to add the .dmg): not inside the store app */}
-        {downloads === 'none' && !store && (
-          <>
-            <p className="text-sm text-muted">{t(me.user.role === 'owner' ? 'apps.noDownloadsYet' : 'apps.noDownloads')}</p>
-            {me.user.role === 'owner' && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}
-          </>
-        )}
-        {Array.isArray(downloads) && (
-          <ul className="space-y-4">
-            {downloads.map((d) => (
-              <li key={d.file}>
-                <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-hover">
-                  <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
-                  {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
-                </a>
-                {d.platform === p && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
-                {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
-                {showSteps(downloads, d) && (
-                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-                    {installSteps(d).map((k) => (
-                      <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
-                    ))}
-                  </ol>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p} />
       </Section>
+    </>
+  )
+}
+
+/** The installers under Settings > Apps > Desktop app (exported for tests). Inside a Mac App Store build only the App
+ * Store line: no installer, no install steps, and not the empty state either (it asks for an installer and tells the
+ * owner how to add the .dmg). */
+export function DesktopDownloads({ downloads, store, owner, here }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform }) {
+  const t = useT()
+  const locale = useLocale()
+  if (store) return <p className="text-sm text-muted">{t('apps.macStore')}</p>
+  return (
+    <>
+      {downloads === null && <Skeleton lines={2} />}
+      {downloads === 'none' && (
+        <>
+          <p className="text-sm text-muted">{t(owner ? 'apps.noDownloadsYet' : 'apps.noDownloads')}</p>
+          {owner && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}
+        </>
+      )}
+      {Array.isArray(downloads) && (
+        <ul className="space-y-4">
+          {downloads.map((d) => (
+            <li key={d.file}>
+              <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-hover">
+                <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
+                {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
+              </a>
+              {d.platform === here && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
+              {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
+              {showSteps(downloads, d) && (
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+                  {installSteps(d).map((k) => (
+                    <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
+                  ))}
+                </ol>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   )
 }

@@ -7,7 +7,7 @@
 - [entitlements.mas.inherit.plist](entitlements.mas.inherit.plist): 앱 안 Electron 도우미 프로그램 권한입니다. 앱의 샌드박스를 그대로 물려받습니다.
 - [entitlements.mas.loginhelper.plist](entitlements.mas.loginhelper.plist): Electron 로그인 도우미 권한입니다. macOS가 직접 실행하므로 샌드박스를 따로 켭니다.
 
-스토어 빌드는 앱 자체 업데이트 안내를 띄우지 않습니다. 업데이트는 App Store가 합니다(`desktop/src/common/update.ts`). 팀 페이지의 설정 > 앱도 스토어 빌드 안에서는 맥 설치 파일(.dmg)과 설치 안내를 보여 주지 않고, App Store에서 업데이트된다는 한 줄만 보여 줍니다(데스크톱 브리지의 `store` 값, `web/src/lib/downloads.ts`). 윈도우 설치 파일은 그대로 보입니다.
+스토어 빌드는 앱 자체 업데이트 안내를 띄우지 않습니다. 업데이트는 App Store가 합니다(`desktop/src/common/update.ts`). 팀 페이지의 설정 > 앱도 스토어 빌드 안에서는 데스크톱 설치 파일(맥 .dmg, 윈도우 .exe)과 설치 안내를 보여 주지 않고, App Store에서 업데이트된다는 한 줄만 보여 줍니다(데스크톱 브리지의 `store` 값, `web/src/lib/downloads.ts`).
 
 스토어 앱은 자기 데이터를 샌드박스 안에 따로 둡니다(`~/Library/Containers/app.trina.ax/`). dmg로 설치한 앱의 팀 목록과 로그인, 앱 안 브라우저 설정은 넘어오지 않습니다. dmg 앱을 쓰던 사람이 스토어 앱을 처음 열면 팀 목록이 비어 있으니 팀 주소를 다시 넣고 로그인합니다.
 

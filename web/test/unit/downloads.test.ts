@@ -1,10 +1,13 @@
-// Settings → Apps: which desktop installers are shown (none for the Mac inside a Mac App Store build), in which order,
-// and the install steps under each.
+// Settings → Apps: which desktop installers are shown (none at all inside a Mac App Store build, only the App Store
+// line), in which order, and the install steps under each.
 import { afterEach, describe, expect, test } from 'bun:test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { DESKTOP_BRIDGE_GLOBAL, type DesktopBridge } from '@mycel/shared'
-import { DICTS } from '../../src/i18n'
+import { currentLocale, DICTS, translate } from '../../src/i18n'
 import { storeApp } from '../../src/lib/desktop'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps } from '../../src/lib/downloads'
+import { DesktopDownloads } from '../../src/pages/Settings'
 
 const win = { platform: 'windows' as const, file: 'Team-AX-Setup-0.1.0-x64.exe', version: '0.1.0', size: 114304798, signed: false }
 const mac = { platform: 'mac' as const, file: 'Team-AX-0.1.0-mac-universal.dmg', version: '0.1.0', signed: false }
@@ -58,10 +61,24 @@ describe('desktop downloads', () => {
     }
   })
 
-  test('inside a Mac App Store build: no Mac installer (the store updates the app), the Windows ones stay', () => {
-    expect(offeredDownloads([win, mac], true)).toEqual([win])
-    expect(offeredDownloads([mac], true)).toEqual([])
+  test('inside a Mac App Store build: no installer at all, for the Mac or Windows (the store updates the app)', () => {
+    expect(offeredDownloads([win, mac], true)).toEqual([])
+    expect(offeredDownloads([win], true)).toEqual([])
     expect(offeredDownloads([win, mac], false)).toEqual([win, mac])
+  })
+  test('Settings > Apps in a store build: only the App Store line (no installer, steps, empty state or skeleton)', () => {
+    type Props = Parameters<typeof DesktopDownloads>[0]
+    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'mac', ...o }))
+    const line = `<p class="text-sm text-muted">${translate(currentLocale(), 'apps.macStore')}</p>`
+    const states: Props['downloads'][] = [null, 'none', [win, mac]]
+    for (const downloads of states) for (const owner of [true, false]) expect(view({ downloads, store: true, owner })).toBe(line)
+    // outside the store build the same states still show the installers, the steps and the owner's empty state
+    const list = view({ downloads: [mac, win] })
+    expect(list).toContain('/downloads/Team-AX-0.1.0-mac-universal.dmg')
+    expect(list).toContain('/downloads/Team-AX-Setup-0.1.0-x64.exe')
+    expect(list).toContain('More info → Run anyway') // apps.winSmartScreen
+    expect(list).not.toContain(translate(currentLocale(), 'apps.macStore'))
+    expect(view({ downloads: 'none' })).toContain('office-install.sh') // apps.noDownloadsOwner
   })
   test('a store build is what the desktop bridge says; a web browser or an older desktop app (no flag) is not one', () => {
     expect(storeApp()).toBe(false)
