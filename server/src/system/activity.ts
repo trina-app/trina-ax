@@ -1,7 +1,8 @@
 // When this server was last in use, for the hosted service's sleep policy (F2: an idle free team's VM is suspended to
 // disk and woken on the next request). One clock per server process; it starts at the process start.
 //   in use: a signed-in API request (session middleware; every chunk of an upload is one), an open realtime connection,
-//   a running or queued answer, or a queued or running background job (transcribe, backup, export, update, restore)
+//   a running or queued answer, a queued or running background job (transcribe, backup, export, update, restore) or a
+//   backup in progress (the nightly one has no jobs row)
 //   (Ops.statusFile, every 30 s). Requests that no one signed in to make (health checks, probes) do not count.
 //   due work: the next enabled schedule and the next push retry; the control plane wakes the VM before it.
 // status/status.json carries the result as `activity` (durations, not times: the guest clock can be behind after a

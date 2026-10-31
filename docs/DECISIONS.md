@@ -4051,8 +4051,8 @@ Trina should feel like Claude Code, which has WebSearch.
 
 - "Idle" (plan §1) is decided from facts the team server knows, never from the relay alone. `server/src/system/activity.ts`
   keeps one clock per process: a signed-in request (session middleware; every chunk of an upload is one), an open
-  realtime connection (web, desktop, mobile), a running or queued answer and a queued or running background job count
-  as use. Requests that nobody signed in to make (health checks, probes, bots) do not count, so a bot that wakes a VM
+  realtime connection (web, desktop, mobile), a running or queued answer, a queued or running background job and a
+  backup in progress (the nightly backup has no jobs row) count as use. Requests that nobody signed in to make (health checks, probes, bots) do not count, so a bot that wakes a VM
   does not keep it awake.
 - Due work = the next enabled schedule (pending occurrence or retry first) and the next push retry that has not
   expired. The control plane wakes the VM 5 min before it; a team with due work in 15 min is not sleepable. Push

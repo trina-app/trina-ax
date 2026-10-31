@@ -119,6 +119,8 @@ export interface BackupManagerOptions {
 
 export class BackupManager {
   private running: Promise<BackupMeta> | null = null
+  /** a backup runs now (F2 sleep: the team is in use; the nightly one is not a jobs row) */
+  get inProgress(): boolean { return this.running !== null }
   constructor(private o: BackupManagerOptions) {}
 
   private now() { return this.o.now?.() ?? new Date() }

@@ -556,7 +556,7 @@ export class OpsService {
       overall: worst(d.checks.filter((x) => x.status !== 'unknown').map((x) => x.status)),
       problems: d.checks.filter((x) => x.status === 'fail' || x.status === 'warn').map((x) => `${x.label}: ${x.detail ?? x.status}`).slice(0, 20),
       checks: d.checks.map((x) => ({ id: x.id.slice(0, 64), status: x.status })).slice(0, 100),
-      activity: activityFacts({ db: this.ctx.db, connections: this.ctx.services.realtime.openSockets?.() ?? 0, busy: d.queue.running + d.queue.queued > 0 }),
+      activity: activityFacts({ db: this.ctx.db, connections: this.ctx.services.realtime.openSockets?.() ?? 0, busy: d.queue.running + d.queue.queued > 0 || this.backups.inProgress }),
       locale,
     }
   }
