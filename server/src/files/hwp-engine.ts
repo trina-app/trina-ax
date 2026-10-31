@@ -8,7 +8,7 @@ import { HWP_LIMITS as L, HwpPage, type HwpReason } from '@mycel/shared/hwp'
 import manifest from '../../../resources/hwp/manifest.json'
 import { ToolError } from '../policy/errors'
 import { sha256 } from './store'
-import { isolation, makeWorkDir, runIsolated, type IsolatedRun } from '../tools/isolate'
+import { isolation, isPlainDir, makeWorkDir, readOutput, runIsolated, type IsolatedRun } from '../tools/isolate'
 import { converterCgroup } from '../system/cgroups'
 
 export class HwpError extends ToolError {
@@ -147,11 +147,14 @@ export class NativeHwpEngine implements HwpEngine {
       // Known progress lines are stdout. Parser warnings on stderr mean possible structural loss.
       const diagnostics = rendered.stderr.split('\n').filter(line => line.trim() && !/^\d{4}-\d{2}-\d{2} [\d:.]+ rhwp[^ ]*\[\d+:\d+\] CoreText: System LastResort not available, using built-in copy\.$/.test(line))
       if (diagnostics.length) throw new HwpError('loss')
+      // the renderer could swap pages/ for a link to another folder, or the PNG for a link to another file: neither is
+      // followed (tools/isolate.ts readOutput)
+      if (!isPlainDir(output)) throw new HwpError('damaged')
       const files = fs.readdirSync(output)
       if (files.length !== 1 || !files[0].endsWith('.png')) throw new HwpError('damaged')
-      const p = path.join(output, files[0]), st = fs.lstatSync(p)
-      if (!st.isFile() || st.isSymbolicLink() || st.nlink !== 1 || st.size > L.outputBytes) throw new HwpError('limit')
-      const png = fs.readFileSync(p)
+      const got = readOutput(output, files[0], L.outputBytes)
+      if (!got.ok) throw new HwpError(got.why === 'missing' ? 'damaged' : 'limit')
+      const png = got.bytes
       if (png.length < 24 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || png.toString('ascii', 12, 16) !== 'IHDR') throw new HwpError('damaged')
       const meta = HwpPage.safeParse({ page, pageCount: data.pageCount, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
         sourceHash: sha256(bytes), engine: `rhwp-${manifest.version}`, fonts: this.fontHash,

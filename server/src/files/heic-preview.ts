@@ -28,7 +28,7 @@ import path from 'node:path'
 import { which, ocrBin } from '../config'
 import { ToolError } from '../policy/errors'
 import { hashFile, openChecked } from '../team-files/place'
-import { makeWorkDir, runIsolated } from '../tools/isolate'
+import { makeWorkDir, readOutput, runIsolated } from '../tools/isolate'
 import { ext } from './extract'
 
 export const HEIC_EXT: ReadonlySet<string> = new Set(['heic', 'heif'])
@@ -133,13 +133,16 @@ async function viaHeifDec(bin: string, bytes: Uint8Array, signal?: AbortSignal):
     if (r.killed) return failed(`heif-dec: stopped (${r.killed})`, r.killed)
     if (r.code !== 0) return failed(`heif-dec: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
     // a file with more than one top-level image: out-1.jpg, out-2.jpg, ... in item order. out-1.jpg is the first
-    // top-level image, which is the primary image in phone photos (not in every file).
-    const name = ['out.jpg', 'out-1.jpg', 'out-primary.jpg'].find((n) => fs.existsSync(path.join(work, n)))
-    if (!name) return failed('heif-dec wrote no image')
-    const st = fs.statSync(path.join(work, name))
-    if (st.size > PREVIEW_OUTPUT_MAX) return failed(`the JPEG is over ${PREVIEW_OUTPUT_MAX / 1024 / 1024} MB`)
-    const out = await fs.promises.readFile(path.join(work, name))
-    return isJpeg(out) ? out : failed('heif-dec wrote no JPEG')
+    // top-level image, which is the primary image in phone photos (not in every file). Each is read without following
+    // a link (tools/isolate.ts readOutput): heif-dec taken over by the photo could leave a link to another file there.
+    for (const name of ['out.jpg', 'out-1.jpg', 'out-primary.jpg']) {
+      const got = readOutput(work, name, PREVIEW_OUTPUT_MAX)
+      if (!got.ok && got.why === 'missing') continue
+      if (!got.ok && got.why === 'too_large') return failed(`the JPEG is over ${PREVIEW_OUTPUT_MAX / 1024 / 1024} MB`)
+      if (!got.ok) return failed('heif-dec wrote no plain file')
+      return isJpeg(got.bytes) ? got.bytes : failed('heif-dec wrote no JPEG')
+    }
+    return failed('heif-dec wrote no image')
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 

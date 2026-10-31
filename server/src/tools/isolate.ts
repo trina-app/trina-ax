@@ -257,6 +257,38 @@ export async function treeRssKiB(pid: number): Promise<number> {
   } catch { return 0 }
 }
 
+export type OutputRead = { ok: true; bytes: Buffer } | { ok: false; why: 'missing' | 'not_regular' | 'too_large' }
+
+/**
+ * A file a converter wrote into its work folder, read without following a link. The work folder is writable inside
+ * the isolation, so a converter taken over by a hostile input can leave a symbolic link there in place of its output,
+ * pointing at any file the server account can read (another person's photo, the database). Read by path, the server
+ * would follow it and hand that file on as the converter's output (to the AI, to OpenRouter, into a preview). So:
+ * opened with O_NOFOLLOW (and O_NONBLOCK, so a FIFO cannot block the server), a regular singly linked file directly
+ * in `dir`, at most `maxBytes`. Call it after the converter exited; `dir` must be a folder the server made.
+ */
+export function readOutput(dir: string, name: string, maxBytes: number): OutputRead {
+  if (!name || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) throw new Error('readOutput takes a plain file name')
+  let fd: number
+  try { fd = fs.openSync(path.join(dir, name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | (fs.constants.O_NONBLOCK ?? 0)) } catch (e: any) {
+    return { ok: false, why: e?.code === 'ENOENT' ? 'missing' : 'not_regular' }
+  }
+  try {
+    const st = fs.fstatSync(fd)
+    if (!st.isFile() || st.nlink !== 1) return { ok: false, why: 'not_regular' }
+    if (st.size > maxBytes) return { ok: false, why: 'too_large' }
+    const bytes = Buffer.alloc(st.size)
+    let off = 0
+    while (off < st.size) { const n = fs.readSync(fd, bytes, off, st.size - off, off); if (n <= 0) break; off += n }
+    return { ok: true, bytes: bytes.subarray(0, off) }
+  } finally { fs.closeSync(fd) }
+}
+
+/** `sub` inside a work folder is still the plain folder the server made (a converter may have swapped it for a link). */
+export function isPlainDir(abs: string): boolean {
+  try { const st = fs.lstatSync(abs); return st.isDirectory() && !st.isSymbolicLink() } catch { return false }
+}
+
 /** A fresh empty work folder for a multi-step conversion (caller removes it). */
 export function makeWorkDir(base?: string): string {
   const parent = base ?? os.tmpdir()

@@ -35,22 +35,26 @@ export function imageSize(b: Uint8Array): { width: number; height: number } | nu
 }
 const ok = (width: number, height: number) => (width > 0 && height > 0 && width < 100_000 && height < 100_000 ? { width, height } : null)
 
+/** a thumbnail JPEG at most (320 px at -q:v 5 is a few tens of KB) */
+const THUMB_MAX_BYTES = 4 * 1024 * 1024
+
 /** Make a JPEG thumbnail (longest side `max`) of `src` into `dst`. Returns false when no converter is available. */
-export async function makeThumbnail(src: string, dst: string, max = 320, workBase?: string): Promise<boolean> {
-  const ffmpeg = which('ffmpeg')
+export async function makeThumbnail(src: string, dst: string, max = 320, workBase?: string, ffmpeg = which('ffmpeg')): Promise<boolean> {
   if (!ffmpeg) return false
   const work = makeWorkDir(workBase)
   try {
     const input = path.join(work, 'in' + path.extname(src).toLowerCase().replace(/[^.a-z0-9]/g, ''))
     fs.copyFileSync(src, input)
+    // the JPEG comes on stdout, never as a file in the work folder: a converter taken over by the image could leave a
+    // link to another file there, and the server would copy that file as the thumbnail (tools/isolate.ts readOutput)
     const r = await runIsolated({
-      cmd: ffmpeg, workDir: work, timeoutMs: 20_000,
-      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`, '-q:v', '5', 'thumb.jpg'],
+      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout: THUMB_MAX_BYTES,
+      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`, '-q:v', '5', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'],
     })
-    const out = path.join(work, 'thumb.jpg')
-    if (r.code !== 0 || !fs.existsSync(out)) return false
+    const jpeg = r.stdout
+    if (r.code !== 0 || jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8 || jpeg[2] !== 0xff) return false
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
-    fs.copyFileSync(out, dst)
+    fs.writeFileSync(dst, jpeg, { mode: 0o600 })
     fs.chmodSync(dst, 0o600)
     return true
   } finally { fs.rmSync(work, { recursive: true, force: true }) }

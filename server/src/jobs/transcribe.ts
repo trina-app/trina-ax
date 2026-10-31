@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import { DEFAULT_LOCALE, type Locale, type TranscribeResult } from '@mycel/shared/api'
 import { which } from '../config'
 import type { JobHandle } from '../services'
-import { runIsolated } from '../tools/isolate'
+import { readOutput, runIsolated } from '../tools/isolate'
 import { JobFailure } from './service'
 import { whisperThreads } from '../system/limits'
 
@@ -188,11 +188,13 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
       },
     })
     if (h.signal.aborted) throw new Error('aborted')
-    const out = path.join(work, 'out.json')
-    if (r.code !== 0 || !fs.existsSync(out)) {
-      throw fail('받아쓰기에 실패했습니다.', `Transcription failed (${r.killed ?? 'exit ' + r.code}).`, 'Transkripsi gagal.', `文字起こしに失敗しました（${r.killed ?? 'exit ' + r.code}）。`, `La transcripción falló (${r.killed ?? 'exit ' + r.code}).`, 'internal')
+    // read without following a link (tools/isolate.ts readOutput): whisper could leave one in place of out.json
+    const out = r.code === 0 ? readOutput(work, 'out.json', WHISPER_JSON_MAX) : null
+    if (!out?.ok) {
+      const why = r.killed ?? (r.code !== 0 ? 'exit ' + r.code : 'no output')
+      throw fail('받아쓰기에 실패했습니다.', `Transcription failed (${why}).`, 'Transkripsi gagal.', `文字起こしに失敗しました（${why}）。`, `La transcripción falló (${why}).`, 'internal')
     }
-    return parseWhisperJson(fs.readFileSync(out, 'utf8'))
+    return parseWhisperJson(out.bytes.toString('utf8'))
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 
@@ -202,9 +204,13 @@ export async function convertToWav(ffmpeg: string, work: string, audio: string, 
   const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 10 * 60_000, signal: h.signal,
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
   if (h.signal.aborted) throw new Error('aborted')
-  if (r.code !== 0) throw fail('오디오 파일을 읽을 수 없습니다.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', "音声ファイルを読み取れませんでした。", "No se pudo leer el archivo de audio.", 'bad_request')
+  if (r.code !== 0) throw UNREADABLE()
   return 'audio.wav'
 }
+
+/** whisper's JSON of one recording (a few MB for an hour) */
+const WHISPER_JSON_MAX = 32 * 1024 ** 2
+export const UNREADABLE = () => fail('오디오 파일을 읽을 수 없습니다.', 'The audio file could not be read.', 'Berkas audio tidak dapat dibaca.', "音声ファイルを読み取れませんでした。", "No se pudo leer el archivo de audio.", 'bad_request')
 
 /** whisper-cli -oj output -> TranscribeResult */
 export function parseWhisperJson(s: string): TranscribeResult {

@@ -10,7 +10,8 @@ import path from 'node:path'
 import { DEFAULT_LOCALE, type Locale, type TranscribeResult } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { JobHandle } from '../services'
-import { converterInputName, convertToWav, fail, LABELS, type TranscribeConfig } from './transcribe'
+import { readOutput, type OutputRead } from '../tools/isolate'
+import { converterInputName, convertToWav, fail, LABELS, UNREADABLE, type TranscribeConfig } from './transcribe'
 
 /** formats the API takes as they are (when there is no ffmpeg) */
 const DIRECT = new Set(['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'])
@@ -92,22 +93,25 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
   fs.mkdirSync(cfg.workBase, { recursive: true, mode: 0o700 })
   const work = fs.realpathSync(fs.mkdtempSync(path.join(cfg.workBase, 'stt-')))
   try {
-    let audio: string, format: string
+    let audio: OutputRead, format: string
     if (cfg.ffmpegBin) {
       // the input's name keeps only a known audio / video extension (see transcribe.ts)
       const src = path.join(work, converterInputName(name))
       fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
-      audio = path.join(work, await convertToWav(cfg.ffmpegBin, work, path.basename(src), h, loc, 0.1))
+      // what ffmpeg wrote is read without following a link: a converter taken over by the file could leave a link to
+      // any file the server can read in place of audio.wav, and that file would go to OpenRouter (tools/isolate.ts)
+      audio = readOutput(work, await convertToWav(cfg.ffmpegBin, work, path.basename(src), h, loc, 0.1), OPENROUTER_MAX_BYTES)
       format = 'wav'
-    } else { audio = input; format = x }
-    const size = fs.statSync(audio).size
-    if (size > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
+    } else { audio = readOutput(path.dirname(input), path.basename(input), OPENROUTER_MAX_BYTES); format = x }
+    if (!audio.ok && audio.why === 'too_large') throw TOO_LARGE()
+    if (!audio.ok) throw UNREADABLE()
+    const size = audio.bytes.length
     // 16 kHz mono 16-bit PCM: 32 000 bytes a second after the 44-byte header
     const wavSec = format === 'wav' && cfg.ffmpegBin ? Math.max(0, size - 44) / 32_000 : null
     const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
     const body = JSON.stringify({
       model,
-      input_audio: { data: fs.readFileSync(audio).toString('base64'), format },
+      input_audio: { data: audio.bytes.toString('base64'), format },
       ...(lang ? { language: lang } : {}),
       response_format: 'verbose_json',
       provider: { zdr: true, data_collection: 'deny' },

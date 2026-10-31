@@ -35,7 +35,7 @@ import { which } from '../config'
 import { publishChanges } from '../team-files/changes'
 import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
-import { makeWorkDir, runIsolated } from './isolate'
+import { makeWorkDir, readOutput, runIsolated } from './isolate'
 import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
 import { PRODUCT } from '@mycel/shared'
 import { typstJobs } from '../system/limits'
@@ -58,6 +58,17 @@ const MAX_IMAGES = 200
 const MAX_IMAGES_BYTES = 100 * 1024 * 1024
 /** pandoc's JSON tree of a 10 MB Markdown file stays well below this */
 const MAX_AST = 200 * 1024 * 1024
+/** pandoc's Typst text of a document (the source is at most MAX_SOURCE) */
+const MAX_TYPST = 64 * 1024 * 1024
+
+/** A name in the work folder that nothing has taken: a converter that ran there may have left files or links under the
+ * names the server writes next, and a write must never go through one of them. */
+function freshName(work: string, base: string, x: string): string {
+  for (let i = 0; ; i++) {
+    const n = `${base}${i ? '-' + i : ''}.${x}`
+    try { fs.lstatSync(path.join(work, n)) } catch { return n }
+  }
+}
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff'])
 export const PDF_FONTS = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic', 'Helvetica Neue', 'Arial', 'Libertinus Serif']
 
@@ -129,14 +140,16 @@ export class MakeFile {
           fs.writeFileSync(path.join(work, 'in.md'), text)
           const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', 'markdown', '-t', 'json', '-o', 'ast.json', 'in.md'], workDir: work, timeoutMs: 120_000 })
           if (j.code !== 0) throw new ToolError(convertError('pandoc', j.stderr, j.killed, work))
-          const astFile = path.join(work, 'ast.json')
-          if (fs.statSync(astFile).size > MAX_AST) throw new ToolError('the document is too large to convert')
-          const ast = JSON.parse(fs.readFileSync(astFile, 'utf8'))
+          // pandoc's output is read without following a link, and nothing the server writes after a converter ran
+          // goes through a name the converter could have planted (tools/isolate.ts readOutput)
+          const got = readOutput(work, 'ast.json', MAX_AST)
+          if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
+          const ast = JSON.parse(got.bytes.toString('utf8'))
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
           if (a.format === 'pptx') shape = deckShape(ast)
-          fs.writeFileSync(astFile, JSON.stringify(ast))
-          input = 'ast.json'
+          input = freshName(work, 'tree', 'json')
+          fs.writeFileSync(path.join(work, input), JSON.stringify(ast), { flag: 'wx', mode: 0o600 })
           from = 'json'
         } else {
           input = `in.${kind}`
@@ -227,8 +240,8 @@ export class MakeFile {
         } catch { continue }
         if (size > MAX_IMAGE) bad(target, 'larger than 20 MB')
         if ((bytes += size) > MAX_IMAGES_BYTES) bad(target, 'the images together are larger than 100 MB')
-        const name = `img-${n}.${x}`
-        fs.copyFileSync(abs, path.join(work, name))
+        const name = freshName(work, `img-${n}`, x)
+        fs.copyFileSync(abs, path.join(work, name), fs.constants.COPYFILE_EXCL)
         rels.push(found)
         return name
       }
@@ -274,8 +287,8 @@ export class MakeFile {
     if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
     const st = checkRegular(r.abs)
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
-    const local = `template.${format}`
-    fs.copyFileSync(r.abs, path.join(work, local))
+    const local = freshName(work, 'template', format)
+    fs.copyFileSync(r.abs, path.join(work, local), fs.constants.COPYFILE_EXCL)
     return { local, rel: r.rel }
   }
 
@@ -293,9 +306,12 @@ export class MakeFile {
       `#let horizontalrule = line(start: (25%,0%), end: (75%,0%))`,
       '',
     ].join('\n')
-    fs.writeFileSync(path.join(work, 'doc.typ'), pre + fs.readFileSync(path.join(work, 'body.typ'), 'utf8'))
+    const body = readOutput(work, 'body.typ', MAX_TYPST)
+    if (!body.ok) throw new ToolError(body.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
+    const doc = freshName(work, 'doc', 'typ')
+    fs.writeFileSync(path.join(work, doc), pre + body.bytes.toString('utf8'), { flag: 'wx', mode: 0o600 })
     const jobs = typstJobs() // Linux bundle's typst: at most 2 threads (system/limits.ts)
-    const r = await runIsolated({ cmd: this.conv.typst, args: ['compile', ...(jobs ? ['--jobs', String(jobs)] : []), '--root', work, 'doc.typ', 'out.pdf'], workDir: work, timeoutMs: 120_000 })
+    const r = await runIsolated({ cmd: this.conv.typst, args: ['compile', ...(jobs ? ['--jobs', String(jobs)] : []), '--root', work, doc, 'out.pdf'], workDir: work, timeoutMs: 120_000 })
     if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
   }
 
