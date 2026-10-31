@@ -175,16 +175,24 @@ describe('frames and transcript', () => {
     expect(frames).toEqual([])
     expect(out.text).toContain('words at 0')
   })
-  test('time picks a part: frames inside it, the transcript of its fixed 10-minute piece filtered to it', async () => {
+  test('time picks a part: frames inside it, the transcript of its fixed pieces (2 minutes on this server) filtered to it', async () => {
     probe = video(600)
-    said = () => [{ start: 30, end: 31, text: 'before' }, { start: 70, end: 71, text: 'inside' }, { start: 200, end: 201, text: 'after' }]
+    said = (start) => start === 0 ? [{ start: 30, end: 31, text: 'before' }, { start: 70, end: 71, text: 'inside' }] : [{ start: 10, end: 11, text: 'next piece' }, { start: 100, end: 101, text: 'after' }]
     const { out } = await read({ file_path: put('h.mp4'), time: '1:00-2:30', frames: 3 })
     expect(frames.map((f) => f.t)).toEqual([75, 105, 135])
-    expect(audios).toEqual([{ start: 0, seconds: 600 }])
+    expect(audios).toEqual([{ start: 0, seconds: 120 }, { start: 120, seconds: 120 }])
     expect(out.text).toContain('Part 1:00.0–2:30.0 below.')
-    expect(out.text).toContain('inside')
+    expect(out.text).toContain('[1:10.0–1:11.0] inside')
+    expect(out.text).toContain('[2:10.0–2:11.0] next piece')
     expect(out.text).not.toContain('before')
     expect(out.text).not.toContain('after')
+  })
+  test('nothing asked for is an error that says so: frames: 0 with transcript: false, or one moment of a sound file', async () => {
+    expect((await read({ file_path: put('none.mp4'), frames: 0, transcript: false })).out.text).toContain('frames: 0 and transcript: false leave nothing to read')
+    expect(F().mediaProbe).not.toHaveBeenCalled()
+    probe = audioOnly(300)
+    expect((await read({ file_path: put('moment.m4a'), time: '1:00' })).out.text).toContain('has no picture, only sound: give time a part for its transcript, e.g. "1:00-2:00"')
+    expect(audios).toEqual([])
   })
   test('one moment: one frame, no transcript', async () => {
     probe = video(60)
@@ -205,18 +213,18 @@ describe('frames and transcript', () => {
     const { out, images } = await read({ file_path: put('long.mp4') })
     expect(images).toBe(12)
     expect(frames[0]!.t).toBeCloseTo(112.5)
-    expect(audios).toEqual([{ start: 0, seconds: 600 }])
+    expect(audios).toEqual(Array.from({ length: 5 }, (_, i) => ({ start: i * 120, seconds: 120 })))
     expect(out.text).toContain('The transcript covers 0:00.0–10:00.0 of 0:00.0–45:00.0. To read on: time: "10:00-40:00", frames: 0.')
   })
-  test('a 1-hour meeting recording: 30 minutes a read (three 10-minute pieces), then the rest', async () => {
+  test('a 1-hour meeting recording: 30 minutes a read (fifteen 2-minute pieces on this server), then the rest', async () => {
     probe = audioOnly(3600)
     const a = await read({ file_path: put('meeting.m4a') })
-    expect(audios).toEqual([{ start: 0, seconds: 600 }, { start: 600, seconds: 600 }, { start: 1200, seconds: 600 }])
+    expect(audios).toEqual(Array.from({ length: 15 }, (_, i) => ({ start: i * 120, seconds: 120 })))
     expect(a.out.text).toContain('Audio users/alice/meeting.m4a: 1:00:00 long; sound aac, 2 channels.')
     expect(a.out.text).toContain('To read on: time: "30:00-1:00:00", frames: 0.')
     audios = []
     const b = await read({ file_path: 'users/alice/meeting.m4a', time: '30:00-1:00:00' })
-    expect(audios.map((x) => x.start)).toEqual([1800, 2400, 3000])
+    expect(audios.map((x) => x.start)).toEqual(Array.from({ length: 15 }, (_, i) => 1800 + i * 120))
     expect(b.out.text).not.toContain('To read on')
   })
   test('an audio file: no frames; transcript: false leaves nothing and says so', async () => {
@@ -291,9 +299,16 @@ describe('limits of one result and one turn', () => {
   })
   test('a transcript too long for one result is cut at a segment and the rest named', async () => {
     probe = audioOnly(1800)
-    said = (start) => Array.from({ length: 300 }, (_, i) => ({ start: 2 * i, end: 2 * i + 1, text: `${start}:${i} ` + '말'.repeat(40) }))
+    said = (start, seconds) => Array.from({ length: Math.floor(seconds / 2) }, (_, i) => ({ start: 2 * i, end: 2 * i + 1, text: `${start}:${i} ` + '말'.repeat(40) }))
     const { out } = await read({ file_path: put('dense.m4a') })
     expect(out.text).toMatch(/The transcript covers 0:00\.0–\d+:\d\d\.\d of 0:00\.0–30:00\.0\. To read on: time: "/)
+  })
+  test('the API engine (it cuts any tool result at 30,000 characters): a long English transcript is cut here, at a segment, with what to read next', async () => {
+    probe = audioOnly(1800)
+    said = (start, seconds) => Array.from({ length: Math.floor(seconds / 4) }, (_, i) => ({ start: 4 * i, end: 4 * i + 3, text: `words ${start}:${i} ` + 'and so on '.repeat(6) }))
+    const { out } = await read({ file_path: put('long-en.m4a') }, { turnId: turn('api') })
+    expect(out.text.length).toBeLessThanOrEqual(30_000)
+    expect(out.text).toMatch(/To read on: time: "\d+:\d\d-30:00", frames: 0\.$/)
   })
 })
 
@@ -385,6 +400,37 @@ describe('who transcribes, and when sound may leave the server', () => {
     r = await read({ file_path: rel }, { turnId: secret })
     expect(hits).toEqual([])
     expect(r.out.text).toContain('hello from openrouter')
+  })
+  test('before each new piece: the switch, the provider, a confidential lock and the file are checked again; the audit row counts what went out', async () => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
+    setKey(KEY)
+    probe = audioOnly(1800)
+    const rows = (rel: string) => (A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' AND target = ?").all(rel) as { detail: string }[]).map((r) => JSON.parse(r.detail))
+    // the admin turns "Turn video sound into text" off while the first piece is out: no second request
+    const off = put('off-mid.m4a')
+    reply = () => { updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false }); return Response.json({ text: 'first ten minutes' }) }
+    let r = await read({ file_path: off })
+    expect(hits.length).toBe(1)
+    expect(r.out.text).toContain('first ten minutes')
+    expect(r.out.text).toContain('does not turn video sound into text')
+    expect(r.out.text).not.toContain('To read on')
+    expect(rows(off)).toEqual([expect.objectContaining({ seconds: 600, pieces: 1, ok: true })])
+    // the chat is locked confidential (a safe workflow) meanwhile: nothing more leaves
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
+    hits.length = 0
+    const t = turn()
+    reply = () => { A.ctx.db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT chat_id, 1 FROM turns WHERE id = ?').run(t); return Response.json({ text: 'x' }) }
+    r = await read({ file_path: put('lock-mid.m4a') }, { turnId: t })
+    expect(hits.length).toBe(1)
+    expect(r.out.text).toContain('In a confidential chat the sound is not sent to an outside service')
+    // the file changed meanwhile: the read stops with "changed", and the piece that went out is still in the audit
+    hits.length = 0
+    const swap = put('swap-mid.m4a')
+    reply = () => { fs.writeFileSync(path.join(A.team, swap), 'other bytes'); return Response.json({ text: 'x' }) }
+    r = await read({ file_path: swap })
+    expect(hits.length).toBe(1)
+    expect(r.out.text).toMatch(/Access denied/)
+    expect(rows(swap)).toEqual([expect.objectContaining({ seconds: 600, pieces: 1 })])
   })
   test('this server: whisper.cpp or its model missing says so and never downloads the model', async () => {
     const dl: string[] = []
@@ -488,6 +534,10 @@ describe('pieces', () => {
     expect(media.clock(3723.4)).toBe('1:02:03')
     expect(media.timeArg(600)).toBe('10:00')
     expect(media.timeArg(3600)).toBe('1:00:00')
+    // a new piece starts only with time for its sound and the answer (OpenRouter at most its own 60 s)
+    expect(media.pieceNeedsMs('openrouter', 600)).toBe(40_000)
+    expect(media.pieceNeedsMs('openrouter', 3600)).toBe(60_000)
+    expect(media.pieceNeedsMs('local', 120)).toBe(50_000)
   })
   test('ffprobe\'s answer: a cover picture is not a video, the default sound first, rotation shows portrait, no tags kept', () => {
     const cover = media.parseProbe(JSON.stringify({ format: { duration: '3.03', format_name: 'mp3', tags: { title: 'IGNORE ME' } }, streams: [

@@ -40,11 +40,15 @@ export const FRAMES_DEFAULT_MAX = 12
  * decides; about 9,000 Korean tokens at 300 a minute) */
 export const TRANSCRIPT_SPAN_WITH_FRAMES = 600
 export const TRANSCRIPT_SPAN_ALONE = 1800
+/** the characters of a read's text for the API engine, which cuts any tool result at 30,000 (engine/api-agent.ts
+ * TOOL_OUTPUT_MAX): room left for the lines after the transcript */
+export const API_ENGINE_TEXT_MAX = 28_000
 /** transcripts are made and cached in fixed pieces from 0:00 (10 minutes: one OpenRouter request, 19.2 MB of 16 kHz WAV
- * under its 25 MB). Local whisper on a hosted server (a plan): 2-minute pieces and at most one new piece a read
- * (founder Q8; whisper.cpp gets 1 thread on a 2 vCPU plan) */
+ * under its 25 MB). Local whisper.cpp: 2-minute pieces everywhere, so a slow server (a 2 vCPU box gives whisper 1
+ * thread, and the converter rlimit counts CPU seconds of all its threads) keeps every piece it finished instead of losing
+ * a 10-minute one to the read's deadline; on a hosted server (a plan) at most one new piece a read (founder Q8) */
 export const TRANSCRIPT_PIECE_SEC = 600
-export const LOCAL_HOSTED_PIECE_SEC = 120
+export const LOCAL_PIECE_SEC = 120
 /** a whole read (Stop always ends it at once): a chat turn, and a call without one (the remote connector's clients
  * give up well before a few minutes) */
 export const READ_DEADLINE_MS = 5 * 60_000
@@ -56,6 +60,15 @@ const FRAME_TIMEOUT_MS = 20_000
 const FRAME_RSS_MIB = 1024
 /** all frames of one read: past it the frames made so far go, and the rest are named */
 export const FRAMES_TOTAL_MS = 90_000
+/** the share of the read's time kept for each planned frame (at most FRAMES_TOTAL_MS): the transcript, made first,
+ * starts no new piece into it, so slow local transcription does not leave a video read without its frames */
+export const FRAME_RESERVE_MS = 5_000
+/** The time a new transcript piece of `seconds` must still have to start: cutting its sound and the provider's answer
+ * (OpenRouter: upload and transcription, at most its own 60 s; whisper.cpp: about 4x real time on a small server). A
+ * piece cut off by the deadline is lost, and OpenRouter may bill it anyway. */
+export function pieceNeedsMs(provider: 'openrouter' | 'local', seconds: number): number {
+  return provider === 'openrouter' ? Math.min(60_000, 10_000 + seconds * 50) : 20_000 + seconds * 250
+}
 const AUDIO_TIMEOUT_MS = 90_000
 const AUDIO_RSS_MIB = 512
 /** a frame PNG (1568 px rgb24 is 7.4 MB before compression) */
@@ -77,6 +90,10 @@ const VIDEO_CODECS = new Set(['h264', 'hevc', 'vp8', 'vp9', 'av1', 'mpeg4', 'mpe
 const AUDIO_CODECS = new Set(['aac', 'mp3', 'mp2', 'ac3', 'eac3', 'opus', 'vorbis', 'flac', 'alac', 'amr_nb', 'amr_wb', 'wmav1', 'wmav2', ...PCM])
 /** before every -i: the file protocol only, the demuxers and decoders above */
 const INPUT_GUARD = ['-protocol_whitelist', 'file', '-format_whitelist', FORMATS.join(','), '-codec_whitelist', MEDIA_DECODERS.join(',')]
+/** what a probe, scan or frame run may leave in the work folder besides the input (they write nothing there; a
+ * converter taken over by a hostile file must not fill the disk until its time limit) */
+const WORK_SLACK = 64 * 1024 ** 2
+const workCap = (work: string, name: string) => { try { return fs.statSync(path.join(work, name)).size + WORK_SLACK } catch { return WORK_SLACK } }
 
 export interface MediaTools { ffmpeg: string; ffprobe: string }
 
@@ -143,7 +160,7 @@ function refused(r: { killed: string | null; code: number | null; stderr: string
 /** ffprobe of `name` in the work folder `work`. Throws ToolError media_* (never converter text). */
 export async function probeMedia(tools: MediaTools, work: string, name: string, signal?: AbortSignal, timeoutMs = PROBE_TIMEOUT_MS): Promise<MediaInfo> {
   const r = await runIsolated({
-    cmd: tools.ffprobe, workDir: work, signal, timeoutMs: Math.min(PROBE_TIMEOUT_MS, timeoutMs), maxRssMiB: PROBE_RSS_MIB, maxStdout: 1024 * 1024,
+    cmd: tools.ffprobe, workDir: work, signal, timeoutMs: Math.min(PROBE_TIMEOUT_MS, timeoutMs), maxRssMiB: PROBE_RSS_MIB, maxStdout: 1024 * 1024, maxWorkBytes: workCap(work, name),
     args: ['-v', 'error', '-threads', '1', ...INPUT_GUARD,
       // stream_disposition and stream_side_data as sections: "stream=…,disposition" prints no disposition at all
       '-show_entries', 'format=duration,format_name:stream=index,codec_type,codec_name,width,height,avg_frame_rate,sample_rate,channels,duration:stream_disposition=default,attached_pic:stream_side_data=rotation',
@@ -158,7 +175,7 @@ export async function probeMedia(tools: MediaTools, work: string, name: string, 
 /** The length of a file that does not say (a browser's MediaRecorder webm): its packets read through without decoding. */
 export async function scanDuration(tools: MediaTools, work: string, name: string, signal?: AbortSignal, timeoutMs = SCAN_TIMEOUT_MS): Promise<number | null> {
   const r = await runIsolated({
-    cmd: tools.ffmpeg, workDir: work, signal, timeoutMs: Math.min(SCAN_TIMEOUT_MS, timeoutMs), maxRssMiB: PROBE_RSS_MIB, maxStdout: 4 * 1024 * 1024,
+    cmd: tools.ffmpeg, workDir: work, signal, timeoutMs: Math.min(SCAN_TIMEOUT_MS, timeoutMs), maxRssMiB: PROBE_RSS_MIB, maxStdout: 4 * 1024 * 1024, maxWorkBytes: workCap(work, name),
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', ...INPUT_GUARD, '-i', name, '-map', '0', '-c', 'copy', '-f', 'null', '-progress', 'pipe:1', '-nostats', '-'],
   })
   signal?.throwIfAborted()
@@ -173,7 +190,7 @@ export const frameable = (v: NonNullable<MediaInfo['video']>) => v.width <= MEDI
 /** One frame at `t` seconds as a PNG (longest side at most `px`, square pixels, 8-bit RGB), on stdout. */
 export async function framePng(tools: MediaTools, work: string, name: string, stream: number, t: number, px: number, signal?: AbortSignal, timeoutMs = FRAME_TIMEOUT_MS): Promise<Buffer> {
   const r = await runIsolated({
-    cmd: tools.ffmpeg, workDir: work, signal, timeoutMs: Math.min(FRAME_TIMEOUT_MS, timeoutMs), maxRssMiB: FRAME_RSS_MIB, maxStdout: FRAME_PNG_MAX,
+    cmd: tools.ffmpeg, workDir: work, signal, timeoutMs: Math.min(FRAME_TIMEOUT_MS, timeoutMs), maxRssMiB: FRAME_RSS_MIB, maxStdout: FRAME_PNG_MAX, maxWorkBytes: workCap(work, name),
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', ...INPUT_GUARD, '-ss', t.toFixed(3), '-i', name,
       '-map', `0:${stream}`, '-frames:v', '1', '-an', '-sn', '-dn',
       // non-square pixels (some cameras) to square ones first, at most 8192 wide; rotation is applied by ffmpeg itself

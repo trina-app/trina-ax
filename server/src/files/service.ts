@@ -553,6 +553,7 @@ export class FileService {
     if (tools === 'mac') return refuse('mac', 'not on a Mac server yet')
     if (tools === 'missing') return refuse('noTool', 'no ffmpeg')
     if (r.st!.size > media.MEDIA_INPUT_MAX) return refuse('tooLarge', 'too large', { gb: media.MEDIA_INPUT_MAX / 1024 ** 3 })
+    if (a.frames === 0 && a.transcript === false) throw new ToolError('frames: 0 and transcript: false leave nothing to read', 'bad_media_args')
     const base = path.join(this.cfg.dataDir, 'work')
     if (!diskRoom(base, r.st!.size)) return refuse('noRoom', 'no disk room')
     try {
@@ -570,6 +571,8 @@ export class FileService {
     const deadline = Date.now() + (ctx.turnId ? media.READ_DEADLINE_MS : media.CONNECTION_DEADLINE_MS)
     const left = () => Math.max(0, deadline - Date.now())
     const signal = ctx.signal
+    // the person, their access and the file as they are now: a read may have waited minutes for the media slot
+    this.recheckSource(ctx, { rel: r.rel, identity: identity(r.st!) })
     const work = media.mediaWork(base)
     try {
       const src = await this.copyMedia(ctx, r, work)
@@ -578,7 +581,10 @@ export class FileService {
       let info: media.MediaInfo
       try { info = await this.mediaProbe(tools, work, src.name, signal, left()) } catch (e) {
         signal?.throwIfAborted()
-        if (e instanceof ToolError && MEDIA_NOTE[e.code] && e.code !== 'media_heavy') probeFailures.set(src.hash, { code: e.code, at: Date.now() })
+        if (e instanceof ToolError && MEDIA_NOTE[e.code] && e.code !== 'media_heavy') {
+          for (const [h, m] of probeFailures) if (Date.now() - m.at >= PROBE_MEMO_MS) probeFailures.delete(h)
+          probeFailures.set(src.hash, { code: e.code, at: Date.now() })
+        }
         throw e
       }
       const duration = info.durationSec ?? await this.mediaDuration(tools, work, src.name, signal, left())
@@ -587,6 +593,7 @@ export class FileService {
       if (!info.video && !info.audio) throw new ToolError('neither picture nor sound', 'media_unsupported')
       if (!info.video && a.transcript === false) throw new ToolError(`'${src.rel}' has no picture, only sound: transcript: false leaves nothing to read`, 'bad_media_args')
       const win = a.time !== undefined ? media.parseTime(a.time, duration) : { start: 0, end: duration, moment: false }
+      if (!info.video && win.moment) throw new ToolError(`'${src.rel}' has no picture, only sound: give time a part for its transcript, e.g. "${media.timeArg(win.start)}-${media.timeArg(Math.min(duration, win.start + 60))}"`, 'bad_media_args')
       const notes: string[] = []
       const say = (key: MediaTextKey, vars: Record<string, string | number> = {}) => mediaText(this.db, ctx.user.id, key, vars)
 
@@ -607,7 +614,9 @@ export class FileService {
       if (sound && !info.audio) notes.push(say('noAudio'))
       else if (sound) {
         const span = times.length ? media.TRANSCRIPT_SPAN_WITH_FRAMES : media.TRANSCRIPT_SPAN_ALONE
-        tr = await this.mediaTranscript(ctx, src, info, tools, work, { from: win.start, to: Math.min(win.end, win.start + span), end: win.end, duration }, left)
+        // the frames' share of the deadline: no new piece of sound is started into it
+        const reserve = Math.min(media.FRAMES_TOTAL_MS, times.length * media.FRAME_RESERVE_MS)
+        tr = await this.mediaTranscript(ctx, src, info, tools, work, { from: win.start, to: Math.min(win.end, win.start + span), end: win.end, duration, reserve }, left)
         notes.push(...tr.notes)
       }
 
@@ -625,11 +634,15 @@ export class FileService {
       }
       const lines = (s: media.Segment) => `[${media.clock(s.start)}–${media.clock(s.end)}] ${s.text}`
       let tokens = textTokens(head.join('\n')) + textTokens(notes.join('\n')) + 200
-      // a transcript longer than the result can hold is cut at a segment; the rest is named for the next read
+      // a transcript longer than the result can hold is cut at a segment; the rest is named for the next read. The API
+      // engine also cuts every tool result at 30,000 characters without a word (engine/api-agent.ts TOOL_OUTPUT_MAX),
+      // which would drop the end of a long English transcript and the "To read on" line: cut here first
       let cut: number | null = null
-      for (let i = 0, t = tokens; i < segs.length; i++) {
+      const charsMax = block === 'engine' ? media.API_ENGINE_TEXT_MAX : Infinity
+      for (let i = 0, t = tokens, c = head.join('\n').length + notes.join('\n').length; i < segs.length; i++) {
         t += textTokens(lines(segs[i]!)) + 1
-        if (t > READ_OUTPUT_TOKENS - 1000) { cut = segs[i]!.start; segs = segs.slice(0, i); break }
+        c += lines(segs[i]!).length + 1
+        if (t > READ_OUTPUT_TOKENS - 1000 || c > charsMax) { cut = segs[i]!.start; segs = segs.slice(0, i); break }
       }
       tokens += segs.reduce((n, s) => n + textTokens(lines(s)) + 1, 0)
 
@@ -746,10 +759,12 @@ export class FileService {
    * The transcript of [from, to) with the team's speech provider, in fixed pieces cached by content (files/media.ts
    * TranscriptCache). New sound goes out only when the team turned "Turn video sound into text" on (or left it at its
    * default for this provider), never from a confidential chat to OpenRouter (cached pieces may be used there), and the
-   * local whisper.cpp model is never downloaded here. Every new piece is an audit row `media.transcribe` (no text).
+   * local whisper.cpp model is never downloaded here. Right before each new piece the switch, the provider, the chat's
+   * confidentiality and the person's access to the file are checked again. Every new piece is an audit row
+   * `media.transcribe` (no text). `left`: the read's time; no new piece starts into `w.reserve` (the frames' share).
    */
-  private async mediaTranscript(ctx: ToolCtx, src: { rel: string; hash: string; name: string; size: number }, info: media.MediaInfo, tools: media.MediaTools, work: string,
-    w: { from: number; to: number; end: number; duration: number }, left: () => number): Promise<MediaTranscript> {
+  private async mediaTranscript(ctx: ToolCtx, src: { rel: string; hash: string; identity: string; name: string; size: number }, info: media.MediaInfo, tools: media.MediaTools, work: string,
+    w: { from: number; to: number; end: number; duration: number; reserve: number }, left: () => number): Promise<MediaTranscript> {
     const say = (key: MediaTextKey, vars: Record<string, string | number> = {}) => mediaText(this.db, ctx.user.id, key, vars)
     const s = getTeamSettings(this.db)
     const none = (key: MediaTextKey, provider = s.speechProvider): MediaTranscript => ({ segments: [], from: w.from, covered: w.from, notes: [say(key)], label: '', language: null, provider, made: 0, cached: 0, stopped: key })
@@ -757,7 +772,7 @@ export class FileService {
     if (!mediaTranscriptsOn(s)) return none('transcriptsOff')
     const provider = s.speechProvider
     const hosted = currentPlan() !== null
-    const pieceSec = provider === 'local' && hosted ? media.LOCAL_HOSTED_PIECE_SEC : media.TRANSCRIPT_PIECE_SEC
+    const pieceSec = provider === 'local' ? media.LOCAL_PIECE_SEC : media.TRANSCRIPT_PIECE_SEC
     const model = provider === 'openrouter' ? s.speechModel : `whisper.cpp ${this.speech.model}`
     const label = provider === 'openrouter' ? `OpenRouter, ${s.speechModel}` : `this server, ${model}`
     // whether new pieces may be made, and with what
@@ -777,48 +792,58 @@ export class FileService {
     const maxNew = provider === 'local' && hosted ? 1 : Infinity
     const segments: media.Segment[] = []
     const notes: string[] = []
-    let covered = w.from, made = 0, madeSec = 0, cached = 0, language: string | null = null
+    let covered = w.from, made = 0, sentSec = 0, cached = 0, language: string | null = null
     let stopped: string | null = null
     let failure: string | null = null
-    for (let k = Math.floor(w.from / pieceSec); k * pieceSec < w.to; k++) {
-      const start = k * pieceSec
-      const len = Math.min(pieceSec, w.duration - start)
-      if (len <= 0) break
-      const key = media.TranscriptCache.key({ file: src.hash, provider, model, piece: k, pieceSec })
-      let piece = this.transcripts.get(key)
-      if (piece) cached++
-      else {
-        if (!speech) { stopped = blocked; break }
-        if (made >= maxNew) { stopped = 'slow'; break }
-        // a piece needs its sound cut and a provider answer: not started without time for both (a piece cut off by the
-        // deadline is lost, the ones before it stay cached)
-        if (left() < (provider === 'openrouter' ? 10_000 : 20_000)) { stopped = ctx.turnId ? 'time' : 'connection'; break }
-        const wav = `audio-${k}.wav`
-        try {
-          const bytes = await this.mediaAudio(tools, work, src.name, info.audio!.index, start, len, wav, { signal: ctx.signal, timeoutMs: left(), inputBytes: src.size })
-          const answer = await this.mediaTranscribe(speech, work, wav, bytes, { signal: ctx.signal, timeoutMs: left() })
-          piece = media.pieceOf(answer, start, len)
-          // the cache is a saving, not a requirement (a full disk must not lose the transcript just made)
-          try { this.transcripts.set(key, piece) } catch { /* not cached */ }
-          made++
-          madeSec += len
-        } catch (e) {
-          ctx.signal?.throwIfAborted()
-          if (e instanceof JobFailure) failure = e.messages[personLocale(this.db, ctx.user.id)] ?? e.message
-          else if (e instanceof ToolError && MEDIA_NOTE[e.code]) failure = say(MEDIA_NOTE[e.code]!)
-          else if (e instanceof Error && e.message === 'aborted') failure = say('heavy')
-          else throw e
-          stopped = 'failed'
-          break
-        } finally { fs.rmSync(path.join(work, wav), { force: true }) }
+    // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
+    try {
+      for (let k = Math.floor(w.from / pieceSec); k * pieceSec < w.to; k++) {
+        const start = k * pieceSec
+        const len = Math.min(pieceSec, w.duration - start)
+        if (len <= 0) break
+        const key = media.TranscriptCache.key({ file: src.hash, provider, model, piece: k, pieceSec })
+        let piece = this.transcripts.get(key)
+        if (piece) cached++
+        else {
+          if (!speech) { stopped = blocked; break }
+          if (made >= maxNew) { stopped = 'slow'; break }
+          // a piece needs its sound cut and a provider answer: not started without time for both (a piece cut off by the
+          // deadline is lost, and OpenRouter may bill it anyway; the ones before it stay cached)
+          if (left() - w.reserve < media.pieceNeedsMs(provider, len)) { stopped = ctx.turnId ? 'time' : 'connection'; break }
+          // right before new sound is cut and sent, as things are now (a read runs for minutes): the switch and the
+          // provider, the chat's confidentiality (a safe workflow may lock it meanwhile), the person's access to the file
+          const now = getTeamSettings(this.db)
+          if (now.speechProvider !== provider || !mediaTranscriptsOn(now)) { stopped = now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'; break }
+          if (provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId)) { stopped = 'confidential'; break }
+          this.recheckSource(ctx, src)
+          const wav = `audio-${k}.wav`
+          try {
+            const bytes = await this.mediaAudio(tools, work, src.name, info.audio!.index, start, len, wav, { signal: ctx.signal, timeoutMs: left(), inputBytes: src.size })
+            sentSec += len
+            const answer = await this.mediaTranscribe(speech, work, wav, bytes, { signal: ctx.signal, timeoutMs: left() })
+            piece = media.pieceOf(answer, start, len)
+            // the cache is a saving, not a requirement (a full disk must not lose the transcript just made)
+            try { this.transcripts.set(key, piece) } catch { /* not cached */ }
+            made++
+          } catch (e) {
+            ctx.signal?.throwIfAborted()
+            if (e instanceof JobFailure) failure = e.messages[personLocale(this.db, ctx.user.id)] ?? e.message
+            else if (e instanceof ToolError && MEDIA_NOTE[e.code]) failure = say(MEDIA_NOTE[e.code]!)
+            else if (e instanceof Error && e.message === 'aborted') failure = say('heavy')
+            else throw e
+            stopped = 'failed'
+            break
+          } finally { fs.rmSync(path.join(work, wav), { force: true }) }
+        }
+        language ??= piece.language
+        for (const sg of piece.segments) if (sg.start >= w.from - 0.5 && sg.start < w.to) segments.push(sg)
+        covered = Math.min(w.to, start + len)
       }
-      language ??= piece.language
-      for (const sg of piece.segments) if (sg.start >= w.from - 0.5 && sg.start < w.to) segments.push(sg)
-      covered = Math.min(w.to, start + len)
-    }
-    if (made || failure) {
-      audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
-        detail: { seconds: Math.round(madeSec), provider, model, pieces: made, cached, ok: !failure, ...(ctx.turnId ? {} : { via: 'connection' }) } })
+    } finally {
+      if (sentSec || failure) {
+        audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
+          detail: { seconds: Math.round(sentSec), provider, model, pieces: made, cached, ok: made > 0 && !failure && !ctx.signal?.aborted, ...(ctx.turnId ? {} : { via: 'connection' }) } })
+      }
     }
     if (stopped === 'slow') notes.push(say('slow', { min: Math.round(pieceSec / 60) }))
     else if (stopped === 'connection') notes.push(say('connection'))
