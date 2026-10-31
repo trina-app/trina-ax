@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
 import { loadPrincipal } from '../policy/access'
+import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
 import { safeText } from '../safe-ops/strings'
@@ -26,16 +27,17 @@ export function toolUseIdOf(params: unknown): string | null {
 export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extra?: TurnToolSet) {
   const insert = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok, tool_use_id, parent_tool_use_id) VALUES (?,?,?,?,?,?,?)')
   type CallResult = { result: { content: unknown[]; isError?: true }; beforeDelivery?: () => void }
+  type Owner = Awaited<ReturnType<ToolCtx['files']['forCall']>>
   const failed = (text: string): CallResult => ({ result: { content: [{ type: 'text', text }], isError: true } })
 
   /** One tool call (tools/call params): which agent made it, the person as they are now, the turn's checks, the tool
-   * and its audit row. */
-  async function callTool(params: any): Promise<CallResult> {
+   * and its audit row. `owner`: the agent state edit_files already looked up for its call (every file uses that one) */
+  async function callTool(params: any, owner?: Owner): Promise<CallResult> {
     const name = String(params?.name ?? '')
     // which agent made the call (docs/DECISIONS.md "Sub-agents"): the main AI or one of its sub-agents. Same person,
     // same checks; a sub-agent has its own read-before-write state, and the audit row says which one it was
     const toolUseId = toolUseIdOf(params)
-    const call = await ctx.files.forCall(toolUseId, { signal: ctx.signal })
+    const call = owner ?? await ctx.files.forCall(toolUseId, { signal: ctx.signal })
     const audit = { run: (turnId: string | null, userId: string, tool: string, summary: string, ok: number) => insert.run(turnId, userId, tool, summary, ok, toolUseId, call.agent) }
     // the person as they are now (tab 2 "권한 회수": access that shrank applies from the next tool call): role and
     // groups are loaded again for every call, and a disabled or deleted account gets nothing
@@ -74,7 +76,10 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
    * other, each as its own edit call through callTool. So every file gets exactly what a separate edit gets: the person
    * loaded again, the template scope, the skills/ card, the wider-audience card, read-before-write, the version, a
    * conflict copy, the per-turn limits, its file event and its own audit row (tool 'edit', this call's id). A file that
-   * fails does not stop the others; the answer lists every file. Stop ends the batch before the next file.
+   * fails does not stop the others; the answer lists every file. Stop ends the batch before the next file. A file
+   * named twice (also as "./a.md" and "a.md", or in another case on a case-insensitive disk) runs once: the edit
+   * leaves the file "read" with its new content, so a second run would apply a replacement whose new text holds the old
+   * one again. The batch's agent is looked up once, for every file.
    */
   async function editFiles(params: any) {
     const toolUseId = toolUseIdOf(params)
@@ -86,12 +91,29 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       return failed('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.') || '(input)'}: ${i.message}`).join('; ')).result
     }
     const { old_string, new_string, replace_all } = a.data
-    const paths = [...new Set(a.data.file_paths)]
+    // the file each path names: its actual name when the person (as they are now) may read it, so no other path
+    // learns anything; else the path as typed without "." and empty parts (such a path fails as an edit anyway)
+    const me = loadPrincipal(db, ctx.user.id)
+    const rules = files.rules()
+    const fileOf = (p: string) => {
+      try { if (me) return authorize(files.fx, rules, me, p, 'read').rel } catch {}
+      return p.split('/').filter((s) => s !== '' && s !== '.').join('/')
+    }
+    const first = new Map<string, string>()
+    const spellings = new Map<string, string>()
+    for (const p of new Set(a.data.file_paths)) {
+      const f = fileOf(p)
+      const was = first.get(f)
+      if (was === undefined) first.set(f, p)
+      else spellings.set(p, was)
+    }
+    const same = [...spellings].map(([p, was]) => `- ${p}: the same file as ${was} (handled once)`)
+    const paths = [...first.values()]
     const lines: string[] = []
     let edited = 0
     for (const [i, p] of paths.entries()) {
       if (ctx.signal?.aborted) { lines.push(...paths.slice(i).map((q) => `- ${q}: not changed (the answer was stopped)`)); break }
-      const r = await callTool({ ...params, name: 'edit', arguments: { file_path: p, old_string, new_string, ...(replace_all !== undefined ? { replace_all } : {}) } })
+      const r = await callTool({ ...params, name: 'edit', arguments: { file_path: p, old_string, new_string, ...(replace_all !== undefined ? { replace_all } : {}) } }, owner)
       let { result } = r
       // an edit never carries one (only image and PDF reads do); checked anyway, like the socket does
       try { r.beforeDelivery?.() } catch { result = failed(safeText(db, ctx.user.id, 'changed')).result }
@@ -102,7 +124,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const none = edited === 0
     row(`${EDIT_FILES_TOOL} ${paths.length} files -> ${edited} edited, ${paths.length - edited} not`, none ? 0 : 1)
     const head = `${edited} of ${paths.length} file${paths.length === 1 ? '' : 's'} edited. Each file was checked and saved on its own:`
-    return { content: [{ type: 'text', text: [head, ...lines].join('\n') }], ...(none ? { isError: true as const } : {}) }
+    return { content: [{ type: 'text', text: [head, ...lines, ...same].join('\n') }], ...(none ? { isError: true as const } : {}) }
   }
 
   return async function handle(msg: any): Promise<any | null> {

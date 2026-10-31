@@ -456,8 +456,9 @@ export class TurnExec {
       await this.runCodex(core, codex, { chatDir, token, systemPrompt: prompt(true), message, extraTools, model })
     } else if (api) {
       // the team's API engine runs here in the server: its only tools are the turn's MCP tools, answered by the same
-      // handler the gate uses for the other engines (engine/api-agent.ts)
-      const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files }, toolSet)
+      // handler the gate uses for the other engines (engine/api-agent.ts), with the turn's stop like the gate's
+      // (mcp/socket.ts): Stop ends an edit_files batch before its next file here too
+      const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files, signal: turn.abort.signal }, toolSet)
       const errors: EngineEvent[] = []
       this.attemptHadOutput = false
       await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins })

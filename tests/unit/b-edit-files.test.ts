@@ -224,6 +224,27 @@ describe('edit_files in the MCP handler', () => {
     expect(['p', 'q', 'r', 's'].map((n) => text(`users/alice/gate/${n}.md`))).toEqual(['x: 1\n', 'x: 0\n', 'x: 1\n', 'x: 0\n'])
   })
 
+  test('one file under several spellings runs once (a replacement that keeps the old text is not applied twice); hidden files are not merged', async () => {
+    put('users/alice/dup/a.md', '- [x] task\n')
+    const extra: TurnToolSet = {
+      list: () => [{ name: EDIT_FILES_TOOL, description: '', inputSchema: {} }],
+      has: (n) => n === EDIT_FILES_TOOL,
+      call: async () => ({ content: [{ type: 'text', text: 'must not run' }], isError: true, summary: 'x' }),
+      beforeFileTool: async () => null,
+    }
+    const handle = makeHandler(h.ctx.files, h.ctx.db, ctxOf(), extra)
+    await call(handle, 'read', { file_path: 'users/alice/dup/a.md' })
+    const ci = h.ctx.files.fx.caseInsensitive
+    const spellings = ['users/alice/dup/a.md', './users/alice/dup/a.md', 'users//alice/dup/a.md', ...(ci ? ['users/alice/dup/A.md'] : [])]
+    // bob's note under two spellings that differ only in case: alice cannot read it, so nothing tells her they are one
+    const res = await call(handle, EDIT_FILES_TOOL, { file_paths: [...spellings, 'users/bob/notes.md', 'users/bob/NOTES.md'], old_string: '- [x] task', new_string: '- [x] task (checked)' })
+    expect(text('users/alice/dup/a.md')).toBe('- [x] task (checked)\n')
+    expect(said(res)).toStartWith('1 of 3 files edited.')
+    for (const p of spellings.slice(1)) expect(said(res)).toContain(`- ${p}: the same file as users/alice/dup/a.md (handled once)`)
+    expect(said(res)).toMatch(/- users\/bob\/notes\.md: Access denied: /)
+    expect(said(res)).toMatch(/- users\/bob\/NOTES\.md: Access denied: /)
+  })
+
   test('the step label and the instructions', () => {
     const paths = ['work/crm/notes/C001.md', 'work/crm/notes/C002.md', 'work/crm/notes/C003.md']
     expect(stepLabel(EDIT_FILES_TOOL, { file_paths: paths }, 'ko', new Set())).toBe('여러 파일 수정 · work/crm/notes/C001.md +2')

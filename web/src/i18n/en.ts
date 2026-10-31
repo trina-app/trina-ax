@@ -1679,7 +1679,7 @@ export const en: Record<MessageKey, string> = {
   'teamSettings.aiSubagents': 'Let the AI split work into sub-tasks',
   'teamSettings.aiSubagentsHint': 'Like Claude Code, the AI can hand parts of a big request to helper AIs that work at the same time (up to 4). A helper has the same tools and sees only what the person can see; its steps show under the answer, and the audit log records its calls. Helpers use the AI service too, so a big request can cost more. Off: the AI does all the work itself.',
   'teamSettings.answerStepLimit': 'Tool rounds per answer',
-  'teamSettings.answerStepLimitHint': 'How many times the AI may use tools in one answer ({min}–{max}, default {def}). Tools it uses together count once. At the limit the answer pauses, and Continue picks it up. The 20-minute limit and budgets still apply. Applies to answers by Claude Code.',
+  'teamSettings.answerStepLimitHint': 'How many times the AI may use tools in one answer ({min}–{max}, default {def}). Tools it uses together count once. At the limit the answer pauses, and Continue picks it up. A higher limit lets one answer work longer, so it can cost more; the 20-minute limit and budgets still apply. Applies to answers by Claude Code.',
   'audit.act.integration.create': 'Added an external service connection',
   'audit.act.integration.update': 'Changed an external service connection',
   'audit.act.integration.delete': 'Deleted an external service connection',

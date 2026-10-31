@@ -1678,7 +1678,7 @@ export const ko = {
   'teamSettings.aiSubagents': 'AI가 일을 나눠 맡기기',
   'teamSettings.aiSubagentsHint': '큰 요청을 받으면 AI가 Claude Code처럼 일을 나눠 다른 AI에게 동시에 맡겨요(최대 4개). 나눠 맡은 AI도 같은 도구를 쓰고, 그 사람이 볼 수 있는 파일만 봐요. 한 일은 답 아래 단계에 보이고 감사 기록에도 남아요. 나눠 맡은 AI도 AI 사용량을 쓰니 큰 요청은 비용이 더 들 수 있어요. 끄면 AI가 모든 일을 혼자 해요.',
   'teamSettings.answerStepLimit': '한 답변의 도구 사용 한도',
-  'teamSettings.answerStepLimitHint': 'AI가 한 번 답하면서 도구를 쓸 수 있는 횟수예요({min}~{max}, 기본 {def}). 한꺼번에 쓴 도구는 한 번으로 세요. 다 쓰면 답이 멈추고 "이어서 하기"로 계속할 수 있어요. 20분 작업 시간 한도와 예산은 그대로 지켜요. Claude Code로 답할 때 적용돼요.',
+  'teamSettings.answerStepLimitHint': 'AI가 한 번 답하면서 도구를 쓸 수 있는 횟수예요({min}~{max}, 기본 {def}). 한꺼번에 쓴 도구는 한 번으로 쳐요. 다 쓰면 답이 멈추고 "이어서 하기"로 계속할 수 있어요. 높일수록 한 답변이 더 오래 일하니 비용이 더 들 수 있어요. 20분 작업 시간 한도와 예산은 그대로 적용돼요. Claude Code로 답할 때만 해당돼요.',
   'audit.act.integration.create': '외부 서비스 연결 추가',
   'audit.act.integration.update': '외부 서비스 연결 변경',
   'audit.act.integration.delete': '외부 서비스 연결 삭제',

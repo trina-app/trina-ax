@@ -134,6 +134,8 @@ try {
     check('general-purpose child: no built-in file / shell tool, no Agent, nothing of the main AI only', noBuiltins(offered(c11)).length === 0 && offered(c11).includes(T('write')), offered(c11))
     check('general-purpose child: exactly our tool names (the disk definition of the same name lost)', offered(c11).every((t) => t === 'WebSearch' || t.startsWith('mcp__team__')), offered(c11))
     check('Explore child: read-only tools', noBuiltins(offered(c12)).length === 0 && !offered(c12).includes(T('write')) && offered(c12).includes(T('read')), offered(c12))
+    // edit_files (docs/DECISIONS.md "Bulk edits in one call"): the main AI and general-purpose children, never Explore
+    check('edit_files: main and general-purpose child have it, Explore does not', r.reqs.filter((x) => x.kind === 'main').every((x) => x.tools.includes(T('edit_files'))) && offered(c11).includes(T('edit_files')) && !offered(c12).includes(T('edit_files')), { c11: offered(c11).includes(T('edit_files')), c12: offered(c12).includes(T('edit_files')) })
     const mainModel = r.reqs.find((x) => x.kind === 'main')?.model
     check('children run on the main model', [...c11, ...c12].every((x) => x.model === mainModel), [mainModel, ...[...c11, ...c12].map((x) => x.model)])
     check('child instructions: ours appended, no trap definition text', c11.every((x) => x.system.includes('Rules from the team server for sub-agents') && !x.system.includes('TRAP-DEFINITION-LOADED')), c11[0]?.system.slice(-400))
@@ -182,6 +184,7 @@ try {
     check('confidential: children have no WebSearch and no web_fetch', c41.length > 0 && !offered(c41).includes('WebSearch') && !offered(c41).includes(T('web_fetch')), offered(c41))
     check('confidential: no request carried a web search server tool', !r.reqs.some((x) => x.serverTools.length), r.reqs.map((x) => x.serverTools))
     check('confidential: main has the Agent tool only besides ours', r.reqs.filter((x) => x.kind === 'main').every((x) => !x.tools.includes('WebSearch') && x.tools.includes('Agent')))
+    check('confidential: no edit_files for anyone (edit stays)', !r.reqs.some((x) => x.tools.includes(T('edit_files'))) && offered(c41).includes(T('edit')), offered(c41))
   }
   // ---- 5. the proxy's tool-name check (M1): a definition that brings built-ins back stops the answer ----
   {

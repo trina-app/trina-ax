@@ -321,4 +321,27 @@ describe('a chat turn with the api engine', () => {
     expect(seen[before].model).toBe('m-1')
     expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('api')
   })
+
+  test('edit_files: Stop while one file\'s card is open ends the batch before the next file, as at the gate', async () => {
+    const put = (rel: string, s: string) => { const p = path.join(h.team, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s) }
+    const text = (rel: string) => fs.readFileSync(path.join(h.team, rel), 'utf8')
+    // a.md is where more people see it than alice's own note (a wider-audience card); b.md is alice's own (no card)
+    put('users/alice/ef-stop-private.md', 'secret\n'); put('shared/ef-stop/a.md', 'v: 1\n'); put('users/alice/ef-stop/b.md', 'v: 1\n')
+    const readCall = (id: string, file_path: string) => ({ id, name: 'read', args: JSON.stringify({ file_path }) })
+    script.push(
+      sse({ calls: [readCall('r1', 'users/alice/ef-stop-private.md'), readCall('r2', 'shared/ef-stop/a.md'), readCall('r3', 'users/alice/ef-stop/b.md')] }),
+      sse({ calls: [{ id: 'e1', name: 'edit_files', args: JSON.stringify({ file_paths: ['shared/ef-stop/a.md', 'users/alice/ef-stop/b.md'], old_string: 'v: 1', new_string: 'v: 2' }) }] }),
+      sse({ text: ['not reached'] }),
+    )
+    const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' as EngineId } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'set v to 2', clientMessageId: `cm-${crypto.randomUUID()}`, attachmentIds: [], engine: 'api' as EngineId } })
+    await waitFor(() => (h.rt().execFor(r.turnId)?.openRequests().length ?? 0) > 0, { timeoutMs: 20_000 })
+    await h.api('alice').call(API.stop, { params: { id: chat.id } })
+    await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 20_000 })
+    expect(text('shared/ef-stop/a.md')).toBe('v: 1\n')
+    expect(text('users/alice/ef-stop/b.md')).toBe('v: 1\n')
+    const rows = h.ctx.db.query("SELECT tool, summary, ok FROM tool_events WHERE turn_id = ? AND tool IN ('edit', 'edit_files') ORDER BY id").all(r.turnId) as { tool: string; summary: string; ok: number }[]
+    expect(rows.map((x) => [x.tool, x.ok])).toEqual([['edit', 0], ['edit_files', 0]])
+    expect(rows[1]!.summary).toBe('edit_files 2 files -> 0 edited, 2 not')
+  })
 })

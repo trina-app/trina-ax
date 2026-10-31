@@ -1679,7 +1679,7 @@ export const id: Record<MessageKey, string> = {
   'teamSettings.aiSubagents': 'Izinkan AI membagi pekerjaan menjadi subtugas',
   'teamSettings.aiSubagentsHint': 'Seperti Claude Code, AI dapat menyerahkan bagian dari permintaan besar ke AI pembantu yang bekerja bersamaan (hingga 4). Pembantu memakai alat yang sama dan hanya melihat yang boleh dilihat orang itu; langkahnya tampil di bawah jawaban dan tercatat di log audit. Pembantu juga memakai layanan AI, jadi permintaan besar bisa lebih mahal. Nonaktif: AI mengerjakan semuanya sendiri.',
   'teamSettings.answerStepLimit': 'Putaran alat per jawaban',
-  'teamSettings.answerStepLimitHint': 'Berapa kali AI boleh memakai alat dalam satu jawaban ({min}–{max}, bawaan {def}). Alat yang dipakai bersamaan dihitung sekali. Jika habis, jawaban berhenti sejenak dan Lanjutkan meneruskannya. Batas 20 menit dan anggaran tetap berlaku. Berlaku untuk jawaban dari Claude Code.',
+  'teamSettings.answerStepLimitHint': 'Berapa kali AI boleh memakai alat dalam satu jawaban ({min}–{max}, bawaan {def}). Alat yang dipakai bersamaan dihitung sekali. Jika habis, jawaban berhenti sejenak dan Lanjutkan meneruskannya. Batas yang lebih tinggi membuat satu jawaban bisa bekerja lebih lama, jadi biayanya bisa lebih besar. Batas 20 menit dan anggaran tetap berlaku. Berlaku untuk jawaban dari Claude Code.',
   'audit.act.integration.create': 'Menambah koneksi layanan eksternal',
   'audit.act.integration.update': 'Mengubah koneksi layanan eksternal',
   'audit.act.integration.delete': 'Menghapus koneksi layanan eksternal',

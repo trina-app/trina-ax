@@ -1639,7 +1639,7 @@ export const ja: Record<MessageKey, string> = {
   'teamSettings.aiSubagents': "AIが作業をサブタスクに分けて任せる",
   'teamSettings.aiSubagentsHint': "Claude Code と同じように、大きな依頼では AI が作業の一部を同時に動く補助 AI（最大 4 つ）に任せます。補助 AI も同じツールを使い、その人が見られるファイルだけを見ます。手順は回答の下に表示され、監査ログにも残ります。補助 AI も AI サービスを使うため、大きな依頼は費用が増えることがあります。オフにすると AI がすべての作業を自分で行います。",
   'teamSettings.answerStepLimit': "1回の回答でのツール使用回数",
-  'teamSettings.answerStepLimitHint': "AIが1回の回答でツールを使える回数です（{min}〜{max}、既定は{def}）。同時に使ったツールは1回と数えます。上限に達すると回答は一時停止し、「続ける」で再開できます。20分の作業時間の上限と予算はそのまま適用されます。Claude Code での回答に適用されます。",
+  'teamSettings.answerStepLimitHint': "AIが1回の回答でツールを使える回数です（{min}〜{max}、既定は{def}）。同時に使ったツールは1回と数えます。上限に達すると回答は一時停止し、「続ける」で再開できます。上限を上げると1回の回答で長く作業できる分、費用が増えることがあります。20分の作業時間の上限と予算はそのまま適用されます。Claude Code での回答が対象です。",
   'audit.act.integration.create': "外部サービスの接続を追加",
   'audit.act.integration.update': "外部サービスの接続を変更",
   'audit.act.integration.delete': "外部サービスの接続を削除",

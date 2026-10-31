@@ -3919,6 +3919,10 @@ Trina should feel like Claude Code, which has WebSearch.
   not raised with this setting); Codex has no round cap, only the time limits. Scheduled tasks and approved template
   runs use the same answer limits (template runs also keep their fixed tool scope). The model proxy has no per-answer
   request count, and nothing else assumed 50.
+- Cost: every round is one more model request with the conversation so far, so the limit is also how much one answer
+  may spend before it pauses (150 is up to three times the old 50; "이어서 하기" starts another answer with the same
+  limit). Budgets and the 20 / 45 minutes bound the spend; the setting's hint and for-admins say a higher limit can
+  cost more (review 2026-10-31).
 - Tests: `b-answer-step-limit.test.ts` (default 150 on the command line, admin change and audit, range and members
   refused, a bad stored value, the pause at the team limit, sub-agents at 50); the existing tool-limit tests in
   `b-chat.test.ts` and `b-subagents.test.ts` fix the limit through the runtime as before.
@@ -3936,7 +3940,12 @@ Trina should feel like Claude Code, which has WebSearch.
   file since it was read, the per-turn limits, the file event and one `tool_events` row per file (tool `edit`, the
   batch call's id and sub-task), plus one `edit_files` row with the counts. A file that fails does not stop the
   others; the result lists every file (edited, or the reason). The call is an error only when no file was edited. Stop
-  ends the batch before the next file. Duplicate paths run once.
+  ends the batch before the next file, also with the API engine (its in-server handler gets the turn's stop signal like
+  the gate's, review 2026-10-31: before, the files after a card went on being edited after Stop). Duplicate paths run
+  once, also when spelled differently ("./a.md", "a//b.md", another case on a case-insensitive disk): an edit leaves
+  the file read with its new content, so a second run applied a replacement whose new text holds the old one twice
+  (review 2026-10-31). Paths are merged by their actual name only when the person may read the file (else as typed),
+  so the merge tells nothing about hidden files. The batch's agent is looked up once and every file uses it.
 - Not a seventh file tool: it is listed by the chat turn's tool set (so `--allowedTools`, Codex's enabled tools, the
   model proxy's tool list and general-purpose sub-agents have it; Explore does not), and the handler runs it only when
   the turn offers it. The remote MCP connector (Claude Code on a laptop has its own shell) and turns without a chat
@@ -3951,4 +3960,5 @@ Trina should feel like Claude Code, which has WebSearch.
 - Step label: "여러 파일 수정 · <first path> +N" (five languages; the number is not translated).
 - Tests: `b-edit-files.test.ts` (S17 shape with already-done, unread, no-access and duplicate files; all failing; bad
   input and the 50-file cap; conflict copy; wider-audience card once; a skills/ card per file; a sub-agent's own
-  reads; confidential chats; the handler's per-file check, template refusal and Stop; label and instructions).
+  reads; confidential chats; the handler's per-file check, template refusal and Stop; one file under several
+  spellings; label and instructions), `api-engine.test.ts` (Stop during a card with the API engine).
