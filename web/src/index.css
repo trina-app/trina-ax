@@ -41,7 +41,7 @@
   --c-hover: #34322e;
   --c-line: #3b3934;
   --c-line-strong: #8a8478;
-  --c-field-border: #7b766b;
+  --c-field-border: #857f74;
   --c-ink: #ece9e3;
   --c-muted: #c2bcb1;
   --c-faint: #a39d92;
@@ -62,7 +62,9 @@
 }
 
 @theme {
-  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
+  /* the system face on every platform (no web font is shipped): SF + Apple SD Gothic Neo on Apple devices, Segoe UI with
+     the browser's Korean fallback (Malgun Gothic) on Windows, Noto Sans KR / the fontconfig CJK face on Linux */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   --color-canvas: var(--c-canvas);

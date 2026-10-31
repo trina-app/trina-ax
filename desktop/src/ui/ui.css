@@ -1,16 +1,23 @@
-/* The desktop app's own screens: welcome / team list and the browser pane toolbar. */
+/* The desktop app's own screens: welcome / team list and the browser pane toolbar. The values are the web app's tokens
+   (web/src/theme.edition.css, docs/DESIGN-SYSTEM.md): --bg = --c-canvas, --panel = --c-surface, --chrome = --c-subtle,
+   --hover = --c-hover, --text = --c-ink, --accent-ink = text on the accent, --accent-text = the accent as text,
+   --field-border = the edge of a field or a bordered button (>= 3:1), --warn-bg = --c-warn-soft. */
 :root {
   --bg: #fcfbf8;
   --panel: #ffffff;
   --text: #14110f;
   --muted: #514b45;
   --line: #e9e3d8;
+  --field-border: #8c8378;
+  --hover: #eee8dd;
   --accent: #e8521a;
-  --accent-text: #14110f;
+  --accent-ink: #14110f;
+  --accent-text: #b8380a;
   --danger: #b42318;
-  --warn-bg: #fff4e5;
-  --warn-line: #f2b45a;
-  --focus: #c43d0a;
+  --warn: #8a5300;
+  --warn-bg: #fdf3e2;
+  --warn-line: color-mix(in srgb, var(--warn) 40%, transparent);
+  --focus: var(--accent);
   --chrome: #f6f2ea;
   color-scheme: light;
 }
@@ -21,12 +28,14 @@
     --text: #f6f2ea;
     --muted: #b3aaa0;
     --line: #2c2723;
+    --field-border: #776e64;
+    --hover: #26211d;
     --accent: #ff6a33;
-    --accent-text: #14110f;
-    --danger: #ff8a7a;
-    --warn-bg: #3a2c12;
-    --warn-line: #a8792b;
-    --focus: #ff8a5c;
+    --accent-ink: #14110f;
+    --accent-text: #ff8a5c;
+    --danger: #ff8b7e;
+    --warn: #f0b45a;
+    --warn-bg: #2e2312;
     --chrome: #1d1916;
     color-scheme: dark;
   }
@@ -49,7 +58,7 @@ input {
 }
 button {
   cursor: pointer;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   background: var(--panel);
   border-radius: 8px;
   padding: 6px 12px;
@@ -57,11 +66,12 @@ button {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent-text);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 button.danger {
   color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 70%, transparent);
 }
 button:disabled {
   opacity: 0.6;
@@ -70,6 +80,10 @@ button:disabled {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+/* on the accent frame while the AI drives, the accent ring would not show */
+body.pane.driving :focus-visible {
+  outline-color: var(--accent-ink);
 }
 .sr-only {
   position: absolute;
@@ -102,13 +116,14 @@ button:disabled {
   padding: 28px;
 }
 .brand {
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-bottom: 12px;
 }
 h1 {
   font-size: 22px;
+  font-weight: 600;
   margin: 0 0 6px;
 }
 .sub {
@@ -122,7 +137,7 @@ h1 {
 .field input {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 8px;
   padding: 8px 10px;
   background: var(--bg);
@@ -173,7 +188,7 @@ h1 {
 .tag {
   font-size: 11px;
   border: 1px solid var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: 999px;
   padding: 0 6px;
 }
@@ -202,7 +217,7 @@ h1 {
   color: var(--muted);
 }
 .language select {
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 6px;
   padding: 3px 6px;
   background: var(--bg);
@@ -282,7 +297,7 @@ body.pane.driving {
 }
 .tab .x:hover,
 .icon[aria-expanded='true'] {
-  background: var(--line);
+  background: var(--hover);
   color: var(--text);
 }
 .spacer {
@@ -302,7 +317,7 @@ body.pane.driving {
 .nav input {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 8px;
   padding: 4px 8px;
   background: var(--panel);
@@ -315,7 +330,7 @@ body.pane.driving {
   padding: 4px 8px;
   border-radius: 8px;
   background: var(--accent);
-  color: var(--accent-text);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 body.driving .driving-bar {
@@ -392,7 +407,7 @@ body.driving .driving-bar {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
   text-decoration: underline;
   cursor: pointer;
@@ -434,7 +449,7 @@ body.driving .driving-bar {
   padding: 0 3px;
   border-radius: 7px;
   background: var(--accent);
-  color: var(--accent-text);
+  color: var(--accent-ink);
   font-size: 9px;
   font-weight: 600;
   line-height: 14px;
@@ -555,6 +570,6 @@ body.driving .driving-bar {
 }
 /* the accent frame fills the empty pane while the AI drives: keep the text readable on it */
 body.pane.driving .empty {
-  color: var(--accent-text);
+  color: var(--accent-ink);
   font-weight: 600;
 }

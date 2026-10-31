@@ -193,11 +193,11 @@ function CredentialRow({ c, target, owner, checking, personal, ownDelete, onChec
           <div className="relative">
             <IconButton label={t('credentials.menu')} onClick={() => setMenu((v) => !v)} aria-expanded={menu} data-testid="credential-menu"><MoreHorizontal size={15} /></IconButton>
             {menu && (
-              <div role="menu" className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-line bg-surface py-1 text-sm shadow-lg" onClick={() => setMenu(false)}>
+              <div role="menu" className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-line bg-surface py-1 text-sm shadow-lg" onClick={() => setMenu(false)}>
                 {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onEdit}>{t('credentials.rename')} · {t('credentials.changeTarget')} · {t('credentials.spendLimit')}</button>}
                 {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onReplace}>{c.kind === 'chatgpt' ? t('credentials.reconnect') : t('credentials.replace')}</button>}
                 <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onToggle}>{c.disabled ? t('credentials.enable') : t('credentials.disable')}</button>
-                <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left text-danger hover:bg-hover" onClick={onRemove}>{t('common.delete')}</button>
+                <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" onClick={onRemove}>{t('common.delete')}</button>
               </div>
             )}
           </div>
@@ -357,7 +357,7 @@ export function AddCredential({ allowedKinds, groups, users, replace, personal, 
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
                 {t('credentials.apiKey.hint')}{' '}
-                <a className="inline-flex items-center gap-1 text-accent underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
+                <a className="inline-flex items-center gap-1 text-accent-text underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
                   {t(kind === 'anthropic-api-key' ? 'credentials.apiKey.consoleAnthropic' : 'credentials.apiKey.consoleOpenai')} <ExternalLink size={12} aria-hidden />
                 </a>
               </p>
@@ -408,7 +408,7 @@ function ChatgptProgress({ l }: { l: CredentialLogin }) {
     <ol className="list-decimal space-y-3 pl-5 text-sm" data-testid="chatgpt-code">
       <li>{t('credentials.chatgpt.step1')}
         <span className="mt-1 flex items-center gap-2">
-          <a className="break-all text-accent underline" href={l.url} target="_blank" rel="noreferrer noopener">{l.url}</a>
+          <a className="break-all text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener">{l.url}</a>
           <CopyButton text={l.url} />
         </span>
       </li>

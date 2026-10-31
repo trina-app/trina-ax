@@ -8,6 +8,10 @@ import { chromium } from '@playwright/test'
 
 const WEB = path.resolve(import.meta.dir, '..')
 const svg = fs.readFileSync(path.join(WEB, 'public', 'favicon.svg'), 'utf8')
+// maskable and Apple touch icons are full-bleed: the logo's own tile colour (its first <rect>) fills the square, so the
+// edges match the mark (Trina: warm black #14110f). The logo's accent would hide its orange spark.
+const tile = svg.match(/<rect\b[^>]*\bfill="(#[0-9a-f]{3,8})"/i)?.[1]
+if (!tile) throw new Error('favicon.svg: no <rect fill="#…"> tile to use as the maskable background')
 const out = path.join(WEB, 'public', 'icons')
 fs.mkdirSync(out, { recursive: true })
 
@@ -18,7 +22,7 @@ async function render(name: string, size: number, maskable: boolean) {
   const inner = maskable ? Math.round(size * 0.72) : size
   const radius = maskable ? 0 : Math.round(size * 0.22)
   await page.setViewportSize({ width: size, height: size })
-  await page.setContent(`<html><body style="margin:0;width:${size}px;height:${size}px;display:grid;place-items:center;background:${maskable ? '#2c6a59' : 'transparent'}">
+  await page.setContent(`<html><body style="margin:0;width:${size}px;height:${size}px;display:grid;place-items:center;background:${maskable ? tile : 'transparent'}">
     <div style="width:${inner}px;height:${inner}px;border-radius:${radius}px;overflow:hidden">${svg.replace('<svg ', `<svg width="${inner}" height="${inner}" `)}</div></body></html>`)
   await page.screenshot({ path: path.join(out, name), omitBackground: !maskable })
 }

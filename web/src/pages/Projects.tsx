@@ -281,7 +281,7 @@ export function ProjectHome() {
                 <Button variant="ghost" onClick={() => setEditing(true)}>
                   <Pencil size={14} aria-hidden /> {t('common.edit')}
                 </Button>
-                <Button variant="ghost" className="text-danger" onClick={del}>
+                <Button variant="ghost-danger" onClick={del}>
                   <Trash2 size={14} aria-hidden /> {t('common.delete')}
                 </Button>
               </>

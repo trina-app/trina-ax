@@ -27,7 +27,7 @@ export default function OfficeUpdateBanner() {
   const b = bannerFor(me, status, dismissed)
   if (!b) return null
   return (
-    <div role="status" className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-accent-soft px-3 py-1.5 text-center text-xs font-medium text-accent" data-testid="office-update-banner">
+    <div role="status" className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-accent-soft px-3 py-1.5 text-center text-xs font-medium text-accent-text" data-testid="office-update-banner">
       <Sparkles size={14} aria-hidden />
       <span>{t('officeUpdate.banner', { version: b.version })}</span>
       <button type="button" className="underline underline-offset-2" onClick={() => navigate('/admin/system')}>

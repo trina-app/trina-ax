@@ -7,7 +7,10 @@ import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
+/** primary: the one main action; secondary (default): a bordered button; ghost: no border; danger: a destructive action
+ * with a border; ghost-danger: a quiet destructive choice beside others ("Deny", "Reject"). Don't recolour a variant with
+ * className: the classes are not merged, and the variant's own colour can win. */
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ghost-danger'
 export function Button({ variant = 'secondary', size = 'md', busy, className, children, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' | 'md'; busy?: boolean }) {
   return (
     <button
@@ -19,9 +22,11 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
-        variant === 'secondary' && 'border border-line bg-surface text-ink hover:bg-hover',
+        // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
+        variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
         variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',
-        variant === 'danger' && 'border border-danger/40 bg-surface text-danger hover:bg-danger-soft',
+        variant === 'danger' && 'border border-danger/70 bg-surface text-danger hover:bg-danger-soft',
+        variant === 'ghost-danger' && 'text-danger hover:bg-danger-soft',
         className,
       )}
     >
@@ -31,9 +36,10 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
   )
 }
 
-export function IconButton({ label, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+/** danger: a destructive icon action (Delete) that turns red on hover. */
+export function IconButton({ label, danger, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean }) {
   return (
-    <button type="button" aria-label={label} title={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition hover:bg-hover hover:text-ink disabled:opacity-40 max-sm:p-2', className)}>
+    <button type="button" aria-label={label} title={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
       {children}
     </button>
   )
@@ -394,12 +400,14 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
   )
 }
 
-/** Toggle switch with a real checkbox underneath (keyboard + screen readers). */
+/** Toggle switch with a real checkbox underneath (keyboard + screen readers). Off: a --c-field-border track (>= 3:1 on
+ * canvas, surface and subtle) with a white knob; on: a --c-accent track with a --c-accent-ink knob (the colour made for
+ * things on the accent, >= 4.5:1 in every look). The focus ring sits 2px outside the track, so it shows on the accent. */
 export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
     <label className={clsx('inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
       <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span className="relative h-5 w-9 shrink-0 rounded-full bg-line-strong/60 transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4" aria-hidden />
+      <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 peer-checked:after:bg-accent-ink" aria-hidden />
       <span>{label}</span>
     </label>
   )

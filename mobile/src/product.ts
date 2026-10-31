@@ -1,5 +1,18 @@
 export interface MobileProduct { name: string; accent: string; userAgent: string; scheme: string; bundleId: string }
-export const DEFAULT_PRODUCT: MobileProduct = { name: 'Team AX', accent: '#176b55', userAgent: 'TeamAX-Mobile', scheme: 'teamax-mobile', bundleId: 'app.teamax.mobile.dev' }
+/** accent: this edition's (Trina Signal Orange, --c-accent in web/src/theme.edition.css); an edition config may replace it. */
+export const DEFAULT_PRODUCT: MobileProduct = { name: 'Team AX', accent: '#e8521a', userAgent: 'TeamAX-Mobile', scheme: 'teamax-mobile', bundleId: 'app.teamax.mobile.dev' }
+
+const luminance = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16)
+  const c = (v: number) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }
+  return 0.2126 * c(n >> 16) + 0.7152 * c((n >> 8) & 255) + 0.0722 * c(n & 255)
+}
+/** Text and icons on an accent fill (the Connect button): white or the warm black (#14110f, the web's --c-accent-ink),
+ * whichever reads better on that accent. White on the orange is 3.7:1, too low for the button's 16px label. */
+export function accentInk(accent: string): string {
+  const l = luminance(accent)
+  return (1.05 / (l + 0.05)) >= ((l + 0.05) / (luminance('#14110f') + 0.05)) ? '#ffffff' : '#14110f'
+}
 /** Editions may replace explicit presentation/identifier fields, never URLs, permissions or executable code. */
 export function mobileProduct(value: unknown): MobileProduct {
   const v = value && typeof value === 'object' ? value as Record<string, unknown> : {}

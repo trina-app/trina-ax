@@ -231,7 +231,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
             <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
               <Pencil size={15} />
             </IconButton>
-            <IconButton label={t('integrations.delete', { name: i.name })} className="hover:text-danger" onClick={() => void actions.remove(i)} data-testid="integration-delete">
+            <IconButton label={t('integrations.delete', { name: i.name })} danger onClick={() => void actions.remove(i)} data-testid="integration-delete">
               <Trash2 size={15} />
             </IconButton>
           </div>

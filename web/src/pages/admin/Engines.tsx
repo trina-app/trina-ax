@@ -132,7 +132,7 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
         <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm" data-testid="engine-detail">
           {e.detail}
           {e.authMode === 'managed' && e.status === 'not_logged_in' && (
-            <Link to="/admin/credentials" className="ml-2 font-medium text-accent underline" data-testid="engine-go-credentials">{t('engines.goCredentials')}</Link>
+            <Link to="/admin/credentials" className="ml-2 font-medium text-accent-text underline" data-testid="engine-go-credentials">{t('engines.goCredentials')}</Link>
           )}
         </p>
       )}

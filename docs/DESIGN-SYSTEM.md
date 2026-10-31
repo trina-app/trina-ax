@@ -8,7 +8,7 @@ The web app is the reference: `web/src/index.css`, `web/src/theme.edition.css`, 
 
 The web app is React with Tailwind CSS 4. There is no `tailwind.config` file: the theme is the `@theme` block in `web/src/index.css`, which maps every `--c-*` token to a Tailwind colour of the same name.
 
-1. **Colour only through tokens.** Use the token utilities (`bg-canvas`, `bg-surface`, `bg-subtle`, `hover:bg-hover`, `border-line`, `border-field-border` (the edge of a text field), `text-ink`, `text-muted`, `text-faint`, `text-accent-text`, `bg-accent text-accent-ink`, `bg-warn-soft text-warn`, …) in markup and `var(--c-…)` in CSS. They switch with the theme by themselves, so a screen needs no `dark:` variants and no hex values. Pick text-on-background pairs from [Contrast](#contrast).
+1. **Colour only through tokens.** Use the token utilities (`bg-canvas`, `bg-surface`, `bg-subtle`, `hover:bg-hover`, `border-line`, `border-field-border` (the edge of a text field or a bordered button), `text-ink`, `text-muted`, `text-faint`, `text-accent-text`, `bg-accent text-accent-ink`, `bg-warn-soft text-warn`, …) in markup and `var(--c-…)` in CSS. They switch with the theme by themselves, so a screen needs no `dark:` variants and no hex values. Pick text-on-background pairs from [Contrast](#contrast).
 2. **Start from the shell and the shared blocks.** Add the page as a route inside `<Route element={<Layout />}>` in `web/src/App.tsx`; the layout brings the sidebar, banners, side panel and phone top bar. Build the page from `web/src/components/ui.tsx` (`PageHeader`, `Button`, `IconButton`, `Field` with `inputCls`, `Badge`, `Tabs`, `Switch`, `Modal` and `confirmDialog`, `EmptyState`, `ErrorNote`, `Spinner`; `toast` from `web/src/store/ui.ts`) and `Card` from `web/src/pages/admin/common.tsx`. Do not recolour them with `className` (see Button under [Components](#components)).
 3. **Write every string in five locales.** Add the key to `web/src/i18n/ko.ts` (the key type comes from it) and to `en.ts`, `id.ts`, `ja.ts` and `es.ts`, following [Copy and languages](#copy-and-languages), then run `bun run check:i18n`.
 4. **Check it** in light and dark (Settings > Profile > Theme), below 640px and 768px wide, with the keyboard only, and against [Accessibility](#accessibility).
@@ -59,18 +59,18 @@ CSS variables `--c-<name>`; Tailwind colours of the same name (`bg-surface`, `te
 | `--c-surface` | `#ffffff` | `#171412` | Raised things: cards (admin Card, project cards), dialogs, menus, toasts, inputs, the side panel, the composer, secondary buttons. Same text tokens as c-canvas. |
 | `--c-subtle` | `#f6f2ea` | `#1d1916` | Quiet fills: the sidebar background, the user message bubble, the neutral badge, skeleton bars, table and card sub-headers, the ask-card header. c-faint on it is 5.2:1 (light) and 5.3:1 (dark). |
 | `--c-hover` | `#eee8dd` | `#26211d` | Hover fill for rows, nav items, ghost, secondary and icon buttons; also the ACTIVE sidebar and section-nav item (with font-medium). c-faint on it is the tightest text pair: 4.78:1 / 4.82:1. |
-| `--c-line` | `#e9e3d8` | `#2c2723` | Every 1px hairline: dividers, card and dialog borders, secondary-button borders at rest, table row rules. Decorative only: 1.28:1 on c-surface and 1.23:1 on c-canvas (light), 1.24:1 / 1.32:1 (dark). Not for the edge of a text field: use c-field-border. |
-| `--c-line-strong` | `#8c8378` | `#6f665d` | Borders that must be seen: the switch track when off (at 60 %), the dashed link chip in answers (Markdown.tsx) and the dashed queued message, the total row in Admin > Usage. 3.73:1 / 3.26:1 on c-surface, 3.60:1 / 3.47:1 on c-canvas. |
-| `--c-field-border` | `#8c8378` | `#776e64` | The edge of a text field at rest (`border-field-border`): `inputCls` (inputs, selects and text areas), the chat composer, the edit-message and queued-message forms, the file panel's text editor, the Files search box, the sign-in language select. At least 3:1 on c-canvas, c-surface and c-subtle: 3.60 / 3.73 / 3.34 (light), 3.90 / 3.67 / 3.49 (dark). Only for fields; cards and dividers keep c-line. In light it has the same value as c-line-strong. |
+| `--c-line` | `#e9e3d8` | `#2c2723` | Every 1px hairline: dividers, card and dialog borders, table row rules, the edge of a choice box at rest. Decorative only: 1.28:1 on c-surface and 1.23:1 on c-canvas (light), 1.24:1 / 1.32:1 (dark). Not for the edge that marks a control (a text field, a bordered button, the switch track): use c-field-border. |
+| `--c-line-strong` | `#8c8378` | `#6f665d` | Borders that must be seen: the dashed link chip in answers (Markdown.tsx) and the dashed queued message, the total row in Admin > Usage. 3.73:1 / 3.26:1 on c-surface, 3.60:1 / 3.47:1 on c-canvas. |
+| `--c-field-border` | `#8c8378` | `#776e64` | The edge that marks a control at rest (`border-field-border`): text fields (`inputCls`: inputs, selects and text areas; the chat composer, the edit-message and queued-message forms, the file panel's text editor, the Files search box, the sign-in language select), the secondary Button and links drawn like one (the app downloads in Settings), and the switch's off track (`bg-field-border`). At least 3:1 on c-canvas, c-surface and c-subtle: 3.60 / 3.73 / 3.34 (light), 3.90 / 3.67 / 3.49 (dark); also on c-danger-soft (3.26 / 3.25) and c-warn-soft (3.39 / 3.08), where "Try again" and "Restore" buttons sit. Only for controls; cards and dividers keep c-line. In light it has the same value as c-line-strong. |
 | `--c-ink` | `#14110f` | `#f6f2ea` | Primary text and headings on c-canvas, c-surface, c-subtle and c-hover (15.4–18.8:1 light, 14.3–17.5:1 dark). As a FILL with c-canvas text: the selected tab and the stop button. |
 | `--c-muted` | `#514b45` | `#b3aaa0` | Secondary text: descriptions, inactive chat titles in the sidebar, ghost-button and icon-button labels at rest, table meta. 7.0–8.6:1 on every ground, both themes. |
 | `--c-faint` | `#6b645d` | `#958c82` | Tertiary text: hints, timestamps, placeholders, section headings in the sidebar, shortcut hints (kbd), decorative icons. At least 4.78:1 on c-canvas, c-surface, c-subtle and c-hover in both themes. |
-| `--c-accent` | `#e8521a` | `#ff6a33` | Signal Orange. Fills: the primary button, the account avatar, the skills-pending count, the switch when on, the running dot, the selected answer option border, the focus ring (outline 2px, 3.33–3.71:1 light, 6.1–6.8:1 dark) and a focused field's 2px edge. Text on it is c-accent-ink. Not for small text on c-accent-soft in light (3.33:1): the office-update and info notice banners do that today (flagged). |
+| `--c-accent` | `#e8521a` | `#ff6a33` | Signal Orange. Fills: the primary button, the account avatar, the skills-pending count, the switch track when on, the running dot, the selected answer option border, the focus ring (outline 2px, 3.33–3.71:1 light, 6.1–6.8:1 dark) and a focused field's 2px edge. Text and icons on it are c-accent-ink. Never text itself (3.33–3.71:1 in light): the accent as text is c-accent-text. |
 | `--c-accent-hover` | `#ff5b1f` | `#ff8352` | Hover fill of the primary button and the round send button. Text on it: c-accent-ink (6.06:1 / 7.72:1). |
-| `--c-accent-ink` | `#14110f` | `#14110f` | Text and icons on a c-accent or c-accent-hover fill (primary button label, avatar initial, send arrow): 5.06:1 light, 6.59:1 dark. The same warm black in both themes. |
-| `--c-accent-soft` | `#fdf0e8` | `#2b1a11` | Tint behind accent text: the accent badge, the assistant avatar, the artifact icon tile, a picked answer option, a team-file attachment chip, a selected file row (at 60 %), text selection (::selection), info banners. |
-| `--c-accent-text` | `#b8380a` | `#ff8a5c` | The accent as text: links, folder icons, the new-chat icon, "Ask AI", the accent badge. 5.2–5.8:1 on c-canvas, c-surface, c-subtle and c-accent-soft (light), 7.2–8.4:1 (dark). |
-| `--c-danger` | `#b42318` | `#ff8b7e` | Errors and destructive actions: field errors (role=alert), ErrorNote, error toasts, the danger button label (border at 40 %), failed-step icons, "Delete" menu items. 5.75:1 on c-danger-soft and 6.57:1 on c-surface (light); 7.16:1 / 8.07:1 (dark). |
+| `--c-accent-ink` | `#14110f` | `#14110f` | Text and icons on a c-accent or c-accent-hover fill (primary button label, avatar initial, send arrow) and the switch knob when on: 5.06:1 light, 6.59:1 dark. The same warm black in both themes. |
+| `--c-accent-soft` | `#fdf0e8` | `#2b1a11` | Tint behind accent text: the accent badge, the assistant avatar, the artifact icon tile, a picked answer option, a team-file attachment chip, a selected file row (at 60 %), text selection (::selection), the office-update and info banners (with c-accent-text). |
+| `--c-accent-text` | `#b8380a` | `#ff8a5c` | The accent as text: links (also in Admin > Engines, System, AI connections, Team settings), folder icons, the new-chat icon, "Ask AI", the accent badge, the office-update and info banners. 5.2–5.8:1 on c-canvas, c-surface, c-subtle and c-accent-soft (light), 7.2–8.4:1 (dark). |
+| `--c-danger` | `#b42318` | `#ff8b7e` | Errors and destructive actions: field errors (role=alert), ErrorNote, error toasts, the danger button label and border (at 70 %), ghost-danger buttons (Deny, Reject), failed-step icons, "Delete" menu items. 5.75:1 on c-danger-soft and 6.57:1 on c-surface (light); 7.16:1 / 8.07:1 (dark). |
 | `--c-danger-soft` | `#fdecea` | `#34190f` | Background of error notes, error toasts, the danger badge, the offline banner, critical notices, removed diff lines. |
 | `--c-warn` | `#8a5300` | `#f0b45a` | Warnings and "needs you": the dev-mode and reconnecting banners, the needs-answer label and dot, the warn badge, the header of a server safety-check card, marked secrets in confirm details. 5.76:1 on c-warn-soft (light), 8.34:1 (dark). |
 | `--c-warn-soft` | `#fdf3e2` | `#2e2312` | Background of warning banners, the warn badge, the server safety-check card header, the trash notice. |
@@ -85,7 +85,7 @@ Elevation token:
 | --- | --- | --- | --- |
 | `--c-shadow` | `0 1px 2px rgb(20 17 15 / 0.04), 0 10px 30px -10px rgb(20 17 15 / 0.14)` | `0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px -10px rgb(0 0 0 / 0.6)` | The app's own elevation token (--c-shadow): the composer, the sign-in card, Word pages in the preview. |
 
-Literal colours with no token: the dialog and drawer scrim `bg-black/40`; the switch knob `white`; the code-block header text `#b9b3a8` with `white/10` rules and hovers; the team-logo preview frames in Admin > Team settings; syntax colours in `index.css` (`.hljs-*`: comment `#8b8579`, keyword `#e8a87c`, string `#a6d189`, number `#ef9f76`, title `#8caaee`, built-in `#e5c890`, variable `#eebebe`, tag `#81c8be`, deletion `#e78284`, meta `#99d1db`; each at least 5.1:1 on `--c-code-bg`).
+Literal colours with no token: the dialog and drawer scrim `bg-black/40`; the switch knob `white` when off (c-accent-ink when on); the code-block header text `#b9b3a8` with `white/10` rules and hovers; the team-logo preview frames in Admin > Team settings; syntax colours in `index.css` (`.hljs-*`: comment `#8b8579`, keyword `#e8a87c`, string `#a6d189`, number `#ef9f76`, title `#8caaee`, built-in `#e5c890`, variable `#eebebe`, tag `#81c8be`, deletion `#e78284`, meta `#99d1db`; each at least 5.1:1 on `--c-code-bg`).
 
 ### Contrast
 
@@ -108,12 +108,11 @@ Measured with the WCAG 2 formula on the values above.
 | `accent-text` on `canvas` | Links | 5.62 | 8.40 |
 | `accent-text` on `surface` | Links, Ask AI | 5.82 | 7.90 |
 | `accent-text` on `subtle` | New-chat icon | 5.21 | 7.52 |
-| `accent-text` on `accent-soft` | Accent badge, assistant avatar | 5.21 | 7.18 |
-| `accent-ink` on `accent` | Primary button, avatar | 5.06 | 6.59 |
+| `accent-text` on `accent-soft` | Accent badge, assistant avatar, info and office-update banners | 5.21 | 7.18 |
+| `accent-ink` on `accent` | Primary button, avatar, switch knob when on | 5.06 | 6.59 |
 | `accent-ink` on `accent-hover` | Primary button hover | 6.06 | 7.72 |
-| `accent` on `accent-soft` | Office update and info banners (text-accent) | 3.33 **below** | 5.85 |
 | `danger` on `danger-soft` | Error note, toast, badge | 5.75 | 7.16 |
-| `danger` on `surface` | Danger button, field error | 6.57 | 8.07 |
+| `danger` on `surface` | Danger and ghost-danger buttons, field error | 6.57 | 8.07 |
 | `warn` on `warn-soft` | Warning banner, badge | 5.76 | 8.34 |
 | `warn` on `subtle` | Needs-answer label in the sidebar | 5.67 | 9.46 |
 | `ok` on `ok-soft` | Success toast, badge | 4.60 | 8.42 |
@@ -125,21 +124,20 @@ Measured with the WCAG 2 formula on the values above.
 | `accent` on `subtle` | Focus ring in the sidebar (3:1) | 3.33 | 6.12 |
 | `field-border` on `canvas` | Text field edge at rest (3:1) | 3.60 | 3.90 |
 | `field-border` on `surface` | Text field edge at rest, against its own fill (3:1) | 3.73 | 3.67 |
-| `field-border` on `subtle` | Text field edge in the sidebar or a sub-header (3:1) | 3.34 | 3.49 |
-| `line-strong` on `surface` | Switch track, dashed link chip (3:1) | 3.73 | 3.26 |
-| `line` on `surface` | Secondary button border, card edge (decorative) | 1.28 | 1.24 |
+| `field-border` on `subtle` | Text field edge in the sidebar or a sub-header; switch off track (3:1) | 3.34 | 3.49 |
+| `field-border` on `danger-soft` | "Try again" on an error note (3:1) | 3.26 | 3.25 |
+| `field-border` on `warn-soft` | "Restore" on the trash notice (3:1) | 3.39 | 3.08 |
+| `white` on `field-border` | Switch knob when off (3:1) | 3.73 | 5.00 |
+| `danger` at 70 % on `surface` | Danger button border (3:1; 3.55 / 4.41 on subtle) | 3.78 | 4.51 |
+| `line-strong` on `surface` | Dashed link chip (3:1) | 3.73 | 3.26 |
+| `line` on `surface` | Card edge, choice box at rest (decorative) | 1.28 | 1.24 |
 | `line` on `canvas` | Hairline divider (decorative, no floor) | 1.23 | 1.32 |
 
-Pairs below the floor, kept as the source has them (fix in a separate change):
-
-- `text-accent` on `bg-accent-soft`, light theme: **3.33:1** for 12px text (`OfficeUpdateBanner.tsx`, info notices in `ManagedNoticesBanner.tsx`). `text-accent-text` on `bg-accent-soft` is 5.21:1.
-- `--c-line` borders: 1.23–1.32:1 against `--c-canvas` and `--c-surface` in both themes. Decorative hairlines are fine; secondary-button borders are below the 3:1 non-text floor, so those buttons rely on their label and fill. (Text fields no longer use it: their edge is `--c-field-border`.)
-- Switch (`ui.tsx`): the off track (`--c-line-strong` at 60 %) is about 2.0:1 against `--c-surface`; the white knob on the dark accent is 2.85:1.
-- Danger button border (`--c-danger` at 40 %): 2.05:1 (light), 2.30:1 (dark); the label carries the meaning.
+No pair in use is below its floor. `web/test/unit/design-contrast.test.ts` (with `field-contrast.test.ts`) checks the text, control-edge, switch and danger pairs in all four looks (core and edition, light and dark) and that the components use them. `--c-line` (1.23–1.32:1) only decorates: it never is the one thing that marks a control. A choice box (theme, language, engine mode, an answer option, a radio card) keeps the hairline at rest because its text names it, and the selected one gets a `--c-accent` edge (at least 3:1) and the c-accent-soft fill.
 
 ## Typography
 
-- Sans: `Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif`. Pretendard is not bundled; it is used where installed, otherwise the system face draws the UI.
+- Sans: `-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif`: the system face, as in Claude's apps. No web font is shipped. macOS and iOS draw SF with Apple SD Gothic Neo for Korean; Windows draws Segoe UI and the browser's Korean face (Malgun Gothic) for Hangul; Linux uses Noto Sans KR or the CJK face fontconfig picks for `lang=ko`. Every face covers all 11,172 Hangul syllables and is hinted for small sizes. (Pretendard was named first but never shipped; shipping it would add about 800 KB of woff2 for three weights of the 2,350-syllable subset, or 3 MB for the full set split by range, to every install and first load.)
 - Mono: `ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`.
 - Weights 400, 500 (`font-medium`), 600 (`font-semibold`). No 700.
 - Arbitrary sizes (`text-[13px]`) set no line height and inherit 1.5 from the page.
@@ -206,7 +204,7 @@ Spacing is Tailwind 4's single step (`--spacing: 0.25rem`) used in multiples. Th
 
 | Layer | z-index | Use |
 | --- | --- | --- |
-| z-menu | 30 | z-30: dropdown menus and listboxes (chat item menu, account menu, file menu, composer menus). Admin > AI connections uses z-10 for one menu. |
+| z-menu | 30 | z-30: dropdown menus and listboxes (chat item menu, account menu, file menu, composer menus, the AI connection menu). |
 | z-overlay | 40 | z-40: the phone sidebar drawer and the phone full-screen side panel. |
 | z-dialog | 50 | z-50: Modal (and confirm/prompt dialogs) and the search dialog, each over a bg-black/40 scrim. |
 | z-toast | 60 | z-[60]: the toast stack, bottom right (full width on phones). |
@@ -252,11 +250,11 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 
 | Component | Implementation | Guideline |
 | --- | --- | --- |
-| Button | `ui.tsx` `Button` | Variants `primary` (`bg-accent text-accent-ink hover:bg-accent-hover`), `secondary` default (`border border-line bg-surface text-ink hover:bg-hover`), `ghost` (`text-muted hover:bg-hover hover:text-ink`), `danger` (`border border-danger/40 bg-surface text-danger hover:bg-danger-soft`); base `inline-flex items-center justify-center gap-1.5 rounded-lg font-medium`; `md` `h-9 px-3.5 text-sm max-sm:min-h-10`, `sm` `h-8 px-2.5 text-[13px] max-sm:min-h-9`; `busy` shows Loader2 and sets `disabled` + `aria-busy`; disabled 50 %. One primary per view; dialog footers: ghost Cancel, then primary or danger. Do not recolour a variant with `className`: classes are not merged and `.text-muted` is emitted after `.text-danger`, so `variant="ghost" className="text-danger"` (AskCard's Deny) renders muted. |
-| IconButton | `ui.tsx` | `inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink disabled:opacity-40 max-sm:p-2`; `label` is required (aria-label + title). CopyButton: 12px `text-faint`, Check in `text-ok` + "Copied" for 1.5s. |
+| Button | `ui.tsx` `Button` | Variants `primary` (`bg-accent text-accent-ink hover:bg-accent-hover`), `secondary` default (`border border-field-border bg-surface text-ink hover:bg-hover`), `ghost` (`text-muted hover:bg-hover hover:text-ink`), `danger` (`border border-danger/70 bg-surface text-danger hover:bg-danger-soft`), `ghost-danger` (`text-danger hover:bg-danger-soft`: a quiet destructive choice beside others, such as Deny on the site card, Reject, Remove); base `inline-flex items-center justify-center gap-1.5 rounded-lg font-medium`; `md` `h-9 px-3.5 text-sm max-sm:min-h-10`, `sm` `h-8 px-2.5 text-[13px] max-sm:min-h-9`; `busy` shows Loader2 and sets `disabled` + `aria-busy`; disabled 50 %. One primary per view; dialog footers: ghost Cancel, then primary or danger. Do not recolour a variant with `className`: classes are not merged, and `.text-muted` is emitted after `.text-danger`, so `variant="ghost" className="text-danger"` renders grey; use `ghost-danger`. Focus is the global ring. |
+| IconButton | `ui.tsx` | `inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink disabled:opacity-40 max-sm:p-2`; `label` is required (aria-label + title); `danger` makes the hover red (`hover:bg-danger-soft hover:text-danger`) for Delete. CopyButton: 12px `text-faint`, Check in `text-ok` + "Copied" for 1.5s. |
 | Input, select, textarea | `ui.tsx` `inputCls` | `h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-sm:min-h-10`; textarea adds `h-auto min-h-16 resize-y py-2`. A field framed by its form (edit-message and queued-message forms) puts the edge and focus on the form (`border-field-border`, `has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent`) and the text area inside takes `border-0 focus:ring-0!` (`!`: the input's own ring is emitted later and would win). |
 | Field | `ui.tsx` | Label 13px medium above (`mb-1.5`); hint 12px `text-faint`; error 12px `text-danger` with `role="alert"`, `aria-invalid`, `aria-describedby`. |
-| Switch | `ui.tsx` | A real checkbox (`peer sr-only`) and a 36×20 track: off `bg-line-strong/60`, on `bg-accent`, white 16px knob; focus outlines the track. For settings that apply at once. |
+| Switch | `ui.tsx` | A real checkbox (`peer sr-only`) and a 36×20 track: off `bg-field-border` with a white 16px knob, on `bg-accent` with a `bg-accent-ink` knob; focus outlines the track 2px outside it (`outline-offset-2`), so it shows on the accent too. For settings that apply at once. |
 | Checkbox, answer options | `pages/Files.tsx` `CheckBox`, `chat/AskCard.tsx` | Native inputs with `accent-[var(--c-accent)]`; options are rows `rounded-lg border px-3 py-2 text-sm`, picked `border-accent bg-accent-soft`. |
 | Tabs | `ui.tsx` `Tabs` | `role="tablist"`; tab `rounded-md px-2.5 py-1 text-xs font-medium`; selected `bg-ink text-canvas`, others `text-muted hover:bg-hover`. |
 | Badge | `ui.tsx` | `inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium`; tones neutral (`bg-subtle text-muted`), accent, warn, danger, ok (ink on its soft fill). Mappings: integration connected/needs_auth/error = ok/warn/danger (`lib/integrations.ts`), owner and admin = accent, member = neutral. The word is the status. |
@@ -267,7 +265,7 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 | Modal, confirm and prompt dialogs | `ui.tsx` `Modal`, `DialogHost`, `confirmDialog`, `promptDialog`, `useFocusTrap` | Scrim `bg-black/40`, `z-50`; panel `bg-surface rounded-2xl shadow-xl`, 480px by default, a bottom sheet below 640px; header (16px semibold, close X 18px), body `p-5`, footer `border-t px-5 py-3`. Focus is trapped and returned; Esc closes the top dialog. |
 | Menu | `Sidebar.tsx`, `pages/Files.tsx`, `chat/Composer.tsx` | `role="menu"`, `rounded-lg` or `rounded-xl border border-line bg-surface p-1 shadow-lg z-30`; items `flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-hover`, destructive last in `text-danger hover:bg-danger-soft`; unavailable items disabled at 40 % with the reason. |
 | Toast | `ui.tsx` `Toaster`, `store/ui.ts` | Bottom right (`sm:w-96`), `rounded-xl border px-3 py-2.5 text-sm shadow-lg`; info on `bg-surface`, success/warn/error as ink on soft fill with a 30 % border; optional underlined action (Undo); errors `role="alert"`. |
-| Banners | `Layout.tsx`, `OfficeUpdateBanner.tsx`, `ManagedNoticesBanner.tsx`, `ScheduleReviewBanner.tsx` | Full width, centred, `px-3 py-1`/`py-1.5`, 12px medium, 14px icon; warn for dev mode, reconnecting, schedule review and warning notices; danger for offline and critical notices; accent for the office update and info notices (see Contrast). A note inside a page is not a banner: `SkillIssues.tsx` uses `rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn`. |
+| Banners | `Layout.tsx`, `OfficeUpdateBanner.tsx`, `ManagedNoticesBanner.tsx`, `ScheduleReviewBanner.tsx` | Full width, centred, `px-3 py-1`/`py-1.5`, 12px medium, 14px icon; warn for dev mode, reconnecting, schedule review and warning notices; danger for offline and critical notices; `bg-accent-soft text-accent-text` for the office update and info notices. A note inside a page is not a banner: `SkillIssues.tsx` uses `rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn`. |
 | Loading | `ui.tsx` `Spinner`, `Skeleton`; `chat/Messages.tsx` | Spinner: 16px Loader2 + words in `text-faint`, `role="status"`. Skeleton: `h-4 rounded bg-subtle animate-pulse`. Thinking: three 6px `.dot`s and "Thinking…". |
 | Empty state | `ui.tsx` `EmptyState` | Centred, `px-6 py-12`; a 26–28px icon in `text-faint` (22px in the Team skills lists); medium title; 14px `text-muted` body or a small button. |
 | Error note | `ui.tsx` `ErrorNote` | `role="alert"`, `rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger` with a secondary sm "Try again". |
@@ -276,18 +274,18 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 | Assistant message | `chat/Messages.tsx`, `Markdown.tsx` | 28px avatar; `.answer prose` 15/28; code blocks dark (`bg-code-bg text-code-ink`, 13/20 mono); artifact cards `rounded-xl border bg-surface px-3 py-2.5 shadow-sm`; paused, stopped, error and memory notes; actions on hover with the model name. |
 | Steps (tool steps, sub-tasks) | `chat/Steps.tsx`, `shared/src/step-labels.ts` | Rows `text-[13px] text-muted`: status icon (Loader2, Check `text-ok`, CircleAlert `text-danger`, CirclePause, CircleStop, Info), kind icon `text-faint`, label, counts in 12px `text-faint`; paused and stopped are also written out. Live: last four steps; done: folded to "N steps". A sub-task is one row with "N tool uses · time" that opens its own steps under `ml-6 border-l border-line pl-3`; while running, its latest step shows beneath it. |
 | Ask card | `chat/AskCard.tsx` | `rounded-2xl border border-line`; header `bg-subtle px-4 py-2.5 text-sm font-semibold` with MessageCircleQuestion in `text-accent-text`; options, own-answer textarea, the no-secrets line; footer Skip (ghost) and Answer (primary). |
-| Confirmation cards | `chat/AskCard.tsx` (`origin: 'server'`, `browser_site`, `SkillPreview`, `Details`); `server/src/chat/turn.ts`, `server/src/integrations/connections/tools.ts`, `server/src/skills/text.ts`, `server/src/chat/schedule-review.ts` | Warn-framed (`border-warn/40`, header `bg-warn-soft text-warn` with ShieldAlert, or Globe for an address). Address: Allow once / Always allow / Deny. Connection: what the AI wants to do at which service, "Check everything it sends, and where it goes, below", a Details box with every character (fields, full text, long random-looking parts marked `bg-warn-soft text-warn`), Send / Don't send. Wider audience: what was read, where it goes, how many can see it, Save / Don't save. Team skill: the diff (added `bg-ok-soft text-ok`, removed `bg-danger-soft text-danger`). Schedule review: a task made without its card stays paused until checked. Only the card's own options count. |
+| Confirmation cards | `chat/AskCard.tsx` (`origin: 'server'`, `browser_site`, `SkillPreview`, `Details`); `server/src/chat/turn.ts`, `server/src/integrations/connections/tools.ts`, `server/src/skills/text.ts`, `server/src/chat/schedule-review.ts` | Warn-framed (`border-warn/40`, header `bg-warn-soft text-warn` with ShieldAlert, or Globe for an address). Address: Allow once (primary) / Always allow (secondary) / Deny (ghost-danger). Connection: what the AI wants to do at which service, "Check everything it sends, and where it goes, below", a Details box with every character (fields, full text, long random-looking parts marked `bg-warn-soft text-warn`), Send / Don't send. Wider audience: what was read, where it goes, how many can see it, Save / Don't save. Team skill: the diff (added `bg-ok-soft text-ok`, removed `bg-danger-soft text-danger`). Schedule review: a task made without its card stays paused until checked. Only the card's own options count. |
 | Composer | `chat/Composer.tsx` | `rounded-3xl border border-field-border bg-surface shadow-[var(--c-shadow)]`, focus-within `border-faint` (a quiet 1px edge, as in Claude: the one field focused most of the time; no accent ring), a file dragged over it `border-accent ring-2 ring-accent/30`; 15px text; chips; attach (Paperclip 18px) and engine picker; round 36px (40px on phones) mic and send (`bg-accent text-accent-ink`, or `bg-subtle text-faint` disabled) or stop (`bg-ink text-canvas`). |
 | Search dialog | `SearchDialog.tsx` | Top-aligned at 12vh, `max-w-xl rounded-2xl bg-surface shadow-2xl`, 48px borderless field, results as a listbox with the selected row `bg-hover`. |
 
 ## Iconography and logo
 
 - Icons: Lucide (`lucide-react` 1.54.0), 2px stroke on a 24px grid, colour from the element's text token (`text-muted` default, `text-faint` decorative, `text-accent-text` for folders, team files and New chat, status inks for status). Sizes: 13px step rows and answer actions, 14px buttons and menus, 15px admin nav, 16px panel headers, 17px sidebar, 18px dialogs and composer, 20px phone top bar, 26–28px empty states. Icons next to text are `aria-hidden`; icon-only controls need a translated label. No emoji, no other icon set.
-- Mark: `web/public/favicon.svg` (Signal Orange spark `#ff6a33` over cream facets `#f6f2ea` on a warm-black tile `#14110f`). In the app: 24px `rounded-md` beside the 17px semibold name in the sidebar, 28px `rounded-lg` beside the 20px name on the sign-in page. No wordmark file; the name is set in type. PNGs in `web/public/icons/` are rendered from the SVG by `web/scripts/make-icons.ts`; the desktop icon is `desktop/build-resources/icon.png`. A team's own logo replaces the tab and home-screen icons only.
+- Mark: `web/public/favicon.svg` (Signal Orange spark `#ff6a33` over cream facets `#f6f2ea` on a warm-black tile `#14110f`). In the app: 24px `rounded-md` beside the 17px semibold name in the sidebar, 28px `rounded-lg` beside the 20px name on the sign-in page. No wordmark file; the name is set in type. PNGs in `web/public/icons/` are rendered from the SVG by `web/scripts/make-icons.ts` (maskable and Apple touch icons full-bleed on the logo's own tile colour, `#14110f`, read from the SVG); the desktop icon is `desktop/build-resources/icon.png`. A team's own logo replaces the tab and home-screen icons only.
 
 ## Copy and languages
 
-- Korean in 해요체: polite, plain, from the person's side ("채팅을 삭제했어요.", "첫 대화를 시작해 보세요."). Not 합니다체.
+- Korean in 해요체: polite, plain, from the person's side ("채팅을 삭제했어요.", "첫 대화를 시작해 보세요."). Not 합니다체, in the app and in what the server sends (errors, notices, cards, the relay's pages, the office Mac's helper and command line). The older 합니다체 wording of chat errors, default error texts and engine steps stays in `shared/src/api/errors.ts` and `shared/src/step-labels.ts` (`LEGACY_KO…`) only so that answers saved before still match and change language.
 - The person's words, not the system's: team folder, my folder, team skills, owner / admin / member, AI engine, external service. No internal names (mycel, turn, tool ids) in UI copy.
 - Errors say what happened and how to fix it: "Couldn't reach the team server. Check your connection and try again." / "팀 서버에 연결하지 못했어요. 인터넷 연결을 확인한 뒤 다시 시도해 주세요." Show server errors through `errorText(e, locale, t('error.network'))` (`web/src/lib/api.ts`; the third argument is the text for when the server can't be reached).
 - Confirmations ask a question and state the consequence ("Delete this chat?" + what happens).
@@ -304,7 +302,7 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 - Screen readers: labels on icon-only controls; `role="alert"` for errors, `role="status"` for live status; toasts and the answer status line are polite live regions (`AnnounceProvider`); step states are written out.
 - Touch: 40px controls below 640px; 16px inputs on touch screens; row actions visible without hover.
 - Reduced motion is honoured globally.
-- Contrast: see the table above; do not introduce text lighter than `--c-faint` or accent text in `--c-accent` on tints.
+- Contrast: see the table above; do not introduce text lighter than `--c-faint` or text in `--c-accent` (use `--c-accent-text`).
 
 ## Using this outside the React app
 
@@ -369,7 +367,7 @@ Server-rendered pages without React (for example the hosting operators' console,
 }
 ```
 
-2. Set the type: `body { font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif; background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased }`, 14px/20px UI text, weights 400/500/600, and the focus rule from Accessibility.
+2. Set the type: `body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif; background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased }`, 14px/20px UI text, weights 400/500/600, and the focus rule from Accessibility.
 
 3. Build the shell. A minimal version of the sidebar pattern:
 
@@ -403,7 +401,7 @@ Server-rendered pages without React (for example the hosting operators' console,
 .card > header { border-bottom: 1px solid var(--c-line); padding: 0.75rem 1rem }
 .card > header h2 { margin: 0; font-size: 14px; font-weight: 600 }
 .card-body { padding: 1rem }
-.btn { display: inline-flex; align-items: center; gap: 0.375rem; height: 2.25rem; padding: 0 0.875rem; border-radius: 0.5rem; font-size: 14px; font-weight: 500; border: 1px solid var(--c-line); background: var(--c-surface); color: var(--c-ink) }
+.btn { display: inline-flex; align-items: center; gap: 0.375rem; height: 2.25rem; padding: 0 0.875rem; border-radius: 0.5rem; font-size: 14px; font-weight: 500; border: 1px solid var(--c-field-border); background: var(--c-surface); color: var(--c-ink) }
 .btn:hover { background: var(--c-hover) }
 .btn-primary { background: var(--c-accent); border-color: transparent; color: var(--c-accent-ink) }
 .btn-primary:hover { background: var(--c-accent-hover) }
@@ -412,7 +410,7 @@ Server-rendered pages without React (for example the hosting operators' console,
 @media (max-width: 767px) { .side { display: none } }
 ```
 
-Below 768px add the 48px top bar with a menu button that opens the sidebar as a drawer (see Layout patterns). Use Lucide icons (any Lucide distribution; 2px stroke) and the five-locale copy rules above. The desktop app's welcome screens (`desktop/src/ui/ui.css`) are an existing plain-CSS port with their own variable names (`--bg`, `--panel`, `--text`, …); note it differs in places (focus ring `#c43d0a` / `#ff8a5c`, dark danger `#ff8a7a`, no `--c-line-strong`).
+Below 768px add the 48px top bar with a menu button that opens the sidebar as a drawer (see Layout patterns). Use Lucide icons (any Lucide distribution; 2px stroke) and the five-locale copy rules above. The desktop app's welcome screens and browser toolbar (`desktop/src/ui/ui.css`) are an existing plain-CSS port with the same values under their own names: `--bg` = c-canvas, `--panel` = c-surface, `--chrome` = c-subtle, `--hover` = c-hover, `--text` = c-ink, `--field-border`, `--accent`, `--accent-ink` (text on the accent), `--accent-text` (the accent as text), `--danger`, `--warn` and `--warn-bg` = c-warn-soft; the focus ring is the accent (warm black on the accent frame while the AI drives). It follows the system theme and keeps its own font stack, which names Malgun Gothic. The office Mac's helper page (`server/src/office/helper.ts`, the certificate install steps) is a smaller port of the same values.
 
 ## Core neutral theme (overridden)
 
@@ -426,7 +424,7 @@ Below 768px add the 48px top bar with a menu button that opens the sidebar as a 
 | `--c-hover` | `#ebe8e1` | `#34322e` |
 | `--c-line` | `#e2ded5` | `#3b3934` |
 | `--c-line-strong` | `#8f887c` | `#8a8478` |
-| `--c-field-border` | `#8b8478` | `#7b766b` |
+| `--c-field-border` | `#8b8478` | `#857f74` |
 | `--c-ink` | `#1f1d1a` | `#ece9e3` |
 | `--c-muted` | `#57524a` | `#c2bcb1` |
 | `--c-faint` | `#6e685e` | `#a39d92` |
@@ -444,15 +442,10 @@ Below 768px add the 48px top bar with a menu button that opens the sidebar as a 
 | `--c-code-bg` | `#1e1d1b` | `#141311` |
 | `--c-code-ink` | `#ece9e3` | `#ece9e3` |
 
-In the core theme `--c-field-border` is 3.52 / 3.70 / 3.28:1 on canvas / surface / subtle (light) and 3.85 / 3.52 / 3.18:1 (dark); the focused edge (`--c-accent`) is 6.02 / 6.34 / 5.62:1 and 8.31 / 7.60 / 6.86:1. `web/test/unit/field-contrast.test.ts` checks both tokens at 3:1 or more in all four looks.
+In the core theme `--c-field-border` is 3.52 / 3.70 / 3.28:1 on canvas / surface / subtle (light) and 4.38 / 4.00 / 3.61:1 (dark; lightened from `#7b766b`, which was 2.91:1 on c-warn-soft under a secondary button); the focused edge (`--c-accent`) is 6.02 / 6.34 / 5.62:1 and 8.31 / 7.60 / 6.86:1. `web/test/unit/field-contrast.test.ts` checks both tokens at 3:1 or more in all four looks.
 
 ## Known gaps
 
-- Fonts: Pretendard is named first in the stack but not shipped, so the app renders in the system face unless Pretendard is installed.
-- `web/src/lib/theme.ts` sets `<meta name="theme-color">` to the core values (`#faf9f6` light, `#1b1a18` dark), not the Trina canvas (`#fcfbf8` light, which `web/index.html` starts with; `#0e0c0b` dark).
-- `web/scripts/make-icons.ts` paints the maskable and Apple touch icons on the core green `#2c6a59`; the committed PNGs are warm black. Re-running the script would change them.
-- The mobile shell's accent comes from the edition config (`extra.teamAxEdition.accent`); none is in this repository, so it falls back to the core green `#176b55`.
-- `chat/Messages.tsx` uses `text-muted-foreground`, which is not a token (the text inherits its colour).
-- One menu (Admin > AI connections) uses `z-10`; the others use `z-30`.
-- Korean register: several server and API texts that reach the screen use 합니다체 (`shared/src/api/errors.ts`, `server/src/chat/i18n.ts`, `server/src/auth/messages.ts` and others).
-- The contrast pairs listed under Contrast.
+- Korean register: `server/src/files/vision-text.ts`, `server/src/jobs/openrouter-stt.ts` and `server/src/jobs/transcribe.ts` still use 합니다체; they change together with the video and audio reads and follow once those are in. Everything else the server and the app show is 해요체. (`apps.macGatekeeper` quotes macOS's own "열 수 없습니다" on purpose.)
+- The desktop app's main process paints its windows `#F7F6F3` / `#ECEAE4` / `#FFFFFF` before a page loads (`desktop/src/main/app-window.ts`), older light values that do not follow dark mode.
+- The mobile shell's team-address screen has light colours only (it does not follow the phone's dark mode).

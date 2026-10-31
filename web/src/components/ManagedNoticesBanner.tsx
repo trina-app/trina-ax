@@ -13,7 +13,7 @@ import { useMe } from '../store/session'
 
 const RELOAD_MS = 5 * 60_000
 const TONE = {
-  info: 'bg-accent-soft text-accent',
+  info: 'bg-accent-soft text-accent-text',
   warn: 'bg-warn-soft text-warn',
   critical: 'bg-danger-soft text-danger',
 } as const

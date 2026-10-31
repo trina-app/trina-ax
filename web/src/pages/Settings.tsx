@@ -562,7 +562,7 @@ export function DesktopDownloads({ downloads, store, owner, here }: { downloads:
         <ul className="space-y-4">
           {downloads.map((d) => (
             <li key={d.file}>
-              <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm hover:bg-hover">
+              <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">
                 <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
                 {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
               </a>

@@ -26,8 +26,16 @@ export function applyTheme(t: Theme) {
   const dark = t === 'dark' || (t === 'system' && !!media?.matches)
   document.documentElement.classList.toggle('dark', dark)
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
-  const meta = document.querySelector('meta[name="theme-color"]')
-  meta?.setAttribute('content', dark ? '#1b1a18' : '#faf9f6')
+  // index.html has one per system scheme; the chosen look wins over the system's, so both get its colour
+  const color = themeColor(dark)
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', color)
+}
+
+/** The browser bar colour: the page background (--c-canvas) of the look in use, so it follows the edition's theme
+ * (theme.edition.css) and not only the core one. Before the stylesheet has loaded, the edition's canvas values. */
+export function themeColor(dark: boolean): string {
+  const canvas = getComputedStyle(document.documentElement).getPropertyValue('--c-canvas').trim()
+  return /^#[0-9a-f]{6}$/i.test(canvas) ? canvas : dark ? '#0e0c0b' : '#fcfbf8'
 }
 
 export function watchSystemTheme() {

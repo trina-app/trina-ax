@@ -370,7 +370,7 @@ export function SpeechSection({ provider, model, saved, onChange, onSaved }: {
             {(k) => (
               <div className="space-y-2">
                 <p className="text-sm" data-testid="team-speech-key-state">{k.set ? t('speech.keySet', { hint: k.hint ?? '' }) : t('speech.keyNone')}</p>
-                <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+                <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline">
                   {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
                 </a>
                 {!secure ? <p className="text-sm text-warn">{t('credentials.httpsOnly')}</p> : (

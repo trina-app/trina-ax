@@ -9,7 +9,7 @@ import { WebView as NativeWebView, type WebViewProps } from 'react-native-webvie
 import { FileTransfers, MobileReceiver } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { MOBILE_CAPABILITIES, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
-import { mobileProduct } from './src/product'
+import { accentInk, mobileProduct } from './src/product'
 import { checkTeam, parseTeamAddress, savedTeamUrl, saveTeamUrl } from './src/team'
 import type { TeamAddress } from './src/address'
 
@@ -52,7 +52,7 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
       keyboardType="url" returnKeyType="go" onSubmitEditing={() => void connect()} editable={!busy} testID="team-url" />
     {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
     <Pressable style={s.button} onPress={() => void connect()} disabled={busy} testID="team-connect">
-      {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.buttonText}>Connect</Text>}
+      {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>Connect</Text>}
     </Pressable>
   </KeyboardAvoidingView></SafeAreaView>
 }
@@ -131,10 +131,11 @@ function TeamWeb({ address, onChangeTeam }: { address: TeamAddress; onChangeTeam
     </SafeAreaView>}
   </View>
 }
+// the web app's light tokens (web/src/theme.edition.css): canvas, ink, muted, field edge (>= 3:1), danger
 const s = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#faf9f6' }, center: { alignItems: 'center', justifyContent: 'center', padding: 24 },
-  setup: { justifyContent: 'center', paddingHorizontal: 24 }, title: { fontSize: 24, fontWeight: '700', color: '#1b1b1b', marginBottom: 8 },
-  hint: { fontSize: 15, color: '#555', marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 10, padding: 14, fontSize: 16, backgroundColor: '#fff' },
-  error: { color: '#b3261e', marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingVertical: 8 },
+  fill: { flex: 1, backgroundColor: '#fcfbf8' }, center: { alignItems: 'center', justifyContent: 'center', padding: 24 },
+  setup: { justifyContent: 'center', paddingHorizontal: 24 }, title: { fontSize: 24, fontWeight: '600', color: '#14110f', marginBottom: 8 },
+  hint: { fontSize: 15, color: '#514b45', marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderColor: '#8c8378', borderRadius: 10, padding: 14, fontSize: 16, backgroundColor: '#fff' },
+  error: { color: '#b42318', marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
+  buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingVertical: 8 },
 })

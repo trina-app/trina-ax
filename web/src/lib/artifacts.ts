@@ -74,7 +74,7 @@ const BRIDGE = `<script>(function(){
   document.addEventListener("securitypolicyviolation", function (e) { report("Blocked by the sandbox: " + e.violatedDirective + " " + (e.blockedURI || "")); });
 })();</script>`
 
-const BASE_STYLE = `<style>html{margin:0}:where(body){margin:0}body{font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",sans-serif;color:#1f1d1a;background:#fff}</style>`
+const BASE_STYLE = `<style>html{margin:0}:where(body){margin:0}body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",sans-serif;color:#1f1d1a;background:#fff}</style>`
 
 /** Same pattern as the receiver's guard (server/src/routes/web-static.ts): what CSP does not cover. */
 const DIRECT_CONNECTIONS = /^(webkit|moz)?RTC|^WebTransport/

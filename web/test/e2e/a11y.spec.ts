@@ -327,3 +327,41 @@ test('the team logo section has no serious accessibility problems at phone width
   await signIn(page)
   await auditTeamIcon(page, ' (phone)')
 })
+
+// The design-gap fixes (docs/DESIGN-SYSTEM.md "Contrast"): the browser bar colour, the in-app browser's site card with its red Deny
+// (ghost-danger, which used to render grey) and a visible focus ring on it, the operator's info notice (accent TEXT on
+// the tint) and the switches, in both themes.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`site card, info notice and switches have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await signIn(page)
+    // the browser bar takes this edition's page colour in the look in use (both metas: one per system scheme)
+    for (const content of await page.locator('meta[name="theme-color"]').evaluateAll((m) => m.map((x) => x.getAttribute('content'))))
+      expect(content).toBe(scheme === 'dark' ? '#0e0c0b' : '#fcfbf8')
+    await page.getByTestId('composer-input').fill('browsersite ask')
+    await page.getByTestId('send').click()
+    const site = page.getByTestId('site-card')
+    await expect(site).toBeVisible()
+    const deny = site.getByRole('button', { name: '거부' })
+    const colour = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c }, sel)
+    expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-danger'))
+    await site.getByRole('button', { name: '항상 허용' }).focus()
+    await page.keyboard.press('Tab')
+    await expect(deny).toBeFocused()
+    expect(await deny.evaluate((e) => getComputedStyle(e).outlineStyle)).toBe('solid')
+    await audit(page, `site card (${scheme})`)
+    await deny.click()
+    await expect(site).toHaveCount(0)
+
+    expect((await page.request.post('/__test/cloud', { data: { on: true } })).ok()).toBeTruthy()
+    await page.goto('/admin/settings')
+    const info = page.getByTestId('managed-notices').locator('[data-notice="maint-1"]')
+    await expect(info).toBeVisible()
+    expect(await info.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-accent-text'))
+    await expect(page.getByTestId('team-ai-vision')).toBeVisible()
+    await audit(page, `info notice and switches on (${scheme})`)
+    for (const id of ['team-ai-vision', 'team-ai-subagents']) await page.getByTestId(id).locator('label').first().click()
+    await audit(page, `switches off (${scheme})`)
+  })
+}

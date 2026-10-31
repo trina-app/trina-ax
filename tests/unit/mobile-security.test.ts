@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { MobileReceiver, FileTransfers, type TransferIO } from '../../mobile/src/bridge'
 import { MOBILE_CAPABILITIES, MAX_CHUNK_BYTES, base64Size, type MobileConfig } from '../../mobile/src/protocol'
 import { parseTeamAddress } from '../../mobile/src/address'
-import { mobileProduct } from '../../mobile/src/product'
+import { accentInk, mobileProduct } from '../../mobile/src/product'
 const config: MobileConfig = { protocol: 1, platform: 'ios', appVersion: '0.2.2', nonce: 'a'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 function make() {
   let opened = 0, writes = 0
@@ -38,6 +38,12 @@ test('team address preserves only an explicit invite path; edition settings cann
   expect(parseTeamAddress('https://team.example/invite/abcd1234')).toEqual({ origin: 'https://team.example', entryPath: '/invite/abcd1234' })
   for (const s of ['http://team.example', 'https://user:pass@team.example', 'https://team.example/random', 'https://team.example?token=a', 'javascript:alert(1)']) expect(parseTeamAddress(s)).toBeNull()
   expect(mobileProduct({ name: 'Example Team', accent: '#123456', url: 'https://evil.example', capabilities: ['shell'] })).toEqual({ name: 'Example Team', accent: '#123456', userAgent: 'TeamAX-Mobile', scheme: 'teamax-mobile', bundleId: 'app.teamax.mobile.dev' })
+})
+
+test('the default accent is the Trina orange, and the label on it stays readable', () => {
+  expect(mobileProduct(undefined).accent).toBe('#e8521a')
+  expect(accentInk('#e8521a')).toBe('#14110f') // 5.06:1; white would be 3.71:1
+  expect(accentInk('#176b55')).toBe('#ffffff') // a dark accent keeps white text
 })
 
 test('edition install identity preserves a valid two-segment app id and rejects malformed ids', () => {

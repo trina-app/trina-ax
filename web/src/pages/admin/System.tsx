@@ -226,9 +226,9 @@ function PlanCard() {
         {p.maxActiveMembers !== null && p.activeMembers >= p.maxActiveMembers && <p className="text-xs text-warn" role="status">{t('plan.membersFull')}</p>}
         {(manage || status || support) && (
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            {manage && <a className="font-medium text-accent underline" href={manage} target="_blank" rel="noreferrer">{t('plan.manage')}</a>}
-            {status && <a className="text-accent underline" href={status} target="_blank" rel="noreferrer">{t('plan.status')}</a>}
-            {support && <a className="text-accent underline" href={support} target="_blank" rel="noreferrer">{t('plan.support')}</a>}
+            {manage && <a className="font-medium text-accent-text underline" href={manage} target="_blank" rel="noreferrer">{t('plan.manage')}</a>}
+            {status && <a className="text-accent-text underline" href={status} target="_blank" rel="noreferrer">{t('plan.status')}</a>}
+            {support && <a className="text-accent-text underline" href={support} target="_blank" rel="noreferrer">{t('plan.support')}</a>}
           </p>
         )}
       </div>

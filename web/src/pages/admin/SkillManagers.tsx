@@ -132,7 +132,7 @@ function SkillManagerDialog({ subject, data, onClose, onChanged }: { subject: Su
               {grants.map((g) => (
                 <li key={g.path} className="flex items-center gap-2 text-sm">
                   <span className="min-w-0 flex-1 font-mono text-xs">{shown(g.path)}</span>
-                  <Button size="sm" variant="ghost" className="text-danger" onClick={() => remove(g)}>
+                  <Button size="sm" variant="ghost-danger" onClick={() => remove(g)}>
                     {t('skillMgr.removeScope', { path: shown(g.path) })}
                   </Button>
                 </li>

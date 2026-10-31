@@ -4,42 +4,8 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { contrast, LOOKS as looks, SRC } from './tokens'
 
-const SRC = join(import.meta.dir, '../../src')
-type Tokens = Record<string, string>
-
-/** the --c-* colours of a file's `:root { }` (light) and `.dark { }` blocks */
-function tokens(file: string): { light: Tokens; dark: Tokens } {
-  const css = readFileSync(join(SRC, file), 'utf8')
-  const block = (selector: string) => {
-    const m = css.match(new RegExp(`(?:^|\\n)${selector.replace('.', '\\.')} \\{([^}]*)\\}`))
-    if (!m) throw new Error(`${file}: no ${selector} block`)
-    return Object.fromEntries([...m[1]!.matchAll(/--c-([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((x) => [x[1]!, x[2]!.toLowerCase()]))
-  }
-  return { light: block(':root'), dark: block('.dark') }
-}
-
-const channel = (c: number) => {
-  const s = c / 255
-  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
-}
-const luminance = (hex: string) => {
-  const n = parseInt(hex.slice(1), 16)
-  return 0.2126 * channel(n >> 16) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
-}
-const contrast = (a: string, b: string) => {
-  const [x, y] = [luminance(a), luminance(b)]
-  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
-}
-
-const base = tokens('index.css')
-const edition = tokens('theme.edition.css')
-const looks = {
-  'base light': base.light,
-  'base dark': base.dark,
-  'edition light': { ...base.light, ...edition.light },
-  'edition dark': { ...base.dark, ...edition.dark },
-}
 const BACKGROUNDS = ['canvas', 'surface', 'subtle'] as const
 
 describe('text field edges and focus rings', () => {
