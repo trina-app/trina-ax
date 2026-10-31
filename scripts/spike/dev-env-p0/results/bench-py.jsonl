@@ -1,0 +1,5 @@
+{"step": "venv-create", "rc": 0, "wall_s": 1.21, "cpu_s": 1.02, "cpu_avg_pct": 83.6, "mem_peak_mb": 109, "mem_end_mb": 95, "mem_avg_mb": 65, "anon_peak_mb": 67, "anon_avg_mb": 48, "file_cache_end_mb": 27, "oom_kills": 0}
+{"step": "pip-install-cold", "rc": 0, "wall_s": 3.05, "cpu_s": 0.72, "cpu_avg_pct": 23.5, "mem_peak_mb": 105, "mem_end_mb": 102, "mem_avg_mb": 78, "anon_peak_mb": 64, "anon_avg_mb": 49, "file_cache_end_mb": 37, "oom_kills": 0}
+{"step": "flask-ready-s", "value": .319655267}
+{"step": "flask-idle-30s", "rc": null, "wall_s": 30.19, "cpu_s": 0.01, "cpu_avg_pct": 0.0, "mem_peak_mb": 71, "mem_end_mb": 63, "mem_avg_mb": 66, "anon_peak_mb": 33, "anon_avg_mb": 33, "file_cache_end_mb": 30, "oom_kills": 0}
+{"step": "flask-active-20s", "rc": 0, "wall_s": 19.74, "cpu_s": 19.45, "cpu_avg_pct": 98.6, "mem_peak_mb": 67, "mem_end_mb": 65, "mem_avg_mb": 66, "anon_peak_mb": 35, "anon_avg_mb": 34, "file_cache_end_mb": 30, "oom_kills": 0}

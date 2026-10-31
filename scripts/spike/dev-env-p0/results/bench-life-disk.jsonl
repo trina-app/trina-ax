@@ -1,0 +1,13 @@
+{"step": "box-stop-s", "value": .093888724}
+{"step": "box-start-s", "value": .130784121}
+{"step": "start-to-dev-server-s", "value": .541594789}
+{"step": "box-pause-s", "value": .030521477}
+{"step": "paused-mem-mb", "value": 170}
+{"step": "box-unpause-s", "value": .027796850}
+{"step": "after-unpause-http-s", "value": .084552343}
+{"step": "box-idle-no-dev-server-mem-mb", "value": 93}
+{"step": "image-size", "value": "1.26 GB"}
+{"step": "volume-web", "value": "102M", "node_modules": "82M", "venv": "0", "cache": "21M"}
+{"step": "volume-py", "value": "23M", "node_modules": "0", "venv": "21M", "cache": "2.1M"}
+{"step": "claude-binary", "value": "277M"}
+{"step": "container-storage", "value": "549M"}

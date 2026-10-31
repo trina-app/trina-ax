@@ -1,0 +1,7 @@
+{
+  "name": "spike-next",
+  "private": true,
+  "scripts": { "dev": "next dev -H 127.0.0.1 -p 3000", "build": "next build" },
+  "dependencies": { "next": "15.3.4", "react": "19.1.0", "react-dom": "19.1.0" },
+  "devDependencies": { "typescript": "5.8.3", "@types/react": "19.1.8", "@types/node": "22.15.32", "eslint": "9.28.0", "eslint-config-next": "15.3.4", "tailwindcss": "4.1.10", "@tailwindcss/postcss": "4.1.10" }
+}

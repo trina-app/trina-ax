@@ -1,0 +1,4 @@
+preview.sh: a unix socket on the host, socat in the box's network namespace -> 127.0.0.1:PORT in the box
+py (allowlist box, --network none), Flask on 127.0.0.1:8000: "spike py ok"  (works without any box network)
+web (open box), Vite on 127.0.0.1:5173: Vite answers 'Blocked request. This host ("preview") is not allowed.'
+  -> the preview gateway must send Host: localhost (or the project must set server.allowedHosts)

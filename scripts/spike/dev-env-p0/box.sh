@@ -52,7 +52,12 @@ mkvol)
 grant)
   need_root
   b=$1; f=$TEAMS/$2; [ -d "$f" ] || { echo "no folder $f" >&2; exit 1; }
-  setfacl -R -m u:devbox:rwX,u:mycel:rwX "$f"; setfacl -R -d -m u:devbox:rwX,u:mycel:rwX "$f"
+  # idmapped bind mount: in it the server account's files belong to the box account (box root), and what the box
+  # writes is stored as the server account. No ACLs, no chown; a chmod by the server changes nothing for the box.
+  M=$(id -u mycel); D=$(id -u devbox)
+  install -d -o devbox -g devbox -m 0700 /srv/devbox/mnt; install -d -m 0755 "/srv/devbox/mnt/$b"
+  for d in node_modules .venv; do [ -e "$f/$d" ] || install -d -o mycel -g mycel -m 0755 "$f/$d"; done
+  mountpoint -q "/srv/devbox/mnt/$b" || mount --bind --map-users "$M:$D:1" --map-groups "$M:$D:1" "$f" "/srv/devbox/mnt/$b"
   install -d -o mycel -g mycel -m 0750 "$PROXY/$b"; setfacl -m u:devbox:rx "$PROXY/$b"
   echo "$2" > "$PROXY/$b/folder"; chown mycel:mycel "$PROXY/$b/folder"
   for p in model egress; do
@@ -68,7 +73,7 @@ build)
   podman build -q -t "$IMG" -f "$HERE/Containerfile" "$HERE" >/dev/null && podman image ls "$IMG";;
 create)
   need_box_user
-  b=$1; f=$TEAMS/$2; mode=$3; vol=$VOLS/$b; cl=$(claude_dir)
+  b=$1; f=/srv/devbox/mnt/$b; mode=$3; vol=$VOLS/$b; cl=$(claude_dir)
   case $mode in
     open)  net=(--network "pasta:--no-map-gw,--map-guest-addr,none") ;;
     allow) net=(--network none) ;;
@@ -83,7 +88,7 @@ create)
     -v "${cl%/}:/opt/claude:ro" -v "$HERE/in-box:/opt/trina:ro" -v "$PROXY/$b:/run/trina:ro" \
     -e TRINA_NET_MODE="$mode" \
     "$IMG" /opt/trina/box-init.sh
-  echo "created box-$b ($mode) on $f";;
+  echo "created box-$b ($mode) on $TEAMS/$2";;
 start)
   need_box_user
   b=$1; podman start "box-$b" >/dev/null

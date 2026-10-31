@@ -1,0 +1,6 @@
+started box-next
+{"step": "npm-install-cold", "rc": 0, "wall_s": 51.8, "cpu_s": 18.25, "cpu_avg_pct": 35.2, "mem_peak_mb": 1376, "mem_end_mb": 742, "mem_avg_mb": 744, "anon_peak_mb": 566, "anon_avg_mb": 442, "file_cache_end_mb": 186, "oom_kills": 0}
+{"step": "next-build", "rc": 0, "wall_s": 20.04, "cpu_s": 19.85, "cpu_avg_pct": 99.0, "mem_peak_mb": 843, "mem_end_mb": 510, "mem_avg_mb": 543, "anon_peak_mb": 533, "anon_avg_mb": 256, "file_cache_end_mb": 311, "oom_kills": 0}
+{"step": "next-dev-first-page-s", "value": 6.172485960}
+{"step": "next-dev-idle-60s", "rc": null, "wall_s": 60.13, "cpu_s": 1.78, "cpu_avg_pct": 3.0, "mem_peak_mb": 872, "mem_end_mb": 514, "mem_avg_mb": 634, "anon_peak_mb": 524, "anon_avg_mb": 454, "file_cache_end_mb": 69, "oom_kills": 0}
+{"step": "next-dev-active-30s", "rc": 0, "wall_s": 29.33, "cpu_s": 29.13, "cpu_avg_pct": 99.3, "mem_peak_mb": 720, "mem_end_mb": 683, "mem_avg_mb": 633, "anon_peak_mb": 635, "anon_avg_mb": 546, "file_cache_end_mb": 82, "oom_kills": 0}

@@ -1,0 +1,6 @@
+{"step": "npm-install-cold", "rc": 0, "wall_s": 3.64, "cpu_s": 2.29, "cpu_avg_pct": 62.7, "mem_peak_mb": 268, "mem_end_mb": 258, "mem_avg_mb": 202, "anon_peak_mb": 107, "anon_avg_mb": 81, "file_cache_end_mb": 168, "oom_kills": 0}
+{"step": "npm-install-warm", "rc": 0, "wall_s": 1.62, "cpu_s": 1.47, "cpu_avg_pct": 90.4, "mem_peak_mb": 358, "mem_end_mb": 356, "mem_avg_mb": 231, "anon_peak_mb": 187, "anon_avg_mb": 120, "file_cache_end_mb": 168, "oom_kills": 0}
+{"step": "vite-build", "rc": 0, "wall_s": 1.62, "cpu_s": 1.51, "cpu_avg_pct": 93.1, "mem_peak_mb": 371, "mem_end_mb": 349, "mem_avg_mb": 291, "anon_peak_mb": 172, "anon_avg_mb": 118, "file_cache_end_mb": 172, "oom_kills": 0}
+{"step": "dev-server-ready-s", "value": .512562667}
+{"step": "dev-server-idle-60s", "rc": null, "wall_s": 60.15, "cpu_s": 0.33, "cpu_avg_pct": 0.6, "mem_peak_mb": 330, "mem_end_mb": 200, "mem_avg_mb": 228, "anon_peak_mb": 148, "anon_avg_mb": 120, "file_cache_end_mb": 84, "oom_kills": 0}
+{"step": "dev-server-active-30s", "rc": 0, "wall_s": 29.63, "cpu_s": 29.41, "cpu_avg_pct": 99.2, "mem_peak_mb": 264, "mem_end_mb": 262, "mem_avg_mb": 255, "anon_peak_mb": 154, "anon_avg_mb": 148, "file_cache_end_mb": 107, "oom_kills": 0}

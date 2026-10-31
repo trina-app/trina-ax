@@ -18,7 +18,7 @@ set +e
 printf %s "$tok" | unshare -m sh -c '
   mount --make-rprivate / && mount --bind "$1" /work && mount --bind "$2" /cache || exit 1
   shift 2; exec setpriv --reuid devbox --regid devbox --init-groups --inh-caps=-all "$@"' turn \
-  "/srv/trina/teams/$f" "/srv/devbox/vol/$b/cache" \
+  "/srv/devbox/mnt/$b" "/srv/devbox/vol/$b/cache" \
   env -i PATH=/usr/bin:/bin HOME=/cache/home XDG_RUNTIME_DIR=/run/user/$U TRINA_BOX="$b" \
   CLAUDE_CODE_SHELL="$HERE/boxshell/bash" TMPDIR=/cache/tmp CLAUDE_CODE_TMPDIR=/cache/tmp \
   ANTHROPIC_BASE_URL=http://127.0.0.1:4100 CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3 \

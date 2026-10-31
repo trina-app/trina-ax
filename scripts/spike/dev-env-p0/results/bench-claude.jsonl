@@ -1,0 +1,1 @@
+{"step": "claude-turn-in-box-3-bash-calls", "rc": 0, "wall_s": 4.49, "cpu_s": 1.19, "cpu_avg_pct": 26.5, "mem_peak_mb": 413, "mem_end_mb": 402, "mem_avg_mb": 341, "anon_peak_mb": 151, "anon_avg_mb": 115, "file_cache_end_mb": 249, "oom_kills": 0}
