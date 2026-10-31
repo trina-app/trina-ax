@@ -1,0 +1,26 @@
+== baseline: box network without rules (pasta, no map-gw, no guest addr)
+internet https://example.com: <!doctype html><html lang=en><head><meta charset=utf-8><link
+LAN 10.99.0.1:80: REACHED lan
+metadata 169.254.169.254: REACHED metadata
+team server 192.168.139.207:8080: blocked/none (curl rc=7)
+gateway 192.168.139.1:80: <a href="https://192.168.139.1/">Found</a>.
+host loopback via 169.254.1.2:9999: blocked/none (curl rc=28)
+host loopback via gw 192.168.139.1:9999: blocked/none (curl rc=7)
+box 127.0.0.1:9999: blocked/none (curl rc=7)
+host.containers.internal:8080: REACHED team-server
+dns: ok
+ipv6 internet: no
+smtp 25: open
+== box-web with box-open.nft
+internet https://example.com: <!doctype html><html lang=en><head><meta charset=utf-8><link
+LAN 10.99.0.1:80: blocked/none (curl rc=7)
+metadata 169.254.169.254: blocked/none (curl rc=7)
+team server 192.168.139.207:8080: blocked/none (curl rc=7)
+gateway 192.168.139.1:80: blocked/none (curl rc=7)
+host loopback via 169.254.1.2:9999: blocked/none (curl rc=7)
+host loopback via gw 192.168.139.1:9999: blocked/none (curl rc=7)
+box 127.0.0.1:9999: blocked/none (curl rc=7)
+host.containers.internal:8080: blocked/none (curl rc=7)
+dns: ok
+ipv6 internet: no
+smtp 25: blocked

@@ -1,0 +1,10 @@
+# Rules for an "allowlist" box (podman --network none: the namespace has only lo). Second layer: nothing leaves
+# except loopback, where the forwarders to the per-box proxy sockets listen.
+flush ruleset
+table inet trina_box {
+  chain output {
+    type filter hook output priority 0; policy drop;
+    oif "lo" accept
+    counter
+  }
+}

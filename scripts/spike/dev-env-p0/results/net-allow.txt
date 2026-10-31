@@ -1,0 +1,9 @@
+stopped box-py
+started box-py
+direct https://example.com (no proxy): http=000 rc=6
+proxy https://pypi.org/simple/flask/: http=200 rc=0
+proxy https://registry.npmjs.org/react: http=200 rc=0
+proxy https://github.com (not listed): http=000 rc=56
+proxy http://pypi.org (plain http): http=405 rc=0
+proxy CONNECT pypi.org, SNI github.com: http=000 rc=35
+proxy https://169.254.169.254 (metadata): http=000 rc=56

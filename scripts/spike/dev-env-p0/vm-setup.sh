@@ -15,7 +15,7 @@ loginctl enable-linger devbox
 
 # team folders: owned by the server account; the box account gets rw on ONE folder through an ACL (box.sh grant)
 install -d -o mycel -g mycel -m 0750 /srv/trina /srv/trina/teams /srv/trina/secrets /srv/trina/proxy /srv/trina/proxy-log
-for f in proj-web proj-py other-team-folder; do install -d -o mycel -g mycel -m 0750 /srv/trina/teams/$f; done
+for f in proj-web proj-py other-team-folder; do [ -d /srv/trina/teams/$f ] || install -d -o mycel -g mycel -m 0750 /srv/trina/teams/$f; done
 echo "TOP SECRET other folder" > /srv/trina/teams/other-team-folder/secret.txt
 echo "sk-ant-oat01-FAKE-SERVER-SECRET" > /srv/trina/secrets/claude-oauth-token
 chown -R mycel:mycel /srv/trina/teams /srv/trina/secrets; chmod 0600 /srv/trina/secrets/claude-oauth-token
@@ -36,6 +36,6 @@ ip addr replace 169.254.169.254/32 dev trinalab
 install -m 0755 "$(dirname "$0")/fake-target.py" /usr/local/bin/trina-fake-target
 for t in "10.99.0.1 80 lan" "169.254.169.254 80 metadata" "0.0.0.0 8080 team-server" "127.0.0.1 9999 local-admin"; do
   set -- $t
-  systemctl is-active -q fake-$3 || systemd-run -q --unit fake-$3 -p User=nobody /usr/local/bin/trina-fake-target "$1" "$2" "$3"
+  systemctl reset-failed fake-$3 2>/dev/null; systemctl is-active -q fake-$3 || systemd-run -q --unit fake-$3 -p User=nobody -p AmbientCapabilities=CAP_NET_BIND_SERVICE /usr/local/bin/trina-fake-target "$1" "$2" "$3"
 done
 echo "vm-setup: ok"

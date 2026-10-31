@@ -78,7 +78,7 @@ create)
     --read-only --tmpfs "/tmp:rw,nosuid,nodev,size=$TMP_SIZE,mode=1777" \
     --cap-drop=ALL --security-opt no-new-privileges --security-opt "seccomp=$HOME/box-seccomp.json" \
     --pids-limit "$PIDS" --memory "$MEM" --memory-swap "$MEM" --cpus "$CPUS" \
-    --userns keep-id --user "$(id -u):$(id -g)" \
+    --userns keep-id:uid=0,gid=0 --user 0:0 \
     -v "$f:/work:rw" -v "$vol/cache:/cache:rw" -v "$vol/node_modules:/work/node_modules:rw" -v "$vol/venv:/work/.venv:rw" \
     -v "${cl%/}:/opt/claude:ro" -v "$HERE/in-box:/opt/trina:ro" -v "$PROXY/$b:/run/trina:ro" \
     -e TRINA_NET_MODE="$mode" \
@@ -88,10 +88,11 @@ start)
   need_box_user
   b=$1; podman start "box-$b" >/dev/null
   # network rules go into the box's network namespace before any workload runs (the init only starts forwarders)
-  if [ "$(podman inspect -f '{{.HostConfig.NetworkMode}}' "box-$b")" != none ]; then
-    pid=$(podman inspect -f '{{.State.Pid}}' "box-$b")
-    podman unshare nsenter -t "$pid" -n nft -f "$HERE/box-open.nft"
-  fi
+  pid=$(podman inspect -f '{{.State.Pid}}' "box-$b")
+  if [ "$(podman inspect -f '{{.HostConfig.NetworkMode}}' "box-$b")" = none ]; then rules=box-allow.nft; else rules=box-open.nft; fi
+  # fail closed: a box whose rules did not load is stopped at once
+  podman unshare nsenter -t "$pid" -n sh -c "/usr/sbin/ip link set lo up && /usr/sbin/nft -f '$HERE/$rules'" \
+    || { podman kill "box-$b" >/dev/null; exit 1; }
   echo "started box-$b";;
 stop)    need_box_user; podman stop -t 5 "box-$1" >/dev/null; echo "stopped box-$1";;
 rm)      need_box_user; podman rm -f "box-$1" >/dev/null; echo "removed box-$1";;
