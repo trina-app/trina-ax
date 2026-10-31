@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Codex web search steps: a step whose query Codex has not named yet reads "Searching the web…", and an open of a search result reads "Opening a search result" instead of "Web search: " with nothing after it. A search the team server refused to send (it named an address instead of one of its results) now shows as failed with the reason, not as a done (green) step; the address was never opened. In all five languages.
+
 ## 0.2.12 — 2026-10-30
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.12).

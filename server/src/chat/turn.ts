@@ -14,6 +14,7 @@ import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } fro
 import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
 import { Utf8Lines, Utf8Text } from '../engine/lines'
 import { CodexEventParser } from '../engine/codex-parse'
+import { SEARCH_ASKS_MAX, takeSearchAsk, unnamedSearchKind, type SearchAsk } from './codex-search-step'
 import { audit } from '../admin/audit'
 import { guardOfficeClaudeJson } from '../engine/claude-json-guard'
 import { CoreUnavailableError } from '../context'
@@ -149,6 +150,8 @@ export class TurnExec {
   private toolNames = new Map<string, string>()
   /** the query of each running web search (its echo in the result is the AI's text, never a source) */
   private searchQueries = new Map<string, string>()
+  /** Codex searches the model proxy took and whose item has not ended yet (chat/codex-search-step.ts) */
+  private searchAsks: SearchAsk[] = []
   private patched = new Set<string>()
   private pendingPatches = new Map<string, ((s: Step) => Partial<Step>)[]>()
   private attemptHadOutput = false
@@ -533,6 +536,8 @@ export class TurnExec {
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
+        // what the proxy saw of an earlier attempt's searches belongs to that attempt's items
+        this.searchAsks = []
         let m: Parameters<typeof buildCodexLaunch>[0]['managed']
         if (managed) {
           revokeProxyTokens(rt.db, spec.turnId)
@@ -604,6 +609,12 @@ export class TurnExec {
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
    * "업스트림 오류"). Budget and subscription limit stop the engine at once; after a 401 the engine fails by itself. */
   private onProxyEvent(ev: ProxyTurnEvent) {
+    // what a Codex search asked for: for its step only, never the answer's outcome
+    if (ev.type === 'search') {
+      this.searchAsks.push({ commands: ev.commands, refused: ev.refused?.length ? ev.refused : null })
+      if (this.searchAsks.length > SEARCH_ASKS_MAX) this.searchAsks.shift()
+      return
+    }
     // the attempt's AI connection failed: remembered so the turn can go on with another one (switchCredential)
     if (ev.type === 'credential') this.credentialFailure ??= { id: ev.credentialId, reason: ev.reason, retryAt: null }
     else if (ev.type === 'rate_limit' && ev.credentialId) this.credentialFailure ??= { id: ev.credentialId, reason: 'limited', retryAt: ev.retryAt }
@@ -726,7 +737,8 @@ export class TurnExec {
         // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)
-        const label = kind === 'web_search' ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) })
+        // a search whose query is not known yet (Codex names it at the end) shows as running, not as "Web search: "
+        const label = kind === 'web_search' ? (queryOf(e.input) ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : tr('webSearchRunning', this.spec.locale))
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
@@ -744,8 +756,13 @@ export class TurnExec {
           // holds (searchSources). Sources open later without a card within the link budget (tools/url-gate.ts)
           const sources = e.sources ? hitList(e.sources) : e.output ? searchSources(e.output, this.searchQueries.get(e.id) ?? '') : []
           if (sources.length) patch.sources = sources
-          // a search that names its query only at its end (Codex's standalone search: a summary and no result text)
-          if (e.summary && e.output === undefined && !this.searchQueries.get(e.id)) patch.label = tr('webSearch', this.spec.locale, { q: queryOf({ query: e.summary }) })
+          // Codex's standalone search: it names its query only at its end (a summary and no result text), an open of a
+          // result names none, and one the model proxy answered itself (an address) ends as done (QA 2026-10-30 N1 / N2)
+          const ask = tool === 'web_search' ? takeSearchAsk(this.searchAsks, e.summary ?? '') : null
+          if (!this.searchQueries.get(e.id)) {
+            patch.label = e.summary && e.output === undefined ? tr('webSearch', this.spec.locale, { q: queryOf({ query: e.summary }) }) : tr(unnamedSearchKind(ask, e.searchAction), this.spec.locale)
+          }
+          if (ask?.refused) { patch.status = 'error'; patch.detail = tr('webSearchRefused', this.spec.locale) }
         }
         this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again

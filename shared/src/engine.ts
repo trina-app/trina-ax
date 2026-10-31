@@ -15,9 +15,11 @@ export const EngineEvent = z.discriminatedUnion('type', [
   /** output: the tool result text (capped), e.g. WebSearch links for the search card. sources: a web search's hits as
    * the engine's structured result gives them (Claude Code's tool_use_result): the search server's own, never text a
    * model wrote (server/src/chat/turn.ts searchSources); a sub-agent's search alike. agent: what the sub-agent of an
-   * Agent call did (Claude Code's AgentOutput; absent when it failed: its result is then a plain string) */
+   * Agent call did (Claude Code's AgentOutput; absent when it failed: its result is then a plain string). searchAction:
+   * what a Codex web search did when it was not a query (its item's action: a result opened, or looked inside) */
   z.object({ type: z.literal('tool_end'), id: z.string(), ok: z.boolean(), summary: z.string().optional(), output: z.string().optional(),
-    sources: z.array(z.object({ title: z.string(), url: z.string() })).optional(), parentId: z.string().optional(), agent: AgentStats.optional() }),
+    sources: z.array(z.object({ title: z.string(), url: z.string() })).optional(), parentId: z.string().optional(), agent: AgentStats.optional(),
+    searchAction: z.enum(['open', 'find']).optional() }),
   /** a sub-agent is still working (Claude Code system/task_progress): its totals so far; id = the Agent call's id */
   z.object({ type: z.literal('agent_progress'), id: z.string(), stats: AgentStats }),
   /** the engine's own report of what it was started with (Claude Code system/init): checked against the lockdown */

@@ -7,7 +7,7 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 //   POST /codex/openai/responses    OpenAI API key   -> <openai>/responses (Authorization)
 //   POST /codex/<mode>/alpha/search Codex's own web search (the `web.run` tool, which Codex runs itself) -> the same
 //                                    upstream's /alpha/search, held to the cached index (checkSearchRequest); a page
-//                                    named by an address is answered here, never sent (searchOpensAddress); a 401 / 429
+//                                    named by an address is answered here, never sent (searchAddresses); a 401 / 429
 //                                    of a search fails that search only and leaves the connection's state alone
 //   GET  /codex/backend/wham/config/bundle -> {} (a remote config bundle could change the lockdown: never passed)
 //   other /codex/backend/*, /codex/*/models  -> 404 (never sent upstream; the two that Codex 0.163 sends on every
@@ -145,20 +145,31 @@ const SEARCH_REF = /^[A-Za-z0-9_-]{1,100}$/
  * open / click / find / screenshot name a page by `ref_id`, which Codex lets be "a reference id or URL". An address
  * there is not passed on (docs/DECISIONS.md "Codex web search"): the address would leave the team server inside the
  * search request, and what OpenAI's side does with an address it has not indexed cannot be seen from here. Addresses
- * are opened with web_fetch, under the address rules (the card), as with Claude, whose WebSearch opens no page. null =
- * every page named is a result reference; else the refusal's reason.
+ * are opened with web_fetch, under the address rules (the card), as with Claude, whose WebSearch opens no page. Returns
+ * every page named by something other than a result reference (none: the search may go out), with the refusal's
+ * reason; `ref` is the text as written (cut to 500 characters), for the step that says the server did not open it.
  */
-export function searchOpensAddress(body: unknown): string | null {
+export function searchAddresses(body: unknown, max = 10): { command: string; ref: string; reason: string }[] {
+  const out: { command: string; ref: string; reason: string }[] = []
   const c = (body as { commands?: unknown } | null)?.commands
-  if (!c || typeof c !== 'object') return null
+  if (!c || typeof c !== 'object') return out
   for (const [k, v] of Object.entries(c as Record<string, unknown>)) {
     if (!Array.isArray(v)) continue
     for (const e of v) {
       const ref = (e as { ref_id?: unknown } | null)?.ref_id
-      if (ref !== undefined && ref !== null && (typeof ref !== 'string' || !SEARCH_REF.test(ref))) return `search command ${k} names an address, not a search result`
+      if (ref === undefined || ref === null || (typeof ref === 'string' && SEARCH_REF.test(ref))) continue
+      out.push({ command: k, ref: (typeof ref === 'string' ? ref : JSON.stringify(ref) ?? '').slice(0, 500), reason: `search command ${k} names an address, not a search result` })
+      if (out.length >= max) return out
     }
   }
-  return null
+  return out
+}
+
+/** The commands a search asked for (search_query, open, …), for the turn's step: Codex names an open by no query. */
+function searchCommandsOf(body: unknown): string[] {
+  const c = (body as { commands?: unknown } | null)?.commands
+  if (!c || typeof c !== 'object') return []
+  return Object.entries(c as Record<string, unknown>).filter(([k, v]) => k !== 'response_length' && Array.isArray(v) && v.length > 0).map(([k]) => k)
 }
 /** what the model gets for such a call (Codex hands the `output` to it as the tool's result) */
 export const SEARCH_ADDRESS_NOTE = 'The team server did not run this: open, click, find and screenshot here take only a reference to a result of this search (such as turn0search0), not a web address. To read a page at an address, use the web_fetch tool.'
@@ -230,9 +241,11 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
   }
   // a page named by its address: nothing goes upstream, and the model is told what to use instead (a 403 would give
   // it only "aborted", and it would try again)
-  const address = search ? searchOpensAddress(parsed) : null
-  if (address) {
-    d.refused(row, address)
+  const addresses = search ? searchAddresses(parsed) : []
+  // what this search asked for, to the turn before Codex has its answer (its step: QA 2026-10-30 N1 / N2)
+  if (search) d.onTurnEvent?.(row.turn_id, { type: 'search', commands: searchCommandsOf(parsed), ...(addresses.length ? { refused: addresses.map((a) => a.ref) } : {}) })
+  if (addresses.length) {
+    d.refused(row, addresses[0]!.reason)
     return json(200, { output: SEARCH_ADDRESS_NOTE })
   }
   if (overBudget(d.db, row.user_id, row.turn_id, row.budget_usd)) {

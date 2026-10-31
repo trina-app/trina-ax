@@ -33,6 +33,11 @@
 //                                            "cached"), else says "search=off". The web_search item starts without its
 //                                            query, POST <provider base_url>/alpha/search, the item ends with the query;
 //                                            says "search=<status>:<output>"
+//   @fake {"codexOpen": "turn0search0"}      (Codex, managed) the same search call with `open: [{ref_id}]` (a result of an
+//                                            earlier search, or an address the model wrote). Like the real CLI (QA
+//                                            2026-10-30) the item ends naming no query for a result reference and the
+//                                            address for an address; its action stays "other" here, so the step's name
+//                                            comes from what the model proxy saw. Says "open=<status>:<output>"
 //   @fake {"codexBackground": true}          (Codex, ChatGPT sign-in) the GETs Codex 0.163 sends to chatgpt_base_url on
 //                                            every turn (accounts/check twice, settings/user once); says their statuses
 //   @fake {"dumpHome": true}                 (Codex) say every file under CODEX_HOME, HOME and the chat folder (S-1)
@@ -330,6 +335,16 @@ async function callCodexModel(prompt: string) {
 async function codexSearch(query: string): Promise<string> {
   const cached = argv.includes('web_search="cached"')
   if (!cached || !argv.includes('model_providers.teamax.supports_standalone_web_search=true')) return 'off'
+  return standaloneSearch({ search_query: [{ q: query }] }, query, { type: 'search', query })
+}
+/** an open of the standalone search (web.run `open`), as the real CLI ends it: no query for a result reference */
+async function codexOpen(ref: string): Promise<string> {
+  if (!argv.includes('model_providers.teamax.supports_standalone_web_search=true')) return 'off'
+  return standaloneSearch({ open: [{ ref_id: ref }], response_length: 'short' }, /^https?:\/\//.test(ref) ? ref : '', { type: 'other' })
+}
+/** One web.run call: the item starts without its query, POST <provider base_url>/alpha/search, the item ends with
+ * `endQuery` and `endAction` (a failed search never completes its item: Codex gives the model "aborted"). */
+async function standaloneSearch(commands: Record<string, unknown>, endQuery: string, endAction: Record<string, unknown>): Promise<string> {
   const base = (argv.find((a) => a.startsWith('model_providers.teamax.base_url=')) ?? '').split('=').slice(1).join('=').replace(/^"|"$/g, '')
   let auth: any = {}
   try { auth = JSON.parse(fs.readFileSync(path.join(process.env.CODEX_HOME ?? '', 'auth.json'), 'utf8')) } catch {}
@@ -342,12 +357,11 @@ async function codexSearch(query: string): Promise<string> {
   let r: Response
   try {
     r = await fetch(base.replace(/\/$/, '') + '/alpha/search', { method: 'POST', headers, body: JSON.stringify({ id: sessionId, model, input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: message.slice(0, 200) }] }],
-      commands: { search_query: [{ q: query }] }, settings: { allowed_callers: ['direct'], external_web_access: !cached }, max_output_tokens: 10000 }) })
+      commands, settings: { allowed_callers: ['direct'], external_web_access: false }, max_output_tokens: 10000 }) })
   } catch (e) { return `error ${(e as Error).message}` }
   const text = await r.text()
-  // a failed search never completes its item (Codex gives the model "aborted")
   if (!r.ok) return `${r.status}`
-  out({ type: 'item.completed', item: { id, type: 'web_search', query, action: { type: 'search', query } } })
+  out({ type: 'item.completed', item: { id, type: 'web_search', query: endQuery, action: endAction } })
   let output = ''
   try { output = String(JSON.parse(text).output ?? '') } catch {}
   return `${r.status}:${output}`
@@ -484,6 +498,7 @@ for (const d of directives) {
   } else if (d.codexModel !== undefined) await callCodexModel(String(d.codexModel))
   else if (d.codexBackground) await say(`background=${await codexBackground()}`)
   else if (d.codexSearch !== undefined) await say(`search=${await codexSearch(String(d.codexSearch))}`)
+  else if (d.codexOpen !== undefined) await say(`open=${await codexOpen(String(d.codexOpen))}`)
   else if (d.modelAny !== undefined) { if (codex) await callCodexModel(String(d.modelAny)); else await callModel(String(d.modelAny)) }
   else if (d.dumpHome) {
     const seen: string[] = []

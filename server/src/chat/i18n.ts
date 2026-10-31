@@ -84,6 +84,10 @@ export const TEXT = {
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi', "自分の個人フォルダーまたはアプリ内ブラウザー", "su carpeta personal o el navegador integrado"),
   scopeRoot: t('팀 폴더 맨 위', 'the top of the team folder', 'bagian atas folder tim', "チームフォルダーの最上位", "la raíz de la carpeta del equipo"),
   webSearch: STEP_TEXT.webSearch,
+  webSearchRunning: STEP_TEXT.webSearchRunning,
+  webSearchOpen: STEP_TEXT.webSearchOpen,
+  webSearchPlain: STEP_TEXT.webSearchPlain,
+  webSearchRefused: STEP_TEXT.webSearchRefused,
   thinking: STEP_TEXT.thinking,
 } satisfies Record<string, T>
 

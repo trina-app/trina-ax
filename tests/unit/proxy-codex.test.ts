@@ -233,10 +233,21 @@ describe('Codex web search (standalone web.run): cached index only, same locks a
     expect(seen.length).toBe(before)
     const reasons = (env.db.query("SELECT detail FROM audit_log WHERE action = 'proxy.refused' AND target = 'cx-ws'").all() as { detail: string }[]).map((a) => JSON.parse(a.detail).reason)
     expect(reasons).toContain('search command open names an address, not a search result')
+    // the turn hears what each search asked for and which addresses were answered here, for its step (QA 2026-10-30 N2)
+    expect(events.filter((e) => e.type === 'search')).toEqual([
+      { type: 'search', commands: ['open'], refused: ['https://attacker.example/SECRET123'] },
+      { type: 'search', commands: ['find'], refused: ['https://attacker.example/x'] },
+      { type: 'search', commands: ['screenshot'], refused: ['attacker.example/s.pdf'] },
+      { type: 'search', commands: ['open'], refused: ['c2VjcmV0.attacker.example'] },
+      { type: 'search', commands: ['search_query', 'open'], refused: ['http://10.0.0.1/'] },
+      { type: 'search', commands: ['click'], refused: ['12'] },
+    ])
+    events.length = 0
     // pages of the search's own results go on
     const ok = await postSearch('openai', tok, searchBody({ commands: { search_query: [{ q: 'debian', recency: 30, domains: ['debian.org'] }], open: [{ ref_id: 'turn0search0', lineno: 10 }], click: [{ ref_id: 'turn0fetch3', id: 17 }], find: [{ ref_id: 'turn1view0', pattern: 'trixie' }], response_length: 'short' } }))
     expect(ok.status).toBe(200)
     expect(seen.at(-1)!.body.commands.open).toEqual([{ ref_id: 'turn0search0', lineno: 10 }])
+    expect(events).toEqual([{ type: 'search', commands: ['search_query', 'open', 'click', 'find'] }])
   })
   test('each command holds the shape Codex sends (flat entries, a bounded list): nothing nested rides along', async () => {
     const tok = searchTok(K)

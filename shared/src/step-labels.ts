@@ -66,6 +66,18 @@ export const STEP_TEXT = {
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta"),
   webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}', "Web検索：{q}", "Búsqueda web: {q}"),
+  /** a search still running whose query is not known yet (Codex names it only at the end) */
+  webSearchRunning: t('웹 검색 중…', 'Searching the web…', 'Mencari di web…', "Web検索中…", "Buscando en la web…"),
+  /** a Codex search that opened (or looked inside) one of its results: it names no query */
+  webSearchOpen: t('검색 결과 열기', 'Opening a search result', 'Membuka hasil pencarian', "検索結果を開く", "Abriendo un resultado de búsqueda"),
+  /** a Codex search that named nothing (finance, weather, time …) */
+  webSearchPlain: t('웹 검색', 'Web search', 'Cari di web', "Web検索", "Búsqueda web"),
+  /** detail of a search the team server refused to send (it named an address, not a result of the search) */
+  webSearchRefused: t('거절됨: 검색으로는 그 검색의 결과만 열 수 있어요. AI에게 그 주소는 웹 페이지 가져오기(주소 확인 카드)로 열라고 알렸어요.',
+    'Refused: a search opens only its own results. The AI was told to fetch the address instead (with the address card).',
+    'Ditolak: pencarian hanya membuka hasilnya sendiri. AI diminta mengambil alamat itu dengan Ambil halaman (dengan kartu alamat).',
+    "拒否：検索で開けるのはその検索の結果だけです。そのアドレスは「ページを取得」（アドレスの確認カード）で開くようAIに伝えました。",
+    "Rechazado: una búsqueda solo abre sus propios resultados. Se indicó a la IA que obtenga la dirección con «Obtener página» (con la tarjeta de dirección)."),
   thinking: t('생각하는 중', 'Thinking', 'Berpikir', "考え中", "Pensando"),
   attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}', "添付後にファイルが変更されたため、現在のバージョンを使用します · {path}", "El archivo cambió desde que se adjuntó; se usa la versión actual · {path}"),
   attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}', "添付ファイルが移動しました · {path}", "El archivo adjunto se movió · {path}"),
@@ -168,7 +180,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   const tool = step.tool ?? ''
   let label: string | null = null
   if (step.kind === 'thinking') label = retemplate(['thinking'], step.label, locale)
-  else if (step.kind === 'web_search') label = retemplate(['webSearch'], step.label, locale)
+  else if (step.kind === 'web_search') label = retemplate(['webSearch', 'webSearchRunning', 'webSearchOpen', 'webSearchPlain'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
   else if (tool === 'engine') label = retemplate(['engineOffDefault', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
@@ -178,6 +190,6 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale)
-  const detail = step.detail !== undefined ? (retemplate(['notAnswered'], step.detail, locale) ?? step.detail) : undefined
+  const detail = step.detail !== undefined ? (retemplate(['notAnswered', 'webSearchRefused'], step.detail, locale) ?? step.detail) : undefined
   return { label: label ?? step.label, ...(detail !== undefined ? { detail } : {}) }
 }

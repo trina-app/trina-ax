@@ -33,8 +33,13 @@ export class CodexEventParser {
           break
         case 'web_search':
           if (ev.type === 'item.started') { this.openSearches.add(it.id); out.push({ type: 'tool_start', id: it.id, name: 'web_search', summary: String(it.query ?? '').slice(0, 200), input: { query: it.query ?? '' } }) }
-          // Codex's standalone search (web.run) starts without its query and names it only when it is done
-          else { this.openSearches.delete(it.id); out.push({ type: 'tool_end', id: it.id, ok: true, ...(typeof it.query === 'string' && it.query ? { summary: it.query.slice(0, 200) } : {}) }) }
+          // Codex's standalone search (web.run) starts without its query and names it only when it is done; an open of
+          // one of its results by reference (turn0search0) names none (QA 2026-10-30 N1): its action says what it did
+          else {
+            this.openSearches.delete(it.id)
+            const action = it.action?.type === 'open_page' ? 'open' : it.action?.type === 'find_in_page' ? 'find' : null
+            out.push({ type: 'tool_end', id: it.id, ok: true, ...(typeof it.query === 'string' && it.query ? { summary: it.query.slice(0, 200) } : {}), ...(action ? { searchAction: action } : {}) })
+          }
           break
         case 'command_execution': case 'file_change': case 'collab_tool_call':
           // must never happen with the locked profile; surfaced so tests and audit see it

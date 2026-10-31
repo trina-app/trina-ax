@@ -3872,7 +3872,13 @@ Trina should feel like Claude Code, which has WebSearch.
   structured hits, so a web_fetch of a result asks with the address card (Claude's structured hits open within the
   link budget).
 - **Steps.** Codex starts the search item without its query and names it at the end; the step label is set then
-  ("Web search: <query>").
+  ("Web search: <query>"). While it runs it reads "Searching the web…". An open of one of the search's results
+  (`turn0search0`) names no query (QA 2026-10-30 N1): it reads "Opening a search result". An open the proxy answered
+  itself (an address) ends in Codex as done; the step shows it as failed with the reason ("Refused: a search opens only
+  its own results …", N2). The proxy tells the turn what each search request asked for and which addresses it
+  answered (ProxyTurnEvent `search`, before Codex has the answer); the turn pairs each ended item with one of those
+  (`chat/codex-search-step.ts`: a refusal by the address the item names, else the oldest request of the same kind), and
+  falls back to the item's own action (`open_page`, `find_in_page`) where no proxy is in the path.
 - Not verified here: the real `chatgpt.com/backend-api/codex/alpha/search` and `api.openai.com/v1/alpha/search`
   (tests never call OpenAI). Release gate: one real Codex search turn on an installed server (ChatGPT sign-in, and an
   API key if one is used). If the API-key upstream lacks the endpoint, Codex reports the search failed and goes on.
