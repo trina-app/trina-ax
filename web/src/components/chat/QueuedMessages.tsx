@@ -100,7 +100,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
       )}
       {editing ? (
         <form
-          className="w-full rounded-2xl border border-line bg-surface p-2"
+          className="w-full rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
           onSubmit={(e) => {
             e.preventDefault()
             if (!canSave) return

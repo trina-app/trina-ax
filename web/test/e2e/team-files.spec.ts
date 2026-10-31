@@ -168,7 +168,15 @@ test('a download-only (generated) file: "Ask AI" and "add to chat" are off with 
   await page.goto('/files?path=marketing')
   const row = page.getByTestId('file-row').filter({ hasText: 'deck.pptx' })
   await expect(row.getByTestId('file-download-only')).toHaveText('다운로드 전용')
-  await expect(row.locator('button[draggable="true"]')).toHaveCount(0)
+  // it can be dragged onto a folder (a move), not into a chat: its drag carries no team file
+  const types = await row.locator('button[draggable="true"]').evaluate((b) => {
+    const dt = new DataTransfer()
+    b.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    const out = [...dt.types]
+    b.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+    return out
+  })
+  expect(types).toEqual(['application/x-mycel-files-move'])
   await row.hover()
   await row.getByTestId('file-menu').click()
   await expect(page.getByTestId('chat-with-file')).toBeDisabled()

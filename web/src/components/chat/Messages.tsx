@@ -121,7 +121,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
       ))}
       {editing ? (
         <form
-          className="w-full max-w-[85%] rounded-2xl border border-line bg-surface p-2"
+          className="w-full max-w-[85%] rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
           onSubmit={(e) => {
             e.preventDefault()
             if (!draft.trim()) return

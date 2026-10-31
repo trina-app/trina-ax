@@ -3,6 +3,11 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Files: drag rows onto a folder to move them there, like Finder or Google Drive. Dragging a selected row moves the whole selection; dragging any other row moves just that row and leaves the selection as it was. Folders can be dragged too, but never into themselves or their own subfolders. A breadcrumb also takes the drop to move items up. While you drag, the breadcrumbs show in place of the selection bar and the dragged rows are dimmed. A folder you can drop on is highlighted and says "Move here". A read-only or navigation-only folder says "Can't move here" and takes nothing. The move follows the same rules as the "Move" action: per-item permission checks, read-only items skipped and counted, one question for the batch if the move hides items from other people, renaming on a name clash, failures listed per item, and the same toast. The "Move" action stays the keyboard way to do it. Computer files dropped on a folder row are uploaded into that folder, and the upload list shows where each one goes. Dragging a file into a chat's message box still attaches it. In all five languages.
+- Text fields: the edges of inputs, selects and text areas (the message box too) now have at least 3:1 contrast against the page in light and dark (WCAG 1.4.11; they were 1.28:1). A new `--c-field-border` token is used only for field edges, so cards and dividers keep their lighter lines. A focused field gets a 2px accent edge, at least 3:1 against the page.
+
 ## 0.2.14 — 2026-10-31
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.14).

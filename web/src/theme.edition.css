@@ -1,6 +1,7 @@
 /* This edition's look: the trina.app brand tokens (Signal Orange on warm paper; warm black in dark), mapped onto the app's
    --c-* tokens of index.css. Checked: text >= 4.5:1 on canvas, surface and subtle; focus ring and strong borders >= 3:1;
-   ink on the orange buttons >= 4.5:1. Source of the brand values: trina-ax-core editions/trina/website/src/styles/tokens.css. */
+   ink on the orange buttons >= 4.5:1; the edge of a text field (--c-field-border) >= 3:1 on canvas, surface and subtle
+   (test/unit/field-contrast.test.ts). Source of the brand values: trina-ax-core editions/trina/website/src/styles/tokens.css. */
 :root {
   --c-canvas: #fcfbf8;
   --c-surface: #ffffff;
@@ -8,6 +9,7 @@
   --c-hover: #eee8dd;
   --c-line: #e9e3d8;
   --c-line-strong: #8c8378;
+  --c-field-border: #8c8378;
   --c-ink: #14110f;
   --c-muted: #514b45;
   --c-faint: #6b645d;
@@ -34,6 +36,7 @@
   --c-hover: #26211d;
   --c-line: #2c2723;
   --c-line-strong: #6f665d;
+  --c-field-border: #776e64;
   --c-ink: #f6f2ea;
   --c-muted: #b3aaa0;
   --c-faint: #958c82;

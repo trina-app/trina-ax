@@ -4016,3 +4016,62 @@ Trina should feel like Claude Code, which has WebSearch.
   self-relay's address, a connected relay, `publicAddress`), `office.test.ts` (office mode with and without its
   internet address), `g-routes.test.ts` (`publicAddress` in the connection status), `web/test/e2e/admin.spec.ts` (the
   Connection card with and without a public address).
+
+## Drag rows onto a folder; text fields with a 3:1 edge (feat/files-drag-move, 2026-10-31)
+
+- Founder request (2026-10-31): with four files selected in Files › Team folder, drag them onto a folder row
+  ("company") to move them there, as in Google Drive or Finder. Before this, rows could be moved only with the row
+  menu's or the selection bar's "Move", and dragging a file row only attached it to a chat's message box.
+- What a drag takes (`lib/bulkFiles.ts` `dragSet`): the whole selection, as listed, when the row grabbed is selected;
+  otherwise that row alone, and the selection stays as it was afterwards (`reportBatch(..., select = false)`). Folders
+  can be dragged too.
+- What it carries (`dragPayload`): `application/x-mycel-files-move` (the paths, JSON) when any of the items may be
+  moved, and, for a file the AI may read, `TEAM_FILE_DRAG_TYPE` plus `text/plain` with that one file, as before, so
+  the chat's message box still attaches it (it now sets `dropEffect = 'copy'`). A download-only file can be dragged to
+  move it, and its drag carries no team file. A read-only file outside a movable selection drags into a chat only.
+  The move type is accepted only where the drag started: the screen keeps the rows in a ref, and another tab's rows
+  are not taken.
+- Where it may land (`dropRefusal`): a folder row the person can write, and the breadcrumbs (moving up). Refused: the
+  item itself (no hint), a dragged folder's own subfolder, a folder the person cannot write (read-only or
+  navigation-only: "Can't move here"), the folder the items are already in, a drag with nothing movable, and any
+  folder while a move is still running. A breadcrumb's access is asked with one `tree` call (`limit: 1`) per ancestor
+  when a drag starts and remembered while the folder is open. Until the answer comes, the drop is allowed and the
+  server decides per item, as for "Move".
+- The drop runs the selection's "Move" (`moveItems`, shared with `bulkMove`): only items the person may change (the
+  rest are skipped and counted in the toast), `moveMany` with one "hidden from other people" question for the batch,
+  `onExists: 'rename'`, failures listed per item, and the same toast through the toast live region. The "Move" action
+  stays the keyboard and screen reader path. Touch: no change.
+- Targets handle `dragenter` as well as `dragover`. When the pointer enters a new element, Chromium decides the
+  operation from `dragenter`, and `dragover` follows only with the next move (the e2e caught this: a breadcrumb
+  showed nothing when the pointer entered it). A refused target still cancels the event, with `dropEffect = 'none'`,
+  so a computer file dropped there does not fall through to the list's upload or to the browser, which would open
+  the file in the app's tab. The trash view does the same for computer files. In the desktop app the window's
+  `will-navigate` guard already stops a file:// navigation.
+- While rows are dragged the breadcrumbs replace the selection bar, so the breadcrumbs can take a drop. The swap and
+  the dimming of the dragged rows happen a tick after `dragstart`, because a DOM change inside `dragstart` can end
+  the drag in Chromium. If a dragged row leaves the listing before `dragend` (a live update), the next pointer move
+  with no button down ends the drag state. Several rows drag with an "N items" picture (`setDragImage`).
+- Computer files dropped on a folder row the person can write are uploaded into that folder (`startUploads(list,
+  folder)`), and the upload list shows the folder. A read-only folder row says "Can't upload here" and takes nothing.
+- Text fields (design review): the input border was `--c-line` (#e9e3d8 on #ffffff, 1.28:1), shared with cards and
+  dividers, so raising it would have made those heavy. A new token `--c-field-border` (Tailwind
+  `border-field-border`) is for field edges only: `inputCls` (inputs, selects and text areas across the app), the
+  chat message box, the edit-message and queued-message forms, the file panel's text editor, the Files search box
+  and the sign-in language select. Values, against canvas / surface / subtle: Trina light #8c8378 (3.60 / 3.73 /
+  3.34), Trina dark #776e64 (3.90 / 3.67 / 3.49), base light #8b8478 (3.52 / 3.70 / 3.28), base dark #7b766b
+  (3.85 / 3.52 / 3.18). Focus was the old `--c-line-strong` border plus a 25% accent glow. The glow alone was about
+  1.4:1, and the new rest border is close to `--c-line-strong`. Focus is now a 2px accent edge (`border-accent` +
+  `ring-1 ring-accent`): Trina light 3.59 / 3.71 / 3.33, Trina dark 6.84 / 6.43 / 6.12, base light 6.02 / 6.34 /
+  5.62, base dark 8.31 / 7.60 / 6.86. It is thicker and a different color from the rest border. `--c-line` is
+  unchanged. The design-system doc should list `--c-field-border`.
+- Tests: `web/test/unit/bulk-files.test.ts` (drag set, payload types, every refusal and allowed target),
+  `web/test/unit/field-contrast.test.ts` (both tokens ≥ 3:1 in all four looks, read from the CSS; `inputCls` uses
+  them), `web/test/e2e/files.spec.ts` (two selected files dragged onto a folder; a row outside the selection; the
+  selection dragged up onto a breadcrumb with the current one refused; read-only, navigation-only and self refused
+  with nothing moved; computer files onto a folder row and a read-only one, also as a trusted drop of a file from
+  disk through Chromium's drag input), `web/test/e2e/team-files.spec.ts` (a download-only file drags as a move only).
+  Checked by hand in Electron 44 with the desktop app's web preferences and `will-navigate` rule: a selection
+  dragged onto a folder moves; a file from disk dropped on a read-only folder row, on a folder row and on the sidebar
+  uploads only on the folder row. That drag input does not take the browser's open-a-dropped-file path (a drop
+  nobody takes did not navigate in plain Chromium either), so keeping a file out of the tab rests on the cancelled
+  `dragenter` / `dragover` and on the window's `will-navigate` guard.

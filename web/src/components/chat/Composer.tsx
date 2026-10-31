@@ -378,11 +378,13 @@ export default function Composer({
   return (
     <div>
       <div
-        className={clsx('rounded-3xl border bg-surface shadow-[var(--c-shadow)] transition focus-within:border-line-strong focus-within:ring-2 focus-within:ring-accent/20', drag ? 'border-accent ring-2 ring-accent/30' : 'border-line')}
+        className={clsx('rounded-3xl border bg-surface shadow-[var(--c-shadow)] transition focus-within:border-accent focus-within:ring-1 focus-within:ring-accent', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border')}
         onDragOver={(e) => {
           const types = [...e.dataTransfer.types]
           if (!types.includes('Files') && !types.includes(TEAM_FILE_DRAG_TYPE)) return
           e.preventDefault()
+          // attached as a copy: a file-list row's drag also allows "move" (for the list's folder rows)
+          e.dataTransfer.dropEffect = 'copy'
           setDrag(true)
         }}
         onDragLeave={() => setDrag(false)}

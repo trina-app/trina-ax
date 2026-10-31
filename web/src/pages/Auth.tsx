@@ -37,7 +37,7 @@ export function LanguageSwitcher() {
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <select className="rounded border border-line bg-surface px-1.5 py-1 text-xs text-ink" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
+      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
         {LOCALES.map((l) => (
           <option key={l.id} value={l.id} lang={l.id}>
             {l.label}

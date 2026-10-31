@@ -1,9 +1,12 @@
 // Several items of the file screen at once: which rows a checkbox click selects (Shift: a range), what each action may
 // do with an item (the same rules as the row menu), and the requests one after another: move (a move that would hide
 // items from other people is asked about once for the whole batch), share by copying (one dry run per file, one
-// question), trash. No React and no API client here: the screen passes the calls in (test/unit/bulk-files.test.ts).
+// question), trash. Dragging rows onto a folder (or a breadcrumb) is that same move: what a drag takes, what it
+// carries and where it may be dropped. No React and no API client here: the screen passes the calls in
+// (test/unit/bulk-files.test.ts).
 import { ApiError, type CopyResult, type FileEntry } from '@mycel/shared/api'
-import { joinPath } from './paths'
+import { isInside, joinPath, parentPath } from './paths'
+import { TEAM_FILE_DRAG_TYPE } from './teamAttach'
 
 // ---------------- selection ----------------
 /** a navigation-only folder (access none) has no menu, so nothing to select */
@@ -149,6 +152,52 @@ export async function trashMany(items: readonly FileEntry[], o: { remove: (path:
     }
   }
   return out
+}
+
+// ---------------- drag and drop (a move) ----------------
+/** Drag type of rows dragged from the file list (their paths, JSON). Only the list's folder rows and breadcrumbs take
+ * it; a chat's message box takes TEAM_FILE_DRAG_TYPE (one file) and computer files only. */
+export const FILES_MOVE_DRAG_TYPE = 'application/x-mycel-files-move'
+
+/** a file the AI may read can also be dragged into a chat's message box (as the row menu's "add to chat") */
+export const chatDraggable = (e: FileEntry) => e.type === 'file' && e.access !== 'none' && !e.downloadOnly
+
+/** What dragging `row` takes: the whole selection (as listed) when that row is selected, else that row alone. */
+export function dragSet(listed: readonly FileEntry[], selected: ReadonlySet<string>, row: FileEntry): FileEntry[] {
+  return selected.has(row.path) ? listed.filter((e) => selected.has(e.path)) : [row]
+}
+
+/**
+ * The data a drag carries. The move type when any of `items` may be moved (the read-only ones are skipped at the drop,
+ * as the selection's "move" skips them); for a file the AI may read, also the dragged row's path for a chat's message
+ * box (that file alone, as before). null: nothing to drag.
+ */
+export function dragPayload(items: readonly FileEntry[], row: FileEntry): { data: [type: string, value: string][]; effectAllowed: 'move' | 'copy' | 'copyMove' } | null {
+  const data: [string, string][] = []
+  const move = items.some(canChange)
+  if (move) data.push([FILES_MOVE_DRAG_TYPE, JSON.stringify(items.map((e) => e.path))])
+  const chat = chatDraggable(row)
+  if (chat) data.push([TEAM_FILE_DRAG_TYPE, row.path], ['text/plain', row.path])
+  if (!data.length) return null
+  return { data, effectAllowed: move && chat ? 'copyMove' : move ? 'move' : 'copy' }
+}
+
+/** why a drop is refused (null: allowed). self: onto one of the dragged items; inside: into a dragged folder's own
+ * subfolder; readOnly: a folder the person cannot write (read-only, navigation-only); here: the folder they are in
+ * already; nothing: none of them may be moved. */
+export type DropRefusal = 'self' | 'inside' | 'readOnly' | 'here' | 'nothing'
+
+/**
+ * May `items` be dropped on the folder `target`? Its access is the person's there; null when not known yet (a
+ * breadcrumb whose access is still being asked): then the server decides, per item, as for the selection's "move".
+ */
+export function dropRefusal(items: readonly FileEntry[], target: { path: string; access: FileEntry['access'] | null }): DropRefusal | null {
+  if (!items.some(canChange)) return 'nothing'
+  if (items.some((e) => e.path === target.path)) return 'self'
+  if (items.some((e) => e.type === 'folder' && isInside(target.path, e.path))) return 'inside'
+  if (target.access !== null && target.access !== 'write') return 'readOnly'
+  if (items.some((e) => parentPath(e.path) === target.path)) return 'here'
+  return null
 }
 
 /** "a.pdf (reason), b.png (reason) and 2 more": the first few failures for a toast. */

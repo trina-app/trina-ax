@@ -201,7 +201,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           <div className="flex h-full flex-col gap-2 p-3">
             <textarea
               aria-label={t('preview.editorLabel', { name: file.name })}
-              className="min-h-0 flex-1 resize-none rounded-lg border border-line bg-surface p-3 font-mono text-[13px] leading-5 text-ink focus:border-accent focus:outline-none"
+              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-[13px] leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
               value={editing.draft}
               onChange={(e) => setEditing({ ...editing, draft: e.target.value })}
               spellCheck={false}

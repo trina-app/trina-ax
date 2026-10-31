@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { writeFileSync } from 'node:fs'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 import { formatDateTime } from '../../src/lib/format'
@@ -628,6 +629,155 @@ test('read-only items in a selection: move and trash are off and say why; share 
   await expect(page.getByTestId('bulk-move')).toBeDisabled()
   await expect(page.getByTestId('bulk-delete')).toBeDisabled()
   await expect(page.getByTestId('bulk-share')).toBeEnabled()
+})
+
+// ---------------- drag and drop onto a folder ----------------
+const grip = (page: Page, name: string) => row(page, name).locator('button[draggable="true"]')
+/** Start dragging a row by hand (the pointer then hovers what the test wants, and lets go with page.mouse.up()). */
+async function grab(page: Page, name: string) {
+  const box = (await grip(page, name).boundingBox())!
+  await page.mouse.move(box.x + 30, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 40, box.y + box.height / 2 + 6, { steps: 3 })
+}
+/** What a row's drag carries (a dragstart with a fresh DataTransfer, then dragend). */
+const dragTypes = (page: Page, name: string) =>
+  grip(page, name).evaluate((b) => {
+    const dt = new DataTransfer()
+    b.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    const types = [...dt.types]
+    b.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+    return types
+  })
+
+test('drag rows onto a folder: a selected row takes the selection, another row goes alone, a breadcrumb moves up', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await page.getByRole('button', { name: '새 폴더' }).click()
+  await page.getByLabel('폴더 이름').fill('archive')
+  await page.getByTestId('dialog-confirm').click()
+  await expect(row(page, 'archive')).toBeVisible()
+  // a file carries the move and itself for a chat's message box; a folder the move only
+  expect(await dragTypes(page, 'notes.txt')).toEqual(['application/x-mycel-files-move', 'application/x-mycel-team-file', 'text/plain'])
+  expect(await dragTypes(page, 'archive')).toEqual(['application/x-mycel-files-move'])
+
+  // two selected files, one of them dragged onto the folder: both move, with the selection's "move" toast
+  for (const name of ['notes.txt', 'data.csv']) await check(page, name).click()
+  await expect(bar(page)).toContainText('2개 선택됨')
+  const before = await moves(page)
+  await grip(page, 'notes.txt').dragTo(row(page, 'archive'))
+  await expect(page.getByText('2개를 marketing/archive(으)로 옮겼어요.')).toBeVisible()
+  expect((await moves(page)) - before).toBe(2)
+  for (const name of ['notes.txt', 'data.csv']) await expect(row(page, name)).toHaveCount(0)
+  await expect(bar(page)).toHaveCount(0)
+
+  // a row outside the selection goes alone; the selection stays as it was
+  await check(page, 'page.html').click()
+  await grip(page, 'plan.md').dragTo(row(page, 'archive'))
+  await expect(page.getByText('1개를 marketing/archive(으)로 옮겼어요.')).toBeVisible()
+  await expect(row(page, 'plan.md')).toHaveCount(0)
+  await expect(check(page, 'page.html')).toBeChecked()
+  await expect(bar(page)).toContainText('1개 선택됨')
+
+  // inside the folder: the selection dragged up onto a breadcrumb (the breadcrumbs take the selection bar's place
+  // while dragging), the item's own folder takes nothing
+  await page.goto('/files?path=marketing/archive')
+  for (const name of ['notes.txt', 'data.csv']) await check(page, name).click()
+  await grab(page, 'data.csv')
+  const crumb = (name: string) => page.getByTestId('crumb').filter({ hasText: name })
+  await expect(bar(page)).toHaveCount(0)
+  await crumb('archive').hover()
+  await expect(crumb('archive')).toHaveAttribute('data-drop', 'no')
+  await crumb('marketing').hover()
+  await expect(crumb('marketing')).toHaveAttribute('data-drop', 'ok')
+  await page.mouse.up()
+  await expect(page.getByText('2개를 marketing(으)로 옮겼어요.')).toBeVisible()
+  for (const name of ['notes.txt', 'data.csv']) await expect(row(page, name)).toHaveCount(0)
+  await expect(row(page, 'plan.md')).toBeVisible()
+  await page.goto('/files?path=marketing')
+  for (const name of ['notes.txt', 'data.csv', 'page.html', 'archive']) await expect(row(page, name)).toBeVisible()
+})
+
+test('a drop on a read-only or navigation-only folder, or on the dragged folder itself, moves nothing', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files')
+  const before = await moves(page)
+  await grab(page, 'docs')
+  // finance is read-only for Olga, secret navigation-only: refused, and the row says so
+  await row(page, 'finance').hover()
+  await expect(row(page, 'finance')).toHaveAttribute('data-drop', 'no')
+  await expect(row(page, 'finance').getByTestId('drop-hint')).toHaveText('여기에는 옮길 수 없어요')
+  await row(page, 'secret').hover()
+  await expect(row(page, 'secret')).toHaveAttribute('data-drop', 'no')
+  // the folder dragged: nothing shown; a folder Olga can write: taken
+  await row(page, 'docs').hover()
+  await expect(row(page, 'docs')).not.toHaveAttribute('data-drop')
+  await row(page, 'marketing').hover()
+  await expect(row(page, 'marketing')).toHaveAttribute('data-drop', 'ok')
+  await expect(row(page, 'marketing').getByTestId('drop-hint')).toHaveText('여기로 옮기기')
+  await row(page, 'finance').hover()
+  await page.mouse.up()
+  await expect(row(page, 'finance')).not.toHaveAttribute('data-drop')
+  await grip(page, 'docs').dragTo(row(page, 'secret'))
+  await grip(page, 'docs').dragTo(row(page, 'docs'))
+  expect(await moves(page)).toBe(before)
+  await expect(row(page, 'docs')).toBeVisible()
+  await expect(page.getByTestId('file-row').filter({ has: page.locator('[data-drop]') })).toHaveCount(0)
+})
+
+test('computer files dropped on a folder row are uploaded into that folder; a read-only folder row takes none', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files')
+  const files = await page.evaluateHandle(() => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['dropped on docs'], 'dropped.txt', { type: 'text/plain' }))
+    return dt
+  })
+  await row(page, 'finance').dispatchEvent('dragover', { dataTransfer: files })
+  await expect(row(page, 'finance')).toHaveAttribute('data-drop', 'no')
+  await expect(row(page, 'finance').getByTestId('drop-hint')).toHaveText('여기에는 올릴 수 없어요')
+  await row(page, 'docs').dispatchEvent('dragover', { dataTransfer: files })
+  await expect(row(page, 'docs')).toHaveAttribute('data-drop', 'ok')
+  await expect(row(page, 'docs').getByTestId('drop-hint')).toHaveText('여기에 올리기')
+  await row(page, 'docs').dispatchEvent('drop', { dataTransfer: files })
+  await expect(page.getByTestId('upload-list')).toContainText('docs/dropped.txt')
+  await page.goto('/files?path=docs')
+  await expect(row(page, 'dropped.txt')).toBeVisible()
+})
+
+test('a file from disk through the browser\'s own drag input: refused folder rows and the trash take nothing, a folder row uploads it', async ({ page }, info) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files')
+  await expect(row(page, 'finance')).toBeVisible()
+  // a trusted drop with a file on disk (Chromium's drag input), not a synthetic event: the folder row's own handlers
+  // decide, and nothing reaches the list's upload into this folder
+  const file = info.outputPath('from-the-computer.txt')
+  writeFileSync(file, 'from the computer')
+  const cdp = await page.context().newCDPSession(page)
+  const dropAt = async (x: number, y: number) => {
+    const data = { items: [], files: [file], dragOperationsMask: 1 | 2 | 16 }
+    for (const type of ['dragEnter', 'dragOver', 'dragOver', 'drop'] as const) await cdp.send('Input.dispatchDragEvent', { type, x, y, data })
+  }
+  const centre = async (l: ReturnType<Page['locator']>) => {
+    const b = (await l.boundingBox())!
+    return [b.x + b.width / 2, b.y + b.height / 2] as const
+  }
+  const uploads = async () => ((await (await page.request.post('/__test/log')).json()) as string[]).filter((l) => l === 'POST /api/files/upload').length
+  const before = await uploads()
+  await dropAt(...(await centre(row(page, 'finance'))))
+  await dropAt(...(await centre(row(page, 'secret'))))
+  await dropAt(...(await centre(row(page, 'docs'))))
+  await expect(page.getByTestId('upload-list')).toContainText('docs/from-the-computer.txt')
+  expect(await uploads()).toBe(before + 1)
+  await page.getByRole('tab', { name: '휴지통' }).click()
+  await dropAt(...(await centre(page.getByText(DICTS.ko['files.trashNote']))))
+  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  expect(new URL(page.url()).pathname).toBe('/files')
+  expect(await uploads()).toBe(before + 1)
 })
 
 test.describe('phone', () => {

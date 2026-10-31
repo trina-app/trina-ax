@@ -4,7 +4,9 @@
 /* dark mode follows the .dark class on <html> (lib/theme.ts: light / dark / system) */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Semantic colour tokens. Text on canvas/surface keeps ≥ 4.5:1, borders and focus rings ≥ 3:1 (WCAG 2.2 AA). */
+/* Semantic colour tokens. Text on canvas/surface keeps ≥ 4.5:1; focus rings, strong borders and the edge of a text
+   field ≥ 3:1 (WCAG 2.2 AA, 1.4.11). --c-line is for cards and dividers (decoration, softer); --c-field-border is the
+   edge of inputs, selects and text areas, ≥ 3:1 against canvas, surface and subtle (test/unit/field-contrast.test.ts). */
 :root {
   --c-canvas: #faf9f6;
   --c-surface: #ffffff;
@@ -12,6 +14,7 @@
   --c-hover: #ebe8e1;
   --c-line: #e2ded5;
   --c-line-strong: #8f887c;
+  --c-field-border: #8b8478;
   --c-ink: #1f1d1a;
   --c-muted: #57524a;
   --c-faint: #6e685e;
@@ -38,6 +41,7 @@
   --c-hover: #34322e;
   --c-line: #3b3934;
   --c-line-strong: #8a8478;
+  --c-field-border: #7b766b;
   --c-ink: #ece9e3;
   --c-muted: #c2bcb1;
   --c-faint: #a39d92;
@@ -67,6 +71,7 @@
   --color-hover: var(--c-hover);
   --color-line: var(--c-line);
   --color-line-strong: var(--c-line-strong);
+  --color-field-border: var(--c-field-border);
   --color-ink: var(--c-ink);
   --color-muted: var(--c-muted);
   --color-faint: var(--c-faint);

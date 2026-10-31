@@ -3,18 +3,20 @@
 // history with restore, conflict copies marked, "start a chat with this file". Refreshes on files.changed.
 // Several items at once: a checkbox per row (Shift+click: a range; the header one: every row listed; Esc: none), then
 // move / share / trash for all of them from the bar that replaces the breadcrumbs (lib/bulkFiles.ts).
+// Drag and drop, like a file manager: a row dragged onto a folder row or a breadcrumb moves there (the selection when
+// that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
+// uploaded into it. The "move" action stays the keyboard way to do the same.
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, clickSelect, failureList, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
-import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile, type UploadProgress } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
@@ -41,6 +43,26 @@ interface UploadItem {
 }
 
 let uploadSeq = 0
+
+/** The folder (row or breadcrumb) under a drag: what a drop there would do, or why it would not. busy: a move is
+ * still running. */
+interface DropOver {
+  path: string
+  kind: 'move' | 'upload'
+  refusal: DropRefusal | 'busy' | null
+}
+type DropHandlers = Pick<React.DOMAttributes<HTMLElement>, 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop'>
+
+/** The picture under the pointer while several rows are dragged ("4 items"), instead of the one row grabbed. */
+function dragBadge(dt: DataTransfer, text: string) {
+  const el = document.createElement('div')
+  el.textContent = text
+  el.className = 'fixed top-0 -left-[9999px] rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink shadow-lg'
+  document.body.append(el)
+  dt.setDragImage(el, -12, -12)
+  // the browser took its picture when dragstart returned
+  setTimeout(() => el.remove(), 0)
+}
 
 export default function Files() {
   const t = useT()
@@ -87,6 +109,13 @@ export default function Files() {
   const [bulkPick, setBulkPick] = useState<'move' | 'share' | null>(null)
   const [running, setRunning] = useState<'move' | 'share' | 'delete' | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
+  // dragging rows onto a folder: the rows of the drag under way (null: none, or a drag from elsewhere: another tab's
+  // rows are not this listing's), the same paths for drawing (set a tick after the drag starts), the folder under the
+  // pointer, and the access of the breadcrumbs' folders (asked when a drag starts; unknown: the server decides)
+  const dragged = useRef<{ items: FileEntry[]; selection: boolean } | null>(null)
+  const [dragPaths, setDragPaths] = useState<ReadonlySet<string> | null>(null)
+  const [over, setOver] = useState<DropOver | null>(null)
+  const crumbAccess = useRef(new Map<string, FileEntry['access']>())
 
   const go = useCallback((p: string, sel?: string) => setParams(sel ? { path: p, select: sel } : p ? { path: p } : {}), [setParams])
 
@@ -212,8 +241,9 @@ export default function Files() {
   }, [anyChecked])
 
   /** One toast for a batch: what was done, what was skipped, the first few failures. What failed or what the person
-   * said no to stays selected, to try again or take elsewhere. */
-  const reportBatch = (r: Outcome, words: { done: (n: number) => string; failed: (n: number, list: string) => string; skipped?: string | null; okLevel?: 'success' | 'info' }, action?: { label: string; run: () => void }) => {
+   * said no to stays selected, to try again or take elsewhere (`select` false: a row dragged on its own, outside the
+   * selection, which stays as it was). */
+  const reportBatch = (r: Outcome, words: { done: (n: number) => string; failed: (n: number, list: string) => string; skipped?: string | null; okLevel?: 'success' | 'info' }, action?: { label: string; run: () => void }, select = true) => {
     if (r.done.length || r.failed.length) {
       const parts = [r.done.length ? words.done(r.done.length) : null, words.skipped ?? null, r.failed.length ? words.failed(r.failed.length, failureList(r.failed, errText, (n) => t('files.bulk.more', { n }))) : null]
       toast({
@@ -222,29 +252,43 @@ export default function Files() {
         action: r.done.length ? action : undefined,
       })
     }
+    if (!select) return
     setChecked(new Set([...r.failed.map((f) => f.entry.path), ...r.declined.map((e) => e.path)]))
     anchor.current = null
   }
 
-  /** Move the selection: one folder for all; one question when some of them would be hidden from other people. */
-  const bulkMove = async (folder: string) => {
-    setBulkPick(null)
-    const skipped = chosen.length - movable.length
+  /** Move items into one folder: the selection's "move", and rows dropped on a folder or a breadcrumb. Only those the
+   * person may change (the rest are skipped and counted); one question when some of them would be hidden from other
+   * people; one toast. `select`: as reportBatch. */
+  const moveItems = async (items: readonly FileEntry[], folder: string, select = true) => {
+    const ok = items.filter(canChange)
+    const skipped = items.length - ok.length
     setRunning('move')
     try {
-      const r = await moveMany(movable, folder, {
+      const r = await moveMany(ok, folder, {
         move: (body) => api.call(API.move, { body }),
         confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
       })
-      reportBatch(r, {
-        done: (n) => t('files.bulk.moved', { n, path: folder || t('files.root') }),
-        failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
-        skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
-      })
+      reportBatch(
+        r,
+        {
+          done: (n) => t('files.bulk.moved', { n, path: folder || t('files.root') }),
+          failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
+          skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
+        },
+        undefined,
+        select,
+      )
     } finally {
       setRunning(null)
       void load()
     }
+  }
+
+  /** Move the selection: one folder for all. */
+  const bulkMove = (folder: string) => {
+    setBulkPick(null)
+    return moveItems(chosen, folder)
   }
 
   /** Share the selected files by copying them into one team folder; one question about who else will see them. */
@@ -293,13 +337,14 @@ export default function Files() {
     }
   }
 
-  const startUploads = (list: File[]) => {
+  /** Upload into this folder, or into `into` (a folder row the files were dropped on; the person may write there). */
+  const startUploads = (list: File[], into?: string) => {
     if (!list.length) return
     // only a folder known to be read-only refuses here; while its listing is still loading (a file dropped or picked
     // right after opening the folder) the server decides, and a refusal shows on the upload row. Refusing then said
     // "read-only folder" for a folder the person can write and dropped the file (e2e mobile upload on a slow server).
-    if (tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
-    const folder = path
+    if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
+    const folder = into ?? path
     for (const file of list) {
       const item: UploadItem = { id: ++uploadSeq, name: file.name, folder, progress: null, status: 'uploading', abort: new AbortController() }
       setUploads((u) => [...u, item])
@@ -410,22 +455,125 @@ export default function Files() {
   const chatWith = (e: FileEntry) => (e.type === 'file' ? chatAttach.askAi([e.path]) : navigate(`/?prompt=${encodeURIComponent(t('files.chatPrompt', { path: e.path }))}`))
   const addToChat = (e: FileEntry) => chatAttach.addToChat([e.path])
 
+  // ---------------- drag and drop ----------------
+  /** A row grabbed: the selection when that row is selected, else the row alone (lib/bulkFiles.ts dragSet). */
+  const startDrag = (row: FileEntry, ev: React.DragEvent) => {
+    const items = dragSet(tree?.entries ?? [], checked, row)
+    const payload = dragPayload(items, row)
+    if (!payload) return ev.preventDefault()
+    for (const [type, value] of payload.data) ev.dataTransfer.setData(type, value)
+    ev.dataTransfer.effectAllowed = payload.effectAllowed
+    // a file the person may only read: into a chat's message box only
+    if (!payload.data.some(([type]) => type === FILES_MOVE_DRAG_TYPE)) return
+    const drag = { items, selection: checked.has(row.path) }
+    dragged.current = drag
+    if (items.length > 1) dragBadge(ev.dataTransfer, t('files.drag.count', { n: items.length }))
+    // a tick later (the DOM changed during dragstart can end the drag in Chromium): the dragged rows dim and the
+    // breadcrumbs come back in place of the selection bar, to take a drop too
+    setTimeout(() => dragged.current === drag && setDragPaths(new Set(items.map((e) => e.path))), 0)
+    // the breadcrumbs' folders: whether the person may write there (one small listing each, once per folder shown)
+    const ancestors = path ? ['', ...crumbs(path).slice(0, -1).map((c) => c.path)] : []
+    for (const p of ancestors) {
+      if (crumbAccess.current.has(p)) continue
+      api.call(API.tree, { query: { path: p, limit: 1 } }).then((r) => crumbAccess.current.set(p, r.access), () => {})
+    }
+  }
+  const endDrag = () => {
+    dragged.current = null
+    setDragPaths(null)
+    setOver(null)
+  }
+  // another folder: the breadcrumbs are other folders (and access may have changed since)
+  useEffect(() => {
+    crumbAccess.current.clear()
+  }, [path])
+  // a drag whose row left the list before it ended (the listing changed under it) sends no dragend here: the next
+  // pointer move with no button down ends it (no pointer events reach the page while a drag is under way)
+  const dragging = dragPaths !== null
+  useEffect(() => {
+    if (!dragging) return
+    const h = (ev: PointerEvent) => ev.buttons === 0 && endDrag()
+    window.addEventListener('pointermove', h)
+    return () => window.removeEventListener('pointermove', h)
+  }, [dragging])
+
+  /**
+   * A folder row or a breadcrumb as a drop target. It takes rows dragged from this list (moved there, as the
+   * selection's "move") and, on a folder row (`upload`), files from the computer (uploaded there). Anything else (a
+   * file dragged from a chat or the preview, another tab's rows) is not taken here.
+   */
+  const dropTarget = (target: { path: string; access: FileEntry['access'] | null }, upload: boolean): DropHandlers => {
+    const judge = (dt: DataTransfer): DropOver | null => {
+      const types = [...dt.types]
+      if (types.includes(FILES_MOVE_DRAG_TYPE)) {
+        const d = dragged.current
+        if (!d) return null
+        return { path: target.path, kind: 'move', refusal: running ? 'busy' : dropRefusal(d.items, target) }
+      }
+      if (upload && types.includes('Files')) return { path: target.path, kind: 'upload', refusal: target.access === 'write' ? null : 'readOnly' }
+      return null
+    }
+    // dragenter too: on entering an element the browser decides from it (dragover only follows with the next move)
+    const enterOrOver = (ev: React.DragEvent) => {
+      const v = judge(ev.dataTransfer)
+      if (!v) return
+      // taken here even when refused ("none"): a refused folder must not pass the drop on to the list (an upload into
+      // this folder) or to the browser, which opens a dropped file in place of the app
+      ev.preventDefault()
+      ev.stopPropagation()
+      ev.dataTransfer.dropEffect = v.refusal ? 'none' : v.kind === 'move' ? 'move' : 'copy'
+      setOver((cur) => (cur && cur.path === v.path && cur.kind === v.kind && cur.refusal === v.refusal ? cur : v))
+    }
+    return {
+      onDragEnter: enterOrOver,
+      onDragOver: enterOrOver,
+      onDragLeave: (ev) => {
+        if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return
+        setOver((cur) => (cur?.path === target.path ? null : cur))
+        // the drag ended over a refused folder (or left the window): the list's upload frame goes too
+        if (!ev.relatedTarget) setDrag(false)
+      },
+      onDrop: (ev) => {
+        const v = judge(ev.dataTransfer)
+        if (!v) return
+        ev.preventDefault()
+        ev.stopPropagation()
+        setOver(null)
+        setDrag(false)
+        if (v.refusal) return
+        if (v.kind === 'upload') return startUploads(Array.from(ev.dataTransfer.files), target.path)
+        const d = dragged.current
+        endDrag()
+        if (d) void moveItems(d.items, target.path, d.selection)
+      },
+    }
+  }
+  /** a breadcrumb's folder: this one's access is known; the folders above it once asked (startDrag) */
+  const crumbTarget = (p: string) => dropTarget({ path: p, access: p === path ? tree?.access ?? null : crumbAccess.current.get(p) ?? null }, false)
+  const crumbDrop = (p: string) => (over?.path === p && over.kind === 'move' ? (over.refusal ? 'no' : 'ok') : undefined)
+  const selectionMovable = movable.length > 0
+
   return (
     <div
       className="flex h-full flex-col"
       onDragOver={(e) => {
-        if (view !== 'files' || ![...e.dataTransfer.types].includes('Files')) return
+        if (![...e.dataTransfer.types].includes('Files')) return
         e.preventDefault()
+        // the trash takes no files: "none", not passed on to the browser (which opens a dropped file in the tab)
+        if (view !== 'files') {
+          e.dataTransfer.dropEffect = 'none'
+          return
+        }
         setDrag(true)
       }}
       onDragLeave={(e) => {
-        if (e.currentTarget === e.target) setDrag(false)
+        if (e.currentTarget === e.target || !e.relatedTarget) setDrag(false)
       }}
       onDrop={(e) => {
         if (!e.dataTransfer.files.length) return
         e.preventDefault()
         setDrag(false)
-        startUploads(Array.from(e.dataTransfer.files))
+        if (view === 'files') startUploads(Array.from(e.dataTransfer.files))
       }}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
@@ -433,7 +581,7 @@ export default function Files() {
         <Tabs value={view} onChange={setView} label={t('files.title')} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
         {view === 'files' && (
           <div className="ml-auto flex items-center gap-1">
-            <label className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface px-2 focus-within:ring-2 focus-within:ring-accent">
+            <label className="flex h-8 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
               <Search size={14} className="shrink-0 text-faint" aria-hidden />
               <span className="sr-only">{t('files.search.label')}</span>
               <input
@@ -485,7 +633,8 @@ export default function Files() {
         <TrashView />
       ) : (
         <>
-          {anyChecked ? (
+          {/* while rows are dragged the breadcrumbs come back: a drop there moves them up */}
+          {anyChecked && !dragging ? (
             <BulkBar
               count={chosen.length}
               readOnly={chosen.length - movable.length}
@@ -499,13 +648,13 @@ export default function Files() {
             />
           ) : (
             <nav aria-label={t('files.breadcrumb')} className="flex flex-wrap items-center gap-1 px-4 py-2 text-sm sm:px-6">
-              <button type="button" className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => go('')}>
+              <button type="button" className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop('') === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go('')} {...crumbTarget('')} data-drop={crumbDrop('')} data-testid="crumb">
                 <Home size={14} aria-hidden /> {t('files.root')}
               </button>
               {crumbs(path).map((c) => (
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
-                  <button type="button" className="rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined}>
+                  <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
                     {c.name}
                   </button>
                 </span>
@@ -518,8 +667,9 @@ export default function Files() {
             </nav>
           )}
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
-          {uploads.length > 0 && <UploadList items={uploads} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
-          <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
+          {uploads.length > 0 && <UploadList items={uploads} here={path} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
+          {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
+          <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (
               <FileContentResults q={q} path={path} folderLabel={path || t('files.root')} />
             ) : (
@@ -573,6 +723,12 @@ export default function Files() {
                           selected={select === e.name}
                           checked={checked.has(e.path)}
                           onCheck={(shift) => check(e.path, shift)}
+                          draggable={canChange(e) || chatDraggable(e) || (checked.has(e.path) && selectionMovable)}
+                          onDragStart={(ev) => startDrag(e, ev)}
+                          onDragEnd={endDrag}
+                          dragged={dragPaths?.has(e.path) ?? false}
+                          dropTarget={e.type === 'folder' ? dropTarget(e, true) : null}
+                          drop={over?.path === e.path ? over : null}
                           // A file without a viewer opens the panel too: it shows the "can't be previewed" notice and a download button.
                           onOpen={() => (e.type === 'folder' ? go(e.path) : openTeamFile(e.path))}
                           onChat={() => chatWith(e)}
@@ -686,7 +842,7 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
   )
 }
 
-function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, onSuggest }: { e: FileEntry; selected: boolean; checked: boolean; onCheck: (shift: boolean) => void; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; onSuggest: (() => void) | null }) {
+function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, onSuggest }: { e: FileEntry; selected: boolean; checked: boolean; onCheck: (shift: boolean) => void; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -710,8 +866,18 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
   // a download-only (quarantined) file: the AI cannot read it, so "Ask AI" and "add to chat" could only fail; they stay
   // in the menu, turned off, with the reason (like the file panel)
   const aiOff = !folder && !!e.downloadOnly
+  // a drag over this folder: taken (moved or uploaded here) or refused with the reason; nothing over the dragged
+  // folder itself or while a move is still running
+  const dropOk = !!drop && !drop.refusal
+  const dropNo = !!drop && !!drop.refusal && drop.refusal !== 'self' && drop.refusal !== 'busy'
   return (
-    <tr ref={ref} className={clsx('group border-b border-line last:border-0', (selected || checked) && 'bg-accent-soft/60', dim && 'text-muted')} data-testid="file-row">
+    <tr
+      ref={ref}
+      className={clsx('group border-b border-line last:border-0', dropOk ? 'bg-accent-soft outline-2 -outline-offset-2 outline-accent' : (selected || checked) && 'bg-accent-soft/60', dim && 'text-muted', dragged && 'opacity-50')}
+      {...dropTarget}
+      data-drop={dropOk ? 'ok' : dropNo ? 'no' : undefined}
+      data-testid="file-row"
+    >
       <td className="w-0 py-1 pr-0 pl-1">
         <CheckBox checked={checked} disabled={dim} label={t('files.select', { name: e.name })} title={dim ? t('files.navigationOnly') : undefined} onCheck={onCheck} testId="file-check" />
       </td>
@@ -723,14 +889,11 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
           onClick={onOpen}
           className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline"
           title={dim ? t('files.navigationOnly') : undefined}
-          // a file can be dragged into a chat's message box (attached as a team file)
-          draggable={!folder && !aiOff}
-          onDragStart={(ev) => {
-            if (folder || aiOff) return
-            ev.dataTransfer.setData(TEAM_FILE_DRAG_TYPE, e.path)
-            ev.dataTransfer.setData('text/plain', e.path)
-            ev.dataTransfer.effectAllowed = 'copy'
-          }}
+          // dragged onto a folder row or a breadcrumb: moved there (with the selection when this row is selected); a
+          // file the AI may read can also be dragged into a chat's message box (attached as a team file)
+          draggable={draggable}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
         >
           <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           <span className="min-w-0 truncate" title={e.name}>
@@ -740,6 +903,18 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
           {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}
+          {/* only while something is dragged over it (the pointer's job; the toast says what happened) */}
+          {(dropOk || dropNo) && (
+            <span className="ml-auto shrink-0" aria-hidden data-testid="drop-hint">
+              {dropOk ? (
+                <Badge tone="accent">{t(drop!.kind === 'upload' ? 'files.drop.uploadHere' : 'files.moveHere')}</Badge>
+              ) : (
+                <Badge tone="warn">
+                  <Lock size={11} aria-hidden /> {t(drop!.kind === 'upload' ? 'files.drop.cannotUpload' : 'files.drop.cannot')}
+                </Badge>
+              )}
+            </span>
+          )}
         </button>
       </td>
       <td className="hidden px-2 py-1.5 text-xs whitespace-nowrap text-muted sm:table-cell">{formatDateTime(e.mtime, locale)}</td>
@@ -804,7 +979,7 @@ function FileRow({ e, selected, checked, onCheck, onOpen, onChat, onAddToChat, c
   )
 }
 
-function UploadList({ items, onDismiss }: { items: UploadItem[]; onDismiss: (id: number) => void }) {
+function UploadList({ items, here, onDismiss }: { items: UploadItem[]; here: string; onDismiss: (id: number) => void }) {
   const t = useT()
   const locale = useLocale()
   return (
@@ -814,7 +989,11 @@ function UploadList({ items, onDismiss }: { items: UploadItem[]; onDismiss: (id:
         return (
           <li key={u.id} className="flex items-center gap-2 text-xs">
             {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok">✓</span> : <span className="text-danger">!</span>}
-            <span className="min-w-0 flex-1 truncate">{u.name}</span>
+            <span className="min-w-0 flex-1 truncate">
+              {/* dropped on a folder row: where it goes */}
+              {u.folder !== here && <span className="text-faint">{baseName(u.folder) || t('files.root')}/</span>}
+              {u.name}
+            </span>
             {u.status === 'uploading' && (
               <span className="shrink-0 text-faint">
                 {u.progress?.phase === 'hashing' ? t('files.preparing') : u.progress?.phase === 'finishing' ? t('files.finishing') : `${pct}%`}

@@ -40,7 +40,7 @@ export function IconButton({ label, className, children, ...props }: ButtonHTMLA
 }
 
 export const inputCls =
-  'h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-line-strong focus:ring-2 focus:ring-accent/25 disabled:opacity-60 max-sm:min-h-10'
+  'h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-sm:min-h-10'
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. */
