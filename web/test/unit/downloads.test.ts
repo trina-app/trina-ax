@@ -1,10 +1,19 @@
-// Settings → Apps: which desktop installers are shown, in which order, and the install steps under each.
-import { describe, expect, test } from 'bun:test'
+// Settings → Apps: which desktop installers are shown (none for the Mac inside a Mac App Store build), in which order,
+// and the install steps under each.
+import { afterEach, describe, expect, test } from 'bun:test'
+import { DESKTOP_BRIDGE_GLOBAL, type DesktopBridge } from '@mycel/shared'
 import { DICTS } from '../../src/i18n'
-import { archNote, installSteps, orderDownloads, parseDownloads, showSteps } from '../../src/lib/downloads'
+import { storeApp } from '../../src/lib/desktop'
+import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps } from '../../src/lib/downloads'
 
 const win = { platform: 'windows' as const, file: 'Team-AX-Setup-0.1.0-x64.exe', version: '0.1.0', size: 114304798, signed: false }
 const mac = { platform: 'mac' as const, file: 'Team-AX-0.1.0-mac-universal.dmg', version: '0.1.0', signed: false }
+/** the desktop bridge as far as the store flag goes; without `store` = a desktop app from before the flag */
+const bridge = (o: { store?: boolean } = {}) => ({ bridgeVersion: 1, appVersion: '0.2.14', platform: 'darwin', ...o }) as unknown as DesktopBridge
+
+afterEach(() => {
+  delete (globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL]
+})
 
 describe('desktop downloads', () => {
   test('index.json: only well-formed items', () => {
@@ -46,6 +55,29 @@ describe('desktop downloads', () => {
       expect(DICTS[l]['apps.noDownloadsYet']).not.toMatch(/팀장|owner/i)
       expect(DICTS[l]['apps.noDownloadsOwner']).toContain('office-install.sh')
       expect(DICTS[l]['apps.noDownloadsOwner']).toContain('teamax desktop add')
+    }
+  })
+
+  test('inside a Mac App Store build: no Mac installer (the store updates the app), the Windows ones stay', () => {
+    expect(offeredDownloads([win, mac], true)).toEqual([win])
+    expect(offeredDownloads([mac], true)).toEqual([])
+    expect(offeredDownloads([win, mac], false)).toEqual([win, mac])
+  })
+  test('a store build is what the desktop bridge says; a web browser or an older desktop app (no flag) is not one', () => {
+    expect(storeApp()).toBe(false)
+    expect(storeApp(null)).toBe(false)
+    expect(storeApp(bridge())).toBe(false)
+    expect(storeApp(bridge({ store: false }))).toBe(false)
+    expect(storeApp(bridge({ store: true }))).toBe(true)
+    ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = bridge({ store: true })
+    expect(storeApp()).toBe(true)
+    ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = bridge()
+    expect(storeApp()).toBe(false)
+  })
+  test('the line shown instead names the App Store, in every language, and no .dmg', () => {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(DICTS[l]['apps.macStore']).toContain('App Store')
+      expect(DICTS[l]['apps.macStore']).not.toContain('.dmg')
     }
   })
 })

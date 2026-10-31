@@ -817,6 +817,7 @@ export const es: Record<MessageKey, string> = {
   'apps.winSmartScreen': "Si aparece una ventana azul con \"Windows protegió su PC\", haga clic en Más información → Ejecutar de todas formas. Esta compilación no tiene una firma verificada, por lo que Windows muestra una advertencia una vez.",
   'apps.macHow': "Abra el .dmg descargado, arrastre {product} a la carpeta Aplicaciones y abra {product} desde allí.",
   'apps.macGatekeeper': "Si macOS indica que no puede abrir la aplicación, haga clic en Listo, vaya a Ajustes del Sistema → Privacidad y seguridad, haga clic en Abrir igualmente cerca del final y confirme de nuevo.",
+  'apps.macStore': "Esta aplicación se instaló desde el Mac App Store y se actualiza allí.",
   'admin.title': "Administración",
   'admin.desc': "Miembros, permisos, motores de IA y el servidor. Los administradores tampoco pueden ver los chats ni las memorias de otras personas.",
   'admin.members': "Miembros e invitaciones",

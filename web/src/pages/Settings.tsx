@@ -1,6 +1,7 @@
 // Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
 // app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
-// screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download),
+// screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, no Mac installer inside a
+// Mac App Store build),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
 // connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
 // member's own accounts (Integrations.tsx).
@@ -11,7 +12,7 @@ import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
-import { archNote, installSteps, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
+import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { installGuideShown, platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged, schedulesChanged } from '../store/live'
@@ -23,7 +24,7 @@ import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { settingsTabs } from './settingsTabs'
-import { browserSettingsBridge } from '../lib/desktop'
+import { browserSettingsBridge, storeApp } from '../lib/desktop'
 import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
@@ -514,12 +515,14 @@ function Apps() {
   const locale = useLocale()
   const p = platform()
   const me = useMeStrict()
+  // a Mac App Store build: the store updates it, so no Mac installer here (lib/downloads.ts offeredDownloads)
+  const store = storeApp()
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
     let live = true
     // signed-in people only (the session cookie goes along); a server with no installers answers 404
     fetch('/downloads/index.json', { credentials: 'same-origin', cache: 'no-cache' })
-      .then(async (r) => (r.ok ? parseDownloads(await r.json()) : []))
+      .then(async (r) => (r.ok ? offeredDownloads(parseDownloads(await r.json()), store) : []))
       .then((d) => live && setDownloads(d.length ? orderDownloads(d, p) : 'none'), () => live && setDownloads('none'))
     return () => {
       live = false
@@ -534,8 +537,10 @@ function Apps() {
         </Section>
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
+        {store && <p className={clsx('text-sm text-muted', downloads !== 'none' && 'mb-3')}>{t('apps.macStore')}</p>}
         {downloads === null && <Skeleton lines={2} />}
-        {downloads === 'none' && (
+        {/* the empty state asks for an installer (and tells the owner how to add the .dmg): not inside the store app */}
+        {downloads === 'none' && !store && (
           <>
             <p className="text-sm text-muted">{t(me.user.role === 'owner' ? 'apps.noDownloadsYet' : 'apps.noDownloads')}</p>
             {me.user.role === 'owner' && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}

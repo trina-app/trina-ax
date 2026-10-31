@@ -841,6 +841,7 @@ export const ko = {
   'apps.winSmartScreen': '"Windows의 PC 보호" 파란 창이 나오면 추가 정보 → 실행을 누르세요. 서명 확인이 안 된 빌드라 처음 한 번 나오는 경고예요.',
   'apps.macHow': '내려받은 .dmg를 열고 {product} 앱을 응용 프로그램 폴더로 끌어 놓은 뒤, 응용 프로그램에서 {product} 앱을 여세요.',
   'apps.macGatekeeper': '"열 수 없습니다" 경고가 나오면 완료를 누르고 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 그래도 열기를 누른 뒤, 한 번 더 그래도 열기를 누르세요.',
+  'apps.macStore': '이 앱은 Mac App Store에서 설치했어요. 업데이트도 App Store에서 받아요.',
 
   'admin.title': '관리자',
   'admin.desc': '팀원, 권한, AI 엔진, 서버 상태를 관리해요. 관리자도 다른 사람의 대화와 메모리는 볼 수 없어요.',

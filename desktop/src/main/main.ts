@@ -192,9 +192,9 @@ function registerIpc() {
   ipcMain.on('ui:pane-site-remove', (e, host: string) => fromChrome(e) && win!.pane?.revokeSite(String(host)))
   ipcMain.on('ui:pane-sites-clear', (e) => fromChrome(e) && win!.pane?.revokeAllSites())
 
-  // team page bridge (shared/src/desktop-bridge.ts)
+  // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store build, where Settings > Apps offers no Mac installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: process.mas === true } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)

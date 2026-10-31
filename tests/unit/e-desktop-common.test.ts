@@ -1,6 +1,6 @@
 // Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
-// policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the Settings >
-// Browser channels and the UI strings (desktop/src/common/*).
+// policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the bridge's store
+// flag, the Settings > Browser channels and the UI strings (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -333,6 +333,16 @@ describe('bridge senders', () => {
     expect(isOwnUiUrl(`${UI_ORIGIN}/welcome.html`)).toBe(true)
     expect(isOwnUiUrl('https://app/welcome.html')).toBe(false)
     expect(isOwnUiUrl(`${UI_ORIGIN.replace('app', 'evil')}/x`)).toBe(false)
+  })
+
+  test('the team page hears whether this is a Mac App Store build (store: Settings > Apps then offers no Mac installer)', () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const info = main.slice(main.indexOf("ipcMain.on('bridge:info'"), main.indexOf("ipcMain.handle('bridge:browser-run'"))
+    expect(info).toContain('fromApp(e) ?')
+    expect(info).toContain('store: process.mas === true')
+    // always a boolean on the page; a team page from before the flag ignores it, a newer page reads a missing one as false
+    const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
+    expect(preload).toContain('store: info?.store === true')
   })
 })
 

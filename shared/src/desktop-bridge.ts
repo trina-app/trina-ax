@@ -83,6 +83,10 @@ export interface DesktopBridge {
   /** desktop app (shell) version, e.g. "0.1.0" */
   appVersion: string
   platform: 'darwin' | 'win32' | 'linux'
+  /** true in a Mac App Store build (Electron's process.mas): the store updates it, so the page offers no Mac installer
+   * (App Review Guideline 2.4.5: no installs or updates from outside the store). Optional: desktop apps before this
+   * addition do not have it, and none of them came from the store. */
+  store?: boolean
   browser: {
     /** Run one browser.call. Same callId twice returns the first result (never runs twice). */
     run(call: BrowserCall): Promise<BrowserResult>

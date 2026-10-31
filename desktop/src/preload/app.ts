@@ -7,7 +7,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { DesktopBridge } from '@mycel/shared'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform'] } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -21,6 +21,7 @@ const bridge: DesktopBridge = {
   bridgeVersion: info?.bridgeVersion ?? 0,
   appVersion: info?.appVersion ?? '0.0.0',
   platform: info?.platform ?? 'darwin',
+  store: info?.store === true,
   browser: {
     run: (call) => ipcRenderer.invoke('bridge:browser-run', call),
     cancel: (callId) => ipcRenderer.send('bridge:browser-cancel', String(callId)),

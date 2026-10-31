@@ -842,6 +842,7 @@ export const en: Record<MessageKey, string> = {
   'apps.winSmartScreen': 'If a blue "Windows protected your PC" window appears, click More info → Run anyway. This build has no verified signature, so Windows warns once.',
   'apps.macHow': 'Open the downloaded .dmg, drag {product} into the Applications folder, then open {product} from Applications.',
   'apps.macGatekeeper': 'If macOS says it cannot open the app, click Done, go to System Settings → Privacy & Security, click Open Anyway near the bottom, then Open Anyway once more.',
+  'apps.macStore': 'This app is from the Mac App Store. It updates there.',
 
   'admin.title': 'Admin',
   'admin.desc': "Members, permissions, AI engines and the server. Admins can't see other people's chats or memories either.",

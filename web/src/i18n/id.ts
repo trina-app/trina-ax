@@ -842,6 +842,7 @@ export const id: Record<MessageKey, string> = {
   'apps.winSmartScreen': 'Kalau muncul jendela biru "Windows protected your PC", klik Info selengkapnya → Tetap jalankan. Build ini belum punya tanda tangan yang terverifikasi, jadi Windows memperingatkan sekali.',
   'apps.macHow': 'Buka file .dmg yang diunduh, seret {product} ke folder Applications, lalu buka {product} dari Applications.',
   'apps.macGatekeeper': 'Kalau macOS bilang aplikasi tidak bisa dibuka, klik Selesai, buka Pengaturan Sistem → Privasi & Keamanan, klik Tetap Buka di bagian bawah, lalu Tetap Buka sekali lagi.',
+  'apps.macStore': 'Aplikasi ini dari Mac App Store. Pembaruannya juga lewat App Store.',
 
   'admin.title': 'Admin',
   'admin.desc': 'Anggota, izin, mesin AI, dan server. Admin pun tidak bisa melihat chat atau memori orang lain.',

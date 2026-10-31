@@ -1,5 +1,5 @@
 // Desktop app updates (docs/OFFICE.md "자동 업데이트"), the parts without Electron (unit-tested in
-// tests/unit/e-desktop-update.test.ts).
+// tests/unit/office-update.test.ts, "desktop updater configuration").
 //
 // Windows: electron-updater with the generic provider pointed at the open team's own address + /downloads/ (the
 // office's Mac puts the installer and its latest.yml there, server/src/office/update.ts), with the team session as a
@@ -9,7 +9,8 @@
 // macOS: no automatic install (that needs an Apple-signed app); /downloads/index.json is read with the team page's
 // own cookies and a newer Mac item is announced once per version, with a link to Settings > Apps.
 // Mac App Store build (process.mas): nothing; the store updates it, and the store does not allow pointing to another
-// download (editions/trina/mac-app-store).
+// download (editions/trina/mac-app-store). Settings > Apps of such a build lists no Mac installer either (the bridge's
+// store flag, web/src/lib/downloads.ts offeredDownloads).
 export const FIRST_CHECK_MS = 20_000
 export const CHECK_EVERY_MS = 4 * 3600_000
 

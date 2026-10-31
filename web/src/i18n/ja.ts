@@ -817,6 +817,7 @@ export const ja: Record<MessageKey, string> = {
   'apps.winSmartScreen': "青い「WindowsによってPCが保護されました」画面が表示された場合は、「詳細情報」→「実行」をクリックしてください。このビルドには検証済みの署名がないため、Windowsが一度警告します。",
   'apps.macHow': "ダウンロードした.dmgを開き、{product}を「アプリケーション」フォルダーにドラッグしてから、「アプリケーション」で{product}を開いてください。",
   'apps.macGatekeeper': "macOSがアプリを開けないと表示した場合は、「完了」をクリックし、「システム設定」→「プライバシーとセキュリティ」の下部にある「このまま開く」をクリックして、もう一度「このまま開く」を選んでください。",
+  'apps.macStore': "このアプリはMac App Storeからインストールされています。アップデートもApp Storeで行われます。",
   'admin.title': "管理",
   'admin.desc': "メンバー、権限、AIエンジン、サーバーの管理です。管理者も他人のチャットやメモリは閲覧できません。",
   'admin.members': "メンバーと招待",
