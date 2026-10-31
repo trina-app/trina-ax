@@ -30,6 +30,7 @@ import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
 import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
 import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
+import { PRUNE_TEXT } from '../../server/src/system/prune'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const HANGUL = /[ㄱ-ㆎ가-힣]/
@@ -75,6 +76,7 @@ describe('server and relay texts', () => {
     checkTable('safe operations', SAFE_OPS_TEXT, 9)
     checkTable('images and PDF pages for the AI', VISION_TEXT, 9)
     checkTable('transcription', TRANSCRIBE_TEXT, 3)
+    checkTable('kept versions', PRUNE_TEXT, 3)
     checkTable('one-liners', { INTERRUPTED, ARCHIVE_DIR, CONFLICT_COPY, RESTORED }, 4)
     // export headings: a table per language
     checkTable('export words', Object.fromEntries(Object.keys(MD_WORDS.en).map((k) => [k, Object.fromEntries(Object.entries(MD_WORDS).map(([l, w]) => [l, (w as Record<string, string>)[k]]))])), 2)
@@ -128,6 +130,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/relay-client/index.ts': { why: 'relay notices (ko next to en/id/ja/es)' },
   'server/src/routes/system.ts': { why: 'system screen texts (ko next to en/id/ja/es)' },
   'server/src/system/export.ts': { why: 'export headings (ko next to en/id/ja/es)' },
+  'server/src/system/prune.ts': { why: 'the kept-versions line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },

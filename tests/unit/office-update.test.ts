@@ -311,6 +311,15 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(r.message).toMatch(/installer exited 3/)
     expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.2.0')
     expect(fs.existsSync(path.join(home, 'app.failed'))).toBe(false)
+    // the failed release's zip and bundle stay for a retry; the next release that fails too replaces them
+    const ls = (d: string) => fs.readdirSync(path.join(home, 'update', d)).sort()
+    expect(ls('staging')).toEqual(['0.3.0'])
+    expect(ls('download')).toHaveLength(1)
+    const files2 = new Map<string, Uint8Array | string>()
+    publish(files2, '0.3.1', makeZip('0.3.1', { failInstall: true }))
+    expect((await runUpdate(home, { reason: 'now', deps: fakeDeps(home, files2).deps, ...short })).kind).toBe('rolled-back')
+    expect(ls('staging')).toEqual(['0.3.1'])
+    expect(ls('download')).toEqual([`${PRODUCT.officeBundle}-0.3.1-mac.zip`])
   })
 
   withZip('paused: the nightly run does nothing; a zip that is not the release is refused before installing', async () => {

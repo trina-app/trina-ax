@@ -4,7 +4,8 @@
 //
 //   1. GET <feed>/<dir>/<channel>.json (the only address contacted: RELEASE_CHANNEL.feed), verify the Ed25519
 //      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom
-//   2. download the office zip, check its size and SHA-256, unpack it into update/staging/
+//   2. download the office zip, check its size and SHA-256, unpack it into update/staging/ (what an earlier failed
+//      release left there and in update/download is removed first)
 //   3. the new bundle's own installer with --check-only, wait until no answer is running (10 min at most), a database
 //      backup (admin.js backup --scope db --kind pre-update)
 //   4. the new bundle's own installer with --update: it stops the agents, copies its app/ next to the old one, keeps
@@ -538,7 +539,15 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   let bundle: string
   try {
     phase('download', `downloading ${target}`, target)
-    const zip = await download(pickOffice(r), up.download, d)
+    const file = pickOffice(r)
+    // the zip and unpacked bundle of an earlier release that failed (both are removed only after an update that
+    // worked): only this release's stay for a retry, so failed releases in a row do not pile up on the Mac
+    for (const [dir, keep] of [[up.download, file.file], [up.staging, target]] as const) {
+      let names: string[] = []
+      try { names = fs.readdirSync(dir) } catch {}
+      for (const n of names) if (n !== keep) fs.rmSync(path.join(dir, n), { recursive: true, force: true })
+    }
+    const zip = await download(file, up.download, d)
     phase('unpack', `unpacking ${target}`, target)
     bundle = await unpack(zip, target, home, d)
     phase('precheck', `checking the new installer (${target})`, target)

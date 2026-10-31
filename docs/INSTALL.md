@@ -358,7 +358,13 @@ Running the installer again with the **same** bundle repairs the install. With a
 `app/current` to it, like an in-app update: the running version stays in `app/versions` as the roll-back version
 (Admin → System → Update → Roll back), and if the new version does not answer within 120 s or crashes 3 times the
 bootstrap goes back to the old one by itself; the installer then exits 1 and says so. An **older** bundle is only
-staged (warning); the running version stays. The root programs (bootstrap, launcher, `engine.sb`, `pf-load`, account
+staged (warning); the running version stays, and the staged one is kept for a day (switch to it within that day:
+`admin.js switch <version> --restart`). The server keeps only what roll-back uses: ten minutes after it starts and then
+hourly it removes the version folders other than the current one, the previous one (`state.json`), the newest staged
+one not applied yet and any changed in the last 24 hours, plus day-old `.staging-*` / `*.partial` leftovers and engine
+folders `app/engines/<name>/<sha12>` that `current` no longer points to; never while an update is pending, never
+following a link. `admin.js prune-versions --dry-run` lists what it would remove, `admin.js prune-versions` does it now
+(as the server account, like `stage-update` below). So `app/` stays at about 1–1.5 GB. The root programs (bootstrap, launcher, `engine.sb`, `pf-load`, account
 tool) only move forward: `root/VERSION` names the bundle they came from, and an older bundle leaves newer ones in place
 (warning), so an old setup package run again cannot take back launcher or sandbox fixes; to really go back, uninstall
 (the data is kept) and install the older package. The installer needs no developer tools (it reads CPU types with

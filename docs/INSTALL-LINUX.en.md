@@ -10,7 +10,7 @@ Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be avai
 |---|---|
 | OS | Debian 13 recommended; Debian 12 or Ubuntu 24.04. Installer rejects Ubuntu 22.04 and RHEL-family systems |
 | CPU | amd64 with SSE4.2 or arm64 |
-| RAM / disk | 4 GB RAM recommended (2 GB: one concurrent run); at least 20 GB plus space for files, history and backups |
+| RAM / disk | 4 GB RAM recommended (2 GB: one concurrent run); at least 20 GB plus space for files, history and backups (the app itself takes about 1–1.5 GB: see [Kept versions](#kept-versions)) |
 | Kernel | 6.12+ recommended; older kernels have isolation limitations reported by diagnostics |
 | Tools / access | sudo, curl, tar, Python 3 for checksum check; internet for packages, updates and selected providers |
 | Operations | A named operator, approved provider account, HTTPS access plan and off-host backup destination |
@@ -99,6 +99,18 @@ Then follow **permissions → AI connection → invite the team → first skill 
 Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. Check `sudo mycel-ctl status` afterward and test login and a permitted file.
 
 For manual updates, download and verify the new kit as above, then use `sudo ./install-linux.sh update --from .`. A startup failure can roll the app back; it does **not** undo database migrations or file changes. Do not assume an older binary can read every future database. Restore from a verified pre-update backup when needed, using a compatible release.
+
+### Kept versions
+
+Every update brings one version folder, `app/versions/<version>` (about 540 MB unpacked). Ten minutes after the server starts (when the bootstrap has confirmed the new version) and then every hour, the server account removes what roll-back cannot use; there is no root step.
+
+- **Kept:** the current version (`app/current`); the previous one (`previous` in `app/state.json`: Admin › System › Update › Roll back, and where the bootstrap goes when the current version no longer verifies); the newest version downloaded but not applied yet; any version folder changed in the last 24 hours (one `mycel-ctl update` or the installer has just brought in and is switching to).
+- **Removed:** every other version folder; `.staging-*` and `*.partial` left by an update that did not finish, once a day old; engine folders `app/engines/<name>/<sha12>` that `current` no longer points to, a day after the installer changed the engine. Links are never followed, and names that are not versions stay.
+- A pending update (`pending` in `state.json`) skips that run.
+- `app/` is therefore usually 1–1.5 GB (two or three versions and the engines). Admin › System › Diagnostics shows the kept versions and their size ("Kept versions").
+- Now, by hand: `trina_admin prune-versions --dry-run` (lists what would go, JSON) and `trina_admin prune-versions` (`trina_admin` as in [BACKUP-RESTORE.md](BACKUP-RESTORE.md)).
+- The first update to 0.2.16 removes the versions collected so far ten minutes after it: in a test (Debian 13 container) 9 versions, 4.5 GB and about 40,000 files took 5 seconds. A slow disk may take tens of seconds; the server keeps answering meanwhile.
+- An older kit put in by the installer (`older`: the running version stays) is kept for one day only; switch to it within that day (`admin.js switch <version>`).
 
 ## Safe PowerPoint (safe operations 1A, optional)
 

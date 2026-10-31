@@ -4087,3 +4087,63 @@ Trina should feel like Claude Code, which has WebSearch.
   accent edge was on screen nearly always, unlike Claude's quiet box. This commit keeps `--c-field-border` at rest
   and makes its focus a darker 1px edge (`focus-within:border-faint`, 5.55–5.82:1 on the surface, 1.5:1 against the
   rest edge) with no accent; every other field keeps the 2px accent edge.
+
+## Old version folders (fix/prune-versions, 2026-11-01)
+
+- **Problem.** On Linux servers and role-account Macs every update stages a whole version folder,
+  `app/versions/<v>` (0.2.15: 484 MB of files, about 505 MB on disk; about 540 MB with the CJK fonts), and the
+  installer adds `app/engines/<name>/<sha12>` for a new engine; nothing removed either. At one release a day that is
+  about 16 GB a month, and a hosted Starter server (80 GB) fills within months. Office Macs were already bounded
+  (`app`, `app.previous`, `app.failed`; staging and download removed after an update that worked).
+- **Rule** (`server/src/system/prune.ts`, run by the server account: it owns `app/versions` and `app/engines`, so no
+  root step). Kept: the target of `app/current`, the running version, `state.json` `current` and `previous` (Roll back;
+  the bootstrap's way back when the current version does not verify, `native/cmd/mycel-bootstrap` `rollBack`), the
+  newest staged version newer than current (`UpdateManager.status().available`), and any version folder whose mtime
+  or ctime is in the last 24 hours. Removed: every other folder directly under `app/versions` named like a version
+  (`<n>.<n>.<n>[-+…]`; "notes" or "backup" stays), `.staging-*` and `*.partial` once a day old, and engine folders
+  `current` no longer points to once both `current` and the folder are a day old. `lstat` only: a link is left (or,
+  inside a removed folder, unlinked), never followed; `app/`, `app/versions`, `app/engines` and `<name>` must be real
+  folders. Skipped while `state.json` has `pending`, or when `app/current` / `state.json` are missing or odd; checked
+  again before each version folder is removed.
+- **Why the 24-hour grace on version folders** (beyond the reviewer's rule): `mycel-ctl update` copies the new
+  version to `<v>.partial`, renames it and only then runs `admin.js switch` (bun start plus a full verify, seconds),
+  so for a moment the new folder is neither current nor previous; the installer's `older` bundle and a manual
+  `stage-update` are switched to later by hand. A rename, chown or chmod moves ctime, and `cp -a` keeps the kit's
+  mtime but not its ctime, so a just-copied folder always looks fresh. The cost is at most one extra version for a
+  day.
+- **When.** 10 minutes after the server starts (the bootstrap's health check takes at most 120 s, `mycel-ctl update`
+  waits 180 s), then hourly, under the operations lock (`OpsService.tryLock('prune')`: never during an update,
+  backup, restore or export started from Admin). Not in office mode. `admin.js prune-versions [--dry-run]` runs it
+  now; a real run is recorded in `data/prune-versions.json` for the Diagnostics line "Kept versions" (update group).
+- **First run after 0.2.16.** Measured in a Debian 13 container (Colima, Apple M-series): 11 copies of the real 0.2.15
+  bundle, 49,346 files, 5.2 GB; the dry run took 1.1 s, removing 9 versions (4.54 GB) 5.4 s; 1.01 GB kept. The removal
+  is async with a yield every 500 entries, so the server keeps answering; on a slow disk it may take tens of seconds.
+- **Engines are not referenced by versions.** The only reference is `app/engines/<name>/current` (and `server.json`
+  `engine.claudeBin` / `codexBin` and the launcher's `--allow-cmd`, which name `current/<name>`); a version folder's
+  `engines.lock.json` pins what the installer downloads, and for Codex its sha256 is the archive's, not the folder's.
+  Only the installer changes engines (a version roll-back does not), so there is nothing a kept version would need.
+- **Root files.** `mycel-ctl update` replaces root files in place (staged in `root/.new`, removed by `defer` and at the
+  start of the next one) and keeps no old copies; `root/safe-ops` copies are renamed over. What could pile up was
+  `.install-tmp/update-*` (download and unpacked bundle, about 600 MB) when `mycel-ctl update` was killed before its
+  deferred `RemoveAll`: the next update now removes them first, under `root/.update.lock`, in the root-only folder.
+  The hosted host's engine cache (`/var/cache/mycel-engines`) is the host's and is not touched.
+- **No hard links between versions** (looked at, not done). Between 0.2.14 and 0.2.15, 424.7 of 484.0 MB (87.7 %) of
+  the files are byte-identical at the same path, so linking unchanged files to `previous` would save about 425 MB per
+  extra kept version. Not done: (1) hosted servers, the ones short on disk, update only through root's `mycel-ctl
+  update`; root linking files from a folder the server account can write, and then `Lchown`-ing them, is exactly what
+  `install-macos.sh` refuses ("a folder the server account could write may hold hard links to system files"); (2) in
+  the server's own staging the extractor opens files with `O_TRUNC`, so links could only be made after verification,
+  with a second full verification; (3) the kept versions would share inodes: one damaged file (a disk error, a stray
+  write) would make both `current` and `previous` fail the bootstrap's check, and the automatic roll-back exists for
+  exactly that. Version folders are never written after staging (the bootstrap refuses one whose files changed), so
+  (3) is about damage, not normal use. With pruning the bound is 2–3 versions (1–1.5 GB) without it.
+- **Office Macs.** Bounded as said; one gap closed: when releases fail several times in a row, each one's zip and
+  unpacked bundle stayed in `update/download` and `update/staging` until an update worked. Now a new try removes those
+  of other versions first (`office/update.ts` `install`).
+- Tests: `tests/unit/g-prune.test.ts` (keep rule, dry run, pending and odd layouts skip, links, leftovers, a read-only
+  folder, engines, an unremovable file, roll-back after a prune, the ops lock and office mode, the Diagnostics line),
+  `tests/linux/prune-versions.ts` (Docker `debian:13`: four versions staged by `UpdateManager` and confirmed by the
+  Linux bootstrap, `admin.js prune-versions` dry and real, the rule a day later next to root-owned leftovers and
+  planted links, roll-back and the bootstrap's verify fallback after the prune), `native/cmd/mycel-ctl`
+  `TestUpdateFromBundle` (an earlier update's `.install-tmp/update-*`), `tests/unit/office-update.test.ts` (two
+  failed releases in a row).

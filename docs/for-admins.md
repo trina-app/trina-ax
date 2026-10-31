@@ -21,7 +21,7 @@ After owner creation: **permissions → AI connection → invite the team → fi
 
 Pilot acceptance: demonstrate two users' different file access, review a skill result against its sources, inspect usage and perform an encrypted off-host backup/restore drill. [Starter examples](../examples/README.md) · [Backup and restore](BACKUP-RESTORE.md).
 
-Before updating, read the [latest release](https://github.com/trina-app/trina-ax/releases/latest), including default changes, and back up. Linux and office Mac use the Trina feed. App rollback is not database/file rollback. [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md).
+Before updating, read the [latest release](https://github.com/trina-app/trina-ax/releases/latest), including default changes, and back up. Linux and office Mac use the Trina feed. App rollback is not database/file rollback. A Linux server keeps the current version and the previous one (for roll-back) and removes older ones by itself, so the app takes about 1–1.5 GB of disk ([Kept versions](INSTALL-LINUX.en.md#kept-versions)). [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md).
 
 Browser/mobile web and a Windows installer are available. The Mac server ZIP is not a desktop DMG. This source includes EN/KO/ID/JA/ES. HWP visual preview is the optional HWP Preview plugin (Admin > Plugins); it is unavailable on Debian 12 and default bundles omit its runtime. Check release notes before installing published artifacts. [Support](../SUPPORT.md).
 

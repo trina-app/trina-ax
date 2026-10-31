@@ -18,6 +18,8 @@
 //   switch <version> [--restart] | rollback [--restart]
 //                                                point app/current at a staged version; --restart stops the running
 //                                                server (pid from status/status.json) so root/bootstrap starts it
+//   prune-versions [--dry-run]                   remove old version and engine folders now, as the server does hourly
+//                                                (system/prune.ts); --dry-run only lists what would go. JSON
 //   codex-login | codex-status | codex-logout   the engine account's own Codex (ChatGPT) sign-in, through the launcher:
 //                                                codex-login prints a URL and a one-time code (device auth). Older
 //                                                setup: in managed mode ChatGPT is connected from Admin > AI connections
@@ -57,6 +59,7 @@ import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
+import { pruneVersions } from './prune'
 import { codexCommand } from './codex-login'
 import { archiveUpload, cloudBackupPrepare, cloudBackupUpload, relayKeyCommand, restoreArtifacts, restoreVerify, rotateSetupToken, setupStatus } from './cloud-admin'
 import { makeCredCtx } from '../credentials/store'
@@ -214,6 +217,14 @@ export async function main(argv: string[]): Promise<number> {
       }
       return 0
     }
+    case 'prune-versions': {
+      if (!layout.appDir) throw new Error('prune-versions is only for an installed server (no app/ folder here)')
+      if (cfg.office) throw new Error('office mode keeps app, app.previous and app.failed only; there is nothing to prune')
+      const dryRun = args.includes('--dry-run')
+      const r = await pruneVersions({ appDir: layout.appDir, running: SERVER_VERSION, dataDir: dryRun ? null : cfg.dataDir, dryRun })
+      out(r)
+      return r.errors.length ? 1 : 0
+    }
     case 'relay-key':
       out(relayKeyCommand(cfg.dataDir, args))
       return 0
@@ -297,7 +308,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out (see server/src/system/cli.ts)')
       return 2
   }
 }

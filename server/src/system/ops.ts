@@ -24,6 +24,7 @@ import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { UpdateManager } from './update'
+import { lastPrune, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
@@ -145,6 +146,16 @@ export class OpsService {
     } catch (e) {
       log.warn('automatic update failed', { to: d.version, err: String(e).slice(0, 300) })
       return 'failed'
+    } finally { this.unlock() }
+  }
+
+  /** Remove old version and engine folders (system/prune.ts) under the maintenance lock; null when another operation
+   * runs or there is nothing to prune here (dev, office mode). */
+  async pruneOldVersions(): Promise<PruneResult | null> {
+    if (!this.layout.appDir || this.ctx.config.office) return null
+    if (!this.tryLock('prune')) return null
+    try {
+      return await pruneVersions({ appDir: this.layout.appDir, running: this.ctx.version, dataDir: this.ctx.config.dataDir, now: () => this.now(), log: this.ctx.log.child({ c: 'update' }) })
     } finally { this.unlock() }
   }
 
@@ -433,6 +444,12 @@ export class OpsService {
       const cur = this.updates.currentLinkTarget()
       const signed = !!cur && fs.existsSync(path.join(this.layout.appDir!, 'versions', cur, 'manifest.sig'))
       add('release_signature', 'update', t(M.releaseSig), signed ? 'ok' : 'warn', t(signed ? M.releaseSigned : M.releaseUnsigned))
+      // the version folders kept after the last clean-up (system/prune.ts); none recorded yet in the first minutes
+      const pr = lastPrune(this.ctx.config.dataDir)
+      if (pr && !pr.dryRun && pr.kept.length) {
+        const list = pr.kept.map((k) => k.version).join(', ')
+        add('versions_kept', 'update', t(PRUNE_TEXT.label), pr.errors.length ? 'warn' : 'ok', t(pr.errors.length ? PRUNE_TEXT.failed(list, pr.keptBytes, pr.errors[0]!.error) : PRUNE_TEXT.ok(list, pr.keptBytes)))
+      }
     }
 
     return {
@@ -614,6 +631,14 @@ export class OpsService {
     this.timers.push(setInterval(() => { try { this.storage.checkAlert() } catch (e) { log.warn('storage check failed', { err: e }) } }, 10 * 60_000))
     // Linux self-host: app-only releases from the feed, inside the team's update window (system/update-job.ts)
     if (this.autoUpdates) this.timers.push(setInterval(() => { void this.autoUpdateTick().catch((e) => log.warn('automatic update check failed', { err: e })) }, 60 * 60_000))
+    // old version and engine folders (system/prune.ts): 10 minutes after start, when the bootstrap has confirmed this
+    // version (or rolled it back), then hourly; never while an update is pending or another operation holds the lock
+    if (this.layout.appDir && !this.ctx.config.office) {
+      const prune = () => { void this.pruneOldVersions().catch((e) => log.warn('old versions not removed', { err: e })) }
+      const firstPrune = setTimeout(prune, 10 * 60_000)
+      this.timers.push(firstPrune as unknown as ReturnType<typeof setInterval>)
+      this.timers.push(setInterval(prune, 60 * 60_000))
+    }
     // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
     this.timers.push(setInterval(() => {
       try { const r = pruneOld(this.ctx.db); if (Object.values(r).some((n) => n > 0)) log.info('retention sweep', { ...r }) } catch (e) { log.warn('retention sweep failed', { err: e }) }

@@ -219,7 +219,10 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	return u.updateApp(dir, m.Version)
 }
 
-// workDir is a fresh folder under BASE/.install-tmp (root 700; the installer and mycel-ctl share it).
+// workDir is a fresh folder under BASE/.install-tmp (root 700; the installer and mycel-ctl share it). An update-*
+// folder already there was left by an update that was killed before its deferred RemoveAll (a downloaded archive and
+// the unpacked bundle, about 600 MB): the caller holds root/.update.lock, so no other update can be using it, and
+// it is removed first (RemoveAll does not follow links; nobody but root can write this folder anyway).
 func (u *updater) workDir() (string, error) {
 	t := filepath.Join(u.e.base, ".install-tmp")
 	if err := os.Mkdir(t, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
@@ -228,6 +231,18 @@ func (u *updater) workDir() (string, error) {
 	var st syscall.Stat_t
 	if err := syscall.Lstat(t, &st); err != nil || st.Mode&syscall.S_IFMT != syscall.S_IFDIR || int(st.Uid) != rootUID || st.Mode&0o077 != 0 {
 		return "", fmt.Errorf("%s must be a root-only folder (700)", t)
+	}
+	if ents, err := os.ReadDir(t); err == nil {
+		for _, d := range ents {
+			if !strings.HasPrefix(d.Name(), "update-") {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(t, d.Name())); err != nil {
+				u.res.Notes = append(u.res.Notes, "could not remove a folder an earlier update left: "+err.Error())
+			} else {
+				u.res.Notes = append(u.res.Notes, "removed "+d.Name()+", left in .install-tmp by an earlier update that did not finish")
+			}
+		}
 	}
 	return os.MkdirTemp(t, "update-")
 }

@@ -21,7 +21,7 @@ AI가 사진·화면 캡처·스캔한 PDF 페이지를 읽으면 이미지를 �
 
 시범 운영 합격 기준: 두 계정의 파일 접근 차이, 원본을 확인한 스킬 결과, 사용량 확인, 암호화한 외부 백업과 복구 검증입니다. [예제](../examples/README.ko.md) · [백업·복원](BACKUP-RESTORE.md).
 
-업데이트 전에 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)와 기본값 변경을 읽고 백업하세요. Linux·사무실 Mac은 트리나 피드를 사용합니다. 앱 롤백이 DB·파일 롤백은 아닙니다. [설정](CONFIGURATION.md) · [문제 해결](TROUBLESHOOTING.md).
+업데이트 전에 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)와 기본값 변경을 읽고 백업하세요. Linux·사무실 Mac은 트리나 피드를 사용합니다. 앱 롤백이 DB·파일 롤백은 아닙니다. Linux 서버는 지금 버전과 되돌리기용 이전 버전만 남기고 더 오래된 버전은 스스로 지우므로, 앱은 디스크를 1–1.5 GB쯤 씁니다([업데이트](INSTALL-LINUX.md#8-업데이트)). [설정](CONFIGURATION.md) · [문제 해결](TROUBLESHOOTING.md).
 
 현재 브라우저·모바일 웹과 Windows 설치 파일을 사용합니다. Mac 서버 ZIP과 데스크톱 DMG는 다릅니다. 현재 소스는 EN/KO/ID/JA/ES를 지원합니다. HWP 시각 미리보기는 선택해서 설치하는 플러그인(관리 > 플러그인)이며 Debian 12에서 지원하지 않고 기본 번들에는 실행 도구가 없습니다. 설치 파일을 받기 전에 릴리스 설명을 확인하세요. [지원](../SUPPORT.md).
 

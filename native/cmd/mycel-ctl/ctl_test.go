@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -285,6 +287,11 @@ func TestUpdateFromBundle(t *testing.T) {
 	k := base64.StdEncoding.EncodeToString(pub)
 	arch := filepath.Join(t.TempDir(), "0.2.0-linux-arm64.tar.zst")
 	mkArchive(t, signedBundle(t, "0.2.0", priv, "new launcher"), arch, nil)
+	// a killed update's work folder (its deferred RemoveAll never ran) goes; other files of .install-tmp stay
+	must(t, os.MkdirAll(filepath.Join(tb.base, ".install-tmp/update-12345/bundle/bin"), 0o700))
+	must(t, os.Chmod(filepath.Join(tb.base, ".install-tmp"), 0o700))
+	must(t, os.WriteFile(filepath.Join(tb.base, ".install-tmp/update-12345/bundle.tar.zst"), []byte("half a download"), 0o600))
+	must(t, os.WriteFile(filepath.Join(tb.base, ".install-tmp/state.json"), []byte("{}"), 0o600))
 	var switched string
 	updateHooks(t, tb, func(v string) {
 		switched = v
@@ -312,6 +319,18 @@ func TestUpdateFromBundle(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tb.base, "run/firewall.json")); err != nil {
 		t.Fatal("firewall not re-applied after the root update")
+	}
+	if _, err := os.Lstat(filepath.Join(tb.base, ".install-tmp/update-12345")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the earlier update's work folder is still there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tb.base, ".install-tmp/state.json")); err != nil {
+		t.Fatal("a file that is not an update's work folder was removed")
+	}
+	if ents, _ := os.ReadDir(filepath.Join(tb.base, ".install-tmp")); len(ents) != 1 {
+		t.Fatalf("this update's own work folder was left: %v", ents)
+	}
+	if !strings.Contains(strings.Join(r.Notes, " "), "removed update-12345") {
+		t.Fatalf("notes: %v", r.Notes)
 	}
 	// the same bundle again: nothing to do
 	code, out, _ = tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
