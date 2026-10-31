@@ -153,9 +153,11 @@ const VOICE_RMS = 32768 * 10 ** (-70 / 20)
 export const MIN_VOICED_SEC = 0.3
 /** lines over silence are dropped only in a piece with at least this much sound (one that clearly has some) */
 const CLEAR_SOUND_SEC = 1
-/** a piece with less sound than this gets the team's language as a hint: whisper's own guess on a few seconds is often
- * wrong ("la" for 5 s of Korean, QA) */
+/** a piece with less sound than this is told a language (the file's, else the team's when whisper is unsure: files/
+ * service.ts mediaTranscript): whisper's own guess on a few seconds is often wrong ("la" for 5 s of Korean, QA) */
 export const SHORT_SPEECH_SEC = 8
+/** whisper.cpp is sure of the language it heard from this probability on */
+export const LANGUAGE_SURE = 0.5
 export interface Voice { /** seconds with sound */ voiced: number; /** per 100 ms frame from the start of the WAV */ frames: boolean[] }
 /** Where a server-made WAV has sound (its data chunk; any other chunk, such as ffmpeg's LIST, is skipped). */
 export function voiceOf(wav: Uint8Array): Voice {

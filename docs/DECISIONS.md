@@ -4408,9 +4408,14 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     cached as silence for 30 days, and next to one loud word two of its three lines were dropped; the cache key is
     `transcript-v2`, so nothing kept by that build is used. Room tone is sound now, and whisper.cpp decides there as
     before the change. Each piece keeps its language and the header names the languages by how long they are spoken
-    (`transcriptLanguages`), never from a silent piece. A piece with under 8 s of sound gets the team's language as a
-    hint (whisper's guess on a few seconds is often wrong); that piece keeps the hint apart (`Piece.hint`) and is not
-    counted as the language heard. Longer pieces are detected, so an English video in a Korean team stays English.
+    (`transcriptLanguages`), never from a silent piece. A piece with under 8 s of sound is told a language, since
+    whisper's guess on a few seconds is often wrong: the one most spoken in the file's other pieces (the window's
+    pieces in the cache, then each piece made); with none heard yet it guesses itself, and only when whisper.cpp is
+    unsure (its own probability under 0.5, read from its log line, so a read's pieces run without `-np`) it is done
+    again told the team's language. The first build told every short piece the team's language (real-server re-check
+    N1: qa-test's team is English, so short Korean sentences came out as romanized nonsense labelled `en`). A piece that
+    was told keeps that apart (`Piece.hint`, cached as such) and is never counted as the language heard. Longer pieces
+    are detected, so an English video in a Korean team stays English.
   - **The window** keeps a sentence that began just before it (`end > from && start < to`).
   - **Settings form.** Picking another provider in the form shows that provider's default; picking the saved one
     again brings the saved choice back. Only a save that changes the provider resets it (`transcriptsAfterProvider`).

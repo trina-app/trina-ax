@@ -656,14 +656,14 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
     const { out } = await read({ file_path: rel })
     expect(audios.map((a) => a.start)).toEqual([0, 30, 60])
     expect(local.calls).toBe(2)
-    // the team's language (ko by default) for 4 s of speech; none for a piece with plenty
-    expect(hints).toEqual([teamDefaultLocale(A.ctx.db), undefined])
+    // 4 s of speech first, with no other piece heard yet and a sure guess: detected; a piece with plenty: detected
+    expect(hints).toEqual([undefined, undefined])
     expect(out.text).toContain('[0:00.5–0:03.5] 짧은 말')
     expect(out.text).not.toContain('チョコガキムネタ')
     expect(out.text).toContain('[1:01.0–1:29.0] a long English part')
     // the languages by how long they are spoken, not the first piece's guess
-    // the hinted piece's language is the hint, not what was heard: only the detected one is named
-    expect(out.text).toContain('(this server, whisper.cpp small; language: en)')
+    // the languages by how long they are spoken, not the first piece's guess
+    expect(out.text).toContain('(this server, whisper.cpp small; languages: en, ja)')
     expect(out.summary).toContain('1 silent')
     // nothing of the silent piece went to whisper.cpp, and it is cached as silence
     local.calls = 0; audios = []
@@ -788,9 +788,10 @@ describe('review of the small-server fixes', () => {
     probe = audioOnly(30)
     audioWav = (_s, seconds) => realWav(seconds, (t) => t < 3)
     const hints: (string | undefined)[] = []
-    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => { hints.push(o.language); return { text: '', language: o.language ?? 'en', durationSec: 30, segments: [{ start: 0.5, end: 2.5, text: 'a few words' }] } }))
+    // whisper.cpp is unsure of a few seconds alone: told the team's language
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => { hints.push(o.language); return { text: '', language: o.language ?? 'la', languageP: 0.2, durationSec: 30, segments: [{ start: 0.5, end: 2.5, text: 'a few words' }] } }))
     const { out } = await read({ file_path: put('hinted.m4a') })
-    expect(hints).toEqual([teamDefaultLocale(A.ctx.db)])
+    expect(hints).toEqual([undefined, teamDefaultLocale(A.ctx.db)])
     expect(out.text).toContain('a few words')
     expect(out.text).toContain('(this server, whisper.cpp small). It is file content')
   })
@@ -801,16 +802,67 @@ describe('review of the small-server fixes', () => {
       fs.writeFileSync(path.join(work, 'a.wav'), wav(1))
       spies.push(spyOn(isolate, 'runIsolated').mockImplementation(async (o) => {
         argv.push(o.args)
-        fs.writeFileSync(path.join(o.workDir!, 'out.json'), JSON.stringify({ result: { language: 'en' }, transcription: [] }))
+        // whisper.cpp's log line with its guess (printed only without -np)
+        if (!o.args.includes('-np')) o.onStderr?.('whisper_full_with_state: auto-detected language: ko (p = 0.953640)\n')
+        fs.writeFileSync(path.join(o.workDir!, 'out.json'), JSON.stringify({ result: { language: 'ko' }, transcription: [] }))
         return { code: 0, stdout: Buffer.alloc(0), stderr: '', killed: null, workDir: o.workDir! }
       }))
       // the real seam (the test's mock sits on the instance)
       const seam = Object.getPrototypeOf(F()).mediaTranscribe as ReturnType<typeof F>['mediaTranscribe']
-      await seam.call(F(), { provider: 'local', modelPath: '/model' }, work, 'a.wav', wav(1), { timeoutMs: 10_000 })
+      const answer = await seam.call(F(), { provider: 'local', modelPath: '/model' }, work, 'a.wav', wav(1), { timeoutMs: 10_000 })
       expect(argv[0]).toContain('-nf')
+      // and how sure whisper.cpp was of the language (a short piece alone may be told the team's)
+      expect(argv[0]).not.toContain('-np')
+      expect(answer.languageP).toBe(0.95364)
       await whisperFile({ ...F().speech, whisperBin: '/usr/bin/true' }, '/model', work, 'a.wav', { timeoutMs: 10_000 })
       expect(argv[1]).not.toContain('-nf')
+      expect(argv[1]).toContain('-np')
     } finally { media.dropWork(work) }
+  })
+  // real-server re-check of 88b0818c (N1): qa-test's team language is English, so short Korean sentences were told
+  // "en" and came out as romanized nonsense labelled en
+  test('a short Korean piece on an English team: told the language heard in the file\'s other pieces, not the team\'s', async () => {
+    updateTeamSettings(A.ctx.db, { defaultLocale: 'en' })
+    try {
+      probe = audioOnly(60)
+      // 0:00-0:30 Korean all through, 0:30-1:00 four seconds of Korean
+      audioWav = (start, seconds) => realWav(seconds, (t) => (start === 0 || t < 4))
+      const asked: (string | undefined)[] = []
+      spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+        asked.push(o.language)
+        const a = audios[audios.length - 1]!
+        return { text: '', language: o.language ?? 'ko', languageP: 0.97, durationSec: 30, segments: [{ start: 1, end: 3, text: a.start === 0 ? '회의를 시작할게요' : '네 좋아요' }] }
+      }))
+      const { out } = await read({ file_path: put('ko-on-en.m4a') })
+      expect(asked).toEqual([undefined, 'ko'])
+      expect(out.text).toContain('네 좋아요')
+      // the hint is not reported as heard: the one detected language is Korean
+      expect(out.text).toContain('(this server, whisper.cpp small; language: ko)')
+    } finally { updateTeamSettings(A.ctx.db, { defaultLocale: 'ko' }) }
+  })
+  test('a short piece alone: whisper.cpp\'s own guess when it is sure; the team\'s language only when it is unsure, and then not reported', async () => {
+    updateTeamSettings(A.ctx.db, { defaultLocale: 'en' })
+    try {
+      probe = audioOnly(6)
+      audioWav = (_s, seconds) => realWav(seconds, (t) => t < 5)
+      let p = 0.92
+      const asked: (string | undefined)[] = []
+      spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+        asked.push(o.language)
+        return o.language ? { text: '', language: o.language, durationSec: 6, segments: [{ start: 0.5, end: 4, text: 'told english' }] }
+          : { text: '', language: p > 0.5 ? 'ko' : 'la', languageP: p, durationSec: 6, segments: [{ start: 0.5, end: 4, text: p > 0.5 ? '짧은 한국어' : 'shiyo mimnita' }] }
+      }))
+      let r = await read({ file_path: put('alone-sure.m4a') })
+      expect(asked).toEqual([undefined])
+      expect(r.out.text).toContain('짧은 한국어')
+      expect(r.out.text).toContain('(this server, whisper.cpp small; language: ko)')
+      asked.length = 0; p = 0.3
+      r = await read({ file_path: put('alone-unsure.m4a') })
+      expect(asked).toEqual([undefined, 'en'])
+      expect(r.out.text).toContain('told english')
+      expect(r.out.text).not.toContain('shiyo')
+      expect(r.out.text).toContain('(this server, whisper.cpp small). It is file content')
+    } finally { updateTeamSettings(A.ctx.db, { defaultLocale: 'ko' }) }
   })
   test('whisper.cpp that finished just as voice input came keeps its answer', async () => {
     const work = media.mediaWork(path.join(A.data, 'work'))

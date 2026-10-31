@@ -540,10 +540,13 @@ export class FileService {
   }
   /** One piece of sound (16 kHz WAV, `wav` in the work folder as `wavName`) -> the team speech provider's transcript.
    * `language`: a hint (ISO 639-1), else the provider detects it. */
-  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string }): Promise<TranscribeResult> {
+  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string }): Promise<MediaAnswer> {
     if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, wav, 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, wavSeconds: true, language: o.language })
-    // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold
-    return whisperFile(this.speech, p.modelPath, work, wavName, { signal: o.signal, timeoutMs: o.timeoutMs, language: o.language, noFallback: true })
+    // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold; and how
+    // sure whisper.cpp is of the language it heard (a short piece alone may be told the team's language)
+    let languageP: number | undefined
+    const r = await whisperFile(this.speech, p.modelPath, work, wavName, { signal: o.signal, timeoutMs: o.timeoutMs, language: o.language, noFallback: true, onLanguage: (_l, p) => { languageP = p } })
+    return languageP === undefined ? r : { ...r, languageP }
   }
 
   /**
@@ -821,8 +824,17 @@ export class FileService {
     }
     // a hosted server transcribes at most HOSTED_LOCAL_NEW_SEC of new sound here a read (founder Q8)
     const maxNewSec = provider === 'local' && hosted ? media.HOSTED_LOCAL_NEW_SEC : Infinity
-    // a piece with little speech gets the team's language as a hint (whisper's own guess on a few seconds is often wrong)
-    const hint = teamDefaultLocale(this.db)
+    // a piece with little speech is told the language heard in this file's other pieces (most spoken first: the window's
+    // pieces in the cache, then each piece made), since whisper's own guess on a few seconds is often wrong; with none
+    // heard it guesses itself, and only when it is unsure it is told the team's language (real-server re-check N1: an
+    // English team's short Korean sentences came out as romanized nonsense). A hint is never reported as heard.
+    const team = teamDefaultLocale(this.db)
+    const heard: media.Piece[] = []
+    const inCache = new Map<number, media.Piece>()
+    for (let k = Math.floor(w.from / pieceSec); k * pieceSec < w.to && k * pieceSec < w.duration; k++) {
+      const p = this.transcripts.get(media.TranscriptCache.key({ file: src.hash, provider, model, piece: k, pieceSec }))
+      if (p) { inCache.set(k, p); heard.push(p) }
+    }
     const segments: media.Segment[] = []
     const pieces: media.Piece[] = []
     const notes: string[] = []
@@ -836,7 +848,7 @@ export class FileService {
         const len = Math.min(pieceSec, w.duration - start)
         if (len <= 0) break
         const key = media.TranscriptCache.key({ file: src.hash, provider, model, piece: k, pieceSec })
-        let piece = this.transcripts.get(key)
+        let piece = inCache.get(k) ?? null
         if (piece) cached++
         else {
           if (!speech) { stopped = blocked; break }
@@ -862,12 +874,21 @@ export class FileService {
             const voice = media.voiceOf(bytes)
             if (voice.voiced < media.MIN_VOICED_SEC) { piece = media.SILENT_PIECE; silent++ }
             else {
-              const language = voice.voiced < media.SHORT_SPEECH_SEC ? hint : undefined
+              const short = voice.voiced < media.SHORT_SPEECH_SEC
+              let language = short ? media.transcriptLanguages(heard)[0] : undefined
               newSec += len
               sentSec += len
-              const answer = speech.provider === 'local'
-                ? await this.localPiece(ctx, speech, work, wav, bytes, len, language, budget, need)
-                : await this.mediaTranscribe(speech, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language })
+              const ask = (lang: string | undefined) => speech!.provider === 'local'
+                ? this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need)
+                : this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang })
+              let answer = await ask(language)
+              // whisper.cpp unsure of a short piece with nothing else heard: again, told the team's language, while the
+              // time allows (else its own guess stays)
+              if (short && !language && typeof answer === 'object' && answer.languageP !== undefined && answer.languageP < media.LANGUAGE_SURE && answer.language !== team
+                && budget() >= need) {
+                const again = await ask(team)
+                if (typeof again === 'object') { answer = again; language = team }
+              }
               // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over
               if (answer === 'time' || answer === 'voiceBusy') { sentSec -= len; stopped = answer; break }
               piece = media.pieceOf(answer, start, len, voice, language)
@@ -894,6 +915,7 @@ export class FileService {
           }
         }
         pieces.push(piece)
+        if (!inCache.has(k)) heard.push(piece)
         // what was said in the window, also a sentence that began just before it (QA L3)
         for (const sg of piece.segments) if (sg.end > w.from && sg.start < w.to) segments.push(sg)
         covered = Math.min(w.to, start + len)
@@ -918,7 +940,7 @@ export class FileService {
    * it comes starts again after it), timed for this server's speed. `needMs`: what the read planned for it (the
    * measured speed, or the default for a read's probe piece); after a wait for voice input it is checked again.
    * 'time': no time left for it; 'voiceBusy': voice input kept whisper.cpp longer than PIECE_WAIT_MS. */
-  private async localPiece(ctx: ToolCtx, speech: MediaSpeech, work: string, wav: string, bytes: Buffer, len: number, language: string | undefined, budget: () => number, needMs: number): Promise<TranscribeResult | 'time' | 'voiceBusy'> {
+  private async localPiece(ctx: ToolCtx, speech: MediaSpeech, work: string, wav: string, bytes: Buffer, len: number, language: string | undefined, budget: () => number, needMs: number): Promise<MediaAnswer | 'time' | 'voiceBusy'> {
     const model = media.localModelName(this.speech.model), threads = this.speech.threads
     for (let first = true; ; first = false) {
       const need = first ? needMs : Math.min(needMs, media.localPieceNeedsMs(media.localSpeed(this.db, model, threads).secPerSec, len))
@@ -1072,6 +1094,8 @@ export class FileService {
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
 interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
+/** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from OpenRouter) */
+type MediaAnswer = TranscribeResult & { languageP?: number }
 /** what transcribes a piece of a media read: OpenRouter with the team's key, or whisper.cpp with a model already here */
 type MediaSpeech = { provider: 'openrouter'; key: string; model: string } | { provider: 'local'; modelPath: string }
 interface MediaTranscript {
