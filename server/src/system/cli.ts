@@ -34,6 +34,7 @@
 //   restore-artifacts --dir <chain> --to <dir>   rebuild db/ + team/ from a downloaded, decrypted off-site chain
 //   restore-verify --dir <chain> --expect JSON   the same into a throwaway folder, compared with the backup's totals
 //   cloud-status                                 the app's part of TenantStatus (system/cloud-tenant.ts)
+//   cloud-idle                                   F2 sleep facts from status.json (system/cloud-tenant.ts)
 //   reset-link [--username U]                    one-time reset link at publicOrigins[0] (the owner by default), JSON
 //   credentials-escrow-out --recipient age1…     the AI connections' key age-armored to the CP's escrow recipient
 //
@@ -63,7 +64,7 @@ import { makeCredCtx } from '../credentials/store'
 import { DriveStore } from '../integrations/google-drive/store'
 import { rekeyDrive } from '../integrations/google-drive/rekey'
 import { rekeyCredentials } from '../credentials/rekey'
-import { cloudStatus, credentialsEscrowOut, resetLinkBase } from './cloud-tenant'
+import { cloudIdle, cloudStatus, credentialsEscrowOut, resetLinkBase } from './cloud-tenant'
 import { createResetLink } from '../auth/accounts'
 import { installAuth } from '../auth/service'
 
@@ -251,6 +252,10 @@ export async function main(argv: string[]): Promise<number> {
       try { out(cloudStatus({ db, config: cfg, dataDir: cfg.dataDir, statusDir: layout.statusDir, secretsDir: layout.secretsDir, backups: mgr.metas() })) } finally { db.close() }
       return 0
     }
+    case 'cloud-idle': {
+      out(cloudIdle({ statusDir: layout.statusDir }))
+      return 0
+    }
     case 'reset-link': {
       const base = resetLinkBase(cfg)
       // the same context as the account CLI (auth/cli.ts openCliContext; not imported: that file runs itself as main)
@@ -297,7 +302,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|cloud-idle|reset-link|credentials-escrow-out (see server/src/system/cli.ts)')
       return 2
   }
 }

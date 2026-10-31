@@ -5,6 +5,8 @@
 //   cloud-status                         the app's part of TenantStatus (no names, mail, IPs, chats or tokens)
 //   reset-link [--username U]            a one-time password reset link at publicOrigins[0]: { url, expiresAt }
 //   credentials-escrow-out --recipient R the AI connections' key, age-armored to R: { keyAge, keyVersion } | { absent }
+//   cloud-idle                           F2 sleep facts from status.json: { fresh, connections, idleForSec, nextScheduleInSec,
+//                                        queued, sleepable } (mycel-ctl idle-wait --activity adds the launcher's running answers)
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -16,6 +18,7 @@ import { Vault, keyFileName, readKeyFile } from '../credentials/vault'
 import type { BackupMeta } from './backup'
 import { lastUploadedLocalId } from './cloud-admin'
 import { seatsUsed } from './limits'
+import { sleepableBy } from './activity'
 import { ageArmorTo } from './streams'
 
 export class CloudTenantError extends Error { name = 'CloudTenantError' }
@@ -58,6 +61,28 @@ export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: strin
     ai: { claude: ai('anthropic'), codex: ai('openai') },
     credentialsKey: { present: key.state === 'ok', version: key.state === 'ok' ? vault.version : null },
   }
+}
+
+/** cloud-idle: what mycel-ctl idle-wait --activity reports. Fresh = status.json written in the last 3 minutes with an
+ *  `activity` block; anything else is "not sleepable" (an older or stopped server). The file's age is added to the idle
+ *  time and taken from the time to the next schedule. */
+export function cloudIdle(o: { statusDir: string; now?: number }): { fresh: boolean; connections: number | null; idleForSec: number | null; nextScheduleInSec: number | null; queued: number | null; sleepable: boolean } {
+  const now = o.now ?? Date.now()
+  let st: StatusFile | null = null
+  try {
+    const p = StatusFile.safeParse(JSON.parse(fs.readFileSync(path.join(o.statusDir, 'status.json'), 'utf8')))
+    if (p.success) st = p.data
+  } catch {}
+  const age = st ? Math.floor((now - Date.parse(st.writtenAt)) / 1000) : NaN
+  if (!st?.activity || !Number.isFinite(age) || age < 0 || age * 1000 >= STATUS_FRESH_MS) {
+    return { fresh: false, connections: null, idleForSec: null, nextScheduleInSec: null, queued: st?.queue.queued ?? null, sleepable: false }
+  }
+  const f = {
+    connections: st.activity.connections,
+    idleForSec: st.activity.idleForSec + age,
+    nextScheduleInSec: st.activity.nextScheduleInSec === null ? null : Math.max(0, st.activity.nextScheduleInSec - age),
+  }
+  return { fresh: true, ...f, queued: st.queue.queued, sleepable: sleepableBy(f, st.queue.running, st.queue.queued) }
 }
 
 /** reset-link: the owner (default) or the account `username`, at the team's public address. */

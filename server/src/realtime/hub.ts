@@ -371,6 +371,13 @@ export class Hub implements RealtimeHub {
     }
   }
 
+  /** open connections of every person (F2 sleep, Ops.statusFile) */
+  openSockets(): number {
+    let n = 0
+    for (const u of this.users.values()) n += u.sockets.size
+    return n
+  }
+
   /**
    * Drop a person's replay history (their access changed, they were disabled or deleted). The seq counter stays, so
    * any resume from before this point is answered with resync and the window reloads over REST, which applies the

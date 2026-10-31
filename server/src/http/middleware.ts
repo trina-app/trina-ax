@@ -6,6 +6,7 @@ import { teamDefaultLocale } from '../admin/settings'
 import type { AppEnv } from './env'
 import { fail } from './errors'
 import type { AppContext } from '../context'
+import { touchActivity } from '../system/activity'
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -196,7 +197,7 @@ export function session(ctx: AppContext): MiddlewareHandler<AppEnv> {
       try {
         const auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info'))
         c.set('auth', auth)
-        if (auth) c.set('locale', auth.user.locale)
+        if (auth) { c.set('locale', auth.user.locale); touchActivity() }
       } catch (e) {
         c.get('log').error('session lookup failed', { err: e })
         c.set('auth', null)

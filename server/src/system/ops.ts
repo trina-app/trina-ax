@@ -28,6 +28,7 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
+import { activityFacts } from './activity'
 import { configureStorageGuard, levelOf, snapshotOf, storageRoom, StorageMonitor } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
@@ -555,6 +556,7 @@ export class OpsService {
       overall: worst(d.checks.filter((x) => x.status !== 'unknown').map((x) => x.status)),
       problems: d.checks.filter((x) => x.status === 'fail' || x.status === 'warn').map((x) => `${x.label}: ${x.detail ?? x.status}`).slice(0, 20),
       checks: d.checks.map((x) => ({ id: x.id.slice(0, 64), status: x.status })).slice(0, 100),
+      activity: activityFacts({ db: this.ctx.db, connections: this.ctx.services.realtime.openSockets?.() ?? 0, busy: d.queue.running + d.queue.queued > 0 }),
       locale,
     }
   }
