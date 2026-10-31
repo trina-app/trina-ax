@@ -1,0 +1,17 @@
+Public Suffix List
+
+The Trina AX server uses the tldts package (MIT, https://github.com/remusao/tldts) to tell the site of a web address
+from its name ("allow this site in this conversation"; server/src/tools/url-gate.ts). tldts carries a compiled copy
+of the Public Suffix List inside its code (src/data/trie.ts and the built files under dist/). Trina AX ships it as
+tldts packages it, unchanged.
+
+The Public Suffix List is maintained by its contributors at https://publicsuffix.org/ and licensed under the Mozilla
+Public License, version 2.0 (MPL-2.0). The list's own notice:
+
+  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not
+  distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+The full licence text is in MPL-2.0.txt next to this file.
+
+Source of the list (its Source Code Form): https://publicsuffix.org/list/ (the file public_suffix_list.dat)
+The copy shipped is the one in the tldts version named under "embeddedData" in licenses/manifest.json.

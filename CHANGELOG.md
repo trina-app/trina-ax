@@ -10,6 +10,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Admin > System > Diagnostics: "Public address of the server" says whether the server knows its public address (IPv4 / IPv6, or from the relay), does not know it yet, or has the check turned off (`MYCEL_EXIT_ADDRESS_CHECK=off`), and what "not known" means: every web address the AI opens asks a person and scheduled tasks open none. The address itself is never shown. Installed servers and office Macs.
 - Scheduled tasks: the card (when the AI creates a task, and "다시 확인") lists an address whose query is longer than 200 characters apart, with the query highlighted, and says runs never open it (such an address always needs a person, and nobody is there during a run). "Opens without asking" now counts only the addresses a run really opens.
 - Docs: the privacy and admin pages (security-and-permissions, for-admins, the READMEs) now say that the server asks `https://updates.trina.app/ip` for its public address at start and every 30 minutes (`MYCEL_EXIT_ADDRESS_CHECK=off` opts out), and that each Codex web search sends the conversation so far to OpenAI's search service.
+- Release notices: every server and office bundle now carries the Public Suffix List notice (MPL-2.0, source https://publicsuffix.org/list/, compiled into the tldts dependency) and the MPL-2.0 text in `licenses/public-suffix-list/`, added by the notice collector instead of by hand; a build without it stops.
 
 ## 0.2.12 — 2026-10-30
 

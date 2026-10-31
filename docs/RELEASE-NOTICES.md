@@ -12,6 +12,7 @@ Every artifact receives:
 - `NOTICE`: the repository's exact root notice, when present.
 - `licenses/shared-cloud-protocol/LICENSE`: the separately scoped protocol license, when present. This is not a grant for `ee/cloud`.
 - `licenses/packages/<name>@<version>-<content-id>/...`: original installed-package license, notice, copyright and licensing README files, retaining their relative names and bytes.
+- `licenses/public-suffix-list/NOTICE.txt` and `MPL-2.0.txt`: when `tldts` is in the collected closure (every server and office bundle). tldts (MIT) compiles the Public Suffix List (MPL-2.0, source `https://publicsuffix.org/list/`) into its code and its package ships only its own MIT licence, so the project keeps this notice in `resources/notices/public-suffix-list/` (`EMBEDDED_DATA` in the collector). A closure with the package and without the notice, or a notice that does not name the source URL and the licence, stops the build; the manifest's `embeddedData` names the package version that carries the list. Both files are in `RELEASE_NOTICE_FILES`, which the Linux and office bundle checks require.
 - `licenses/README.txt`: generated review status and explicit pending findings; this file is not a license.
 - `licenses/manifest.json`: package identities, document hashes, payload hashes, input hashes, omissions and unresolved findings. Paths are relative; installation paths and raw package metadata are not published.
 

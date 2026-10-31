@@ -215,3 +215,55 @@ test('nested ECMA copyright notices are preserved byte for byte', async () => {
     verifyReleaseNotices(f.artifact)
   } finally { f.close() }
 })
+
+test('data a package compiles in under another licence (the Public Suffix List in tldts) gets the project notice, or the release fails', async () => {
+  const { writeReleaseNotices, verifyReleaseNotices, EMBEDDED_DATA, RELEASE_NOTICE_FILES } = await api(); const f = fixture()
+  try {
+    const psl = EMBEDDED_DATA.find(e => e.id === 'public-suffix-list')!
+    expect(psl).toMatchObject({ package: 'tldts', license: 'MPL-2.0', source: 'https://publicsuffix.org/list/' })
+    // without tldts in the closure there is nothing to say
+    expect(writeReleaseNotices(f.options).embeddedData).toEqual([])
+    f.put('server/package.json', JSON.stringify({ name: '@fixture/server', version: '1.0.0', license: 'AGPL-3.0-only', dependencies: { alpha: '1.0.0', tldts: '7.0.30' } }))
+    f.pkg('node_modules/tldts', 'tldts', '7.0.30')
+    // the package is there, the project's notice is not: no release
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_embedded_notice_missing')
+    const notice = 'Public Suffix List, MPL-2.0. Source: https://publicsuffix.org/list/\n', mpl = 'Mozilla Public License Version 2.0\n'
+    f.put(`${psl.dir}/NOTICE.txt`, 'Public Suffix List, see the list.\n'); f.put(`${psl.dir}/MPL-2.0.txt`, mpl)
+    // a notice that does not say where the source is (MPL-2.0 3.2) is refused too
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_embedded_notice_invalid')
+    f.put(`${psl.dir}/NOTICE.txt`, notice)
+    const m = writeReleaseNotices({ ...f.options, kind: 'office' })
+    expect(m.embeddedData).toEqual([{ id: 'public-suffix-list', name: 'Public Suffix List', license: 'MPL-2.0', source: 'https://publicsuffix.org/list/',
+      carriedBy: [expect.stringMatching(/^tldts@7\.0\.30-/)], documents: ['licenses/public-suffix-list/NOTICE.txt', 'licenses/public-suffix-list/MPL-2.0.txt'] }])
+    expect(fs.readFileSync(path.join(f.artifact, 'licenses/public-suffix-list/NOTICE.txt'), 'utf8')).toBe(notice)
+    expect(fs.readFileSync(path.join(f.artifact, 'licenses/public-suffix-list/MPL-2.0.txt'), 'utf8')).toBe(mpl)
+    expect(m.documents.find(d => d.path === 'licenses/public-suffix-list/NOTICE.txt')).toMatchObject({ source: 'embedded-data', sourcePath: `${psl.dir}/NOTICE.txt`, component: 'public-suffix-list' })
+    // the package's own MIT licence stays as it was, and the bundles require both files
+    expect(m.packages.find(p => p.name === 'tldts')!.documents.some(d => d.endsWith('/LICENSE'))).toBe(true)
+    for (const d of m.embeddedData[0]!.documents) expect(RELEASE_NOTICE_FILES as readonly string[]).toContain(d)
+    expect(() => verifyReleaseNotices(f.artifact)).not.toThrow()
+  } finally { f.close() }
+})
+
+test('this repository: the server and office notice bundles carry the Public Suffix List notice and the MPL-2.0 text', async () => {
+  const { writeReleaseNotices } = await api()
+  const repo = path.resolve(import.meta.dir, '../..')
+  const tldts = JSON.parse(fs.readFileSync(path.join(repo, 'server/node_modules/tldts/package.json'), 'utf8')).version
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-notices-repo-'))
+  try {
+    for (const kind of ['bundle', 'office'] as const) {
+      const artifact = path.join(root, kind)
+      const m = writeReleaseNotices({ repoRoot: repo, artifactDir: artifact, version: '0.0.0-test', target: kind === 'office' ? 'darwin' : 'linux', arch: 'arm64', kind, roots: [{ directory: 'server' }], includeWeb: false })
+      const psl = m.embeddedData.find(e => e.id === 'public-suffix-list')
+      expect(psl, kind).toBeDefined()
+      expect(psl!.carriedBy.some(c => c.startsWith(`tldts@${tldts}-`)), kind).toBe(true)
+      const notice = fs.readFileSync(path.join(artifact, 'licenses/public-suffix-list/NOTICE.txt'), 'utf8')
+      expect(notice).toContain('https://publicsuffix.org/list/')
+      expect(notice).toContain('MPL-2.0')
+      const mpl = fs.readFileSync(path.join(artifact, 'licenses/public-suffix-list/MPL-2.0.txt'))
+      expect(mpl.toString('utf8').startsWith('Mozilla Public License Version 2.0')).toBe(true)
+      // the licence text exactly as Mozilla publishes it (https://www.mozilla.org/media/MPL/2.0/index.txt)
+      expect(sha(mpl)).toBe('1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5')
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

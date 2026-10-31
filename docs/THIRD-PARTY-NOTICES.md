@@ -12,7 +12,7 @@
 
 Saram/chat-proto 12개 명시 파일과 ee/cloud는 [PUBLICATION](PUBLICATION.md)의 권리 근거를 따른다. PowerPoint 미리보기는 2026-10-28부터 `@aiden0z/pptx-renderer@1.4.0`(Apache-2.0)을 쓴다. 패키지 `LICENSE`·`THIRD_PARTY_NOTICES.md`와 설치된 `mtx-decompressor`(MPL-2.0)의 `LICENSE`는 웹 빌드의 `web/dist/licenses/`에 복사된다. 남은 항목: 패키지 `licenses/ECMA-text-copyright-notice.txt`는 자동 복사되지 않는다. 앱 번들은 패키지 ESM이 가져오는 설치본 `mtx-decompressor@1.8.0`을 묶으며, 패키지 고지의 1.4.2는 패키지 자체 standalone 번들 기준이다. 이전 `pptx-preview@1.0.7`(저자 LICENSE가 소스 게시를 제한)은 의존성에서 뺐다.
 
-서버의 `tldts@7.0.30`·`tldts-core@7.0.30`(MIT, 2026-10-30)은 Public Suffix List(MPL-2.0, https://publicsuffix.org/list/) 데이터를 코드에 담고 있다. 패키지 `LICENSE`(MIT)는 서버 묶음 고지에 자동 복사되지만 PSL의 MPL-2.0 고지와 원본 위치는 패키지에 없으므로 최종 고지 묶음에 따로 넣는다.
+서버의 `tldts@7.0.30`·`tldts-core@7.0.30`(MIT, 2026-10-30)은 Public Suffix List(MPL-2.0, https://publicsuffix.org/list/) 데이터를 코드에 담고 있다. 패키지 `LICENSE`(MIT)는 서버 묶음 고지에 자동 복사된다. PSL의 MPL-2.0 고지와 원본 위치는 패키지에 없어서 저장소의 `resources/notices/public-suffix-list/`(고지와 MPL-2.0 원문)에 두고, 고지 수집기(`scripts/release-notices.ts` `EMBEDDED_DATA`)가 tldts가 든 모든 서버·사무실 묶음의 `licenses/public-suffix-list/`에 자동으로 넣는다(2026-10-31). 파일이 없거나 고지에 원본 위치·라이선스가 없으면 빌드가 멈추고, `tests/unit/release-notices.test.ts`가 이 저장소로 확인한다.
 
 앱 웹 번들의 React/KaTeX/pdf.js/Office/viewer/vendor/폰트, 서버의 web-push와 semantic runtime, desktop의 Electron/Chromium 등은 최종 artifact에서 실제 포함 버전·전이 구성요소를 확정해야 한다. lockfile/단일 SPDX metadata만으로 모든 저작권 문구·복합 라이선스를 대체하지 않는다. JSZip의 선택형 허락, pako의 복합 허락, libvips의 별도 LGPL 및 linked library 고지도 구분한다.
 

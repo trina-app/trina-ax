@@ -4,7 +4,19 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire, isBuiltin } from 'node:module'
 
-export const RELEASE_NOTICE_FILES = ['LICENSE', 'licenses/manifest.json', 'licenses/README.txt'] as const
+/**
+ * Data a package carries inside its code under another licence than its own, whose notice the package does not ship:
+ * the project keeps that notice (`dir`) and it is copied to `licenses/<id>/` whenever the package is in the collected
+ * closure (a release that has the package and not the notice fails). tldts (MIT) compiles the Public Suffix List
+ * (MPL-2.0) into its code; its package has only its own MIT LICENSE (docs/THIRD-PARTY-NOTICES.md).
+ */
+export const EMBEDDED_DATA = [
+  { id: 'public-suffix-list', name: 'Public Suffix List', package: 'tldts', license: 'MPL-2.0', source: 'https://publicsuffix.org/list/',
+    dir: 'resources/notices/public-suffix-list', files: ['NOTICE.txt', 'MPL-2.0.txt'] },
+] as const
+/** what every server and office bundle must hold (the server always carries tldts) */
+export const RELEASE_NOTICE_FILES = ['LICENSE', 'licenses/manifest.json', 'licenses/README.txt',
+  ...EMBEDDED_DATA[0].files.map((f) => `licenses/${EMBEDDED_DATA[0].id}/${f}` as const)] as const
 const NAME = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i
 const VERSION = /^[0-9][a-z0-9.+_-]{0,127}$/i
 const MAX_TEXT = 4 * 1024 * 1024
@@ -22,9 +34,11 @@ const readmeName = (s: string) => /^readme(?:\.(?:md|txt|rst|markdown))?$/i.test
 const licensingContext = /licen[cs]e|copyright|permission|commercial|authori[sz]|许可证|授权|商业|라이선스|저작권/i
 
 export interface NoticeDocument {
-  path: string; sha256: string; bytes: number; source: 'project' | 'shared-cloud-protocol' | 'package'
+  path: string; sha256: string; bytes: number; source: 'project' | 'shared-cloud-protocol' | 'package' | 'embedded-data'
   sourcePath: string; component?: string
 }
+/** EMBEDDED_DATA found in this release: which packages carry it and the notice documents copied for it */
+export interface EmbeddedDataNotice { id: string; name: string; license: string; source: string; carriedBy: string[]; documents: string[] }
 export interface NoticePackage {
   id: string; name: string; version: string; packageJsonSha256: string; declaredLicense: string | null
   workspace: boolean; documents: string[]; consumers: string[]
@@ -35,6 +49,7 @@ export interface ReleaseNoticeManifest {
   release: { version: string; target: string; arch: string; kind: string }
   inputs: { path: string; sha256: string }[]
   packages: NoticePackage[]; documents: NoticeDocument[]
+  embeddedData: EmbeddedDataNotice[]
   artifacts: { path: string; sha256: string; bytes: number; version: string | null }[]
   /** Exact document + manifest replicas served by the installed web root; no recursive self-hash. */
   webMirror: 'web/licenses' | 'web/dist/licenses' | null
@@ -161,7 +176,7 @@ function collect(o: ReleaseNoticeOptions): ReleaseNoticeManifest {
   fs.rmSync(path.join(artifact, 'licenses'), { recursive: true, force: true })
   const m: ReleaseNoticeManifest = {
     format: 1, publicClear: false, coverage: 'partial-review-evidence', selection: 'installed-declared-runtime-and-peer-closure-superset',
-    release: { version: o.version, target: o.target, arch: o.arch, kind: o.kind }, inputs: [], packages: [], documents: [], artifacts: [], goModules: [], pending: [], omitted: [], withheld: [],
+    release: { version: o.version, target: o.target, arch: o.arch, kind: o.kind }, inputs: [], packages: [], documents: [], embeddedData: [], artifacts: [], goModules: [], pending: [], omitted: [], withheld: [],
     webMirror: o.includeWeb && ['bundle', 'office'].includes(o.kind) ? (o.kind === 'office' ? 'web/dist/licenses' : 'web/licenses') : null,
   }
   if (m.webMirror) {
@@ -254,6 +269,23 @@ function collect(o: ReleaseNoticeOptions): ReleaseNoticeManifest {
     }
     else if (fs.existsSync(path.join(dir, 'package.json'))) visit(dir, `workspace:${root.directory}`)
     else pending('workspace-manifest-missing', root.directory)
+  }
+
+  // Data compiled into a package under another licence (EMBEDDED_DATA): the project's notice for it, never optional.
+  for (const e of EMBEDDED_DATA) {
+    const carriers = m.packages.filter(p => p.name === e.package && !p.workspace)
+    if (!carriers.length) continue
+    const documents: string[] = []
+    for (const name of e.files) {
+      const src = path.join(repo, e.dir, name)
+      if (!fs.existsSync(src)) fail('release_notice_embedded_notice_missing')
+      const file = `licenses/${e.id}/${name}`
+      copy(textFile(src, repo), file, 'embedded-data', `${e.dir}/${name}`, e.id); documents.push(file)
+    }
+    // the notice names where the list's source is (MPL-2.0 3.2) and the licence it is under
+    const notice = fs.readFileSync(path.join(artifact, `licenses/${e.id}/${e.files[0]}`), 'utf8')
+    if (!notice.includes(e.source) || !notice.includes(e.license)) fail('release_notice_embedded_notice_invalid')
+    m.embeddedData.push({ id: e.id, name: e.name, license: e.license, source: e.source, carriedBy: carriers.map(p => p.id).sort(), documents })
   }
 
   // Track actual staged binaries without executing them or pretending npm notices cover embedded native code.
