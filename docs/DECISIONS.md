@@ -4016,3 +4016,33 @@ Trina should feel like Claude Code, which has WebSearch.
   self-relay's address, a connected relay, `publicAddress`), `office.test.ts` (office mode with and without its
   internet address), `g-routes.test.ts` (`publicAddress` in the connection status), `web/test/e2e/admin.spec.ts` (the
   Connection card with and without a public address).
+
+## Sleeping hosted teams: the relay wakes them (feat/f2-sleep, 2026-10-31)
+
+- The hosted control plane (CP) suspends an idle free team's VM to disk (F2). The relay owns the visitor side; the CP
+  owns the decision and the VM. The relay keeps one fact: `teams.sleeping_since` (registry step 2, additive), set by
+  `POST /ops/v1/teams/:id/sleep` just before the hibernate, cleared when the team server authenticates. In the
+  registry, not in memory, so a relay restart does not forget a sleeping team. A live connection is not dropped by
+  the flag: the VM going away drops it.
+- A request for a sleeping team with no live connection asks the CP: `POST <RELAY_WAKE_URL>/relay/v1/wake`, signed by
+  the relay's own Ed25519 wake key (`MycelRelayWake`, its own signing domain, so no operator signature is valid there
+  and no wake signature on the operator API). One call per team per 10 s (callers share the answer), 30 a minute in
+  all, 5 s timeout. The relay does not decide whether a wake is allowed; the CP answers waking, awake, busy or unknown.
+- Hold, then answer: browser page loads wait 2.5 s (most resumes take longer, and a blank tab is worse than a page that
+  says what happens), then get a page that reloads the same address after 3 s. The page does not echo the address
+  (meta refresh without a URL): nothing from the query (OAuth `code`) goes into HTML. Everything else waits up to 20 s
+  and then gets a retryable 503 with the CP's Retry-After (1-30 s), WebSockets close 1013. Under `/api/` only the two
+  provider callbacks count as page loads (a browser lands on them from Google or the connector provider).
+- busy (the host has no room for one more awake free VM) is shown at once with the CP's Retry-After, not held. unknown
+  and errors show the cloud offline page as before: a CP outage must not make every sleeping team wait 20 s per request.
+- Feature switch: no `RELAY_WAKE_URL` = off. The self-hosted add-on never sleeps, so nothing changes for it.
+- Team server (`server/src/relay-client/time-jump.ts`): after a resume the control connections are half-open and the
+  client would wait for its 45 s silence limit plus backoff. A 2 s timer that sees more than 15 s pass (or the clock
+  set back) drops and reconnects every connection at once. This is most of the wake time a visitor waits for after the
+  VM is running again.
+- Bots and crawlers wake a sleeping VM as people do. The CP does not count a wake as use, so it sleeps again on the
+  next policy run; the per-team and global limits keep the CP calls small.
+- Tests: `tests/relay/f-sleep.test.ts` (Node relay, fake team server, fake CP that checks the signature: the waking
+  page, the wake call once per 10 s, API 503, WebSocket 1013, a wake that starts the team server and the request that
+  waited for it, an OAuth callback with its query, busy, unknown, feature off), `tests/unit/f2-relay-wake.test.ts`
+  (wake client, settings, page loads, the time-jump detector and the relay client's reconnect).

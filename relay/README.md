@@ -52,6 +52,9 @@ Pulls if the host allows it. Behind a local `cloudflared` tunnel the peer is loo
 | `--health-listen` | `RELAY_HEALTH_LISTEN` | | loopback `host:port` answering `/healthz` for THIS process (a/b deploy) |
 | | `RELAY_HSTS` | 1 | `Strict-Transport-Security: max-age=31536000` on team answers without one (https addresses only) |
 | | `RELAY_ACCOUNT_HOST`, `RELAY_STATUS_HOST` | account.treesoop.com, status.treesoop.com | named on the billing-suspension and cloud-offline pages |
+| | `RELAY_WAKE_URL` | | F2 sleep: the control plane base URL (`https://cp.trina.app`; http only to loopback or a Tailscale address). Unset = off: a sleeping team gets the offline page |
+| | `RELAY_WAKE_KEY_FILE`, `RELAY_WAKE_KEY_ID` | | the relay's Ed25519 wake key (PEM PKCS#8) and its id; the control plane pins the public key |
+| | `RELAY_WAKE_HOLD_MS`, `RELAY_WAKE_PAGE_MS` | 20000, 2500 | a request for a sleeping team waits this long for it (API / WebSocket; browser page loads) |
 
 SIGTERM: stop accepting, GOAWAY(restart) to team servers (they reconnect at once), 1012 to browser WebSockets (they
 resume), wait for running HTTP streams up to `RELAY_GRACE_MS`. On Linux the listener uses `reusePort`, so a new
@@ -91,13 +94,47 @@ recorded in the registry's `ops_audit` (key id, action, team id).
 | `GET /ops/v1/teams/:id`, `GET /ops/v1/teams?origin=&cursor=` | `OperatorTeamInfo` (online, connections, last version, …) | teams:read |
 | `POST …/:id/suspend` `{ reason }`, `POST …/:id/unsuspend` | billing / canceled show "check the payment"; others the plain page | teams:write |
 | `POST …/:id/maintenance` `{ untilMs \| null }` | "being updated" (503, Retry-After 30) while offline | teams:write |
+| `POST …/:id/sleep` `{ sleeping }` | F2: the VM sleeps (`sleepingSince` in `OperatorTeamInfo`); the next request wakes it. A team server that connects clears it | teams:write |
 | `PUT …/:id/key`, `PATCH …/:id` `{ name }`, `DELETE …/:id` | key rotation, rename (old address: 308 for 90 days), release | teams:write |
 | `POST …/:id/notice` `{ level, code, message }` | EVENT notice to the connected team server (409 when offline) | notice:write |
 | `POST /ops/v1/claims` `{ name, ttlSec ≤ 7 d, externalRef }`, `DELETE /ops/v1/claims/:externalRef` | claim code for the self-hosted add-on (`POST /teams` with `claimCode`, no proof of work) | claims:write |
 | `GET /ops/v1/stats` | counts | teams:read |
 
 `/metrics` (Prometheus text): team counts, online teams, control connections, streams, browser sockets, request and
-WebSocket outcomes, bytes, registrations by kind, operator API failures, event-loop p99, RSS. No team label anywhere.
+WebSocket outcomes (with `waking`), wake requests, bytes, registrations by kind, operator API failures, event-loop p99, RSS. No team label anywhere.
+
+## Sleeping teams (F2)
+
+The control plane hibernates an idle free team's VM. Just before, it calls `POST /ops/v1/teams/:id/sleep
+{ "sleeping": true }`; the flag is in the registry (it survives a relay restart) and ends when the team server
+authenticates again. A request for a sleeping team with no live connection makes the relay ask the control plane to
+wake it:
+
+```
+POST <RELAY_WAKE_URL>/relay/v1/wake      {"teamId":"<relay team id>","reason":"http"|"ws"}
+Authorization: MycelRelayWake key=<RELAY_WAKE_KEY_ID>, ts=<ms>, sig=<base64 Ed25519 over wakeSigningString("/relay/v1/wake", ts, body)>
+-> 200 {"state":"waking"|"awake"|"busy"|"unknown","retryAfterSec":N}
+```
+
+At most one call per team per 10 s (requests in that time share the answer), 30 calls a minute in all, 5 s timeout;
+`ts` strictly increases per process. The log has the team id and the answer state only. Then:
+
+- browser page loads (GET/HEAD for HTML; under `/api/` only the connector OAuth and Google Drive callbacks): wait up to
+  `RELAY_WAKE_PAGE_MS`, forward when the team server is back, else the "Waking up your team…" page (503, Retry-After 3,
+  `x-relay-error: team_waking`). It reloads the same address after 3 s (meta refresh, the address is not echoed), so
+  an OAuth callback arrives with its `code` and `state` once the server is awake.
+- other requests (API, POST, desktop and mobile apps): wait up to `RELAY_WAKE_HOLD_MS`, else 503
+  `{ error: { code: "unavailable", reason: "team_waking", retryAfter } }` with Retry-After (the control plane's value,
+  1-30 s). WebSockets: wait the same, else close 1013.
+- `busy` (no room on the host now): `team_busy` with the control plane's Retry-After, at once. `unknown` or an error:
+  the cloud offline page as before.
+
+Connector webhooks and callbacks reach a sleeping team the same way (they are requests to its address). Push
+notifications are sent BY the team server, so nothing waits at the relay: the control plane wakes the VM before a due
+schedule or push retry (the team server reports both in its idle facts). Bots that open the address wake the VM too;
+the control plane does not count that as use, so the VM goes back to sleep on the next policy run.
+The team server's relay client sees the time jump of a resume (a 2 s timer that sees more than 15 s pass) and
+reconnects all its connections at once, without its silence limit and backoff.
 
 ## Registry API (on the relay's own address)
 
