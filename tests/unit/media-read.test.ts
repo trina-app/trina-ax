@@ -7,11 +7,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { localizeStep, mediaKind, mediaStepKind, stepLabel } from '@mycel/shared'
 import { mediaTranscriptsDefault, mediaTranscriptsOn } from '@mycel/shared/api'
-import { getTeamSettings, updateTeamSettings } from '../../server/src/admin/settings'
+import { getTeamSettings, teamDefaultLocale, updateTeamSettings } from '../../server/src/admin/settings'
 import { componentC } from '../../server/src/team-files/component'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
 import { setPlanForTests } from '../../server/src/system/limits'
+import os from 'node:os'
+import { JobFailure } from '../../server/src/jobs/service'
+import { dictationTurn, pieceTurn, whisperTurns } from '../../server/src/jobs/whisper-turns'
 import * as media from '../../server/src/files/media'
 import { READ_OUTPUT_TOKENS, VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { makeCApp, sha256hex, type CApp } from '../lib/c-app'
@@ -28,6 +31,25 @@ const video = (duration: number, o: Partial<media.MediaInfo> = {}): media.MediaI
   audio: { index: 1, codec: 'aac', channels: 2, sampleRate: 48000 }, cover: false, ...o,
 })
 const audioOnly = (duration: number) => video(duration, { video: null, format: 'mp3' })
+/** a real 16 kHz mono 16-bit WAV (with ffmpeg's LIST chunk) of `seconds`, loud (a 440 Hz tone at -12 dBFS) where
+ * `loud` says, silent elsewhere */
+function realWav(seconds: number, loud: (t: number) => boolean = () => false): Buffer {
+  const n = Math.round(seconds * 16_000)
+  const pcm = Buffer.alloc(n * 2)
+  for (let i = 0; i < n; i++) if (loud(i / 16_000)) pcm.writeInt16LE(Math.round(8200 * Math.sin((2 * Math.PI * 440 * i) / 16_000)), i * 2)
+  const list = Buffer.concat([Buffer.from('LIST'), Buffer.from([14, 0, 0, 0]), Buffer.from('INFOISFT'), Buffer.from([2, 0, 0, 0]), Buffer.from('x\0')])
+  const fmt = Buffer.alloc(24)
+  fmt.write('fmt ', 0, 'latin1'); fmt.writeUInt32LE(16, 4); fmt.writeUInt16LE(1, 8); fmt.writeUInt16LE(1, 10); fmt.writeUInt32LE(16_000, 12); fmt.writeUInt32LE(32_000, 16); fmt.writeUInt16LE(2, 20); fmt.writeUInt16LE(16, 22)
+  const data = Buffer.alloc(8); data.write('data', 0, 'latin1'); data.writeUInt32LE(pcm.length, 4)
+  const body = Buffer.concat([Buffer.from('WAVE'), fmt, list, data, pcm])
+  const head = Buffer.alloc(8); head.write('RIFF', 0, 'latin1'); head.writeUInt32LE(body.length, 4)
+  return Buffer.concat([head, body])
+}
+/** the read's clock (files/media.ts now), moved on by fake converters that "take" time; timers stay real */
+let clockMs = 0
+const SPEED = "DELETE FROM settings WHERE key = 'media.localSpeed'"
+/** this server measured `secPerSec` for itself */
+const measured = (secPerSec: number) => media.recordLocalSpeed(A.ctx.db, media.localModelName(F().speech.model), F().speech.threads, secPerSec * 30_000, 30)
 
 // ---- the fake OpenRouter
 const hits: any[] = []
@@ -38,9 +60,14 @@ const fakeOr = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { hi
 let probe: media.MediaInfo
 let frames: { t: number; px: number }[] = []
 let audios: { start: number; seconds: number }[] = []
+let order: string[] = []
+let audioWav: (start: number, seconds: number) => Buffer = (_start, seconds) => wav(Math.min(seconds, 2))
 let said: (start: number, seconds: number) => { start: number; end: number; text: string }[] = (start) => [{ start: 1, end: 2, text: `words at ${start}` }]
 let frameJpeg = () => jpeg()
 const spies: { mockRestore(): void }[] = []
+/** this server's cores (system/limits.ts cpuBudget): 8, a server whose transcripts are on by default, unless a test
+ * says otherwise (the machine running the tests may have 2) */
+let cores: ReturnType<typeof spyOn<typeof os, 'availableParallelism'>>
 let local: { calls: number }
 
 beforeAll(async () => {
@@ -52,7 +79,11 @@ beforeAll(async () => {
 })
 afterAll(async () => { fakeOr.stop(true); await A.close() })
 beforeEach(() => {
-  hits.length = 0; frames = []; audios = []; local = { calls: 0 }
+  hits.length = 0; frames = []; audios = []; order = []; local = { calls: 0 }; clockMs = 0
+  audioWav = (_start, seconds) => wav(Math.min(seconds, 2))
+  // a fast server that measured itself (a test that plans pieces sets its own)
+  A.ctx.db.query(SPEED).run()
+  measured(0.2)
   reply = () => Response.json({ text: 'hello', segments: [{ start: 2, end: 3, text: 'hello from openrouter' }], language: 'english' })
   said = (start) => [{ start: 1, end: 2, text: `words at ${start}` }]
   frameJpeg = () => jpeg()
@@ -60,13 +91,16 @@ beforeEach(() => {
   updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiVision: true, aiMediaTranscripts: null })
   Object.assign(F().speech, { whisperBin: '/usr/bin/true', modelDir: A.data, sharedModelDir: null, modelOverride: { file: 'fake-model.bin', size: 4, sha256: 'x' } })
   fs.writeFileSync(path.join(A.data, 'fake-model.bin'), 'abcd')
+  cores = spyOn(os, 'availableParallelism').mockReturnValue(8)
   spies.push(
+    cores,
     spyOn(F(), 'mediaTools').mockReturnValue({ ffmpeg: '/fake/ffmpeg', ffprobe: '/fake/ffprobe' }),
     spyOn(F(), 'mediaProbe').mockImplementation(async () => structuredClone(probe)),
     spyOn(F(), 'mediaDuration').mockResolvedValue(null),
-    spyOn(F(), 'mediaFrame').mockImplementation(async (_t, _w, _n, _s, t: number, px: number) => { frames.push({ t, px }); return frameJpeg() }),
-    spyOn(F(), 'mediaAudio').mockImplementation(async (_t, _w, _n, _s, start: number, seconds: number) => { audios.push({ start, seconds }); return wav(Math.min(seconds, 2)) }),
+    spyOn(F(), 'mediaFrame').mockImplementation(async (_t, _w, _n, _s, t: number, px: number) => { frames.push({ t, px }); order.push('frame'); return frameJpeg() }),
+    spyOn(F(), 'mediaAudio').mockImplementation(async (_t, _w, _n, _s, start: number, seconds: number) => { audios.push({ start, seconds }); order.push('audio'); return audioWav(start, seconds) }),
   )
+  media.setClockForTests(() => Date.now() + clockMs)
   const real = F().mediaTranscribe.bind(F())
   spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (p, work, name, bytes, o) => {
     if (p.provider === 'openrouter') return real(p, work, name, bytes, o)
@@ -75,7 +109,7 @@ beforeEach(() => {
     return { text: '', language: 'ko', durationSec: a.seconds, segments: said(a.start, a.seconds) }
   }))
 })
-afterEach(() => { for (const s of spies.splice(0)) s.mockRestore(); setPlanForTests(undefined); A.ctx.db.query('DELETE FROM safe_ops_chats').run() })
+afterEach(() => { for (const s of spies.splice(0)) s.mockRestore(); media.setClockForTests(null); setPlanForTests(undefined); A.ctx.db.query('DELETE FROM safe_ops_chats').run() })
 
 let n = 0
 /** a new file (its own bytes, so the transcript cache starts empty for it) */
@@ -175,17 +209,26 @@ describe('frames and transcript', () => {
     expect(frames).toEqual([])
     expect(out.text).toContain('words at 0')
   })
-  test('time picks a part: frames inside it, the transcript of its fixed pieces (2 minutes on this server) filtered to it', async () => {
+  test('time picks a part: frames inside it, the transcript of its fixed pieces (30 seconds on this server) filtered to it', async () => {
     probe = video(600)
-    said = (start) => start === 0 ? [{ start: 30, end: 31, text: 'before' }, { start: 70, end: 71, text: 'inside' }] : [{ start: 10, end: 11, text: 'next piece' }, { start: 100, end: 101, text: 'after' }]
-    const { out } = await read({ file_path: put('h.mp4'), time: '1:00-2:30', frames: 3 })
-    expect(frames.map((f) => f.t)).toEqual([75, 105, 135])
-    expect(audios).toEqual([{ start: 0, seconds: 120 }, { start: 120, seconds: 120 }])
-    expect(out.text).toContain('Part 1:00.0–2:30.0 below.')
-    expect(out.text).toContain('[1:10.0–1:11.0] inside')
+    // piece 1:00-1:30 holds a line from before the part and one inside; piece 2:00-2:30 one inside and one after it
+    said = (start) => start === 60 ? [{ start: 1, end: 2, text: 'before' }, { start: 20, end: 21, text: 'inside' }] : start === 120 ? [{ start: 10, end: 11, text: 'next piece' }] : [{ start: 1, end: 2, text: `words at ${start}` }]
+    const { out } = await read({ file_path: put('h.mp4'), time: '1:15-2:15', frames: 3 })
+    expect(frames.map((f) => f.t)).toEqual([85, 105, 125])
+    expect(audios).toEqual([60, 90, 120].map((start) => ({ start, seconds: 30 })))
+    expect(out.text).toContain('Part 1:15.0–2:15.0 below.')
+    expect(out.text).toContain('[1:20.0–1:21.0] inside')
     expect(out.text).toContain('[2:10.0–2:11.0] next piece')
     expect(out.text).not.toContain('before')
-    expect(out.text).not.toContain('after')
+  })
+  test('a sentence that began just before the part is in it (QA L3: it overlaps the part)', async () => {
+    probe = audioOnly(20.7)
+    said = () => [{ start: 0, end: 10.4, text: 'the first sentence' }, { start: 10.4, end: 20, text: 'the second sentence' }]
+    const { out } = await read({ file_path: put('overlap.mp3'), time: '0:05-0:15' })
+    expect(out.text).toContain('[0:00.0–0:10.4] the first sentence')
+    expect(out.text).toContain('[0:10.4–0:20.0] the second sentence')
+    // and one that ended before the part is not
+    expect((await read({ file_path: put('overlap2.mp3'), time: '0:10.5-0:20' })).out.text).not.toContain('the first sentence')
   })
   test('nothing asked for is an error that says so: frames: 0 with transcript: false, or one moment of a sound file', async () => {
     expect((await read({ file_path: put('none.mp4'), frames: 0, transcript: false })).out.text).toContain('frames: 0 and transcript: false leave nothing to read')
@@ -213,18 +256,18 @@ describe('frames and transcript', () => {
     const { out, images } = await read({ file_path: put('long.mp4') })
     expect(images).toBe(12)
     expect(frames[0]!.t).toBeCloseTo(112.5)
-    expect(audios).toEqual(Array.from({ length: 5 }, (_, i) => ({ start: i * 120, seconds: 120 })))
+    expect(audios).toEqual(Array.from({ length: 20 }, (_, i) => ({ start: i * 30, seconds: 30 })))
     expect(out.text).toContain('The transcript covers 0:00.0–10:00.0 of 0:00.0–45:00.0. To read on: time: "10:00-40:00", frames: 0.')
   })
-  test('a 1-hour meeting recording: 30 minutes a read (fifteen 2-minute pieces on this server), then the rest', async () => {
+  test('a 1-hour meeting recording: 30 minutes a read (sixty 30-second pieces on this server), then the rest', async () => {
     probe = audioOnly(3600)
     const a = await read({ file_path: put('meeting.m4a') })
-    expect(audios).toEqual(Array.from({ length: 15 }, (_, i) => ({ start: i * 120, seconds: 120 })))
+    expect(audios).toEqual(Array.from({ length: 60 }, (_, i) => ({ start: i * 30, seconds: 30 })))
     expect(a.out.text).toContain('Audio users/alice/meeting.m4a: 1:00:00 long; sound aac, 2 channels.')
     expect(a.out.text).toContain('To read on: time: "30:00-1:00:00", frames: 0.')
     audios = []
     const b = await read({ file_path: 'users/alice/meeting.m4a', time: '30:00-1:00:00' })
-    expect(audios.map((x) => x.start)).toEqual(Array.from({ length: 15 }, (_, i) => 1800 + i * 120))
+    expect(audios.map((x) => x.start)).toEqual(Array.from({ length: 60 }, (_, i) => 1800 + i * 30))
     expect(b.out.text).not.toContain('To read on')
   })
   test('an audio file: no frames; transcript: false leaves nothing and says so', async () => {
@@ -268,7 +311,8 @@ describe('limits of one result and one turn', () => {
     const { out, images } = await read({ file_path: put('big.mp4'), frames: 12 })
     expect(images).toBeLessThan(12)
     expect(images * 3280).toBeLessThan(READ_OUTPUT_TOKENS)
-    expect(out.text).toMatch(/Not shown in this read: the frames at .*Read them in another call: time: "\d+:\d\d-\d+:\d\d", frames: \d+\./)
+    // the frames alone next time: their sound is in this result already
+    expect(out.text).toMatch(/Not shown in this read: the frames at .*Read them in another call: time: "\d+:\d\d-\d+:\d\d", frames: \d+, transcript: false\./)
   })
   test('the turn\'s image budget (40 images) is shared: past it the frames are named, not sent', async () => {
     const ctx = A.toolCtx('alice', turn())
@@ -315,9 +359,9 @@ describe('limits of one result and one turn', () => {
 describe('who transcribes, and when sound may leave the server', () => {
   const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
   test('the default follows the provider: on for this server, off for OpenRouter; voice input off means none', async () => {
-    expect(mediaTranscriptsDefault('local')).toBe(true)
-    expect(mediaTranscriptsDefault('openrouter')).toBe(false)
-    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true })).toBe(false)
+    expect(mediaTranscriptsDefault('local', 4)).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', 16)).toBe(false)
+    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, 16)).toBe(false)
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     let r = await read({ file_path: put('m1.mp4') })
     expect(r.out.text).toContain('Voice input is off for this team')
@@ -444,13 +488,203 @@ describe('who transcribes, and when sound may leave the server', () => {
       expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('(whisper.cpp) is not on this server')
     } finally { srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' }
   })
-  test('this server on a hosted plan: 2-minute pieces, at most one new piece a read', async () => {
+  test('this server on a hosted plan: 30-second pieces, at most 2 minutes of new sound a read', async () => {
     setPlanForTests({ cpuCores: 2 } as any)
+    // a 2-core plan starts with the switch off (a small server): the admin turned it on
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
     probe = audioOnly(600)
     const { out } = await read({ file_path: put('hosted.m4a') })
-    expect(audios).toEqual([{ start: 0, seconds: 120 }])
+    expect(audios).toEqual([0, 30, 60, 90].map((start) => ({ start, seconds: 30 })))
     expect(out.text).toContain('On this server one read turns at most 2 minutes of new sound into text.')
     expect(out.text).toContain('To read on: time: "2:00-10:00", frames: 0 (in another call).')
+  })
+})
+
+// QA on a 2 vCPU / 4 GB box (2026-11-01): local whisper.cpp needed 180-300 s for a 2-minute piece, took the frames'
+// time, slowed voice input to 336 s and invented lines over silence
+describe('slow local transcripts: frames first, measured pieces, small servers, voice input first, silence', () => {
+  const localFails = (o: { timeoutMs: number }, reason: string) => { clockMs += o.timeoutMs; throw new JobFailure('internal', { ko: `받아쓰기에 실패했어요(${reason}).`, en: `Transcription failed (${reason}).`, id: `Transkripsi gagal (${reason}).`, ja: `文字起こしに失敗しました（${reason}）。`, es: `La transcripción falló (${reason}).` }, reason) }
+  test('frames first (H2): whisper.cpp that runs into the read\'s time still leaves every frame, and the retry of frames skips the sound', async () => {
+    A.ctx.db.query(SPEED).run()
+    probe = video(124)
+    const limits: number[] = []
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => { order.push('whisper'); limits.push(o.timeoutMs); return localFails(o, 'timeout') }))
+    const { out, images } = await read({ file_path: put('big-talk.mp4') })
+    expect(images).toBe(12)
+    expect(order.indexOf('audio')).toBe(12)
+    expect(order.slice(0, 12)).toEqual(Array(12).fill('frame'))
+    // the converters never get the end kept for the result
+    expect(limits.length).toBe(1)
+    expect(limits[0]!).toBeLessThanOrEqual(media.READ_DEADLINE_MS - media.RESULT_RESERVE_MS)
+    expect(out.text).not.toContain('Not shown in this read')
+    expect(out.text).not.toContain('failed')
+    expect(out.text).toContain('This read had no time left to turn the sound into text.')
+    expect(out.text).toContain('To read on: time: "0:00-2:04", frames: 0.')
+    // the piece that ran out of time says how slow this server is (at least that long)
+    expect(media.localSpeed(A.ctx.db, media.localModelName(F().speech.model), F().speech.threads).secPerSec).toBeGreaterThanOrEqual(limits[0]! / 1000 / 30 - 0.01)
+  })
+  test('pieces planned at the speed measured here: as many 30-second pieces as fit, then how far it got; reading again goes on', async () => {
+    A.ctx.db.query(SPEED).run()
+    probe = audioOnly(600)
+    // whisper.cpp takes 60 s for each 30 s piece here (2 s a second)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async () => { local.calls++; clockMs += 60_000; const a = audios[audios.length - 1]!; return { text: '', language: 'ko', durationSec: 30, segments: said(a.start, a.seconds) } }))
+    expect(media.localPieceNeedsMs(media.LOCAL_SPEED_DEFAULT, 30)).toBe(95_000)
+    expect(media.localPieceNeedsMs(2, 30)).toBe(77_000)
+    // a short last piece costs a whole whisper window
+    expect(media.localPieceNeedsMs(2, 5)).toBe(77_000)
+    expect(media.localPiecesThatFit(295_000, 2)).toBe(3)
+    expect(media.localPiecesThatFit(50_000, 2)).toBe(0)
+    const rel = put('meeting-slow.m4a')
+    const a = await read({ file_path: rel })
+    // the first piece at the default (95 s needed of 295), then at the measured 2 s a second: 235, 175, 115 left; 55 is too little
+    expect(audios.map((x) => x.start)).toEqual([0, 30, 60, 90])
+    expect(media.localSpeed(A.ctx.db, media.localModelName(F().speech.model), F().speech.threads)).toEqual({ secPerSec: 2, measured: true })
+    expect(a.out.text).toContain('This read had time to turn the sound from 0:00.0 to 2:00.0 into text. Reading again goes on from there')
+    expect(a.out.text).toContain('The transcript covers 0:00.0–2:00.0 of 0:00.0–10:00.0. To read on: time: "2:00-10:00", frames: 0.')
+    expect(a.out.summary).toContain('stopped: time')
+    // the same read again: the four pieces come from the cache, the next four are new
+    audios = []; clockMs = 0
+    const b = await read({ file_path: rel })
+    expect(audios.map((x) => x.start)).toEqual([120, 150, 180, 210])
+    expect(b.out.text).toContain('from 0:00.0 to 4:00.0')
+    // in Korean, plainly
+    A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+    try {
+      audios = []; clockMs = 0
+      expect((await read({ file_path: rel })).out.text).toContain('이번에 읽는 시간 안에 소리를 0:00.0–6:00.0까지 글로 바꿨어요. 다시 읽으면 그다음부터 이어서 바꿔요')
+    } finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
+  })
+  test('the moving average of the speed: the first measurement replaces the default, a piece cut off by its time counts at least that long', () => {
+    A.ctx.db.query(SPEED).run()
+    expect(F().speechHost()).toMatchObject({ localPieceSec: 30, localSecPerSec: null, hostedNewSec: null })
+    const m = media.localModelName('small'), th = F().speech.threads + 1
+    expect(media.localSpeed(A.ctx.db, m, th)).toEqual({ secPerSec: media.LOCAL_SPEED_DEFAULT, measured: false })
+    expect(media.recordLocalSpeed(A.ctx.db, m, th, 45_000, 30).secPerSec).toBe(1.5)
+    expect(media.recordLocalSpeed(A.ctx.db, m, th, 75_000, 30).secPerSec).toBe(1.8)
+    // a 5 s clip (voice input) costs a whole 30 s window
+    expect(media.recordLocalSpeed(A.ctx.db, m, th, 54_000, 5).secPerSec).toBeCloseTo(1.8)
+    expect(media.recordLocalSpeed(A.ctx.db, m, th, 120_000, 30, true).secPerSec).toBe(4)
+    // another model or thread count starts from the default again
+    expect(media.localSpeed(A.ctx.db, m, th + 1).measured).toBe(false)
+    expect(media.localSpeed(A.ctx.db, media.localModelName('base'), th).measured).toBe(false)
+    // the settings page sees the speed of the model and threads this server uses
+    measured(1.2)
+    expect(F().speechHost().localSecPerSec).toBe(1.2)
+  })
+  test('a server with 2 cores or fewer: off by default with a note why, frames still go; an admin\'s choice wins', async () => {
+    expect(mediaTranscriptsDefault('local', 2)).toBe(false)
+    expect(mediaTranscriptsDefault('local', 3)).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', 2)).toBe(false)
+    cores.mockReturnValue(2)
+    expect(F().speechHost().cpuCores).toBe(2)
+    let r = await read({ file_path: put('small.mp4') })
+    expect(r.images).toBe(12)
+    expect(audios).toEqual([])
+    expect(r.out.text).toContain('Turning sound into text takes long on this server, so it is off. An admin can turn on "Turn video sound into text"')
+    expect(r.out.text).not.toContain('To read on')
+    A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가') }
+    finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
+    // turned off on purpose: the usual note, not the small-server one
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false })
+    expect((await read({ file_path: put('small-off.mp4') })).out.text).toContain('This team does not turn video sound into text')
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
+    r = await read({ file_path: put('small-on.mp4') })
+    expect(r.out.text).toContain('words at 0')
+  })
+  test('voice input first (H3): a video piece does not start while a dictation waits, and one running yields and runs again after', async () => {
+    // the turns themselves
+    let release!: () => void
+    const held = dictationTurn(() => new Promise<void>((r) => { release = r }))
+    expect(await pieceTurn(async () => 'x', { waitMs: 20 })).toEqual({ ok: false, why: 'busy' })
+    const waiting = pieceTurn(async () => 'after', { waitMs: 5_000 })
+    await Bun.sleep(10)
+    expect(whisperTurns()).toEqual({ dictations: 1, dictating: true, piece: false })
+    release(); await held
+    expect(await waiting).toEqual({ ok: true, value: 'after' })
+    // a piece running when voice input comes is stopped at once; the dictation runs once it is gone
+    const steps: string[] = []
+    const running = pieceTurn((y) => new Promise((_, rej) => { steps.push('piece'); y.addEventListener('abort', () => { steps.push('piece stopped'); rej(new Error('aborted')) }) }), { waitMs: 1000 })
+    await Bun.sleep(5)
+    const dictation = dictationTurn(async () => { steps.push('dictation'); return 'words' })
+    expect(await running).toEqual({ ok: false, why: 'yielded' })
+    expect(await dictation).toBe('words')
+    expect(steps).toEqual(['piece', 'piece stopped', 'dictation'])
+    expect(whisperTurns()).toEqual({ dictations: 0, dictating: false, piece: false })
+    // in a read: the piece yields to the dictation and is made again after it, in the same read
+    probe = audioOnly(20)
+    let first = true
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      local.calls++
+      if (first) {
+        first = false
+        void dictationTurn(async () => { steps.push('dictation in the read') })
+        // like runIsolated: a signal that fired already stops it at once
+        return await new Promise((_, rej) => { if (o.signal!.aborted) rej(new Error('aborted')); else o.signal!.addEventListener('abort', () => rej(new Error('aborted'))) })
+      }
+      return { text: '', language: 'ko', durationSec: 20, segments: [{ start: 1, end: 2, text: 'made after the dictation' }] }
+    }))
+    const { out } = await read({ file_path: put('yield.m4a') })
+    expect(local.calls).toBe(2)
+    expect(steps).toContain('dictation in the read')
+    expect(out.text).toContain('made after the dictation')
+  })
+  test('silence (L2): a silent piece is not transcribed, lines over silence are dropped, each piece has its own language, a little speech gets the team\'s language', async () => {
+    probe = audioOnly(90)
+    // 0:00-0:30 four seconds of speech, 0:30-1:00 silence, 1:00-1:30 speech all through
+    audioWav = (start, seconds) => realWav(seconds, (t) => (start === 0 ? t < 4 : start === 60))
+    const hints: (string | undefined)[] = []
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      local.calls++; hints.push(o.language)
+      const a = audios[audios.length - 1]!
+      return a.start === 0
+        ? { text: '', language: 'ja', durationSec: 30, segments: [{ start: 0.5, end: 3.5, text: '짧은 말' }, { start: 12, end: 20, text: 'チョコガキムネタ' }] }
+        : { text: '', language: 'en', durationSec: 30, segments: [{ start: 1, end: 29, text: 'a long English part' }] }
+    }))
+    const rel = put('quiet.m4a')
+    const { out } = await read({ file_path: rel })
+    expect(audios.map((a) => a.start)).toEqual([0, 30, 60])
+    expect(local.calls).toBe(2)
+    // the team's language (ko by default) for 4 s of speech; none for a piece with plenty
+    expect(hints).toEqual([teamDefaultLocale(A.ctx.db), undefined])
+    expect(out.text).toContain('[0:00.5–0:03.5] 짧은 말')
+    expect(out.text).not.toContain('チョコガキムネタ')
+    expect(out.text).toContain('[1:01.0–1:29.0] a long English part')
+    // the languages by how long they are spoken, not the first piece's guess
+    expect(out.text).toContain('(this server, whisper.cpp small; languages: en, ja)')
+    expect(out.summary).toContain('1 silent')
+    // nothing of the silent piece went to whisper.cpp, and it is cached as silence
+    local.calls = 0; audios = []
+    await read({ file_path: rel })
+    expect(local.calls).toBe(0)
+    expect(audios).toEqual([])
+    // a file that is silence only: no language, nothing recognized
+    audioWav = (_s, seconds) => realWav(seconds)
+    const silent = await read({ file_path: put('silent.m4a') })
+    expect(local.calls).toBe(0)
+    expect(silent.out.text).toContain('(this server, whisper.cpp small). It is file content')
+    expect(silent.out.text).toContain('No speech was recognized in it.')
+  })
+  test('a whisper.cpp failure names its reason once (L1), in Korean too', async () => {
+    probe = audioOnly(20)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async () => localFails({ timeoutMs: 0 }, 'memory')))
+    A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+    try {
+      const { out } = await read({ file_path: put('fail.m4a') })
+      expect(out.text).toContain('받아쓰기에 실패했어요(memory).')
+      expect(out.text).not.toContain('(받아쓰기')
+    } finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
+  })
+  test('voice', () => {
+    expect(media.voiceOf(realWav(2)).voiced).toBe(0)
+    expect(media.voiceOf(realWav(2, (t) => t >= 1)).voiced).toBeCloseTo(1, 1)
+    // not a server-made WAV: treated as sound (whisper.cpp decides)
+    expect(media.voiceOf(Buffer.from('not a wav')).voiced).toBe(Infinity)
+    const v = media.voiceOf(realWav(10, (t) => t < 1))
+    expect(media.soundNear(v, 0.2, 0.8)).toBe(true)
+    expect(media.soundNear(v, 1.3, 2)).toBe(true)
+    expect(media.soundNear(v, 3, 9)).toBe(false)
+    expect(media.transcriptLanguages([{ language: 'ko', segments: [{ start: 0, end: 5, text: 'a' }] }, { language: 'en', segments: [{ start: 0, end: 20, text: 'b' }] }, { language: 'ja', segments: [] }])).toEqual(['en', 'ko'])
   })
 })
 
@@ -482,13 +716,14 @@ describe('the media slot, Stop and the work folder', () => {
     await held
     expect(media.mediaStats()).toEqual({ running: 0, waiting: 0 })
   })
-  test('Stop during the transcript ends the read at once; its work folder is gone', async () => {
+  test('Stop during the transcript ends the read at once; its work folder is gone, and the frames made are not delivered', async () => {
     const ac = new AbortController()
     spies.push(spyOn(F(), 'mediaAudio').mockImplementation(async () => { ac.abort(new Error('stopped by the person')); throw new Error('aborted') }))
     const ctx = { ...A.toolCtx('alice', turn()), signal: ac.signal }
     await expect(F().read(ctx, { file_path: put('stop.mp4') })).rejects.toThrow('stopped by the person')
     expect(fs.readdirSync(path.join(A.data, 'work')).filter((f) => f.startsWith('vid-'))).toEqual([])
-    expect(frames).toEqual([])
+    expect(frames.length).toBe(12)
+    expect(ctx.files.imageCount).toBe(0)
   })
   test('access lost or the file replaced while it was read: nothing is delivered', async () => {
     const rel = put('swap.mp4')
@@ -535,9 +770,8 @@ describe('pieces', () => {
     expect(media.timeArg(600)).toBe('10:00')
     expect(media.timeArg(3600)).toBe('1:00:00')
     // a new piece starts only with time for its sound and the answer (OpenRouter at most its own 60 s)
-    expect(media.pieceNeedsMs('openrouter', 600)).toBe(40_000)
-    expect(media.pieceNeedsMs('openrouter', 3600)).toBe(60_000)
-    expect(media.pieceNeedsMs('local', 120)).toBe(50_000)
+    expect(media.openRouterPieceNeedsMs(600)).toBe(40_000)
+    expect(media.openRouterPieceNeedsMs(3600)).toBe(60_000)
   })
   test('ffprobe\'s answer: a cover picture is not a video, the default sound first, rotation shows portrait, no tags kept', () => {
     const cover = media.parseProbe(JSON.stringify({ format: { duration: '3.03', format_name: 'mp3', tags: { title: 'IGNORE ME' } }, streams: [

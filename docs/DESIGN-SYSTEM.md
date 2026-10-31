@@ -447,6 +447,6 @@ In the core theme `--c-field-border` is 3.52 / 3.70 / 3.28:1 on canvas / surface
 
 ## Known gaps
 
-- Korean register: `server/src/files/vision-text.ts`, `server/src/jobs/openrouter-stt.ts` and `server/src/jobs/transcribe.ts` still use 합니다체; they change together with the video and audio reads and follow once those are in. The office Mac's menu bar app (`menubar/Sources/StatusModel.swift`: six status lines) and its installer's terminal output (`scripts/office/office-install.sh`, `scripts/office/README.txt`) are 합니다체 too. Everything else the server and the web app show is 해요체. (`apps.macGatekeeper` quotes macOS's own "열 수 없습니다" on purpose.)
+- Korean register: the office Mac's menu bar app (`menubar/Sources/StatusModel.swift`: six status lines) and its installer's terminal output (`scripts/office/office-install.sh`, `scripts/office/README.txt`) are still 합니다체. Everything else the server and the web app show is 해요체, the image, video and voice input notes too (`server/src/files/vision-text.ts`, `server/src/jobs/openrouter-stt.ts`, `server/src/jobs/transcribe.ts`; nothing saved is matched by their older wording, so they keep none). (`apps.macGatekeeper` quotes macOS's own "열 수 없습니다" on purpose.)
 - The desktop app's main process paints its windows `#F7F6F3` / `#ECEAE4` / `#FFFFFF` before a page loads (`desktop/src/main/app-window.ts`), older light values that do not follow dark mode.
 - The mobile shell's team-address screen has light colours only (it does not follow the phone's dark mode).

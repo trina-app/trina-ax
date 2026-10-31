@@ -468,8 +468,6 @@ if [ "$SKIP_APT" = 0 ]; then
   apt-get install -y -qq --no-install-recommends "${PKGS[@]}" >/dev/null || die "apt-get install failed"
 fi
 for c in bwrap nft curl sha256sum tar runuser; do command -v "$c" >/dev/null 2>&1 || die "$c is missing (packages: ${PKGS[*]})"; done
-# the AI's video and audio reads (server/src/files/media.ts) need both halves of the ffmpeg package; the rest works without
-for c in ffmpeg ffprobe; do command -v "$c" >/dev/null 2>&1 || warn "$c is missing (package ffmpeg): the AI cannot read video and audio files"; done
 # minimum versions (deps.txt of the kit: one "package" or "package>=version" per line)
 if [ -f "$BUNDLE/deps.txt" ]; then
   while IFS= read -r line || [ -n "$line" ]; do

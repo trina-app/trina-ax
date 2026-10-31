@@ -4242,7 +4242,7 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
   9,000 Korean tokens. A 1-hour meeting is two reads; the result says what to send next. A long video without `time`
   gives 12 overview frames over the whole file and the first 10 minutes of transcript.
 - **Linux servers only.** ffmpeg and ffprobe come from the distribution (`ffmpeg>=7:5.1` in `deps.txt`, installed by
-  apt; never bundled: GPL and codec patents stay with the distribution; the installer warns when either is missing). A
+  apt; never bundled: GPL and codec patents stay with the distribution; the installer stops without the package). A
   Mac server says it cannot read video yet (founder Q5: AVFoundation through `mycel-ocr` is phase 2). Without ffmpeg a
   Linux server says so. Nothing runs before these checks.
 - **Converter safety** (`server/src/files/media.ts`). Every ffprobe / ffmpeg run is a converter run (bwrap, no network,
@@ -4287,32 +4287,33 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
   `readPaths` get the file like any read (the transcript is file content for the wider-sharing check). At start every
   `vid-*` folder goes (no read survives a restart); a 10-minute memo keeps a file whose probe failed from running the
   converters again.
-- **The media slot** (review should-fix). One media read at a time on the server (its own slot: a person's mic
-  dictation never waits behind a video transcript, voice input jobs keep theirs), a queue of 8, and up to 4 per person,
+- **The media slot** (review should-fix). One media read at a time on the server (its own slot; voice input jobs keep
+  theirs, and whisper.cpp itself is taken in turns with voice input first, below), a queue of 8, and up to 4 per person,
   so parallel sub-agents queue instead of failing "busy"; a wait over 5 minutes (20 s for a call without a chat turn) is
   "busy". Stop ends a read at once (the converters are killed, nothing more is sent).
 - **The transcript** uses the team's speech provider (`speechProvider`), read when the read runs:
   - a new switch "Turn video sound into text" (`TeamSettings.aiMediaTranscripts`, founder Q1), separate from voice
-    input, in its section. `null` = not chosen: `mediaTranscriptsDefault` in `shared/src/api/entities.ts` (the one
-    place the default lives): on when the provider is this server, off for OpenRouter. A change of provider puts it
-    back to `null`, so consent given for this server never sends sound to OpenRouter. Voice input off: no transcript.
+    input, in its section. `null` = not chosen: `mediaTranscriptsDefault(provider, cpuCores)` in
+    `shared/src/api/entities.ts` (the one place the default lives): on when the provider is this server and it has
+    more than 2 CPU cores (`SMALL_SERVER_CORES`; real-server QA below), off on a smaller one and off for OpenRouter. An
+    admin's choice always wins. A change of provider on save puts it back to `null`, so consent given for this server
+    never sends sound to OpenRouter. Voice input off: no transcript.
   - OpenRouter: one request per piece through the voice input code (`sendToOpenRouter`: WAV, `zdr`, no data
     collection, the team model, fixed URL, no redirects, 60 s). Never from a confidential chat (`confidentialTurn`; the
     `read` tool is local, so the check is inside the transcript); a transcript already cached may be used there
     (review: nothing new leaves). No key: a note. OpenRouter's refusals (key, credits, 429, down) become the note.
   - This server (whisper.cpp): the model is never downloaded by a read (founder Q8): without it the note says voice
-    input downloads it on first use. Pieces are 2 minutes on every server (review of the branch: a 2 vCPU box gives
-    whisper.cpp 1 thread, and the converter rlimit counts the CPU seconds of all its threads, so a 10-minute piece could
-    outlast the read's 5 minutes every time and nothing would ever be cached); a self-installed server makes as many as
-    its time allows, a hosted server (a plan) at most one a read (founder Q8), then the result says how to go on.
+    input downloads it on first use. Pieces are 30 seconds (whisper's own window) on every server, as many as fit at
+    the speed the server measured on itself (real-server QA below); a hosted server (a plan) makes at most 2 minutes of
+    new sound a read (founder Q8), then the result says how to go on.
   - **Checked again before each new piece** (review of the branch): the switch and the provider, the chat's
     confidentiality (a safe workflow may lock it during a read) and the person's access to the file and its identity, as
     they are then. A read can wait minutes in the slot and run for minutes; an admin who turns the switch off, or access
     taken away, stops the next request, not only the delivery. A new piece starts only with time for its sound and the
-    answer (`pieceNeedsMs`: OpenRouter 10 s + 50 ms per second of sound, at most 60 s; whisper.cpp 20 s + 250 ms per
-    second), and not into the share of the read's time kept for its frames (5 s each, at most 90 s): a piece cut off by
-    the deadline is lost, and OpenRouter may bill it anyway.
-  - Pieces are fixed from 0:00 (10 minutes for OpenRouter, 2 for this server) and cached by content in
+    answer (OpenRouter `openRouterPieceNeedsMs`: 10 s + 50 ms per second of sound, at most 60 s; whisper.cpp
+    `localPieceNeedsMs`: the measured speed), in the time the frames left: a piece cut off by the deadline is lost, and
+    OpenRouter may bill it anyway.
+  - Pieces are fixed from 0:00 (10 minutes for OpenRouter, 30 seconds for this server) and cached by content in
     `<data>/mediacache/<sha256>.json` (key: the file's sha256, provider, model, piece): "0:00-10:00" then "5:00-15:00"
     pays once more, not twice; a second read of the same bytes pays nothing. 0700 / 0600, at most 200 MB and 30 days,
     least recently used first; in the data folder, not the team folder, so not in backups. No OpenRouter re-chunking
@@ -4351,6 +4352,55 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
   on macOS (ffmpeg 8.1, sandbox-exec) and in Debian 12 (5.1.9) and 13 (7.1.5) containers with bwrap.
   `tests/unit/sec-converter-output-links.test.ts`: each converter run of a read (probe, packet scan, frame, sound,
   whisper.cpp) that replaces its work folder is "damaged", and the read ends with nothing more run or removed there.
+- **Real-server QA (qa-test, 2 vCPU / 4 GB, 2026-11-01; `plans/qa-real-2026-10-30/QA-VIDEO-READ.md`).** Local
+  whisper.cpp needed 180-300 s for a 2-minute piece, so a read never finished one (and cached nothing), the transcript
+  took the frames' time (0 of 12 frames after 308 s), and voice input slowed to 336 s next to it. What changed:
+  - **Frames first.** A read makes its frames (at most 90 s), then the transcript in the time left, minus 5 s kept for
+    the result (`RESULT_RESERVE_MS`); the converters of a piece (the sound cut, whisper.cpp, OpenRouter) get no more
+    than that. Frames are counted against the turn's image budget when they are delivered, after the transcript. The
+    "Not shown" line asks for `transcript: false`, so the suggested call for the frames left over does not wait for the
+    sound again.
+  - **Measured local pieces.** 30-second pieces (cache key per piece length, so the 2-minute ones of the QA build are
+    simply not reused; OpenRouter keeps 10 minutes). The speed is seconds of whisper.cpp work per second of sound, kept
+    for the server in the `settings` row `media.localSpeed` (per model and thread count), a moving average (weight 0.3,
+    the first measurement replaces the default) after every piece and every voice input job; a run stopped by its time
+    counts as at least that long. Before measuring: 2.5 s a second (on the slow side). A piece costs at least a whole
+    30 s window, plus 5 s, times 1.2 (`localPieceNeedsMs`); a piece starts only when that fits in the time left, and
+    the plan is checked again with the new speed before each piece. A piece stopped by the read's time is "time", not
+    "failed": the note says how far the transcript got and that reading again goes on from there (the pieces made are
+    kept), or, with none made, that reading again with `frames: 0` leaves more time.
+  - **Threads.** whisper.cpp gets 2 threads on a 2-core box (one core less than the budget elsewhere, at most 4;
+    `whisperThreads`), and its CPU-seconds limit is the time limit times its threads (`cgexecPrefix(timeoutMs,
+    threads)`; RLIMIT_CPU counts all threads, so `-t 2` would have been stopped at half its time).
+  - **Small servers.** On 2 cores or fewer (`cpuBudget`: the plan's cores, else the machine's), "Turn video sound into
+    text" starts off; the read says why ("이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가 … 켤 수 있어요."),
+    frames still go, and the settings switch says the same. `GET /api/admin/speech-host` gives the page the cores, the
+    piece length, a hosted server's cap and the measured speed, so the switch's text follows the server (no "2 minutes
+    per read" on a self-installed one).
+  - **Voice input first** (`jobs/whisper-turns.ts`). One whisper.cpp at a time: a voice input job marks itself at
+    once, stops a video piece that is running (it yields and is made again after, if the read's time allows) and runs
+    alone; a video piece does not start while a dictation waits or runs. Chosen over a larger memory limit for
+    whisper: one whisper.cpp small run is 767 MB RSS for a 30 s piece and 868 MB for 2 minutes (measured, Debian 13,
+    2 CPUs), under the converter cgroup's `memory.high` of 821 MiB on a 4 GB box when alone, and two together do not fit
+    any limit that box can give while also sharing its 2 vCPUs. A separate cgroup would also need a root-side change.
+  - **Silence.** The WAV of a piece is checked before it is sent (100 ms frames above -50 dBFS): under 0.3 s of sound
+    it is silence, cached as such, never sent; lines whose time holds no sound are dropped (whisper invents them over
+    silence). Each piece keeps its language and the header names the languages by how long they are spoken
+    (`transcriptLanguages`), never from a silent piece. A piece with under 8 s of sound gets the team's language as a
+    hint (whisper's guess on a few seconds is often wrong); longer ones are detected, so an English video in a Korean
+    team stays English.
+  - **The window** keeps a sentence that began just before it (`end > from && start < to`).
+  - **Settings form.** Picking another provider in the form shows that provider's default; picking the saved one
+    again brings the saved choice back. Only a save that changes the provider resets it (`transcriptsAfterProvider`).
+  - **Failure notes** name whisper.cpp's reason once ("받아쓰기에 실패했어요(memory)."; before, the Korean message was
+    put inside itself). The image, video and voice input notes are 해요체 like the rest (`vision-text.ts`,
+    `openrouter-stt.ts`, `transcribe.ts`); nothing saved is matched by their older wording.
+  - The installer no longer warns that ffmpeg is missing: `deps.txt` already stops an install without the package.
+  - Measured in a Debian 13 container limited to 2 CPUs and 4 GB (Apple Silicon host, arm64 whisper.cpp 1.9.5 built
+    like the kit, small model, the QA's recording): a 30 s piece of speech 34-36 s with 2 threads and 62-95 s with 1;
+    a 2-minute piece 87 s with 2 threads and 154 s with 1; 30 s of silence 18 s (and it made up a word). Each run spends
+    about 8 s of encoder time on detecting the language and often a third pass on the last second or two of a piece.
+    The x86 QA box is slower (226 s / 179 s for 2 minutes): QA times it again there.
 - **Release checks** (people, on an installed Linux server): a real Claude Code and a real Codex turn reading a video;
   a real iPhone HEVC file on a 4 GB / 2 vCPU box (memory, the 90 s frame budget); a 1-hour meeting recording in two
   reads; an mp3 with cover art; a confidential chat with OpenRouter (no request); one real OpenRouter call to see

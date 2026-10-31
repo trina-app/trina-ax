@@ -37,6 +37,9 @@ export interface IsolatedRun {
   /** HWP: deny host font directories; only explicitly staged fonts are available. */
   curatedFonts?: boolean
   timeoutMs?: number
+  /** threads the converter computes with (whisper.cpp -t): its CPU-seconds limit in the converter cgroup is the time
+   * limit times this, since the kernel counts the CPU time of all threads */
+  cpuThreads?: number
   /** stdout cap (bytes); the process is killed when it writes more */
   maxStdout?: number
   /** resident memory cap (MiB) of the converter and its children, checked a few times a second; the process is
@@ -174,7 +177,7 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...cgexecPrefix(o.timeoutMs ?? 60_000), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
+    argv = [...cgexecPrefix(o.timeoutMs ?? 60_000, o.cpuThreads), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
       ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
   } else {
     argv = [cmd, ...o.args]

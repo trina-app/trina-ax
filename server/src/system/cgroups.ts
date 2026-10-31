@@ -118,11 +118,13 @@ function trySetup(o: SetupOptions): CgroupState {
   }
 }
 
-/** argv prefix that runs a converter inside the converter cgroup with rlimits (spec 3.8.2); [] without one. */
-export function cgexecPrefix(timeoutMs: number): string[] {
+/** argv prefix that runs a converter inside the converter cgroup with rlimits (spec 3.8.2); [] without one. The CPU
+ * limit is the wall-clock limit for each of `threads` threads (RLIMIT_CPU counts them all: whisper.cpp -t 2 would be
+ * stopped at half its time otherwise). */
+export function cgexecPrefix(timeoutMs: number, threads = 1): string[] {
   const c = converterCgroup()
   if (!c) return []
-  return [c.helper, 'cgexec', '--cgroup', path.join(c.dir,'legacy'), '--oom-score-adj', '500', '--rlimit-cpu', String(Math.ceil(timeoutMs / 1000) + 5),
+  return [c.helper, 'cgexec', '--cgroup', path.join(c.dir,'legacy'), '--oom-score-adj', '500', '--rlimit-cpu', String(Math.ceil((timeoutMs / 1000) * Math.max(1, Math.floor(threads))) + 5),
     '--rlimit-fsize', String(1024 ** 3), '--rlimit-nofile', '1024', '--']
 }
 

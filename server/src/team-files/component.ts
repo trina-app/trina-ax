@@ -10,7 +10,7 @@ import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
 import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
-import { cleanMediaWork } from '../files/media'
+import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media'
 import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
 import { getTeamSettings } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
@@ -75,7 +75,8 @@ export function componentC(ctx: AppContext): ComponentC {
             // the team's speech provider when the job runs (Admin > Team settings): off (default), OpenRouter, this server
             const opts = { language: o.language, locale: locale(userId) }
             const s = getTeamSettings(ctx.db)
-            if (s.speechProvider === 'local') return await transcribe(stt, own, name, opts, h)
+            // voice input also tells how fast whisper.cpp is here, before the first video read needs it
+            if (s.speechProvider === 'local') return await transcribe(stt, own, name, { ...opts, onTimed: (ms, sec) => { if (sec > 0) recordLocalSpeed(ctx.db, localModelName(stt.model), stt.threads, ms, sec) } }, h)
             if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
             const key = readSpeechKey(credentialsOf(ctx))
             if (!key) throw SPEECH_NO_KEY()

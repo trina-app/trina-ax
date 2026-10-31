@@ -48,6 +48,26 @@ function work(file: string): { w: string; name: string } {
 }
 const pngSize = (b: Buffer) => ({ w: b.readUInt32BE(16), h: b.readUInt32BE(20) })
 
+T('the WAV of a piece, as ffmpeg writes it (a LIST chunk before the data): silence is found, sound is not (QA L2)', () => {
+  test('a tone with silence around it, and silence only', async () => {
+    const f = make('gap.m4a', ['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100:duration=2', '-af', 'adelay=3000,apad=whole_dur=8', '-c:a', 'aac'])
+    if (!f) return
+    const { w, name } = work(f)
+    try {
+      const all = await media.audioWav(tools!, w, name, 0, 0, 8, 'a.wav', { inputBytes: fs.statSync(f).size })
+      expect(all.includes(Buffer.from('LIST')) || all.includes(Buffer.from('data'))).toBe(true)
+      const v = media.voiceOf(all)
+      expect(v.voiced).toBeGreaterThan(1.5)
+      expect(v.voiced).toBeLessThan(2.6)
+      expect(media.soundNear(v, 3.2, 4.5)).toBe(true)
+      expect(media.soundNear(v, 6.5, 7.8)).toBe(false)
+      fs.rmSync(path.join(w, 'a.wav'))
+      const quiet = await media.audioWav(tools!, w, name, 0, 0, 2.5, 'b.wav', { inputBytes: fs.statSync(f).size })
+      expect(media.voiceOf(quiet).voiced).toBeLessThan(media.MIN_VOICED_SEC)
+    } finally { media.dropWork(w) }
+  })
+})
+
 T('every listed format opens with the allow-lists: probe, a frame, the sound', () => {
   const videos: [string, string[], string[]][] = [
     ['h264.mp4', [...V, ...S, '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac'], ['libx264']],
@@ -223,7 +243,8 @@ T('one whole read with the real converters and the Go normalizer', () => {
     fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
     fs.copyFileSync(f, path.join(A.team, 'users/alice/clip.mp4'))
     A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
-    updateTeamSettings(A.ctx.db, { speechProvider: 'local' })
+    // on, also where this machine is small (the default is off on 2 cores or fewer)
+    updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiMediaTranscripts: true })
     fs.writeFileSync(path.join(A.data, 'm.bin'), 'abcd')
     Object.assign(A.ctx.files.speech, { whisperBin: '/usr/bin/true', modelDir: A.data, sharedModelDir: null, modelOverride: { file: 'm.bin', size: 4, sha256: 'x' } })
     const spies = [

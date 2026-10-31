@@ -307,6 +307,7 @@ export const SPECS: Record<string, Spec> = {
   deleteBudget: { build: (c, w) => c.del(`/api/admin/budgets/${w.ids.budget}`), scope: 'byLevel' },
   settings: { build: (c) => c.get('/api/admin/settings'), scope: 'byLevel' },
   updateSettings: { build: (c) => c.patch('/api/admin/settings', { auditRetentionDays: 90 }), scope: 'byLevel' },
+  speechHost: { build: (c) => c.get('/api/admin/speech-host'), scope: 'byLevel' },
   speechKey: { build: (c) => c.get('/api/admin/speech-key'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the speech key status shows a key') } },
   setSpeechKey: { skipPositive: true, build: (c) => c.put('/api/admin/speech-key', { sealed: null, password: 'wrong-pass' }), scope: 'byLevel' },
   usage: { build: (c) => c.get('/api/admin/usage'), scope: 'byLevel' },

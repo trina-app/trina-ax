@@ -25,7 +25,8 @@ const JOBS_FULL: Record<string, string> = {
 }
 
 export class JobFailure extends Error {
-  constructor(readonly code: ApiErrorBody['code'], readonly messages: Record<Locale, string>) {
+  /** `reason`: a short code of what failed (whisper.cpp: 'timeout', 'memory', 'exit 1' …), for notes that name it */
+  constructor(readonly code: ApiErrorBody['code'], readonly messages: Record<Locale, string>, readonly reason?: string) {
     super(messages.en)
     this.name = 'JobFailure'
   }

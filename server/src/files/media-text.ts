@@ -103,6 +103,13 @@ export const MEDIA_TEXT = {
     ja: 'このチームは動画の音声をテキストにしない設定のため、文字起こししませんでした。管理者が「チーム設定 › 音声入力」で「動画の音声をテキストにする」をオンにできます。',
     es: 'Este equipo no convierte el sonido de los videos en texto, por lo que no se transcribió. Un administrador puede activar "Convertir el sonido de los videos en texto" en Configuración del equipo › Entrada de voz.',
   },
+  transcriptsOffSmall: {
+    ko: '이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가 팀 설정 › 음성 입력에서 "영상 소리를 글로 바꾸기"를 켤 수 있어요.',
+    en: 'Turning sound into text takes long on this server, so it is off. An admin can turn on "Turn video sound into text" in Team settings › Voice input.',
+    id: 'Mengubah suara menjadi teks memakan waktu lama di server ini, jadi dimatikan. Admin dapat mengaktifkan "Ubah suara video menjadi teks" di Pengaturan tim › Input suara.',
+    ja: 'このサーバーでは音声をテキストにするのに時間がかかるため、オフにしています。管理者が「チーム設定 › 音声入力」で「動画の音声をテキストにする」をオンにできます。',
+    es: 'Convertir el sonido en texto tarda mucho en este servidor, por eso está desactivado. Un administrador puede activar "Convertir el sonido de los videos en texto" en Configuración del equipo › Entrada de voz.',
+  },
   noKey: {
     ko: '받아쓰기에 쓸 OpenRouter 키가 없어 소리를 받아쓰지 않았어요. 관리자가 팀 설정 › 음성 입력에서 키를 넣을 수 있어요.',
     en: 'There is no OpenRouter key for transcripts, so the sound was not transcribed. An admin can add it in Team settings › Voice input.',
@@ -144,6 +151,20 @@ export const MEDIA_TEXT = {
     id: 'Melalui koneksi ini satu kali baca hanya mentranskripsi yang selesai dalam sekitar satu menit.',
     ja: 'この接続では、1 回の読み取りで約 1 分以内に終わる分だけ文字起こしします。',
     es: 'Por esta conexión una lectura solo transcribe lo que cabe en aproximadamente un minuto.',
+  },
+  timeUp: {
+    ko: '이번에 읽는 시간 안에 소리를 {from}–{to}까지 글로 바꿨어요. 다시 읽으면 그다음부터 이어서 바꿔요(바꾼 부분은 서버에 남아 있어요).',
+    en: 'This read had time to turn the sound from {from} to {to} into text. Reading again goes on from there (what was done is kept on the server).',
+    id: 'Bacaan ini sempat mengubah suara dari {from} sampai {to} menjadi teks. Membaca lagi akan melanjutkan dari sana (yang sudah selesai disimpan di server).',
+    ja: '今回の読み取り時間内に、{from}–{to} の音声をテキストにしました。もう一度読み取ると、その続きから処理します（済んだ部分はサーバーに残っています）。',
+    es: 'Esta lectura tuvo tiempo de convertir en texto el sonido de {from} a {to}. Al leer de nuevo se sigue desde ahí (lo ya hecho se guarda en el servidor).',
+  },
+  timeNone: {
+    ko: '이번에 읽는 시간 안에는 소리를 글로 바꾸지 못했어요. 장면 없이(frames: 0) 다시 읽으면 소리에 시간을 더 쓸 수 있어요.',
+    en: 'This read had no time left to turn the sound into text. Reading again without frames (frames: 0) leaves more time for the sound.',
+    id: 'Bacaan ini tidak sempat mengubah suara menjadi teks. Membaca lagi tanpa cuplikan (frames: 0) memberi lebih banyak waktu untuk suara.',
+    ja: '今回の読み取り時間内には音声をテキストにできませんでした。場面なし（frames: 0）でもう一度読み取ると、音声により多くの時間を使えます。',
+    es: 'Esta lectura no tuvo tiempo de convertir el sonido en texto. Leer de nuevo sin fotogramas (frames: 0) deja más tiempo para el sonido.',
   },
   failed: {
     ko: '받아쓰기에 실패했어요({why}).',

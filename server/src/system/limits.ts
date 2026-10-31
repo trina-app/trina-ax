@@ -167,10 +167,12 @@ export function cpuBudget(): number {
 }
 /** ripgrep --threads (null = ripgrep's own choice, all cores: a Mac without a plan) */
 export function rgThreads(): number | null { return limitsActive() ? Math.min(2, cpuBudget()) : null }
-/** whisper.cpp -t */
+/** whisper.cpp -t. Where limits apply: one core less than the budget, but 2 on a 2-core box (QA 2026-11-01: a 2-minute
+ * piece took 179 s with 2 threads, 226 s with 1; only one whisper.cpp runs at a time, jobs/whisper-turns.ts), at most 4 */
 export function whisperThreads(): number {
   if (!limitsActive()) return Math.max(1, Math.min(8, os.availableParallelism() - 1))
-  return Math.max(1, Math.min(4, cpuBudget() - 1))
+  const cores = cpuBudget()
+  return cores >= 2 ? Math.max(2, Math.min(4, cores - 1)) : 1
 }
 /** ONNX runtime threads of the embedding model (null = library default) */
 export function onnxThreads(): { intraOpNumThreads: number; interOpNumThreads: number } | null {

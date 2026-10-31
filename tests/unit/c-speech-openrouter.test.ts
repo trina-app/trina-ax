@@ -119,7 +119,7 @@ describe('OpenRouter transcription', () => {
     try {
       reply = () => Response.json({}, { status: 401 })
       const job = await run(wav())
-      expect(job.error!.message).toContain('OpenRouter가 키를 거부했습니다')
+      expect(job.error!.message).toContain('OpenRouter가 키를 거부했어요')
     } finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
   })
   test('audio over 25 MB is refused before anything is sent', async () => {

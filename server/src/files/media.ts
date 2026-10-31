@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import type { Database } from 'bun:sqlite'
 import type { TranscribeResult } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import { readOutput, runIsolated } from '../tools/isolate'
@@ -43,12 +44,18 @@ export const TRANSCRIPT_SPAN_ALONE = 1800
 /** the characters of a read's text for the API engine, which cuts any tool result at 30,000 (engine/api-agent.ts
  * TOOL_OUTPUT_MAX): room left for the lines after the transcript */
 export const API_ENGINE_TEXT_MAX = 28_000
-/** transcripts are made and cached in fixed pieces from 0:00 (10 minutes: one OpenRouter request, 19.2 MB of 16 kHz WAV
- * under its 25 MB). Local whisper.cpp: 2-minute pieces everywhere, so a slow server (a 2 vCPU box gives whisper 1
- * thread, and the converter rlimit counts CPU seconds of all its threads) keeps every piece it finished instead of losing
- * a 10-minute one to the read's deadline; on a hosted server (a plan) at most one new piece a read (founder Q8) */
+/** transcripts are made and cached in fixed pieces from 0:00. OpenRouter: 10 minutes (one request, 19.2 MB of 16 kHz WAV
+ * under its 25 MB). Local whisper.cpp: 30 seconds, whisper's own window (QA 2026-11-01: a 2 vCPU box needed 180-300 s
+ * for a 2-minute piece and never finished one inside a read, so nothing was ever cached); every finished piece is kept,
+ * and a piece shorter than the window costs about a whole one. On a hosted server (a plan) at most
+ * HOSTED_LOCAL_NEW_SEC of new sound a read (founder Q8) */
 export const TRANSCRIPT_PIECE_SEC = 600
-export const LOCAL_PIECE_SEC = 120
+export const LOCAL_PIECE_SEC = 30
+export const HOSTED_LOCAL_NEW_SEC = 120
+/** the clock of a read's time and of whisper.cpp's speed (tests move it on to stand for slow converters) */
+let readClock = () => Date.now()
+export const now = () => readClock()
+export function setClockForTests(f: (() => number) | null) { readClock = f ?? (() => Date.now()) }
 /** a whole read (Stop always ends it at once): a chat turn, and a call without one (the remote connector's clients
  * give up well before a few minutes) */
 export const READ_DEADLINE_MS = 5 * 60_000
@@ -60,14 +67,104 @@ const FRAME_TIMEOUT_MS = 20_000
 const FRAME_RSS_MIB = 1024
 /** all frames of one read: past it the frames made so far go, and the rest are named */
 export const FRAMES_TOTAL_MS = 90_000
-/** the share of the read's time kept for each planned frame (at most FRAMES_TOTAL_MS): the transcript, made first,
- * starts no new piece into it, so slow local transcription does not leave a video read without its frames */
-export const FRAME_RESERVE_MS = 5_000
-/** The time a new transcript piece of `seconds` must still have to start: cutting its sound and the provider's answer
- * (OpenRouter: upload and transcription, at most its own 60 s; whisper.cpp: about 4x real time on a small server). A
- * piece cut off by the deadline is lost, and OpenRouter may bill it anyway. */
-export function pieceNeedsMs(provider: 'openrouter' | 'local', seconds: number): number {
-  return provider === 'openrouter' ? Math.min(60_000, 10_000 + seconds * 50) : 20_000 + seconds * 250
+/** the end of a read's time kept for putting the result together: the transcript (made after the frames) gives its
+ * converters only the time before it */
+export const RESULT_RESERVE_MS = 5_000
+/** The time a new OpenRouter piece of `seconds` must still have to start: cutting its sound, the upload and the
+ * transcription (at most its own 60 s). A piece cut off by the deadline is lost, and OpenRouter may bill it anyway. */
+export function openRouterPieceNeedsMs(seconds: number): number {
+  return Math.min(60_000, 10_000 + seconds * 50)
+}
+
+// ---------------- this server's speed (local whisper.cpp) ----------------
+/** seconds of whisper.cpp work per second of sound before this server measured itself: on the slow side (the QA box
+ * took 2-2.5 s with 1 thread), so a read does not start a piece it cannot finish */
+export const LOCAL_SPEED_DEFAULT = 2.5
+/** cutting a piece's sound and starting whisper.cpp (the model is read again for every piece) */
+const LOCAL_PIECE_OVERHEAD_MS = 5_000
+/** the margin on the estimate: a piece starts only when its estimate times this fits in the time left */
+const LOCAL_SAFETY = 1.2
+/** weight of each new piece in the moving average */
+const SPEED_WEIGHT = 0.3
+const SPEED_KEY = 'media.localSpeed'
+export interface LocalSpeed { secPerSec: number; measured: boolean }
+/** the local model as reads name it (the transcript's label, the cache key, the speed) */
+export const localModelName = (model: string) => `whisper.cpp ${model}`
+interface StoredSpeed { secPerSec: number; pieces: number; model: string; threads: number; at: string }
+function storedSpeed(db: Database): StoredSpeed | null {
+  const row = db.query('SELECT value FROM settings WHERE key = ?').get(SPEED_KEY) as { value: string } | null
+  if (!row) return null
+  try {
+    const v = JSON.parse(row.value) as StoredSpeed
+    return Number.isFinite(v.secPerSec) && v.secPerSec > 0 && v.secPerSec < 1000 ? v : null
+  } catch { return null }
+}
+/** This server's whisper.cpp speed for `model` with `threads` (another model or thread count starts from the default). */
+export function localSpeed(db: Database, model: string, threads: number): LocalSpeed {
+  const v = storedSpeed(db)
+  return v && v.model === model && v.threads === threads ? { secPerSec: v.secPerSec, measured: true } : { secPerSec: LOCAL_SPEED_DEFAULT, measured: false }
+}
+/** A piece of `seconds` took `elapsedMs` of whisper.cpp: the moving average follows (the first measurement replaces the
+ * default). `cutOff`: the run was stopped by its time limit, so it would have taken at least that long. */
+export function recordLocalSpeed(db: Database, model: string, threads: number, elapsedMs: number, seconds: number, cutOff = false): LocalSpeed {
+  const sample = Math.max(0.01, elapsedMs / 1000 / Math.max(seconds, LOCAL_PIECE_SEC))
+  const v = storedSpeed(db)
+  const same = v && v.model === model && v.threads === threads ? v : null
+  let next = same ? same.secPerSec * (1 - SPEED_WEIGHT) + sample * SPEED_WEIGHT : sample
+  if (cutOff) next = Math.max(next, sample, same?.secPerSec ?? 0)
+  const stored: StoredSpeed = { secPerSec: Math.round(next * 1000) / 1000, pieces: (same?.pieces ?? 0) + 1, model, threads, at: new Date().toISOString() }
+  db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(SPEED_KEY, JSON.stringify(stored))
+  return { secPerSec: stored.secPerSec, measured: true }
+}
+/** The time a new local piece of `seconds` must still have to start at `secPerSec` (a piece costs at least a window). */
+export function localPieceNeedsMs(secPerSec: number, seconds: number): number {
+  return LOCAL_PIECE_OVERHEAD_MS + Math.ceil(secPerSec * Math.max(seconds, LOCAL_PIECE_SEC) * 1000 * LOCAL_SAFETY)
+}
+/** How many new local pieces fit in `budgetMs` at `secPerSec` (the plan of a read; each piece is checked again with the
+ * speed measured so far before it starts) */
+export function localPiecesThatFit(budgetMs: number, secPerSec: number, pieceSec = LOCAL_PIECE_SEC): number {
+  return Math.max(0, Math.floor(budgetMs / localPieceNeedsMs(secPerSec, pieceSec)))
+}
+
+// ---------------- silence (16 kHz mono 16-bit WAV) ----------------
+/** 100 ms frames: a frame is sound when its RMS is above -50 dBFS (room tone and digital silence are below; quiet
+ * speech peaks well above) */
+const VOICE_FRAME_SEC = 0.1
+const VOICE_RMS = 32768 * 10 ** (-50 / 20)
+/** less sound than this in a piece: it is silence, and whisper.cpp is not run on it (it invents lines over silence and
+ * names a language for them, QA L2) */
+export const MIN_VOICED_SEC = 0.3
+/** a piece with less sound than this gets the team's language as a hint: whisper's own guess on a few seconds is often
+ * wrong ("la" for 5 s of Korean, QA) */
+export const SHORT_SPEECH_SEC = 8
+export interface Voice { /** seconds with sound */ voiced: number; /** per 100 ms frame from the start of the WAV */ frames: boolean[] }
+/** Where a server-made WAV has sound (its data chunk; any other chunk, such as ffmpeg's LIST, is skipped). */
+export function voiceOf(wav: Uint8Array): Voice {
+  const b = Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength)
+  let pos = 12, data: Buffer | null = null
+  if (b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE') {
+    while (pos + 8 <= b.length) {
+      const id = b.toString('latin1', pos, pos + 4), size = b.readUInt32LE(pos + 4)
+      if (id === 'data') { data = b.subarray(pos + 8, Math.min(b.length, pos + 8 + size)); break }
+      pos += 8 + size + (size & 1)
+    }
+  }
+  if (!data) return { voiced: Infinity, frames: [] }
+  const per = Math.round(16_000 * VOICE_FRAME_SEC)
+  const frames: boolean[] = []
+  for (let f = 0; (f + 1) * per * 2 <= data.length; f++) {
+    let sum = 0
+    for (let i = 0; i < per; i++) { const x = data.readInt16LE((f * per + i) * 2); sum += x * x }
+    frames.push(Math.sqrt(sum / per) > VOICE_RMS)
+  }
+  return { voiced: frames.filter(Boolean).length * VOICE_FRAME_SEC, frames }
+}
+/** Whether there is sound near [start, end] seconds of a piece (whisper's times are off by up to about half a second). */
+export function soundNear(v: Voice, start: number, end: number): boolean {
+  if (!v.frames.length) return true
+  const a = Math.max(0, Math.floor((start - 0.5) / VOICE_FRAME_SEC)), z = Math.min(v.frames.length - 1, Math.ceil((end + 0.5) / VOICE_FRAME_SEC))
+  for (let i = a; i <= z; i++) if (v.frames[i]) return true
+  return false
 }
 const AUDIO_TIMEOUT_MS = 90_000
 const AUDIO_RSS_MIB = 512
@@ -425,11 +522,26 @@ export class TranscriptCache {
   }
 }
 
-/** A provider's answer for one piece -> the piece's segments in file time (whisper's music / blank markers dropped). */
-export function pieceOf(r: TranscribeResult, offset: number, length: number): Piece {
+/** A provider's answer for one piece -> the piece's segments in file time (whisper's music / blank markers dropped, and
+ * lines whose time holds no sound at all: whisper invents them over silence). The language only when a line is left. */
+export function pieceOf(r: TranscribeResult, offset: number, length: number, voice?: Voice): Piece {
   const raw = r.segments?.length ? r.segments : r.text ? [{ start: 0, end: length, text: r.text }] : []
   const segments = raw
+    .filter((s) => !voice || soundNear(voice, Math.max(0, s.start), Math.min(Math.max(s.end, s.start), length)))
     .map((s) => ({ start: offset + Math.max(0, s.start), end: offset + Math.min(Math.max(s.end, s.start), length), text: s.text.replace(/\s+/g, ' ').trim() }))
     .filter((s) => s.text && !/^\[(BLANK_AUDIO|MUSIC|음악|music|silence)\]$/i.test(s.text))
-  return { segments, language: r.language }
+  return { segments, language: segments.length ? r.language : null }
+}
+/** a piece of silence: nothing sent, nothing said */
+export const SILENT_PIECE: Piece = { segments: [], language: null }
+
+/** The languages of a transcript, most spoken first (by the length of their lines; pieces of silence name none), so
+ * one piece's guess never labels the whole transcript. */
+export function transcriptLanguages(pieces: Piece[]): string[] {
+  const time = new Map<string, number>()
+  for (const p of pieces) {
+    if (!p.language || !p.segments.length) continue
+    time.set(p.language, (time.get(p.language) ?? 0) + p.segments.reduce((n, s) => n + Math.max(0.1, s.end - s.start), 0))
+  }
+  return [...time.entries()].sort((a, b) => b[1] - a[1]).map(([l]) => l)
 }

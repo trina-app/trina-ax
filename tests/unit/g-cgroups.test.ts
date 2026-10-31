@@ -38,6 +38,9 @@ describe('server converter cgroup (spec 3.8.2)', () => {
     expect(converterCgroup()?.dir).toBe(conv)
     expect(cgexecPrefix(60_000)).toEqual([helper, 'cgexec', '--cgroup', path.join(conv,'legacy'), '--oom-score-adj', '500', '--rlimit-cpu', '65',
       '--rlimit-fsize', String(1024 ** 3), '--rlimit-nofile', '1024', '--'])
+    // RLIMIT_CPU counts every thread: whisper.cpp -t 2 gets twice the CPU seconds, so it is not stopped at half its time
+    expect(cgexecPrefix(60_000, 2)).toContain('125')
+    expect(cgexecPrefix(60_000, 2).indexOf('125')).toBe(cgexecPrefix(60_000).indexOf('65'))
   })
 
   test('a restart inside S/main finds S again', () => {

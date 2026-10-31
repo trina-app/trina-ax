@@ -275,8 +275,8 @@ test('settings: the team turns sending images and PDF pages to the AI off', asyn
 })
 
 // "Turn video sound into text" (TeamSettings.aiMediaTranscripts, docs/DECISIONS.md "AI reads video and audio"): in the
-// voice input section; its default follows the speech provider (on for this server, off for OpenRouter) and a new
-// provider starts from its own default again
+// voice input section; its default follows the speech provider (on for this server unless it is small, off for
+// OpenRouter), a provider picked in the form starts from its own default and the saved one gets the saved choice back
 test('settings: "Turn video sound into text" follows the speech provider until the admin chooses', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
@@ -299,9 +299,35 @@ test('settings: "Turn video sound into text" follows the speech provider until t
   await page.getByTestId('team-speech-provider').selectOption('openrouter')
   await expect(sw).toHaveAttribute('data-on', 'false')
   await expect(sw).toContainText('OpenRouter와 그 제공사로')
+  // back to this server before saving: the admin's saved "off" stays off (QA L4: it went back to the default, on)
+  await page.getByTestId('team-speech-provider').selectOption('local')
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await expect(sw).toContainText('30초씩 나눠 바꾸는데')
+  await expect(sw).not.toContainText('2분씩')
   // voice input off: no switch
   await page.getByTestId('team-speech-provider').selectOption('off')
   await expect(sw).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
+// a server with 2 cores or fewer transcribes slowly (QA 2026-11-01): the switch starts off there and says why
+test('settings: on a small server "Turn video sound into text" starts off, with why and the measured speed', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  expect((await page.request.post('/__test/speech-host', { data: { cpuCores: 2, localSecPerSec: 1.2 } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const sw = page.getByTestId('team-media-transcripts')
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await expect(page.getByTestId('team-media-transcripts-small')).toContainText('이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요(CPU 코어 2개)')
+  await expect(page.getByTestId('team-media-transcripts-speed')).toContainText('소리 1분을 바꾸는 데 약 72초 걸려요')
+  // the admin turns it on: saved as their choice, and the note about the default goes
+  const saved = page.waitForRequest((r) => r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH')
+  await sw.getByText('영상 소리를 글로 바꾸기').click()
+  await expect(sw).toHaveAttribute('data-on', 'true')
+  await expect(page.getByTestId('team-media-transcripts-small')).toHaveCount(0)
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  expect((await saved).postDataJSON()).toEqual({ aiMediaTranscripts: true })
   expect(realErrors(errors)).toEqual([])
 })
 

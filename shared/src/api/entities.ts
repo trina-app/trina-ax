@@ -470,13 +470,20 @@ export type AuditEntry = z.infer<typeof AuditEntry>
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
+/** A server with this many CPU cores or fewer turns sound into text itself only slowly: whisper.cpp small took 3-4 s
+ * for each second of speech on a 2 vCPU box (QA 2026-11-01), so a read gets about a minute of a recording. */
+export const SMALL_SERVER_CORES = 2
 /** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
- * provider is this server (the sound stays here), off for OpenRouter (team files' sound would go to a third party).
- * The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
-export const mediaTranscriptsDefault = (provider: SpeechProvider): boolean => provider === 'local'
+ * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
+ * (too slow; frames still go) and off for OpenRouter (team files' sound would go to a third party). `cpuCores`: the
+ * server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice always
+ * wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
+export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && cpuCores > SMALL_SERVER_CORES
+/** whether the default is off only because this server is small (the read and the settings switch say so) */
+export const mediaTranscriptsOffSmall = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && !mediaTranscriptsDefault(provider, cpuCores)
 /** whether AI reads of video and audio files transcribe their sound: never with voice input off */
-export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }): boolean =>
-  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider))
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
@@ -527,7 +534,7 @@ export const TeamSettings = z.object({
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
   /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
-   * null = not chosen: mediaTranscriptsDefault (on for this server, off for OpenRouter). A change of speechProvider
+   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
 })

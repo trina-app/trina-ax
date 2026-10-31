@@ -17,7 +17,8 @@
 // POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
-// them until the next reset).
+// them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
+// for "Turn video sound into text", until the next reset).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
@@ -123,6 +124,8 @@ export class MockServer {
   /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
   teamIcon: TeamIconFile | null = null
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
+  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet */
+  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
   /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
@@ -210,6 +213,7 @@ export class MockServer {
     this.settings = defaultSettings()
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
+    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
@@ -1250,6 +1254,7 @@ export class MockServer {
     },
     settings: () => this.settings,
     speechKey: () => this.speechKey,
+    speechHost: () => this.speechHost,
     setSpeechKey: (c) => {
       this.speechKey = c.body.sealed ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
       return this.speechKey
@@ -1762,6 +1767,7 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
+    else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/schedule-review') {
       // a free-text task made before the schedule card: paused until its owner confirms it again

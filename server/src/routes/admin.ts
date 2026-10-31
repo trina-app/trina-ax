@@ -295,6 +295,8 @@ export const adminRoutes: RouteModule = {
 
     // ---------------- voice input: the OpenRouter key (credentials/speech-key.ts) ----------------
     kit.handle(API.speechKey, () => speechKeyStatus(ctx.db))
+    // the "Turn video sound into text" switch: this server's cores (its default), piece length and measured speed
+    kit.handle(API.speechHost, () => ctx.files.speechHost())
     kit.handle(API.setSpeechKey, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       // the password again, like adding an AI connection (route.ts owner-reauth), but admins may do it too
