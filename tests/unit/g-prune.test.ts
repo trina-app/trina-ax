@@ -14,7 +14,7 @@ import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
-import { lastPrune, PRUNE_RECORD, pruneVersions, type PruneResult } from '../../server/src/system/prune'
+import { lastPrune, PRUNE_FIRST_MS, PRUNE_RECORD, pruneVersions, type PruneResult } from '../../server/src/system/prune'
 import { UpdateManager, verifyBundleDir } from '../../server/src/system/update'
 
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-prune-')))
@@ -182,19 +182,97 @@ describe('what is removed, and how', () => {
     expect(r.left).toContainEqual({ path: `engines/claude/${sha('0')}`, why: 'a link (never followed)' })
   })
 
-  test('a folder that cannot be removed is reported, not counted as removed, and the run goes on', async () => {
+  test('a folder that cannot be removed is reported, not counted as removed, and the run goes on; a later run finishes it', async () => {
     // an unremovable file without root: macOS's user immutable flag (Linux needs root for chattr)
     if (process.platform !== 'darwin') return
     const app = await install({ versions: ['7.0.0', '7.1.0', '7.2.0'], current: '7.2.0' })
-    const stuck = path.join(app, 'versions', '7.0.0', 'server', 'src', 'main.js')
-    expect(Bun.spawnSync(['/usr/bin/chflags', 'uchg', stuck]).exitCode).toBe(0)
+    const flag = (f: 'uchg' | 'nouchg') => { for (const d of fs.readdirSync(path.join(app, 'versions'))) { const p = path.join(app, 'versions', d, 'server', 'src', 'main.js'); if (fs.existsSync(p)) Bun.spawnSync(['/usr/bin/chflags', f, p]) } }
+    expect(Bun.spawnSync(['/usr/bin/chflags', 'uchg', path.join(app, 'versions', '7.0.0', 'server', 'src', 'main.js')]).exitCode).toBe(0)
     try {
       const r = await pruneVersions({ appDir: app, running: '7.2.0', now: later, dataDir: null })
       expect(r.errors).toHaveLength(1)
-      expect(r.errors[0]).toMatchObject({ path: 'versions/7.0.0' })
+      expect(r.errors[0]!.path).toBe('versions/7.0.0')
+      // taken out of its version name first: what is left is no version any more, and says where it is
+      expect(r.errors[0]!.error).toMatch(/what is left is versions\/\.prune-[0-9a-f]{12}, removed by a later run/)
       expect(r.removed.map((x) => x.path)).toEqual(['versions/7.1.0'])
-      expect(left(app)).toEqual(['7.0.0', '7.2.0'])
-    } finally { Bun.spawnSync(['/usr/bin/chflags', 'nouchg', stuck]) }
+      const rest = left(app)
+      expect(rest).toHaveLength(2)
+      expect(rest[0]).toMatch(/^\.prune-[0-9a-f]{12}$/)
+      expect(rest[1]).toBe('7.2.0')
+      expect(new UpdateManager({ appDir: app, dataDir: path.join(app, '..', 'data'), version: '7.2.0', channel: 'stable', feedUrl: null, log: silentLogger, allowUnsigned: true }).stagedVersions()).toEqual(['7.2.0'])
+      // once the file can go, a run a day after the rename removes the rest
+      flag('nouchg')
+      expect((await pruneVersions({ appDir: app, running: '7.2.0', now: () => new Date(), dataDir: null })).left).toContainEqual({ path: `versions/${rest[0]}`, why: 'changed in the last 24 hours (an update may be using it)' })
+      const r2 = await pruneVersions({ appDir: app, running: '7.2.0', now: later, dataDir: null })
+      expect(r2.removed.map((x) => `${x.kind} ${x.path}`)).toEqual([`trash versions/${rest[0]}`])
+      expect(left(app)).toEqual(['7.2.0'])
+    } finally { flag('nouchg') }
+  })
+})
+
+describe('another process at work during the run', () => {
+  test('a folder brought in again under the same name before the second look stays', async () => {
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
+    // `mycel-ctl update --version 9.0.0`: the old folder does not verify, so root removes it and copies a fresh one
+    const r = await pruneVersions({ appDir: app, running: '9.2.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel !== 'versions/9.0.0' || step !== 'check') return
+      fs.rmSync(path.join(app, 'versions', '9.0.0'), { recursive: true })
+      void version(app, '9.0.0')
+    } })
+    await Bun.sleep(50)
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.1.0'])
+    expect(r.left).toContainEqual({ path: 'versions/9.0.0', why: 'replaced since the first look (another process brought a folder in under this name)' })
+    await verifyBundleDir(path.join(app, 'versions', '9.0.0'), { keys: [], allowUnsigned: true })
+  })
+
+  test('a folder brought in under the same name while the old one is being removed loses nothing', async () => {
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
+    const r = await pruneVersions({ appDir: app, running: '9.2.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel === 'versions/9.0.0' && step === 'renamed') void version(app, '9.0.0')
+    } })
+    await Bun.sleep(50)
+    expect(r.errors).toEqual([])
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.0.0', 'versions/9.1.0'])
+    expect(left(app)).toEqual(['9.0.0', '9.2.0'])
+    await verifyBundleDir(path.join(app, 'versions', '9.0.0'), { keys: [], allowUnsigned: true })
+  })
+
+  test('a switch during the run: the version it needs again stays, and a pending update stops the run', async () => {
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0', '9.3.0'], current: '9.3.0' })
+    // Admin (or `admin.js switch 9.1.0`) between the first look and the removal: 9.1.0 is now what current points to
+    const r = await pruneVersions({ appDir: app, running: '9.3.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel !== 'versions/9.1.0' || step !== 'check') return
+      fs.rmSync(path.join(app, 'current')); fs.symlinkSync('versions/9.1.0', path.join(app, 'current'))
+      writeState(app, { current: '9.1.0', previous: '9.3.0', pending: null })
+    } })
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.0.0', 'versions/9.2.0'])
+    expect(r.left).toContainEqual({ path: 'versions/9.1.0', why: 'needed again (app/current or state.json changed during the run)' })
+    expect(left(app)).toEqual(['9.1.0', '9.3.0'])
+    const app2 = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
+    fs.mkdirSync(path.join(app2, 'versions', '.staging-0123456789ab'))
+    const r2 = await pruneVersions({ appDir: app2, running: '9.2.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel === 'versions/9.1.0' && step === 'check') writeState(app2, { current: '9.2.0', previous: '9.2.0', pending: '9.1.0' })
+    } })
+    expect(r2.skipped).toBe('stopped: an update to 9.1.0 is pending')
+    expect(r2.removed.map((x) => x.path)).toEqual(['versions/9.0.0'])
+    expect(left(app2)).toEqual(['.staging-0123456789ab', '9.1.0', '9.2.0'])
+  })
+
+  test('an engine current points to again during the run stays', async () => {
+    const app = await install({ versions: ['9.0.0'], current: '9.0.0' })
+    const e = path.join(app, 'engines', 'claude')
+    for (const d of ['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc']) { fs.mkdirSync(path.join(e, d), { recursive: true }); fs.writeFileSync(path.join(e, d, 'claude'), d) }
+    fs.symlinkSync('cccccccccccc', path.join(e, 'current'))
+    // an installer run with the older engine again: current -> aaaaaaaaaaaa (a fresh link)
+    const r = await pruneVersions({ appDir: app, running: '9.0.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel !== 'engines/claude/aaaaaaaaaaaa' || step !== 'check') return
+      fs.rmSync(path.join(e, 'current')); fs.symlinkSync('aaaaaaaaaaaa', path.join(e, 'current'))
+      const t = new Date(Date.now() + 3 * DAY); fs.lutimesSync(path.join(e, 'current'), t, t)
+    } })
+    expect(r.removed.map((x) => x.path)).toEqual([])
+    expect(r.left).toContainEqual({ path: 'engines/claude/aaaaaaaaaaaa', why: 'the engine\'s current changed during the run' })
+    expect(r.left).toContainEqual({ path: 'engines/claude/bbbbbbbbbbbb', why: 'the engine\'s current changed during the run' })
+    expect(fs.readdirSync(e).sort()).toEqual(['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc', 'current'])
   })
 })
 
@@ -238,6 +316,41 @@ describe('the server runs it, and says what it keeps', () => {
   const ops = () => new OpsService(ctx, { layout: resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux'), platform: 'linux', engines: async () => [], launcherStatus: async () => null, now: later })
   const line = async (l: 'en' | 'ko' = 'en') => (await ops().diagnostics(l)).checks.find((c) => c.id === 'versions_kept')
 
+  test('the hourly run is 10 minutes off the automatic update: they never want the lock at the same moment', () => {
+    // both hourly from the start, the prune took the lock while the automatic update read the feed: "busy", every hour
+    const made: { kind: 'timeout' | 'interval'; ms: number; fn: () => void; at: number }[] = []
+    const real = { setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval }
+    let clock = 0
+    const fake = (kind: 'timeout' | 'interval') => ((fn: () => void, ms: number) => { made.push({ kind, ms, fn, at: clock }); return { unref() {} } }) as unknown as typeof setTimeout
+    const was = ctx.config.update.auto
+    ctx.config.update.auto = true
+    const prunes: number[] = []
+    const o = ops()
+    o.pruneOldVersions = async () => { prunes.push(clock); return null }
+    globalThis.setTimeout = fake('timeout'); globalThis.setInterval = fake('interval') as unknown as typeof setInterval
+    try {
+      o.start()
+      expect(o.autoUpdates).toBe(true)
+      const hourlyAtStart = made.filter((t) => t.kind === 'interval' && t.ms === 3_600_000)
+      const first = made.find((t) => t.kind === 'timeout' && t.ms === PRUNE_FIRST_MS)!
+      expect(first).toBeDefined()
+      // the hourly prune starts with the first run, 10 minutes after the hourly ticks that started with the server
+      clock = PRUNE_FIRST_MS
+      const before = made.length
+      first.fn()
+      expect(prunes).toEqual([PRUNE_FIRST_MS])
+      const hourlyPrune = made.slice(before).filter((t) => t.kind === 'interval')
+      expect(hourlyPrune.map((t) => [t.ms, t.at])).toEqual([[3_600_000, PRUNE_FIRST_MS]])
+      for (const t of hourlyAtStart) expect(t.at).toBe(0)
+      hourlyPrune[0]!.fn()
+      expect(prunes).toEqual([PRUNE_FIRST_MS, PRUNE_FIRST_MS])
+    } finally {
+      globalThis.setTimeout = real.setTimeout; globalThis.setInterval = real.setInterval
+      ctx.config.update.auto = was
+      ;(o as unknown as { timers: unknown[] }).timers.splice(0)
+    }
+  })
+
   test('under the maintenance lock, never in office mode; Diagnostics shows the kept versions and their size', async () => {
     expect(await line()).toBeUndefined() // nothing recorded yet
     const o = ops()
@@ -256,6 +369,6 @@ describe('the server runs it, and says what it keeps', () => {
     // a failed removal turns it into a warning that says why
     const rec = lastPrune(path.join(base, 'data'))!
     fs.writeFileSync(path.join(base, 'data', PRUNE_RECORD), JSON.stringify({ ...rec, errors: [{ path: 'versions/0.0.9', error: 'EACCES: permission denied' }] }))
-    expect(await line()).toMatchObject({ status: 'warn', detail: expect.stringContaining('Old versions could not be removed: EACCES: permission denied') })
+    expect(await line()).toMatchObject({ status: 'warn', detail: expect.stringContaining('Old versions could not be removed: versions/0.0.9: EACCES: permission denied') })
   })
 })

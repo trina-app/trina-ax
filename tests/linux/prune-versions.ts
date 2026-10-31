@@ -22,6 +22,8 @@ const PORT = 19191
 const BUN = '/opt/bun/bun'
 const BOOT = '/opt/boot/mycel-bootstrap'
 const DAY = 86_400_000
+/** app/versions/<this> is a tmpfs (docker run --tmpfs): looks like an old version folder, but is a mount point */
+const MOUNTED = '0.8.0'
 
 // ---------------- host ----------------
 async function host(): Promise<number> {
@@ -40,8 +42,9 @@ async function host(): Promise<number> {
       const g = Bun.spawnSync(['go', 'build', '-trimpath', '-o', path.join(work, 'mycel-bootstrap'), './cmd/mycel-bootstrap'], { cwd: path.join(ROOT, 'native'), env: { ...process.env, GOOS: 'linux', GOARCH: ARCH, CGO_ENABLED: '0' }, stderr: 'pipe' })
       if (g.exitCode) { console.error(`go build failed: ${g.stderr}`); return 1 }
     }
+    // a tmpfs mounted at a version-named folder: another file system, never removed (no --privileged needed for it)
     const r = Bun.spawnSync(['docker', 'run', '--rm', '-v', `${ROOT}:/src:ro`, '-v', `${work}/bun:${BUN}:ro`, '-v', `${work}/mycel-bootstrap:${BOOT}:ro`,
-      'debian:13', BUN, '/src/tests/linux/prune-versions.ts', '--in-container'], { stdout: 'pipe', stderr: 'pipe' })
+      '--tmpfs', `${APP}/versions/${MOUNTED}:mode=755`, 'debian:13', BUN, '/src/tests/linux/prune-versions.ts', '--in-container'], { stdout: 'pipe', stderr: 'pipe' })
     const out = r.stdout.toString()
     process.stdout.write(out)
     if (r.exitCode) process.stderr.write(r.stderr.toString().slice(-3000))
@@ -74,7 +77,7 @@ async function until<T>(fn: () => Promise<T> | T, ok: (v: T) => boolean, ms = 20
   const end = Date.now() + ms
   for (;;) { const v = await fn(); if (ok(v) || Date.now() > end) return v; await Bun.sleep(200) }
 }
-const versions = () => fs.readdirSync(`${APP}/versions`).sort()
+const versions = () => fs.readdirSync(`${APP}/versions`).filter((n) => n !== MOUNTED).sort()
 
 async function container(): Promise<number> {
   const { packBundle } = await import('../../server/src/system/bundle')
@@ -131,6 +134,8 @@ process.on('SIGTERM', () => process.exit(0))
     fs.writeFileSync(`${APP}/versions/1.4.0.partial/server/main.js`, 'x')
     fs.mkdirSync('/root-only'); fs.writeFileSync('/root-only/secret', 'root')
     fs.symlinkSync('/root-only', `${APP}/versions/0.9.0`)
+    // the mount point is the server account's, so only the file-system check keeps the prune out of it
+    fs.writeFileSync(`${APP}/versions/${MOUNTED}/keep`, 'mounted'); run(['chown', '-R', `${SRV}:${SRV}`, `${APP}/versions/${MOUNTED}`])
 
     // admin.js prune-versions with the real clock: everything was staged minutes ago, so nothing is old enough yet
     const env = { MYCEL_MODE: 'prod', MYCEL_CONFIG: `${BASE}/config/server.json`, MYCEL_INSTALL_BASE: BASE }
@@ -152,6 +157,9 @@ process.on('SIGTERM', () => process.exit(0))
     check('removed: 1.0.0, 1.1.0, the old staging folder and engine', JSON.stringify(r.removed.map((x: { path: string }) => x.path).sort()) === JSON.stringify(['engines/claude/aaaaaaaaaaaa', 'versions/.staging-0123456789ab', 'versions/1.0.0', 'versions/1.1.0']), r.removed)
     check('removed bytes counted (2 MB per version and more)', r.removedBytes > 4 << 20, r.removedBytes)
     check('root\'s copy is reported, not removed (the server account cannot)', r.errors.length === 1 && r.errors[0].path === 'versions/1.4.0.partial' && fs.existsSync(`${APP}/versions/1.4.0.partial/server/main.js`), r.errors)
+    check('a mount point named like a version is never removed', fs.readFileSync(`${APP}/versions/${MOUNTED}/keep`, 'utf8') === 'mounted'
+      && r.left.some((x: { path: string; why: string }) => x.path === `versions/${MOUNTED}` && /mount point/.test(x.why)), r.left)
+    check('no .prune-* left behind by the removals', !fs.readdirSync(`${APP}/versions`).some((n) => n.startsWith('.prune-')) && !fs.readdirSync(`${APP}/engines/claude`).some((n) => n.startsWith('.prune-')))
     check('the planted link stays and its target is untouched', fs.lstatSync(`${APP}/versions/0.9.0`).isSymbolicLink() && fs.readFileSync('/root-only/secret', 'utf8') === 'root' && r.left.some((x: { path: string }) => x.path === 'versions/0.9.0'), r.left)
     check('a link inside a removed version was not followed', fs.readFileSync(`${BASE}/data/keep/file`, 'utf8') === 'keep')
     check('the current engine stays', fs.existsSync(`${APP}/engines/claude/bbbbbbbbbbbb/claude`) && fs.readlinkSync(`${APP}/engines/claude/current`) === 'bbbbbbbbbbbb')

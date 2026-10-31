@@ -4151,3 +4151,28 @@ Trina should feel like Claude Code, which has WebSearch.
   planted links, roll-back and the bootstrap's verify fallback after the prune), `native/cmd/mycel-ctl`
   `TestUpdateFromBundle` (an earlier update's `.install-tmp/update-*`), `tests/unit/office-update.test.ts` (two
   failed releases in a row), `tests/unit/release-ci.test.ts` (every `setup-go` uses the pin).
+- **Review (2026-11-01), what changed before merge.**
+  - *The hourly run collided with the automatic update.* Both were `setInterval(…, 1 h)` from the server's start, so
+    they fired at the same moment: `autoUpdateTick` reads the feed (async), the prune takes the operations lock
+    meanwhile (a run takes seconds even with nothing to remove: it measures the kept versions), and the update then
+    found the lock busy, every hour, inside the update window too: Linux self-hosts would never update by themselves.
+    The hourly prune now starts with the first run, 10 minutes after the start (`PRUNE_FIRST_MS`), so it ticks 10
+    minutes off the update.
+  - *Removal by path raced with whoever brings a folder in under the same name.* The first look and the removal were
+    seconds apart (a slow disk: tens of seconds), and the removal walked paths: `mycel-ctl update --version <old>` or
+    the installer (remove the old folder, copy a fresh one, rename it in) could have the fresh folder's files deleted
+    from under it, then switch to a broken version (the bootstrap would roll back, but the update fails). Now each
+    folder is looked at again right before (`app/current` and `state.json`, the version list for "available", the
+    engine's `current`; same dev and inode, still a day old, owned by this account: a root-owned leftover is reported
+    as "remove it as root", not attempted), renamed to `.prune-<hex>` in the same folder (atomic) and only that name
+    is removed. A removal cut short leaves a `.prune-*` (not a version name, so never offered, staged or switched to),
+    removed by a run a day later. A folder on another file system than its parent (a mount point named like a
+    version) is never removed, and a removal stops at one inside. A file system that cannot rename the folder
+    (`EXDEV`) falls back to removing it under its own name.
+  - `admin.js prune-versions` refuses to run as root (the record would be root's and every folder "another
+    account's"). The Diagnostics line names the folder that could not be removed.
+  - Tests: `tests/unit/g-prune.test.ts` + 5 (a folder replaced before the second look, a folder brought in while the
+    old one is removed, a switch and a pending update during the run, an engine's `current` moved during the run, the
+    timer phase); the unremovable-file test now also checks that the leftover is no version and that a later run
+    finishes it. `tests/linux/prune-versions.ts`: a tmpfs at `app/versions/0.8.0` (owned by the server account) stays,
+    and no `.prune-*` is left.

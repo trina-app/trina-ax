@@ -24,7 +24,7 @@ import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { UpdateManager } from './update'
-import { lastPrune, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
+import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
@@ -448,7 +448,7 @@ export class OpsService {
       const pr = lastPrune(this.ctx.config.dataDir)
       if (pr && !pr.dryRun && pr.kept.length) {
         const list = pr.kept.map((k) => k.version).join(', ')
-        add('versions_kept', 'update', t(PRUNE_TEXT.label), pr.errors.length ? 'warn' : 'ok', t(pr.errors.length ? PRUNE_TEXT.failed(list, pr.keptBytes, pr.errors[0]!.error) : PRUNE_TEXT.ok(list, pr.keptBytes)))
+        add('versions_kept', 'update', t(PRUNE_TEXT.label), pr.errors.length ? 'warn' : 'ok', t(pr.errors.length ? PRUNE_TEXT.failed(list, pr.keptBytes, `${pr.errors[0]!.path}: ${pr.errors[0]!.error}`) : PRUNE_TEXT.ok(list, pr.keptBytes)))
       }
     }
 
@@ -632,12 +632,19 @@ export class OpsService {
     // Linux self-host: app-only releases from the feed, inside the team's update window (system/update-job.ts)
     if (this.autoUpdates) this.timers.push(setInterval(() => { void this.autoUpdateTick().catch((e) => log.warn('automatic update check failed', { err: e })) }, 60 * 60_000))
     // old version and engine folders (system/prune.ts): 10 minutes after start, when the bootstrap has confirmed this
-    // version (or rolled it back), then hourly; never while an update is pending or another operation holds the lock
+    // version (or rolled it back), then hourly from there; never while an update is pending or another operation holds
+    // the lock. Hourly from the first run, not from the start: the automatic update ticks hourly from the start, and at
+    // the same moment the prune (seconds: it measures the kept versions) would take the lock while the update reads
+    // the feed, so every automatic update would find the lock busy and wait for the next hour, every hour.
     if (this.layout.appDir && !this.ctx.config.office) {
       const prune = () => { void this.pruneOldVersions().catch((e) => log.warn('old versions not removed', { err: e })) }
-      const firstPrune = setTimeout(prune, 10 * 60_000)
+      const firstPrune = setTimeout(() => {
+        prune()
+        const hourly = setInterval(prune, 60 * 60_000)
+        ;(hourly as unknown as { unref?: () => void }).unref?.()
+        this.timers.push(hourly)
+      }, PRUNE_FIRST_MS)
       this.timers.push(firstPrune as unknown as ReturnType<typeof setInterval>)
-      this.timers.push(setInterval(prune, 60 * 60_000))
     }
     // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
     this.timers.push(setInterval(() => {

@@ -19,8 +19,16 @@
 //   skipped   the whole run while state.json has a pending update (the bootstrap still has to confirm it), or when
 //             app/current, state.json or app/versions are not what they should be
 //
+// How a folder goes: right before, app/current, state.json (and an engine's current) are read again and the folder must
+// still be the one looked at (same inode, still a day old, owned by this account); then it is renamed to .prune-<hex>
+// in the same folder (atomic) and only that name is removed, depth first, never crossing into another file system. So
+// an installer or `mycel-ctl update` that brings a new folder in under the old name meanwhile loses nothing to this
+// removal, and a removal cut short (the server stopped, a file that cannot go) leaves no half folder that still looks
+// like a version; a .prune-* a day old is removed by a later run.
+//
 // Version folders are never written after staging (the bootstrap refuses one whose files changed), so a removal is
 // the only thing that happens to them here. Office Macs keep app, app.previous and app.failed instead (office/update.ts).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
@@ -31,11 +39,14 @@ import { compareVersions } from './update'
 
 /** a folder changed this recently is never removed (an update or install in progress elsewhere) */
 export const PRUNE_GRACE_MS = 24 * 3600_000
+/** the server's first run after it starts (system/ops.ts); hourly from then on, 10 minutes off the automatic update */
+export const PRUNE_FIRST_MS = 10 * 60_000
 /** the last run's result (not a dry or skipped one), for Admin > System > Diagnostics (data/, the server account's) */
 export const PRUNE_RECORD = 'prune-versions.json'
 
 export type KeepReason = 'current' | 'running' | 'state-current' | 'previous' | 'available' | 'recent'
-export interface PruneItem { path: string; kind: 'version' | 'staging' | 'partial' | 'engine'; bytes: number }
+/** trash: a .prune-* folder an earlier run renamed and could not finish removing */
+export interface PruneItem { path: string; kind: 'version' | 'staging' | 'partial' | 'engine' | 'trash'; bytes: number }
 export interface PruneResult {
   at: string
   dryRun: boolean
@@ -61,6 +72,9 @@ export interface PruneOptions {
   dryRun?: boolean
   now?: () => Date
   log?: Logger
+  /** tests: another process acting between the steps of one removal ('check': before the folder is looked at again,
+   * 'renamed': after it was renamed to .prune-*, before its files go) */
+  race?: (rel: string, step: 'check' | 'renamed') => void
 }
 
 const VERSION_RE = BundleManifest.shape.version
@@ -69,6 +83,8 @@ const VERSION_RE = BundleManifest.shape.version
 const isVersion = (n: string) => VERSION_RE.safeParse(n).success && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+_-]*)?$/.test(n)
 const SHA12 = /^[0-9a-f]{12}$/
 const ENGINE_NAME = /^[a-z][a-z0-9_-]{0,31}$/
+/** a folder this module renamed on its way out */
+const TRASH = /^\.prune-[0-9a-f]{12}$/
 
 function lstat(p: string): fs.Stats | null {
   try { return fs.lstatSync(p) } catch { return null }
@@ -96,14 +112,16 @@ function readFacts(appDir: string): Facts | string {
   return { current: v, state: parsed.data }
 }
 
-/** Remove a folder without following links: depth first, lstat only (a link is unlinked itself). */
-async function removeTree(p: string, counter: { n: number }): Promise<void> {
+/** Remove a folder without following links: depth first, lstat only (a link is unlinked itself); a folder on another
+ * file system (a mount point inside) stops the removal there. */
+async function removeTree(p: string, dev: number, counter: { n: number }): Promise<void> {
   const st = fs.lstatSync(p)
   if (!st.isDirectory()) { fs.unlinkSync(p); return }
+  if (st.dev !== dev) throw new Error(`${path.basename(p)} is on another file system (a mount point): left alone`)
   // a folder of the bundle that is not writable for its owner (a release archive may record 0555)
   if ((st.mode & 0o700) !== 0o700 && st.uid === process.getuid?.()) fs.chmodSync(p, (st.mode & 0o7777) | 0o700)
   for (const name of fs.readdirSync(p)) {
-    await removeTree(path.join(p, name), counter)
+    await removeTree(path.join(p, name), dev, counter)
     if (++counter.n % 500 === 0) await new Promise((r) => setImmediate(r))
   }
   fs.rmdirSync(p)
@@ -130,98 +148,136 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
     return res
   }
   if (!lstat(app)?.isDirectory()) { res.skipped = 'app/ is not a folder'; return done() }
-  if (!lstat(versions)?.isDirectory()) { res.skipped = 'app/versions is not a folder'; return done() }
+  const vst = lstat(versions)
+  if (!vst?.isDirectory()) { res.skipped = 'app/versions is not a folder'; return done() }
   const facts = readFacts(app)
   if (typeof facts === 'string') { res.skipped = facts; return done() }
+  const MOUNT = 'on another file system (a mount point): never removed'
 
   // ---- versions ----
   const names = fs.readdirSync(versions).sort()
   const isStaged = (n: string) => !!lstat(path.join(versions, n))?.isDirectory() && !!lstat(path.join(versions, n, 'manifest.json'))?.isFile()
-  const keepSet = (f: Facts) => {
+  const keepSet = (f: Facts, list: string[]) => {
     const why = new Map<string, KeepReason[]>()
     const add = (v: string | null | undefined, r: KeepReason) => { if (v) why.set(v, [...(why.get(v) ?? []), r]) }
     add(f.current, 'current')
     add(o.running, 'running')
     add(f.state.current, 'state-current')
     add(f.state.previous, 'previous')
-    add(names.filter((n) => isVersion(n) && !n.endsWith('.partial') && isStaged(n) && compareVersions(n, f.current) > 0).sort(compareVersions).at(-1), 'available')
+    add(list.filter((n) => isVersion(n) && !n.endsWith('.partial') && isStaged(n) && compareVersions(n, f.current) > 0).sort(compareVersions).at(-1), 'available')
     return why
   }
-  const keep = keepSet(facts)
-  const candidates: { name: string; kind: PruneItem['kind'] }[] = []
+  const keep = keepSet(facts, names)
+  /** what the first look found: the folder must still be this one (dev, inode) when it is removed */
+  interface Candidate { rel: string; kind: PruneItem['kind']; dev: number; ino: number; version?: string; engine?: string }
+  const candidates: Candidate[] = []
+  const recentWhy = (kind: PruneItem['kind']) => kind === 'engine' ? 'changed in the last 24 hours (a turn may still use it)' : 'changed in the last 24 hours (an update may be using it)'
   for (const name of names) {
     const rel = `versions/${name}`
     const st = lstat(path.join(versions, name))
     if (!st) continue
     if (st.isSymbolicLink()) { res.left.push({ path: rel, why: 'a link (never followed)' }); continue }
     if (!st.isDirectory()) { res.left.push({ path: rel, why: 'not a folder' }); continue }
-    const kind: PruneItem['kind'] | null = name.startsWith('.staging-') ? 'staging' : name.endsWith('.partial') ? 'partial' : isVersion(name) ? 'version' : null
+    const kind: PruneItem['kind'] | null = TRASH.test(name) ? 'trash' : name.startsWith('.staging-') ? 'staging' : name.endsWith('.partial') ? 'partial' : isVersion(name) ? 'version' : null
     if (!kind) { res.left.push({ path: rel, why: 'not a version folder' }); continue }
     if (kind === 'version' && keep.has(name)) continue
+    if (st.dev !== vst.dev) { res.left.push({ path: rel, why: MOUNT }); continue }
     if (!old(st)) {
       if (kind === 'version') keep.set(name, ['recent'])
-      else res.left.push({ path: rel, why: 'changed in the last 24 hours (an update may be using it)' })
+      else res.left.push({ path: rel, why: recentWhy(kind) })
       continue
     }
-    candidates.push({ name, kind })
+    candidates.push({ rel, kind, dev: st.dev, ino: st.ino, ...(kind === 'version' ? { version: name } : {}) })
   }
   for (const [v, why] of [...keep].filter(([v]) => isStaged(v)).sort(([a], [b]) => compareVersions(a, b))) {
     res.kept.push({ version: v, why, bytes: await treeBytes(path.join(versions, v)) })
   }
 
   // ---- engines ----
-  const engineCandidates: string[] = []
   const engines = path.join(app, 'engines')
+  /** <name>/current's target and the link's own facts, or null when it names no engine folder */
+  const engineCurrent = (name: string) => {
+    const dir = path.join(engines, name)
+    const cur = lstat(path.join(dir, 'current'))
+    let target: string | null = null
+    try { if (cur?.isSymbolicLink()) target = fs.readlinkSync(path.join(dir, 'current')) } catch {}
+    return cur && target && SHA12.test(target) && lstat(path.join(dir, target))?.isDirectory() ? { cur, target } : null
+  }
   const est = lstat(engines)
   if (est?.isDirectory()) {
     for (const name of fs.readdirSync(engines).sort()) {
       const dir = path.join(engines, name)
       const st = lstat(dir)
       if (!st?.isDirectory() || !ENGINE_NAME.test(name)) { res.left.push({ path: `engines/${name}`, why: st?.isSymbolicLink() ? 'a link (never followed)' : 'not an engine folder' }); continue }
-      const cur = lstat(path.join(dir, 'current'))
-      const target = cur?.isSymbolicLink() ? fs.readlinkSync(path.join(dir, 'current')) : null
-      if (!cur || !target || !SHA12.test(target) || !lstat(path.join(dir, target))?.isDirectory()) {
-        res.left.push({ path: `engines/${name}`, why: 'current names no engine folder' })
-        continue
-      }
+      const ec = engineCurrent(name)
+      if (!ec) { res.left.push({ path: `engines/${name}`, why: 'current names no engine folder' }); continue }
       for (const sub of fs.readdirSync(dir).sort()) {
-        if (sub === 'current' || sub === target) continue
+        if (sub === 'current' || sub === ec.target) continue
         const rel = `engines/${name}/${sub}`
         const s = lstat(path.join(dir, sub))
         if (!s) continue
-        if (!s.isDirectory() || !SHA12.test(sub)) { res.left.push({ path: rel, why: s.isSymbolicLink() ? 'a link (never followed)' : 'not an engine folder' }); continue }
-        if (!old(cur) || !old(s)) { res.left.push({ path: rel, why: 'changed in the last 24 hours (a turn may still use it)' }); continue }
-        engineCandidates.push(rel)
+        const trash = TRASH.test(sub)
+        if (!s.isDirectory() || !(SHA12.test(sub) || trash)) { res.left.push({ path: rel, why: s.isSymbolicLink() ? 'a link (never followed)' : 'not an engine folder' }); continue }
+        if (s.dev !== st.dev) { res.left.push({ path: rel, why: MOUNT }); continue }
+        if ((!trash && !old(ec.cur)) || !old(s)) { res.left.push({ path: rel, why: recentWhy('engine') }); continue }
+        candidates.push({ rel, kind: trash ? 'trash' : 'engine', dev: s.dev, ino: s.ino, engine: name })
       }
     }
   }
 
-  // ---- remove ----
+  // ---- remove: look again, take the folder out of its name, then remove that ----
+  const myUid = process.getuid?.()
   const counter = { n: 0 }
-  const remove = async (rel: string, kind: PruneItem['kind']) => {
-    const abs = path.join(app, rel)
-    const bytes = await treeBytes(abs) + (lstat(abs)?.blocks ?? 0) * 512
-    if (!o.dryRun) {
-      try { await removeTree(abs, counter) } catch (e) {
-        res.errors.push({ path: rel, error: String((e as Error).message ?? e).slice(0, 300) })
-        // what is gone is gone: count only what is no longer there
-        if (lstat(abs)) return
-      }
+  /** why `c` must stay after all (null: it goes) */
+  const stillGoes = (c: Candidate, st: fs.Stats | null, f: Facts): string | null => {
+    if (!st || !st.isDirectory() || st.dev !== c.dev || st.ino !== c.ino) return 'replaced since the first look (another process brought a folder in under this name)'
+    if (!old(st)) return recentWhy(c.kind)
+    if (c.version !== undefined && keepSet(f, fs.readdirSync(versions)).has(c.version)) return 'needed again (app/current or state.json changed during the run)'
+    if (c.kind === 'engine') {
+      const ec = engineCurrent(c.engine!)
+      if (!ec || ec.target === path.basename(c.rel) || !old(ec.cur)) return 'the engine\'s current changed during the run'
     }
-    res.removed.push({ path: rel, kind, bytes })
+    return null
   }
-  const ordered = [...candidates.filter((c) => c.kind === 'version').sort((a, b) => compareVersions(a.name, b.name)), ...candidates.filter((c) => c.kind !== 'version')]
+  const ordered = [...candidates.filter((c) => c.kind === 'version').sort((a, b) => compareVersions(a.version!, b.version!)), ...candidates.filter((c) => c.kind !== 'version')]
   for (const c of ordered) {
-    if (c.kind === 'version' && !o.dryRun) {
-      // look again right before: an update may have started (pending) or switched since the first look
-      const f = readFacts(app)
-      if (typeof f === 'string') { res.skipped = `stopped: ${f}`; break }
-      if (keepSet(f).has(c.name)) continue
+    const abs = path.join(app, c.rel)
+    o.race?.(c.rel, 'check')
+    // an update may have started (pending) or switched since the first look: then this run stops here
+    const f = readFacts(app)
+    if (typeof f === 'string') { res.skipped = `stopped: ${f}`; break }
+    const st = lstat(abs)
+    const why = stillGoes(c, st, f)
+    if (why) { if (st) res.left.push({ path: c.rel, why }); continue }
+    if (o.dryRun) { res.removed.push({ path: c.rel, kind: c.kind, bytes: await treeBytes(abs) + st!.blocks * 512 }); continue }
+    if (myUid !== undefined && st!.uid !== myUid) {
+      res.errors.push({ path: c.rel, error: `owned by another account (uid ${st!.uid}): remove it as root` })
+      continue
     }
-    await remove(`versions/${c.name}`, c.kind)
+    let gone = abs
+    if (c.kind !== 'trash') {
+      gone = path.join(path.dirname(abs), `.prune-${crypto.randomBytes(6).toString('hex')}`)
+      try { fs.renameSync(abs, gone) } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code
+        // EXDEV: a file system that cannot rename this folder (an overlay's lower layer): removed under its own name
+        if (code === 'EXDEV') gone = abs
+        else {
+          if (code !== 'ENOENT') res.errors.push({ path: c.rel, error: String((e as Error).message ?? e).slice(0, 300) })
+          continue
+        }
+      }
+      if (gone !== abs) o.race?.(c.rel, 'renamed')
+    }
+    const bytes = await treeBytes(gone) + st!.blocks * 512
+    try { await removeTree(gone, c.dev, counter) } catch (e) {
+      const where = gone === abs ? '' : ` (what is left is ${path.relative(app, gone)}, removed by a later run)`
+      res.errors.push({ path: c.rel, error: `${String((e as Error).message ?? e).slice(0, 300)}${where}` })
+      // what is gone is gone: count only what is no longer there
+      if (lstat(gone)) continue
+    }
+    res.removed.push({ path: c.rel, kind: c.kind, bytes })
   }
-  if (!res.skipped) for (const rel of engineCandidates) await remove(rel, 'engine')
-  if (!o.dryRun && res.removed.length) o.log?.info('old versions removed', { removed: res.removed.map((r) => r.path), bytes: res.removedBytes, errors: res.errors.length })
+  if (!o.dryRun && res.removed.length) o.log?.info('old versions removed', { removed: res.removed.map((r) => r.path), bytes: res.removed.reduce((a, r) => a + r.bytes, 0), errors: res.errors.length })
   if (res.errors.length) o.log?.warn('some old versions could not be removed', { errors: res.errors.slice(0, 5) })
   return done()
 }
