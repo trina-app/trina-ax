@@ -1837,4 +1837,5 @@ export const en: Record<MessageKey, string> = {
   "audit.act.plugin.uninstall": "Removed a plugin",
   "audit.act.plugin.revoke": "Withdrawn plugin turned off",
   "hwp.disabledAdmin": "Admins can add it in Admin > Plugins (HWP Preview).",
+  "hwp.disabledAdminOff": "An admin can turn it on in Admin › Plugins (HWP Preview).",
 }

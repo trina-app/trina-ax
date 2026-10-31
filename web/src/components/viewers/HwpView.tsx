@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { HwpReason, type HwpPage } from '@mycel/shared/hwp'
+import { HWP_PLUGIN_ID, HwpReason, type HwpPage } from '@mycel/shared/hwp'
 import { api, API, isApiError } from '../../lib/api'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
@@ -29,10 +29,21 @@ export default function HwpView({ path, download }: { path: string; download: ()
     })
     return () => { ctrl.abort(); if (url) URL.revokeObjectURL(url) }
   }, [path, page, revision])
+  // the preview is off: an admin is told to turn the plugin on when it is installed, otherwise where to add it
+  const admin = isAdmin(me)
+  const [installedOff, setInstalledOff] = useState(false)
+  useEffect(() => {
+    if (reason !== 'disabled' || !admin) return
+    const ctrl = new AbortController()
+    api.call(API.listPlugins, { signal: ctrl.signal })
+      .then(d => { if (!ctrl.signal.aborted) setInstalledOff(d.installed.some(p => p.id === HWP_PLUGIN_ID && !p.enabled)) })
+      .catch(() => { /* the hint stays the general one */ })
+    return () => ctrl.abort()
+  }, [reason, admin])
   if (reason) return <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
     <p className="text-sm text-muted" role="status">{reason === 'missing' ? t('preview.notFound') : t(`hwp.${reason}`)}</p>
     {/* the HWP Preview plugin is off or missing: admins learn where to add it (docs/PLUGINS.md) */}
-    {reason === 'disabled' && isAdmin(me) && <a className="text-sm text-accent-text underline" href="/admin/plugins" data-testid="hwp-plugins-link">{t('hwp.disabledAdmin')}</a>}
+    {reason === 'disabled' && admin && <a className="text-sm text-accent-text underline" href="/admin/plugins" data-testid="hwp-plugins-link">{t(installedOff ? 'hwp.disabledAdminOff' : 'hwp.disabledAdmin')}</a>}
     {reason !== 'missing' && <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">{t('common.download')}</Button>}
     <Button variant="secondary" onClick={() => retry(n => n + 1)}>{t('common.retry')}</Button>
   </div>

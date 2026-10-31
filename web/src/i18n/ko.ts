@@ -1836,6 +1836,7 @@ export const ko = {
   "audit.act.plugin.uninstall": "플러그인 제거",
   "audit.act.plugin.revoke": "철회된 플러그인 끄기",
   "hwp.disabledAdmin": "관리자는 관리 > 플러그인(한글 문서 미리보기)에서 추가할 수 있어요.",
+  "hwp.disabledAdminOff": "관리자 › 플러그인에서 한글 문서 미리보기를 켤 수 있어요.",
 } as const
 
 export type MessageKey = keyof typeof ko

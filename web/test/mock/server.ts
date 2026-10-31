@@ -867,6 +867,9 @@ export class MockServer {
     hwpPreview: async (c) => {
       const n = this.files.get(c.query.path!)
       if (!n || n.type !== 'file' || this.access(c.query.path!, c.user) === 'none') fail('not_found', 404)
+      // the HWP Preview plugin installed and turned off: refused like the server's disabled renderer (not installed at
+      // all, the mock still renders, so the other previews need no install step)
+      if (this.plugins.installed.some((p) => p.id === 'app.trina.hwp-preview' && !p.enabled)) throw new Fail('unavailable', 503, undefined, undefined, { reason: 'disabled' })
       try {
         const r = await (await hwpEngine).render(Buffer.from(n!.data!), c.query.path!.endsWith('.hwpx') ? 'hwpx' : 'hwp', Number(c.query.page))
         return { ...r.meta, id: crypto.randomUUID(), png: r.bytes.toString('base64') }

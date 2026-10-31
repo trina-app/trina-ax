@@ -100,6 +100,21 @@ test('members do not see the Plugins page', async ({ page }) => {
   await expect(page).not.toHaveURL(/\/admin\/plugins/)
 })
 
+test('HWP Preview installed but turned off: an admin is told to turn it on, not to add it', async ({ page }) => {
+  await reset(page, { teamLocale: 'ko', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/admin/plugins')
+  await catalogRow(page, 'app.trina.hwp-preview').getByTestId('plugin-catalog-install').click()
+  await page.getByRole('dialog').getByTestId('plugin-install-only').click()
+  await expect(installedRow(page, 'app.trina.hwp-preview')).toContainText('꺼짐')
+  await page.goto('/files?path=marketing')
+  await page.getByTestId('files-input').setInputFiles(path.resolve(import.meta.dirname, '../../../tests/fixtures/hwp/two-pages.hwp'))
+  await page.getByTestId('file-row').filter({ hasText: 'two-pages.hwp' }).getByRole('button').first().click()
+  await expect(page.getByTestId('preview-unsupported')).toContainText('이 팀에서는 한글 미리보기가 켜져 있지 않아요.')
+  await expect(page.getByTestId('hwp-plugins-link')).toHaveText('관리자 › 플러그인에서 한글 문서 미리보기를 켤 수 있어요.')
+  await shot(page, 'plugins-ko-hwp-off.png')
+})
+
 test('narrow screen', async ({ page }) => {
   await reset(page, { teamLocale: 'ko', usersFollowTeam: true })
   await page.setViewportSize({ width: 390, height: 844 })

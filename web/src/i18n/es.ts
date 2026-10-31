@@ -1797,4 +1797,5 @@ export const es: Record<MessageKey, string> = {
   "audit.act.plugin.uninstall": "Quitó un complemento",
   "audit.act.plugin.revoke": "Complemento retirado desactivado",
   "hwp.disabledAdmin": "Los administradores pueden añadirla en Administración > Complementos (Vista previa de HWP).",
+  "hwp.disabledAdminOff": "Un administrador puede activarla en Administración › Complementos (Vista previa de HWP).",
 }

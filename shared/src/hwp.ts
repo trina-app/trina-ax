@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+/** The HWP Preview plugin (resources/plugins/catalog.json): the server's renderer driver and the web's "turn it on" hint */
+export const HWP_PLUGIN_ID = 'app.trina.hwp-preview'
 /** Stable diagnostics; clients translate codes, never display parser stderr or document-controlled text. */
 export const HwpReason = z.enum(['disabled', 'locked', 'distribution', 'damaged', 'unsupported', 'limit', 'timeout', 'cancelled', 'busy', 'engine', 'isolation', 'changed', 'loss'])
 export type HwpReason = z.infer<typeof HwpReason>

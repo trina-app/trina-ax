@@ -5,6 +5,7 @@
 import type { PluginManifest } from '@mycel/shared/plugins'
 import hwpPins from '../../../resources/hwp/manifest.json'
 import type { PluginUnsupported } from '@mycel/shared/api'
+import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 
 export interface DriverSpec {
   /** the tool names this driver serves (contributes.tools[].name) */
@@ -18,7 +19,7 @@ export const DRIVERS: Record<string, DriverSpec> = {
 }
 
 /** The plugin id whose rhwp-v1 package drives HWP preview and hwp_render. */
-export const HWP_PLUGIN_ID = 'app.trina.hwp-preview'
+export { HWP_PLUGIN_ID }
 
 /** null when the package is a build this driver accepts; otherwise why not. `sha` maps payload paths to SHA-256. */
 export function driverMismatch(m: PluginManifest, sha: (path: string) => string | undefined): PluginUnsupported | null {

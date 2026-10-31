@@ -1797,4 +1797,5 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.plugin.uninstall": "プラグインを削除",
   "audit.act.plugin.revoke": "取り下げられたプラグインをオフ",
   "hwp.disabledAdmin": "管理者は 管理 > プラグイン（HWPプレビュー）から追加できます。",
+  "hwp.disabledAdminOff": "管理者は 管理 › プラグイン（HWPプレビュー）でオンにできます。",
 }

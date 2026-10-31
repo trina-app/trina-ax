@@ -1837,4 +1837,5 @@ export const id: Record<MessageKey, string> = {
   "audit.act.plugin.uninstall": "Menghapus plugin",
   "audit.act.plugin.revoke": "Plugin yang ditarik dinonaktifkan",
   "hwp.disabledAdmin": "Admin dapat menambahkannya di Admin > Plugin (Pratinjau HWP).",
+  "hwp.disabledAdminOff": "Admin dapat mengaktifkannya di Admin › Plugin (Pratinjau HWP).",
 }
