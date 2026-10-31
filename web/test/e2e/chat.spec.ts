@@ -132,7 +132,9 @@ test('stop: a step still running then shows as stopped, not as a failed step (li
   await expect(steps.getByTestId('steps-failed')).toHaveCount(0)
   await steps.getByRole('button', { name: /작업 \d+단계/ }).click()
   const cut = steps.getByRole('listitem').filter({ hasText: 'read applications/21.pdf' })
-  await expect(cut.getByTestId('step-stopped')).toHaveAttribute('aria-label', '여기서 중지됨')
+  await expect(cut.getByTestId('step-stopped')).toBeVisible()
+  // in words on screen, not only for a screen reader (QA 0.2.12 N3)
+  await expect(cut.getByTestId('step-cut')).toHaveText('여기서 중지됨')
   await expect(steps.getByLabel('실패', { exact: true })).toHaveCount(0)
   // after a reload the stored answer shows the same
   await page.reload()

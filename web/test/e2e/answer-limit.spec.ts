@@ -72,7 +72,9 @@ test('time limit: the step it cut off shows as paused, not as a failed step', as
   await expect(steps.getByTestId('steps-failed')).toHaveCount(0)
   await steps.getByRole('button', { name: '작업 2단계' }).click()
   const cut = steps.getByRole('listitem').filter({ hasText: 'read applications/21.pdf' })
-  await expect(cut.getByTestId('step-paused')).toHaveAttribute('aria-label', '여기서 멈춤')
+  await expect(cut.getByTestId('step-paused')).toBeVisible()
+  // in words on screen, not only for a screen reader (QA 0.2.12 N3)
+  await expect(cut.getByTestId('step-cut')).toHaveText('여기서 멈춤')
   await expect(steps.getByLabel('실패', { exact: true })).toHaveCount(0)
   await shot(page, '3-time-limit-step-paused.png')
   // after a reload the stored answer shows the same

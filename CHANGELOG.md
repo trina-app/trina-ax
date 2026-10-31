@@ -6,6 +6,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 ## Unreleased
 
 - Codex web search steps: a step whose query Codex has not named yet reads "Searching the web…", and an open of a search result reads "Opening a search result" instead of "Web search: " with nothing after it. A search the team server refused to send (it named an address instead of one of its results) now shows as failed with the reason, not as a done (green) step; the address was never opened. In all five languages.
+- Chat: a step cut off by Stop or by the per-answer time limit now says "Stopped here" / "Paused here" in words next to its grey icon, not only to screen readers.
 
 ## 0.2.12 — 2026-10-30
 

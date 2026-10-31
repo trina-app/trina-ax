@@ -2,7 +2,8 @@
 // While streaming the last few steps show; afterwards it folds into "작업 N단계" that opens on click.
 // Web search results are plain links (no favicons: an external image would load by itself).
 // A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure; one the
-// person's Stop cut off (Step.stopped) shows as stopped, like Claude Code's "Interrupted".
+// person's Stop cut off (Step.stopped) shows as stopped, like Claude Code's "Interrupted": a grey icon and the words
+// next to the label ("Paused here", "Stopped here"), for sighted readers as well as screen readers (QA 0.2.12 N3).
 // A sub-task (Claude Code's Agent tool, docs/DECISIONS.md "Sub-agents") is one row like Claude Code's "Agent(...)": its
 // sub-agent's steps (Step.parentId) open under it, and while it works its latest step shows beneath it.
 import clsx from 'clsx'
@@ -41,22 +42,25 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
   const expandable = !!(step.detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = step.status === 'running' && live
   const stats = subtask ? subtaskStats(step.subtask, t) : ''
+  // cut off by the time limit or by Stop: said in words, not only by the icon
+  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : ''
   // while a sub-agent works, its latest step shows under its row (like Claude Code)
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   return (
     <li className="text-[13px] text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
-      <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} aria-label={subtask && expandable ? `${words.label} · ${t('steps.subtaskShow')}` : undefined}
+      <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} aria-label={subtask && expandable ? `${words.label}${cut ? ` · ${cut}` : ''} · ${t('steps.subtaskShow')}` : undefined}
         onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
         {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.tool === 'attachment' ? (
           // what happened to an attached team file (changed, moved, unavailable): a note, not a success or a failure
           <Info size={13} className="shrink-0 text-faint" aria-hidden />
         ) : step.paused ? (
-          <CirclePause size={13} className="shrink-0 text-muted" aria-label={t('steps.paused')} data-testid="step-paused" />
+          <CirclePause size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-paused" />
         ) : step.stopped ? (
-          <CircleStop size={13} className="shrink-0 text-muted" aria-label={t('steps.stopped')} data-testid="step-stopped" />
+          <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-stopped" />
         ) : step.status === 'error' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
         <Icon size={13} className="shrink-0 text-faint" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{words.label}</span>
+        {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
         {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
         {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
         {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
