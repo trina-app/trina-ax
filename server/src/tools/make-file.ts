@@ -369,7 +369,8 @@ export class MakeFile {
  */
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void): Promise<MadeFile> {
   const cfg = ctx.engineConfig
-  const size = fs.statSync(produced).size
+  // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
+  const size = checkRegular(produced).size
   if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx

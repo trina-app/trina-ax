@@ -53,9 +53,15 @@ export function sha256Regular(abs: string): string {
     if (st.isDirectory()) throw new ToolError('this is a folder; use list', 'is_folder')
     if (!st.isFile()) throw new Denied('not a regular file')
     if (st.nlink > 1) throw new Denied('hard-linked files are refused')
+    // the bytes up to the size fstat gave, like readRegular: a file that grows while it is hashed is judged by what it
+    // was (its first st.size bytes), never let through because the appended bytes changed the hash
     const h = crypto.createHash('sha256')
-    const buf = Buffer.allocUnsafe(4 * 1024 * 1024)
-    for (let pos = 0; ;) { const n = fs.readSync(fd, buf, 0, buf.length, pos); if (n <= 0) break; h.update(buf.subarray(0, n)); pos += n }
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    for (let pos = 0; pos < st.size;) {
+      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      if (n <= 0) break
+      h.update(buf.subarray(0, n)); pos += n
+    }
     return h.digest('hex')
   } finally { fs.closeSync(fd) }
 }

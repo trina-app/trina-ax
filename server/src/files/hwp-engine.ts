@@ -120,7 +120,7 @@ export class NativeHwpEngine implements HwpEngine {
       const r = await runIsolated({ cmd, args, workDir: work, curatedFonts: true, timeoutMs: Math.max(1, deadline - Date.now()), maxRssMiB: L.rssMiB,
         env: { FONTCONFIG_FILE: path.join(work, 'fonts.conf') },
         maxWorkBytes: bytes.length + this.fonts.reduce((n, f) => n + f.bytes.length, 0) + L.outputBytes, maxStdout: 1024 * 1024, signal, ...extra })
-      if (r.killed) throw new HwpError(r.killed === 'aborted' ? 'cancelled' : r.killed === 'timeout' ? 'timeout' : 'limit')
+      if (r.killed) throw new HwpError(r.killed === 'aborted' ? 'cancelled' : r.killed === 'timeout' ? 'timeout' : r.killed === 'workdir' ? 'damaged' : 'limit')
       return r
     }
     try {
@@ -151,7 +151,8 @@ export class NativeHwpEngine implements HwpEngine {
       // followed (tools/isolate.ts readOutput)
       if (!isPlainDir(output)) throw new HwpError('damaged')
       const files = fs.readdirSync(output)
-      if (files.length !== 1 || !files[0].endsWith('.png')) throw new HwpError('damaged')
+      // the name is the renderer's: one readOutput takes (no backslash), so a strange one is 'damaged', not a crash
+      if (files.length !== 1 || !/^[^\\]+\.png$/.test(files[0]!)) throw new HwpError('damaged')
       const got = readOutput(output, files[0], L.outputBytes)
       if (!got.ok) throw new HwpError(got.why === 'missing' ? 'damaged' : 'limit')
       const png = got.bytes

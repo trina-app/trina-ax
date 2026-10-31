@@ -1,6 +1,7 @@
 // A quarantined (download-only) artifact is found by content, also when a team file has its size and is larger than
-// 32 MiB. Before, Quarantine.hasFile read at most 32 MiB, so authorize() failed every read of such a file with "file is
-// too large" (video-read plan review): a large video with exactly the size of a quarantined deck could not be read.
+// 32 MiB. Quarantine.hasFile used to read at most 32 MiB, so an artifact over that (none is today: decks are capped at
+// 32 MiB, images at 1 MiB) would have made authorize() fail every read of a file of its size with "file is too large"
+// (video-read plan review). The rows here are inserted directly to stand for such an artifact.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'

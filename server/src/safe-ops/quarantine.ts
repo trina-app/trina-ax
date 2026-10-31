@@ -28,8 +28,9 @@ export class Quarantine {
     if (this.db.query("SELECT 1 FROM safe_ops_publications WHERE destination=? AND state!='conflict' LIMIT 1").get(path.relative(this.root,abs))) return true
     if (this.db.query('SELECT 1 FROM safe_ops_inodes WHERE identity=?').get(`${st.dev}:${st.ino}`)) return true
     if (!st.isFile() || !this.db.query('SELECT 1 FROM safe_ops_artifacts WHERE size=? LIMIT 1').get(st.size)) return false
-    // streamed, whatever the size: a cap here made every read of a larger file with the size of a quarantined one fail
-    // ("file is too large") in authorize(), before any reader ran
+    // streamed, whatever the size: with a read cap here, a download-only artifact larger than the cap would make every
+    // read of a file of its size fail ("file is too large") in authorize(). Today's artifacts stay under it (decks
+    // 32 MiB, images 1 MiB); the check must not depend on that. Hashed only for a file of an artifact's exact size.
     return this.hasHash(sha256Regular(abs))
   }
   assertBytes(bytes: Uint8Array) {

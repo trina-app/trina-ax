@@ -55,8 +55,14 @@ export interface IsolatedResult {
   code: number | null
   stdout: Buffer
   stderr: string
-  killed: null | 'timeout' | 'output' | 'aborted' | 'memory' | 'disk'
+  /** 'workdir': the work folder was no longer the plain folder the run started in (see runIsolated); `code` is null */
+  killed: null | 'timeout' | 'output' | 'aborted' | 'memory' | 'disk' | 'workdir'
   workDir: string
+}
+
+/** dev:ino of a plain folder (never through a link), or null */
+function folderId(p: string): string | null {
+  try { const st = fs.lstatSync(p); return st.isDirectory() && !st.isSymbolicLink() ? `${st.dev}:${st.ino}` : null } catch { return null }
 }
 
 export type IsolationKind = 'sandbox-exec' | 'bwrap' | 'none'
@@ -152,7 +158,13 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
 /** Run a converter isolated. Never throws for a non-zero exit; check `code`. */
 export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const ownDir = !o.workDir
+  // a link given as the work folder would be resolved below and the converter would write wherever it points
+  if (o.workDir && !folderId(o.workDir)) throw new Error('runIsolated: the work folder is not a plain folder')
   const workDir = real(o.workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), `${PRODUCT.id}-conv-`)))
+  // The converter may remove its (emptied) work folder and leave a link in its place: the macOS sandbox allows it,
+  // since the folder itself is inside the writable subpath. Every later path the server opens under it (readOutput,
+  // the next converter's sandbox profile, make_file's writes) would then go through that link. Checked after the run.
+  const workId = folderId(workDir)
   const cmd = real(o.cmd)
   const env: Record<string, string> = { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', HOME: workDir, TMPDIR: workDir, ...o.env }
   const kind = isolation()
@@ -206,6 +218,7 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   clearTimeout(timer)
   if (watch) clearInterval(watch)
   o.signal?.removeEventListener('abort', onAbort)
+  if (!killed && (!workId || folderId(workDir) !== workId)) killed = 'workdir'
   const res: IsolatedResult = { code: killed ? null : code, stdout, stderr, killed, workDir }
   if (ownDir) fs.rmSync(workDir, { recursive: true, force: true })
   return res
@@ -265,7 +278,9 @@ export type OutputRead = { ok: true; bytes: Buffer } | { ok: false; why: 'missin
  * pointing at any file the server account can read (another person's photo, the database). Read by path, the server
  * would follow it and hand that file on as the converter's output (to the AI, to OpenRouter, into a preview). So:
  * opened with O_NOFOLLOW (and O_NONBLOCK, so a FIFO cannot block the server), a regular singly linked file directly
- * in `dir`, at most `maxBytes`. Call it after the converter exited; `dir` must be a folder the server made.
+ * in `dir`, at most `maxBytes`. Call it after the converter exited; `dir` must be a folder the server made. O_NOFOLLOW
+ * covers only `name`: that the work folder itself is still the server's (not a link left in its place) is checked by
+ * runIsolated, whose run then fails ('workdir'), so read only after a run that succeeded.
  */
 export function readOutput(dir: string, name: string, maxBytes: number): OutputRead {
   if (!name || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) throw new Error('readOutput takes a plain file name')

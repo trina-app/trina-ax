@@ -12,7 +12,7 @@ import { componentC } from '../../server/src/team-files/component'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { readOutput, isPlainDir } from '../../server/src/tools/isolate'
+import { readOutput, isPlainDir, makeWorkDir, runIsolated } from '../../server/src/tools/isolate'
 import { makeThumbnail } from '../../server/src/uploads/image'
 import { heicToJpeg } from '../../server/src/files/heic-preview'
 import { which } from '../../server/src/config'
@@ -71,6 +71,17 @@ afterAll(async () => { spawnSpy.mockRestore(); fakeOr.stop(true); await A.close(
 
 const noCanary = (v: unknown) => expect(JSON.stringify(v ?? null)).not.toContain(CANARY)
 const link = (target: string, dir: string, name: string) => fs.symlinkSync(target, path.join(dir, name))
+/** What a converter can do on macOS (its work folder is inside the sandbox's writable subpath): empty the folder,
+ * remove it and leave a link in its place. Every path the server then opens under the folder goes through the link. */
+const swapWork = (target: string) => (dir: string) => { fs.rmSync(dir, { recursive: true, force: true }); fs.symlinkSync(target, dir) }
+/** a folder of bob's holding files under the names converters write */
+function otherFolder(): string {
+  const d = fs.mkdtempSync(path.join(A.team, 'users', 'bob', 'f-'))
+  fs.writeFileSync(path.join(d, 'out.jpg'), JPEG)
+  fs.copyFileSync(secret.json, path.join(d, 'out.json'))
+  fs.copyFileSync(secret.ast, path.join(d, 'ast.json'))
+  return d
+}
 
 describe('readOutput: only a plain file the converter wrote', () => {
   test('regular file; links, hard links, FIFOs, folders and oversize files are refused', () => {
@@ -91,6 +102,34 @@ describe('readOutput: only a plain file the converter wrote', () => {
     expect(isPlainDir(path.join(dir, 'sub'))).toBe(true)
     link(path.join(dir, 'sub'), dir, 'sublink')
     expect(isPlainDir(path.join(dir, 'sublink'))).toBe(false)
+  })
+})
+
+describe('the work folder itself left as a link: the run fails', () => {
+  test('runIsolated reports it (killed: workdir); removing the folder removes the link, not what it points at', async () => {
+    const other = otherFolder()
+    const work = makeWorkDir(path.join(A.data, 'work'))
+    plant = swapWork(other)
+    const r = await runIsolated({ cmd: TRUE, args: [], workDir: work })
+    expect(runs).toBe(1)
+    expect(r.killed).toBe('workdir')
+    expect(r.code).toBeNull()
+    fs.rmSync(work, { recursive: true, force: true })
+    expect(() => fs.lstatSync(work)).toThrow()
+    expect(fs.readdirSync(other).sort()).toEqual(['ast.json', 'out.jpg', 'out.json'])
+  })
+  test('a link given as the work folder is refused before anything runs', async () => {
+    const l = path.join(A.data, 'work-link-' + crypto.randomUUID())
+    fs.symlinkSync(otherFolder(), l)
+    await expect(runIsolated({ cmd: TRUE, args: [], workDir: l })).rejects.toThrow('not a plain folder')
+    expect(runs).toBe(0)
+  })
+  test('HEIC preview: heif-dec leaving its work folder as a link to bob\'s folder is refused', async () => {
+    plant = swapWork(otherFolder())
+    const r = await heicToJpeg(new Uint8Array(64), { heifDec: TRUE, imageIo: null }).catch((e) => e)
+    expect(runs).toBe(1)
+    expect(Buffer.isBuffer(r)).toBe(false)
+    noCanary(String(r))
   })
 })
 
@@ -121,6 +160,21 @@ describe('speech: a planted link is never sent or used as the transcript', () =>
     expect(j.error!.message).toContain('could not be read')
     expect(hits).toEqual([])
     noCanary(j)
+  })
+
+  test('local whisper: the work folder left as a link to a folder of bob\'s -> the job fails, nothing is read there', async () => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'local' })
+    const t = C().transcribe
+    const modelDir = fs.mkdtempSync(path.join(A.data, 'model-'))
+    fs.writeFileSync(path.join(modelDir, 'ggml-fake.bin'), Buffer.alloc(16))
+    Object.assign(t, { ffmpegBin: null, whisperBin: TRUE, modelDir, sharedModelDir: null, modelOverride: { file: 'ggml-fake.bin', size: 16, sha256: 'x' } })
+    const other = otherFolder()
+    plant = swapWork(other)
+    const j = await job('voice.wav')
+    expect(runs).toBe(1)
+    expect(j.status).toBe('failed')
+    noCanary(j)
+    expect(fs.readdirSync(other).sort()).toEqual(['ast.json', 'out.jpg', 'out.json'])
   })
 
   test('local whisper: out.json left as a link to bob\'s JSON -> the job fails, the file is not the transcript', async () => {
@@ -193,6 +247,27 @@ describe('make_file: pandoc output read without links; no write through a plante
     expect(String(e.message)).toContain('produced no file')
     expect(runs).toBe(2)
     expect(exists('users/alice/b.pdf')).toBe(false)
+  })
+  test('the work folder left as a link to bob\'s folder after pandoc: nothing read or written there', async () => {
+    const other = otherFolder()
+    plant = (dir, n) => { if (n === 1) swapWork(other)(dir) }
+    const e = await run('docx', 'users/alice/d.docx').catch((x) => x)
+    expect(e).toBeInstanceOf(Error)
+    expect(runs).toBe(1)
+    noCanary(String(e?.message))
+    expect(fs.readdirSync(other).sort()).toEqual(['ast.json', 'out.jpg', 'out.json'])
+    expect(exists('users/alice/d.docx')).toBe(false)
+  })
+  test('the finished document left as a link to bob\'s file: refused, nothing placed, bob\'s file kept', async () => {
+    plant = (dir, n) => {
+      if (n === 1) fs.writeFileSync(path.join(dir, 'ast.json'), JSON.stringify({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [] }))
+      if (n === 2) link(secret.victim, dir, 'out.docx')
+    }
+    const e = await run('docx', 'users/alice/e.docx').catch((x) => x)
+    expect(String(e?.message)).toContain('symbolic links are not followed')
+    expect(runs).toBe(2)
+    expect(exists('users/alice/e.docx')).toBe(false)
+    expect(fs.readFileSync(secret.victim, 'utf8')).toBe('unchanged')
   })
   test('links planted under the names the server writes next (doc.typ, tree.json) are not written through', async () => {
     plant = (dir, n) => {
