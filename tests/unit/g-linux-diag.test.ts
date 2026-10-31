@@ -203,6 +203,13 @@ describe('diagnostics of an installed Linux server', () => {
       noteEgressIp(other, '198.51.100.9')
       expect(await diag()).toMatchObject({ status: 'ok', detail: expect.stringContaining('Known (reported by the relay)') })
       expect((await diag()).detail).not.toContain('198.51.100.9')
+      // an IPv6 answer of the feed while IPv4 failed for another reason than no route does not make it known: still
+      // the relay's, not "Known (IPv6)"
+      learnExitAddresses(other, { v4: { error: 'timeout' }, v6: { ip: '2001:db8::9', family: 6 } })
+      expect((await diag()).detail).toContain('Known (reported by the relay)')
+      // without an IPv4 route it is the IPv6 one that counts
+      learnExitAddresses(other, { v4: { noRoute: 'ENETUNREACH' }, v6: { ip: '2001:db8::9', family: 6 } })
+      expect((await diag()).detail).toContain('Known (IPv6)')
     } finally { await other.close() }
   })
   test('the launcher protocol: {"op":"status"} -> one status line (an older launcher\'s error = null)', async () => {
