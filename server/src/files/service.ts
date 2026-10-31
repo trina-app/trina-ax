@@ -662,6 +662,7 @@ export class FileService {
         let jpeg: Buffer
         try { jpeg = await this.mediaFrame(tools, work, src.name, info.video!.index, t, px, signal, Math.min(left(), media.FRAMES_TOTAL_MS - spent)) } catch (e) {
           signal?.throwIfAborted()
+          media.assertWork(work)
           if (e instanceof ToolError && e.code === 'media_no_frame') continue
           if (e instanceof ToolError && e.code === 'media_heavy') { frameNotes.add(say('heavy')); continue }
           if (e instanceof ToolError && MEDIA_NOTE[e.code]) { frameNotes.add(say(MEDIA_NOTE[e.code]!)); continue }
@@ -827,13 +828,18 @@ export class FileService {
             made++
           } catch (e) {
             ctx.signal?.throwIfAborted()
+            // ffmpeg or whisper.cpp replaced the work folder: the whole read is "damaged", no frames after it
+            media.assertWork(work)
             if (e instanceof JobFailure) failure = e.messages[personLocale(this.db, ctx.user.id)] ?? e.message
             else if (e instanceof ToolError && MEDIA_NOTE[e.code]) failure = say(MEDIA_NOTE[e.code]!)
             else if (e instanceof Error && e.message === 'aborted') failure = say('heavy')
             else throw e
             stopped = 'failed'
             break
-          } finally { fs.rmSync(path.join(work, wav), { force: true }) }
+          } finally {
+            // never through a link left in the work folder's place (that would remove the name in the folder it points at)
+            if (media.workIntact(work)) fs.rmSync(path.join(work, wav), { force: true })
+          }
         }
         language ??= piece.language
         for (const sg of piece.segments) if (sg.start >= w.from - 0.5 && sg.start < w.to) segments.push(sg)

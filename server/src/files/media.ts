@@ -152,6 +152,9 @@ export function parseProbe(json: string): MediaInfo {
 /** A converter's end as the error a read maps to a note (never its stderr). */
 function refused(r: { killed: string | null; code: number | null; stderr: string }, signal?: AbortSignal): ToolError {
   signal?.throwIfAborted()
+  // the run replaced its work folder (tools/isolate.ts runIsolated): the file is damaged or cannot be read, as for the
+  // other converters (the HWP renderer), not "too heavy"; the read stops there (assertWork)
+  if (r.killed === 'workdir') return new ToolError('the work folder was replaced', 'media_damaged')
   if (r.killed) return new ToolError(`stopped (${r.killed})`, 'media_heavy')
   if (/not on whitelist/.test(r.stderr)) return new ToolError('a format or codec outside the allow-list', 'media_unsupported')
   return new ToolError(`exit ${r.code}`, 'media_damaged')
@@ -179,6 +182,8 @@ export async function scanDuration(tools: MediaTools, work: string, name: string
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', ...INPUT_GUARD, '-i', name, '-map', '0', '-c', 'copy', '-f', 'null', '-progress', 'pipe:1', '-nostats', '-'],
   })
   signal?.throwIfAborted()
+  // a run that ends otherwise gives no length; one that replaced its work folder ends the read
+  if (r.killed === 'workdir') throw refused(r, signal)
   const all = [...r.stdout.toString('utf8').matchAll(/^out_time_us=(\d+)$/gm)]
   const us = all.length ? Number(all[all.length - 1]![1]) : NaN
   return Number.isFinite(us) && us > 0 ? us / 1e6 : null
@@ -319,16 +324,32 @@ export async function mediaSlot<T>(owner: string, f: () => Promise<T>, signal?: 
 export const mediaStats = () => ({ running, waiting: waiting.length })
 
 // ---------------- work folders ----------------
-const active = new Set<string>()
+/** the work folders of the reads running in this process, with the dev:ino each was made with */
+const active = new Map<string, string>()
+/** dev:ino of a plain folder (never through a link), or null */
+function folderId(p: string): string | null {
+  try { const st = fs.lstatSync(p); return st.isDirectory() ? `${st.dev}:${st.ino}` : null } catch { return null }
+}
 /** A fresh work folder `<base>/vid-<uuid>` (0700) for one read; drop it with dropWork. */
 export function mediaWork(base: string): string {
   fs.mkdirSync(base, { recursive: true, mode: 0o700 })
   const dir = path.join(base, `vid-${crypto.randomUUID()}`)
   fs.mkdirSync(dir, { mode: 0o700 })
   const real = fs.realpathSync(dir)
-  active.add(real)
+  active.set(real, folderId(real)!)
   return real
 }
+/** Whether `dir` is still the plain folder mediaWork made. A converter that replaced it (runIsolated 'workdir'; the
+ * macOS sandbox allows that) leaves a link or another folder in its place: nothing more is run, read or removed in it. */
+export function workIntact(dir: string): boolean {
+  const id = active.get(dir)
+  return id !== undefined && folderId(dir) === id
+}
+/** After a converter run failed: a read whose work folder was replaced ends as a damaged file (media_damaged). */
+export function assertWork(dir: string) {
+  if (!workIntact(dir)) throw new ToolError('the work folder was replaced', 'media_damaged')
+}
+/** Removes the folder (a link left in its place: the link, never what it points at). */
 export function dropWork(dir: string) { active.delete(dir); fs.rmSync(dir, { recursive: true, force: true }) }
 /** At start: no media read survives a restart, so every vid-* folder left in the work folder goes now (a crash could
  * leave a 1 GB copy there for the 24 h scratch sweep). Folders of reads running in this process are kept. */

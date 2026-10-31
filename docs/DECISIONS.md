@@ -4269,8 +4269,11 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     from pixels. ffmpeg's autorotate turns a 90° phone video portrait on 5.1 and 7.1. HDR (HLG / Dolby Vision HEVC
     10-bit) frames look washed out; tone mapping is later.
   - The WAV of a transcript piece is read back without following a link (`readOutput`, fix/converter-output-nofollow:
-    a converter could leave a link to any file the server can read in its work folder). Files over 8192 px a side or
-    40 MP get no frames; files over 6 hours or 32 streams are refused.
+    a converter could leave a link to any file the server can read in its work folder). A run that replaced the work
+    folder itself (`runIsolated` reports `killed: 'workdir'`; the macOS sandbox allows it, bwrap does not) is
+    "damaged or unreadable", like the HWP renderer, never "too heavy": the whole read ends there, with no further frame
+    or piece of sound, and nothing is read or removed under what was left in the folder's place. Files over 8192 px a
+    side or 40 MP get no frames; files over 6 hours or 32 streams are refused.
 - **Measured** (Debian containers, 4 arm64 cores, `-threads 1`): one 4K HEVC Main10 HLG frame peaks at 245-290 MB RSS
   (370-485 MB with ffmpeg's default threads), a 1080p H.264 frame at 65-90 MB, a frame 0.2-7.5 s; 12 frames of a 30 s
   1080p file with 10 s between keyframes took 12-14 s. Keyframe snapping for overviews is not built; the real 4 GB /
@@ -4346,6 +4349,8 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
   isolation: a fixture per container and codec, cover art, rotation, square pixels, subtitles and an undecodable
   track, HLS / ffconcat refused, the packet scan, damaged files, one whole read through the Go normalizer). Both pass
   on macOS (ffmpeg 8.1, sandbox-exec) and in Debian 12 (5.1.9) and 13 (7.1.5) containers with bwrap.
+  `tests/unit/sec-converter-output-links.test.ts`: each converter run of a read (probe, packet scan, frame, sound,
+  whisper.cpp) that replaces its work folder is "damaged", and the read ends with nothing more run or removed there.
 - **Release checks** (people, on an installed Linux server): a real Claude Code and a real Codex turn reading a video;
   a real iPhone HEVC file on a 4 GB / 2 vCPU box (memory, the 90 s frame budget); a 1-hour meeting recording in two
   reads; an mp3 with cover art; a confidential chat with OpenRouter (no request); one real OpenRouter call to see

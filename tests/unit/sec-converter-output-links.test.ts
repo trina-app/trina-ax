@@ -17,6 +17,8 @@ import { makeThumbnail } from '../../server/src/uploads/image'
 import { heicToJpeg } from '../../server/src/files/heic-preview'
 import { which } from '../../server/src/config'
 import { HwpError, NativeHwpEngine } from '../../server/src/files/hwp-engine'
+import * as media from '../../server/src/files/media'
+import { ToolError } from '../../server/src/policy/errors'
 import { makeCApp, type CApp } from '../lib/c-app'
 
 const TRUE = fs.existsSync('/usr/bin/true') ? '/usr/bin/true' : '/bin/true'
@@ -189,6 +191,99 @@ describe('speech: a planted link is never sent or used as the transcript', () =>
     expect(j.status).toBe('failed')
     expect(j.error!.message).toMatch(/failed/i)
     noCanary(j)
+  })
+})
+
+describe('video and audio reads: a converter that replaces its work folder ends the read as a damaged file', () => {
+  const tools = { ffmpeg: TRUE, ffprobe: TRUE }
+  const F = () => A.ctx.files
+  let saved: Record<string, unknown>
+  const spies: { mockRestore(): void }[] = []
+  beforeAll(() => {
+    C()
+    saved = { ...F().speech }
+    fs.mkdirSync(path.join(A.team, 'users', 'alice'), { recursive: true })
+  })
+  afterEach(() => { for (const s of spies.splice(0)) s.mockRestore() })
+  afterAll(() => { Object.assign(F().speech, saved); updateTeamSettings(A.ctx.db, { speechProvider: 'off', aiMediaTranscripts: null }) })
+  /** bob's folder (otherFolder) plus a WAV under the name a transcript piece is written as */
+  function bobsFolder(): string {
+    const d = otherFolder()
+    fs.copyFileSync(secret.wav, path.join(d, 'audio-0.wav'))
+    return d
+  }
+  const untouched = (d: string) => expect(fs.readdirSync(d).sort()).toEqual(['ast.json', 'audio-0.wav', 'out.jpg', 'out.json'])
+  const vidFolders = () => fs.readdirSync(path.join(A.data, 'work')).filter((f) => f.startsWith('vid-'))
+  /** a read of a new 18 s video in alice's folder (a chat turn, so frames may go); ffprobe's answer given */
+  async function readVideo(args: Record<string, unknown>) {
+    const rel = `users/alice/clip-${crypto.randomUUID()}.mp4`
+    fs.writeFileSync(path.join(A.team, rel), `fake video ${rel}`)
+    spies.push(
+      spyOn(F(), 'mediaTools').mockReturnValue(tools),
+      spyOn(F(), 'mediaProbe').mockResolvedValue({ durationSec: 18, format: 'mov', video: { index: 0, codec: 'h264', width: 1920, height: 1080, fps: 30 },
+        audio: { index: 1, codec: 'aac', channels: 2, sampleRate: 48000 }, cover: false }),
+    )
+    const turnId = A.turn('alice', A.chat('alice'))
+    A.ctx.db.query("UPDATE turns SET engine = 'claude-code' WHERE id = ?").run(turnId)
+    return F().call('read', { file_path: rel, ...args }, A.toolCtx('alice', turnId))
+  }
+
+  test('probe, length scan, frame and sound runs: media_damaged ("damaged or unreadable"), never media_heavy; nothing read in bob\'s folder', async () => {
+    const runsOf: [string, (w: string) => Promise<unknown>][] = [
+      ['probe', (w) => media.probeMedia(tools, w, 'in.mp4')],
+      ['length scan', (w) => media.scanDuration(tools, w, 'in.mp4')],
+      ['frame', (w) => media.framePng(tools, w, 'in.mp4', 0, 1, 768)],
+      ['sound', (w) => media.audioWav(tools, w, 'in.mp4', 1, 0, 60, 'audio-0.wav', { inputBytes: 16 })],
+    ]
+    for (const [what, run] of runsOf) {
+      const other = bobsFolder()
+      const w = media.mediaWork(path.join(A.data, 'work'))
+      fs.writeFileSync(path.join(w, 'in.mp4'), 'not really a video')
+      runs = 0
+      plant = swapWork(other)
+      const e = await run(w).catch((x) => x)
+      expect(runs, what).toBe(1)
+      expect(e, what).toBeInstanceOf(ToolError)
+      expect((e as ToolError).code, what).toBe('media_damaged')
+      expect(media.workIntact(w), what).toBe(false)
+      media.dropWork(w)
+      expect(() => fs.lstatSync(w)).toThrow()
+      untouched(other)
+    }
+  })
+
+  test('a read whose first frame run replaced the folder: the damaged note, no further frame, nothing of bob\'s', async () => {
+    const other = bobsFolder()
+    const before = vidFolders()
+    plant = swapWork(other)
+    const out = await readVideo({ frames: 3, transcript: false })
+    expect(runs).toBe(1)
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('The file is damaged or unreadable.')
+    expect(out.content).toBeUndefined()
+    noCanary(out)
+    untouched(other)
+    expect(vidFolders()).toEqual(before)
+  })
+
+  test('a read whose whisper.cpp run replaced the folder: the damaged note, no frames after it, the piece\'s WAV not removed through the link', async () => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiMediaTranscripts: null })
+    const modelDir = fs.mkdtempSync(path.join(A.data, 'model-'))
+    fs.writeFileSync(path.join(modelDir, 'ggml-fake.bin'), Buffer.alloc(16))
+    Object.assign(F().speech, { whisperBin: TRUE, modelDir, sharedModelDir: null, modelOverride: { file: 'ggml-fake.bin', size: 16, sha256: 'x' } })
+    // the piece's sound as ffmpeg would leave it (no converter run): only whisper.cpp runs, and swaps the folder
+    const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(64)])
+    spies.push(spyOn(F(), 'mediaAudio').mockImplementation(async (_t, work: string, _n, _s, _st, _sec, out: string) => { fs.writeFileSync(path.join(work, out), wav); return wav }))
+    const other = bobsFolder()
+    plant = swapWork(other)
+    const out = await readVideo({ frames: 3 })
+    expect(runs).toBe(1)
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('The file is damaged or unreadable.')
+    expect(out.text).not.toContain('Transcription failed')
+    expect(out.content).toBeUndefined()
+    noCanary(out)
+    untouched(other)
   })
 })
 
