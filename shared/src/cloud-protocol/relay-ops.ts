@@ -223,9 +223,10 @@ export function parseSleepRequest(x: unknown): Parsed<OpsSleepRequest> {
 export const WAKE_API_PATH = '/relay/v1/wake'
 export interface OpsWakeRequest { teamId: string; reason: 'http' | 'ws' }
 export interface OpsWakeResponse {
-  /** waking: a wake runs now; awake: the VM does not sleep (the team server should connect soon); unknown: no such
-   * hosted team or it cannot be woken (suspended, being deleted) */
-  state: 'waking' | 'awake' | 'unknown'
+  /** waking: a wake runs now; awake: the VM does not sleep (the team server should connect soon); busy: the host has
+   * no room to wake it now (ask again after retryAfterSec); unknown: no such hosted team or it cannot be woken
+   * (suspended, being deleted) */
+  state: 'waking' | 'awake' | 'busy' | 'unknown'
   /** the client may ask again after this many seconds */
   retryAfterSec: number
 }
