@@ -7,7 +7,7 @@ import path from 'node:path'
 import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Message } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { LANGUAGE_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
 import { FILE_TOOLS } from '../../shared/src/tools'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
 
@@ -530,6 +530,34 @@ describe('instructions', () => {
     expect(s).toContain('<project_instructions>\nAlways cite the plan file.\n</project_instructions>')
     expect(s).not.toContain('## Browser')
     expect(s).not.toContain('CANARY')
+  })
+
+  // A9 S17: Korean answers began with "Verify:" or "Let me check…" (docs/DECISIONS.md "One language in the answer")
+  test('the answer language covers the text between tool calls: Claude, a resumed Claude session, Codex', async () => {
+    const bob = await h.ws('bob', { windowId: 'win-bob-language' })
+    await bob.next('hello')
+    const line = `Answer in Korean (한국어) unless the user writes in another language or asks otherwise.\n${LANGUAGE_RULE}`
+    try {
+      const claude = await newChat('bob')
+      const first = await ask(h, bob, 'bob', claude.id, fake({ echo: 'system' }))
+      expect(first.done.content).toContain(line)
+      expect(first.done.content).not.toContain(SUBAGENT_LANGUAGE_RULE)
+      // a resumed session keeps its first instructions: the line comes with the message's turn context
+      const resumed = await ask(h, bob, 'bob', claude.id, fake({ echo: 'resume' }, { say: ' | ' }, { echo: 'message' }))
+      const [r, message] = resumed.done.content.split(' | ')
+      expect(r).toBe('resumed=true')
+      expect(message).toStartWith('<turn_context>')
+      expect(message).toContain(line)
+      const codex = await newChat('bob', { engine: 'codex' })
+      const c = await ask(h, bob, 'bob', codex.id, fake({ echo: 'system' }))
+      expect(c.done.engine).toBe('codex')
+      expect(c.done.content).toContain(line)
+    } finally { bob.close() }
+    // the rule names no language of its own: it follows the answer-language line, so an English answer is not asked
+    // to avoid English
+    expect(LANGUAGE_RULE).toContain('in that language')
+    expect(LANGUAGE_RULE).toContain('between tool calls')
+    expect(LANGUAGE_RULE).toContain('when the answer is in another language')
   })
 })
 

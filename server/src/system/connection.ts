@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionMode, ConnectionStatus } from '@mycel/shared/api'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+import { PUBLIC_HOST_RE } from '../app-config'
 import type { AppContext } from '../context'
 import { relayApiBase } from '../relay-client/client'
 import { saveClaimCode } from '../relay-client/registration'
@@ -40,6 +41,26 @@ export function availableModes(cfg: AppContext['config']): ConnectionMode[] {
   // office mode (docs/OFFICE.md): the office network only; its supervisor rewrites server.json at every start
   if (cfg.office) return ['direct-only']
   return cfg.relay.officialAvailable ? ['relay', 'self-relay', 'direct-only'] : ['self-relay', 'direct-only']
+}
+
+/** names that only answer on a local network (a public address never ends so) */
+const LOCAL_NAME = /\.(?:local|localhost|lan|home|home\.arpa|internal|intranet|corp)$/
+
+/**
+ * The address the team reaches this server at without the relay, as far as the server knows (Admin > System >
+ * Diagnostics, the relay line): `tunnel.host` (the Linux installer's `--public-host`, office mode's TEAMAX_PUBLIC_HOST),
+ * else the first of `publicOrigins` (MYCEL_PUBLIC_ORIGINS, for example the server's own domain in front of it) that is
+ * https on its standard port with an internet name: not localhost, an IP address, a local-network name or the office
+ * listener's port (office mode lists the desks' addresses there). null = none known.
+ */
+export function publicAddress(cfg: Pick<AppContext['config'], 'tunnel' | 'publicOrigins'>): string | null {
+  if (cfg.tunnel?.host) return cfg.tunnel.host
+  for (const o of cfg.publicOrigins) {
+    let u: URL
+    try { u = new URL(o) } catch { continue }
+    if (u.protocol === 'https:' && u.port === '' && PUBLIC_HOST_RE.test(u.hostname) && !LOCAL_NAME.test(u.hostname)) return u.hostname
+  }
+  return null
 }
 
 export function connectionStatus(ctx: AppContext): ConnectionStatus {

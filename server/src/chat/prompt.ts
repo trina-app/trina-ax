@@ -195,8 +195,14 @@ export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hi
  * and left out the ones that were already as asked, so the person could not tell them from ones it missed. */
 export const BULK_REPORT_RULE = 'After changing many files or items, also list in your answer the ones you did not change: those already as asked, and those you skipped (with why).'
 
+/** After the answer-language line: the short text between tool calls is in the answer too (docs/DECISIONS.md "One
+ * language in the answer"; A9 S17: Korean answers began with "Verify:" or "Let me check…"). */
+export const LANGUAGE_RULE = 'Write everything you say to the user in that language, including the short text between tool calls: no English narration such as "Let me check…" or "Verify:" when the answer is in another language.'
+/** A sub-agent's report is not shown as it is, but the assistant passes parts of it on (QA 0.2.12 B6). */
+export const SUBAGENT_LANGUAGE_RULE = 'Write your report in that language too, unless your task names another: the assistant may pass parts of it on to the user.'
+
 /** Items 2-3 of the instructions: the person, their folders, the time and the answer language. */
-function personLines(files: FileService, i: PromptInput): string[] {
+function personLines(files: FileService, i: PromptInput, subagent = false): string[] {
   const now = i.now ?? new Date()
   const { writable, readable } = writableFolders(files, i.user)
   return [
@@ -207,6 +213,8 @@ function personLines(files: FileService, i: PromptInput): string[] {
     WRITE_ACCESS_RULE,
     timeLine(now, i.timeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
+    // last, after the time line (it changes every minute): the instructions before that line stay as they were
+    subagent ? SUBAGENT_LANGUAGE_RULE : LANGUAGE_RULE,
   ].filter((l) => l !== '')
 }
 
@@ -319,7 +327,7 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool.' : '',
   ]
-  const sections: string[] = [[...base, '', ...personLines(files, i)].filter((l) => l !== '').join('\n'), ENVIRONMENT]
+  const sections: string[] = [[...base, '', ...personLines(files, i, true)].filter((l) => l !== '').join('\n'), ENVIRONMENT]
   if (rules) sections.push(`## Team rules (from skills/)\n${rules}`)
   if (skills) sections.push(skills)
   if (i.project) sections.push(projectSection(i.project))

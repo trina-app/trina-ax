@@ -47,7 +47,22 @@ export const M = {
   serverDetail: (v: string, up: string): T => ({ ko: `버전 ${v}, ${up} 동안 실행 중`, en: `Version ${v}, running for ${up}`, id: `Versi ${v}, berjalan selama ${up}`, ja: `バージョン${v}、稼働時間${up}`, es: `Versión ${v}, en ejecución desde hace ${up}` }),
 
   relay: { ko: '원격 접속(중계 서버)', en: 'Remote access (relay)', id: 'Akses jarak jauh (relay)', ja: "リモートアクセス（中継）", es: "Acceso remoto (retransmisión)" },
-  relayOff: { ko: '중계 서버 연결이 설정되지 않았습니다. 사무실 안에서만 접속할 수 있습니다. 관리자 > 시스템 > 연결에서 켤 수 있습니다.', en: 'No relay connection is set up, so the team can only connect from the office network. Turn it on in Admin > System > Connection.', id: 'Koneksi relay belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan di Admin > Sistem > Koneksi.', ja: "中継接続が未設定のため、チームは社内ネットワークからのみ接続できます。「管理 > システム > 接続」で有効にしてください。", es: "No hay conexión de retransmisión configurada; el equipo solo puede conectarse desde la red interna. Actívela en Administración > Sistema > Conexión." },
+  // no relay: what the server knows (system/connection.ts publicAddress): a public address set up, or none (office
+  // network only)
+  relayOff: {
+    ko: '중계 서버도 공개 주소도 설정되어 있지 않아서 사무실 네트워크에서만 접속할 수 있어요. 관리자 > 시스템 > 연결에서 중계 서버를 켤 수 있어요.',
+    en: 'No relay or public address is set up, so the team can connect only from the office network. Turn on the relay in Admin > System > Connection.',
+    id: 'Relay dan alamat publik belum diatur, jadi tim hanya bisa terhubung dari jaringan kantor. Aktifkan relay di Admin > Sistem > Koneksi.',
+    ja: "中継も公開アドレスも設定されていないため、チームは社内ネットワークからのみ接続できます。「管理 > システム > 接続」で中継を有効にできます。",
+    es: "No hay retransmisión ni dirección pública configuradas, así que el equipo solo puede conectarse desde la red interna. Active la retransmisión en Administración > Sistema > Conexión.",
+  },
+  relayPublic: (host: string): T => ({
+    ko: `공개 주소(https://${host})가 설정되어 있어요. 중계 서버 없이도 밖에서 이 주소로 접속할 수 있어요.`,
+    en: `A public address is set up (https://${host}), so the team can connect from outside without the relay.`,
+    id: `Alamat publik sudah diatur (https://${host}), jadi tim bisa terhubung dari luar tanpa relay.`,
+    ja: `公開アドレス（https://${host}）が設定されているため、中継なしでも外部から接続できます。`,
+    es: `Hay una dirección pública configurada (https://${host}), así que el equipo puede conectarse desde fuera sin retransmisión.`,
+  }),
   relayConnecting: { ko: '중계 서버에 연결하는 중입니다. 몇 분이 지나도 그대로면 인터넷 연결을 확인해 주세요.', en: 'Connecting to the relay. If this stays for a few minutes, check the internet connection.', id: 'Sedang terhubung ke relay. Jika tetap begini beberapa menit, periksa koneksi internet.', ja: "中継サーバーに接続中です。数分続く場合はインターネット接続を確認してください。", es: "Conectando con el servidor de retransmisión. Si dura varios minutos, revise la conexión a internet." },
   relayOffline: { ko: '중계 서버에 연결되지 않습니다. 맥의 인터넷 연결을 확인해 주세요. 사무실 안 직접 연결은 계속 됩니다.', en: 'Cannot reach the relay. Check the Mac\'s internet connection. Direct connections in the office still work.', id: 'Tidak dapat menjangkau relay. Periksa koneksi internet Mac. Koneksi langsung di kantor tetap berfungsi.', ja: "中継サーバーに接続できません。Macのインターネット接続を確認してください。社内の直接接続は引き続き使えます。", es: "No se puede conectar con el servidor de retransmisión. Revise la conexión a internet de la Mac. Las conexiones directas de la oficina siguen funcionando." },
   relayReplaced: { ko: '다른 맥의 서버가 같은 팀 주소로 연결해 이 서버의 연결을 대신했습니다. 의도한 일이 아니면 팀 키를 바꿔 주세요.', en: 'A server on another Mac connected with this team\'s address and replaced this one. If you did not do this, rotate the team key.', id: 'Server di Mac lain terhubung dengan alamat tim ini dan menggantikan server ini. Jika bukan Anda, ganti kunci tim.', ja: "別のMac上のサーバーがこのチームのアドレスで接続し、このサーバーを置き換えました。心当たりがない場合は、チームキーを更新してください。", es: "Un servidor en otra Mac se conectó con la dirección del equipo y reemplazó a este. Si no lo hizo usted, renueve la clave del equipo." },
@@ -124,6 +139,13 @@ export const M = {
   firewallOk: (n: number): T => ({ ko: `켜짐, 규칙 ${n}개`, en: `On, ${enPlural(n, 'rule', 'rules')}`, id: `Aktif, ${n} aturan`, ja: `有効、${String(n) + "件のルール"}`, es: `Activo, ${enPlural(n, "regla", "reglas")}` }),
   // office mode (docs/OFFICE.md): one Mac, its own Claude login, no engine account, no relay, updates from a new zip
   relayOffice: { ko: '사무실 모드: 중계 서버를 쓰지 않습니다. 같은 사무실 네트워크의 데스크만 https 주소로 접속합니다.', en: 'Office mode: no relay. Only desks on the same office network connect, at the https address.', id: 'Mode kantor: tanpa relay. Hanya meja di jaringan kantor yang sama yang terhubung lewat alamat https.', ja: "オフィスモード：中継なし。同じ社内ネットワークの端末のみhttpsアドレスで接続できます。", es: "Modo oficina: sin retransmisión. Solo se conectan puestos de la misma red interna mediante la dirección https." },
+  relayOfficePublic: (host: string): T => ({
+    ko: `사무실 모드: 중계 서버를 쓰지 않아요. 사무실 네트워크의 데스크는 https 주소로, 밖에서는 공개 주소(https://${host})로 접속해요.`,
+    en: `Office mode: no relay. Desks on the office network connect at the https address, and from outside the team connects at the public address (https://${host}).`,
+    id: `Mode kantor: tanpa relay. Meja di jaringan kantor terhubung lewat alamat https, dan dari luar tim terhubung lewat alamat publik (https://${host}).`,
+    ja: `オフィスモード：中継なし。社内ネットワークの端末はhttpsアドレスで、外部からは公開アドレス（https://${host}）で接続します。`,
+    es: `Modo oficina: sin retransmisión. Los puestos de la red interna se conectan mediante la dirección https y, desde fuera, el equipo se conecta con la dirección pública (https://${host}).`,
+  }),
   firewallOffice: { ko: '사무실 모드: 엔진 전용 계정과 그 방화벽(pf)은 운영 설치에서 더해집니다. 지금은 샌드박스·권한 함수·엔진 잠금이 지킵니다.', en: 'Office mode: the engine account and its firewall (pf) come with the production install. The sandbox, the permission function and the engine lockdown protect it now.', id: 'Mode kantor: akun mesin dan firewall-nya (pf) hadir pada instalasi produksi. Sekarang sandbox, fungsi izin, dan penguncian mesin yang melindungi.', ja: "オフィスモード：エンジンアカウントとファイアウォール（pf）は本番インストールで設定されます。現在はサンドボックス、権限関数、エンジンの制限が保護しています。", es: "Modo oficina: la cuenta del motor y su firewall (pf) vienen con la instalación de producción. Ahora protegen el entorno el sandbox, la función de permisos y las restricciones del motor." },
   sandboxOffice: { ko: '모든 엔진 실행에 적용됨 (engine.sb, 이 맥 사용자의 Claude 로그인만 허용)', en: 'Applied to every engine run (engine.sb, with only this Mac user\'s Claude login allowed)', id: 'Diterapkan ke setiap eksekusi mesin (engine.sb, hanya login Claude pengguna Mac ini)', ja: "すべてのエンジン実行に適用（engine.sb、このMacユーザーのClaudeログインのみ許可）", es: "Se aplica a cada ejecución del motor (engine.sb, solo permite el inicio de sesión de Claude del usuario de esta Mac)" },
   sandboxMissingOffice: { ko: '샌드박스 프로필 또는 /usr/bin/sandbox-exec가 없어 AI 엔진이 실행되지 않습니다. office-install.sh를 다시 실행하세요.', en: 'The sandbox profile or /usr/bin/sandbox-exec is missing, so the AI engine does not run. Run office-install.sh again.', id: 'Profil sandbox atau /usr/bin/sandbox-exec tidak ada, jadi mesin AI tidak berjalan. Jalankan office-install.sh lagi.', ja: "サンドボックスプロファイルまたは/usr/bin/sandbox-execがないため、AIエンジンは実行されません。office-install.shを再実行してください。", es: "Falta el perfil de sandbox o /usr/bin/sandbox-exec, por lo que el motor de IA no se ejecuta. Vuelva a ejecutar office-install.sh." },

@@ -22,6 +22,7 @@ import { caConstraintsFor, certNames, dnsPermitted, ensureOfficeTls, ipPermitted
 import { parseTeamAddress } from '../../desktop/src/common/address'
 import { bundleManifest, missingFromStage } from '../../scripts/build-office'
 import { connectionStatus } from '../../server/src/system/connection'
+import { M } from '../../server/src/system/messages'
 import { harness, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
@@ -358,7 +359,17 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     const d = await local.call('GET', '/api/admin/diagnostics?locale=ko')
     const by = (id: string) => d.checks.find((x: { id: string }) => x.id === id)
     expect(by('relay')).toMatchObject({ status: 'ok' })
-    expect(by('relay').detail).toContain('사무실 모드')
+    expect(by('relay').detail).toBe(M.relayOffice.ko) // the desks' https origins are not a public address
+    // with the internet address (TEAMAX_PUBLIC_HOST / --public-host: tunnel.host) the line says the team connects from
+    // outside there too, not "only desks on the office network"
+    const tunnel = h.ctx.config.tunnel
+    h.ctx.config.tunnel = { host: 'office.example.com', allowFrom: [], countries: [] }
+    try {
+      const pub = (await local.call('GET', '/api/admin/diagnostics?locale=ko')).checks.find((x: { id: string }) => x.id === 'relay')
+      expect(pub).toMatchObject({ status: 'ok', detail: M.relayOfficePublic('office.example.com').ko })
+      expect(pub.detail).toContain('사무실 모드')
+      expect(pub.detail).toContain('https://office.example.com')
+    } finally { h.ctx.config.tunnel = tunnel }
     expect(by('pf_anchor').detail).toContain('운영 설치')
     if (process.platform === 'darwin') expect(by('sandbox')).toMatchObject({ status: 'ok' })
     expect(by('sandbox').detail).not.toMatch(/샌드박스 프로필을 쓰지 않습니다|without the sandbox profile/)

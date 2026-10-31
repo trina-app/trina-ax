@@ -18,6 +18,7 @@ import { OpsService } from '../../server/src/system/ops'
 import { launcherStatus } from '../../server/src/native'
 import { T as ENGINE_T } from '../../server/src/admin/engines'
 import { EXIT_ADDRESS_URL, learnExitAddresses, noteEgressIp } from '../../server/src/tools/egress'
+import { publicAddress } from '../../server/src/system/connection'
 
 const MAC_WORDS = /맥|\bMac\b|pbpaste|launchctl|\/Library|menubar|메뉴바|Time Machine|\/var\/at|LaunchDaemon|Finder/
 
@@ -41,7 +42,7 @@ describe('wording', () => {
     expect(ENGINE_T.notInstalled!.ko).toBe('서버 맥에 설치되어 있지 않습니다.')
   })
   // the entries a Linux install's diagnostics and engine status can show
-  const USED = ['relay', 'relayOff', 'relayConnecting', 'relayOffline', 'relayReplaced', 'diskTeam', 'diskData', 'diskLow', 'diskReadOnly', 'diskOk',
+  const USED = ['relay', 'relayOff', 'relayPublic', 'relayConnecting', 'relayOffline', 'relayReplaced', 'diskTeam', 'diskData', 'diskLow', 'diskReadOnly', 'diskOk',
     'engineOk', 'engineNotInstalled', 'engineNotLoggedIn', 'engineSetupToken', 'engineSetupTokenExpired', 'engineSetupTokenInvalid', 'engineSetupTokenExpiring',
     'subscriptionRejected', 'modelProxy', 'modelProxyOk', 'modelProxyPortInUse', 'modelProxyNotStarted', 'engineCodexLogin', 'engineCheckFailed', 'queue', 'queueDetail', 'queueLong',
     'firewall', 'firewallOk', 'firewallMissing', 'firewallStale', 'firewallOff', 'sandbox', 'sandboxOk', 'sandboxMissing', 'cronDeny', 'cronDenyOk', 'cronDenyMissing',
@@ -147,6 +148,49 @@ describe('diagnostics of an installed Linux server', () => {
     fs.writeFileSync(path.join(root, 'etc', 'cron.deny'), 'someone\n')
     expect(await check({}, 'cron_deny')).toMatchObject({ status: 'warn' })
     fs.rmSync(path.join(root, 'etc', 'cron.deny'))
+  })
+  // QA: a Linux server reached through a Cloudflare tunnel (or its own domain) said the team could only connect from
+  // the office network. The line now says what the server knows: relay connected, a public address set up, or neither.
+  test('the relay line: office network only, a public address set up (tunnel.host or an origin), relay connected', async () => {
+    const relay = async (o: { hosted?: boolean } = {}, locale: 'en' | 'ko' = 'en') => (await ops(o).diagnostics(locale)).checks.find((c) => c.id === 'relay')!
+    const { tunnel, publicOrigins } = ctx.config
+    const relayService = ctx.services.relay
+    try {
+      // neither: office network only, and how to change that on this server
+      const off = await relay()
+      expect(off).toMatchObject({ label: 'Remote access (relay)', status: 'warn' })
+      expect(off.detail).toContain('No relay or public address is set up, so the team can connect only from the office network.')
+      expect(off.detail).toContain('Admin > System > Connection')
+      expect(off.detail).toContain('--public-host <HOST>')
+      expect((await relay({}, 'ko')).detail).toStartWith('중계 서버도 공개 주소도 설정되어 있지 않아서 사무실 네트워크에서만 접속할 수 있어요.')
+      // the hosted cloud keeps pointing at support, never at a shell
+      expect((await relay({ hosted: true })).detail).toContain('Contact the hosting support team')
+      // origins that are not a public address: plain http, localhost, an IP address, a local name, another port
+      ctx.config.publicOrigins = ['http://team.example.com', 'https://localhost', 'https://203.0.113.9', 'https://nas.local', 'https://team.example.com:8443']
+      expect((await relay()).status).toBe('warn')
+      // the Linux installer's --public-host (tunnel.host): no relay needed, from outside too
+      ctx.config.tunnel = { host: 'team.example.com', allowFrom: [], countries: [] }
+      expect(await relay()).toMatchObject({ status: 'ok', detail: 'A public address is set up (https://team.example.com), so the team can connect from outside without the relay.' })
+      expect((await relay({}, 'ko')).detail).toBe('공개 주소(https://team.example.com)가 설정되어 있어요. 중계 서버 없이도 밖에서 이 주소로 접속할 수 있어요.')
+      expect((await relay({ hosted: true })).status).toBe('ok')
+      // the server's own domain in publicOrigins (MYCEL_PUBLIC_ORIGINS) counts too
+      ctx.config.tunnel = null
+      ctx.config.publicOrigins = ['http://localhost:47820', 'https://ax.example.org']
+      expect((await relay()).detail).toContain('(https://ax.example.org)')
+      // a connected relay shows its address, as before
+      ctx.services.relay = { status: () => ({ mode: 'self-relay', address: 'https://acme.relay.example', state: 'connected', detail: null, connectedSince: new Date().toISOString(), direct: { enabled: false, port: 8443, fingerprintSha256: null } }) }
+      expect(await relay()).toMatchObject({ status: 'ok', detail: 'https://acme.relay.example' })
+    } finally {
+      ctx.config.tunnel = tunnel
+      ctx.config.publicOrigins = publicOrigins
+      ctx.services.relay = relayService
+    }
+  })
+  test('publicAddress: tunnel.host first, else the first https origin with an internet name on the standard port', () => {
+    expect(publicAddress({ tunnel: null, publicOrigins: [] })).toBeNull()
+    expect(publicAddress({ tunnel: { host: 'a.example.com', allowFrom: [], countries: [] }, publicOrigins: ['https://b.example.com'] })).toBe('a.example.com')
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://mini.local:8443', 'https://192.168.1.5:8443', 'http://acme.localhost:19100', 'https://acme.localhost', 'https://[2001:db8::1]', 'not a url', 'https://B.Example.com/'] })).toBe('b.example.com')
+    for (const o of ['https://server.lan', 'https://box.home.arpa', 'https://srv.internal', 'https://team.example.com:443x']) expect(publicAddress({ tunnel: null, publicOrigins: [o] }), o).toBeNull()
   })
   test('no Mac-only checks; the disk by levels; hosted wording', async () => {
     fw({})

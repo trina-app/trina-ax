@@ -3962,3 +3962,43 @@ Trina should feel like Claude Code, which has WebSearch.
   input and the 50-file cap; conflict copy; wider-audience card once; a skills/ card per file; a sub-agent's own
   reads; confidential chats; the handler's per-file check, template refusal and Stop; one file under several
   spellings; label and instructions), `api-engine.test.ts` (Stop during a card with the API engine).
+
+## One language in the answer (feat/small-batch-1031b, 2026-10-31)
+
+- A9 S17 (plans/parity-eval-2026-10-30): three Korean answers began with English fragments ("Verify:", "Let me check
+  the status lines…"), the text the model writes between tool calls. QA 0.2.12 B6 saw an English sentence in a Korean
+  answer with sub-agents. The instructions already said `Answer in <locale language> unless the user writes in another
+  language or asks otherwise.`; the model read the text between tool calls as outside the answer.
+- One line right after it (`prompt.ts` `LANGUAGE_RULE`): "Write everything you say to the user in that language,
+  including the short text between tool calls: no English narration such as "Let me check…" or "Verify:" when the
+  answer is in another language." It names no language of its own ("that language" is the answer language above, so it
+  follows the person's locale, the language they write in, or what they asked for) and asks nothing of an English
+  answer. Content the person asks for in another language stays in it ("asks otherwise").
+- Same place for every engine: the line is in the person lines (`personLines`), so the Claude system prompt, the
+  Codex and API engine instructions and a resumed Claude session's `<turn_context>` all get it. It comes after the time
+  line, which changes every minute, so the instructions before that line stay as they were.
+- Sub-agents (`buildSubagentPrompt`, every definition gets it through `--append-subagent-system-prompt-file`) get
+  `SUBAGENT_LANGUAGE_RULE` instead: their text never reaches the person, but the assistant passes parts of their report
+  on, so the report is in that language unless the task names another.
+- Tests: `b-chat.test.ts` (Claude, a resumed session, Codex, for a Korean user), `b-subagents.test.ts` (the sub-agents'
+  instructions and the main AI's).
+
+## Diagnostics: the relay line says what the server knows (feat/small-batch-1031b, 2026-10-31)
+
+- Admin › System › Diagnostics said "No relay connection is set up, so the team can only connect from the office
+  network" on every server without the relay, also on a Linux server behind a Cloudflare tunnel (`--public-host`) or an
+  office Mac with its internet address, where the team connects from outside.
+- `system/connection.ts` `publicAddress(cfg)`: `tunnel.host` (the Linux installer's `--public-host`, office mode's
+  TEAMAX_PUBLIC_HOST), else the first `publicOrigins` entry (MYCEL_PUBLIC_ORIGINS, for example the server's own domain) that
+  is https on the standard port with an internet name. localhost, IP addresses, local-network names (.local, .lan,
+  .home.arpa, .internal …) and other ports (office mode lists the desks' `https://<mac>.local:8443` there) are not a
+  public address. The server does not try the address: it says what is set up.
+- The line: relay connected = its address (as before); no relay and a public address = ok, "A public address is set up
+  (https://<host>), so the team can connect from outside without the relay."; office mode with one = the office
+  wording plus the public address; neither = warn, "No relay or public address is set up, so the team can connect only
+  from the office network." with where to turn on the relay, and on Linux the `--public-host` command. The hosted cloud
+  keeps its support wording when neither is set up. Korean in 해요체; five languages.
+- Not changed: the Connection card's mode name "Office network only" (`system.mode.direct-only`), and the relay
+  connecting / offline / replaced lines.
+- Tests: `g-linux-diag.test.ts` (each case on Linux and hosted, origins that do not count, a connected relay,
+  `publicAddress`), `office.test.ts` (office mode with and without its internet address).
