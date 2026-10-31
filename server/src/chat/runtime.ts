@@ -4,7 +4,7 @@
 // getChatRuntime(ctx).
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
@@ -32,7 +32,8 @@ export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
 export const MAX_ASK_USER_TIMEOUT_MS = 15 * 60_000
 export const DEFAULT_CHAT_TRASH_DAYS = 7
-export const DEFAULT_MAX_ENGINE_TURNS = 50
+/** Claude Code --max-turns of an answer when the team setting is missing or bad (Admin > Team settings answerStepLimit) */
+export const DEFAULT_MAX_ENGINE_TURNS = DEFAULT_ANSWER_STEP_LIMIT
 /** Queue capacity is separate from execution capacity; supports all 60 people asking three times. */
 export const QUEUE_TEAM_MIN = 10
 export const QUEUE_PER_USER = 3
@@ -55,6 +56,7 @@ export interface ChatRuntimeOptions {
   recoveryPollMs?: number
   askUserTimeoutMs?: number
   timeZone?: string
+  /** tests: a fixed --max-turns instead of the team setting */
   maxEngineTurns?: number
   purgeIntervalMs?: number
 }
@@ -135,7 +137,8 @@ export class ChatRuntime {
   private memoryHeld = false
   private memoryCheckedAt = 0
   private capacityWatcher: ReturnType<typeof setInterval>
-  readonly maxEngineTurns: number
+  /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
+  private engineTurnsOverride: number | null
   private queued: (TurnSpec & QueueTiming)[] = []
   private running = new Map<string, TurnExec>()
   private positions = new Map<string, number>()
@@ -166,7 +169,7 @@ export class ChatRuntime {
       catch (err) { this.log.error('queue capacity refresh failed', { err }) }
     }, 250)
     this.capacityWatcher.unref?.()
-    this.maxEngineTurns = o.maxEngineTurns ?? DEFAULT_MAX_ENGINE_TURNS
+    this.engineTurnsOverride = o.maxEngineTurns ?? null
     // the engines get the team's zone as TZ (engine/claude.ts, engine/codex.ts; one team per server process)
     if (!o.timeZone) setTeamTimeZoneSource(() => teamTimeZone(ctx.db))
     this.schedules = new Schedules(this.db, this)
@@ -206,6 +209,14 @@ export class ChatRuntime {
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
+  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 150. Read when an
+   * answer starts, so a change applies to the next answer. Sub-agents keep MAX_SUBAGENT_TURNS each (chat/subagents.ts);
+   * the API engine keeps its own 30 rounds (engine/api-agent.ts) */
+  get maxEngineTurns(): number {
+    return this.engineTurnsOverride ?? readSetting(this.db, 'answerStepLimit', isInt(ANSWER_STEP_LIMIT_MIN, ANSWER_STEP_LIMIT_MAX), DEFAULT_MAX_ENGINE_TURNS)
+  }
+  /** tests: fix --max-turns for the answers that start from now on */
+  set maxEngineTurns(n: number) { this.engineTurnsOverride = n }
   defaultEngine(): EngineId { return readSetting(this.db, 'defaultEngine', (v): v is EngineId => v === 'api' || v === 'claude-code' || v === 'codex', 'claude-code') }
   defaultModel(): string | null { return readSetting<string | null>(this.db, 'defaultModel', safeModel, null) }
   /** the team default model applies to the team default engine only */

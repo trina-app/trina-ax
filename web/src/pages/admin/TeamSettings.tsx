@@ -1,7 +1,8 @@
 // Team settings: name, default language, update channel and window, retention periods, whether people may turn on
 // "Allow all websites" in the desktop app's in-app browser (each team decides; the desktop app enforces it), whether
 // members may add their own external-service connections (Settings > External services), whether AI reads send images
-// and PDF pages to the AI (server/src/files/vision.ts), voice input (off, OpenRouter
+// and PDF pages to the AI (server/src/files/vision.ts), how many tool rounds one answer may take (Claude Code
+// --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"), and the team
 // logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), and for the owner the ownership transfer
 // (TransferOwner.tsx). The OpenRouter key is sealed in the
@@ -9,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
-import { DEFAULT_SPEECH_MODEL, TeamSettings, type Locale, type SpeechProvider } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, TeamSettings, type Locale, type SpeechProvider } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
@@ -100,6 +101,7 @@ export default function TeamSettingsPage() {
                 <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
                 <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                 <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
+                <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
                   onSaved={(r) => state.setData(r)} />
               </div>
@@ -277,6 +279,32 @@ export function AiSubagentsSwitch({ value, onChange }: { value: boolean; onChang
     <div className="sm:col-span-2" data-testid="team-ai-subagents" data-on={value ? 'true' : 'false'}>
       <Switch checked={value} onChange={onChange} label={t('teamSettings.aiSubagents')} />
       <p className="mt-1 text-xs text-faint">{t('teamSettings.aiSubagentsHint')}</p>
+    </div>
+  )
+}
+
+/**
+ * "Tool rounds per answer" (Claude Code --max-turns, default 150, 10-500). Typed freely: the form takes a number in
+ * range at once and brings anything else back into range when the field is left (a per-key clamp turned "1" into 10).
+ */
+export function AnswerStepLimitField({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const t = useT()
+  const [text, setText] = useState(String(value))
+  // a saved or reloaded value replaces what is shown, unless it is what was typed
+  useEffect(() => { setText((cur) => (Number(cur) === value ? cur : String(value))) }, [value])
+  const inRange = (n: number) => Number.isInteger(n) && n >= ANSWER_STEP_LIMIT_MIN && n <= ANSWER_STEP_LIMIT_MAX
+  const leave = () => {
+    const n = Number(text)
+    const v = text.trim() && Number.isFinite(n) ? Math.max(ANSWER_STEP_LIMIT_MIN, Math.min(ANSWER_STEP_LIMIT_MAX, Math.floor(n))) : value
+    setText(String(v))
+    if (v !== value) onChange(v)
+  }
+  return (
+    <div className="sm:col-span-2" data-testid="team-answer-step-limit">
+      <Field label={t('teamSettings.answerStepLimit')} hint={t('teamSettings.answerStepLimitHint', { min: ANSWER_STEP_LIMIT_MIN, max: ANSWER_STEP_LIMIT_MAX, def: DEFAULT_ANSWER_STEP_LIMIT })}>
+        <input className={`${inputCls} sm:max-w-xs`} type="number" inputMode="numeric" min={ANSWER_STEP_LIMIT_MIN} max={ANSWER_STEP_LIMIT_MAX} step={1} value={text}
+          onChange={(e) => { setText(e.target.value); const n = Number(e.target.value); if (inRange(n)) onChange(n) }} onBlur={leave} />
+      </Field>
     </div>
   )
 }

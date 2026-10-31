@@ -1638,6 +1638,8 @@ export const es: Record<MessageKey, string> = {
   'teamSettings.aiVisionHint': "Cuando la IA lee una foto, una captura de pantalla o una página PDF escaneada, ve la imagen directamente, como en Claude Code. Las imágenes se envían al proveedor de IA (Anthropic u OpenAI) como cualquier otro contenido de archivos. Desactivado: no se envían imágenes; en un servidor Mac la IA recibe el texto reconocido y en un servidor Linux solo un aviso. En servidores Linux los documentos escaneados no se pueden buscar como texto.",
   'teamSettings.aiSubagents': "Permitir que la IA divida el trabajo en subtareas",
   'teamSettings.aiSubagentsHint': "Como en Claude Code, la IA puede encargar partes de una solicitud grande a IA auxiliares que trabajan a la vez (hasta 4). Cada auxiliar tiene las mismas herramientas y solo ve lo que la persona puede ver; sus pasos aparecen bajo la respuesta y el registro de auditoría guarda sus llamadas. Las auxiliares también usan el servicio de IA, así que una solicitud grande puede costar más. Desactivado: la IA hace todo el trabajo sola.",
+  'teamSettings.answerStepLimit': "Rondas de herramientas por respuesta",
+  'teamSettings.answerStepLimitHint': "Cuántas veces puede usar herramientas la IA en una respuesta ({min}–{max}, {def} por defecto). Las que usa a la vez cuentan como una. Al agotarse, la respuesta se pausa y «Continuar» la retoma. El límite de 20 minutos y los presupuestos siguen aplicándose. Se aplica a las respuestas de Claude Code.",
   'audit.act.integration.create': "Añadió una conexión a un servicio externo",
   'audit.act.integration.update': "Modificó una conexión a un servicio externo",
   'audit.act.integration.delete': "Eliminó una conexión a un servicio externo",

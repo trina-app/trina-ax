@@ -1678,6 +1678,8 @@ export const id: Record<MessageKey, string> = {
   'teamSettings.aiVisionHint': 'Saat AI membaca foto, tangkapan layar, atau halaman PDF hasil pindaian, AI melihat gambarnya langsung, seperti Claude Code. Gambar dikirim ke penyedia AI (Anthropic atau OpenAI) seperti isi berkas lainnya. Nonaktif: tidak ada gambar yang dikirim; di server Mac AI menerima teks hasil pengenalan, di server Linux hanya catatan. Dokumen hasil pindaian tidak dapat dicari sebagai teks di server Linux.',
   'teamSettings.aiSubagents': 'Izinkan AI membagi pekerjaan menjadi subtugas',
   'teamSettings.aiSubagentsHint': 'Seperti Claude Code, AI dapat menyerahkan bagian dari permintaan besar ke AI pembantu yang bekerja bersamaan (hingga 4). Pembantu memakai alat yang sama dan hanya melihat yang boleh dilihat orang itu; langkahnya tampil di bawah jawaban dan tercatat di log audit. Pembantu juga memakai layanan AI, jadi permintaan besar bisa lebih mahal. Nonaktif: AI mengerjakan semuanya sendiri.',
+  'teamSettings.answerStepLimit': 'Putaran alat per jawaban',
+  'teamSettings.answerStepLimitHint': 'Berapa kali AI boleh memakai alat dalam satu jawaban ({min}–{max}, bawaan {def}). Alat yang dipakai bersamaan dihitung sekali. Jika habis, jawaban berhenti sejenak dan Lanjutkan meneruskannya. Batas 20 menit dan anggaran tetap berlaku. Berlaku untuk jawaban dari Claude Code.',
   'audit.act.integration.create': 'Menambah koneksi layanan eksternal',
   'audit.act.integration.update': 'Mengubah koneksi layanan eksternal',
   'audit.act.integration.delete': 'Menghapus koneksi layanan eksternal',

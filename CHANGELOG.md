@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Chat: one answer may now use tools up to 150 times (was 50) before it pauses with "Continue"; tools the AI uses together count once, like Claude Code's turns. Admins can change it in Admin > Team settings ("Tool rounds per answer", 10–500, in all five languages). The 20-minute limit, budgets, each sub-agent's own 50 rounds and the API engine's 30 rounds stay as they were.
+
 ## 0.2.13 — 2026-10-31
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.13).

@@ -8,6 +8,8 @@ Two more outbound flows to allow for: the server asks `https://updates.trina.app
 
 When the AI reads a photo, screenshot or scanned PDF page, it sees the image, and the image goes to the provider like any other file content. Admins can turn this off in Team settings ("Send images and PDF pages to the AI", on by default); the switch also covers HWP page images and the in-app browser's screenshots. Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 
+By default one answer may use tools up to 150 times (tools the AI uses together count once); admins can change this in Team settings ("Tool rounds per answer", 10–500). At the limit the answer pauses and Continue picks it up; the 20-minute limit and budgets still apply.
+
 | Mode | Guide | Operational boundary |
 |---|---|---|
 | Linux server / VM | [Install](INSTALL-LINUX.en.md) | systemd and cgroup v2, dedicated accounts and OS isolation. Plain Docker is not the production installer target |

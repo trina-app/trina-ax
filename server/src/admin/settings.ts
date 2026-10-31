@@ -1,7 +1,7 @@
 // Team settings (tab 1 `settings`: key -> JSON value). One key per TeamSettings field; internal keys use a dot
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
+import { DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { defaultTimeZone, isValidTimeZone } from '../system/time-zone'
 
@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */
   aiSubagents: true,
+  /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
+  answerStepLimit: DEFAULT_ANSWER_STEP_LIMIT,
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
    * through OpenRouter") */
   speechProvider: 'off',

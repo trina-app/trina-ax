@@ -2990,7 +2990,8 @@ only themselves. The owner chose the safest defaults for the open questions:
 
 ## Continue after the per-answer limit (feat/chat-continuity, 2026-10-30)
 
-- The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`), 30 rounds (API engine), 20 active minutes
+- The limits stay as they are: 50 tool rounds (Claude Code `--max-turns`; 150 and an admin setting since 2026-10-31,
+  "Tool rounds per answer" below), 30 rounds (API engine), 20 active minutes
   and 45 minutes in total. What changed is how a turn ends at them. Before, Claude's `error_max_turns` result was read
   as a crash ("the AI engine stopped unexpectedly"), the API engine appended an English "(Stopped after 30 tool
   rounds.)" to the answer, and the time limits were errors (`timeout`, `wall_timeout`).
@@ -3533,7 +3534,8 @@ first); children may write, with read state per child; Codex later.
   the main AI read, a sibling's later write becomes a conflict copy, and the main AI reads again before changing what
   a child wrote (Claude Code's subagents also start without the main session's file state). Read scope, write limits,
   image budget and skill approvals stay per turn; safe-ops provenance binds every agent's reads (`allReads`).
-- **Limits.** The 50-round limit counts the main AI's rounds (children's do not, verified); each child has 50 rounds
+- **Limits.** The per-answer round limit (50 then; the team's `answerStepLimit`, default 150, since 2026-10-31) counts
+  the main AI's rounds (children's do not, verified); each child has 50 rounds
   (at its limit Claude Code hands back no report, so the children's instructions ask for one first). The 20 active and
   45 total minutes include children: they run inside the answer. A card one child raised pauses the active clock while
   other children go on; the total time bounds that. Stop ends the engine's process group, children included.
@@ -3898,3 +3900,26 @@ Trina should feel like Claude Code, which has WebSearch.
   answered locally, command shape, a refused / limited search leaving the connection alone),
   `codex-prod.test.ts` (fake Codex through the real launcher and proxy), `template-engine-lock.test.ts`,
   `engine.test.ts`, `safe-ops.test.ts`.
+
+## Tool rounds per answer (feat/a9-followups, 2026-10-31)
+
+- Claude Code's `--max-turns` for an answer is now the team setting `answerStepLimit` (Admin > Team settings, "한 답변의
+  도구 사용 한도" / "Tool rounds per answer"), **default 150** (was a fixed 50), 10-500. Claude Code itself has no such
+  cap, and the A9 comparison with Claude Code (2026-10-31, ten office tasks) showed Trina using many more
+  tool calls than Claude Code with a shell (S17: 60 against 5) because it has no code execution yet.
+- A round is one reply of the AI: the tools it calls together in one reply count once (`--max-turns` counts turns, not
+  tool calls). A9's S17 made 60 calls in about 5 rounds, far from 50; a model that calls one tool per reply reaches
+  the limit sooner, and that is what the higher default is for.
+- Read when each answer starts (`ChatRuntime.maxEngineTurns`, once for all its attempts); a change applies to the next
+  answer. A stored value that is not an integer in range reads as 150. The change is audited (`settings.update`).
+- Unchanged: at the limit the answer pauses with "이어서 하기" ("Continue after the per-answer limit" above); the 20
+  active minutes and 45 minutes in total; budgets (the model proxy stops a Claude answer as soon as a block budget is
+  used up); each sub-agent keeps its own 50 rounds (`MAX_SUBAGENT_TURNS`), and children's rounds do not count for the
+  main AI; the API engine keeps its own 30 rounds (it runs in the server and is not budget-checked per round, so it is
+  not raised with this setting); Codex has no round cap, only the time limits. Scheduled tasks and approved template
+  runs use the same answer limits (template runs also keep their fixed tool scope). The model proxy has no per-answer
+  request count, and nothing else assumed 50.
+- Tests: `b-answer-step-limit.test.ts` (default 150 on the command line, admin change and audit, range and members
+  refused, a bad stored value, the pause at the team limit, sub-agents at 50); the existing tool-limit tests in
+  `b-chat.test.ts` and `b-subagents.test.ts` fix the limit through the runtime as before.
+

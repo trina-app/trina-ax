@@ -217,7 +217,8 @@ export type FileChangeSummary = z.infer<typeof FileChangeSummary>
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
- * Claude Code --max-turns 50 / the API engine's 30 rounds) or of working time (`time_limit`, 20 active minutes or the
+ * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds) or of
+ * working time (`time_limit`, 20 active minutes or the
  * total time). Its status stays 'done': not an error, not a stop by the person; the screen offers "continue". */
 export const TurnStopReason = z.enum(['tool_limit', 'time_limit'])
 export type TurnStopReason = z.infer<typeof TurnStopReason>
@@ -472,6 +473,13 @@ export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
+/** Tool rounds one answer may take (Claude Code `--max-turns`; Admin > Team settings `answerStepLimit`). A round is one
+ * reply of the AI: tools it calls together in one reply count once. Claude Code itself has no such cap; the 20 active
+ * minutes and the budgets still end a long answer. docs/DECISIONS.md "Tool rounds per answer". */
+export const DEFAULT_ANSWER_STEP_LIMIT = 150
+export const ANSWER_STEP_LIMIT_MIN = 10
+export const ANSWER_STEP_LIMIT_MAX = 500
+
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({
   teamName: z.string().min(1).max(100),
@@ -504,6 +512,9 @@ export const TeamSettings = z.object({
    * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
    * same person's access. Off: the AI does everything itself (docs/DECISIONS.md "Sub-agents") */
   aiSubagents: z.boolean(),
+  /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
+   * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
+  answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),
   /** voice input: 'off' (default) | 'openrouter' (needs the OpenRouter key, Admin > Team settings) | 'local' */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */

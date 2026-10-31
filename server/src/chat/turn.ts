@@ -379,6 +379,8 @@ export class TurnExec {
       // one moves the turn to the next (at most 2 switches, counted apart from the attempts below)
       const managed = !!(claude.modelProxy && core.proxy)
       const exclude = new Set<string>()
+      // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts
+      const maxTurns = rt.maxEngineTurns
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
         const parser = new ClaudeStreamParser()
         const errors: EngineEvent[] = []
@@ -408,7 +410,7 @@ export class TurnExec {
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
+          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
