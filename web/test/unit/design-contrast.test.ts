@@ -27,7 +27,9 @@ describe('contrast in every look', () => {
         expect(contrast(t.accent!, t[bg]!), `on track on ${bg}`).toBeGreaterThanOrEqual(3)
       }
       expect(contrast('#ffffff', t['field-border']!), 'white knob on the off track').toBeGreaterThanOrEqual(3)
-      expect(contrast(t['accent-ink']!, t.accent!), 'accent-ink knob on the on track').toBeGreaterThanOrEqual(4.5)
+      // on: a white knob in light (as in Claude's apps), the accent-ink knob in dark (white would be 2.85:1 there)
+      const onKnob = name.endsWith('dark') ? t['accent-ink']! : '#ffffff'
+      expect(contrast(onKnob, t.accent!), 'the knob on the on track').toBeGreaterThanOrEqual(3)
     })
 
     test(`${name}: danger button border (danger at 70 %) >= 3:1 and its label >= 4.5:1`, () => {
@@ -52,27 +54,34 @@ describe('components use the pairs', () => {
       expect(src(file).match(/\btext-accent(?![-\w])/g), file).toBeNull()
   })
 
-  test('Button: secondary edge is --c-field-border, danger border 70 %, a ghost-danger variant (no recolouring)', () => {
+  test('Button: secondary edge is --c-field-border, danger border 70 %, ghost-danger only for destructive actions', () => {
     expect(variant('secondary')).toContain('border-field-border')
     expect(variant('secondary')).not.toMatch(/\bborder-line\b/)
     expect(variant('danger')).toContain('border-danger/70')
     expect(variant('ghost-danger')).toContain('text-danger')
     expect(variant('ghost-danger')).not.toContain('text-muted')
-    // AskCard's Deny and the other quiet destructive buttons use the variant, not className="text-danger" over ghost
-    // (.text-muted is emitted after .text-danger, so the override rendered grey)
-    for (const file of ['components/chat/AskCard.tsx', 'pages/Skills.tsx', 'pages/admin/SkillManagers.tsx', 'pages/Projects.tsx']) {
+    // quiet destructive actions (Delete a project, turn off a skill-manager grant) use the variant, not
+    // className="text-danger" over ghost (.text-muted is emitted after .text-danger, so the override rendered grey)
+    for (const file of ['pages/admin/SkillManagers.tsx', 'pages/Projects.tsx']) {
       const lines = src(file).split('\n')
-      expect(lines.filter((l) => /variant="ghost"/.test(l) && /text-danger/.test(l)), file).toEqual([])
       expect(lines.some((l) => l.includes('variant="ghost-danger"')), file).toBe(true)
     }
-    expect(src('components/chat/AskCard.tsx').split('\n').some((l) => l.includes('variant="ghost-danger"') && l.includes("decision: 'deny'"))).toBe(true)
+    // a plain "no" is neutral, like Claude Code's "No": Deny on the site card, Reject of a skill suggestion
+    const ask = src('components/chat/AskCard.tsx').split('\n')
+    expect(ask.some((l) => l.includes('variant="ghost"') && l.includes("decision: 'deny'"))).toBe(true)
+    expect(ask.some((l) => l.includes('ghost-danger'))).toBe(false)
+    expect(src('pages/Skills.tsx').split('\n').find((l) => l.includes('data-testid="review-reject"'))).toContain('variant="ghost"')
+    for (const file of ['components/chat/AskCard.tsx', 'pages/Skills.tsx', 'pages/admin/SkillManagers.tsx', 'pages/Projects.tsx'])
+      expect(src(file).split('\n').filter((l) => /variant="ghost"/.test(l) && /text-danger/.test(l)), file).toEqual([])
   })
 
-  test('Switch: --c-field-border off track, --c-accent-ink knob when on, focus ring outside the track', () => {
+  test('Switch: --c-field-border off track, knob when on white in light and --c-accent-ink in dark, focus ring outside', () => {
     const sw = ui.slice(ui.indexOf('export function Switch'))
     expect(sw).toContain('bg-field-border')
     expect(sw).not.toMatch(/bg-line-strong\/\d+/)
-    expect(sw).toContain('peer-checked:after:bg-accent-ink')
+    expect(sw).toContain('after:bg-white')
+    expect(sw).toContain('dark:peer-checked:after:bg-accent-ink')
+    expect(sw).not.toMatch(/(?<!dark:)peer-checked:after:bg-accent-ink/)
     expect(sw).toContain('peer-focus-visible:outline-offset-2')
   })
 

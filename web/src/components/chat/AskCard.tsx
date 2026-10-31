@@ -60,7 +60,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             <Button size="sm" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'always' })}>
               {t('browser.allowAlways')}
             </Button>
-            <Button size="sm" variant="ghost-danger" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'deny' })}>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'deny' })}>
               {t('browser.deny')}
             </Button>
           </div>

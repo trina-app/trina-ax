@@ -235,7 +235,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
       title={t('skills.reviewTitle')}
       footer={
         <>
-          <Button variant="ghost-danger" className="mr-auto" busy={busy === 'reject'} disabled={!!busy} onClick={() => run('reject')} data-testid="review-reject">
+          <Button variant="ghost" className="mr-auto" busy={busy === 'reject'} disabled={!!busy} onClick={() => run('reject')} data-testid="review-reject">
             {t('skills.reject')}
           </Button>
           <Button variant="ghost" onClick={onClose}>

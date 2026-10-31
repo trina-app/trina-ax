@@ -328,9 +328,9 @@ test('the team logo section has no serious accessibility problems at phone width
   await auditTeamIcon(page, ' (phone)')
 })
 
-// The design-gap fixes (docs/DESIGN-SYSTEM.md "Contrast"): the browser bar colour, the in-app browser's site card with its red Deny
-// (ghost-danger, which used to render grey) and a visible focus ring on it, the operator's info notice (accent TEXT on
-// the tint) and the switches, in both themes.
+// The design-gap fixes (docs/DESIGN-SYSTEM.md "Contrast"): the browser bar colour, the in-app browser's site card with its
+// neutral Deny (a plain "no", like Claude Code's: not red) and a visible focus ring on it, the operator's info notice
+// (accent TEXT on the tint) and the switches (white knob on the accent in light, warm black in dark), in both themes.
 for (const scheme of ['light', 'dark'] as const) {
   test(`site card, info notice and switches have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
@@ -345,7 +345,8 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(site).toBeVisible()
     const deny = site.getByRole('button', { name: '거부' })
     const colour = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c }, sel)
-    expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-danger'))
+    expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-muted'))
+    expect(await deny.evaluate((e) => getComputedStyle(e).color)).not.toBe(await colour('--c-danger'))
     await site.getByRole('button', { name: '항상 허용' }).focus()
     await page.keyboard.press('Tab')
     await expect(deny).toBeFocused()
@@ -361,6 +362,10 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await info.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-accent-text'))
     await expect(page.getByTestId('team-ai-vision')).toBeVisible()
     await audit(page, `info notice and switches on (${scheme})`)
+    const knob = () => page.getByTestId('team-ai-vision').locator('input[type="checkbox"] + span').first().evaluate((e) => getComputedStyle(e, '::after').backgroundColor)
+    const bg = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.backgroundColor = v; document.body.append(e); const c = getComputedStyle(e).backgroundColor; e.remove(); return c }, sel)
+    await expect(page.getByTestId('team-ai-vision')).toHaveAttribute('data-on', 'true')
+    expect(await knob()).toBe(await bg(scheme === 'dark' ? 'var(--c-accent-ink)' : 'white'))
     for (const id of ['team-ai-vision', 'team-ai-subagents']) await page.getByTestId(id).locator('label').first().click()
     await audit(page, `switches off (${scheme})`)
   })

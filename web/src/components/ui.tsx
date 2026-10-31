@@ -7,9 +7,11 @@ import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 
-/** primary: the one main action; secondary (default): a bordered button; ghost: no border; danger: a destructive action
- * with a border; ghost-danger: a quiet destructive choice beside others ("Deny", "Reject"). Don't recolour a variant with
- * className: the classes are not merged, and the variant's own colour can win. */
+/** primary: the one main action; secondary (default): a bordered button; ghost: no border (also a plain "no": Deny on a
+ * permission card, Skip, Reject of a suggestion, like Claude Code's "No"); danger: a destructive action with a border;
+ * ghost-danger: a quiet destructive action beside others that removes or discards something (Delete a project, turn off
+ * a grant), never a plain "no". Don't recolour a variant with className: the classes are not merged, and the variant's
+ * own colour can win. */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ghost-danger'
 export function Button({ variant = 'secondary', size = 'md', busy, className, children, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' | 'md'; busy?: boolean }) {
   return (
@@ -401,13 +403,14 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
 }
 
 /** Toggle switch with a real checkbox underneath (keyboard + screen readers). Off: a --c-field-border track (>= 3:1 on
- * canvas, surface and subtle) with a white knob; on: a --c-accent track with a --c-accent-ink knob (the colour made for
- * things on the accent, >= 4.5:1 in every look). The focus ring sits 2px outside the track, so it shows on the accent. */
+ * canvas, surface and subtle) with a white knob; on: a --c-accent track with a white knob in light (>= 3:1, as in Claude's
+ * apps) and a --c-accent-ink knob in dark (a white one would be 2.85:1 on the dark accent). The focus ring sits 2px
+ * outside the track, so it shows on the accent. */
 export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
     <label className={clsx('inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
       <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 peer-checked:after:bg-accent-ink" aria-hidden />
+      <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 dark:peer-checked:after:bg-accent-ink" aria-hidden />
       <span>{label}</span>
     </label>
   )
