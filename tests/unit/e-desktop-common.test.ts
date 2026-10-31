@@ -1,6 +1,6 @@
 // Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
 // policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the bridge's store
-// flag, the Settings > Browser channels and the UI strings (desktop/src/common/*).
+// flag, the Settings > Browser channels, quitting and the UI strings (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -438,5 +438,20 @@ describe('in-app browser data belongs to one person (QA finding 4)', () => {
     const off = new SitePermissions({ always: ['a.com'], teamAllowsAll: false })
     off.resetForNewPerson()
     expect(off.teamAllowsAll).toBe(false)
+  })
+})
+
+describe('quitting', () => {
+  test("one quit ends the app, after the open team's cookies are written (the window is closed by will-quit)", () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    // the window closes (and win is cleared) before will-quit: the team it showed is kept when it closes
+    const closed = main.slice(main.indexOf("win.win.on('closed'"), main.indexOf('buildMenu()', main.indexOf("win.win.on('closed'")))
+    expect(closed.indexOf('lastTeam = win?.team?.id ?? lastTeam')).toBeLessThan(closed.indexOf('win = undefined'))
+    const willQuit = main.slice(main.indexOf("app.on('will-quit'"), main.indexOf("app.on('window-all-closed'"))
+    expect(willQuit).toContain('const id = win?.team?.id ?? lastTeam')
+    expect(willQuit).toContain('cookies.flushStore()')
+    // asked again from a new task: a quit asked while Electron still handles the held-back one is ignored
+    expect(willQuit).toContain('setTimeout(() => app.quit(), 0)')
+    expect(willQuit.match(/app\.quit\(\)/g)).toHaveLength(1)
   })
 })

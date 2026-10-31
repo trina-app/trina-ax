@@ -311,6 +311,8 @@ async function createWindow() {
     onTeamsChanged: () => buildMenu(),
   })
   win.win.on('closed', () => {
+    // quitting closes the window before will-quit: keep which team it showed (its cookies are written on quit)
+    lastTeam = win?.team?.id ?? lastTeam
     win = undefined
   })
   buildMenu()
@@ -344,18 +346,23 @@ app.on('second-instance', () => {
 app.on('activate', () => {
   if (!win) void createWindow()
 })
-// write cookies of the open team (page and browser) to disk before quitting
+// write cookies of the open team (page and browser) to disk before quitting. The window is already closed by
+// will-quit (Cmd+Q, Quit, the last window on Windows), so the team is the one it showed last (lastTeam).
 let flushed = false
+let lastTeam: string | undefined
 app.on('before-quit', () => debug('before-quit'))
 app.on('will-quit', (e) => {
   debug('will-quit', flushed)
   if (flushed) return
   e.preventDefault()
-  const id = win?.team?.id
+  const id = win?.team?.id ?? lastTeam
   const sessions = id ? [session.fromPartition(partitionFor(id, 'app')), session.fromPartition(partitionFor(id, 'browser'))] : []
+  debug('flushing cookies of', id ?? 'no team')
   void Promise.race([Promise.all(sessions.map((s) => s.cookies.flushStore().catch(() => {}))), new Promise((r) => setTimeout(r, 2000))]).finally(() => {
     flushed = true
-    app.quit()
+    // quit again from a new task: a quit asked while Electron still handles the one just held back is ignored (the
+    // first Cmd+Q only closed the window)
+    setTimeout(() => app.quit(), 0)
   })
 })
 
