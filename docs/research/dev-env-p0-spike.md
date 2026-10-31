@@ -37,7 +37,7 @@ Limits of these numbers:
 - OrbStack machines share one kernel and mount the Mac home (`/Users`, `/mnt/mac`). The box does not see them
   (tested). A real VM does not have them.
 - No IPv6 in the VM. The IPv6 rules are written but not tested.
-- We did not touch potenlab.trina.app or any other server.
+- We did not touch any production or pilot server.
 
 ## 3. What we built
 
