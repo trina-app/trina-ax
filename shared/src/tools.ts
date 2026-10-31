@@ -46,6 +46,20 @@ export const EditInput = z.strictObject({
   replace_all: z.boolean().optional(),
 })
 
+/** edit_files: the same exact replacement in several text files in one call (a chat turn's tool, not a seventh file
+ * tool: the remote connector does not offer it). server/src/mcp/protocol.ts runs each file as its own `edit` call. */
+export const EDIT_FILES_TOOL = 'edit_files'
+export const EDIT_FILES_MAX = 50
+export const EditFilesInput = z.strictObject({
+  file_paths: z.array(relPath).min(1).max(EDIT_FILES_MAX).describe('Text files to change (1-50), each read in this turn'),
+  old_string: z.string().min(1).describe('The exact text to replace in every file'),
+  new_string: z.string(),
+  replace_all: z.boolean().optional().describe('Replace every occurrence in each file (default: it must occur once per file)'),
+})
+export const EDIT_FILES_DESCRIPTION = 'Make the same exact-string replacement in several text files at once (1-50 files, each read in this turn), e.g. one status line in many notes. ' +
+  'Each file is handled like its own edit call: the same access check, read-first rule, version history, conflict copy and confirmation card. ' +
+  'Returns one line per file (edited, or why not); a file that fails does not stop the others. For different changes per file, use edit.'
+
 // ---------------- other tools (stage 1: contracts only) ----------------
 export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number().int().min(1).max(200), format: z.literal('png') })
 export const MakeFileInput = z.strictObject({
@@ -137,6 +151,7 @@ export const OTHER_TOOLS = {
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
   rename_file: { input: RenameFileInput, output: RenameFileOutput },
+  edit_files: { input: EditFilesInput, output: TextOutput },
   artifact: { input: ArtifactInput, output: ArtifactOutput },
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },

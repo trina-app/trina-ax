@@ -4,7 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, FILE_TOOLS, ForgetInput, RememberInput, SetTitleInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, ForgetInput, RememberInput, SetTitleInput, uuidv7 } from '@mycel/shared'
 import type { BrowserToolName, Locale, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
@@ -60,6 +60,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     return true
   }
   for (const t of bTools(exec)) add(t)
+  // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
+  // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
+  // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
+  add({ name: EDIT_FILES_TOOL, description: EDIT_FILES_DESCRIPTION, inputSchema: schema(EditFilesInput),
+    async call() { return { ...text('Error: internal error', true), summary: `${EDIT_FILES_TOOL} -> not run (outside the file gate)` } } })
   for (const t of exec.rt.ctx.services.turnTools ?? []) {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
     add(wrapRegistered(exec, t))

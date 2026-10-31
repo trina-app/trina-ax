@@ -17,7 +17,7 @@ import { TeamImage } from '../Markdown'
 
 type TFunction = ReturnType<typeof useT>
 const ICON = { tool: Wrench, thinking: Brain, web_search: Globe, browser: Monitor, artifact: Shapes, ask_user: MessageCircleQuestion } as const
-const FILE_TOOLS = new Set(['read', 'grep', 'glob', 'list', 'write', 'edit'])
+const FILE_TOOLS = new Set(['read', 'grep', 'glob', 'list', 'write', 'edit', 'edit_files'])
 
 /** "12 tool uses · 1m 20s" of a sub-task (either part may be unknown yet) */
 export function subtaskStats(sub: Step['subtask'], t: TFunction): string {

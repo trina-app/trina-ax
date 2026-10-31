@@ -16,6 +16,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   read: t('파일 읽기', 'Read', 'Baca berkas', "読み取り", "Leer"),
   write: t('파일 저장', 'Save', 'Simpan berkas', "保存", "Guardar"),
   edit: t('파일 수정', 'Edit', 'Ubah berkas', "編集", "Editar"),
+  edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos"),
   make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos"),
@@ -116,6 +117,11 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'glob': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'read': case 'write': case 'edit': return `${verb} · ${clip(a.file_path, 90)}`
+    case 'edit_files': {
+      // the first file and how many more ("+29": a number, the same in every language)
+      const files = Array.isArray(a.file_paths) ? [...new Set(a.file_paths)] : []
+      return files.length ? `${verb} · ${clip(files[0], 80)}${files.length > 1 ? ` +${files.length - 1}` : ''}` : verb!
+    }
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`

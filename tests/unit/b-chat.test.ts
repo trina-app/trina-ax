@@ -392,7 +392,7 @@ describe('tools', () => {
     expect(r.done.content).toContain('tail=  1900\tline')
   })
 
-  test('tools offered to a web turn: file tools + remember / forget / ask_user / set_title (+ registered tools), no browser tools', async () => {
+  test('tools offered to a web turn: file tools + remember / forget / ask_user / set_title / edit_files (+ registered tools), no browser tools', async () => {
     const savedTools = h.ctx.services.turnTools
     h.ctx.services.turnTools = [{
       name: 'web_fetch', description: 'test tool', inputSchema: { type: 'object', properties: { url: { type: 'string' } } },
@@ -402,7 +402,7 @@ describe('tools', () => {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))
       // set_title: the first message of a new chat (chat/title.ts)
-      expect(r.done.content.split(' | ')[0]).toBe('ask_user,edit,forget,glob,grep,list,read,remember,set_title,web_fetch,write')
+      expect(r.done.content.split(' | ')[0]).toBe('ask_user,edit,edit_files,forget,glob,grep,list,read,remember,set_title,web_fetch,write')
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])

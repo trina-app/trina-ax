@@ -3923,3 +3923,32 @@ Trina should feel like Claude Code, which has WebSearch.
   refused, a bad stored value, the pause at the team limit, sub-agents at 50); the existing tool-limit tests in
   `b-chat.test.ts` and `b-subagents.test.ts` fix the limit through the runtime as before.
 
+## Bulk edits in one call (feat/a9-followups, 2026-10-31)
+
+- New turn tool **`edit_files`**: the same exact-string replacement (`old_string` → `new_string`, optional
+  `replace_all`) in 1-50 text files at once (A9 S17: "change the status line in 30 notes" took 28 edit calls). The
+  model streams each tool call; A9's edits came about 0.8 s apart and the server took about 20 ms each, so the time
+  went into writing 28 calls, not into running them: one call with the paths and one replacement is shorter to write.
+- **Each file is its own edit call.** The MCP handler (`mcp/protocol.ts` `editFiles`) runs every file through the same
+  path as a separate `edit` call (`callTool`): the person loaded again, the approved-template scope, the skills/ card,
+  the wider-audience card (once per folder, as for separate edits), read-before-write with the calling agent's own
+  reads (a sub-agent's batch uses its reads), the version in the history, a conflict copy when someone changed the
+  file since it was read, the per-turn limits, the file event and one `tool_events` row per file (tool `edit`, the
+  batch call's id and sub-task), plus one `edit_files` row with the counts. A file that fails does not stop the
+  others; the result lists every file (edited, or the reason). The call is an error only when no file was edited. Stop
+  ends the batch before the next file. Duplicate paths run once.
+- Not a seventh file tool: it is listed by the chat turn's tool set (so `--allowedTools`, Codex's enabled tools, the
+  model proxy's tool list and general-purpose sub-agents have it; Explore does not), and the handler runs it only when
+  the turn offers it. The remote MCP connector (Claude Code on a laptop has its own shell) and turns without a chat
+  tool set do not have it. Confidential chats (Safe operations 1A) do not get it: they keep `edit`.
+- Not done: a batch read. S17's 29 reads still take one call each (they already go out in one reply, so they do not
+  use up rounds); a batch read needs a cap below Claude Code's MCP result limit (25,000 tokens by default) and its own image and PDF
+  handling. The Python analysis box is the general answer to "many small changes".
+- Instructions: with the tool, "To make the same exact change in many files, read them (several reads can go in one
+  message), then change them all with one edit_files call."; always (A9 S17: answers left out the notes that were
+  already as asked), "After changing many files or items, also list in your answer the ones you did not change: those
+  already as asked, and those you skipped (with why)." Sub-agents' reports also say what they left unchanged and why.
+- Step label: "여러 파일 수정 · <first path> +N" (five languages; the number is not translated).
+- Tests: `b-edit-files.test.ts` (S17 shape with already-done, unread, no-access and duplicate files; all failing; bad
+  input and the 50-file cap; conflict copy; wider-audience card once; a skills/ card per file; a sub-agent's own
+  reads; confidential chats; the handler's per-file check, template refusal and Stop; label and instructions).
