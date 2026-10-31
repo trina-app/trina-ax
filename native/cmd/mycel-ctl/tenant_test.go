@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -242,7 +243,7 @@ func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	systemdRunDir = t.TempDir()
 	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
-	f := &fakeTenant{turns: []int{2, 1, 0}}
+	f := &fakeTenant{turns: []int{2, 1, 0}, adminOut: map[string]string{}}
 	f.install(t)
 	if code, out, errs := tb.tctl("", "idle-wait", "--json", "--max", "600"); code != 0 || strings.TrimSpace(out) != `{"idle":true,"running":0}` {
 		t.Fatalf("%d %q %s", code, out, errs)
@@ -251,6 +252,26 @@ func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--max", "0"); code != 0 || strings.TrimSpace(out) != `{"idle":false,"running":3}` {
 		t.Fatalf("%d %q", code, out)
 	}
+	// --activity (F2 sleep): admin.js cloud-idle facts; sleepable only when idle here too
+	f.turns = []int{0}
+	f.adminOut["cloud-idle"] = `{"fresh":true,"connections":0,"idleForSec":1900,"nextScheduleInSec":null,"queued":0,"sleepable":true}`
+	if code, out, errs := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || strings.TrimSpace(out) != `{"connections":0,"idle":true,"idleForSec":1900,"nextScheduleInSec":null,"running":0,"sleepable":true}` {
+		t.Fatalf("%d %q %s", code, out, errs)
+	}
+	f.turns = []int{1}
+	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || !strings.Contains(out, `"sleepable":false`) || !strings.Contains(out, `"running":1`) {
+		t.Fatalf("a running answer must not be sleepable: %d %q", code, out)
+	}
+	f.turns = []int{0}
+	f.adminOut["cloud-idle"] = `{"fresh":false,"connections":null,"idleForSec":null,"nextScheduleInSec":null,"queued":null,"sleepable":false}`
+	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || strings.TrimSpace(out) != `{"connections":null,"idle":true,"idleForSec":null,"nextScheduleInSec":null,"running":0,"sleepable":false}` {
+		t.Fatalf("stale status must not be sleepable: %d %q", code, out)
+	}
+	f.adminErr = errors.New("admin.js failed")
+	if code, out, _ := tb.tctl("", "idle-wait", "--json", "--activity", "--max", "0"); code != 0 || !strings.Contains(out, `"sleepable":false`) {
+		t.Fatalf("an admin.js failure must not be sleepable: %d %q", code, out)
+	}
+	f.adminErr = nil
 	f.turns = []int{0}
 	if code, out, errs := tb.tctl("", "prepare-stop", "--json", "--grace", "60"); code != 0 || strings.TrimSpace(out) != `{"stopped":true}` {
 		t.Fatalf("%d %q %s", code, out, errs)

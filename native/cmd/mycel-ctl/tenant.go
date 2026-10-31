@@ -452,10 +452,13 @@ func (t *tenant) waitIdle(max time.Duration) (bool, int) {
 	}
 }
 
-// idle-wait --max S: { idle, running } once no answer runs, or after S seconds.
+// idle-wait --max S [--activity]: { idle, running } once no answer runs, or after S seconds. With --activity (F2 sleep)
+// it adds what admin.js cloud-idle reads from status/status.json: { sleepable, idleForSec, connections,
+// nextScheduleInSec }. sleepable needs no running answer here too; an admin.js failure is "not sleepable".
 func cmdIdleWait(e *env, args []string) (int, error) {
 	t := newTenant(e, "idle-wait")
 	max := t.fs.Int("max", 600, "seconds")
+	activity := t.fs.Bool("activity", false, "add the sleep facts")
 	if c, err := t.open(args); err != nil {
 		return c, err
 	}
@@ -463,7 +466,30 @@ func cmdIdleWait(e *env, args []string) (int, error) {
 		return 2, usageError{"--max 0-3600"}
 	}
 	idle, running := t.waitIdle(time.Duration(*max) * time.Second)
-	return t.out(map[string]any{"idle": idle, "running": running})
+	if !*activity {
+		return t.out(map[string]any{"idle": idle, "running": running})
+	}
+	o := map[string]any{"idle": idle, "running": running, "sleepable": false, "idleForSec": nil, "connections": nil, "nextScheduleInSec": nil}
+	if raw, err := t.admin(nil, 15*time.Second, "cloud-idle"); err == nil {
+		var a struct {
+			Fresh             bool `json:"fresh"`
+			Sleepable         bool `json:"sleepable"`
+			IdleForSec        *int `json:"idleForSec"`
+			Connections       *int `json:"connections"`
+			NextScheduleInSec *int `json:"nextScheduleInSec"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(raw), &a) == nil && a.Fresh {
+			nonNeg := func(p *int) any {
+				if p == nil || *p < 0 {
+					return nil
+				}
+				return *p
+			}
+			o["idleForSec"], o["connections"], o["nextScheduleInSec"] = nonNeg(a.IdleForSec), nonNeg(a.Connections), nonNeg(a.NextScheduleInSec)
+			o["sleepable"] = a.Sleepable && idle && running == 0 && a.IdleForSec != nil
+		}
+	}
+	return t.out(o)
 }
 
 // prepare-stop --grace S: wait for running answers up to S seconds, then stop the server and the launcher.

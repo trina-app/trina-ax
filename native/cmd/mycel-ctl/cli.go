@@ -81,7 +81,7 @@ const usage = `usage: mycel-ctl <command> [--base /var/lib/mycel]
   supervise                              run firewall, launcher and server without systemd (tests, not supported)
 tenant commands of the hosted service (ax-hostd, control-plane 3.5.3; every one takes --json and prints one JSON object):
   status --json | apply-plan | update --version V | notices-set | set-server-config | relay-registration-set
-  relay-key-proof --team-id T | idle-wait --max S | prepare-stop --grace S | backup-prepare --kind K [--local-id ID]
+  relay-key-proof --team-id T | idle-wait --max S [--activity] | prepare-stop --grace S | backup-prepare --kind K [--local-id ID]
   backup-upload | export | reset-link --owner|--username U | setup-token-rotate | credentials-escrow-out --recipient R`
 
 // run is the whole program; main() (Linux) exits with its result.
