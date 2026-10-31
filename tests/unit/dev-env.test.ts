@@ -28,6 +28,8 @@ const FOLDER = 'projects/falcon'
 const calls: { op: string; req: unknown }[] = []
 /** what the fake exec does while it "runs" (the real box writes the same folder through the idmapped mount) */
 let during: (() => void) | null = null
+/** the next exec finds the box stopped (a command ended its main process) */
+let stoppedOnce = false
 
 const fakeBoxd: BoxdClient = {
   async status() { return { ok: true, value: { ev: 'status', available: true, boxes: [{ box: projectId, state: 'running', startedAt: null, lastActiveAt: null, memoryMiB: 12 }] } } },
@@ -38,6 +40,7 @@ const fakeBoxd: BoxdClient = {
   async netlog() { return { ok: true, value: { ev: 'netlog', lines: ['1730360000 tcp 104.16.3.35:443'] } } },
   async exec(req) {
     calls.push({ op: 'exec', req })
+    if (stoppedOnce) { stoppedOnce = false; return { ok: false, message: 'box_stopped: the box does not run' } }
     // "write <rel> <text>" lines write files of the project folder; anything else echoes
     let out = ''
     for (const l of req.command.split('\n')) {
@@ -188,6 +191,12 @@ describe('the turn', () => {
     expect(JSON.parse(cmd.detail)).toMatchObject({ destinations: ['tcp 104.16.3.35:443'], changed: 2, result: { code: 0 } })
     const act = await h.api('bob').call(API.devEnvActivity, { params: { id: projectId } })
     expect(act.items.some((i) => i.kind === 'command' && i.text.includes('echo hi') && i.by?.id === 'alice')).toBe(true)
+    // the box stopped by itself since the last command: started again, the command runs once
+    stoppedOnce = true
+    calls.length = 0
+    const rs = await ask(h, alice, 'alice', chat.id, fake({ tool: 'box_shell', args: { command: 'echo after-stop' }, sayResult: true }))
+    expect(rs.done.content).toContain('Exit code 0.')
+    expect(calls.map((c) => c.op)).toEqual(['ensure', 'exec', 'ensure', 'exec'])
     // background changes (a dev server between commands) show up at the next command
     fs.writeFileSync(path.join(h.team, FOLDER, 'src/gen.ts'), 'generated')
     const r2 = await ask(h, alice, 'alice', chat.id, fake({ tool: 'box_shell', args: { command: 'echo again' }, sayResult: true }))

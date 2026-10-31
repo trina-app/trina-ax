@@ -1,0 +1,109 @@
+8546379669c1542cd8a6daebaf561a2743e7eeed7881f01a0495a7aaab5626ba
+REPOSITORY              TAG         IMAGE ID      CREATED        SIZE
+localhost/mycel-devbox  1           8546379669c1  6 minutes ago  458 MB
+{"available": true, "boxes": [], "checks": {"conntrack": "yes", "image": "8546379669c1542cd8a6daebaf561a2743e7eeed7881f01a0495a7aaab5626ba", "kernel": "6.12.113+deb13-cloud-amd64", "mkfs": "/usr/sbin/mkfs.xfs", "podman": "podman version 5.4.2"}, "ev": "status"}
+vm-setup: ok
+== status
+{"available": true, "boxes": [], "checks": {"conntrack": "yes", "image": "8546379669c1542cd8a6daebaf561a2743e7eeed7881f01a0495a7aaab5626ba", "kernel": "6.12.113+deb13-cloud-amd64", "mkfs": "/usr/sbin/mkfs.xfs", "podman": "podman version 5.4.2"}, "ev": "status"}
+== start
+PASS ensure web (open)
+start s: 2.240915112
+PASS a second box while one runs (max-running 1)
+PASS folder through a link
+PASS folder outside the team root
+== isolation probe (inside)
+[exit 0  325 ms]
+-- what is mounted (sources other than overlay/tmpfs/proc/sys/dev)
+/ /
+/cache /cache
+/etc/hostname /containers/overlay-containers/b0608d5b220f0ee33ec122374b60fb24937b4968932fc94f88c6733efe22410a/userdata/hostname
+/etc/hosts /containers/overlay-containers/b0608d5b220f0ee33ec122374b60fb24937b4968932fc94f88c6733efe22410a/userdata/hosts
+/etc/resolv.conf /containers/overlay-containers/b0608d5b220f0ee33ec122374b60fb24937b4968932fc94f88c6733efe22410a/userdata/resolv.conf
+/run /
+/run/.containerenv /containers/overlay-containers/b0608d5b220f0ee33ec122374b60fb24937b4968932fc94f88c6733efe22410a/userdata/.containerenv
+/run/podman-init /usr/bin/catatonit
+/tmp /
+/var/tmp /
+/work /srv/mycel/team/projects/web
+/work/.venv /venv
+/work/node_modules /node_modules
+-- files
+PASS other team folder by host path
+PASS server secrets by host path
+PASS Mac home mount (/Users, /mnt/mac)
+PASS podman socket / storage of the box account
+PASS host root through /proc/1/root
+PASS write the image (/usr/bin)
+PASS write /etc
+PASS other team folder in the box's own folder tree
+PASS find other folder's file anywhere
+-- kernel surface
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+NoNewPrivs:	1
+Seccomp:	2
+PASS new user namespace (unshare -Ur)
+PASS new mount namespace (unshare -m)
+PASS mount tmpfs
+PASS read the kernel log
+PASS io_uring_setup syscall -> Operation not permitted
+PASS bpf syscall -> Operation not permitted
+PASS keyctl syscall -> Operation not permitted
+PASS perf_event_open syscall -> Operation not permitted
+PASS userfaultfd syscall -> Operation not permitted
+PASS ptrace(PTRACE_ATTACH, 1) syscall -> Operation not permitted
+PASS socket AF_PACKET -> Function not implemented
+PASS socket AF_VSOCK -> Function not implemented
+PASS socket AF_ALG -> Function not implemented
+-- limits seen from inside
+pids.max=512 memory.max=1610612736 cpu.max=100000 100000
+df: Filesystem      Size  Used Avail Use% Mounted on
+df: /dev/nvme0n1p1   20G  3.3G   16G  18% /work
+df: /dev/loop0      4.0G  110M  3.9G   3% /cache
+df: tmpfs           256M     0  256M   0% /tmp
+-- engine and credentials (hole 1, hole 6)
+PASS an AI engine in the box
+== files
+[exit 0  124 ms]
+PASS box file stored as the server account
+PASS sed -i and cp -p work
+[exit 0  119 ms]
+PASS node_modules stays in the box volume
+FAIL host path of the folder not in mountinfo
+== network (open)
+PASS internet https
+PASS LAN 10.99.0.1
+PASS metadata 169.254.169.254
+PASS team server on the VM address :8080
+PASS SMTP 25
+PASS change the box rules
+PASS destination log (netlog) has example.com's address
+== exec control
+PASS time limit
+PASS a stopped command is killed in the box
+[exit 0  181 ms]
+PASS background dev server listed
+PASS preview socket owned by the server account, 0600
+PASS preview through the socket
+PASS preview socket refused to another account
+== limits
+memory bomb: [exit 137 oom 1159 ms]
+PASS memory bomb ends as oom
+refused forks: [exit 137  30749 ms]
+host while CPU burn: 0.00
+volume fill: Error: can only create exec sessions on running containers: container state improper
+[exit 255  76 ms]
+FAIL volume full stops at its size
+== offline
+PASS network change restarts the box offline
+PASS offline: no internet
+== teardown
+{"ev": "ok"}
+PASS no mounts left
+PASS offline: no internet
+== idle stop (6 min)
+PASS idle box stopped
+== teardown
+{"ev": "ok"}
+PASS no mounts left

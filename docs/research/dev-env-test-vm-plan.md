@@ -1,6 +1,6 @@
 # Dev environment: test VM plan (dev-env-test)
 
-Status: PLAN, waiting for approval. Nothing of this was run. Branch `feat/dev-env` (experiment).
+Status: approved by the owner 2026-10-31; run on another host (see "Results" at the end). Branch `feat/dev-env`.
 
 Purpose: run the root and network tests of `mycel-boxd` (`scripts/dev-env/vm-tests.sh`) on a throwaway VM, not on
 the shared Linux server and not on a team server. The shared server has no SSH trust to the pilot host (no known
@@ -70,9 +70,12 @@ Not `axnet`: the VM must not be on the tenant network.
 
 ## Step 3: run the tests (on the VM, as root)
 
+Clone under `/opt`, not under `/root`: the server stand-in account `mycel` must read the scripts (`vm-setup.sh` and
+`vm-tests.sh` stop otherwise). Run 1 failed on this.
+
 ```bash
-git clone -b feat/dev-env https://github.com/trina-app/trina-ax.git && cd trina-ax
-apt-get install -y golang-go bc && (cd native && CGO_ENABLED=0 go build -o /tmp/mycel-boxd ./cmd/mycel-boxd)
+cd /opt && git clone -b feat/dev-env https://github.com/trina-app/trina-ax.git && cd trina-ax
+apt-get install -y golang-go bc time jq && (cd native && CGO_ENABLED=0 go build -o /tmp/mycel-boxd ./cmd/mycel-boxd)
 scripts/dev-env/vm-setup.sh /tmp/mycel-boxd
 scripts/dev-env/vm-tests.sh | tee /root/vm-tests.txt
 LONG=1 scripts/dev-env/vm-tests.sh | tail -3      # also the idle stop (about 6 minutes)
@@ -90,3 +93,48 @@ rm -f /var/lib/vz/template/iso/debian-13-genericcloud-amd64.qcow2   # only if it
 ```
 
 Check after teardown: `qm list` has no 990; `ls /etc/pve/firewall/` has no `990.fw`.
+
+## Results (2026-10-31)
+
+Where: not on the pilot host. Step 0 found no bridge other than the tenant bridge `axnet`, so the stop rule applied.
+The main session ran the tests on a throwaway AWS EC2 t3.large instead (Debian 13, kernel 6.12.113 cloud, 2 vCPU,
+8 GB, same AWS account, not part of the pilot), and terminated it after the run. podman 5.4.2, xfs box volume,
+conntrack present.
+
+- Run 1: setup failed. The repo was cloned under `/root` (the `mycel` account could not read it) and `/usr/bin/time`
+  was missing. Both are now checked before the tests start, and `vm-setup.sh` installs `time`.
+- Run 2 (`/opt/trina-ax`): **50 PASS, 2 FAIL**. Log: `scripts/dev-env/results/vm-tests.txt` (setup:
+  `results/run2.log`).
+
+| Area | Result |
+|---|---|
+| Box start (ensure: volume, idmapped mount, create, start, rules) | 2.24 s, first start |
+| Folder checks: second box while one runs, folder through a link, outside the team root | refused (PASS) |
+| Isolation probe: other folders, secrets, host root, image and /etc writes, namespaces, mount, dmesg, io_uring, bpf, keyctl, perf, userfaultfd, ptrace, AF_PACKET/VSOCK/ALG | all PASS; CapEff 0, NoNewPrivs 1, seccomp 2 |
+| No AI engine in the box | PASS |
+| Files: stored as the server account, `sed -i` / `cp -p`, node_modules in the box volume | PASS |
+| Network (open): internet; LAN, metadata, team server on the VM address, SMTP 25 refused; rules cannot be changed; destination log has the HTTPS destination | PASS |
+| Exec: time limit, a stopped command is killed, background dev server listed | PASS |
+| Preview socket: server account 0600, works, refused to another account | PASS |
+| Memory bomb | OOM kill after 1.2 s, reported as `oom` |
+| Offline: restart on network change, no internet | PASS |
+| Teardown: no mounts left | PASS |
+
+The two failures:
+
+1. **"host path of the folder not in mountinfo": a known limit, not fixable with a bind mount.** mountinfo field 4
+   of `/work` is the source path inside its file system (`/srv/mycel/team/projects/web`). Every bind mount shows it.
+   The box sees the location of the team root and its own folder's path, nothing of other folders. The test now
+   checks that boxd's own state paths do not show and prints the folder path as KNOWN. To shorten it to the path
+   below the team root, put the team root on its own file system.
+2. **"volume full stops at its size": a test bug that showed a product gap.** The process-flood step ended with
+   `pkill sleep`, which also killed the box's main process (`sleep infinity`). The box stopped, so the flood step
+   ended with exit 137 after 30.7 s and the volume test got "container state improper". Fixed in two places:
+   - **boxd:** an exec into a box that stopped by itself now cleans up and answers `box_stopped`.
+   - **Server:** `box_shell` then starts the box again and runs the command once more. The command had not run, so
+     running it again is safe. Unit-tested.
+   - **Test:** it kills only its own `sleep 30` processes, checks the box survives the flood and the pids limit, and
+     adds a recovery test (kill the main process → `box_stopped` → ensure → exec works).
+
+Re-run needed for: the changed flood, recovery and volume-fill steps, and the idle stop (`LONG=1`, not run). It needs
+a throwaway Debian 13 host with root, as before, for about 30 minutes; no new host was approved.
