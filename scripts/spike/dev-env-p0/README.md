@@ -22,7 +22,7 @@ Run it only on a throwaway Linux VM (it adds accounts, a dummy network interface
 | `preview.sh` | preview socket on the host into the box's network namespace |
 | `measure.py`, `bench.sh` | measurements (wall, CPU, memory, OOM) |
 | `bombs.sh` | fork bomb, memory bomb, CPU burn, disk fills |
-| `in-box/` | mounted read-only at `/opt/trina` in each box: init, forwarder, probes |
+| `in-box/` | mounted read-only at `/opt/trina` in each box: init, forwarder, probes (network, isolation, thief, mitm, plant) |
 | `sample/` | sample projects: Vite/React (`web`), Next.js (`next`), Flask (`py`) |
 
 ## Steps (as run on 2026-10-31)
@@ -60,7 +60,8 @@ As root (AI turns and the token probes):
 
 ```bash
 /opt/spike/turn.sh web "ls" "git --version"
-/opt/spike/turn-outside.sh web proj-web "cd src && pwd" "pwd"
+LOCK=1 /opt/spike/turn-outside.sh web proj-web "cd src && pwd" "pwd" "WRITE:/work/x.txt:hello"
+# planted config: podman exec box-web /opt/trina/plant.sh hooks (or env), then turn-outside.sh with and without LOCK=1
 # isolation probe, with a valid token of another box to show the proxy refuses it
 OT=$(sudo -u mycel python3 -I /opt/spike/model-proxy.py issue py 600 true)
 sudo -u devbox XDG_RUNTIME_DIR=/run/user/$(id -u devbox) podman exec -e OTHER_BOX_TOKEN=$OT box-web /opt/trina/isolation.sh
