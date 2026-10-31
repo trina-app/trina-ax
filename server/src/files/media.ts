@@ -158,6 +158,14 @@ const CLEAR_SOUND_SEC = 1
 export const SHORT_SPEECH_SEC = 8
 /** whisper.cpp is sure of the language it heard from this probability on */
 export const LANGUAGE_SURE = 0.5
+/** whisper's own caption when it was told a language the sound is not in ("(speaking in foreign language)", "[Foreign
+ * language]"): measured on 4-6 s Korean pieces told "en" (auto had guessed ko or ja at p 0.32-0.36) */
+const OTHER_LANGUAGE = /^\s*[([][^)\]]*\b(foreign|non-english)\b[^)\]]*[)\]][\s.]*$/i
+/** Whether an answer holds nothing but that caption: the language it was told is not the sound's. */
+export function saysOtherLanguage(r: TranscribeResult): boolean {
+  const lines = r.segments?.length ? r.segments.map((s) => s.text) : [r.text]
+  return lines.some((t) => t.trim()) && lines.every((t) => !t.trim() || OTHER_LANGUAGE.test(t))
+}
 export interface Voice { /** seconds with sound */ voiced: number; /** per 100 ms frame from the start of the WAV */ frames: boolean[] }
 /** Where a server-made WAV has sound (its data chunk; any other chunk, such as ffmpeg's LIST, is skipped). */
 export function voiceOf(wav: Uint8Array): Voice {

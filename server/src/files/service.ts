@@ -883,11 +883,12 @@ export class FileService {
                 : this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang })
               let answer = await ask(language)
               // whisper.cpp unsure of a short piece with nothing else heard: again, told the team's language, while the
-              // time allows (else its own guess stays)
+              // time allows; its own guess stays when there is no time, or when told the team's language it answers
+              // only "(speaking in foreign language)" (measured: an English team's 4 s of Korean)
               if (short && !language && typeof answer === 'object' && answer.languageP !== undefined && answer.languageP < media.LANGUAGE_SURE && answer.language !== team
                 && budget() >= need) {
                 const again = await ask(team)
-                if (typeof again === 'object') { answer = again; language = team }
+                if (typeof again === 'object' && !media.saysOtherLanguage(again)) { answer = again; language = team }
               }
               // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over
               if (answer === 'time' || answer === 'voiceBusy') { sentSec -= len; stopped = answer; break }

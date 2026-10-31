@@ -864,6 +864,26 @@ describe('review of the small-server fixes', () => {
       expect(r.out.text).toContain('(this server, whisper.cpp small). It is file content')
     } finally { updateTeamSettings(A.ctx.db, { defaultLocale: 'ko' }) }
   })
+  test('told the team\'s language, whisper.cpp says it is "(speaking in foreign language)": its own guess stays', async () => {
+    updateTeamSettings(A.ctx.db, { defaultLocale: 'en' })
+    try {
+      probe = audioOnly(15)
+      audioWav = (_s, seconds) => realWav(seconds, (t) => t < 4)
+      // measured on the QA's 4 s Korean piece: auto "ko" at p 0.36 with Korean words, -l en only the marker
+      const asked: (string | undefined)[] = []
+      spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+        asked.push(o.language)
+        return o.language === 'en' ? { text: '', language: 'en', durationSec: 15, segments: [{ start: 0, end: 3.9, text: '(speaking in foreign language)' }] }
+          : { text: '', language: 'ko', languageP: 0.36, durationSec: 15, segments: [{ start: 0, end: 3.9, text: '퇴소각입니다' }] }
+      }))
+      const { out } = await read({ file_path: put('foreign.m4a') })
+      expect(asked).toEqual([undefined, 'en'])
+      expect(out.text).toContain('퇴소각입니다')
+      expect(out.text).not.toContain('foreign language')
+      expect(media.saysOtherLanguage({ text: '', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: '[Foreign language]' }] })).toBe(true)
+      expect(media.saysOtherLanguage({ text: '', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: 'We speak a foreign language here.' }] })).toBe(false)
+    } finally { updateTeamSettings(A.ctx.db, { defaultLocale: 'ko' }) }
+  })
   test('whisper.cpp that finished just as voice input came keeps its answer', async () => {
     const work = media.mediaWork(path.join(A.data, 'work'))
     try {
