@@ -166,6 +166,13 @@ export const MEDIA_TEXT = {
     ja: '今回の読み取り時間内には音声をテキストにできませんでした。場面なし（frames: 0）でもう一度読み取ると、音声により多くの時間を使えます。',
     es: 'Esta lectura no tuvo tiempo de convertir el sonido en texto. Leer de nuevo sin fotogramas (frames: 0) deja más tiempo para el sonido.',
   },
+  voiceBusy: {
+    ko: '지금 음성 입력이 이 서버의 받아쓰기를 쓰고 있어서 소리를 더 글로 바꾸지 못했어요. 잠시 뒤 다시 읽으면 이어서 바꿔요.',
+    en: 'Voice input is using this server\'s transcription right now, so no more of the sound was turned into text. Reading again in a moment goes on from there.',
+    id: 'Input suara sedang memakai transkripsi server ini, jadi suara tidak diubah lagi menjadi teks. Membaca lagi sebentar lagi akan melanjutkan dari sana.',
+    ja: '音声入力がこのサーバーの文字起こしを使っているため、これ以上は音声をテキストにできませんでした。しばらくしてからもう一度読み取ると続きから処理します。',
+    es: 'La entrada de voz está usando ahora la transcripción de este servidor, así que no se convirtió más sonido en texto. Al leer de nuevo en un momento se sigue desde ahí.',
+  },
   failed: {
     ko: '받아쓰기에 실패했어요({why}).',
     en: 'The transcript failed ({why}).',

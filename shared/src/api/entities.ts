@@ -470,8 +470,9 @@ export type AuditEntry = z.infer<typeof AuditEntry>
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
-/** A server with this many CPU cores or fewer turns sound into text itself only slowly: whisper.cpp small took 3-4 s
- * for each second of speech on a 2 vCPU box (QA 2026-11-01), so a read gets about a minute of a recording. */
+/** A server with this many CPU cores or fewer turns sound into text itself only slowly: on a 2 vCPU box whisper.cpp
+ * small took 1.5-1.9 s for each second of speech outside the app (2 and 1 threads) and over 2.5 s inside a read (QA
+ * 2026-11-01), so a read gets one to two minutes of a recording. */
 export const SMALL_SERVER_CORES = 2
 /** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
  * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one

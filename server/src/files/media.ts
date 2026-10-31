@@ -77,9 +77,17 @@ export function openRouterPieceNeedsMs(seconds: number): number {
 }
 
 // ---------------- this server's speed (local whisper.cpp) ----------------
-/** seconds of whisper.cpp work per second of sound before this server measured itself: on the slow side (the QA box
- * took 2-2.5 s with 1 thread), so a read does not start a piece it cannot finish */
+/** seconds of whisper.cpp work per second of sound before this server measured itself: on the slow side (the QA box,
+ * 2 vCPU: 1.9 s with 1 thread and 1.5 s with 2 outside the app, over 2.5 s inside a read next to other work), so a
+ * read does not start a piece it cannot finish */
 export const LOCAL_SPEED_DEFAULT = 2.5
+/** the most the stored speed may say (a piece of 30 s would need 3 minutes): one outlier (whisper.cpp's temperature
+ * fallback can take 5 times as long on odd sound) must not stop every later read */
+export const LOCAL_SPEED_MAX = 6
+const LOCAL_SPEED_MIN = 0.05
+/** a clip shorter than this never is the first measurement (its fixed costs, the model and the language guess, are
+ * most of its time) */
+const FIRST_SAMPLE_MIN_SEC = 10
 /** cutting a piece's sound and starting whisper.cpp (the model is read again for every piece) */
 const LOCAL_PIECE_OVERHEAD_MS = 5_000
 /** the margin on the estimate: a piece starts only when its estimate times this fits in the time left */
@@ -96,7 +104,7 @@ function storedSpeed(db: Database): StoredSpeed | null {
   if (!row) return null
   try {
     const v = JSON.parse(row.value) as StoredSpeed
-    return Number.isFinite(v.secPerSec) && v.secPerSec > 0 && v.secPerSec < 1000 ? v : null
+    return Number.isFinite(v.secPerSec) && v.secPerSec > 0 ? { ...v, secPerSec: Math.min(LOCAL_SPEED_MAX, Math.max(LOCAL_SPEED_MIN, v.secPerSec)) } : null
   } catch { return null }
 }
 /** This server's whisper.cpp speed for `model` with `threads` (another model or thread count starts from the default). */
@@ -104,14 +112,21 @@ export function localSpeed(db: Database, model: string, threads: number): LocalS
   const v = storedSpeed(db)
   return v && v.model === model && v.threads === threads ? { secPerSec: v.secPerSec, measured: true } : { secPerSec: LOCAL_SPEED_DEFAULT, measured: false }
 }
-/** A piece of `seconds` took `elapsedMs` of whisper.cpp: the moving average follows (the first measurement replaces the
- * default). `cutOff`: the run was stopped by its time limit, so it would have taken at least that long. */
+/** A piece of `seconds` took `elapsedMs` of whisper.cpp: the moving average follows, so that no single run can poison
+ * it (review of the branch): one sample counts at most half or twice the value it meets, weighted by its length (a 5 s
+ * dictation counts a sixth of a 30 s piece); the first measurement replaces the default only from a clip of
+ * FIRST_SAMPLE_MIN_SEC or more; the value stays between LOCAL_SPEED_MIN and LOCAL_SPEED_MAX. `cutOff`: the run was
+ * stopped by its time limit, so it would have taken at least that long: news only when that is slower than the value. */
 export function recordLocalSpeed(db: Database, model: string, threads: number, elapsedMs: number, seconds: number, cutOff = false): LocalSpeed {
-  const sample = Math.max(0.01, elapsedMs / 1000 / Math.max(seconds, LOCAL_PIECE_SEC))
   const v = storedSpeed(db)
   const same = v && v.model === model && v.threads === threads ? v : null
-  let next = same ? same.secPerSec * (1 - SPEED_WEIGHT) + sample * SPEED_WEIGHT : sample
-  if (cutOff) next = Math.max(next, sample, same?.secPerSec ?? 0)
+  const cur = same?.secPerSec ?? LOCAL_SPEED_DEFAULT
+  if (!same && seconds < FIRST_SAMPLE_MIN_SEC) return { secPerSec: cur, measured: false }
+  const raw = elapsedMs / 1000 / Math.max(seconds, LOCAL_PIECE_SEC)
+  if (cutOff && raw <= cur) return { secPerSec: cur, measured: !!same }
+  const sample = Math.min(Math.max(raw, cur / 2), cur * 2)
+  const w = same ? SPEED_WEIGHT * Math.min(1, seconds / LOCAL_PIECE_SEC) : 1
+  const next = Math.min(LOCAL_SPEED_MAX, Math.max(LOCAL_SPEED_MIN, cur * (1 - w) + sample * w))
   const stored: StoredSpeed = { secPerSec: Math.round(next * 1000) / 1000, pieces: (same?.pieces ?? 0) + 1, model, threads, at: new Date().toISOString() }
   db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(SPEED_KEY, JSON.stringify(stored))
   return { secPerSec: stored.secPerSec, measured: true }
@@ -127,13 +142,17 @@ export function localPiecesThatFit(budgetMs: number, secPerSec: number, pieceSec
 }
 
 // ---------------- silence (16 kHz mono 16-bit WAV) ----------------
-/** 100 ms frames: a frame is sound when its RMS is above -50 dBFS (room tone and digital silence are below; quiet
- * speech peaks well above) */
+/** 100 ms frames: a frame is sound when its RMS is above -70 dBFS, i.e. anything but (near) digital silence: the gaps
+ * of a recording app, padding, a muted track. Quiet speech that whisper reads word for word peaks at -42 to -47 dBFS
+ * with an RMS around -56 (review of the branch: a fixed -50 took it for silence), so it is sound; room tone is too,
+ * and whisper.cpp decides there as before. */
 const VOICE_FRAME_SEC = 0.1
-const VOICE_RMS = 32768 * 10 ** (-50 / 20)
+const VOICE_RMS = 32768 * 10 ** (-70 / 20)
 /** less sound than this in a piece: it is silence, and whisper.cpp is not run on it (it invents lines over silence and
  * names a language for them, QA L2) */
 export const MIN_VOICED_SEC = 0.3
+/** lines over silence are dropped only in a piece with at least this much sound (one that clearly has some) */
+const CLEAR_SOUND_SEC = 1
 /** a piece with less sound than this gets the team's language as a hint: whisper's own guess on a few seconds is often
  * wrong ("la" for 5 s of Korean, QA) */
 export const SHORT_SPEECH_SEC = 8
@@ -161,7 +180,7 @@ export function voiceOf(wav: Uint8Array): Voice {
 }
 /** Whether there is sound near [start, end] seconds of a piece (whisper's times are off by up to about half a second). */
 export function soundNear(v: Voice, start: number, end: number): boolean {
-  if (!v.frames.length) return true
+  if (!v.frames.length || v.voiced < CLEAR_SOUND_SEC) return true
   const a = Math.max(0, Math.floor((start - 0.5) / VOICE_FRAME_SEC)), z = Math.min(v.frames.length - 1, Math.ceil((end + 0.5) / VOICE_FRAME_SEC))
   for (let i = a; i <= z; i++) if (v.frames[i]) return true
   return false
@@ -465,7 +484,9 @@ export function cleanMediaWork(base: string): number {
 
 // ---------------- the transcript cache ----------------
 export interface Segment { start: number; end: number; text: string }
-export interface Piece { segments: Segment[]; language: string | null }
+/** `language`: the language heard (the provider's own guess); `hint`: the language it was told instead (the team's,
+ * for a piece with little speech), never reported as heard */
+export interface Piece { segments: Segment[]; language: string | null; hint?: string }
 
 /**
  * Transcripts by content: `<data>/mediacache/<key>.json` (0700 folder, 0600 files), the key a sha256 of the file's
@@ -475,8 +496,9 @@ export interface Piece { segments: Segment[]; language: string | null }
  */
 export class TranscriptCache {
   constructor(readonly dir: string, readonly maxBytes = 200 * 1024 ** 2, readonly maxAgeMs = 30 * 86_400_000) {}
+  /** v2: what the QA build's -50 dBFS gate kept as silence (quiet speech) is not used again */
   static key(p: { file: string; provider: string; model: string; piece: number; pieceSec: number }): string {
-    return crypto.createHash('sha256').update(JSON.stringify(['transcript-v1', p.file, p.provider, p.model, p.pieceSec, p.piece])).digest('hex')
+    return crypto.createHash('sha256').update(JSON.stringify(['transcript-v2', p.file, p.provider, p.model, p.pieceSec, p.piece])).digest('hex')
   }
   private file(key: string) {
     if (!/^[0-9a-f]{64}$/.test(key)) throw new Error('bad cache key')
@@ -490,7 +512,7 @@ export class TranscriptCache {
       if (!Array.isArray(j.segments)) return null
       const now = new Date()
       try { fs.utimesSync(this.file(key), now, now) } catch { /* fine */ }
-      return { language: typeof j.language === 'string' ? j.language : null, segments: j.segments.filter((s) => typeof s?.start === 'number' && typeof s?.end === 'number' && typeof s?.text === 'string') }
+      return { language: typeof j.language === 'string' ? j.language : null, ...(typeof j.hint === 'string' ? { hint: j.hint } : {}), segments: j.segments.filter((s) => typeof s?.start === 'number' && typeof s?.end === 'number' && typeof s?.text === 'string') }
     } catch { return null }
   }
   set(key: string, piece: Piece) {
@@ -524,12 +546,14 @@ export class TranscriptCache {
 
 /** A provider's answer for one piece -> the piece's segments in file time (whisper's music / blank markers dropped, and
  * lines whose time holds no sound at all: whisper invents them over silence). The language only when a line is left. */
-export function pieceOf(r: TranscribeResult, offset: number, length: number, voice?: Voice): Piece {
+export function pieceOf(r: TranscribeResult, offset: number, length: number, voice?: Voice, hint?: string): Piece {
   const raw = r.segments?.length ? r.segments : r.text ? [{ start: 0, end: length, text: r.text }] : []
   const segments = raw
     .filter((s) => !voice || soundNear(voice, Math.max(0, s.start), Math.min(Math.max(s.end, s.start), length)))
     .map((s) => ({ start: offset + Math.max(0, s.start), end: offset + Math.min(Math.max(s.end, s.start), length), text: s.text.replace(/\s+/g, ' ').trim() }))
     .filter((s) => s.text && !/^\[(BLANK_AUDIO|MUSIC|음악|music|silence)\]$/i.test(s.text))
+  // told the language: what comes back is the hint, not a guess
+  if (hint) return { segments, language: null, hint }
   return { segments, language: segments.length ? r.language : null }
 }
 /** a piece of silence: nothing sent, nothing said */

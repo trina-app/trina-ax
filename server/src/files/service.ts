@@ -38,7 +38,7 @@ import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { converterInputName, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { sendToOpenRouter } from '../jobs/openrouter-stt'
-import { pieceTurn } from '../jobs/whisper-turns'
+import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
 
@@ -731,10 +731,11 @@ export class FileService {
       const covered = cut ?? tr?.covered ?? null
       // "read on" only where another read does go on: the span of one read, a cut, a hosted server's 2 minutes, the time
       // of this call; not when the sound may not be transcribed at all (the note says why)
-      const goesOn = cut !== null || (tr !== null && (tr.stopped === null || tr.stopped === 'slow' || tr.stopped === 'connection' || tr.stopped === 'time'))
+      const later_ = (x: string | null) => x === 'slow' || x === 'connection' || x === 'voiceBusy'
+      const goesOn = cut !== null || (tr !== null && (tr.stopped === null || later_(tr.stopped) || tr.stopped === 'time'))
       if (tr && goesOn && covered !== null && covered < win.end - 0.5) {
         const next = Math.floor(covered)
-        tail.push(`The transcript covers ${media.clock(tr.from)}–${media.clock(covered)} of ${media.clock(win.start)}–${media.clock(win.end)}. To read on: time: "${media.timeArg(next)}-${media.timeArg(Math.min(win.end, next + media.TRANSCRIPT_SPAN_ALONE))}", frames: 0${tr.stopped === 'slow' || tr.stopped === 'connection' ? ' (in another call)' : ''}.`)
+        tail.push(`The transcript covers ${media.clock(tr.from)}–${media.clock(covered)} of ${media.clock(win.start)}–${media.clock(win.end)}. To read on: time: "${media.timeArg(next)}-${media.timeArg(Math.min(win.end, next + media.TRANSCRIPT_SPAN_ALONE))}", frames: 0${later_(tr.stopped) ? ' (in another call)' : ''}.`)
       }
       if (tail.length) { text(''); text(tail.join('\n')) }
 
@@ -824,7 +825,7 @@ export class FileService {
     const segments: media.Segment[] = []
     const pieces: media.Piece[] = []
     const notes: string[] = []
-    let covered = w.from, made = 0, sentSec = 0, newSec = 0, cached = 0, silent = 0
+    let covered = w.from, made = 0, sentSec = 0, newSec = 0, cached = 0, silent = 0, probed = false
     let stopped: string | null = null
     let failure: string | null = null
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
@@ -842,7 +843,11 @@ export class FileService {
           // a piece needs its sound cut and an answer: not started without time for both (a piece cut off by the deadline
           // is lost, and OpenRouter may bill it anyway; the ones before it stay cached). This server: at the speed it
           // measured on itself (files/media.ts localSpeed), checked again before every piece
-          const need = provider === 'local' ? media.localPieceNeedsMs(media.localSpeed(this.db, model, this.speech.threads).secPerSec, len) : media.openRouterPieceNeedsMs(len)
+          let need = provider === 'local' ? media.localPieceNeedsMs(media.localSpeed(this.db, model, this.speech.threads).secPerSec, len) : media.openRouterPieceNeedsMs(len)
+          // a measured speed that lets no piece start (an outlier run, a slower day) would never be measured again: the
+          // first new piece of a read still starts when the time holds it at the default speed (review of the branch)
+          const probe = provider === 'local' && made === 0 && !probed && budget() < need && budget() >= media.localPieceNeedsMs(media.LOCAL_SPEED_DEFAULT, len)
+          if (probe) { probed = true; need = media.localPieceNeedsMs(media.LOCAL_SPEED_DEFAULT, len) }
           if (budget() < need) { stopped = ctx.turnId ? 'time' : 'connection'; break }
           // right before new sound is cut and sent, as things are now (a read runs for minutes): the switch and the
           // provider, the chat's confidentiality (a safe workflow may lock it meanwhile), the person's access to the file
@@ -860,11 +865,11 @@ export class FileService {
               newSec += len
               sentSec += len
               const answer = speech.provider === 'local'
-                ? await this.localPiece(ctx, speech, work, wav, bytes, len, language, budget)
+                ? await this.localPiece(ctx, speech, work, wav, bytes, len, language, budget, need)
                 : await this.mediaTranscribe(speech, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language })
-              // whisper.cpp had no time for it after all (or voice input kept it busy): not made, nothing handed over
-              if (answer === 'time') { sentSec -= len; stopped = 'time'; break }
-              piece = media.pieceOf(answer, start, len, voice)
+              // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over
+              if (answer === 'time' || answer === 'voiceBusy') { sentSec -= len; stopped = answer; break }
+              piece = media.pieceOf(answer, start, len, voice, language)
               made++
             }
             // the cache is a saving, not a requirement (a full disk must not lose the transcript just made)
@@ -900,6 +905,7 @@ export class FileService {
     }
     if (stopped === 'slow') notes.push(say('slow', { min: Math.round(media.HOSTED_LOCAL_NEW_SEC / 60) }))
     else if (stopped === 'connection') notes.push(say('connection'))
+    else if (stopped === 'voiceBusy') notes.push(say('voiceBusy'))
     // how far it got, and that reading again goes on from there (the pieces made are kept)
     else if (stopped === 'time') notes.push(covered > w.from ? say('timeUp', { from: media.clock(w.from), to: media.clock(covered) }) : say('timeNone'))
     else if (stopped && stopped !== 'failed') notes.push(say(stopped as MediaTextKey))
@@ -908,12 +914,13 @@ export class FileService {
   }
 
   /** One piece through whisper.cpp in its turn (jobs/whisper-turns.ts: voice input goes first, and a piece running when
-   * it comes starts again after it), timed for this server's speed. 'time': no time left for it, also when voice input
-   * kept whisper.cpp busy for the rest of the read. */
-  private async localPiece(ctx: ToolCtx, speech: MediaSpeech, work: string, wav: string, bytes: Buffer, len: number, language: string | undefined, budget: () => number): Promise<TranscribeResult | 'time'> {
+   * it comes starts again after it), timed for this server's speed. `needMs`: what the read planned for it (the
+   * measured speed, or the default for a read's probe piece); after a wait for voice input it is checked again.
+   * 'time': no time left for it; 'voiceBusy': voice input kept whisper.cpp longer than PIECE_WAIT_MS. */
+  private async localPiece(ctx: ToolCtx, speech: MediaSpeech, work: string, wav: string, bytes: Buffer, len: number, language: string | undefined, budget: () => number, needMs: number): Promise<TranscribeResult | 'time' | 'voiceBusy'> {
     const model = media.localModelName(this.speech.model), threads = this.speech.threads
-    for (;;) {
-      const need = media.localPieceNeedsMs(media.localSpeed(this.db, model, threads).secPerSec, len)
+    for (let first = true; ; first = false) {
+      const need = first ? needMs : Math.min(needMs, media.localPieceNeedsMs(media.localSpeed(this.db, model, threads).secPerSec, len))
       if (budget() < need) return 'time'
       let ran = 0
       const got = await pieceTurn(async (yieldSignal) => {
@@ -925,9 +932,9 @@ export class FileService {
           if (e instanceof JobFailure && e.reason === 'timeout') media.recordLocalSpeed(this.db, model, threads, media.now() - t0, len, true)
           throw e
         } finally { ran = media.now() - t0 }
-      }, { signal: ctx.signal, waitMs: budget() - need })
+      }, { signal: ctx.signal, waitMs: Math.min(pieceWait(), budget() - need) })
       if (got.ok) { media.recordLocalSpeed(this.db, model, threads, ran, len); return got.value }
-      if (got.why === 'busy') return 'time'
+      if (got.why === 'busy') return 'voiceBusy'
     }
   }
 

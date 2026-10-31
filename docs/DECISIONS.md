@@ -4362,11 +4362,17 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     sound again.
   - **Measured local pieces.** 30-second pieces (cache key per piece length, so the 2-minute ones of the QA build are
     simply not reused; OpenRouter keeps 10 minutes). The speed is seconds of whisper.cpp work per second of sound, kept
-    for the server in the `settings` row `media.localSpeed` (per model and thread count), a moving average (weight 0.3,
-    the first measurement replaces the default) after every piece and every voice input job; a run stopped by its time
-    counts as at least that long. Before measuring: 2.5 s a second (on the slow side). A piece costs at least a whole
-    30 s window, plus 5 s, times 1.2 (`localPieceNeedsMs`); a piece starts only when that fits in the time left, and
-    the plan is checked again with the new speed before each piece. A piece stopped by the read's time is "time", not
+    for the server in the `settings` row `media.localSpeed` (per model and thread count), a moving average after every
+    piece and every voice input job. Before measuring: 2.5 s a second (on the slow side). No single run may poison it
+    (review of the branch: one 5.6 s dictation that took 300 s, or one read piece cut off at 200 s, made every later
+    read plan no piece at all): a sample counts at most half or twice the value it meets, weighted by its length
+    (0.3 for a 30 s piece, a sixth of that for a 5 s dictation); a clip under 10 s is never the first measurement; a
+    run stopped by its time counts only when that is slower than the value; the value stays within 0.05-6 s a second
+    (`LOCAL_SPEED_MAX`, also when read back). And a read whose measured speed lets no piece start still starts its
+    first new piece when the time holds one at the default speed, so a wrong value is measured again and comes down.
+    A piece costs at least a whole 30 s window, plus 5 s, times 1.2 (`localPieceNeedsMs`); a piece starts only when
+    that fits in the time left, and the plan is checked again with the new speed before each piece. A piece stopped by
+    the read's time is "time", not
     "failed": the note says how far the transcript got and that reading again goes on from there (the pieces made are
     kept), or, with none made, that reading again with `frames: 0` leaves more time.
   - **Threads.** whisper.cpp gets 2 threads on a 2-core box (one core less than the budget elsewhere, at most 4;
@@ -4379,16 +4385,26 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     per read" on a self-installed one).
   - **Voice input first** (`jobs/whisper-turns.ts`). One whisper.cpp at a time: a voice input job marks itself at
     once, stops a video piece that is running (it yields and is made again after, if the read's time allows) and runs
-    alone; a video piece does not start while a dictation waits or runs. Chosen over a larger memory limit for
+    alone; a video piece does not start while a dictation waits or runs, and the turn is taken in the same step that
+    finds it free (review of the branch: a piece and a dictation that came in the same tick both ran). A piece waits
+    for voice input at most 45 s (`PIECE_WAIT_MS`; an uploaded hour of recording is a voice input job too and must not
+    hold the read and the server's one media slot for its whole time): then the read says voice input is using the
+    transcription now and that reading again in a moment goes on. A run that finished as voice input came keeps its
+    answer (whisperFile throws 'aborted' only for a run it killed). Chosen over a larger memory limit for
     whisper: one whisper.cpp small run is 767 MB RSS for a 30 s piece and 868 MB for 2 minutes (measured, Debian 13,
     2 CPUs), under the converter cgroup's `memory.high` of 821 MiB on a 4 GB box when alone, and two together do not fit
     any limit that box can give while also sharing its 2 vCPUs. A separate cgroup would also need a root-side change.
-  - **Silence.** The WAV of a piece is checked before it is sent (100 ms frames above -50 dBFS): under 0.3 s of sound
-    it is silence, cached as such, never sent; lines whose time holds no sound are dropped (whisper invents them over
-    silence). Each piece keeps its language and the header names the languages by how long they are spoken
+  - **Silence.** The WAV of a piece is checked before it is sent, in 100 ms frames: a frame is sound above -70 dBFS
+    RMS, so only (near) digital silence counts as silence: recording gaps, padding, a muted track. Under 0.3 s of sound
+    a piece is silence, cached as such, never sent. In a piece with at least 1 s of sound, lines whose time holds none
+    are dropped (whisper invents them over silence). The first build used -50 dBFS (review of the branch): quiet speech
+    that whisper small reads word for word (a recording peaking at -42 dBFS, mean -56) measured 0.0 s of sound, was
+    cached as silence for 30 days, and next to one loud word two of its three lines were dropped; the cache key is
+    `transcript-v2`, so nothing kept by that build is used. Room tone is sound now, and whisper.cpp decides there as
+    before the change. Each piece keeps its language and the header names the languages by how long they are spoken
     (`transcriptLanguages`), never from a silent piece. A piece with under 8 s of sound gets the team's language as a
-    hint (whisper's guess on a few seconds is often wrong); longer ones are detected, so an English video in a Korean
-    team stays English.
+    hint (whisper's guess on a few seconds is often wrong); that piece keeps the hint apart (`Piece.hint`) and is not
+    counted as the language heard. Longer pieces are detected, so an English video in a Korean team stays English.
   - **The window** keeps a sentence that began just before it (`end > from && start < to`).
   - **Settings form.** Picking another provider in the form shows that provider's default; picking the saved one
     again brings the saved choice back. Only a save that changes the provider resets it (`transcriptsAfterProvider`).

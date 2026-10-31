@@ -4,9 +4,12 @@
 // piece. A person waits at the mic; a video read can go on later. So:
 // - a voice input job (local speech provider) marks itself at once, stops a video piece that is running (it yields:
 //   whisper.cpp is killed, the read starts that piece again after, when its time allows) and runs alone;
-// - a video piece does not start while a dictation waits or runs.
-// Voice input jobs are one at a time already (jobs/service.ts SINGLE 'transcribe') and video reads too (files/media.ts
-// mediaSlot), so at most one of each waits here. OpenRouter uses no CPU here and takes no turn.
+// - a video piece does not start while a dictation waits or runs, and waits for one at most PIECE_WAIT_MS (a long
+//   voice input job, an uploaded hour of recording, must not hold the read and the server's one media slot).
+// The turn is taken in the same step that finds it free (never one await later), so a piece and a dictation that come
+// in the same tick cannot both run. Voice input jobs are one at a time already (jobs/service.ts SINGLE 'transcribe')
+// and video reads too (files/media.ts mediaSlot), so at most one of each waits here. OpenRouter uses no CPU here and
+// takes no turn.
 
 let dictations = 0
 let dictating = false
@@ -14,14 +17,22 @@ let piece: AbortController | null = null
 const waiters = new Set<() => void>()
 const wake = () => { for (const w of [...waiters]) w() }
 
-/** Resolves true once `ready()` holds, false after `ms`; rejects with the reason when `signal` fires. */
-function until(ready: () => boolean, signal: AbortSignal | undefined, ms: number): Promise<boolean> {
+/** the longest a video piece waits for voice input before the read goes on without it */
+export const PIECE_WAIT_MS = 45_000
+let pieceWaitMs = PIECE_WAIT_MS
+/** tests: a shorter wait (null: back to PIECE_WAIT_MS) */
+export function setPieceWaitForTests(ms: number | null) { pieceWaitMs = ms ?? PIECE_WAIT_MS }
+export const pieceWait = () => pieceWaitMs
+
+/** Takes the turn with `take()` in the same step that sees `free()` (true), else false after `ms`; rejects with the
+ * reason when `signal` fires. */
+function acquire(free: () => boolean, take: () => void, signal: AbortSignal | undefined, ms: number): Promise<boolean> {
   signal?.throwIfAborted()
-  if (ready()) return Promise.resolve(true)
+  if (free()) { take(); return Promise.resolve(true) }
   if (ms <= 0) return Promise.resolve(false)
   return new Promise<boolean>((resolve, reject) => {
     const done = () => { waiters.delete(check); clearTimeout(timer); signal?.removeEventListener('abort', onAbort) }
-    const check = () => { if (ready()) { done(); resolve(true) } }
+    const check = () => { if (free()) { take(); done(); resolve(true) } }
     const onAbort = () => { done(); reject(signal!.reason) }
     const timer = setTimeout(() => { done(); resolve(false) }, Math.min(ms, 2 ** 31 - 1))
     waiters.add(check)
@@ -34,8 +45,7 @@ export async function dictationTurn<T>(f: () => Promise<T>, signal?: AbortSignal
   dictations++
   try {
     piece?.abort(new Error('voice input goes first'))
-    await until(() => piece === null && !dictating, signal, Infinity)
-    dictating = true
+    await acquire(() => piece === null && !dictating, () => { dictating = true }, signal, Infinity)
     try { return await f() } finally { dictating = false; wake() }
   } finally { dictations--; wake() }
 }
@@ -44,15 +54,15 @@ export type PieceTurn<T> = { ok: true; value: T } | { ok: false; why: 'busy' | '
 
 /**
  * A video read's whisper.cpp piece: waits while voice input waits or runs (at most `waitMs`, then 'busy'), and `run`
- * gets a signal that fires when voice input comes meanwhile ('yielded' when `run` then fails: start it again later).
- * Stop (`signal`) throws.
+ * gets a signal that fires when voice input comes meanwhile ('yielded' when `run` then fails, or before it starts:
+ * start it again later). A run that finished keeps its answer. Stop (`signal`) throws.
  */
 export async function pieceTurn<T>(run: (yieldSignal: AbortSignal) => Promise<T>, o: { signal?: AbortSignal; waitMs: number }): Promise<PieceTurn<T>> {
-  if (!(await until(() => dictations === 0 && piece === null, o.signal, o.waitMs))) return { ok: false, why: 'busy' }
   const ac = new AbortController()
-  piece = ac
+  if (!(await acquire(() => dictations === 0 && piece === null && !dictating, () => { piece = ac }, o.signal, o.waitMs))) return { ok: false, why: 'busy' }
   try {
-    // a run that finished just as voice input came keeps its answer
+    // voice input came between taking the turn and starting
+    if (ac.signal.aborted) return { ok: false, why: 'yielded' }
     return { ok: true, value: await run(ac.signal) }
   } catch (e) {
     if (ac.signal.aborted && !o.signal?.aborted) return { ok: false, why: 'yielded' }

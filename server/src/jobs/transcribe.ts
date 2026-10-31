@@ -197,7 +197,7 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
 }
 
 /** whisper.cpp (isolated) on `audio`, a file in the work folder `work` that the server made; `model` from ensureModel /
- * modelReady. Throws a JobFailure (localized, `reason` 'timeout', 'memory', 'exit N' …) when it fails; 'aborted' when
+ * modelReady. Throws a JobFailure (localized, `reason` 'timeout', 'memory', 'exit N' …) when it fails; 'aborted' when it was killed because
  * `signal` fired. Its CPU limit counts all `cfg.threads` threads (system/cgroups.ts cgexecPrefix). */
 export async function whisperFile(cfg: TranscribeConfig, model: string, work: string, audio: string,
   o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void }): Promise<TranscribeResult> {
@@ -213,7 +213,8 @@ export async function whisperFile(cfg: TranscribeConfig, model: string, work: st
       if (last) o.onProgress?.(Number(last[1]) / 100)
     },
   })
-  if (o.signal?.aborted) throw new Error('aborted')
+  // stopped (Stop, or voice input taking the turn): only a run that was killed for it; one that finished keeps its answer
+  if (r.killed === 'aborted') throw new Error('aborted')
   // read without following a link (tools/isolate.ts readOutput): whisper could leave one in place of out.json
   const out = r.code === 0 ? readOutput(work, 'out.json', WHISPER_JSON_MAX) : null
   if (!out?.ok) {

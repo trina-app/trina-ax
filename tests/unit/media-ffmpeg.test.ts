@@ -66,6 +66,24 @@ T('the WAV of a piece, as ffmpeg writes it (a LIST chunk before the data): silen
       expect(media.voiceOf(quiet).voiced).toBeLessThan(media.MIN_VOICED_SEC)
     } finally { media.dropWork(w) }
   })
+  // review of the branch: a quiet recording of speech (peak -42 dBFS, mean about -56) is sound, though a fixed -50 dBFS
+  // RMS gate measured 0.0 s in it; whisper.cpp small reads it word for word
+  test('quiet speech (macOS say, peak -42 dBFS) is sound', async () => {
+    const say = which('say')
+    if (!say) { console.log('no say here: quiet speech not tested'); return }
+    const aiff = path.join(dir, 'quiet.aiff')
+    if (Bun.spawnSync([say, '-v', 'Samantha', '-o', aiff, 'The quarterly numbers are in the shared folder, please read them before the meeting.']).exitCode !== 0) return
+    const loud = make('loud-speech.m4a', ['-i', aiff, '-c:a', 'aac'])
+    if (!loud) return
+    const peak = Number(/max_volume: (-?[\d.]+) dB/.exec(Bun.spawnSync([ffmpeg!, '-nostdin', '-i', loud, '-af', 'volumedetect', '-f', 'null', '-']).stderr.toString())?.[1] ?? NaN)
+    const f = make('quiet-speech.m4a', ['-i', aiff, '-af', `volume=${(-42 - peak).toFixed(1)}dB`, '-c:a', 'aac'])
+    if (!f || !Number.isFinite(peak)) return
+    const { w, name } = work(f)
+    try {
+      const bytes = await media.audioWav(tools!, w, name, 0, 0, 8, 'q.wav', { inputBytes: fs.statSync(f).size })
+      expect(media.voiceOf(bytes).voiced).toBeGreaterThan(2)
+    } finally { media.dropWork(w) }
+  })
 })
 
 T('every listed format opens with the allow-lists: probe, a frame, the sound', () => {
