@@ -59,12 +59,19 @@ export function renderMetrics(s: MetricsSource): string {
     ['relay_http_requests_total', { outcome: 'unknown' }, c('httpUnknown')],
     ['relay_http_requests_total', { outcome: 'maintenance' }, c('httpMaintenance')],
     ['relay_http_requests_total', { outcome: 'redirect' }, c('httpRedirect')],
+    ['relay_http_requests_total', { outcome: 'waking' }, c('httpWaking')],
   ])
   metric('relay_ws_total', 'counter', 'Visitor WebSocket upgrades by outcome.', [
     ['relay_ws_total', { outcome: 'proxied' }, c('ws')],
     ['relay_ws_total', { outcome: 'offline' }, c('wsOffline')],
     ['relay_ws_total', { outcome: 'suspended' }, c('wsSuspended')],
     ['relay_ws_total', { outcome: 'unknown' }, c('wsUnknown')],
+    ['relay_ws_total', { outcome: 'waking' }, c('wsWaking')],
+  ])
+  metric('relay_wake_requests_total', 'counter', 'Wake requests to the control plane (F2 sleep) by outcome.', [
+    ['relay_wake_requests_total', { outcome: 'sent' }, c('wakeRequests')],
+    ['relay_wake_requests_total', { outcome: 'error' }, c('wakeErrors')],
+    ['relay_wake_requests_total', { outcome: 'limited' }, c('wakeLimited')],
   ])
   metric('relay_bytes_total', 'counter', 'Bytes relayed (in = from visitors, out = to visitors).', [['relay_bytes_total', { dir: 'in' }, c('bytesIn')], ['relay_bytes_total', { dir: 'out' }, c('bytesOut')]])
   metric('relay_registrations_total', 'counter', 'Team addresses registered by kind.', [

@@ -77,6 +77,9 @@ export interface RelayConfig {
   operatorKeysFile: string | null
   /** Strict-Transport-Security on team responses that have none (only for https team addresses) */
   hsts: boolean
+  /** F2 sleep: where the relay asks the control plane to wake a sleeping hosted team (RELAY_WAKE_URL, the CP base
+   * URL; POST <url>/relay/v1/wake). null = off: a sleeping team gets the offline page as before. */
+  wake: { url: string; keyFile: string; keyId: string; holdMs: number; pageMs: number } | null
 }
 
 /** "host:port", "[v6]:port" or ":port" (all addresses) */
@@ -162,7 +165,23 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     healthListen: parseListen(get('health-listen', 'RELAY_HEALTH_LISTEN'), 'RELAY_HEALTH_LISTEN'),
     operatorKeysFile: (() => { const f = get('operator-keys', 'RELAY_OPERATOR_KEYS_FILE'); return f ? path.resolve(f) : null })(),
     hsts: flag01(env.RELAY_HSTS, true) && publicProto === 'https',
+    wake: wakeConfig(env),
   }
+}
+
+/** RELAY_WAKE_URL + RELAY_WAKE_KEY_FILE (Ed25519 private key, PEM PKCS#8) + RELAY_WAKE_KEY_ID; hold times in ms. */
+function wakeConfig(env: Record<string, string | undefined>): RelayConfig['wake'] {
+  const url = env.RELAY_WAKE_URL?.trim()
+  if (!url || url === 'none') return null
+  let u: URL
+  try { u = new URL(url) } catch { throw new Error(`RELAY_WAKE_URL is not a URL: ${url}`) }
+  // http only to loopback or a Tailscale address (100.64.0.0/10): the request is signed, and it carries a team id only
+  const tailnet = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(u.hostname)
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && (tailnet || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)))) throw new Error('RELAY_WAKE_URL must be https (http only for loopback or a Tailscale address)')
+  const keyFile = env.RELAY_WAKE_KEY_FILE, keyId = env.RELAY_WAKE_KEY_ID
+  if (!keyFile || !keyId) throw new Error('RELAY_WAKE_URL needs RELAY_WAKE_KEY_FILE and RELAY_WAKE_KEY_ID')
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(keyId)) throw new Error('RELAY_WAKE_KEY_ID: 1-64 of A-Z a-z 0-9 . _ -')
+  return { url: url.replace(/\/+$/, ''), keyFile: path.resolve(keyFile), keyId, holdMs: num(env.RELAY_WAKE_HOLD_MS, 20_000), pageMs: num(env.RELAY_WAKE_PAGE_MS, 2500) }
 }
 
 /** Public address of a team, e.g. https://acme.treesoop.com or http://acme.localhost:19161 (`domain`: one of the

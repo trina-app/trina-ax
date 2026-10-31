@@ -16,6 +16,8 @@ export type PageKind =
   | 'team_maintenance'
   /** a hosted (cloud) team (origin cloud) is offline: no "check the server Mac" advice */
   | 'team_offline_cloud'
+  /** F2: the hosted team's VM sleeps and the control plane wakes it now; the page reloads the same address */
+  | 'team_waking'
 type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es'
 
 /** Name of the cookie the web app writes with the language on screen (web/src/i18n/index.ts). */
@@ -110,6 +112,11 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     en: { title: "The team server can't be reached right now", body: 'Reload this page in a moment. Service status: %STATUS%' },
     id: { title: 'Server tim sedang tidak dapat dijangkau', body: 'Muat ulang halaman ini sebentar lagi. Status layanan: %STATUS%' }, ja: { title: "現在チームサーバーに接続できません", body: "しばらくしてからこのページを再読み込みしてください。サービス稼働状況：%STATUS%" }, es: { title: "No se puede conectar con el servidor del equipo ahora", body: "Recargue esta página en un momento. Estado del servicio: %STATUS%" },
   },
+  team_waking: {
+    ko: { title: '팀을 깨우고 있어요…', body: '오랫동안 쓰지 않아서 팀 서버가 쉬고 있었어요. 몇 초 뒤 이 페이지가 저절로 다시 열려요.' },
+    en: { title: 'Waking up your team…', body: 'The team server was asleep because no one used it for a while. This page opens again by itself in a few seconds.' },
+    id: { title: 'Membangunkan tim Anda…', body: 'Server tim sedang tidur karena tidak dipakai beberapa waktu. Halaman ini terbuka lagi dengan sendirinya dalam beberapa detik.' }, ja: { title: "チームを起動しています…", body: "しばらく使われていなかったため、チームサーバーは休止していました。数秒後にこのページは自動で再度開きます。" }, es: { title: "Despertando a su equipo…", body: "El servidor del equipo estaba en reposo porque nadie lo usó durante un tiempo. Esta página se abrirá de nuevo sola en unos segundos." },
+  },
 }
 
 /** Hosts the cloud pages point to (RELAY_ACCOUNT_HOST / RELAY_STATUS_HOST). */
@@ -131,14 +138,16 @@ export function pageBody(kind: PageKind, lang: Lang, links: PageLinks = DEFAULT_
 export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null = null, links: PageLinks = DEFAULT_PAGE_LINKS): string {
   const t = { title: TEXT[kind][lang].title, body: pageBody(kind, lang, links) }
   const title = pageMessage(kind, lang, offlineForMs)
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(t.title)}</title>
+  // team_waking: reload the same address (path and query, e.g. an OAuth callback's code) without echoing it in the page
+  const reload = kind === 'team_waking' ? `<meta http-equiv="refresh" content="${PAGE_RETRY_AFTER.team_waking}">` : ''
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${reload}<title>${esc(t.title)}</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}}</style></head>
 <body><main><h1>${esc(title)}</h1><p>${esc(t.body)}</p></main></body></html>`
 }
 
 export const PAGE_STATUS: Record<PageKind, number> = {
   team_offline: 503, team_unknown: 404, team_suspended: 403, team_busy: 503, team_timeout: 504, team_connection_lost: 502, bad_gateway: 502, not_found: 404,
-  bad_request: 400, request_timeout: 408, team_suspended_billing: 403, team_maintenance: 503, team_offline_cloud: 503,
+  bad_request: 400, request_timeout: 408, team_suspended_billing: 403, team_maintenance: 503, team_offline_cloud: 503, team_waking: 503,
 }
 /** Retry-After of the 503 pages: an update takes a minute or two */
-export const PAGE_RETRY_AFTER: Partial<Record<PageKind, number>> = { team_offline: 5, team_busy: 5, team_offline_cloud: 5, team_maintenance: 30 }
+export const PAGE_RETRY_AFTER: Partial<Record<PageKind, number>> = { team_offline: 5, team_busy: 5, team_offline_cloud: 5, team_maintenance: 30, team_waking: 3 }
