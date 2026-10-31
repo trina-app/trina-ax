@@ -3,7 +3,11 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## Unreleased
+## 0.2.14 — 2026-10-31
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.14).
+
+**Upgrade note:** no database migrations in this release (the schema reader level stays 4, and 0.2.13 still opens the database). One default changes: an answer may now use tools up to 150 times before it pauses (was 50); to keep the old limit, set Admin > Team settings > "Tool rounds per answer" to 50.
 
 - Chat: one answer may now use tools up to 150 times (was 50) before it pauses with "Continue"; tools the AI uses together count once, like Claude Code's turns. Admins can change it in Admin > Team settings ("Tool rounds per answer", 10–500, in all five languages). The 20-minute limit, budgets, each sub-agent's own 50 rounds and the API engine's 30 rounds stay as they were.
 - Chat: a new AI tool, edit_files, makes the same exact change in up to 50 files in one call (for example one status line in many notes) instead of one edit per file. Each file still gets its own access check, read-first rule, version history, conflict copy and confirmation card, and its own activity record; a file that cannot be changed is listed and does not stop the others. Not offered in confidential chats or through the remote MCP connector.
