@@ -112,7 +112,7 @@ export default function Files() {
   // dragging rows onto a folder: the rows of the drag under way (null: none, or a drag from elsewhere: another tab's
   // rows are not this listing's), the same paths for drawing (set a tick after the drag starts), the folder under the
   // pointer, and the access of the breadcrumbs' folders (asked when a drag starts; unknown: the server decides)
-  const dragged = useRef<{ items: FileEntry[]; selection: boolean } | null>(null)
+  const dragged = useRef<{ items: FileEntry[]; selection: boolean; data: string } | null>(null)
   const [dragPaths, setDragPaths] = useState<ReadonlySet<string> | null>(null)
   const [over, setOver] = useState<DropOver | null>(null)
   const crumbAccess = useRef(new Map<string, FileEntry['access']>())
@@ -464,8 +464,9 @@ export default function Files() {
     for (const [type, value] of payload.data) ev.dataTransfer.setData(type, value)
     ev.dataTransfer.effectAllowed = payload.effectAllowed
     // a file the person may only read: into a chat's message box only
-    if (!payload.data.some(([type]) => type === FILES_MOVE_DRAG_TYPE)) return
-    const drag = { items, selection: checked.has(row.path) }
+    const data = payload.data.find(([type]) => type === FILES_MOVE_DRAG_TYPE)?.[1]
+    if (data === undefined) return
+    const drag = { items, selection: checked.has(row.path), data }
     dragged.current = drag
     if (items.length > 1) dragBadge(ev.dataTransfer, t('files.drag.count', { n: items.length }))
     // a tick later (the DOM changed during dragstart can end the drag in Chromium): the dragged rows dim and the
@@ -544,7 +545,10 @@ export default function Files() {
         if (v.kind === 'upload') return startUploads(Array.from(ev.dataTransfer.files), target.path)
         const d = dragged.current
         endDrag()
-        if (d) void moveItems(d.items, target.path, d.selection)
+        // the rows moved are this screen's own (the ref), never paths read from the drop. The drop must also carry
+        // this drag's data: a drag from another tab or app with the same type is not taken, even when a drag from
+        // here was left without its dragend (the server checks every move in any case)
+        if (d && ev.dataTransfer.getData(FILES_MOVE_DRAG_TYPE) === d.data) void moveItems(d.items, target.path, d.selection)
       },
     }
   }

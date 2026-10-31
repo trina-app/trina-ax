@@ -8,7 +8,7 @@ The web app is the reference: `web/src/index.css`, `web/src/theme.edition.css`, 
 
 The web app is React with Tailwind CSS 4. There is no `tailwind.config` file: the theme is the `@theme` block in `web/src/index.css`, which maps every `--c-*` token to a Tailwind colour of the same name.
 
-1. **Colour only through tokens.** Use the token utilities (`bg-canvas`, `bg-surface`, `bg-subtle`, `hover:bg-hover`, `border-line`, `text-ink`, `text-muted`, `text-faint`, `text-accent-text`, `bg-accent text-accent-ink`, `bg-warn-soft text-warn`, …) in markup and `var(--c-…)` in CSS. They switch with the theme by themselves, so a screen needs no `dark:` variants and no hex values. Pick text-on-background pairs from [Contrast](#contrast).
+1. **Colour only through tokens.** Use the token utilities (`bg-canvas`, `bg-surface`, `bg-subtle`, `hover:bg-hover`, `border-line`, `border-field-border` (the edge of a text field), `text-ink`, `text-muted`, `text-faint`, `text-accent-text`, `bg-accent text-accent-ink`, `bg-warn-soft text-warn`, …) in markup and `var(--c-…)` in CSS. They switch with the theme by themselves, so a screen needs no `dark:` variants and no hex values. Pick text-on-background pairs from [Contrast](#contrast).
 2. **Start from the shell and the shared blocks.** Add the page as a route inside `<Route element={<Layout />}>` in `web/src/App.tsx`; the layout brings the sidebar, banners, side panel and phone top bar. Build the page from `web/src/components/ui.tsx` (`PageHeader`, `Button`, `IconButton`, `Field` with `inputCls`, `Badge`, `Tabs`, `Switch`, `Modal` and `confirmDialog`, `EmptyState`, `ErrorNote`, `Spinner`; `toast` from `web/src/store/ui.ts`) and `Card` from `web/src/pages/admin/common.tsx`. Do not recolour them with `className` (see Button under [Components](#components)).
 3. **Write every string in five locales.** Add the key to `web/src/i18n/ko.ts` (the key type comes from it) and to `en.ts`, `id.ts`, `ja.ts` and `es.ts`, following [Copy and languages](#copy-and-languages), then run `bun run check:i18n`.
 4. **Check it** in light and dark (Settings > Profile > Theme), below 640px and 768px wide, with the keyboard only, and against [Accessibility](#accessibility).
@@ -59,12 +59,13 @@ CSS variables `--c-<name>`; Tailwind colours of the same name (`bg-surface`, `te
 | `--c-surface` | `#ffffff` | `#171412` | Raised things: cards (admin Card, project cards), dialogs, menus, toasts, inputs, the side panel, the composer, secondary buttons. Same text tokens as c-canvas. |
 | `--c-subtle` | `#f6f2ea` | `#1d1916` | Quiet fills: the sidebar background, the user message bubble, the neutral badge, skeleton bars, table and card sub-headers, the ask-card header. c-faint on it is 5.2:1 (light) and 5.3:1 (dark). |
 | `--c-hover` | `#eee8dd` | `#26211d` | Hover fill for rows, nav items, ghost, secondary and icon buttons; also the ACTIVE sidebar and section-nav item (with font-medium). c-faint on it is the tightest text pair: 4.78:1 / 4.82:1. |
-| `--c-line` | `#e9e3d8` | `#2c2723` | Every 1px hairline: dividers, card and dialog borders, input and secondary-button borders at rest, table row rules. Decorative only: 1.28:1 on c-surface and 1.23:1 on c-canvas (light), 1.24:1 / 1.32:1 (dark), so a resting input is told apart by its fill and label, not its border (below the 3:1 non-text floor; kept as in the source). |
-| `--c-line-strong` | `#8c8378` | `#6f665d` | Borders that must be seen: a focused input (focus:border-line-strong), the switch track when off (at 60 %), the dashed link chip in answers (Markdown.tsx). 3.73:1 / 3.26:1 on c-surface, 3.60:1 / 3.47:1 on c-canvas. |
+| `--c-line` | `#e9e3d8` | `#2c2723` | Every 1px hairline: dividers, card and dialog borders, secondary-button borders at rest, table row rules. Decorative only: 1.28:1 on c-surface and 1.23:1 on c-canvas (light), 1.24:1 / 1.32:1 (dark). Not for the edge of a text field: use c-field-border. |
+| `--c-line-strong` | `#8c8378` | `#6f665d` | Borders that must be seen: the switch track when off (at 60 %), the dashed link chip in answers (Markdown.tsx) and the dashed queued message, the total row in Admin > Usage. 3.73:1 / 3.26:1 on c-surface, 3.60:1 / 3.47:1 on c-canvas. |
+| `--c-field-border` | `#8c8378` | `#776e64` | The edge of a text field at rest (`border-field-border`): `inputCls` (inputs, selects and text areas), the chat composer, the edit-message and queued-message forms, the file panel's text editor, the Files search box, the sign-in language select. At least 3:1 on c-canvas, c-surface and c-subtle: 3.60 / 3.73 / 3.34 (light), 3.90 / 3.67 / 3.49 (dark). Only for fields; cards and dividers keep c-line. In light it has the same value as c-line-strong. |
 | `--c-ink` | `#14110f` | `#f6f2ea` | Primary text and headings on c-canvas, c-surface, c-subtle and c-hover (15.4–18.8:1 light, 14.3–17.5:1 dark). As a FILL with c-canvas text: the selected tab and the stop button. |
 | `--c-muted` | `#514b45` | `#b3aaa0` | Secondary text: descriptions, inactive chat titles in the sidebar, ghost-button and icon-button labels at rest, table meta. 7.0–8.6:1 on every ground, both themes. |
 | `--c-faint` | `#6b645d` | `#958c82` | Tertiary text: hints, timestamps, placeholders, section headings in the sidebar, shortcut hints (kbd), decorative icons. At least 4.78:1 on c-canvas, c-surface, c-subtle and c-hover in both themes. |
-| `--c-accent` | `#e8521a` | `#ff6a33` | Signal Orange. Fills: the primary button, the account avatar, the skills-pending count, the switch when on, the running dot, the selected answer option border, the focus ring (outline 2px, 3.33–3.71:1 light, 6.1–6.8:1 dark). Text on it is c-accent-ink. Not for small text on c-accent-soft in light (3.33:1): the office-update and info notice banners do that today (flagged). |
+| `--c-accent` | `#e8521a` | `#ff6a33` | Signal Orange. Fills: the primary button, the account avatar, the skills-pending count, the switch when on, the running dot, the selected answer option border, the focus ring (outline 2px, 3.33–3.71:1 light, 6.1–6.8:1 dark) and a focused field's 2px edge. Text on it is c-accent-ink. Not for small text on c-accent-soft in light (3.33:1): the office-update and info notice banners do that today (flagged). |
 | `--c-accent-hover` | `#ff5b1f` | `#ff8352` | Hover fill of the primary button and the round send button. Text on it: c-accent-ink (6.06:1 / 7.72:1). |
 | `--c-accent-ink` | `#14110f` | `#14110f` | Text and icons on a c-accent or c-accent-hover fill (primary button label, avatar initial, send arrow): 5.06:1 light, 6.59:1 dark. The same warm black in both themes. |
 | `--c-accent-soft` | `#fdf0e8` | `#2b1a11` | Tint behind accent text: the accent badge, the assistant avatar, the artifact icon tile, a picked answer option, a team-file attachment chip, a selected file row (at 60 %), text selection (::selection), info banners. |
@@ -120,16 +121,19 @@ Measured with the WCAG 2 formula on the values above.
 | `canvas` on `ink` | Selected tab, stop button | 18.17 | 17.48 |
 | `code-ink` on `code-bg` | Code blocks | 16.84 | 17.82 |
 | `accent` on `canvas` | Focus ring (3:1) | 3.59 | 6.84 |
-| `accent` on `surface` | Focus ring (3:1) | 3.71 | 6.43 |
+| `accent` on `surface` | Focus ring; a focused field's 2px edge (3:1) | 3.71 | 6.43 |
 | `accent` on `subtle` | Focus ring in the sidebar (3:1) | 3.33 | 6.12 |
-| `line-strong` on `surface` | Focused input border (3:1) | 3.73 | 3.26 |
-| `line` on `surface` | Resting input border (3:1) | 1.28 **below** | 1.24 **below** |
+| `field-border` on `canvas` | Text field edge at rest (3:1) | 3.60 | 3.90 |
+| `field-border` on `surface` | Text field edge at rest, against its own fill (3:1) | 3.73 | 3.67 |
+| `field-border` on `subtle` | Text field edge in the sidebar or a sub-header (3:1) | 3.34 | 3.49 |
+| `line-strong` on `surface` | Switch track, dashed link chip (3:1) | 3.73 | 3.26 |
+| `line` on `surface` | Secondary button border, card edge (decorative) | 1.28 | 1.24 |
 | `line` on `canvas` | Hairline divider (decorative, no floor) | 1.23 | 1.32 |
 
 Pairs below the floor, kept as the source has them (fix in a separate change):
 
 - `text-accent` on `bg-accent-soft`, light theme: **3.33:1** for 12px text (`OfficeUpdateBanner.tsx`, info notices in `ManagedNoticesBanner.tsx`). `text-accent-text` on `bg-accent-soft` is 5.21:1.
-- `--c-line` borders: 1.23–1.32:1 against `--c-canvas` and `--c-surface` in both themes. Decorative hairlines are fine; resting input and secondary-button borders are below the 3:1 non-text floor, so those controls rely on their label and fill.
+- `--c-line` borders: 1.23–1.32:1 against `--c-canvas` and `--c-surface` in both themes. Decorative hairlines are fine; secondary-button borders are below the 3:1 non-text floor, so those buttons rely on their label and fill. (Text fields no longer use it: their edge is `--c-field-border`.)
 - Switch (`ui.tsx`): the off track (`--c-line-strong` at 60 %) is about 2.0:1 against `--c-surface`; the white knob on the dark accent is 2.85:1.
 - Danger button border (`--c-danger` at 40 %): 2.05:1 (light), 2.30:1 (dark); the label carries the meaning.
 
@@ -250,7 +254,7 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 | --- | --- | --- |
 | Button | `ui.tsx` `Button` | Variants `primary` (`bg-accent text-accent-ink hover:bg-accent-hover`), `secondary` default (`border border-line bg-surface text-ink hover:bg-hover`), `ghost` (`text-muted hover:bg-hover hover:text-ink`), `danger` (`border border-danger/40 bg-surface text-danger hover:bg-danger-soft`); base `inline-flex items-center justify-center gap-1.5 rounded-lg font-medium`; `md` `h-9 px-3.5 text-sm max-sm:min-h-10`, `sm` `h-8 px-2.5 text-[13px] max-sm:min-h-9`; `busy` shows Loader2 and sets `disabled` + `aria-busy`; disabled 50 %. One primary per view; dialog footers: ghost Cancel, then primary or danger. Do not recolour a variant with `className`: classes are not merged and `.text-muted` is emitted after `.text-danger`, so `variant="ghost" className="text-danger"` (AskCard's Deny) renders muted. |
 | IconButton | `ui.tsx` | `inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink disabled:opacity-40 max-sm:p-2`; `label` is required (aria-label + title). CopyButton: 12px `text-faint`, Check in `text-ok` + "Copied" for 1.5s. |
-| Input, select, textarea | `ui.tsx` `inputCls` | `h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none placeholder:text-faint focus:border-line-strong focus:ring-2 focus:ring-accent/25 disabled:opacity-60 max-sm:min-h-10`; textarea adds `h-auto min-h-16 resize-y py-2`. |
+| Input, select, textarea | `ui.tsx` `inputCls` | `h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-sm:min-h-10`; textarea adds `h-auto min-h-16 resize-y py-2`. A field framed by its form (edit-message and queued-message forms) puts the edge and focus on the form (`border-field-border`, `has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent`) and the text area inside takes `border-0 focus:ring-0!` (`!`: the input's own ring is emitted later and would win). |
 | Field | `ui.tsx` | Label 13px medium above (`mb-1.5`); hint 12px `text-faint`; error 12px `text-danger` with `role="alert"`, `aria-invalid`, `aria-describedby`. |
 | Switch | `ui.tsx` | A real checkbox (`peer sr-only`) and a 36×20 track: off `bg-line-strong/60`, on `bg-accent`, white 16px knob; focus outlines the track. For settings that apply at once. |
 | Checkbox, answer options | `pages/Files.tsx` `CheckBox`, `chat/AskCard.tsx` | Native inputs with `accent-[var(--c-accent)]`; options are rows `rounded-lg border px-3 py-2 text-sm`, picked `border-accent bg-accent-soft`. |
@@ -273,7 +277,7 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 | Steps (tool steps, sub-tasks) | `chat/Steps.tsx`, `shared/src/step-labels.ts` | Rows `text-[13px] text-muted`: status icon (Loader2, Check `text-ok`, CircleAlert `text-danger`, CirclePause, CircleStop, Info), kind icon `text-faint`, label, counts in 12px `text-faint`; paused and stopped are also written out. Live: last four steps; done: folded to "N steps". A sub-task is one row with "N tool uses · time" that opens its own steps under `ml-6 border-l border-line pl-3`; while running, its latest step shows beneath it. |
 | Ask card | `chat/AskCard.tsx` | `rounded-2xl border border-line`; header `bg-subtle px-4 py-2.5 text-sm font-semibold` with MessageCircleQuestion in `text-accent-text`; options, own-answer textarea, the no-secrets line; footer Skip (ghost) and Answer (primary). |
 | Confirmation cards | `chat/AskCard.tsx` (`origin: 'server'`, `browser_site`, `SkillPreview`, `Details`); `server/src/chat/turn.ts`, `server/src/integrations/connections/tools.ts`, `server/src/skills/text.ts`, `server/src/chat/schedule-review.ts` | Warn-framed (`border-warn/40`, header `bg-warn-soft text-warn` with ShieldAlert, or Globe for an address). Address: Allow once / Always allow / Deny. Connection: what the AI wants to do at which service, "Check everything it sends, and where it goes, below", a Details box with every character (fields, full text, long random-looking parts marked `bg-warn-soft text-warn`), Send / Don't send. Wider audience: what was read, where it goes, how many can see it, Save / Don't save. Team skill: the diff (added `bg-ok-soft text-ok`, removed `bg-danger-soft text-danger`). Schedule review: a task made without its card stays paused until checked. Only the card's own options count. |
-| Composer | `chat/Composer.tsx` | `rounded-3xl border border-line bg-surface shadow-[var(--c-shadow)]`, focus-within `border-line-strong ring-2 ring-accent/20`; 15px text; chips; attach (Paperclip 18px) and engine picker; round 36px (40px on phones) mic and send (`bg-accent text-accent-ink`, or `bg-subtle text-faint` disabled) or stop (`bg-ink text-canvas`). |
+| Composer | `chat/Composer.tsx` | `rounded-3xl border border-field-border bg-surface shadow-[var(--c-shadow)]`, focus-within `border-accent ring-1 ring-accent` (the 2px accent edge of every field), a file dragged over it `border-accent ring-2 ring-accent/30`; 15px text; chips; attach (Paperclip 18px) and engine picker; round 36px (40px on phones) mic and send (`bg-accent text-accent-ink`, or `bg-subtle text-faint` disabled) or stop (`bg-ink text-canvas`). |
 | Search dialog | `SearchDialog.tsx` | Top-aligned at 12vh, `max-w-xl rounded-2xl bg-surface shadow-2xl`, 48px borderless field, results as a listbox with the selected row `bg-hover`. |
 
 ## Iconography and logo
@@ -294,7 +298,8 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 
 ## Accessibility
 
-- Focus: `:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px }` everywhere (base layer). Framed fields show focus on the frame instead (`focus:border-line-strong focus:ring-2 focus:ring-accent/25`; the composer uses `focus-within`).
+- Focus: `:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px }` everywhere (base layer). Framed fields show focus on the frame instead: a 2px accent edge (`focus:border-accent focus:ring-1 focus:ring-accent`, the 1px border plus a 1px ring; at least 3:1, see Contrast). The composer and Files search use `focus-within`, the edit forms `has-[textarea:focus]`. Do not use a translucent glow (`ring-accent/25` was about 1.4:1).
+- Fields: the edge of every text field, select and text area at rest is `--c-field-border` (at least 3:1), never `--c-line`; it is thinner and a different colour from the focused edge. In the Trina light theme `--c-field-border` and `--c-accent` have the same luminance, so focus there is told by the colour and the 2px width, not by lightness.
 - Keyboard: Cmd/Ctrl+K search, Cmd/Ctrl+Shift+O new chat, Esc closes the top dialog, else the drawer, else the side panel. Dialogs trap Tab and return focus to their opener (`useFocusTrap`). A skip link is the first focusable element.
 - Screen readers: labels on icon-only controls; `role="alert"` for errors, `role="status"` for live status; toasts and the answer status line are polite live regions (`AnnounceProvider`); step states are written out.
 - Touch: 40px controls below 640px; 16px inputs on touch screens; row actions visible without hover.
@@ -315,6 +320,7 @@ Server-rendered pages without React (for example the hosting operators' console,
   --c-hover: #eee8dd;
   --c-line: #e9e3d8;
   --c-line-strong: #8c8378;
+  --c-field-border: #8c8378;
   --c-ink: #14110f;
   --c-muted: #514b45;
   --c-faint: #6b645d;
@@ -342,6 +348,7 @@ Server-rendered pages without React (for example the hosting operators' console,
   --c-hover: #26211d;
   --c-line: #2c2723;
   --c-line-strong: #6f665d;
+  --c-field-border: #776e64;
   --c-ink: #f6f2ea;
   --c-muted: #b3aaa0;
   --c-faint: #958c82;
@@ -400,8 +407,8 @@ Server-rendered pages without React (for example the hosting operators' console,
 .btn:hover { background: var(--c-hover) }
 .btn-primary { background: var(--c-accent); border-color: transparent; color: var(--c-accent-ink) }
 .btn-primary:hover { background: var(--c-accent-hover) }
-.input { height: 2.25rem; width: 100%; border-radius: 0.5rem; border: 1px solid var(--c-line); background: var(--c-surface); padding: 0 0.75rem; font-size: 14px; color: var(--c-ink) }
-.input:focus { outline: none; border-color: var(--c-line-strong); box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-accent) 25%, transparent) }
+.input { height: 2.25rem; width: 100%; border-radius: 0.5rem; border: 1px solid var(--c-field-border); background: var(--c-surface); padding: 0 0.75rem; font-size: 14px; color: var(--c-ink) }
+.input:focus { outline: none; border-color: var(--c-accent); box-shadow: 0 0 0 1px var(--c-accent) }
 @media (max-width: 767px) { .side { display: none } }
 ```
 
@@ -419,6 +426,7 @@ Below 768px add the 48px top bar with a menu button that opens the sidebar as a 
 | `--c-hover` | `#ebe8e1` | `#34322e` |
 | `--c-line` | `#e2ded5` | `#3b3934` |
 | `--c-line-strong` | `#8f887c` | `#8a8478` |
+| `--c-field-border` | `#8b8478` | `#7b766b` |
 | `--c-ink` | `#1f1d1a` | `#ece9e3` |
 | `--c-muted` | `#57524a` | `#c2bcb1` |
 | `--c-faint` | `#6e685e` | `#a39d92` |
@@ -435,6 +443,8 @@ Below 768px add the 48px top bar with a menu button that opens the sidebar as a 
 | `--c-ok-soft` | `#e5f3e9` | `#1d3324` |
 | `--c-code-bg` | `#1e1d1b` | `#141311` |
 | `--c-code-ink` | `#ece9e3` | `#ece9e3` |
+
+In the core theme `--c-field-border` is 3.52 / 3.70 / 3.28:1 on canvas / surface / subtle (light) and 3.85 / 3.52 / 3.18:1 (dark); the focused edge (`--c-accent`) is 6.02 / 6.34 / 5.62:1 and 8.31 / 7.60 / 6.86:1. `web/test/unit/field-contrast.test.ts` checks both tokens at 3:1 or more in all four looks.
 
 ## Known gaps
 

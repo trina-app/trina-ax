@@ -129,7 +129,8 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
             onEdit(m, draft)
           }}
         >
-          <textarea aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+          {/* the form draws the field's edge and focus; `!`: inputCls's own focus ring is emitted after ring-0 and would win */}
+          <textarea aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
           <p className="px-1 pb-1 text-xs text-faint">{t('chat.editNote')}</p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>

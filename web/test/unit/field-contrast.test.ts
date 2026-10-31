@@ -64,4 +64,13 @@ describe('text field edges and focus rings', () => {
     expect(inputCls).toContain('focus:ring-accent')
     expect(inputCls).not.toMatch(/focus:ring-accent\//)
   })
+
+  test('a text area framed by its form (edit and queued message) draws no ring of its own: one edge, on the form', () => {
+    for (const file of ['components/chat/Messages.tsx', 'components/chat/QueuedMessages.tsx']) {
+      const src = readFileSync(join(SRC, file), 'utf8')
+      expect(src, file).toContain('has-[textarea:focus]:ring-accent')
+      // inputCls's focus:ring-1 is emitted after focus:ring-0, so only the important form takes the ring away
+      expect(src, file).toMatch(/clsx\(inputCls, '[^']*\bborder-0\b[^']*\bfocus:ring-0!/)
+    }
+  })
 })

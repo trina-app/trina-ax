@@ -108,9 +108,10 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
             backToEdit()
           }}
         >
+          {/* the form draws the field's edge and focus; `!`: inputCls's own focus ring is emitted after ring-0 and would win */}
           <textarea
             aria-label={t('outbox.edit')}
-            className={clsx(inputCls, 'h-auto min-h-20 resize-y border-0 py-2 focus:ring-0')}
+            className={clsx(inputCls, 'h-auto min-h-20 resize-y border-0 py-2 focus:ring-0!')}
             value={draft}
             autoFocus
             onChange={(e) => setDraft(e.target.value)}

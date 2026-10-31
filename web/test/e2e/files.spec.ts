@@ -727,6 +727,27 @@ test('a drop on a read-only or navigation-only folder, or on the dragged folder 
   await expect(page.getByTestId('file-row').filter({ has: page.locator('[data-drop]') })).toHaveCount(0)
 })
 
+test('a drag from elsewhere (another tab or app) that carries the list\'s move type moves nothing', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files')
+  await expect(row(page, 'marketing')).toBeVisible()
+  const before = await moves(page)
+  // paths the person could move, onto a folder they can write: only a drag that started on this screen is taken
+  const forged = await page.evaluateHandle(() => {
+    const dt = new DataTransfer()
+    dt.setData('application/x-mycel-files-move', JSON.stringify(['docs', 'finance/budget.md']))
+    dt.setData('text/plain', 'docs')
+    return dt
+  })
+  for (const type of ['dragenter', 'dragover']) await row(page, 'marketing').dispatchEvent(type, { dataTransfer: forged })
+  await expect(row(page, 'marketing')).not.toHaveAttribute('data-drop')
+  await row(page, 'marketing').dispatchEvent('drop', { dataTransfer: forged })
+  await page.getByTestId('crumb').first().dispatchEvent('drop', { dataTransfer: forged })
+  expect(await moves(page)).toBe(before)
+  await expect(row(page, 'docs')).toBeVisible()
+})
+
 test('computer files dropped on a folder row are uploaded into that folder; a read-only folder row takes none', async ({ page }) => {
   await reset(page)
   await signIn(page)

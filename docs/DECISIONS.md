@@ -4063,7 +4063,7 @@ Trina should feel like Claude Code, which has WebSearch.
   1.4:1, and the new rest border is close to `--c-line-strong`. Focus is now a 2px accent edge (`border-accent` +
   `ring-1 ring-accent`): Trina light 3.59 / 3.71 / 3.33, Trina dark 6.84 / 6.43 / 6.12, base light 6.02 / 6.34 /
   5.62, base dark 8.31 / 7.60 / 6.86. It is thicker and a different color from the rest border. `--c-line` is
-  unchanged. The design-system doc should list `--c-field-border`.
+  unchanged. `docs/DESIGN-SYSTEM.md` lists `--c-field-border` (tokens, contrast, the field and focus rules).
 - Tests: `web/test/unit/bulk-files.test.ts` (drag set, payload types, every refusal and allowed target),
   `web/test/unit/field-contrast.test.ts` (both tokens ≥ 3:1 in all four looks, read from the CSS; `inputCls` uses
   them), `web/test/e2e/files.spec.ts` (two selected files dragged onto a folder; a row outside the selection; the
@@ -4075,3 +4075,11 @@ Trina should feel like Claude Code, which has WebSearch.
   uploads only on the folder row. That drag input does not take the browser's open-a-dropped-file path (a drop
   nobody takes did not navigate in plain Chromium either), so keeping a file out of the tab rests on the cancelled
   `dragenter` / `dragover` and on the window's `will-navigate` guard.
+- Review (2026-10-31): a drop moves only the rows of a drag that started on this screen (the ref) and now also only
+  when the drop carries that drag's own data, so a drag from another tab or app with the same type is not taken even
+  if a drag from here was left without its `dragend`; e2e with a forged drag. The paths moved never come from the
+  drop. Every move is checked by the server as before (`authorize` write on both paths, `intoItself`,
+  `audience_narrowed`), so a refused target refuses there too. The edit-message and queued-message text areas sat
+  inside a framed form and still drew `inputCls`'s new 1px accent ring (Tailwind emits `ring-1` after `ring-0`), a
+  double edge on focus: they take `focus:ring-0!`. Not changed: a move (the "Move" action or a drop) that widens who
+  can see an item does not ask; only one that hides it from people (into `users/<me>/`) does. Raised for a decision.
