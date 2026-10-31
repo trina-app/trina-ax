@@ -20,3 +20,16 @@ Captured 2026-10-30 (Asia/Jakarta) from the local `docs/team-first` worktree bas
 The audit's live meeting-summary chat and HR-vs-sales answer pair need a permitted test-provider connection. This set substitutes clearly labeled marketing/finance file-access evidence, not fabricated answers. Live AI result and populated-usage captures remain pending.
 
 `github-social-preview.png` is a separate 1280×640 original typographic card, rendered in Playwright from text and simple shapes. It is not an application screenshot and has not been uploaded to GitHub. The older `demo-workspace.png` is retained as an existing historical capture; it is not used in the new README.
+
+## README hero and comparison images (`readme/`, 2026-10-31)
+
+Captured 2026-10-31 (Asia/Seoul) from a hosted Trina AX team (`potenlab.trina.app`, app version 0.2.14 era) emptied for this purpose and filled with a fictional company, Dawnroute, and its fictional client, Trina Logistics. Two synthetic accounts were used: an admin shown as "Alex (CEO)" and a Sales member, "Mina". A real Claude subscription connection answered; nothing in the answers was edited or substituted.
+
+| File | Evidence and limits |
+|---|---|
+| `readme/hero-day-one.gif` | Mina's chat: one typed request, the live steps (reading the `proposal` skill and the sales files), the "1 file saved" result and the generated 7-page deck opening in the file preview. Generation took 81.4 s; the clip is cut and sped up (8× during the steps, 1.5× on the deck pages, both labeled in the frame). 880 px, 9 fps, 19 s |
+| `readme/before-empty-claude.png` | The same request sent with `claude -p` in an empty folder on a developer Mac. The output text is verbatim; it was replayed in a terminal-styled page for a clean capture |
+| `readme/after-trina-deck.png` | Cover of the deck from the hero run |
+| `readme/permission-answer.png` | Mina asking for last quarter's revenue; the file sits in `shared/Finance`, which she cannot read. Cropped to the question and the first paragraph of the live answer |
+
+The deck template and skill are fictional sample material, not shipped examples. The video these frames come from is kept outside the repository.
