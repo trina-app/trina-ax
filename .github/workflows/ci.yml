@@ -135,6 +135,12 @@ jobs:
         # tests/linux/run.ts runs the container --privileged --cgroupns=private (bwrap userns + mounts, nft
         # CAP_NET_ADMIN, a writable cgroup tree). GitHub's runners allow --privileged.
         run: bun run tests/linux/run.ts
+      - name: Old version folders removed, roll-back still works (Docker debian:13)
+        # tests/linux/prune-versions.ts: the server account stages four versions, the Linux bootstrap built above
+        # confirms each one, then admin.js prune-versions and roll-back after the prune (no --privileged needed)
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun tests/linux/prune-versions.ts
 
   linux-bundle:
     name: Linux release bundle (L19) + verify-bundle

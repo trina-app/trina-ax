@@ -4,8 +4,11 @@
 // server account, next to root-owned leftovers and planted links; then roll-back to `previous` and the bootstrap's
 // own way back (a current version that no longer verifies) still work after the prune. server/src/system/prune.ts.
 //
-//   bun tests/linux/prune-versions.ts           build the Linux bootstrap (go), fetch the pinned Linux bun (dist/cache),
-//                                               run the container, print a report; exit 1 when a check failed
+//   bun tests/linux/prune-versions.ts           build the Linux bootstrap (go; or native/bin/linux-<arch>), fetch the
+//                                               pinned Linux bun (dist/cache), run the container, print a report; exit
+//                                               1 when a check failed. CI: the linux-docker job (ci.yml). Needs
+//                                               `bun install` (the container uses this checkout's node_modules) and a
+//                                               checkout Docker can mount (on a Mac with Colima: under $HOME)
 //   --in-container / --as-server STEP           the two halves inside the container (root, then the server account)
 import fs from 'node:fs'
 import path from 'node:path'
