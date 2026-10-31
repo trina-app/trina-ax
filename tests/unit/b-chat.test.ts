@@ -558,6 +558,9 @@ describe('instructions', () => {
     expect(LANGUAGE_RULE).toContain('in that language')
     expect(LANGUAGE_RULE).toContain('between tool calls')
     expect(LANGUAGE_RULE).toContain('when the answer is in another language')
+    // what the person asks for in another language (an English email in a Korean chat), code, file names and quotes
+    // are content, not narration
+    expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, file names and quotes stay as they are.')
   })
 })
 

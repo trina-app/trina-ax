@@ -265,6 +265,10 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
     if (!c) return
     setChange({ mode: modes.includes(c.mode) ? c.mode : modes[0]!, relayUrl: '', teamName: c.teamName ?? '', claimCode: '' })
   }
+  // without the relay: the office network only, or the public address the server has (tunnel.host, its own domain;
+  // the Diagnostics relay line says the same, server/src/system/ops.ts)
+  const pub = state.data?.publicAddress ?? null
+  const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : `system.mode.${m}`)
   return (
     // one mode only (office mode: the office network): nothing to change
     // the hosted cloud: the team address is managed by the hosting provider (no change button)
@@ -273,7 +277,9 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
         {(c) => (
           <div className="space-y-1 text-sm">
             <p>
-              <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge> <span className="ml-1">{t(`system.mode.${c.mode}`)}</span>
+              {/* no relay and a public address: nothing is off for the team, so no "Off" badge */}
+              {!(c.mode === 'direct-only' && pub) && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}{' '}
+              <span className={c.mode === 'direct-only' && pub ? undefined : 'ml-1'} data-testid="connection-mode-name">{modeName(c.mode)}</span>
             </p>
             {c.teamName && c.mode !== 'direct-only' && (
               <p>
@@ -283,6 +289,11 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             {c.address && (
               <p>
                 <span className="text-faint">{t('system.address')}</span> <code>{c.address}</code>
+              </p>
+            )}
+            {pub && (
+              <p>
+                <span className="text-faint">{t('system.publicAddress')}</span> <code>https://{pub}</code>
               </p>
             )}
             {c.connectedSince && <p className="text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</p>}
@@ -317,7 +328,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               <select className={inputCls} value={change.mode} onChange={(e) => setChange({ ...change, mode: e.target.value as Mode })} data-testid="connection-mode">
                 {modes.map((m) => (
                   <option key={m} value={m}>
-                    {t(`system.mode.${m}`)}
+                    {modeName(m)}
                   </option>
                 ))}
               </select>
@@ -361,7 +372,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
       {change && confirming && (
         <ReauthDialog
           title={t('system.changeMode')}
-          body={t(`system.mode.${change.mode}`)}
+          body={modeName(change.mode)}
           confirm={t('common.save')}
           onClose={() => setConfirming(false)}
           onConfirm={async (password) => {

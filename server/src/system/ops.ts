@@ -19,7 +19,7 @@ import { REJECTED_KEY, tokenFile } from '../proxy/subscription'
 import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
 import { codexLoginState, launcherStatus } from '../native'
-import { connectionStatus, publicAddress } from './connection'
+import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
@@ -263,9 +263,10 @@ export class OpsService {
     for (const [file, p] of managedBad) if (p) add(`managed.${file.split('.')[0]}`, 'server', t(ML.managedFiles), 'warn', t(ML.managedFileBad(file, p.error.slice(0, 120), host === 'hosted')))
 
     // connection. Without the relay the line says what the server knows: a public address set up (tunnel.host, the
-    // server's own domain) or the office network only (QA: a Linux server behind a Cloudflare tunnel said "office only")
+    // server's own domain; never the relay's team address) or the office network only (QA: a Linux server behind a
+    // Cloudflare tunnel said "office only")
     const c = this.connection()
-    const pub = publicAddress(this.ctx.config)
+    const pub = c.publicAddress ?? null
     const relay = this.ctx.config.office ? { s: 'ok' as const, d: t(pub ? M.relayOfficePublic(pub) : M.relayOffice) }
       : c.mode === 'direct-only' || c.state === 'not_registered' || c.state === 'disabled'
       ? pub ? { s: 'ok' as const, d: t(M.relayPublic(pub)) } : { s: 'warn' as const, d: t(M.relayOff) }

@@ -3973,7 +3973,9 @@ Trina should feel like Claude Code, which has WebSearch.
   including the short text between tool calls: no English narration such as "Let me check…" or "Verify:" when the
   answer is in another language." It names no language of its own ("that language" is the answer language above, so it
   follows the person's locale, the language they write in, or what they asked for) and asks nothing of an English
-  answer. Content the person asks for in another language stays in it ("asks otherwise").
+  answer. Its second sentence keeps content out of it (review): "Content the user asks for in another language (an
+  email, a translation), code, file names and quotes stay as they are." An English email asked for in a Korean chat is
+  written in English, with the words around it in Korean.
 - Same place for every engine: the line is in the person lines (`personLines`), so the Claude system prompt, the
   Codex and API engine instructions and a resumed Claude session's `<turn_context>` all get it. It comes after the time
   line, which changes every minute, so the instructions before that line stay as they were.
@@ -3993,12 +3995,24 @@ Trina should feel like Claude Code, which has WebSearch.
   is https on the standard port with an internet name. localhost, IP addresses, local-network names (.local, .lan,
   .home.arpa, .internal …) and other ports (office mode lists the desks' `https://<mac>.local:8443` there) are not a
   public address. The server does not try the address: it says what is set up.
+- A relay's team address is not a public address either (review): the hosted control plane lists the team's
+  `https://<team>.trina.app` in `publicOrigins`, and that name goes to the relay, so a hosted server whose relay was not
+  registered yet said "connect from outside without the relay". `isServiceHost` names are skipped, and so is this
+  server's address at its relay when the relay client knows it (a self-relay's team address). `tunnel.host` stays as
+  set: it is the owner's own statement of the public address. A trailing dot is dropped; reserved names (.test,
+  .example, .invalid, .localdomain, .private, .arpa) are local too; an internationalized name stays in punycode, as
+  `tunnel.host` is kept.
 - The line: relay connected = its address (as before); no relay and a public address = ok, "A public address is set up
   (https://<host>), so the team can connect from outside without the relay."; office mode with one = the office
   wording plus the public address; neither = warn, "No relay or public address is set up, so the team can connect only
   from the office network." with where to turn on the relay, and on Linux the `--public-host` command. The hosted cloud
   keeps its support wording when neither is set up. Korean in 해요체; five languages.
-- Not changed: the Connection card's mode name "Office network only" (`system.mode.direct-only`), and the relay
-  connecting / offline / replaced lines.
-- Tests: `g-linux-diag.test.ts` (each case on Linux and hosted, origins that do not count, a connected relay,
-  `publicAddress`), `office.test.ts` (office mode with and without its internet address).
+- The Connection card says the same (review: it was the same wrong words): `GET /api/admin/connection` (owner only, as
+  Diagnostics) carries `publicAddress` (host only, never a credential or path of an origin). Without the relay and with
+  one, the mode is "Public address, no relay" (`system.mode.direct-public`) with a "Public address https://<host>" line
+  and no "Off" badge, also in the change dialog's list and its confirmation; without one, "Office network only" and
+  "Off" as before. The relay connecting / offline / replaced lines are unchanged.
+- Tests: `g-linux-diag.test.ts` (each case on Linux and hosted, origins that do not count, a hosted team address and a
+  self-relay's address, a connected relay, `publicAddress`), `office.test.ts` (office mode with and without its
+  internet address), `g-routes.test.ts` (`publicAddress` in the connection status), `web/test/e2e/admin.spec.ts` (the
+  Connection card with and without a public address).

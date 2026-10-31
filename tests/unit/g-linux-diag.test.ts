@@ -19,6 +19,7 @@ import { launcherStatus } from '../../server/src/native'
 import { T as ENGINE_T } from '../../server/src/admin/engines'
 import { EXIT_ADDRESS_URL, learnExitAddresses, noteEgressIp } from '../../server/src/tools/egress'
 import { publicAddress } from '../../server/src/system/connection'
+import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 
 const MAC_WORDS = /맥|\bMac\b|pbpaste|launchctl|\/Library|menubar|메뉴바|Time Machine|\/var\/at|LaunchDaemon|Finder/
 
@@ -177,6 +178,15 @@ describe('diagnostics of an installed Linux server', () => {
       ctx.config.tunnel = null
       ctx.config.publicOrigins = ['http://localhost:47820', 'https://ax.example.org']
       expect((await relay()).detail).toContain('(https://ax.example.org)')
+      // a hosted team address in publicOrigins (the control plane lists it there) is the relay's: a hosted server whose
+      // relay is not registered yet still says so and points at support, not "connect from outside without the relay"
+      ctx.config.publicOrigins = [`https://acme.${SERVICE_HOSTS.teamDomain}`]
+      expect(await relay({ hosted: true })).toMatchObject({ status: 'warn', detail: expect.stringContaining('Contact the hosting support team') })
+      expect((await relay()).status).toBe('warn')
+      // this server's address at its own relay is not a way around the relay either
+      ctx.config.publicOrigins = ['https://acme.relay.example.org', 'https://ax.example.org']
+      ctx.services.relay = { status: () => ({ mode: 'self-relay', address: 'https://acme.relay.example.org', state: 'not_registered', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null } }) }
+      expect((await relay()).detail).toContain('(https://ax.example.org)')
       // a connected relay shows its address, as before
       ctx.services.relay = { status: () => ({ mode: 'self-relay', address: 'https://acme.relay.example', state: 'connected', detail: null, connectedSince: new Date().toISOString(), direct: { enabled: false, port: 8443, fingerprintSha256: null } }) }
       expect(await relay()).toMatchObject({ status: 'ok', detail: 'https://acme.relay.example' })
@@ -190,7 +200,18 @@ describe('diagnostics of an installed Linux server', () => {
     expect(publicAddress({ tunnel: null, publicOrigins: [] })).toBeNull()
     expect(publicAddress({ tunnel: { host: 'a.example.com', allowFrom: [], countries: [] }, publicOrigins: ['https://b.example.com'] })).toBe('a.example.com')
     expect(publicAddress({ tunnel: null, publicOrigins: ['https://mini.local:8443', 'https://192.168.1.5:8443', 'http://acme.localhost:19100', 'https://acme.localhost', 'https://[2001:db8::1]', 'not a url', 'https://B.Example.com/'] })).toBe('b.example.com')
-    for (const o of ['https://server.lan', 'https://box.home.arpa', 'https://srv.internal', 'https://team.example.com:443x']) expect(publicAddress({ tunnel: null, publicOrigins: [o] }), o).toBeNull()
+    for (const o of ['https://server.lan', 'https://box.home.arpa', 'https://srv.internal', 'https://team.example.com:443x', 'https://ci.test', 'https://nas.localdomain', 'https://ax.example', 'https://x.invalid', 'https://srv.private'])
+      expect(publicAddress({ tunnel: null, publicOrigins: [o] }), o).toBeNull()
+    // the standard port written out, a trailing dot, an internationalized name (punycode, as tunnel.host is kept)
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://team.example.com:443'] })).toBe('team.example.com')
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://team.example.com.'] })).toBe('team.example.com')
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://팀.예시.한국'] })).toMatch(/^xn--[a-z0-9-]+\.xn--[a-z0-9-]+\.xn--[a-z0-9-]+$/)
+    // a relay's team address: the hosted service's (<team>.trina.app) and this server's at its own relay
+    expect(publicAddress({ tunnel: null, publicOrigins: [`https://acme.${SERVICE_HOSTS.teamDomain}`, `https://${SERVICE_HOSTS.teamDomain}`, 'https://ax.example.org'] })).toBe('ax.example.org')
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://acme.relay.example.org'] }, 'https://acme.relay.example.org')).toBeNull()
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://acme.relay.example.org'] }, 'not a url')).toBe('acme.relay.example.org')
+    // credentials or a path in an origin never come out: the host only
+    expect(publicAddress({ tunnel: null, publicOrigins: ['https://user:secret@ax.example.org/path?q=1'] })).toBe('ax.example.org')
   })
   test('no Mac-only checks; the disk by levels; hosted wording', async () => {
     fw({})

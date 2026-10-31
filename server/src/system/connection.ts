@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionMode, ConnectionStatus } from '@mycel/shared/api'
-import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+import { isServiceHost, SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PUBLIC_HOST_RE } from '../app-config'
 import type { AppContext } from '../context'
 import { relayApiBase } from '../relay-client/client'
@@ -43,22 +43,31 @@ export function availableModes(cfg: AppContext['config']): ConnectionMode[] {
   return cfg.relay.officialAvailable ? ['relay', 'self-relay', 'direct-only'] : ['self-relay', 'direct-only']
 }
 
-/** names that only answer on a local network (a public address never ends so) */
-const LOCAL_NAME = /\.(?:local|localhost|lan|home|home\.arpa|internal|intranet|corp)$/
+/** names that only answer on a local network, or are reserved and never on the internet (RFC 2606, 6761, 6762 appendix G,
+ * 8375 home.arpa): a public address never ends so */
+const LOCAL_NAME = /\.(?:local|localhost|localdomain|lan|home|arpa|internal|intranet|corp|private|test|example|invalid)$/
 
 /**
  * The address the team reaches this server at without the relay, as far as the server knows (Admin > System >
- * Diagnostics, the relay line): `tunnel.host` (the Linux installer's `--public-host`, office mode's TEAMAX_PUBLIC_HOST),
- * else the first of `publicOrigins` (MYCEL_PUBLIC_ORIGINS, for example the server's own domain in front of it) that is
- * https on its standard port with an internet name: not localhost, an IP address, a local-network name or the office
- * listener's port (office mode lists the desks' addresses there). null = none known.
+ * Diagnostics, the relay line; the Connection card): `tunnel.host` (the Linux installer's `--public-host`, office mode's
+ * TEAMAX_PUBLIC_HOST), else the first of `publicOrigins` (MYCEL_PUBLIC_ORIGINS, for example the server's own domain in
+ * front of it) that is https on its standard port with an internet name: not localhost, an IP address, a local-network
+ * name or the office listener's port (office mode lists the desks' addresses there). A relay's team address is not one
+ * either, though the hosted cloud lists it there: a hosted team address (<team>.trina.app, isServiceHost) and
+ * `relayAddress` (this server's address at its relay, when known) are reached through the relay. Host only (punycode,
+ * no trailing dot). null = none known.
  */
-export function publicAddress(cfg: Pick<AppContext['config'], 'tunnel' | 'publicOrigins'>): string | null {
+export function publicAddress(cfg: Pick<AppContext['config'], 'tunnel' | 'publicOrigins'>, relayAddress: string | null = null): string | null {
   if (cfg.tunnel?.host) return cfg.tunnel.host
+  let relayHost: string | null = null
+  try { if (relayAddress) relayHost = new URL(relayAddress).hostname.replace(/\.$/, '') } catch {}
   for (const o of cfg.publicOrigins) {
     let u: URL
     try { u = new URL(o) } catch { continue }
-    if (u.protocol === 'https:' && u.port === '' && PUBLIC_HOST_RE.test(u.hostname) && !LOCAL_NAME.test(u.hostname)) return u.hostname
+    const host = u.hostname.replace(/\.$/, '')
+    if (u.protocol !== 'https:' || u.port !== '' || !PUBLIC_HOST_RE.test(host) || LOCAL_NAME.test(host)) continue
+    if (isServiceHost(host) || host === relayHost) continue
+    return host
   }
   return null
 }
@@ -71,7 +80,7 @@ export function connectionStatus(ctx: AppContext): ConnectionStatus {
   const extra = { teamName: cfg.relay.teamName, availableModes: availableModes(cfg) }
   if (ctx.services.relay) {
     const s = ctx.services.relay.status()
-    return { ...s, direct: s.direct.fingerprintSha256 || !direct.enabled ? s.direct : direct, ...extra }
+    return { ...s, direct: s.direct.fingerprintSha256 || !direct.enabled ? s.direct : direct, ...extra, publicAddress: publicAddress(cfg, s.address) }
   }
   const mode = modeOf(cfg.relay.url)
   return {
@@ -82,6 +91,7 @@ export function connectionStatus(ctx: AppContext): ConnectionStatus {
     connectedSince: null,
     direct,
     ...extra,
+    publicAddress: publicAddress(cfg),
   }
 }
 

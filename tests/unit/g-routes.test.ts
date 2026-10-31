@@ -208,7 +208,11 @@ describe('update and connection', () => {
 
   test('connection mode: read, change (stored in server.json), unsupported modes refused', async () => {
     const s = await (await req('/api/admin/connection', { as: 'owner' })).json()
-    expect(s).toMatchObject({ mode: 'direct-only', state: 'disabled', direct: { enabled: false } })
+    expect(s).toMatchObject({ mode: 'direct-only', state: 'disabled', direct: { enabled: false }, publicAddress: null })
+    // the public address the Connection card names instead of "Office network only" (system/connection.ts publicAddress)
+    const { tunnel } = ctx.config
+    ctx.config.tunnel = { host: 'team.example.com', allowFrom: [], countries: [] }
+    try { expect(await (await req('/api/admin/connection', { as: 'owner' })).json()).toMatchObject({ mode: 'direct-only', publicAddress: 'team.example.com' }) } finally { ctx.config.tunnel = tunnel }
     expect((await post('/api/admin/connection', { mode: 'tailscale', password: 'owner-pass' }, 'owner', 'PUT')).status).toBe(409)
     expect((await post('/api/admin/connection', { mode: 'self-relay', password: 'owner-pass' }, 'owner', 'PUT')).status).toBe(400)
     const plain = await post('/api/admin/connection', { mode: 'self-relay', relayUrl: 'http://plain.example/x', password: 'owner-pass' }, 'owner', 'PUT')

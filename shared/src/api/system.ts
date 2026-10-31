@@ -107,6 +107,10 @@ export const ConnectionStatus = z.object({
   teamName: z.string().nullable().optional(),
   /** the modes this server offers in Admin > System > Change connection; "relay" (the official relay) only while it runs */
   availableModes: z.array(ConnectionMode).optional(),
+  /** the address the team reaches this server at without the relay, as far as it knows (host only, e.g.
+   * team.example.com: tunnel.host or an https origin with an internet name, server/src/system/connection.ts
+   * publicAddress); null = none, so without the relay only the office network */
+  publicAddress: z.string().nullable().optional(),
 })
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>
 /** Team name at a relay: becomes <name>.<relay domain>. ASCII lowercase letters, digits and inner hyphens (tab 6). */

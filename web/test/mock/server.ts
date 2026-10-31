@@ -16,7 +16,8 @@
 // "ask" is an address card that offers "allow this site in this conversation"),
 // POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
-// answer writes exactly this).
+// answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
+// them until the next reset).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
 import { z } from 'zod'
@@ -1751,6 +1752,7 @@ export class MockServer {
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/schedule-review') {
       // a free-text task made before the schedule card: paused until its owner confirms it again

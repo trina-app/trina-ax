@@ -196,8 +196,9 @@ export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hi
 export const BULK_REPORT_RULE = 'After changing many files or items, also list in your answer the ones you did not change: those already as asked, and those you skipped (with why).'
 
 /** After the answer-language line: the short text between tool calls is in the answer too (docs/DECISIONS.md "One
- * language in the answer"; A9 S17: Korean answers began with "Verify:" or "Let me check…"). */
-export const LANGUAGE_RULE = 'Write everything you say to the user in that language, including the short text between tool calls: no English narration such as "Let me check…" or "Verify:" when the answer is in another language.'
+ * language in the answer"; A9 S17: Korean answers began with "Verify:" or "Let me check…"). What the person asks for in
+ * another language (an English email in a Korean chat), code, file names and quotes are content, not narration. */
+export const LANGUAGE_RULE = 'Write everything you say to the user in that language, including the short text between tool calls: no English narration such as "Let me check…" or "Verify:" when the answer is in another language. Content the user asks for in another language (an email, a translation), code, file names and quotes stay as they are.'
 /** A sub-agent's report is not shown as it is, but the assistant passes parts of it on (QA 0.2.12 B6). */
 export const SUBAGENT_LANGUAGE_RULE = 'Write your report in that language too, unless your task names another: the assistant may pass parts of it on to the user.'
 
