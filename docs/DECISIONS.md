@@ -4082,4 +4082,8 @@ Trina should feel like Claude Code, which has WebSearch.
   `audience_narrowed`), so a refused target refuses there too. The edit-message and queued-message text areas sat
   inside a framed form and still drew `inputCls`'s new 1px accent ring (Tailwind emits `ring-1` after `ring-0`), a
   double edge on focus: they take `focus:ring-0!`. Not changed: a move (the "Move" action or a drop) that widens who
-  can see an item does not ask; only one that hides it from people (into `users/<me>/`) does. Raised for a decision.
+  can see an item does not ask; only one that hides it from people (into `users/<me>/`) does. Left for later.
+- Composer focus (2026-10-31, as in Claude): the message box is focused most of the time, so the 2px
+  accent edge was on screen nearly always, unlike Claude's quiet box. This commit keeps `--c-field-border` at rest
+  and makes its focus a darker 1px edge (`focus-within:border-faint`, 5.55–5.82:1 on the surface, 1.5:1 against the
+  rest edge) with no accent; every other field keeps the 2px accent edge.

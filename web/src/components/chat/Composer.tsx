@@ -377,8 +377,10 @@ export default function Composer({
 
   return (
     <div>
+      {/* The one field that is focused most of the time: a quiet edge, as in Claude, not the 2px accent edge of other
+          fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
-        className={clsx('rounded-3xl border bg-surface shadow-[var(--c-shadow)] transition focus-within:border-accent focus-within:ring-1 focus-within:ring-accent', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border')}
+        className={clsx('rounded-3xl border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
         onDragOver={(e) => {
           const types = [...e.dataTransfer.types]
           if (!types.includes('Files') && !types.includes(TEAM_FILE_DRAG_TYPE)) return
