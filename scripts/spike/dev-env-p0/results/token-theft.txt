@@ -1,18 +1,15 @@
-0
-d1e1ae9dc4969a332b92aabcb7912f88e5807edb9c8e191abb9b32bbf03d3b87
-engine pid 188
-environ: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3
-fd: total 0
-fd: lr-x------ 1 root root 64 Oct 31 06:21 0 -> /dev/null
-fd: l-wx------ 1 root root 64 Oct 31 06:21 1 -> pipe:[58323]
-fd: l-wx------ 1 root root 64 Oct 31 06:21 2 -> pipe:[58324]
-fd: lrwx------ 1 root root 64 Oct 31 06:21 4 -> anon_inode:[eventpoll]
-fd: lrwx------ 1 root root 64 Oct 31 06:21 5 -> anon_inode:[eventfd]
-fd: l-wx------ 1 root root 64 Oct 31 06:21 6 -> pipe:[58323]
-fd: l-wx------ 1 root root 64 Oct 31 06:21 7 -> pipe:[58324]
-fd3: cat: /proc/188/fd/3: No such file or directory
+Token theft probe (in-box/thief.sh): a process left in the box by an earlier command watches for the engine of a
+later turn (engine IN the box, turn.sh) and tries environment, fd 3 and memory.
 
-mem: tokens found: []
-engine pid 2550
-environ: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3
-mem: refused: [Errno 13] Permission denied: '/proc/2550/mem'
+kernel.yama.ptrace_scope=0 (Debian default; this VM):
+  environ: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3          (no token in the environment)
+  fd3: cat: /proc/<pid>/fd/3: Permission denied / gone        (Claude Code reads fd 3 once and closes it)
+  mem: tokens found: ['mpx_UmLx2d6G...']                      (STOLEN: full scan of /proc/<pid>/mem)
+  (a first scan that only read rw regions < 256 MB found nothing; the token is in a larger region)
+
+kernel.yama.ptrace_scope=1:
+  environ: CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3
+  mem: refused: [Errno 13] Permission denied: '/proc/<pid>/mem'
+
+MITM (in-box/mitm.py, mitm.txt) works with any ptrace_scope: the in-box forwarder on 127.0.0.1:4000 can be replaced.
+Engine OUTSIDE the box (turn-outside.sh, engine-outside.txt): thief and MITM see nothing.

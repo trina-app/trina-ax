@@ -1,0 +1,6 @@
+Three boxes running, no workload (init + in-box forwarder only):
+web: current=97MB anon=10MB pids=13      (current includes page cache left from the benchmarks)
+py: current=30MB anon=10MB pids=13
+next: current=10MB anon=10MB pids=13
+Host-side helpers per box: conmon ~1.5 MB RSS; pasta ~15.5 MB RSS (open boxes only; allowlist boxes have no pasta).
+Total helpers for 3 boxes: 36 MB RSS.
