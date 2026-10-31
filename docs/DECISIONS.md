@@ -4023,7 +4023,8 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   files, conflicts), the file events, `dev_env.preview`, `dev_env.stop/restart`; `GET /api/projects/:id/dev-env/activity`.
   Network destinations: boxd keeps a conntrack log of new connections per box (`netlog`); rejected destinations are
   counted and logged by the rules. Not yet joined into the server's audit.
-- **Not in the experiment:** the web UI (API only), egress allowlist mode, credential helper, WebSocket preview, folder
+- **Web:** a "Dev environment" section on the project page (`web/src/pages/DevEnvSection.tsx`), hidden when the API is 404: state, box, running processes, stop / restart, a preview button with a port, the last activity; admins edit the setting and accept the warning in a dialog. Audit actions have words in five languages.
+- **Not in the experiment:** egress allowlist mode, credential helper, WebSocket preview, folder
   size quota, hosted plans, macOS. Isolation and limits are tested only on the `dev-env-test` VM
   (`docs/research/dev-env-test-vm-plan.md`, `scripts/dev-env/vm-tests.sh`), never on a shared or team server.
 - Tests: `tests/unit/dev-env.test.ts` (flag, consent, scope and write access, admin API and audit, tool offered and
