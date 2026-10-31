@@ -48,9 +48,9 @@ printf 'passwd: files\ngroup: files\nhosts: files\n' > $E/nsswitch.conf
 cat > $BASE/root/firewall.conf.json <<EOF
 {"format":1,"id":"mycel-test","engineUid":$AG_UID,"serverUid":$SRV_UID,"proxyPort":$PROXY_PORT,"serverPort":19174,"deployment":"self","serverAllowPrivate":[]}
 EOF
-# a small plan: 2 turns at once, 2 GiB -> turn memory.max 800 MiB (spec 3.8.5 Basic row)
+# a small plan: 2 turns at once, 2 GiB -> turn memory.max 800 MiB (spec 3.8.5 Basic row), with the code sandbox
 cat > $BASE/root/plan.json <<'EOF'
-{"format":1,"plan":"basic","maxConcurrency":2,"memoryMiB":2048,"cpuCores":2,"diskGiB":20,"reserveMiB":768,"turnMemoryMaxMiB":null,"turnPidsMax":256,"turnDiskMaxMiB":1024,"readMaxMiB":64,"convMemoryMaxMiB":null,"localBackupRetentionDays":3,"updatedAt":"2026-10-22T00:00:00Z"}
+{"format":1,"plan":"basic","maxConcurrency":2,"memoryMiB":2048,"cpuCores":2,"diskGiB":20,"reserveMiB":768,"turnMemoryMaxMiB":null,"turnPidsMax":256,"turnDiskMaxMiB":1024,"readMaxMiB":64,"convMemoryMaxMiB":null,"localBackupRetentionDays":3,"codeSandbox":true,"updatedAt":"2026-10-22T00:00:00Z"}
 EOF
 chmod 644 $BASE/root/*.json
 FW_OUT=$($BASE/root/mycel-ctl firewall apply --base $BASE 2>&1) || { echo "firewall apply failed: $FW_OUT"; exit 1; }

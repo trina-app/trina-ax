@@ -3898,3 +3898,83 @@ Trina should feel like Claude Code, which has WebSearch.
   answered locally, command shape, a refused / limited search leaving the connection alone),
   `codex-prod.test.ts` (fake Codex through the real launcher and proxy), `template-engine-lock.test.ts`,
   `engine.test.ts`, `safe-ops.test.ts`.
+
+## Code sandbox (feat/code-sandbox-d1, 2026-10-31)
+
+Owner decision 2026-10-31 (plan `free-tier-and-dev-mode-plan.md` section 2, build phase D1): two opt-in levels of shell
+access for the AI, both OFF by default. This entry is level 1, the code sandbox: the AI runs bash and python3 without
+network. Level 2 (developer mode, a network allowlist) is a later phase and needs its own security review.
+
+- **What the AI gets.** One team tool, `run_code` (`lang` bash | python, `code`, `timeout_sec` 1–600, default 60). The
+  result is text: the exit code or the limit that stopped the run, and the first 64 KiB of stdout and of stderr. The
+  engines' own lockdown does not change in either state: Claude Code keeps `--restricted`, `--tools WebSearch` and
+  `Bash` / `PowerShell` / `Monitor` in `--disallowedTools`; the Codex catalog keeps `shell_type: disabled` and the
+  shell features off. `run_code` is an MCP tool of the team server like `make_file`, so Claude Code and Codex get it
+  the same way (`--allowedTools mcp__team__run_code`, `enabled_tools`). Not the API engine (no launcher), not approved
+  template runs, not sub-agents (one run per turn at a time; the main AI's own tool), not confidential chats (only the
+  local tools there).
+- **Where the code runs.** NOT inside the engine's sandbox. Rejected: Claude Code's Bash tool, or the bridge running
+  code inside the engine's bwrap. Landlock domains only narrow, so the engine's own domain would have to allow
+  `/usr/bin`. The code would also share the engine's pid namespace, network (the model proxy port), turn cgroup
+  (`memory.oom.group`: a code OOM kills the answer) and the whole chat folder (`.codex/auth.json`, `.turn`,
+  `.claude`). The chosen design: the server's tool asks the launcher (`launcher.sock`, op `code`), and the launcher
+  starts one bubblewrap per run:
+  - **Namespaces.** user, pid, ipc, uts, net and cgroup are new, with `--disable-userns` and `--new-session`. The new
+    network namespace has only its own `lo`, so there is no network by construction: no model proxy, no server API, no
+    DNS, no metadata address. The firewall is not needed for this.
+  - **Mounts.** The distro's `/usr` read-only (and `/bin`, `/lib*` as on the host), `/etc/ld.so.cache`,
+    `/etc/alternatives`, the sandbox's own passwd / group / hosts / nsswitch.conf. `<chat>/work` is read-write at
+    `/work`: the launcher opens it without following links and binds the descriptor (`--bind-fd`), so a link the
+    engine plants cannot point the bind elsewhere. `/tmp` is a 256 MiB tmpfs (empty each run), `/dev/shm` 64 MiB. The
+    program arrives as `/.code/main.sh|py` (`--ro-bind-data`), never in argv. The environment has no token and no path
+    of the chat.
+  - **Then** `mycel-sandbox exec` with the engine's seccomp filter and Landlock execute rights for `/usr` (and the
+    real `/bin`, `/lib*` folders of a non-merged distro) only: a file written to `/work` or `/tmp` cannot be executed
+    directly.
+  - **Limits.** Each run has its own cgroup `turns/c-<turnId>`, beside the turn's: half the turn's memory (at least
+    256 MiB), half its processes (at least 64), the turn's CPU, no swap, `memory.oom.group`. `turns/` pids.max gets room
+    for one run per turn. `mycel-sandbox cgexec` sets RLIMIT_CPU (time limit + 5 s), RLIMIT_FSIZE (the turn disk limit)
+    and RLIMIT_NOFILE 512. The time limit kills the run's cgroup, escapees included. The turn's end stops a run that is
+    still going.
+  - **Disk.** `<chat>/work` counts toward the turn disk limit. While a run goes, the launcher checks the chat folder
+    every 300 ms (the turn's own watch: 2 s) and again when the run ends. Over the limit the run and the turn stop with
+    `disk_limit` and the folder is emptied. The overshoot is bounded by the disk's write speed × 300 ms, and one file
+    cannot pass the limit (RLIMIT_FSIZE). The folder walk stops at 50 000 entries; more entries now count as over the
+    limit, so a crowd of small files cannot hide a big one behind it (before, the walk stopped and counted only what
+    it had seen).
+- **Not a boundary.** The Landlock execute list is not a boundary once python3 runs (ctypes, mmap): it only stops
+  dropped files from being executed directly. The boundary is the namespaces, the mounts, seccomp and the cgroup.
+- **Who.** Admin › Team settings › Code sandbox, owner or admin (`PUT /api/admin/code-sandbox`): nobody (default),
+  everyone, or chosen groups and people. Owners and admins too only when the scope names them. Turning it on needs the
+  warning accepted (`CODE_SANDBOX_WARNING_VERSION`, now 1). The consent is stored and audited (`code_sandbox.consent`:
+  who, when, warning version), and every scope change is audited (`code_sandbox.scope`, before and after). A new
+  warning version turns the sandbox off until someone accepts again. After the warning, the team admin carries the
+  responsibility for what the code does with the team's own data. Trina stays responsible for the isolation between
+  teams and between chats.
+- **Never trust the client.** The server decides at each turn's start (scope + the launcher's answer) and puts
+  `codeSandbox: true` into the LaunchRequest. The launcher refuses such a turn when it cannot run code (no bwrap,
+  macOS, no delegated cgroup, no bash, a plan without the field), and serves `code` requests only for a live turn that
+  had the flag: the chat folder always comes from that turn, never from the request. Each `run_code` call checks the
+  scope again, so an admin who turns it off stops the next call.
+- **Plans.** `plan.json` gets `codeSandbox` (bool). A plan file without it means no, so the hosted service's free
+  plan stays off until the control plane writes the field for the paid plans. No plan file (self-install) means yes.
+  The launcher enforces it (root-owned file), not the server.
+- **Platforms.** Linux with `--sandbox bwrap` only. The office Mac (sandbox-exec) says "not supported yet" in the
+  admin card, and its launcher refuses code turns.
+- **Runtimes.** What the distro has in `/usr/bin`; nothing is installed for it. The launcher reports bash, python3,
+  jq, unzip, zip, sqlite3, awk, sed, grep, tar, gzip and file in its status, and the AI is told which exist. Debian and
+  Ubuntu servers have bash, and python3 on most images; `apt install python3 jq unzip` adds the rest. The T1 image
+  installs python3, jq and unzip.
+- **Visible.** The composer shows a "Code sandbox" badge when it is on for the person (`/api/me` `user.codeSandbox`).
+  Each call is a step "Run code · python3 · <first line>" and a `tool_events` row (language, size, exit, time; not
+  the program text).
+- **Tests.** Unit: the setting, the route (owner/admin, warning, audit), the turn (off: no tool and the lockdown is
+  unchanged; on but a launcher without the sandbox: the turn fails closed), the tool (a scope check on each call), the
+  argv golden, the disk entry cap. T1 (`tests/linux/driver.ts`): no network (proxy, API, internet, metadata, DNS,
+  sockets), no other chat or server files or processes, `/work` persists and `/tmp` does not, no execution of dropped
+  files, time limit, one run at a time, a fork bomb, memory, the output cap, a fast big write and 60 000 small files.
+  The engine of a code turn still has no `/usr/bin`. T2: a code run through the installed launcher, the engine of a
+  code turn still cannot exec `/usr/bin/sh`, and a plan without the field refuses a code turn. The old check (no shell
+  in a plain turn) is unchanged.
+- **Not in D1.** Files in and out of `/work` through the file tools (the AI prints results and saves them with
+  `write` / `make_file`; binary outputs wait for a later step), package installs, network (D2).

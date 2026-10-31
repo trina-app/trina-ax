@@ -8,8 +8,9 @@ ARG PANDOC=3.9.0.2
 ARG TARGETARCH
 # bubblewrap + nftables + apparmor (apparmor_parser, for hosts with kernel.apparmor_restrict_unprivileged_userns=1):
 # the Linux engine sandbox (linux-runtime spec 3.9.1, T1)
+# + python3, jq, unzip: what a distro gives the code sandbox (docs/DECISIONS.md "Code sandbox", docs/INSTALL-LINUX.md)
 RUN apt-get update && apt-get install -y --no-install-recommends ripgrep poppler-utils procps util-linux ca-certificates curl \
-    bubblewrap nftables apparmor \
+    bubblewrap nftables apparmor python3 jq unzip \
  && curl -fsSL -o /tmp/pandoc.deb https://github.com/jgm/pandoc/releases/download/${PANDOC}/pandoc-${PANDOC}-1-${TARGETARCH}.deb && dpkg -i /tmp/pandoc.deb && rm /tmp/pandoc.deb \
  && apt-get purge -y curl && rm -rf /var/lib/apt/lists/* && ! command -v sudo
 RUN useradd --system -m -U -s /usr/sbin/nologin axserver && useradd --system -m -U -s /bin/bash axagent && useradd -m -U -s /bin/bash mallory \

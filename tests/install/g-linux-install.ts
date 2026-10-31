@@ -321,6 +321,16 @@ socket.once('connect', () => {
   check('in a turn: model proxy yes, server API no', t4.code === 0 && (t5.code === 4 || t5.code === 1 || t5.code === 5), JSON.stringify([t4, t5]))
   const t6 = turn('c_t2b', 'exec', '/usr/bin/sh')
   check('in a turn: no shell to run', refused(t6), JSON.stringify(t6))
+  // the code sandbox (docs/DECISIONS.md "Code sandbox"): a code turn's program runs in its own sandbox (bash, no
+  // network); the engine of that turn still cannot run a shell itself
+  const codeTurn = (chat: string, program: string, ...a: string[]) => {
+    const r = sh([BUN, path.join(W, 'launcher-probe.js'), '--code', program, `${BASE}/run-launcher/launcher.sock`, `${BASE}/agent`, claude, chat, ...a], { user: SRV })
+    try { return JSON.parse(r.out.trim().split('\n').pop()!) as { code?: number; error?: string; run?: any } } catch { return { error: tail(r) } }
+  }
+  const t6c = codeTurn('c_t2c', `echo ran-in-code; exec 3<>/dev/tcp/127.0.0.1/${PROXY} && echo NET-REACHED; true`, 'hold', '4000')
+  check('code turn: the program runs through the launcher, without network', t6c.run?.ev === 'code_exit' && t6c.run.code === 0 && /ran-in-code/.test(t6c.run.stdout) && !/NET-REACHED/.test(t6c.run.stdout), JSON.stringify(t6c))
+  const t6d = codeTurn('c_t2c', 'true', 'exec', '/usr/bin/sh')
+  check('code turn: its engine still cannot run a shell', refused(t6d), JSON.stringify(t6d))
   const sock = sh(['stat', '-c', '%U:%G %a', `${BASE}/run-launcher/launcher.sock`]).out.trim()
   check('launcher.sock: engine account, server group, 660 (the setgid run-launcher folder gives the group)', sock === `${AGT}:${SRV} 660`, sock)
   const t7 = [turn('c_t2b', 'read', '/etc/shadow'), turn('c_t2b', 'read', '/etc/resolv.conf'), turn('c_t2b', 'read', '/etc/passwd')]
@@ -343,6 +353,9 @@ socket.once('connect', () => {
   const ap = sh([CTL, 'apply-plan', '--base', BASE], { input: fs.readFileSync(plan, 'utf8') })
   const mm = sh(['systemctl', 'show', unit('launcher.service'), '-pMemoryMax']).out.trim()
   check('mycel-ctl apply-plan: root/plan.json and the launcher unit MemoryMax (1280 MiB)', ap.code === 0 && statOf(`${BASE}/root/plan.json`) === 'root:root 644' && mm === `MemoryMax=${1280 * 1024 * 1024}`, `${tail(ap)} ${mm}`)
+  // a plan file without "codeSandbox": the plan does not include it, a code turn is refused (the turn never starts)
+  const t6e = codeTurn('c_t2c', 'true', 'id')
+  check('a plan without the code sandbox refuses a code turn', /code_sandbox_unavailable/.test(t6e.error ?? ''), JSON.stringify(t6e))
 
   // ---- updates ----
   const up2 = installer('update', '--from', kit(2))

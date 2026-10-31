@@ -229,6 +229,14 @@ sudo mycel-ctl safe-ops off
   남는다. 1A 작업을 하지 않은 채팅은 끄면 원래대로 돌아온다.
 - 관리자 › 시스템 › 진단의 "안전한 PowerPoint(1A)"가 준비 상태나 빠진 것과 고칠 명령을 보여 준다.
 
+### 9b. Code sandbox (optional)
+
+The code sandbox lets the AI run bash and Python 3 programs (docs/DECISIONS.md "Code sandbox"). It is off by default:
+an owner or admin turns it on in Admin › Team settings › Code sandbox, after accepting a warning. Each run has its own
+bubblewrap sandbox: no network, only the chat's work folder, limits for time, memory, processes, disk and output. It
+uses the distro's own programs in `/usr/bin` (`sudo apt install python3 jq unzip` for Python and the common tools). A
+plan file without `"codeSandbox": true` keeps it off.
+
 ## 10. 저장 공간·백업과 복원
 
 - 관리자 › 시스템 › 저장 공간: 디스크 사용률과 항목별 크기(팀 파일, 파일 기록, 휴지통, 백업, 모델, 서버 데이터, 앱, 기타).

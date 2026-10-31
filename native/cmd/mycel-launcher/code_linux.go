@@ -336,6 +336,11 @@ loop:
 	if cg.kill() && sig == "" {
 		sig = "oom"
 	}
+	// a run that ended by itself (a write that hit RLIMIT_FSIZE) can still have filled the folder past the limit
+	if sig == "" && te.diskMax > 0 && overDisk(ct.chat, te.diskMax) {
+		sig = "disk_limit"
+		te.hitDisk()
+	}
 	code := 0
 	if ee, ok := werr.(*exec.ExitError); ok {
 		code = ee.ExitCode()

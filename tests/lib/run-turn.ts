@@ -10,17 +10,20 @@ const SANDBOX_ENGINE_DIR = process.env.MYCEL_FAKE_ENGINE_DIR
 export const fakeEngineCmd = () => SANDBOX_ENGINE_DIR ? path.join(SANDBOX_ENGINE_DIR, 'bun') : process.execPath
 const fakeEngineScript = () => SANDBOX_ENGINE_DIR ? path.join(SANDBOX_ENGINE_DIR, 'fake-engine.ts') : FAKE_ENGINE
 
-export async function fakeTurn(srv: Running, user: string, spec: unknown, o: { chatId?: string; onStarted?: (pid: number) => void | Promise<void>; onLine?: (line: any) => void | Promise<void> } = {}) {
+/** codeSandbox: the launch asks for a code-sandbox turn (the launcher's "code" op then serves this turn id);
+ * onStarted gets the turn id too, onHandle the launch handle (kill) */
+export async function fakeTurn(srv: Running, user: string, spec: unknown, o: { chatId?: string; codeSandbox?: boolean; onStarted?: (pid: number, turnId: string) => void | Promise<void>; onHandle?: (h: { kill(): void }) => void; onLine?: (line: any) => void | Promise<void> } = {}) {
   const chatId = o.chatId ?? 'c_' + crypto.randomUUID().slice(0, 8)
   const { turn, token } = srv.turns.create(user, chatId, 'fake')
   const h = srv.launcher!.launch({
     op: 'run', turnId: turn.id, chatDir: path.join(srv.cfg.agentRoot, chatId), cmd: fakeEngineCmd(),
     args: [fakeEngineScript(), '--mcp-config', '{MCP_CONFIG}'], env: { PATH: '/usr/bin:/bin', HOME: srv.cfg.agentRoot, ...(SANDBOX_ENGINE_DIR ? { TMPDIR: '{CHAT_DIR}/.tmp' } : {}) },
-    token, systemPrompt: 'fake', timeoutMs: 120000, stdin: JSON.stringify(spec),
+    token, systemPrompt: 'fake', timeoutMs: 120000, stdin: JSON.stringify(spec), ...(o.codeSandbox ? { codeSandbox: true } : {}),
   })
+  o.onHandle?.(h)
   let stdout = '', stderr = '', exit: any = null, pending = ''
   for await (const e of h.events) {
-    if (e.ev === 'started') { srv.turns.bind(turn.id, e.pgid); await o.onStarted?.(e.pid) }
+    if (e.ev === 'started') { srv.turns.bind(turn.id, e.pgid); await o.onStarted?.(e.pid, turn.id) }
     else if (e.ev === 'stdout') {
       const chunk = Buffer.from(e.b64, 'base64').toString()
       stdout += chunk

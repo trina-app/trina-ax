@@ -59,9 +59,9 @@ type Probe = (sock: string) => Promise<LauncherStatus | null>
 const realProbe: Probe = (sock) => launcherStatus(sock, 2000)
 let probe: Probe = realProbe
 /** tests: answer for the launcher */
-export function setCodeSandboxProbe(p: Probe | null) { probe = p ?? realProbe }
+export function setCodeSandboxProbe(p: Probe | null) { probe = p ?? realProbe; cache = new WeakMap() }
 
-const cache = new WeakMap<object, { at: number; v: CodeSandboxAvailability }>()
+let cache = new WeakMap<object, { at: number; v: CodeSandboxAvailability }>()
 const CACHE_MS = 30_000
 
 /** The socket of the launcher that runs this server's turns (the core's: a prod install's or the one dev started). */

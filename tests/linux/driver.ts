@@ -117,6 +117,104 @@ if (SANDBOX) {
   const markR = mark.lines.find((l: any) => l.probe === 'mark')?.result
   const afterR = again.lines.find((l: any) => l.probe === 'after')?.result
   check('forget deletes the engine folder (a later turn starts empty)', markR === 'wrote' && forgot.ok === true && afterR === 'ENOENT', JSON.stringify({ markR, forgot, afterR }))
+
+  // ---- code sandbox (docs/DECISIONS.md "Code sandbox", D1): every run in its own bwrap, no network, only <chat>/work ----
+  const { launcherCode } = await import('../../server/src/native')
+  const LSOCK = '/run/mycel-launcher/launcher.sock'
+  check('launcher status: the code sandbox is available (plan, bash, cgroups)', st?.codeSandbox?.available === true && st.codeSandbox.runtimes?.python3 === true, JSON.stringify(st?.codeSandbox))
+  // a code turn that holds while the runs go; started and later stopped by the driver
+  const codeTurn = (chatId: string, probe: unknown[] = []) => {
+    let id = '', handle: { kill(): void } | null = null
+    let ended: Awaited<ReturnType<typeof fakeTurn>> | null = null
+    const started = new Promise<void>((res) => {
+      const done = fakeTurn(srv, 'alice', { calls: [], probe, sleepMs: 110_000 }, { chatId, codeSandbox: true, onStarted: (_p, t) => { id = t; res() }, onHandle: (h) => { handle = h } })
+      void done.then((r) => { ended = r; res() })
+    })
+    return { started, id: () => id, stop: () => handle?.kill(), ended: () => ended }
+  }
+  const run = (turnId: string, lang: 'bash' | 'python', code: string, timeoutMs = 20_000) => launcherCode(LSOCK, { turnId, lang, code, timeoutMs })
+  const outOf = (r: Awaited<ReturnType<typeof run>>) => (r.ok ? `${r.exit.code}/${r.exit.signal}: ${r.exit.stdout}${r.exit.stderr}` : 'ERR ' + r.message).slice(0, 400)
+  // a plain turn (no codeSandbox) cannot run code
+  {
+    let plainId = ''
+    const plain = fakeTurn(srv, 'alice', { calls: [], sleepMs: 3000 }, { onStarted: (_p, t) => { plainId = t } })
+    for (let i = 0; i < 50 && !plainId; i++) await Bun.sleep(50)
+    const r = await run(plainId, 'bash', 'id')
+    check('code: a turn without the code sandbox cannot run code', !r.ok && /code_unavailable/.test(r.message), outOf(r))
+    await plain
+  }
+  const ct = codeTurn('c_code_main', [{ id: 'P-code-engine-sh', kind: 'stat', path: '/usr/bin/sh' }, { id: 'P-code-engine-bash', kind: 'stat', path: '/usr/bin/bash' }])
+  await ct.started
+  const tid = ct.id()
+  const basic = await run(tid, 'bash', 'echo hello; python3 -c "print(6*7)"; command -v jq unzip; pwd; id -u')
+  check('code: bash and python3 run in /work', basic.ok && basic.exit.code === 0 && /hello\n42\n/.test(basic.exit.stdout) && /\/usr\/bin\/jq/.test(basic.exit.stdout) && /\/work\n/.test(basic.exit.stdout), outOf(basic))
+  const net = await run(tid, 'python', [
+    'import socket, os',
+    'def t(fam, addr, kind=socket.SOCK_STREAM):',
+    '    try:',
+    '        s = socket.socket(fam, kind); s.settimeout(2)',
+    '        if kind == socket.SOCK_DGRAM: s.sendto(b"x", addr); s.recv(1)',
+    '        else: s.connect(addr)',
+    '        return "REACHED"',
+    '    except Exception as e: return type(e).__name__',
+    `print("proxy", t(socket.AF_INET, ("127.0.0.1", ${PROXY})))`,
+    `print("proxy6", t(socket.AF_INET6, ("::1", ${PROXY})))`,
+    'print("api", t(socket.AF_INET, ("127.0.0.1", 19174)))',
+    'print("internet", t(socket.AF_INET, ("1.1.1.1", 443)))',
+    'print("metadata", t(socket.AF_INET, ("169.254.169.254", 80)))',
+    'print("dns", t(socket.AF_INET, ("1.1.1.1", 53), socket.SOCK_DGRAM))',
+    'print("tools", t(socket.AF_UNIX, "/run/mycel/tools.sock"))',
+    'print("launcher", t(socket.AF_UNIX, "' + LSOCK + '"))',
+    'print("ifaces", sorted(n for _, n in socket.if_nameindex()))',
+  ].join('\n'))
+  check('code: no network at all (model proxy, server API, internet, metadata, DNS, tools and launcher sockets)', net.ok && !/REACHED/.test(net.exit.stdout) && /ifaces \['lo'\]/.test(net.exit.stdout), outOf(net))
+  const files = await run(tid, 'python', [
+    'import os, json',
+    'paths = ["/srv/agent", "/srv/mycel", "/opt/mycel", "/opt/mycel-test", "/home", "/run/mycel", "/run/mycel-launcher", "/sys", "/opt/fake-engine", "/srv/agent/codex-auth/auth.json", "/.turn", "/work/../.turn"]',
+    'print(json.dumps({"root": sorted(os.listdir("/")), "seen": [p for p in paths if os.path.exists(p)], "passwd": open("/etc/passwd").read().count("\\n"),',
+    '  "procs": sorted(set(open("/proc/%s/cmdline" % p).read().split("\\0")[0] for p in os.listdir("/proc") if p.isdigit()))}))',
+  ].join('\n'))
+  let fj: any = null; try { fj = JSON.parse(files.ok ? files.exit.stdout : '') } catch {}
+  check('code: only /work of its own chat, the distro /usr, the sandbox /etc; no engine, bridge or server process in sight',
+    !!fj && fj.seen.length === 0 && fj.passwd === 2 && !fj.root.includes('srv') && !fj.procs.some((c: string) => /fake-engine|bun|driver|mycel-launcher|bridge/.test(c)), outOf(files))
+  const persist1 = await run(tid, 'bash', 'echo kept > /work/kept.txt; cp /usr/bin/true /work/t; cp /usr/bin/true /tmp/t; /work/t; echo "work-exec=$?"; /tmp/t; echo "tmp-exec=$?"')
+  const persist2 = await run(tid, 'bash', 'cat /work/kept.txt; ls /tmp | wc -l')
+  check('code: /work is kept between runs, /tmp is not; programs written there do not run', persist1.ok && /work-exec=(126|1)\b/.test(persist1.exit.stdout + persist1.exit.stderr) && /tmp-exec=(126|1)\b/.test(persist1.exit.stdout + persist1.exit.stderr)
+    && persist2.ok && /^kept\n0\n$/.test(persist2.exit.stdout), outOf(persist1) + ' | ' + outOf(persist2))
+  const slow = await run(tid, 'bash', 'setsid sleep 600 & sleep 30', 2000)
+  check('code: the time limit stops the run (and what it left behind)', slow.ok && slow.exit.signal === 'timeout' && slow.exit.ms < 10_000, outOf(slow))
+  const busyA = run(tid, 'bash', 'sleep 3')
+  await Bun.sleep(300)
+  const busyB = await run(tid, 'bash', 'echo second')
+  await busyA
+  check('code: one run per turn at a time', !busyB.ok && /code_busy/.test(busyB.message), outOf(busyB))
+  const bomb = await run(tid, 'bash', ':(){ :|:& };:', 8000)
+  const after = await run(tid, 'bash', 'echo alive')
+  check('code: a fork bomb stays inside its run (pids limit, time limit) and the next run works', bomb.ok && bomb.exit.ms < 20_000 && after.ok && after.exit.stdout === 'alive\n', outOf(bomb) + ' | ' + outOf(after))
+  const mem = await run(tid, 'python', 'b = bytearray(3 * 1024 ** 3)\nprint("ALLOCATED")')
+  check('code: memory is bounded (the run, not the answer)', mem.ok && !/ALLOCATED/.test(mem.exit.stdout) && (mem.exit.signal === 'oom' || mem.exit.code !== 0), outOf(mem))
+  const big = await run(tid, 'python', 'import sys\nsys.stdout.write("x" * 200000)')
+  check('code: output is capped at 64 KiB', big.ok && big.exit.stdout.length === 65536 && big.exit.truncated, outOf(big).slice(0, 80))
+  // the engine of a code turn still cannot run a shell itself (the engine's own sandbox does not change)
+  ct.stop()
+  for (let i = 0; i < 100 && !ct.ended(); i++) await Bun.sleep(100)
+  const cpr: Record<string, any> = {}
+  for (const l of ct.ended()?.lines ?? []) if (l.probe) cpr[l.probe] = l.result
+  check('code: the engine of a code turn still has no /usr/bin (no shell of its own)', /ENOENT/.test(String(cpr['P-code-engine-sh'])) && /ENOENT/.test(String(cpr['P-code-engine-bash'])), JSON.stringify(cpr))
+  const gone = await run(tid, 'bash', 'id')
+  check('code: after the turn its id runs nothing', !gone.ok && /code_unavailable/.test(gone.message), outOf(gone))
+  // disk: a fast write past the turn disk limit (1 GiB) stops the run and the turn; the folder is emptied
+  for (const [name, code] of [
+    ['a fast big write', 'with open("/work/big", "wb") as f:\n    for i in range(1400):\n        f.write(b"\\0" * (1 << 20))\nprint("WROTE")'],
+    ['many small files hiding a big one', 'import os\nos.makedirs("/work/a", exist_ok=True)\nfor i in range(60000):\n    open("/work/a/%05d" % i, "w").close()\nprint("WROTE")'],
+  ] as const) {
+    const dt = codeTurn('c_code_disk_' + name.length)
+    await dt.started
+    const w = await run(dt.id(), 'python', code, 120_000)
+    for (let i = 0; i < 100 && !dt.ended(); i++) await Bun.sleep(100)
+    const ex = dt.ended()?.exit
+    check(`code: disk is bounded (${name}): the run and the turn stop with disk_limit`, w.ok && w.exit.signal === 'disk_limit' && ex?.signal === 'disk_limit', outOf(w) + ' turn=' + JSON.stringify(ex))
+  }
 } else {
   const victim = fakeTurn(srv, 'bob', { calls: [{ tool: 'read', args: { file_path: 'users/bob/notes.md' } }], sleepMs: 12000 })
   await Bun.sleep(1500)

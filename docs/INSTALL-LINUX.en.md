@@ -117,6 +117,22 @@ programs: the installer and `mycel-ctl update` keep root-owned copies of `mycel-
 ran a 1A job keep web, connectors and the browser off afterwards; other chats get them back when 1A is off. Admin ›
 System › Diagnostics shows "Safe PowerPoint (1A)": ready, or what is missing and the command to fix it.
 
+## Code sandbox (optional)
+
+The code sandbox lets the AI run bash and Python 3 programs (docs/DECISIONS.md "Code sandbox"). It is off by default.
+An owner or admin turns it on in Admin › Team settings › Code sandbox for chosen people or groups, after accepting a
+warning. Each run gets its own bubblewrap sandbox with no network at all, only the chat's work folder, and limits for
+time, memory, processes, disk and output. It needs `--sandbox bwrap` and the delegated cgroups (the normal install).
+
+The sandbox uses the programs of the distro in `/usr/bin` and installs nothing. bash is always there; for Python and
+the common tools, install them on the host:
+
+```sh
+sudo apt install python3 jq unzip
+```
+
+The card shows the programs the launcher found. A plan file (below) without `"codeSandbox": true` keeps it off.
+
 ## Backup, restore, uninstall
 
 See [BACKUP-RESTORE.md](BACKUP-RESTORE.md) for DB-only restore, team files, encrypted archives, ownership and new-machine limits. Local backups are on the same disk and are not disaster recovery by themselves.
