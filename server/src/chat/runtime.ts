@@ -41,7 +41,7 @@ export const QUEUE_RETRY_AFTER_S = 30
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
-  ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있습니다. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
+  ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
   id: { queue_full: 'Sedang banyak permintaan. Kirim lagi sebentar lagi.', queue_full_user: 'Sudah ada 3 pertanyaan Anda yang menunggu. Kirim lagi setelah jawaban sebelumnya selesai.' }, ja: { queue_full: "現在リクエストが集中しています。しばらくしてから再送信してください。", queue_full_user: "すでに3件の質問が待機中です。先の回答が完了してから再送信してください。" }, es: { queue_full: "Hay muchas solicitudes en este momento. Vuelva a enviarla en un momento.", queue_full_user: "Ya tiene 3 preguntas en espera. Vuelva a enviarla cuando termine una respuesta anterior." },
 }

@@ -54,3 +54,14 @@ describe('step labels of the built-in tools', () => {
     }
   })
 })
+
+describe('engine steps saved with the Korean wording before 0.2.16 (합니다체)', () => {
+  test('still follow the language on screen', () => {
+    expect(localizeStep({ kind: 'tool', tool: 'refusal', label: 'AI가 답하지 않아 다른 모델(claude-opus)로 다시 답합니다' }, 'en').label)
+      .toBe('The AI declined; answering again with another model (claude-opus)')
+    expect(localizeStep({ kind: 'tool', tool: 'engine', label: 'Codex 사용 한도에 닿아 Claude 엔진으로 이어서 답합니다' }, 'ko').label)
+      .toBe('Codex 사용 한도에 닿아 Claude 엔진으로 이어서 답해요')
+    expect(localizeStep({ kind: 'tool', tool: 'engine', label: 'AI 연결이 거절되어 다른 연결로 이어서 답합니다' }, 'ja').label)
+      .toBe(localizeStep({ kind: 'tool', tool: 'engine', label: 'AI 연결이 거절되어 다른 연결로 이어서 답해요' }, 'ja').label)
+  })
+})

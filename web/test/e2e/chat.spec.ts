@@ -187,7 +187,7 @@ test('an error answer offers retry', async ({ page }) => {
   await signIn(page)
   await ask(page, 'cause an error')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
-  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI 엔진을 쓸 수 없습니다. 팀장에게 알려 주세요')
+  await expect(lastAnswer(page).getByTestId('answer-error')).toContainText('지금은 AI 엔진을 쓸 수 없어요. 팀장에게 알려 주세요')
 })
 
 test('attachments: an image is uploaded right away and shown as a thumbnail', async ({ page }) => {

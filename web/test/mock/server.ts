@@ -57,8 +57,8 @@ const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<str
 /** Like server/src/admin/users.ts temporaryFor: a typed temporary password must be ASCII, 8+ and not a common one. */
 function checkTemp(pw: string | undefined): void {
   if (pw === undefined) return
-  if (!/^[\x21-\x7e]+$/.test(pw)) fail('validation', 400, '임시 비밀번호에는 영문·숫자·기호만 쓸 수 있습니다(공백·한글 불가). 한/영 키를 확인해 주세요.', { 'body.temporaryPassword': 'letters, digits and symbols only' })
-  if (['12345678', 'password', 'qwerty123'].includes(pw.toLowerCase())) fail('validation', 400, '더 안전한 비밀번호를 정해 주세요. 너무 흔한 비밀번호입니다.', { 'body.temporaryPassword': 'this password is too common' })
+  if (!/^[\x21-\x7e]+$/.test(pw)) fail('validation', 400, '임시 비밀번호에는 영문·숫자·기호만 쓸 수 있어요(공백·한글 불가). 한/영 키를 확인해 주세요.', { 'body.temporaryPassword': 'letters, digits and symbols only' })
+  if (['12345678', 'password', 'qwerty123'].includes(pw.toLowerCase())) fail('validation', 400, '더 안전한 비밀번호를 정해 주세요. 너무 흔한 비밀번호예요.', { 'body.temporaryPassword': 'this password is too common' })
 }
 const tempUntil = () => new Date(Date.now() + 7 * 86400_000).toISOString()
 const now = () => new Date().toISOString()
@@ -348,7 +348,7 @@ export class MockServer {
     this.engineRequests.push({ name, user: u.id, engine: body.engine, model: body.model })
     if (this.canChoose(u)) return
     if ((body.engine !== undefined && body.engine !== current.engine) || (body.model !== undefined && (body.model ?? null) !== current.model))
-      fail('forbidden', 403, 'AI 엔진과 모델은 관리자가 정합니다. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답합니다.')
+      fail('forbidden', 403, 'AI 엔진과 모델은 관리자가 정해요. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답해요.')
   }
   me(u: User, sid: string): Me {
     const prefs = { ...((u as User & { prefs?: Me['user']['prefs'] }).prefs ?? {}) }
@@ -466,7 +466,10 @@ export class MockServer {
       // plain address; "markask": an address with a random-looking part, highlighted, and no site choice
       const siteUrl = 'https://docs.example.co.kr/guide/start'
       const markUrl = 'https://docs.example.co.kr/r/c2fsyxj5ltk4nzy1ndmy'
-      const request: TurnRequest = /siteask/i.test(prompt)
+      // "browsersite": like the in-app browser asking to open an office-network address (once / always / deny)
+      const request: TurnRequest = /browsersite/i.test(prompt)
+        ? { kind: 'browser_site', requestId, url: 'http://10.0.0.5/intranet/', host: '10.0.0.5', reason: '사내 문서 페이지를 열려고 해요.' }
+        : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
           question: `AI가 이 대화에 나온 적 없는 주소를 열려고 해요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.\n\n${siteUrl}\n\n사이트를 허용하면 이 대화에서만 example.co.kr의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 문자열이나 긴 내용이 붙은 주소는 계속 물어요.`,
           options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }] }
@@ -476,7 +479,7 @@ export class MockServer {
           options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }],
           details: [{ label: '주소', text: markUrl, marks: ['c2fsyxj5ltk4nzy1ndmy'] }] }
         : /safety/i.test(prompt)
-        ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 합니다.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
+        ? { kind: 'ask_user', origin: 'server', requestId, question: 'AI가 이 대화에 나온 적 없는 주소를 열려고 해요.\n\nhttps://example.com/?d=1', options: [{ label: '열기', value: 'allow' }, { label: '열지 않기', value: 'deny' }], allowText: false }
         : /multi/i.test(prompt)
           ? { kind: 'ask_user', requestId, question: '보고서에 어느 분기를 넣을까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], multiple: true, allowText: true }
           : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
@@ -510,7 +513,7 @@ export class MockServer {
       const after = '---\nname: 주간 보고서\ndescription: 이번 주 회의록으로 보고서를 만든다\n---\n1. 회의록을 읽는다\n2. 표로 정리한다\n'
       const request: TurnRequest = {
         kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-        question: '팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따릅니다.\n\nskills/weekly.md (새 팀 스킬 "주간 보고서")',
+        question: '팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요.\n\nskills/weekly.md (새 팀 스킬 "주간 보고서")',
         options: [{ label: '저장', value: 'save' }, { label: '저장하지 않기', value: 'skip' }],
         preview: { kind: 'skill_write', path: 'skills/weekly.md', isNew: true, skillName: '주간 보고서', diff: '@@ -0,0 +1,6 @@\n' + after.trimEnd().split('\n').map((l) => '+' + l).join('\n'), added: 6, removed: 0, truncated: false },
       }
@@ -663,7 +666,7 @@ export class MockServer {
       const u = this.users.find((x) => x.username === c.body.username)
       // like the server: before sign-in, the page's language header, else the team default
       const loc = Locale.safeParse(c.req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
-      const wrong = { ko: '아이디나 비밀번호가 맞지 않습니다.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.' }[loc]
+      const wrong = { ko: '아이디나 비밀번호가 맞지 않아요.', en: 'Wrong username or password.', id: 'Nama pengguna atau kata sandi salah.', ja: 'ユーザー名またはパスワードが正しくありません。', es: 'El nombre de usuario o la contraseña son incorrectos.' }[loc]
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
@@ -809,7 +812,7 @@ export class MockServer {
     answerTurn: (c) => {
       const r = this.pendingAsk.get(c.params.id!)
       // like server/src/routes/chats.ts: answered already (another window) or closed
-      if (!r) fail('conflict', 409, '이미 답했거나 시간이 지난 질문입니다.')
+      if (!r) fail('conflict', 409, '이미 답했거나 시간이 지난 질문이에요.')
       this.pendingAsk.delete(c.params.id!)
       r!(c.body.kind === 'ask_user' ? c.body.answer : c.body.decision)
       return undefined
@@ -1062,7 +1065,7 @@ export class MockServer {
     listUsers: () => ({ items: this.users }),
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
-      if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디입니다.')
+      if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger4271')
       return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
@@ -1088,7 +1091,7 @@ export class MockServer {
     },
     // like server/src/admin/users.ts transferOwnership: the password again, then the old owner becomes an admin
     transferOwnership: (c) => {
-      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, '비밀번호가 맞지 않습니다. 다시 입력해 주세요.')
+      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.')
       const u = this.users.find((x) => x.id === c.body.userId && x.status === 'active') ?? fail('not_found', 404)
       if (u.id === c.user.id) fail('forbidden', 403)
       for (const x of this.users) if (x.role === 'owner') x.role = 'admin'
@@ -1131,7 +1134,7 @@ export class MockServer {
       const { subjectType, subjectId, enabled } = c.body as { subjectType: 'user' | 'group'; subjectId: string; enabled: boolean }
       const p = (c.body.path as string) ?? 'skills'
       const u = this.users.find((x) => x.id === subjectId)
-      if (subjectType === 'user' && (!u || u.role !== 'member')) fail('validation', 400, '팀장·관리자는 항상 팀 스킬을 관리합니다.')
+      if (subjectType === 'user' && (!u || u.role !== 'member')) fail('validation', 400, '팀장·관리자는 항상 팀 스킬을 관리해요.')
       if (!(p === 'skills' || p.startsWith('skills/'))) fail('validation', 400, 'skills/ 안의 볼 수 있는 폴더를 골라 주세요.')
       this.skillManagers = this.skillManagers.filter((g) => !(g.subjectType === subjectType && g.subjectId === subjectId && g.path === p))
       if (enabled) this.skillManagers.push({ subjectType, subjectId, path: p })
@@ -1181,8 +1184,8 @@ export class MockServer {
     approveSkillSuggestion: (c) => {
       const s = this.suggestions.find((x) => x.id === c.params.id)
       if (!s || !(s.suggester.id === c.user.id || this.manages(c.user, s.targetFolder))) fail('not_found', 404)
-      if (!this.manages(c.user, s!.targetFolder) || !this.manages(c.user, c.body.targetFolder)) fail('forbidden', 403, '이 폴더의 팀 스킬을 관리할 권한이 없습니다.')
-      if (s!.status !== 'pending') fail('conflict', 409, '이미 처리된 제안입니다.')
+      if (!this.manages(c.user, s!.targetFolder) || !this.manages(c.user, c.body.targetFolder)) fail('forbidden', 403, '이 폴더의 팀 스킬을 관리할 권한이 없어요.')
+      if (s!.status !== 'pending') fail('conflict', 409, '이미 처리된 제안이에요.')
       const file = `${c.body.targetFolder}/${(c.body.fileName ?? c.body.name).trim().replace(/\s+/g, '-')}.md`
       this.putFile(file, `---\nname: ${JSON.stringify(c.body.name)}\ndescription: ${JSON.stringify(c.body.description ?? '')}\n---\n${c.body.content}`)
       Object.assign(s!, { status: 'approved', reviewer: { id: c.user.id, name: c.user.name }, reviewedAt: now(), resultPath: file, targetFolder: c.body.targetFolder, name: c.body.name, description: c.body.description, content: c.body.content })
@@ -1223,7 +1226,7 @@ export class MockServer {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
-      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, 'Codex가 꺼져 있어 한도 대체를 켤 수 없습니다.')
+      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, 'Codex가 꺼져 있어 한도 대체를 켤 수 없어요.')
       if (c.body.limitFallback !== undefined) this.limitFallback = c.body.limitFallback
       if (!this.codexEnabled) this.limitFallback = false
       if (c.body.memberChoice) this.memberChoice = c.body.memberChoice
@@ -1331,7 +1334,7 @@ export class MockServer {
     },
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
-    officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없습니다.'),
+    officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없어요.'),
     // ---------------- AI connections (like server/src/routes/credentials.ts) ----------------
     listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
     sealingKey: () => this.sealer.publicKey(),

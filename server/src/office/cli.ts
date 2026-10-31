@@ -423,14 +423,14 @@ const mb = (n: unknown) => typeof n === 'number' ? `${(n / 1024 / 1024).toFixed(
 /** `teamax backup`: two lines instead of the backup's JSON */
 export function backupSummary(j: Record<string, unknown>): string {
   const db = j.db as { size?: number } | undefined, team = j.team as { archiveSize?: number } | undefined
-  return `백업을 만들었습니다 / backup made: ${j.id ?? '?'} (${j.createdAt ?? ''}; 데이터베이스 ${mb(db?.size)}, 팀 폴더 ${mb(team?.archiveSize)})\n` +
-    '  관리자 > 시스템 > 백업에 보이고, 이 맥의 디스크에 있습니다. 외장 디스크로는 / to an external disk: teamax archive <파일 / file>'
+  return `백업을 만들었어요 / backup made: ${j.id ?? '?'} (${j.createdAt ?? ''}; 데이터베이스 ${mb(db?.size)}, 팀 폴더 ${mb(team?.archiveSize)})\n` +
+    '  관리자 > 시스템 > 백업에 보이고, 이 맥의 디스크에 있어요. 외장 디스크로는 / to an external disk: teamax archive <파일 / file>'
 }
 
 /** `teamax archive`: three lines instead of the archive's JSON */
 export function archiveSummary(j: Record<string, unknown>): string {
-  return `보관본을 만들었습니다 / archive written: ${j.file ?? '?'} (${mb(j.size)}, 팀 파일 ${j.files ?? '?'}개, ${j.encrypted ? '암호화됨 / encrypted' : '암호 없음 / not encrypted'})\n` +
-    `  SHA-256 ${j.sha256 ?? '?'}\n  암호를 잊으면 복원할 수 없습니다 / without the password it cannot be restored.`
+  return `보관본을 만들었어요 / archive written: ${j.file ?? '?'} (${mb(j.size)}, 팀 파일 ${j.files ?? '?'}개, ${j.encrypted ? '암호화됨 / encrypted' : '암호 없음 / not encrypted'})\n` +
+    `  SHA-256 ${j.sha256 ?? '?'}\n  암호를 잊으면 복원할 수 없어요 / without the password it cannot be restored.`
 }
 
 /** Is something listening on 127.0.0.1:port? */
@@ -518,7 +518,7 @@ export async function syncTunnelAgent(s: OfficeSettings): Promise<string> {
     fs.rmSync(file, { force: true })
     return was ? '인터넷 주소 꺼짐 / internet address off (cloudflared stopped)' : ''
   }
-  if (!fs.existsSync(p.tunnelToken)) return `인터넷 주소 ${s.publicHost}: 연결 토큰이 없습니다 / no connector token: ${path.join(s.home, 'teamax')} public-address set ${s.publicHost} <token file>`
+  if (!fs.existsSync(p.tunnelToken)) return `인터넷 주소 ${s.publicHost}: 연결 토큰이 없어요 / no connector token: ${path.join(s.home, 'teamax')} public-address set ${s.publicHost} <token file>`
   const cf = path.join(s.home, 'app', 'bin', 'cloudflared')
   if (!fs.existsSync(cf)) return `cloudflared is missing from ${path.dirname(cf)}: run office-install.sh from a newer zip`
   if (ta.loaded()) { ta.stop(); await Bun.sleep(1000) }
@@ -562,15 +562,15 @@ async function waitPublic(host: string, seconds: number): Promise<PublicProbe> {
 export function publicProblem(s: Pick<OfficeSettings, 'publicHost' | 'appPort'>, r: PublicProbe, tunnelLog: string): string {
   const h = s.publicHost
   if (r === 'origin') return [
-    `https://${h} → 502: Cloudflare 터널은 연결됐지만 이 맥의 앱 포트(127.0.0.1:${s.appPort})가 아닌 곳을 가리킵니다 / the tunnel does not point at this Mac's app port.`,
+    `https://${h} → 502: Cloudflare 터널은 연결됐지만 이 맥의 앱 포트(127.0.0.1:${s.appPort})가 아닌 곳을 가리켜요 / the tunnel does not point at this Mac's app port.`,
     `  Cloudflare에 로그인한 맥에서 / on the Mac with the Cloudflare login: bun scripts/office/public-address.ts set ${h} --port ${s.appPort} --cert <cert 파일>`,
-    '  (이 맥에서는 다시 할 일이 없습니다 / nothing to redo on this Mac)',
+    '  (이 맥에서는 다시 할 일이 없어요 / nothing to redo on this Mac)',
   ].join('\n')
   if (r === 'tunnel') return [
-    `https://${h} → 530: 이 이름의 터널에 연결된 cloudflared가 없습니다 (토큰이 다른 터널 것이거나 cloudflared가 멈춤) / no connector for this name's tunnel.`,
+    `https://${h} → 530: 이 이름의 터널에 연결된 cloudflared가 없어요 (토큰이 다른 터널 것이거나 cloudflared가 멈춤) / no connector for this name's tunnel.`,
     `  확인 / check: ${tunnelLog} , teamax public-address status , Cloudflare에 로그인한 맥에서 public-address.ts status ${h}`,
   ].join('\n')
-  return `https://${h}: 아직 답이 없습니다 / no answer yet: 이름(DNS)과 인터넷 연결을 확인하세요 (Cloudflare에 로그인한 맥에서 public-address.ts status ${h}), ${tunnelLog}`
+  return `https://${h}: 아직 답이 없어요 / no answer yet: 이름(DNS)과 인터넷 연결을 확인해 주세요 (Cloudflare에 로그인한 맥에서 public-address.ts status ${h}), ${tunnelLog}`
 }
 
 async function publicAddress(home: string, args: string[]): Promise<number> {
@@ -582,7 +582,7 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     const before = loadSettings(home)
     const s = configure(home, ['--public-host', host, '--tunnel-token-file', tokenFile])
     console.log(`인터넷 주소 / internet address: https://${s.publicHost}  (토큰 / token: ${officePaths(home).tunnelToken}, 600)`)
-    console.log(`이 맥의 앱 포트 / this Mac's app port: ${s.appPort} (Cloudflare 터널이 http://127.0.0.1:${s.appPort}을 가리켜야 합니다 / the tunnel must point there)`)
+    console.log(`이 맥의 앱 포트 / this Mac's app port: ${s.appPort} (Cloudflare 터널이 http://127.0.0.1:${s.appPort}을 가리켜야 해요 / the tunnel must point there)`)
     return (await applyPublicChange(s, before.publicHost !== s.publicHost)) ? 0 : 1
   }
   if (sub === 'off') {
@@ -591,7 +591,7 @@ async function publicAddress(home: string, args: string[]): Promise<number> {
     fs.rmSync(officePaths(home).tunnelToken, { force: true })
     say2(await syncTunnelAgent(s))
     if (before.publicHost) await restartServer(s)
-    console.log('인터넷 주소를 껐습니다 / internet address off. 사무실 안 주소는 그대로입니다 / the office addresses are unchanged.')
+    console.log('인터넷 주소를 껐어요 / internet address off. 사무실 안 주소는 그대로예요 / the office addresses are unchanged.')
     const name = before.publicHost ?? '<name>'
     console.log(`Cloudflare 쪽 이름·터널 지우기 (Cloudflare에 로그인한 맥에서) / remove the name and tunnel at Cloudflare (on the Mac with the Cloudflare login): bun scripts/office/public-address.ts remove ${name} --cert <cert 파일>`)
     return 0
@@ -634,8 +634,8 @@ async function applyPublicChange(s: OfficeSettings, serverToo: boolean): Promise
   console.log(`https://${s.publicHost} 확인 중 / checking ...`)
   const r = await waitPublic(s.publicHost!, 60)
   if (r === 'ok') {
-    console.log(`인터넷 주소가 답합니다 / the internet address answers: https://${s.publicHost}`)
-    console.log(`데스크 카드를 다시 인쇄하세요 / print the desk card again: ${path.join(s.home, 'teamax')} card`)
+    console.log(`인터넷 주소가 답해요 / the internet address answers: https://${s.publicHost}`)
+    console.log(`데스크 카드를 다시 인쇄해 주세요 / print the desk card again: ${path.join(s.home, 'teamax')} card`)
     return true
   }
   console.log(publicProblem(s, r, officePaths(s.home).tunnelLog))
@@ -661,7 +661,7 @@ const signatureWord = (s: Signature | undefined, signed: boolean) =>
   signed || s === 'verified' ? '서명 확인됨 / signature verified' : s === 'unverified' ? '서명 있음(확인 안 됨) / signed, not verified' : '서명 없음 / unsigned'
 
 function addedLine(r: AddResult): string {
-  return (r.unchanged ? `이미 올라가 있습니다 / already offered: ${what(r.item)}` : `데스크톱 앱을 올렸습니다 / desktop app added: ${what(r.item)}`) +
+  return (r.unchanged ? `이미 올라가 있어요 / already offered: ${what(r.item)}` : `데스크톱 앱을 올렸어요 / desktop app added: ${what(r.item)}`) +
     (r.removed.length ? `\n  이전 파일 지움 / older one removed: ${r.removed.join(', ')}` : '')
 }
 
@@ -685,7 +685,7 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
   const [sub = 'list', ...rest] = args.filter((a) => a !== '--keep' && a !== '--dry-run')
   const dir = downloadsDir(home)
   const teamax = path.join(home, 'teamax')
-  const where = '팀원은 설정 → 앱에서 내려받습니다 / members download it under Settings → Apps'
+  const where = '팀원은 설정 → 앱에서 내려받아요 / members download it under Settings → Apps'
   if (sub === '--help' || sub === '-h' || sub === 'help') { out(DESKTOP_USAGE); return 0 }
   if (sub === 'list') {
     const { items, stray } = listInstallers(dir)
@@ -697,7 +697,7 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
   if (sub === 'add') {
     if (rest.length !== 1) { console.error(DESKTOP_USAGE); return 2 }
     const src = path.resolve(rest[0]!)
-    if (!fs.existsSync(src)) { console.error(`teamax: 파일이 없습니다 / no such file: ${src}`); return 1 }
+    if (!fs.existsSync(src)) { console.error(`teamax: 파일이 없어요 / no such file: ${src}`); return 1 }
     out(addedLine(addInstaller(dir, src, { version, keep })))
     out(where)
     return 0
@@ -705,7 +705,7 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
   if (sub === 'remove') {
     if (rest.length !== 1) { console.error(DESKTOP_USAGE); return 2 }
     if (!removeInstaller(dir, rest[0]!)) { console.error(`teamax: ${path.basename(rest[0]!)} is not offered (teamax desktop list)`); return 1 }
-    out(`내렸습니다 / removed: ${path.basename(rest[0]!)}`)
+    out(`내렸어요 / removed: ${path.basename(rest[0]!)}`)
     return 0
   }
   if (sub === 'add-from') {
@@ -755,9 +755,9 @@ export function desktopCommand(home: string, argv: string[], out: (s: string) =>
       let plan: AddPlan
       try { plan = planAdd(dir, f.file, { keep }) } catch (e) { bad++; out(`올리지 못함 / not added: ${f.file}: ${(e as Error).message}`); continue }
       if (plan.action === 'refused') { out(`올리지 않음 / not added: ${f.file}: ${plan.reason}`); continue }
-      if (plan.action === 'unchanged') { offered++; out(`이미 올라가 있습니다 / already offered: ${what(plan.item)}`); continue }
+      if (plan.action === 'unchanged') { offered++; out(`이미 올라가 있어요 / already offered: ${what(plan.item)}`); continue }
       if (f.ask) {
-        const q = `${f.file} 은(는) 압축 파일 옆이 아니라 ${path.dirname(f.file)}에 있습니다. 팀원 모두가 내려받을 앱으로 올릴까요? / found in ${path.dirname(f.file)}, not next to the bundle: offer it to everyone?`
+        const q = `${f.file} 은(는) 압축 파일 옆이 아니라 ${path.dirname(f.file)}에 있어요. 팀원 모두가 내려받을 앱으로 올릴까요? / found in ${path.dirname(f.file)}, not next to the bundle: offer it to everyone?`
         if (dry) { out(`물어볼 파일 / would ask about: ${f.file} (${platformWord(f.platform)} ${f.version})`); continue }
         if (!(o.ask ?? askTerminal)(q)) { out(`올리지 않음 / not added: ${f.file} (${path.dirname(f.file)}의 파일은 묻고 올림 / files there are added only when you say yes; or: ${teamax} desktop add "${f.file}")`); continue }
       }
@@ -822,7 +822,7 @@ export async function main(argv: string[]): Promise<number> {
         lines(`  이 맥에서 / on this Mac:  ${link.local}`)
         if (link.desk) lines(`  인증서를 설치한 데스크에서 / from a desk with the certificate:  ${link.desk}`)
         if (!args.includes('--no-open')) Bun.spawnSync(['/usr/bin/open', link.local])
-      } else lines('팀이 이미 설정되어 있습니다 / the team is already set up.')
+      } else lines('팀이 이미 설정되어 있어요 / the team is already set up.')
       return 0
     }
     case 'start': {

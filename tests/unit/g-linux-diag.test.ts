@@ -40,7 +40,7 @@ describe('wording', () => {
     // a few lines a Mac owner knows, byte for byte
     expect(M.firewall.ko).toBe('AI 엔진 방화벽(pf)')
     expect(M.launcherNotRunning('app.treesoop.mycel', '/Library/Logs/mycel').en).toContain('sudo launchctl kickstart -k system/app.treesoop.mycel.launcher')
-    expect(ENGINE_T.notInstalled!.ko).toBe('서버 맥에 설치되어 있지 않습니다.')
+    expect(ENGINE_T.notInstalled!.ko).toBe('서버 맥에 설치되어 있지 않아요.')
   })
   // the entries a Linux install's diagnostics and engine status can show
   const USED = ['relay', 'relayOff', 'relayPublic', 'relayConnecting', 'relayOffline', 'relayReplaced', 'diskTeam', 'diskData', 'diskLow', 'diskReadOnly', 'diskOk',

@@ -290,7 +290,7 @@ test('settings: the owner transfers ownership with the password again and become
   await expect(dialog).toContainText('Bob님을 팀장으로 정할까요?')
   await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill('wrong password')
   await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
-  await expect(page.getByText('비밀번호가 맞지 않습니다. 다시 입력해 주세요.')).toBeVisible()
+  await expect(page.getByText('비밀번호가 맞지 않아요. 다시 입력해 주세요.')).toBeVisible()
   await expect(dialog).toBeVisible()
   await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill(OWNER.password)
   await dialog.getByRole('button', { name: '넘기기', exact: true }).click()

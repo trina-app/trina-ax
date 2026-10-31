@@ -134,7 +134,7 @@ describe('the AI never saves under skills/ without the person confirming (fail c
   test('write: the server card (not the AI\'s), with the new file; declining writes nothing and is audited', async () => {
     const r = await aiTurn('carol', fake({ tool: 'write', args: { file_path: 'skills/답변-형식.md', content: '# 답변 형식\n- 표로 정리한다\n' }, sayResult: true }), 'skip')
     expect(r.card!.origin).toBe('server')
-    expect(r.card!.question).toContain('팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따릅니다')
+    expect(r.card!.question).toContain('팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요')
     expect(r.card!.preview).toMatchObject({ kind: 'skill_write', path: 'skills/답변-형식.md', isNew: true, skillName: null, added: 2, removed: 0 })
     expect(r.card!.preview!.diff).toContain('+- 표로 정리한다')
     expect(r.content).toContain('did not allow saving')

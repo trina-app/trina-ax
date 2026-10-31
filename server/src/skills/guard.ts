@@ -1,6 +1,6 @@
 // skills/ holds the team skills and team rules every teammate's AI follows (docs/DECISIONS.md "팀 스킬 관리"). The AI
 // never saves there on its own: before write / edit / make_file (or any other AI tool) places a file under skills/,
-// the chat turn shows the person a server card ("팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따릅니다", TurnExec
+// the chat turn shows the person a server card ("팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요", TurnExec
 // .confirmSkillWrite) and keeps an approval for exactly those bytes. The file layer refuses every AI-side write under
 // skills/ without a matching approval (requireSkillApproval), so a tool that forgets to ask, a scheduled run (nobody
 // to ask) or a changed file between the card and the save all end in "nothing written" (fail closed). Writes people

@@ -137,7 +137,7 @@ describe('HTTP through the relay', () => {
     expect(((await j.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: 'not_found', message: 'This team address is not registered' })
     const h = await fetch(teamUrl(PORT, 'nobody', '/'), { headers: { accept: 'text/html', 'accept-language': 'en', cookie: 'mycel_locale=ko' } })
     expect(h.headers.get('content-type')).toContain('text/html')
-    expect(await h.text()).toContain('등록되지 않은 팀 주소입니다')
+    expect(await h.text()).toContain('등록되지 않은 팀 주소예요')
   })
 
   test('registered but offline: 503 team_offline after the hold, Retry-After', async () => {

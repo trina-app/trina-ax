@@ -6,7 +6,7 @@ import { VISION_TEXT } from '../../server/src/files/vision-text'
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { CHAT_ERROR_MESSAGES, chatErrorReason, ERROR_MESSAGES, LOCALE_NAMES, Locale, type ChatErrorReason } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, LOCALE_NAMES, Locale, type ChatErrorReason } from '@mycel/shared/api'
 import { AUTH_MESSAGES } from '../../server/src/auth/messages'
 import { engineError, TEXT as CHAT_TEXT } from '../../server/src/chat/i18n'
 import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
@@ -103,8 +103,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
   'relay/src/pages.ts': { why: 'relay page texts (ko next to en/id/ja/es)', also: /if \(lang === 'ko'\)/ },
   'shared/src/api/common.ts': { why: 'the name 한국어 in language pickers', also: /ko: '한국어'/ },
-  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es)' },
-  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es)' },
+  'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$/ },
+  'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
@@ -226,6 +226,15 @@ describe('stored chat error reasons', () => {
         expect(chatErrorReason({ code: text.code, message: text[locale] + ' Details.' })).toBeNull()
       }
     }
+  })
+  test('errors stored with the Korean wording before 0.2.16 (합니다체) still match, and only with their code', () => {
+    expect(chatErrorReason({ code: 'engine_unavailable', message: 'AI 연결에 문제가 있습니다. 관리자에게 AI 연결을 확인해 달라고 해 주세요.' })).toBe('auth')
+    expect(chatErrorReason({ code: 'busy', message: '시간 제한을 넘겨 답변을 멈췄습니다.' })).toBe('timeout')
+    expect(chatErrorReason({ code: 'internal', message: '시간 제한을 넘겨 답변을 멈췄습니다.' })).toBeNull()
+    expect(isDefaultErrorMessage('internal', '서버 오류가 발생했습니다.')).toBe(true)
+    expect(isDefaultErrorMessage('internal', ERROR_MESSAGES.internal.ko)).toBe(true)
+    expect(isDefaultErrorMessage('forbidden', '서버 오류가 발생했습니다.')).toBe(false)
+    expect(isDefaultErrorMessage('conflict', '누군가 먼저 저장했어요.')).toBe(false)
   })
   test('unknown reasons or messages and mismatched codes are not reinterpreted', () => {
     const error = engineError('auth', 'ko')

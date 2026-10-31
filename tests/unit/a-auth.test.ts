@@ -230,9 +230,9 @@ describe('password change and forced change', () => {
     }
   })
   test('weak password messages say why, in the person\'s language', () => {
-    expect(weakPasswordMessage('must not be the username', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 아이디와 같은 비밀번호는 쓸 수 없습니다.')
+    expect(weakPasswordMessage('must not be the username', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 아이디와 같은 비밀번호는 쓸 수 없어요.')
     expect(weakPasswordMessage('at least 8 characters', 'en')).toBe('Please choose a stronger password. Use at least 8 characters.')
-    expect(weakPasswordMessage('at least 8 characters', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 8자 이상이어야 합니다.')
+    expect(weakPasswordMessage('at least 8 characters', 'ko')).toBe('더 안전한 비밀번호를 정해 주세요. 8자 이상이어야 해요.')
     expect(weakPasswordMessage('something new', 'id')).toBe('Pilih kata sandi yang lebih kuat.')
     for (const pw of ['short', 'qwertyuiop', 'x'.repeat(200)]) expect(weakPasswordMessage(passwordProblem(pw)!, 'ko')).not.toBe('더 안전한 비밀번호를 정해 주세요.')
   })

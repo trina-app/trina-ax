@@ -189,7 +189,7 @@ export function planDiskBytes(): number | null { const g = currentPlan()?.diskGi
 
 // ---------------- seats ----------------
 export const SEAT_MSG = {
-  ko: (n: number) => `요금제의 인원 한도(${n}명)에 도달했습니다. 사용하지 않는 계정을 비활성화하거나 요금제를 바꿔 주세요.`,
+  ko: (n: number) => `요금제의 인원 한도(${n}명)에 도달했어요. 사용하지 않는 계정을 비활성화하거나 요금제를 바꿔 주세요.`,
   en: (n: number) => `The plan's member limit (${n}) is reached. Disable an account that is no longer used, or change the plan.`,
   id: (n: number) => `Batas anggota paket (${n}) sudah tercapai. Nonaktifkan akun yang tidak dipakai lagi, atau ubah paket.`, ja: (n: number) => `プランのメンバー上限（${n}）に達しました。使用していないアカウントを無効にするか、プランを変更してください。`, es: (n: number) => `Se alcanzó el límite de miembros del plan (${n}). Deshabilite una cuenta que ya no se use o cambie de plan.`,
 }
@@ -214,7 +214,7 @@ export function assertSeatFree(db: Database, locale: Locale, adding = 1): void {
 
 // ---------------- concurrency over the plan ----------------
 export const CONCURRENCY_MSG = {
-  ko: (n: number) => `요금제의 동시 실행 수(${n})보다 크게 정할 수 없습니다.`,
+  ko: (n: number) => `요금제의 동시 실행 수(${n})보다 크게 정할 수 없어요.`,
   en: (n: number) => `It cannot be set higher than the plan's answers at the same time (${n}).`,
   id: (n: number) => `Tidak bisa diatur lebih tinggi dari jawaban bersamaan paket (${n}).`, ja: (n: number) => `プランの同時回答数（${n}）より大きい値には設定できません。`, es: (n: number) => `No se puede configurar por encima de las respuestas simultáneas del plan (${n}).`,
 }

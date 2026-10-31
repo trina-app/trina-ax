@@ -372,7 +372,7 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     } finally { h.ctx.config.tunnel = tunnel }
     expect(by('pf_anchor').detail).toContain('운영 설치')
     if (process.platform === 'darwin') expect(by('sandbox')).toMatchObject({ status: 'ok' })
-    expect(by('sandbox').detail).not.toMatch(/샌드박스 프로필을 쓰지 않습니다|without the sandbox profile/)
+    expect(by('sandbox').detail).not.toMatch(/샌드박스 프로필을 쓰지 않아요|without the sandbox profile/)
     expect(by('update').detail).toMatch(/zip/)
     expect(d.checks.some((x: { id: string }) => x.id === 'engine.codex')).toBe(false)
     const conn = await local.call('GET', '/api/admin/connection')
@@ -459,7 +459,7 @@ describe('helper page (plain HTTP on the office network)', () => {
 describe('teamax command', () => {
   test('do-it review 10: backup and archive answer in a sentence, not JSON', () => {
     const b = backupSummary({ id: '2026-10-21T10-00-00Z-manual', createdAt: '2026-10-21T10:00:00Z', db: { size: 3 * 1024 * 1024 }, team: { archiveSize: 1024 * 1024 } })
-    expect(b).toContain('백업을 만들었습니다')
+    expect(b).toContain('백업을 만들었어요')
     expect(b).toContain('3.0 MB')
     expect(b).not.toContain('{')
     const a = archiveSummary({ file: '/Volumes/Backup/teamax.age', size: 2 * 1024 * 1024, sha256: 'ab', encrypted: true, files: 12 })

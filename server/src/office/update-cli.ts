@@ -82,7 +82,7 @@ export function viewText(v: OfficeUpdateView): string {
   if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)
   if (v.desktop) lines.push(`윈도우 앱 / Windows app ${v.desktop.version} (data/downloads, ${local(v.desktop.at)})`)
   if (v.running) lines.push(`진행 중 / running       ${v.running.phase}`)
-  else if (v.requested) lines.push('요청됨 / requested     곧 시작합니다 / starting')
+  else if (v.requested) lines.push('요청됨 / requested     곧 시작해요 / starting')
   return lines.join('\n')
 }
 
@@ -136,13 +136,13 @@ export async function updateCommand(home: string, args: string[], envPath: strin
       requestUpdate(home, 'teamax update now')
       const k = Bun.spawnSync(['launchctl', 'kickstart', `gui/${uid()}/${updateLabel(s)}`], { stdout: 'pipe', stderr: 'pipe' })
       if (k.exitCode !== 0 && !readUpdateState(home).running) console.log(`launchctl kickstart: ${(k.stdout.toString() + k.stderr.toString()).trim()}`)
-      console.log(`업데이트를 시작했습니다 / update started (${updateLabel(s)}; log ${updatePaths(home).log}). 이 창을 닫아도 계속됩니다 / closing this window does not stop it.`)
+      console.log(`업데이트를 시작했어요 / update started (${updateLabel(s)}; log ${updatePaths(home).log}). 이 창을 닫아도 계속돼요 / closing this window does not stop it.`)
       return await follow(home, started)
     }
     case 'pause':
     case 'resume': {
       writeUpdateSettings(home, { paused: sub === 'pause' })
-      console.log(sub === 'pause' ? '자동 업데이트를 껐습니다 / automatic updates off (teamax update resume)' : '자동 업데이트를 켰습니다 / automatic updates on')
+      console.log(sub === 'pause' ? '자동 업데이트를 껐어요 / automatic updates off (teamax update resume)' : '자동 업데이트를 켰어요 / automatic updates on')
       console.log(viewText(updateView(home)))
       return 0
     }

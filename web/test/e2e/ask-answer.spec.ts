@@ -140,11 +140,11 @@ test('an answer the server no longer takes (closed meanwhile) keeps the text and
   await ask(page, 'please ask me something')
   await expect(page.getByTestId('ask-card')).toBeVisible()
   // like server/src/routes/chats.ts when another window answered first or the card timed out
-  await page.route('**/api/turns/*/answer', (route) => route.fulfill({ status: 409, json: { error: { code: 'conflict', message: '이미 답했거나 시간이 지난 질문입니다.' } } }))
+  await page.route('**/api/turns/*/answer', (route) => route.fulfill({ status: 409, json: { error: { code: 'conflict', message: '이미 답했거나 시간이 지난 질문이에요.' } } }))
   const input = page.getByTestId('composer-input')
   await input.fill('3분기요')
   await input.press('Enter')
-  await expect(page.getByRole('alert').filter({ hasText: '이미 답했거나 시간이 지난 질문입니다.' })).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: '이미 답했거나 시간이 지난 질문이에요.' })).toBeVisible()
   await expect(input).toHaveValue('3분기요')
   await expect(page.getByTestId('outbox')).toHaveCount(0)
   // still open here: answering again goes through

@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, History, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { chatErrorReason, ERROR_MESSAGES, type Attachment, type EngineId } from '@mycel/shared/api'
+import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
@@ -272,7 +272,7 @@ export function AssistantMessage({
   const reason = m.error ? chatErrorReason(m.error) : null
   const errText = m.error
     ? reason ? t(`chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
-      : m.error.params?.reason === undefined && known && Object.values(known).includes(m.error.message) ? known[locale] : m.error.message
+      : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
 
@@ -291,7 +291,7 @@ export function AssistantMessage({
         )}
         {streaming && queuePos !== undefined && queuePos > 0 && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="queue-position">
-            {t('chat.queued', { n: queuePos })} <span className="text-muted-foreground">{t('chat.queueHint')}</span>
+            {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
         <Steps steps={m.steps} streaming={streaming} />

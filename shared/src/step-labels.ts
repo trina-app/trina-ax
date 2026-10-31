@@ -83,15 +83,15 @@ export const STEP_TEXT = {
   attachChanged: t('첨부한 뒤 바뀐 파일, 지금 내용으로 읽음 · {path}', 'Attached file changed since it was attached; using the current version · {path}', 'Berkas lampiran berubah sejak dilampirkan; memakai versi terkini · {path}', "添付後にファイルが変更されたため、現在のバージョンを使用します · {path}", "El archivo cambió desde que se adjuntó; se usa la versión actual · {path}"),
   attachMoved: t('첨부한 파일이 옮겨짐 · {path}', 'Attached file moved · {path}', 'Berkas lampiran dipindah · {path}', "添付ファイルが移動しました · {path}", "El archivo adjunto se movió · {path}"),
   attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi', "添付したチームのファイルは利用できなくなりました", "Un archivo adjunto del equipo ya no está disponible"),
-  refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"),
+  refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
-  engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"),
+  engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"),
   /** "Claude 한도에 닿으면 Codex로 넘기기": the subscription limit was hit and the admin allowed the fallback */
-  limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"),
-  credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 연결로 이어서 답합니다', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"),
+  limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"),
+  credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"),
   /** a sub-agent's part of the answer (Claude Code's Agent tool); {d} is the AI's own short description of it */
   subtask: t('하위 작업: {d}', 'Sub-task: {d}', 'Subtugas: {d}', "サブタスク：{d}", "Subtarea: {d}"),
-  credentialSwitchInvalid: t('AI 연결이 거절되어 다른 연결로 이어서 답합니다', 'The AI connection was refused; continuing with another one', 'Koneksi AI ditolak; dilanjutkan dengan koneksi lain', "AI接続が拒否されたため、別の接続で続けます", "Se rechazó la conexión de IA; se continúa con otra"),
+  credentialSwitchInvalid: t('AI 연결이 거절되어 다른 연결로 이어서 답해요', 'The AI connection was refused; continuing with another one', 'Koneksi AI ditolak; dilanjutkan dengan koneksi lain', "AI接続が拒否されたため、別の接続で続けます", "Se rechazó la conexión de IA; se continúa con otra"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
@@ -160,9 +160,18 @@ function templateMatch(template: string, label: string): Record<string, string> 
 }
 
 /** A whole-label template in any language -> the same template in `locale`. */
+/** The Korean wording before 0.2.16 (합니다체): steps saved with it still follow the language on screen. Matching only. */
+const LEGACY_KO: Partial<Record<StepTextKey, string>> = {
+  refusedRetry: 'AI가 답하지 않아 다른 모델({model})로 다시 답합니다',
+  engineOffDefault: '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다',
+  limitFallback: '{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다',
+  credentialSwitchLimit: '사용 한도에 닿아 다른 AI 연결로 이어서 답합니다',
+  credentialSwitchInvalid: 'AI 연결이 거절되어 다른 연결로 이어서 답합니다',
+}
+
 function retemplate(keys: StepTextKey[], label: string, locale: Locale): string | null {
-  for (const key of keys) for (const l of LOCALES) {
-    const vars = templateMatch(STEP_TEXT[key][l], label)
+  for (const key of keys) for (const template of [...LOCALES.map((l) => STEP_TEXT[key][l]), LEGACY_KO[key]]) {
+    const vars = template === undefined ? null : templateMatch(template, label)
     if (vars) return stepText(key, locale, vars)
   }
   return null
