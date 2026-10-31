@@ -4,6 +4,8 @@
 
 Decide data sensitivity, server ownership, authorized provider connections, client needs, outbound network policy and who restores backups. Selected context leaves for the provider; hosted operators can access stored data. [Security boundaries](security-and-permissions.md).
 
+Two more outbound flows to allow for: the server asks `https://updates.trina.app/ip` for its own public address at start and every 30 minutes (`MYCEL_EXIT_ADDRESS_CHECK=off` opts out; then every web address the AI opens asks a person and scheduled tasks open none; Admin > System > Diagnostics shows whether the server knows its address), and each Codex web search sends the conversation so far to OpenAI's search service.
+
 When the AI reads a photo, screenshot or scanned PDF page, it sees the image, and the image goes to the provider like any other file content. Admins can turn this off in Team settings ("Send images and PDF pages to the AI", on by default); the switch also covers HWP page images and the in-app browser's screenshots. Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 
 | Mode | Guide | Operational boundary |

@@ -51,7 +51,7 @@ En instalaciones con conexiones administradas se prioriza la conexión personal 
 
 ## Lo que no prometemos
 
-- Alojar el sistema no hace que toda la IA funcione sin conexión: el contexto seleccionado se envía al proveedor de IA y las integraciones reciben sus solicitudes.
+- Alojar el sistema no hace que toda la IA funcione sin conexión: el contexto seleccionado se envía al proveedor de IA y las integraciones reciben sus solicitudes. Cada búsqueda web de Codex envía la conversación hasta ese momento al servicio de búsqueda de OpenAI, y el servidor pregunta a `updates.trina.app` por su propia dirección pública cada 30 minutos (`MYCEL_EXIT_ADDRESS_CHECK=off` lo desactiva). [Detalles (inglés)](docs/security-and-permissions.md).
 - Quien opera el servidor puede leer archivos y chats almacenados; en el alojamiento, esto incluye a los operadores de Trina. La administración de la aplicación no ofrece una pantalla para leer todas las conversaciones privadas.
 - Retirar permisos no borra respuestas anteriores. La confirmación al ampliar el acceso no evita todas las posibles filtraciones.
 - No prometemos certificaciones de seguridad, respuestas perfectas, ahorros garantizados ni decisiones legales, financieras o de RR. HH. automáticas. Revisa los resultados y los límites de cada instalación.

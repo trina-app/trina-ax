@@ -51,7 +51,7 @@ In managed installations, eligible personal connections take priority, followed 
 
 ## What we don't promise
 
-- Self-hosting does not make model processing offline: selected context goes to the chosen AI provider, and configured integrations receive their requests.
+- Self-hosting does not make model processing offline: selected context goes to the chosen AI provider, and configured integrations receive their requests. Each Codex web search sends the conversation so far to OpenAI's search service, and the server asks `updates.trina.app` for its own public address every 30 minutes (`MYCEL_EXIT_ADDRESS_CHECK=off` turns that off). [Details](docs/security-and-permissions.md).
 - Server operators can read stored files and chats, including Trina operators for hosting. App administrators do not get a browser for everyone's private conversations.
 - Removing folder access does not erase earlier answers. Wider-sharing confirmation is not universal data-loss prevention.
 - No security certification, perfect answers, guaranteed savings or automatic legal/financial/HR decisions. Review outputs and deployment boundaries.
