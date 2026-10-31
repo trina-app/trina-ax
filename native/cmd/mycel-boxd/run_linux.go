@@ -263,7 +263,8 @@ func idmapped(p boxPaths, folder string) error {
 	if err != nil {
 		return err
 	}
-	defer unix.Close(fd)
+	f := os.NewFile(uintptr(fd), "folder") // owns fd from here (one close)
+	defer f.Close()
 	for _, n := range []string{"node_modules", ".venv"} {
 		if err := mountPoint(fd, n); err != nil {
 			return err
@@ -273,7 +274,7 @@ func idmapped(p boxPaths, folder string) error {
 	m := fmt.Sprintf("%d:%d:1", *serverUID, acct.uid)
 	g := fmt.Sprintf("%d:%d:1", *serverGID, acct.gid)
 	c := exec.Command("mount", "--bind", "--map-users", m, "--map-groups", g, "/proc/self/fd/3", p.Work)
-	c.ExtraFiles = []*os.File{os.NewFile(uintptr(fd), "folder")}
+	c.ExtraFiles = []*os.File{f}
 	if out, err := c.CombinedOutput(); err != nil {
 		return fmt.Errorf("idmapped mount: %v %s", err, strings.TrimSpace(string(out)))
 	}
