@@ -46,6 +46,17 @@ describe('release tag', () => {
     await expect(main(['tag', 'v99.0.0'])).rejects.toThrow(/not the version/)
   })
 
+  test('every Go build uses the pinned Go of versions.json (a newer patch would change the root programs: needsRoot)', () => {
+    const go = (JSON.parse(fs.readFileSync(path.join(ROOT, 'versions.json'), 'utf8')) as { go: string }).go
+    for (const f of ['release.yml', 'ci.yml']) {
+      const wf = fs.readFileSync(path.join(ROOT, '.github/workflows', f), 'utf8')
+      expect({ f, pin: /^ {2}GO_VERSION: (\S+)$/m.exec(wf)?.[1], toolchain: /^ {2}GOTOOLCHAIN: (\S+)$/m.exec(wf)?.[1] }).toEqual({ f, pin: go, toolchain: 'local' })
+      const steps = wf.split('actions/setup-go@').slice(1).map((x) => x.split(/\n\s*- /)[0]!)
+      expect(steps.length).toBeGreaterThan(0)
+      for (const st of steps) expect({ f, pinned: /go-version: "?\$\{\{ env\.GO_VERSION \}\}"?/.test(st), file: st.includes('go-version-file') }).toEqual({ f, pinned: true, file: false })
+    }
+  })
+
   test('the workflow checks the same tag shape before it checks anything out', () => {
     const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')
     const re = /\[\[ "\$tag" =~ (\S+) \]\]/.exec(wf)?.[1]

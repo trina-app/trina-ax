@@ -82,6 +82,13 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   - `pull_request`로는 release.yml이 돌지 않는다. ci.yml은 비밀값을 쓰지 않는다(호출할 때도 넘기지 않는다).
 - **권한**: 최상위 `contents: read`. `contents: write`는 github-release job에만.
 - **외부 action**: 모두 커밋 SHA로 고정했다(ci.yml 포함). 올릴 때는 새 태그의 SHA를 확인해 바꾼다.
+- **Go 버전**: 두 워크플로의 `env`에 `GO_VERSION: 1.27.3`(0.2.15를 빌드한 버전)과 `GOTOOLCHAIN: local`을 두고, 모든
+  `actions/setup-go`가 `go-version: ${{ env.GO_VERSION }}`을 쓴다. `native/go.mod`의 `go 1.27`만 보면 setup-go가 그날의 최신
+  1.27.x를 깔아, Go 패치가 나오거나 러너 이미지가 바뀔 때 root 프로그램(`mycel-ctl`·실행기·샌드박스·bootstrap·`mycel-safeops`)의
+  바이트가 달라지고, 그 릴리스가 `needsRoot`가 되어 모든 리눅스 서버에 root 업데이트를 요구한다.
+  - 올리는 법: 새 Go를 정한 뒤 한 커밋에서 `versions.json`의 `"go"`, 두 워크플로의 `GO_VERSION`을 같이 바꾼다(`tests/unit/release-ci.test.ts`가
+    셋이 같은지 본다). 필요하면 `native/go.mod`의 `go` 줄도. 그 커밋이 들어간 첫 릴리스는 root 프로그램이 바뀌므로 `needsRoot`가 되고,
+    서버는 `mycel-update.timer`나 `sudo mycel-ctl update`로 한 번 root 업데이트를 받는다. 보안 패치가 아니면 다른 root 변경과 묶어 올린다.
 - **워크플로를 고친 뒤**: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml .github/workflows/ci.yml`
   (shellcheck가 있으면 `-shellcheck $(command -v shellcheck)`도). 스크립트 시험은 `bun test tests/unit/release-ci.test.ts tests/unit/publish-server.test.ts`.
 

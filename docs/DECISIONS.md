@@ -4137,6 +4137,10 @@ Trina should feel like Claude Code, which has WebSearch.
   write) would make both `current` and `previous` fail the bootstrap's check, and the automatic roll-back exists for
   exactly that. Version folders are never written after staging (the bootstrap refuses one whose files changed), so
   (3) is about damage, not normal use. With pruning the bound is 2–3 versions (1–1.5 GB) without it.
+- **Go pinned to 1.27.3** in both workflows (`GO_VERSION`, `GOTOOLCHAIN: local`, the same as `versions.json`), not
+  `go-version-file: native/go.mod` (`go 1.27` = whatever 1.27.x is newest that day): since the commit stamp left the Go
+  programs (7952b040), their bytes change only with their code or the toolchain, and `needsRoot` should only follow the
+  code. How to move it: `docs/RELEASE-CI.md` 3장 "Go 버전".
 - **Office Macs.** Bounded as said; one gap closed: when releases fail several times in a row, each one's zip and
   unpacked bundle stayed in `update/download` and `update/staging` until an update worked. Now a new try removes those
   of other versions first (`office/update.ts` `install`).
@@ -4146,4 +4150,4 @@ Trina should feel like Claude Code, which has WebSearch.
   Linux bootstrap, `admin.js prune-versions` dry and real, the rule a day later next to root-owned leftovers and
   planted links, roll-back and the bootstrap's verify fallback after the prune), `native/cmd/mycel-ctl`
   `TestUpdateFromBundle` (an earlier update's `.install-tmp/update-*`), `tests/unit/office-update.test.ts` (two
-  failed releases in a row).
+  failed releases in a row), `tests/unit/release-ci.test.ts` (every `setup-go` uses the pin).
