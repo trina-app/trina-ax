@@ -278,6 +278,9 @@ export class UpdateManager {
     if (version === this.o.version) throw new UpdateError(`version ${version} is already running`)
     const dir = path.join(this.versionsDir(), version)
     if (!fs.existsSync(dir)) throw new UpdateError(`version ${version} is not staged`)
+    // touched first (its ctime moves to now): the old-version prune (system/prune.ts) leaves a folder changed in the last
+    // 24 hours, so a staged version switched to again (Roll back, `admin.js switch <older>`) is not removed meanwhile
+    try { const t = new Date(); fs.lutimesSync(dir, t, t) } catch {}
     await verifyBundleDir(dir, { keys: this.keys, allowUnsigned: this.allowUnsigned })
     const st = this.readState()
     const from = this.currentLinkTarget() ?? this.o.version

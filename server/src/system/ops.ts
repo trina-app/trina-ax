@@ -131,8 +131,11 @@ export class OpsService {
     const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
       window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last })
     if (!d.go) return d.why
-    if (!this.tryLock('update')) return 'busy'
     const log = this.ctx.log.child({ c: 'update' })
+    if (!await this.lockAfterPrune('update')) {
+      log.info('automatic update: another operation runs, trying again in an hour', { to: d.version, holder: this.busy })
+      return 'busy'
+    }
     log.info('automatic update', { to: d.version })
     try {
       await runUpdate({ updates: this.updates, backups: this.backups, running: () => this.queue().running, locale: teamDefaultLocale(this.ctx.db),
@@ -149,14 +152,28 @@ export class OpsService {
     } finally { this.unlock() }
   }
 
+  /** the prune that holds the lock now (seconds): lockAfterPrune waits for it */
+  private pruning: Promise<PruneResult | null> | null = null
+
   /** Remove old version and engine folders (system/prune.ts) under the maintenance lock; null when another operation
    * runs or there is nothing to prune here (dev, office mode). */
   async pruneOldVersions(): Promise<PruneResult | null> {
     if (!this.layout.appDir || this.ctx.config.office) return null
     if (!this.tryLock('prune')) return null
-    try {
-      return await pruneVersions({ appDir: this.layout.appDir, running: this.ctx.version, dataDir: this.ctx.config.dataDir, now: () => this.now(), log: this.ctx.log.child({ c: 'update' }) })
-    } finally { this.unlock() }
+    const run = (async () => {
+      try {
+        return await pruneVersions({ appDir: this.layout.appDir!, running: this.ctx.version, dataDir: this.ctx.config.dataDir, now: () => this.now(), log: this.ctx.log.child({ c: 'update' }) })
+      } finally { this.unlock() }
+    })()
+    this.pruning = run
+    try { return await run } finally { if (this.pruning === run) this.pruning = null }
+  }
+
+  /** The lock for `name`, after a prune that holds it now has finished (it takes seconds; an automatic update that found
+   * it busy would wait an hour for its next try). false: another operation holds it. */
+  async lockAfterPrune(name: string): Promise<boolean> {
+    if (this.busy === 'prune' && this.pruning) await this.pruning.catch(() => null)
+    return this.tryLock(name)
   }
 
   /** role-account install: the engine runs as another account (launcher LaunchDaemon) */
@@ -633,9 +650,8 @@ export class OpsService {
     if (this.autoUpdates) this.timers.push(setInterval(() => { void this.autoUpdateTick().catch((e) => log.warn('automatic update check failed', { err: e })) }, 60 * 60_000))
     // old version and engine folders (system/prune.ts): 10 minutes after start, when the bootstrap has confirmed this
     // version (or rolled it back), then hourly from there; never while an update is pending or another operation holds
-    // the lock. Hourly from the first run, not from the start: the automatic update ticks hourly from the start, and at
-    // the same moment the prune (seconds: it measures the kept versions) would take the lock while the update reads
-    // the feed, so every automatic update would find the lock busy and wait for the next hour, every hour.
+    // the lock. Hourly from the first run, not from the start, so it does not tick with the automatic update; and the
+    // automatic update waits for a prune that holds the lock anyway (lockAfterPrune) rather than skip that hour.
     if (this.layout.appDir && !this.ctx.config.office) {
       const prune = () => { void this.pruneOldVersions().catch((e) => log.warn('old versions not removed', { err: e })) }
       const firstPrune = setTimeout(() => {

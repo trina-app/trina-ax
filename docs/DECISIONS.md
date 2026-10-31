@@ -4163,16 +4163,46 @@ Trina should feel like Claude Code, which has WebSearch.
     the installer (remove the old folder, copy a fresh one, rename it in) could have the fresh folder's files deleted
     from under it, then switch to a broken version (the bootstrap would roll back, but the update fails). Now each
     folder is looked at again right before (`app/current` and `state.json`, the version list for "available", the
-    engine's `current`; same dev and inode, still a day old, owned by this account: a root-owned leftover is reported
-    as "remove it as root", not attempted), renamed to `.prune-<hex>` in the same folder (atomic) and only that name
-    is removed. A removal cut short leaves a `.prune-*` (not a version name, so never offered, staged or switched to),
+    engine's `current`; still a day old by its ctime, owned by its parent folder's account: a root-owned leftover is
+    reported as "remove it as root", not attempted), renamed to `.prune-<hex>` in the same folder (atomic) and only
+    that name is removed. What keeps a fresh copy under the old name is its ctime of now: the same dev and inode as at
+    the first look is checked too but proves little alone, since ext4 gives a freed inode number to the next folder
+    made (measured in Docker: `rm -rf x; mkdir x` got the same number). A removal cut short leaves a `.prune-*` (not a version name, so never offered, staged or switched to),
     removed by a run a day later. A folder on another file system than its parent (a mount point named like a
     version) is never removed, and a removal stops at one inside. A file system that cannot rename the folder
     (`EXDEV`) falls back to removing it under its own name.
-  - `admin.js prune-versions` refuses to run as root (the record would be root's and every folder "another
-    account's"). The Diagnostics line names the folder that could not be removed.
+  - `admin.js prune-versions` refuses a real run as root (the record would be root's). The Diagnostics line names the
+    folder that could not be removed.
   - Tests: `tests/unit/g-prune.test.ts` + 5 (a folder replaced before the second look, a folder brought in while the
     old one is removed, a switch and a pending update during the run, an engine's `current` moved during the run, the
     timer phase); the unremovable-file test now also checks that the leftover is no version and that a later run
     finishes it. `tests/linux/prune-versions.ts`: a tmpfs at `app/versions/0.8.0` (owned by the server account) stays,
     and no `.prune-*` is left.
+- **Second review (2026-11-01).**
+  - The unit test "a folder brought in again … before the second look" removed the old folder and made a new one; on
+    ext4 (CI's ubuntu) the new folder got the old inode number, and with the test's clock two days ahead its ctime looked
+    a day old, so it was removed. The test now moves the old folder aside (its inode stays taken); a second test makes
+    the fresh folder with the old inode possible and shows what keeps it (ctime of now, written into the future for the
+    test's clock). `g-prune.test.ts` passes 3/3 in Docker on an ext4 volume, as root and as uid 1000.
+  - An automatic update no longer depends on the 10-minute offset: `OpsService.lockAfterPrune` waits for a prune that
+    holds the lock (it keeps the prune's promise) and only then takes it; anything else holding it is logged ("another
+    operation runs", with the holder) and tried again in an hour. Admin's buttons (backup, restore, export, update now)
+    during a prune say "The server is removing old versions. Try again in a moment." (five languages) instead of the
+    generic "another operation".
+  - Mount points: a bind mount of the same file system has its parent's device, so the device check would have let the
+    removal empty the mounted folder before `rmdir` failed. On Linux every run reads `/proc/self/mountinfo` (at the
+    first look and again right before the rename) and leaves whole any folder at or above a mount point under `app/`
+    ("holds a mount point: never removed"); elsewhere the device check stays. Docker: a tmpfs at
+    `app/versions/0.7.0/web/data` leaves `0.7.0/server/main.js` in place (without mountinfo it was deleted).
+  - A staged folder used again without a fresh copy is touched first, so its ctime is now and the prune leaves it:
+    `UpdateManager.switchTo` (`lutimes`, before it verifies; Roll back and `admin.js switch <older>`) and `mycel-ctl
+    update` when `app/versions/<v>` is already there and verifies (`UtimesNanoAt` with `AT_SYMLINK_NOFOLLOW`; a root
+    file change, and 0.2.16 needs the root update anyway). `TestUpdateFromBundle` checks it on the reuse path (same
+    inode, mtime moved; it fails without the touch).
+  - After the rename the `.prune-*` folder must still be the one looked at: same dev, inode and mtime, ctime not
+    earlier. A rename keeps the mtime and moves the ctime forward (measured on overlayfs and ext4), so the ctime cannot
+    be compared for equality. Otherwise it is renamed back and left, or, when the old name is taken meanwhile, kept as
+    `.prune-*` with an error that says so.
+  - A folder owned by another account is reported in a dry run too (before, the dry run listed it as removed); the
+    owner compared is the parent folder's, so `admin.js prune-versions --dry-run` works as root and shows the same as
+    the server account would. A leftover `.prune-*` under a day old says "renamed for removal in the last 24 hours".

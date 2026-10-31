@@ -176,6 +176,12 @@ describe('through the app', () => {
     expect(r.status).toBe(409)
     expect(r.body.error.code).toBe('busy')
     ops.unlock()
+    // the old-version prune (seconds) is named, so the owner knows to try again in a moment
+    expect(ops.tryLock('prune')).toBe(true)
+    const p = await owner.try('POST', '/api/admin/backup', { scope: 'db' })
+    expect(p.status).toBe(409)
+    expect(p.body.error).toMatchObject({ code: 'busy', message: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.' })
+    ops.unlock()
     expect((await owner.try('POST', '/api/admin/backup', { scope: 'db' })).status).toBe(202)
   })
 })

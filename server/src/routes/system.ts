@@ -42,6 +42,7 @@ export const T = {
   noUpdate: { ko: '설치할 새 버전이 없어요.', en: 'There is no new version to install.', id: 'Tidak ada versi baru untuk dipasang.', ja: "インストールする新しいバージョンはありません。", es: "No hay ninguna versión nueva para instalar." },
   noPrevious: { ko: '되돌릴 이전 버전이 없어요.', en: 'There is no previous version to go back to.', id: 'Tidak ada versi sebelumnya.', ja: "戻せる以前のバージョンはありません。", es: "No hay una versión anterior a la que volver." },
   busy: { ko: '이미 진행 중인 작업이 있어요.', en: 'Another operation is already running.', id: 'Operasi lain sedang berjalan.', ja: "別の操作がすでに実行中です。", es: "Ya hay otra operación en curso." },
+  busyPrune: { ko: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'The server is removing old versions. Try again in a moment.', id: 'Server sedang menghapus versi lama. Coba lagi sebentar lagi.', ja: "サーバーが古いバージョンを削除しています。しばらくしてからもう一度お試しください。", es: "El servidor está borrando versiones antiguas. Vuelva a intentarlo en un momento." },
   waitingTurns: (n: number) => ({ ko: `진행 중인 답변 ${n}개가 끝나기를 기다리는 중`, en: `Waiting for ${enPlural(n, 'running answer', 'running answers')} to finish`, id: `Menunggu ${n} jawaban selesai`, ja: `${String(n) + "件の実行中の回答"}の完了を待機中`, es: `Esperando a que termine ${enPlural(n, "respuesta en curso", "respuestas en curso")}` }),
   restartNeeded: { ko: '복원할 데이터를 준비했어요. 서버를 다시 시작하면 적용돼요.', en: 'The restore is prepared and applies when the server restarts.', id: 'Pemulihan disiapkan dan berlaku saat server dimulai ulang.', ja: "復元の準備ができました。サーバーの再起動時に適用されます。", es: "La restauración está preparada y se aplicará al reiniciar el servidor." },
   restarting: { ko: '서버를 다시 시작해요.', en: 'Restarting the server.', id: 'Memulai ulang server.', ja: "サーバーを再起動中です。", es: "Reiniciando el servidor." },
@@ -76,7 +77,8 @@ export const systemRoutes: RouteModule = {
     /** one maintenance operation (backup / restore / update / export) at a time; the lock is the ops service's, which
      * the automatic update (Linux self-host) takes too */
     const exclusive = (name: string, locale: Locale, fn: () => string): string => {
-      if (!ops().tryLock(name)) fail('busy', tr(locale, T.busy))
+      // the old-version prune (system/prune.ts) holds the lock for seconds: say so, the button works again right after
+      if (!ops().tryLock(name)) fail('busy', tr(locale, ops().busyWith === 'prune' ? T.busyPrune : T.busy))
       try { return fn() } catch (e) { ops().unlock(); throw e }
     }
     const release = () => { ops().unlock() }

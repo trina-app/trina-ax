@@ -338,6 +338,34 @@ func TestUpdateFromBundle(t *testing.T) {
 	if code != 0 || r.RootUpdated || r.AppUpdated {
 		t.Fatalf("second run %d %+v", code, r)
 	}
+	// back on 0.1.0 (a roll-back) with 0.2.0 still staged: the update uses that folder again (no fresh copy) and touches
+	// it first, so the server's old-version prune, which leaves folders changed in the last 24 hours, cannot take it
+	dest := filepath.Join(tb.base, "app/versions/0.2.0")
+	must(t, os.Remove(filepath.Join(tb.base, "app/current")))
+	must(t, os.Symlink("versions/0.1.0", filepath.Join(tb.base, "app/current")))
+	tb.health.Store("0.1.0")
+	longAgo := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	must(t, os.Chtimes(dest, longAgo, longAgo))
+	before, err := os.Lstat(dest)
+	must(t, err)
+	var atSwitch fs.FileInfo
+	updateHooks(t, tb, func(v string) {
+		atSwitch, _ = os.Lstat(dest)
+		os.Remove(filepath.Join(tb.base, "app/current"))
+		os.Symlink("versions/"+v, filepath.Join(tb.base, "app/current"))
+		tb.health.Store(v)
+	})
+	code, out, errs = tb.ctl("", "update", "--bundle", arch, "--pubkey", k, "--json")
+	must(t, json.Unmarshal([]byte(out), &r))
+	if code != 0 || r.Result != "ok" || r.From != "0.1.0" || !r.AppUpdated {
+		t.Fatalf("third run %d %+v %s", code, r, errs)
+	}
+	if atSwitch == nil || !os.SameFile(before, atSwitch) {
+		t.Fatal("the staged folder was copied again instead of used")
+	}
+	if mt := atSwitch.ModTime(); time.Since(mt) > time.Minute {
+		t.Fatalf("the staged folder was not touched before the switch: mtime %v", mt)
+	}
 }
 
 func TestUpdateRefusals(t *testing.T) {

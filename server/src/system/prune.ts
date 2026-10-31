@@ -20,11 +20,16 @@
 //             app/current, state.json or app/versions are not what they should be
 //
 // How a folder goes: right before, app/current, state.json (and an engine's current) are read again and the folder must
-// still be the one looked at (same inode, still a day old, owned by this account); then it is renamed to .prune-<hex>
-// in the same folder (atomic) and only that name is removed, depth first, never crossing into another file system. So
-// an installer or `mycel-ctl update` that brings a new folder in under the old name meanwhile loses nothing to this
-// removal, and a removal cut short (the server stopped, a file that cannot go) leaves no half folder that still looks
-// like a version; a .prune-* a day old is removed by a later run.
+// still be a day old by its ctime: a folder another process has just brought in under the same name (a fresh copy, a
+// rename, `mycel-ctl update` / `admin.js switch` touching one they use again) has a ctime of now, and that is what keeps
+// it; the same dev and inode as at the first look is checked too, but proves little alone (ext4 hands a freed inode
+// number to the next folder made). It must also be owned by the account that owns its parent folder and hold no mount
+// point (/proc/self/mountinfo on Linux; elsewhere its device must be its parent's). Then it is renamed to .prune-<hex>
+// in the same folder (atomic), checked once more under that name (same dev, inode and mtime: a rename keeps the mtime
+// and moves the ctime; anything else is renamed back and left), and only that name is removed, depth first, stopping
+// at another file system. So an installer or `mycel-ctl update` that brings a new folder in under the old name
+// meanwhile loses nothing to this removal, and a removal cut short (the server stopped, a file that cannot go) leaves no
+// half folder that still looks like a version; a .prune-* a day old is removed by a later run.
 //
 // Version folders are never written after staging (the bootstrap refuses one whose files changed), so a removal is
 // the only thing that happens to them here. Office Macs keep app, app.previous and app.failed instead (office/update.ts).
@@ -75,7 +80,21 @@ export interface PruneOptions {
   /** tests: another process acting between the steps of one removal ('check': before the folder is looked at again,
    * 'renamed': after it was renamed to .prune-*, before its files go) */
   race?: (rel: string, step: 'check' | 'renamed') => void
+  /** tests: the text of /proc/self/mountinfo (null: none, as on macOS) */
+  mountinfo?: () => string | null
 }
+
+/** Mount points of a /proc/self/mountinfo text (field 5; the kernel writes space, tab, newline and backslash as \ooo). */
+export function parseMountinfo(text: string): string[] {
+  const out: string[] = []
+  for (const line of text.split('\n')) {
+    const f = line.split(' ')
+    if (f.length < 5 || !f[4]?.startsWith('/')) continue
+    out.push(f[4].replace(/\\([0-7]{3})/g, (_, o: string) => String.fromCharCode(parseInt(o, 8))))
+  }
+  return out
+}
+const readMountinfo = (): string | null => { try { return fs.readFileSync('/proc/self/mountinfo', 'utf8') } catch { return null } }
 
 const VERSION_RE = BundleManifest.shape.version
 /** a release or development version (0.2.15, 0.3.0-beta.1, 0.2.9-dev.1): a folder named "notes" or "backup" someone put
@@ -153,6 +172,18 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
   const facts = readFacts(app)
   if (typeof facts === 'string') { res.skipped = facts; return done() }
   const MOUNT = 'on another file system (a mount point): never removed'
+  const HOLDS_MOUNT = 'holds a mount point: never removed'
+  // mount points at or under a folder: a bind mount of the same file system has the same device, so the device alone
+  // would not stop the removal before it had emptied the mounted folder (Linux; null elsewhere: the device check only)
+  let realApp = app
+  try { realApp = fs.realpathSync(app) } catch {}
+  const mountsNow = () => { const t = (o.mountinfo ?? readMountinfo)(); return t === null ? null : parseMountinfo(t) }
+  const holdsMount = (rel: string, mounts: string[] | null) => {
+    if (!mounts) return false
+    const real = path.join(realApp, rel)
+    return mounts.some((m) => m === real || m.startsWith(real + '/'))
+  }
+  const mounts = mountsNow()
 
   // ---- versions ----
   const names = fs.readdirSync(versions).sort()
@@ -169,9 +200,11 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
   }
   const keep = keepSet(facts, names)
   /** what the first look found: the folder must still be this one (dev, inode) when it is removed */
-  interface Candidate { rel: string; kind: PruneItem['kind']; dev: number; ino: number; version?: string; engine?: string }
+  interface Candidate { rel: string; kind: PruneItem['kind']; dev: number; ino: number; owner: number; version?: string; engine?: string }
   const candidates: Candidate[] = []
-  const recentWhy = (kind: PruneItem['kind']) => kind === 'engine' ? 'changed in the last 24 hours (a turn may still use it)' : 'changed in the last 24 hours (an update may be using it)'
+  const recentWhy = (kind: PruneItem['kind']) => kind === 'engine' ? 'changed in the last 24 hours (a turn may still use it)'
+    : kind === 'trash' ? 'renamed for removal in the last 24 hours (a run may still be removing it)'
+    : 'changed in the last 24 hours (an update may be using it)'
   for (const name of names) {
     const rel = `versions/${name}`
     const st = lstat(path.join(versions, name))
@@ -182,12 +215,13 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
     if (!kind) { res.left.push({ path: rel, why: 'not a version folder' }); continue }
     if (kind === 'version' && keep.has(name)) continue
     if (st.dev !== vst.dev) { res.left.push({ path: rel, why: MOUNT }); continue }
+    if (holdsMount(rel, mounts)) { res.left.push({ path: rel, why: HOLDS_MOUNT }); continue }
     if (!old(st)) {
       if (kind === 'version') keep.set(name, ['recent'])
       else res.left.push({ path: rel, why: recentWhy(kind) })
       continue
     }
-    candidates.push({ rel, kind, dev: st.dev, ino: st.ino, ...(kind === 'version' ? { version: name } : {}) })
+    candidates.push({ rel, kind, dev: st.dev, ino: st.ino, owner: vst.uid, ...(kind === 'version' ? { version: name } : {}) })
   }
   for (const [v, why] of [...keep].filter(([v]) => isStaged(v)).sort(([a], [b]) => compareVersions(a, b))) {
     res.kept.push({ version: v, why, bytes: await treeBytes(path.join(versions, v)) })
@@ -219,19 +253,22 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
         const trash = TRASH.test(sub)
         if (!s.isDirectory() || !(SHA12.test(sub) || trash)) { res.left.push({ path: rel, why: s.isSymbolicLink() ? 'a link (never followed)' : 'not an engine folder' }); continue }
         if (s.dev !== st.dev) { res.left.push({ path: rel, why: MOUNT }); continue }
+        if (holdsMount(rel, mounts)) { res.left.push({ path: rel, why: HOLDS_MOUNT }); continue }
         if ((!trash && !old(ec.cur)) || !old(s)) { res.left.push({ path: rel, why: recentWhy('engine') }); continue }
-        candidates.push({ rel, kind: trash ? 'trash' : 'engine', dev: s.dev, ino: s.ino, engine: name })
+        candidates.push({ rel, kind: trash ? 'trash' : 'engine', dev: s.dev, ino: s.ino, owner: st.uid, engine: name })
       }
     }
   }
 
   // ---- remove: look again, take the folder out of its name, then remove that ----
-  const myUid = process.getuid?.()
   const counter = { n: 0 }
+  const REPLACED = 'replaced since the first look (another process brought a folder in under this name)'
   /** why `c` must stay after all (null: it goes) */
   const stillGoes = (c: Candidate, st: fs.Stats | null, f: Facts): string | null => {
-    if (!st || !st.isDirectory() || st.dev !== c.dev || st.ino !== c.ino) return 'replaced since the first look (another process brought a folder in under this name)'
+    if (!st || !st.isDirectory() || st.dev !== c.dev || st.ino !== c.ino) return REPLACED
+    // what keeps a fresh copy under the old name (ext4 may even give it the old inode number): its ctime is now
     if (!old(st)) return recentWhy(c.kind)
+    if (holdsMount(c.rel, mountsNow())) return HOLDS_MOUNT
     if (c.version !== undefined && keepSet(f, fs.readdirSync(versions)).has(c.version)) return 'needed again (app/current or state.json changed during the run)'
     if (c.kind === 'engine') {
       const ec = engineCurrent(c.engine!)
@@ -249,11 +286,13 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
     const st = lstat(abs)
     const why = stillGoes(c, st, f)
     if (why) { if (st) res.left.push({ path: c.rel, why }); continue }
-    if (o.dryRun) { res.removed.push({ path: c.rel, kind: c.kind, bytes: await treeBytes(abs) + st!.blocks * 512 }); continue }
-    if (myUid !== undefined && st!.uid !== myUid) {
-      res.errors.push({ path: c.rel, error: `owned by another account (uid ${st!.uid}): remove it as root` })
+    // a folder of another account than its parent's (root's copy from an installer that was stopped): the server account
+    // cannot remove it, and a dry run says so too
+    if (st!.uid !== c.owner) {
+      res.errors.push({ path: c.rel, error: `owned by another account (uid ${st!.uid}, not ${c.owner}): remove it as root` })
       continue
     }
+    if (o.dryRun) { res.removed.push({ path: c.rel, kind: c.kind, bytes: await treeBytes(abs) + st!.blocks * 512 }); continue }
     let gone = abs
     if (c.kind !== 'trash') {
       gone = path.join(path.dirname(abs), `.prune-${crypto.randomBytes(6).toString('hex')}`)
@@ -266,7 +305,18 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
           continue
         }
       }
-      if (gone !== abs) o.race?.(c.rel, 'renamed')
+      if (gone !== abs) {
+        o.race?.(c.rel, 'renamed')
+        // still the folder looked at, under its new name? A rename keeps dev, inode and mtime and moves the ctime forward
+        const t = lstat(gone)
+        if (!t || !t.isDirectory() || t.dev !== st!.dev || t.ino !== st!.ino || t.mtimeMs !== st!.mtimeMs || t.ctimeMs < st!.ctimeMs) {
+          let back = false
+          if (t && !lstat(abs)) { try { fs.renameSync(gone, abs); back = true } catch {} }
+          if (back) res.left.push({ path: c.rel, why: REPLACED })
+          else if (t) res.errors.push({ path: c.rel, error: `changed while it was being taken out; it is now ${path.relative(app, gone)}: look at it and rename it back` })
+          continue
+        }
+      }
     }
     const bytes = await treeBytes(gone) + st!.blocks * 512
     try { await removeTree(gone, c.dev, counter) } catch (e) {

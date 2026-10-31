@@ -679,7 +679,14 @@ func (u *updater) updateApp(dir, v string) error {
 	}
 	versions := filepath.Join(u.e.base, "app", "versions")
 	dest := filepath.Join(versions, v)
-	if _, err := os.Lstat(dest); err == nil {
+	if st, err := os.Lstat(dest); err == nil {
+		// used again without a fresh copy when it verifies: touched first (its ctime moves to now, the link itself if it
+		// is one), so the server's old-version prune (server/src/system/prune.ts leaves a folder changed in the last 24
+		// hours) does not remove it between this check and the switch
+		if st.IsDir() {
+			now := unix.NsecToTimespec(time.Now().UnixNano())
+			_ = unix.UtimesNanoAt(unix.AT_FDCWD, dest, []unix.Timespec{now, now}, unix.AT_SYMLINK_NOFOLLOW)
+		}
 		if _, verr := bundle.VerifyDir(dest, v, bundle.Options{Keys: u.keys, AllowUnsigned: u.in.AllowUnsigned}); verr != nil {
 			if err := os.RemoveAll(dest); err != nil {
 				return err

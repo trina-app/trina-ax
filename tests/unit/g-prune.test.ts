@@ -14,7 +14,7 @@ import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
-import { lastPrune, PRUNE_FIRST_MS, PRUNE_RECORD, pruneVersions, type PruneResult } from '../../server/src/system/prune'
+import { lastPrune, parseMountinfo, PRUNE_FIRST_MS, PRUNE_RECORD, pruneVersions, type PruneResult } from '../../server/src/system/prune'
 import { UpdateManager, verifyBundleDir } from '../../server/src/system/update'
 
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-prune-')))
@@ -202,7 +202,7 @@ describe('what is removed, and how', () => {
       expect(new UpdateManager({ appDir: app, dataDir: path.join(app, '..', 'data'), version: '7.2.0', channel: 'stable', feedUrl: null, log: silentLogger, allowUnsigned: true }).stagedVersions()).toEqual(['7.2.0'])
       // once the file can go, a run a day after the rename removes the rest
       flag('nouchg')
-      expect((await pruneVersions({ appDir: app, running: '7.2.0', now: () => new Date(), dataDir: null })).left).toContainEqual({ path: `versions/${rest[0]}`, why: 'changed in the last 24 hours (an update may be using it)' })
+      expect((await pruneVersions({ appDir: app, running: '7.2.0', now: () => new Date(), dataDir: null })).left).toContainEqual({ path: `versions/${rest[0]}`, why: 'renamed for removal in the last 24 hours (a run may still be removing it)' })
       const r2 = await pruneVersions({ appDir: app, running: '7.2.0', now: later, dataDir: null })
       expect(r2.removed.map((x) => `${x.kind} ${x.path}`)).toEqual([`trash versions/${rest[0]}`])
       expect(left(app)).toEqual(['7.2.0'])
@@ -211,18 +211,73 @@ describe('what is removed, and how', () => {
 })
 
 describe('another process at work during the run', () => {
+  const REPLACED = 'replaced since the first look (another process brought a folder in under this name)'
   test('a folder brought in again under the same name before the second look stays', async () => {
     const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
-    // `mycel-ctl update --version 9.0.0`: the old folder does not verify, so root removes it and copies a fresh one
+    // the installer or `mycel-ctl update --version 9.0.0`: the old folder moved away, a fresh one made under the name (the
+    // old one stays allocated, so the new folder cannot get its inode number; for that case see the next test)
     const r = await pruneVersions({ appDir: app, running: '9.2.0', now: later, dataDir: null, race: (rel, step) => {
       if (rel !== 'versions/9.0.0' || step !== 'check') return
-      fs.rmSync(path.join(app, 'versions', '9.0.0'), { recursive: true })
+      fs.renameSync(path.join(app, 'versions', '9.0.0'), path.join(app, 'old-9.0.0'))
       void version(app, '9.0.0')
     } })
     await Bun.sleep(50)
     expect(r.removed.map((x) => x.path)).toEqual(['versions/9.1.0'])
-    expect(r.left).toContainEqual({ path: 'versions/9.0.0', why: 'replaced since the first look (another process brought a folder in under this name)' })
+    expect(r.left).toContainEqual({ path: 'versions/9.0.0', why: REPLACED })
     await verifyBundleDir(path.join(app, 'versions', '9.0.0'), { keys: [], allowUnsigned: true })
+  })
+
+  test('what keeps a fresh copy is its ctime of now, even when it got the old inode number (ext4 reuses them)', async () => {
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
+    const r = await pruneVersions({ appDir: app, running: '9.2.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel !== 'versions/9.0.0' || step !== 'check') return
+      fs.rmSync(path.join(app, 'versions', '9.0.0'), { recursive: true })
+      void version(app, '9.0.0').then(() => {})
+      // this test's clock is two days ahead: what "changed just now" means to it
+      fresh(path.join(app, 'versions', '9.0.0'))
+    } })
+    await Bun.sleep(50)
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.1.0'])
+    const why = r.left.find((x) => x.path === 'versions/9.0.0')?.why
+    expect([REPLACED, 'changed in the last 24 hours (an update may be using it)']).toContain(why!)
+    await verifyBundleDir(path.join(app, 'versions', '9.0.0'), { keys: [], allowUnsigned: true })
+  })
+
+  test('a folder that changes between the second look and the rename is renamed back and left', async () => {
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
+    const r = await pruneVersions({ appDir: app, running: '9.2.0', now: later, dataDir: null, race: (rel, step) => {
+      if (rel !== 'versions/9.0.0' || step !== 'renamed') return
+      // someone wrote into it just before the rename (its mtime moved): not the folder that was looked at any more
+      const trash = fs.readdirSync(path.join(app, 'versions')).find((n) => n.startsWith('.prune-'))!
+      fs.writeFileSync(path.join(app, 'versions', trash, 'new-file'), 'x')
+      const t = new Date(Date.now() + 5 * DAY); fs.utimesSync(path.join(app, 'versions', trash), t, t)
+    } })
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.1.0'])
+    expect(r.left).toContainEqual({ path: 'versions/9.0.0', why: REPLACED })
+    expect(left(app)).toEqual(['9.0.0', '9.2.0'])
+    expect(fs.readFileSync(path.join(app, 'versions', '9.0.0', 'new-file'), 'utf8')).toBe('x')
+  })
+
+  test('a folder that holds a mount point (a bind mount has its parent\'s device) is never removed', async () => {
+    expect(parseMountinfo('22 1 8:1 / / rw - ext4 /dev/sda1 rw\n36 22 8:1 /srv/a\\040b /var/lib/x/app/versions/0.1.0/web/my\\040data rw - ext4 /dev/sda1 rw\nbroken\n'))
+      .toEqual(['/', '/var/lib/x/app/versions/0.1.0/web/my data'])
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0', '9.3.0'], current: '9.3.0' })
+    fs.mkdirSync(path.join(app, 'versions', '9.0.0', 'web', 'data'), { recursive: true }); fs.writeFileSync(path.join(app, 'versions', '9.0.0', 'web', 'data', 'team.db'), 'not ours')
+    const line = (p: string) => `40 22 8:1 /team ${p.replace(/ /g, '\\040')} rw - ext4 /dev/sda1 rw`
+    let looks = 0
+    const r = await pruneVersions({ appDir: app, running: '9.3.0', now: later, dataDir: null, mountinfo: () => {
+      // 9.0.0 holds one from the start; one appears in 9.1.0 between the first look and the second
+      const m = [line('/'), line(path.join(app, 'versions', '9.0.0', 'web', 'data'))]
+      if (++looks > 1) m.push(line(path.join(app, 'versions', '9.1.0')))
+      return m.join('\n')
+    } })
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.2.0'])
+    expect(r.left).toContainEqual({ path: 'versions/9.0.0', why: 'holds a mount point: never removed' })
+    expect(r.left).toContainEqual({ path: 'versions/9.1.0', why: 'holds a mount point: never removed' })
+    expect(fs.readFileSync(path.join(app, 'versions', '9.0.0', 'web', 'data', 'team.db'), 'utf8')).toBe('not ours')
+    expect(left(app)).toEqual(['9.0.0', '9.1.0', '9.3.0'])
+    // no mountinfo (macOS): the device check only
+    expect((await pruneVersions({ appDir: app, running: '9.3.0', now: later, dataDir: null, mountinfo: () => null })).removed.map((x) => x.path)).toEqual(['versions/9.0.0', 'versions/9.1.0'])
   })
 
   test('a folder brought in under the same name while the old one is being removed loses nothing', async () => {
@@ -277,6 +332,15 @@ describe('another process at work during the run', () => {
 })
 
 describe('after a prune', () => {
+  test('switching to a staged version touches its folder first, so a prune running meanwhile leaves it', async () => {
+    const app = await install({ versions: ['8.0.0', '8.1.0'], current: '8.1.0', previous: '8.0.0' })
+    const dir = path.join(app, 'versions', '8.0.0')
+    const longAgo = new Date('2020-01-01T00:00:00Z'); fs.utimesSync(dir, longAgo, longAgo)
+    const u = new UpdateManager({ appDir: app, dataDir: path.join(app, '..', 'data'), version: '8.1.0', channel: 'stable', feedUrl: null, log: silentLogger, allowUnsigned: true })
+    await u.rollBack()
+    expect(Date.now() - fs.lstatSync(dir).mtimeMs).toBeLessThan(60_000)
+  })
+
   test('roll back to previous still works: it is there, it verifies, and switching to it is the usual pending switch', async () => {
     const app = await install({ versions: ['8.0.0', '8.1.0', '8.2.0', '8.3.0'], current: '8.3.0', previous: '8.2.0' })
     await prune(app)
@@ -370,5 +434,20 @@ describe('the server runs it, and says what it keeps', () => {
     const rec = lastPrune(path.join(base, 'data'))!
     fs.writeFileSync(path.join(base, 'data', PRUNE_RECORD), JSON.stringify({ ...rec, errors: [{ path: 'versions/0.0.9', error: 'EACCES: permission denied' }] }))
     expect(await line()).toMatchObject({ status: 'warn', detail: expect.stringContaining('Old versions could not be removed: versions/0.0.9: EACCES: permission denied') })
+  })
+
+  test('an automatic update that finds a prune holding the lock waits for it instead of skipping the hour', async () => {
+    const o = ops()
+    const running = o.pruneOldVersions()
+    expect(o.busyWith).toBe('prune')
+    expect(o.tryLock('update')).toBe(false)
+    expect(await o.lockAfterPrune('update')).toBe(true)
+    expect(o.busyWith).toBe('update')
+    await running
+    o.unlock()
+    // another operation (a backup) is not waited for: busy
+    expect(o.tryLock('backup')).toBe(true)
+    expect(await o.lockAfterPrune('update')).toBe(false)
+    o.unlock()
   })
 })

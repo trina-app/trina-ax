@@ -220,9 +220,9 @@ export async function main(argv: string[]): Promise<number> {
     case 'prune-versions': {
       if (!layout.appDir) throw new Error('prune-versions is only for an installed server (no app/ folder here)')
       if (cfg.office) throw new Error('office mode keeps app, app.previous and app.failed only; there is nothing to prune')
-      // the folders are the server account's: as root this would leave its record root's and report every folder
-      if (process.getuid?.() === 0) throw new Error('run prune-versions as the server account (trina_admin in docs/BACKUP-RESTORE.md), not as root')
       const dryRun = args.includes('--dry-run')
+      // the folders are the server account's: a real run as root would leave its record root's (a dry run only reads)
+      if (!dryRun && process.getuid?.() === 0) throw new Error('run prune-versions as the server account (trina_admin in docs/BACKUP-RESTORE.md), not as root; --dry-run works as root')
       const r = await pruneVersions({ appDir: layout.appDir, running: SERVER_VERSION, dataDir: dryRun ? null : cfg.dataDir, dryRun })
       out(r)
       return r.errors.length ? 1 : 0
