@@ -16,7 +16,8 @@ import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
 import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
-import { UI_ORIGIN } from '../common/trust'
+import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
+import { openDialogChoice } from '../common/file-chooser'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
@@ -90,6 +91,8 @@ export class AppWindow {
   /** the "Allow all websites" dialog is open, or closed less than ALLOW_ALL_COOLDOWN_MS ago */
   private allowAllOpen = false
   private allowAllUntil = 0
+  /** the open dialog for the team page's file input is showing (one at a time) */
+  private choosingFiles = false
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -331,6 +334,8 @@ export class AppWindow {
     await app.webContents.loadURL('about:blank').catch(() => {})
     await guardAppView(app.webContents, () => this.allowedOrigins())
     if (this.app !== app) return
+    if (process.platform === 'darwin') await this.answerFileChoosers(app)
+    if (this.app !== app) return
     // office network first when it answers with the pinned certificate within 1 s
     const origin = await this.pickOrigin()
     if (this.app !== app) return
@@ -348,6 +353,46 @@ export class AppWindow {
 
   retry() {
     void this.reload()
+  }
+
+  /**
+   * Upload / Attach on macOS: Electron opens no file chooser for a page shown in a WebContentsView (the team page is
+   * one; electron/electron#42018). So the chooser is intercepted over the debugger guardAppView attached, the app's own
+   * open dialog asks (one at a time; several files, a folder or the accept filter as the input says,
+   * common/file-chooser.ts), and the picked files are set on the input. Only the top frame of the team page at the team
+   * address or its office address is answered, as for the bridge (common/trust.ts); an artifact or a preview frame
+   * gets nothing. The setting is kept by the browser process across this view's navigations (team or office address);
+   * a team switch makes a new view and sets it again. Not on Windows: the problem was seen on macOS only.
+   */
+  private async answerFileChoosers(app: WebContentsView) {
+    const dbg = app.webContents.debugger
+    if (!dbg.isAttached()) return
+    dbg.on('message', (_e, method, params: any, sessionId?: string) => {
+      // the page's own session only (frames attached through auto-attach have a sessionId)
+      if (method !== 'Page.fileChooserOpened' || sessionId || typeof params?.backendNodeId !== 'number') return
+      void this.chooseFiles(app, String(params.frameId), params.backendNodeId, params.mode === 'selectMultiple')
+    })
+    await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => {})
+  }
+
+  private async chooseFiles(app: WebContentsView, frameId: string, backendNodeId: number, multiple: boolean) {
+    if (this.choosingFiles || this.app !== app || this.win.isDestroyed()) return
+    const dbg = app.webContents.debugger
+    this.choosingFiles = true
+    try {
+      const { frameTree } = await dbg.sendCommand('Page.getFrameTree')
+      const top = frameTree.frame as { id: string; url: string }
+      if (top.id !== frameId || !isTrustedAppSender({ url: top.url, isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
+      const { node } = await dbg.sendCommand('DOM.describeNode', { backendNodeId })
+      const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes }))
+      // cancelled: the input keeps what it had
+      if (r.canceled || !r.filePaths.length || this.app !== app) return
+      await dbg.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: r.filePaths })
+    } catch (e) {
+      debug('file chooser', e instanceof Error ? e.message : String(e)) // the view closed or navigated meanwhile
+    } finally {
+      this.choosingFiles = false
+    }
   }
 
   private disposeTeam() {

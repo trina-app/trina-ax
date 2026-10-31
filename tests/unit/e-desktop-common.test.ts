@@ -1,6 +1,7 @@
 // Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
 // policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the bridge's store
-// flag, the Settings > Browser channels, quitting and the UI strings (desktop/src/common/*).
+// flag, the Settings > Browser channels, the team page's file chooser on macOS, quitting and the UI strings
+// (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,6 +13,7 @@ import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
 import { NO_KIT, parseKit } from '../../desktop/src/common/kit'
 import { RepeatPromptHint, REPEAT_HINT_WINDOW_MS, siteKey, SitePermissions } from '../../desktop/src/common/site-permissions'
 import { blockedUrl } from '../../desktop/src/common/browser-block'
+import { acceptFilter, openDialogChoice } from '../../desktop/src/common/file-chooser'
 import { browserOwnerChange } from '../../desktop/src/common/browser-owner'
 import { publicRequestVerdict, responseSourceVerdict } from '../../desktop/src/common/net-policy'
 import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
@@ -438,6 +440,39 @@ describe('in-app browser data belongs to one person (QA finding 4)', () => {
     const off = new SitePermissions({ always: ['a.com'], teamAllowsAll: false })
     off.resetForNewPerson()
     expect(off.teamAllowsAll).toBe(false)
+  })
+})
+
+describe("the team page's file chooser (macOS)", () => {
+  test('the open dialog asks for what the input says: several files, a folder, the accept filter', () => {
+    expect(openDialogChoice({ multiple: false })).toEqual({ properties: ['openFile'] })
+    expect(openDialogChoice({ multiple: true, attributes: ['type', 'file', 'multiple', ''] })).toEqual({ properties: ['openFile', 'multiSelections'] })
+    expect(openDialogChoice({ multiple: true, attributes: ['webkitdirectory', '', 'accept', '.png'] })).toEqual({ properties: ['openDirectory'] })
+    expect(openDialogChoice({ multiple: false, attributes: ['accept', '.trinaplugin'] })).toEqual({ properties: ['openFile'], filters: [{ name: 'trinaplugin', extensions: ['trinaplugin'] }] })
+    // the team icon's types, and image/* (the camera button)
+    expect(acceptFilter('image/png,image/jpeg,image/webp')).toEqual([{ name: 'png, jpg, jpeg, webp', extensions: ['png', 'jpg', 'jpeg', 'webp'] }])
+    expect(acceptFilter(' .PNG , image/png ')?.[0]!.extensions).toEqual(['png'])
+    expect(acceptFilter('image/*')?.[0]!.extensions).toContain('heic')
+    // anything not understood: no filter at all (never hide a file the page would take)
+    for (const a of ['', ',', 'audio/*', '.png,video/mp4', '.tar.gz', '*/*', 'image/png;q=1']) expect(acceptFilter(a)).toBeUndefined()
+  })
+
+  test("answered for the team page's top frame only, on macOS, over the debugger the guards attached", () => {
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const open = win.slice(win.indexOf('async openTeam('), win.indexOf('async reload()'))
+    expect(open.indexOf("if (process.platform === 'darwin') await this.answerFileChoosers(app)")).toBeGreaterThan(open.indexOf('await guardAppView(app.webContents'))
+    expect(open.indexOf('answerFileChoosers(app)')).toBeLessThan(open.indexOf('await this.loadOrigin(origin'))
+    const answer = win.slice(win.indexOf('private async answerFileChoosers('), win.indexOf('private disposeTeam()'))
+    // frames attached through auto-attach (they carry a sessionId) are not answered
+    expect(answer).toContain("if (method !== 'Page.fileChooserOpened' || sessionId")
+    expect(answer).toContain("'Page.setInterceptFileChooserDialog', { enabled: true }")
+    // the top frame at an allowed origin (as the bridge), one dialog at a time, nothing set when cancelled
+    expect(answer).toContain('top.id !== frameId || !isTrustedAppSender(')
+    expect(answer).toContain('this.allowedOrigins()')
+    expect(answer).toContain('if (this.choosingFiles')
+    expect(answer.indexOf('r.canceled')).toBeLessThan(answer.indexOf("'DOM.setFileInputFiles'"))
+    // the in-app browser pane does not get it
+    expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('setInterceptFileChooserDialog')
   })
 })
 
